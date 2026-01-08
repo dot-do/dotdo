@@ -17,6 +17,14 @@ export default defineWorkspace([
       environment: 'node',
     },
   },
+  // Iceberg tests for direct table navigation
+  {
+    test: {
+      name: 'iceberg',
+      include: ['db/iceberg/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
   // Workers tests for runtime integration
   {
     extends: './vitest.workers.config.ts',
