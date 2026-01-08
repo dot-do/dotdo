@@ -6,8 +6,8 @@ export default defineWorkspace([
     test: {
       name: 'node',
       include: [
-        'tests/setup.test.ts',
-        'tests/static-assets.test.ts',
+        'api/tests/setup.test.ts',
+        'api/tests/static-assets.test.ts',
       ],
       environment: 'node',
     },
@@ -18,9 +18,9 @@ export default defineWorkspace([
     test: {
       name: 'workers',
       include: [
-        'tests/infrastructure/**/*.test.ts',
-        'tests/routes/**/*.test.ts',
-        'tests/middleware/**/*.test.ts',
+        'api/tests/infrastructure/**/*.test.ts',
+        'api/tests/routes/**/*.test.ts',
+        'api/tests/middleware/**/*.test.ts',
       ],
     },
   },

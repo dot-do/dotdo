@@ -12,8 +12,16 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "jsxImportSource": "hono/jsx",
+    "paths": {
+      "dotdo": ["./objects/index.ts"],
+      "dotdo/*": ["./*"]
+    }
   },
-  "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "api/**/*",
+    "objects/**/*",
+    "types/**/*"
+  ],
+  "exclude": ["node_modules", "dist", "app"]
 }

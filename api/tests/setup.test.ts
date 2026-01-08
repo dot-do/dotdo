@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 
-const WORKER_ROOT = join(__dirname, '..')
+// Project root is two levels up from api/tests/
+const PROJECT_ROOT = join(__dirname, '../..')
 
 describe('Worker Package Setup', () => {
   describe('package.json', () => {
-    const packageJsonPath = join(WORKER_ROOT, 'package.json')
+    const packageJsonPath = join(PROJECT_ROOT, 'package.json')
 
     it('exists', () => {
       expect(existsSync(packageJsonPath)).toBe(true)
@@ -34,7 +35,7 @@ describe('Worker Package Setup', () => {
   })
 
   describe('wrangler.toml', () => {
-    const wranglerPath = join(WORKER_ROOT, 'wrangler.toml')
+    const wranglerPath = join(PROJECT_ROOT, 'wrangler.toml')
 
     it('exists', () => {
       expect(existsSync(wranglerPath)).toBe(true)
@@ -47,7 +48,7 @@ describe('Worker Package Setup', () => {
   })
 
   describe('vite.config.ts', () => {
-    const viteConfigPath = join(WORKER_ROOT, 'vite.config.ts')
+    const viteConfigPath = join(PROJECT_ROOT, 'vite.config.ts')
 
     it('exists', () => {
       expect(existsSync(viteConfigPath)).toBe(true)
@@ -60,7 +61,7 @@ describe('Worker Package Setup', () => {
   })
 
   describe('tsconfig.json', () => {
-    const tsconfigPath = join(WORKER_ROOT, 'tsconfig.json')
+    const tsconfigPath = join(PROJECT_ROOT, 'tsconfig.json')
 
     it('exists', () => {
       expect(existsSync(tsconfigPath)).toBe(true)
@@ -73,17 +74,17 @@ describe('Worker Package Setup', () => {
     })
   })
 
-  describe('src/ directory', () => {
-    const srcPath = join(WORKER_ROOT, 'src')
+  describe('api/ directory', () => {
+    const apiPath = join(PROJECT_ROOT, 'api')
 
     it('exists', () => {
-      expect(existsSync(srcPath)).toBe(true)
+      expect(existsSync(apiPath)).toBe(true)
     })
   })
 
   describe('Worker entry point', () => {
     it('can be imported and has a fetch handler', async () => {
-      const worker = await import('../src/index')
+      const worker = await import('../index')
       expect(worker.default).toBeDefined()
       expect(typeof worker.default.fetch).toBe('function')
     })

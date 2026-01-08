@@ -15,13 +15,13 @@ describe('Vitest Infrastructure', () => {
     it('should exist and export valid config', async () => {
       // This test verifies the config file exists by attempting to import it
       // It will fail if vitest.config.ts doesn't exist or has invalid syntax
-      const configModule = await import('../../vitest.config')
+      const configModule = await import('../../../vitest.config')
       expect(configModule).toBeDefined()
       expect(configModule.default).toBeDefined()
     })
 
     it('should have @cloudflare/vitest-pool-workers configured', async () => {
-      const configModule = await import('../../vitest.config')
+      const configModule = await import('../../../vitest.config')
       const config = configModule.default
 
       // Verify poolOptions.workers is configured

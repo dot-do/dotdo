@@ -18,8 +18,8 @@ import { parse } from 'smol-toml'
  * @see https://developers.cloudflare.com/workers/static-assets/
  */
 
-const WORKER_ROOT = join(__dirname, '..')
-const WRANGLER_PATH = join(WORKER_ROOT, 'wrangler.toml')
+const PROJECT_ROOT = join(__dirname, '../..')
+const WRANGLER_PATH = join(PROJECT_ROOT, 'wrangler.toml')
 
 interface WranglerConfig {
   assets?: {

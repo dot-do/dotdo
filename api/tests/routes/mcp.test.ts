@@ -19,7 +19,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
  */
 
 // Import the MCP route handler
-import { handleMcpRequest, McpSession, createMcpSession } from '../../src/routes/mcp'
+import { handleMcpRequest, McpSession, createMcpSession } from '../../routes/mcp'
 
 // Mock request helper
 function createRequest(method: string, path: string, options?: {

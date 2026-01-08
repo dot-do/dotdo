@@ -63,7 +63,13 @@ apiRoutes.get('/things', (c) => {
 
 // Create a new thing
 apiRoutes.post('/things', async (c) => {
-  let body: { name?: string; data?: Record<string, unknown> }
+  // Check Content-Type header
+  const contentType = c.req.header('content-type')
+  if (!contentType || !contentType.includes('application/json')) {
+    return c.json({ error: 'Content-Type must be application/json' }, 400)
+  }
+
+  let body: { name?: string; $type?: string; data?: Record<string, unknown> }
 
   try {
     const text = await c.req.text()
@@ -84,7 +90,7 @@ apiRoutes.post('/things', async (c) => {
   const thing: Thing = {
     id,
     $id: `thing:${id}`,
-    $type: 'thing',
+    $type: body.$type || 'thing',
     name: body.name,
     data: body.data,
     createdAt: now,

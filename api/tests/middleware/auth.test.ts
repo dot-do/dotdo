@@ -17,7 +17,7 @@ import { Hono } from 'hono'
  */
 
 // Import the actual middleware
-import { authMiddleware, requireAuth, requireRole, generateJWT } from '../../src/middleware/auth'
+import { authMiddleware, requireAuth, requireRole, generateJWT } from '../../middleware/auth'
 import * as jose from 'jose'
 
 // Mock jose for controlled testing

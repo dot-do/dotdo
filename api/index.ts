@@ -28,19 +28,6 @@ app.get('/', (c) => {
   return c.html('<!DOCTYPE html><html><head><title>do.md</title></head><body><h1>do.md</h1></body></html>')
 })
 
-// Health check endpoint - GET only
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  })
-})
-
-// Return 405 for other methods on health endpoint
-app.all('/api/health', (c) => {
-  return c.json({ error: 'Method not allowed', allowed: ['GET'] }, 405)
-})
-
 // Mount API routes
 app.route('/api', apiRoutes)
 

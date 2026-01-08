@@ -21,7 +21,7 @@ describe('Hono Worker', () => {
 
   beforeAll(async () => {
     // Import the worker module - this will fail until src/index.ts exists
-    workerModule = await import('../../src/index')
+    workerModule = await import('../../index')
     app = workerModule.app as typeof app
   })
 

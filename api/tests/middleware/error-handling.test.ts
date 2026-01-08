@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
  */
 
 // Import the actual app
-import { app } from '../../src/index'
+import { app } from '../../index'
 
 // ============================================================================
 // Test Types

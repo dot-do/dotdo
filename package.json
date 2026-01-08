@@ -1,12 +1,25 @@
 {
-  "name": "@dotdo/worker",
+  "name": "dotdo",
   "version": "0.0.1",
   "type": "module",
+  "main": "./objects/index.ts",
+  "exports": {
+    ".": "./objects/index.ts",
+    "./objects": "./objects/index.ts",
+    "./objects/*": "./objects/*.ts",
+    "./api": "./api/index.ts",
+    "./api/*": "./api/*.ts",
+    "./types": "./types/index.ts",
+    "./types/*": "./types/*.ts"
+  },
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev:app": "cd app && npm run dev",
+    "build": "cd app && npm run build",
+    "deploy": "npm run build && wrangler deploy",
     "test": "vitest",
     "test:ui": "vitest --ui",
+    "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
