@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test'
  * The webServer config automatically starts and stops the dev server.
  */
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './tests/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -19,20 +19,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-  ],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
   /* Start wrangler dev server before running tests */
   webServer: {

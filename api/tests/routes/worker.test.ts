@@ -4,15 +4,21 @@ import { describe, it, expect, beforeAll } from 'vitest'
  * RED Phase Tests for Hono Worker Routes
  *
  * These tests define the expected behavior of the main Hono worker.
- * They will FAIL until the implementation is created in src/index.ts
+ * They will FAIL until the implementation is complete.
  *
  * Tests verify:
  * - Worker responds to requests
- * - GET / returns 200 (static assets)
- * - GET /api/health returns 200 with JSON
- * - Unknown routes return 404
+ * - GET / returns 200 (static assets or HTML fallback)
+ * - GET /api returns 200 with API info (name, version, endpoints)
+ * - GET /api/health returns 200 with JSON { status: 'ok', timestamp: ... }
+ * - Unknown routes return 404 with proper JSON error
  * - Worker exports default with fetch handler
- * - Hono app is properly configured
+ * - Hono app is properly configured with CORS
+ *
+ * FAILING TESTS (RED state):
+ * - /api/health does not include timestamp field
+ * - /api root does not return API info
+ * - Request ID tracking not implemented
  */
 
 describe('Hono Worker', () => {
@@ -89,6 +95,43 @@ describe('Hono Worker', () => {
     })
   })
 
+  describe('GET /api (API info)', () => {
+    it('responds with 200 status', async () => {
+      // RED: This test should FAIL - /api root returns 404
+      const res = await app.request('/api')
+      expect(res.status).toBe(200)
+    })
+
+    it('returns JSON content type', async () => {
+      const res = await app.request('/api')
+      const contentType = res.headers.get('content-type')
+      expect(contentType).toContain('application/json')
+    })
+
+    it('returns API info with name field', async () => {
+      // RED: This test should FAIL - /api doesn't return name
+      const res = await app.request('/api')
+      const body = (await res.json()) as { name?: string }
+      expect(body).toHaveProperty('name')
+      expect(body.name).toBe('dotdo')
+    })
+
+    it('returns API info with version field', async () => {
+      // RED: This test should FAIL - /api doesn't return version
+      const res = await app.request('/api')
+      const body = (await res.json()) as { version?: string }
+      expect(body).toHaveProperty('version')
+    })
+
+    it('returns API info with endpoints array', async () => {
+      // RED: This test should FAIL - /api doesn't return endpoints
+      const res = await app.request('/api')
+      const body = (await res.json()) as { endpoints?: string[] }
+      expect(body).toHaveProperty('endpoints')
+      expect(Array.isArray(body.endpoints)).toBe(true)
+    })
+  })
+
   describe('Unknown routes', () => {
     it('returns 404 for unknown API routes', async () => {
       const res = await app.request('/api/nonexistent')
@@ -139,6 +182,52 @@ describe('Hono Worker', () => {
       const res = await app.request('/api/health')
       // At minimum, content-type should be set
       expect(res.headers.get('content-type')).toBeDefined()
+    })
+  })
+
+  describe('CORS headers', () => {
+    it('includes Access-Control-Allow-Origin header on API responses', async () => {
+      const res = await app.request('/api/health')
+      const header = res.headers.get('Access-Control-Allow-Origin')
+      expect(header).toBeDefined()
+    })
+
+    it('handles OPTIONS preflight requests', async () => {
+      const res = await app.request('/api/health', { method: 'OPTIONS' })
+      // CORS preflight should return 204 with appropriate headers
+      expect(res.status).toBe(204)
+    })
+
+    it('includes Access-Control-Allow-Methods header on OPTIONS', async () => {
+      const res = await app.request('/api/health', { method: 'OPTIONS' })
+      const header = res.headers.get('Access-Control-Allow-Methods')
+      expect(header).toBeDefined()
+    })
+
+    it('includes Access-Control-Allow-Headers header on OPTIONS', async () => {
+      const res = await app.request('/api/health', { method: 'OPTIONS' })
+      const header = res.headers.get('Access-Control-Allow-Headers')
+      expect(header).toBeDefined()
+    })
+  })
+
+  describe('Request ID tracking', () => {
+    it('echoes X-Request-ID header when provided', async () => {
+      // RED: This test should FAIL - request ID tracking not implemented
+      const requestId = 'test-request-' + Date.now()
+      const res = await app.request('/api/health', {
+        headers: { 'X-Request-ID': requestId },
+      })
+      const responseId = res.headers.get('X-Request-ID')
+      expect(responseId).toBe(requestId)
+    })
+
+    it('generates X-Request-ID header when not provided', async () => {
+      // RED: This test should FAIL - request ID generation not implemented
+      const res = await app.request('/api/health')
+      const responseId = res.headers.get('X-Request-ID')
+      expect(responseId).not.toBeNull()
+      expect(typeof responseId).toBe('string')
     })
   })
 })

@@ -452,6 +452,67 @@ export const customDomains = sqliteTable(
 )
 
 // ============================================================================
+// IDENTITIES: Multi-type identities extending better-auth users
+// ============================================================================
+//
+// Identities allow a single user to have multiple personas:
+//   - Human: Primary user identity with profile info
+//   - Agent: AI assistants and bots owned by humans/services
+//   - Service: API integrations and webhooks
+//
+// Each identity links to a better-auth user but provides additional
+// type-specific fields for the different identity types.
+// ============================================================================
+
+export const identities = sqliteTable(
+  'identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    // Type discriminator
+    type: text('type').notNull().default('human'), // 'human', 'agent', 'service'
+
+    // Handle (unique identifier like @username)
+    handle: text('handle').notNull().unique(),
+
+    // Profile fields
+    displayName: text('display_name'),
+    avatarUrl: text('avatar_url'),
+    bio: text('bio'),
+
+    // Status
+    status: text('status').notNull().default('active'), // 'active', 'suspended', 'deleted'
+
+    // Agent-specific fields
+    agentType: text('agent_type'), // 'assistant', 'bot', 'tool', etc.
+    ownerId: text('owner_id'), // Owner identity ID (self-referencing)
+    capabilities: text('capabilities', { mode: 'json' }), // JSON array of capabilities
+    modelId: text('model_id'), // AI model identifier
+
+    // Service-specific fields
+    serviceType: text('service_type'), // 'api', 'webhook', 'integration'
+    endpoint: text('endpoint'), // Service endpoint URL
+
+    // Metadata
+    metadata: text('metadata', { mode: 'json' }),
+
+    // Timestamps
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    index('identities_user_idx').on(table.userId),
+    uniqueIndex('identities_handle_idx').on(table.handle),
+    index('identities_type_idx').on(table.type),
+    index('identities_owner_idx').on(table.ownerId),
+    index('identities_status_idx').on(table.status),
+  ],
+)
+
+// ============================================================================
 // STRIPE: Subscriptions
 // ============================================================================
 

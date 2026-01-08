@@ -46,6 +46,8 @@ import {
   customDomains,
   // Stripe plugin
   subscriptions,
+  // Identities (multi-type: human, agent, service)
+  identities,
 } from './auth'
 
 export const schema = {
@@ -91,4 +93,7 @@ export const schema = {
 
   // Auth - Stripe plugin
   subscriptions,
+
+  // Auth - Identities (multi-type: human, agent, service)
+  identities,
 }

@@ -6,7 +6,7 @@ export default defineWorkersConfig({
     pool: '@cloudflare/vitest-pool-workers',
     poolOptions: {
       workers: {
-        wrangler: { configPath: './wrangler.toml' },
+        wrangler: { configPath: './wrangler.jsonc' },
         isolatedStorage: true,
         singleWorker: true,
       },
