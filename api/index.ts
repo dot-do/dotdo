@@ -5,6 +5,7 @@ import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
 import { rpcRoutes } from './routes/rpc'
 import { errorHandler, notFoundHandler } from './middleware/error-handling'
+import { requestIdMiddleware } from './middleware/request-id'
 
 // Types for Cloudflare Workers bindings
 export interface Env {
@@ -20,6 +21,7 @@ export const app = new Hono<{ Bindings: Env }>()
 
 // Global middleware
 app.use('*', errorHandler)
+app.use('*', requestIdMiddleware)
 app.use('*', logger())
 app.use('*', cors())
 

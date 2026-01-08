@@ -27,9 +27,18 @@ export interface Thing {
 
 export const apiRoutes = new Hono<{ Bindings: Env }>()
 
+// API info - root endpoint
+apiRoutes.get('/', (c) => {
+  return c.json({
+    name: 'dotdo',
+    version: '0.0.1',
+    endpoints: ['/api/health', '/api/things'],
+  })
+})
+
 // Health check - simple response (only GET allowed)
 apiRoutes.get('/health', (c) => {
-  return c.json({ status: 'ok' })
+  return c.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
 // Method not allowed for health endpoint

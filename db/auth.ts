@@ -454,63 +454,135 @@ export const customDomains = sqliteTable(
 // ============================================================================
 // IDENTITIES: Multi-type identities extending better-auth users
 // ============================================================================
-//
-// Identities allow a single user to have multiple personas:
-//   - Human: Primary user identity with profile info
-//   - Agent: AI assistants and bots owned by humans/services
-//   - Service: API integrations and webhooks
-//
-// Each identity links to a better-auth user but provides additional
-// type-specific fields for the different identity types.
-// ============================================================================
 
+/**
+ * Valid identity types in the system.
+ * - 'human': Primary user identity with profile info
+ * - 'agent': AI assistants and bots owned by humans/services
+ * - 'service': API integrations and webhooks
+ */
+export type IdentityType = 'human' | 'agent' | 'service'
+
+/**
+ * Valid identity status values.
+ * - 'active': Identity can perform actions
+ * - 'suspended': Temporarily disabled, cannot perform actions
+ * - 'deleted': Soft-deleted, preserved for audit but inactive
+ */
+export type IdentityStatus = 'active' | 'suspended' | 'deleted'
+
+/**
+ * Identities table - extends better-auth users with multiple personas.
+ *
+ * Each identity links to a better-auth user but provides additional
+ * type-specific fields for different identity types (human, agent, service).
+ *
+ * A single user can have multiple identities:
+ * - One primary human identity
+ * - Multiple agent identities they own
+ * - Service identities for integrations
+ *
+ * @example
+ * ```ts
+ * // Human identity
+ * { type: 'human', handle: 'alice', displayName: 'Alice Smith' }
+ *
+ * // Agent identity
+ * { type: 'agent', handle: 'codebot', agentType: 'assistant', ownerId: 'id-alice' }
+ *
+ * // Service identity
+ * { type: 'service', handle: 'github-webhook', serviceType: 'webhook' }
+ * ```
+ */
 export const identities = sqliteTable(
   'identities',
   {
+    /** Primary key - unique identifier for this identity */
     id: text('id').primaryKey(),
+
+    /** Foreign key to better-auth users table - required for all identities */
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
 
-    // Type discriminator
-    type: text('type').notNull().default('human'), // 'human', 'agent', 'service'
+    /** Type discriminator: 'human', 'agent', or 'service' */
+    type: text('type').notNull().default('human').$type<IdentityType>(),
 
-    // Handle (unique identifier like @username)
+    /** Unique handle (e.g., @alice, @codebot) - stored without @ prefix */
     handle: text('handle').notNull().unique(),
 
-    // Profile fields
+    /** Display name shown in UI */
     displayName: text('display_name'),
+
+    /** URL to avatar/profile image */
     avatarUrl: text('avatar_url'),
+
+    /** Short biography or description */
     bio: text('bio'),
 
-    // Status
-    status: text('status').notNull().default('active'), // 'active', 'suspended', 'deleted'
+    /** Identity status: 'active', 'suspended', or 'deleted' */
+    status: text('status').notNull().default('active').$type<IdentityStatus>(),
 
-    // Agent-specific fields
-    agentType: text('agent_type'), // 'assistant', 'bot', 'tool', etc.
-    ownerId: text('owner_id'), // Owner identity ID (self-referencing)
-    capabilities: text('capabilities', { mode: 'json' }), // JSON array of capabilities
-    modelId: text('model_id'), // AI model identifier
+    // ---- Agent-specific fields ----
 
-    // Service-specific fields
-    serviceType: text('service_type'), // 'api', 'webhook', 'integration'
-    endpoint: text('endpoint'), // Service endpoint URL
+    /** Agent type classification: 'assistant', 'bot', 'tool', etc. */
+    agentType: text('agent_type'),
 
-    // Metadata
-    metadata: text('metadata', { mode: 'json' }),
+    /** Owner identity ID (self-referencing) - required for agents */
+    ownerId: text('owner_id'),
 
-    // Timestamps
+    /** JSON array of agent capabilities (e.g., ['code-review', 'testing']) */
+    capabilities: text('capabilities', { mode: 'json' }).$type<string[]>(),
+
+    /** AI model identifier (e.g., 'claude-opus-4-5-20251101') */
+    modelId: text('model_id'),
+
+    // ---- Service-specific fields ----
+
+    /** Service type: 'api', 'webhook', 'integration' */
+    serviceType: text('service_type'),
+
+    /** Service endpoint URL */
+    endpoint: text('endpoint'),
+
+    // ---- Common fields ----
+
+    /** Additional metadata stored as JSON */
+    metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+
+    /** Timestamp when identity was created */
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+
+    /** Timestamp when identity was last updated */
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
   },
   (table) => [
+    /** Index for looking up identities by user */
     index('identities_user_idx').on(table.userId),
+    /** Unique index ensuring handles are globally unique */
     uniqueIndex('identities_handle_idx').on(table.handle),
+    /** Index for filtering by identity type */
     index('identities_type_idx').on(table.type),
+    /** Index for finding agents by owner */
     index('identities_owner_idx').on(table.ownerId),
+    /** Index for filtering by status */
     index('identities_status_idx').on(table.status),
+    /** Composite index for efficient agent queries by type and owner */
+    index('identities_type_owner_idx').on(table.type, table.ownerId),
   ],
 )
+
+/**
+ * TypeScript type for an identity record inferred from the schema.
+ * Use this type when working with identity data in application code.
+ */
+export type Identity = typeof identities.$inferSelect
+
+/**
+ * TypeScript type for inserting a new identity.
+ * Use this type when creating new identity records.
+ */
+export type NewIdentity = typeof identities.$inferInsert
 
 // ============================================================================
 // STRIPE: Subscriptions
