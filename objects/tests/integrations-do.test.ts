@@ -612,13 +612,11 @@ describe('IntegrationsDO', () => {
         await integrationsDO.registerProvider(mockGitHubProvider)
 
         const payload = JSON.stringify({ action: 'opened', issue: {} })
-        const secret = 'test-github-webhook-secret'
-        // SHA256 HMAC of payload with secret
-        const expectedSignature = 'sha256=computed_signature'
+        // SHA256 HMAC of payload with secret 'test-github-webhook-secret'
+        const expectedSignature = 'sha256=04e71dfa6fa4f6f0e8ccd680663e4dfdb9d718d9f007ea210a70d749fb9194ad'
 
         const isValid = await integrationsDO.verifyWebhookSignature('github', payload, expectedSignature)
 
-        // This should fail in RED phase since we haven't implemented it
         expect(isValid).toBe(true)
       })
 

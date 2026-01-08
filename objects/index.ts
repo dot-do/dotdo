@@ -79,3 +79,13 @@ export {
 export { API, type Route, type APIConfig, type RequestContext, type RateLimitState } from './API'
 export { SDK, type SDKConfig, type GeneratedFile } from './SDK'
 export { CLI, type CLICommand, type CLIArgument, type CLIOption, type CLIConfig, type CLIExecution } from './CLI'
+
+// Integrations
+export {
+  IntegrationsDO,
+  type Provider,
+  type ProviderAction,
+  type OAuthConfig,
+  type WebhookConfig,
+  type RateLimitConfig,
+} from './IntegrationsDO'

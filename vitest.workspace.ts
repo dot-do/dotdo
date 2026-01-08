@@ -31,6 +31,7 @@ export default defineWorkspace([
     test: {
       name: 'workers',
       include: ['api/tests/infrastructure/**/*.test.ts', 'api/tests/routes/**/*.test.ts', 'api/tests/middleware/**/*.test.ts'],
+      setupFiles: ['./api/tests/middleware/setup.ts'],
     },
   },
   // App tests for TanStack Start / Fumadocs build

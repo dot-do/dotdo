@@ -19,9 +19,8 @@ import * as crypto from 'node:crypto'
  * - Support provider configuration from integrations.do or env vars
  */
 
-// Import the middleware (will fail until implemented)
-// @ts-expect-error - Middleware not yet implemented
-import { webhooks, type WebhooksConfig, type WebhookHandler } from '../../middleware/webhooks'
+// Import the middleware
+import { webhooks, type WebhooksConfig, type WebhookHandler, setTestEnv, clearTestEnv } from '../../middleware/webhooks'
 
 // ============================================================================
 // Test Types
@@ -1240,9 +1239,9 @@ describe('Webhooks Middleware - Provider Configuration', () => {
 
   describe('Fallback to env vars for secrets', () => {
     it('uses GITHUB_WEBHOOK_SECRET env var when provider config not set', async () => {
-      // Simulate env var being set
-      const originalEnv = process.env.GITHUB_WEBHOOK_SECRET
-      process.env.GITHUB_WEBHOOK_SECRET = TEST_GITHUB_SECRET
+      // In vitest-pool-workers, process.env is isolated between test and middleware.
+      // Use setTestEnv to set env vars visible to the middleware.
+      setTestEnv('GITHUB_WEBHOOK_SECRET', TEST_GITHUB_SECRET)
 
       try {
         const app = createTestApp({
@@ -1265,17 +1264,14 @@ describe('Webhooks Middleware - Provider Configuration', () => {
 
         expect([200, 202]).toContain(res.status)
       } finally {
-        if (originalEnv === undefined) {
-          delete process.env.GITHUB_WEBHOOK_SECRET
-        } else {
-          process.env.GITHUB_WEBHOOK_SECRET = originalEnv
-        }
+        clearTestEnv('GITHUB_WEBHOOK_SECRET')
       }
     })
 
     it('uses STRIPE_WEBHOOK_SECRET env var when provider config not set', async () => {
-      const originalEnv = process.env.STRIPE_WEBHOOK_SECRET
-      process.env.STRIPE_WEBHOOK_SECRET = TEST_STRIPE_SECRET
+      // In vitest-pool-workers, process.env is isolated between test and middleware.
+      // Use setTestEnv to set env vars visible to the middleware.
+      setTestEnv('STRIPE_WEBHOOK_SECRET', TEST_STRIPE_SECRET)
 
       try {
         const app = createTestApp({
@@ -1296,17 +1292,14 @@ describe('Webhooks Middleware - Provider Configuration', () => {
 
         expect([200, 202]).toContain(res.status)
       } finally {
-        if (originalEnv === undefined) {
-          delete process.env.STRIPE_WEBHOOK_SECRET
-        } else {
-          process.env.STRIPE_WEBHOOK_SECRET = originalEnv
-        }
+        clearTestEnv('STRIPE_WEBHOOK_SECRET')
       }
     })
 
     it('prefers explicit config over env vars', async () => {
       const differentSecret = 'different-explicit-secret'
-      process.env.GITHUB_WEBHOOK_SECRET = TEST_GITHUB_SECRET
+      // Set env var that would be used as fallback
+      setTestEnv('GITHUB_WEBHOOK_SECRET', TEST_GITHUB_SECRET)
 
       try {
         const app = createTestApp({
@@ -1342,38 +1335,31 @@ describe('Webhooks Middleware - Provider Configuration', () => {
         // Env var secret should fail
         expect(resWithEnv.status).toBe(401)
       } finally {
-        delete process.env.GITHUB_WEBHOOK_SECRET
+        clearTestEnv('GITHUB_WEBHOOK_SECRET')
       }
     })
 
     it('returns 401 when no secret available (env or config)', async () => {
       // Ensure env var is not set
-      const originalEnv = process.env.GITHUB_WEBHOOK_SECRET
-      delete process.env.GITHUB_WEBHOOK_SECRET
+      clearTestEnv('GITHUB_WEBHOOK_SECRET')
 
-      try {
-        const app = createTestApp({
-          // No providers config, no env var
-          handlers: {},
-        })
+      const app = createTestApp({
+        // No providers config, no env var
+        handlers: {},
+      })
 
-        const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
-        const signature = generateGitHubSignature(payload, 'any-secret')
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, 'any-secret')
 
-        const res = await webhookRequest(app, 'github', {
-          body: GITHUB_PUSH_PAYLOAD,
-          headers: {
-            'X-Hub-Signature-256': signature,
-            'X-GitHub-Event': 'push',
-          },
-        })
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
 
-        expect(res.status).toBe(401)
-      } finally {
-        if (originalEnv) {
-          process.env.GITHUB_WEBHOOK_SECRET = originalEnv
-        }
-      }
+      expect(res.status).toBe(401)
     })
   })
 
