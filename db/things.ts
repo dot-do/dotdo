@@ -1,30 +1,64 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 
 // ============================================================================
-// THINGS - Entities (fully qualified URL identity)
+// THINGS - Version Log (append-only)
+// ============================================================================
+//
+// Things are versioned, not mutated. Each row is a version.
+// The rowid IS the version ID.
+//
+// Time travel: SELECT * FROM things WHERE rowid = ?
+// Current state: SELECT * FROM things WHERE id = ? ORDER BY rowid DESC LIMIT 1
+//
+// No createdAt/updatedAt/createdBy - all derived from the Action that created
+// this version.
 // ============================================================================
 
 export const things = sqliteTable('things', {
-  // Identity (fully qualified URLs for unambiguous identity)
-  $id: text('$id').primaryKey(),                   // URL: 'https://startups.studio/headless.ly'
-  $type: text('$type').notNull(),                  // URL: 'https://startups.studio/Startup' (Noun URL)
+  // rowid is implicit in SQLite and serves as version ID
 
-  // Parsed from $id (denormalized for queries)
-  ns: text('ns').notNull(),                        // Namespace/DO: 'https://startups.studio'
-  path: text('path').notNull(),                    // Path after ns: 'headless.ly'
+  // Identity
+  id: text('id').notNull(),                        // Local path: 'acme', 'headless.ly'
+  type: integer('type').notNull(),                 // FK → nouns.rowid
+
+  // Branch (null = main)
+  branch: text('branch'),                          // 'main', 'experiment', null = main
 
   // Core fields
   name: text('name'),
   data: text('data', { mode: 'json' }),
-  meta: text('meta', { mode: 'json' }),
 
-  // Timestamps
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
-  deletedAt: integer('deleted_at', { mode: 'timestamp' }),
-}, (table) => ({
-  typeIdx: index('things_type_idx').on(table.$type),
-  nsIdx: index('things_ns_idx').on(table.ns),
-  nsTypeIdx: index('things_ns_type_idx').on(table.ns, table.$type),
-  typePathIdx: index('things_type_path_idx').on(table.$type, table.path),
-}))
+  // Soft delete marker (version where thing was deleted)
+  deleted: integer('deleted', { mode: 'boolean' }).default(false),
+}, (table) => [
+  index('things_id_idx').on(table.id),
+  index('things_type_idx').on(table.type),
+  index('things_branch_idx').on(table.branch),
+  index('things_id_branch_idx').on(table.id, table.branch),
+])
+
+// ============================================================================
+// Helper: Get current version of a thing
+// ============================================================================
+//
+// SELECT * FROM things
+// WHERE id = ? AND (branch = ? OR branch IS NULL)
+// ORDER BY rowid DESC
+// LIMIT 1
+//
+// ============================================================================
+// Helper: Get thing at specific version
+// ============================================================================
+//
+// SELECT * FROM things WHERE rowid = ?
+//
+// ============================================================================
+// Helper: Get thing at timestamp (requires joining with actions)
+// ============================================================================
+//
+// SELECT t.* FROM things t
+// JOIN actions a ON a.output = t.rowid
+// WHERE t.id = ? AND a.created_at <= ?
+// ORDER BY t.rowid DESC
+// LIMIT 1
+//
