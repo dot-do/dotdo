@@ -18,8 +18,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
  * - Notification: { jsonrpc: "2.0", method: string, params?: object } (no id, no response)
  */
 
-// Import the MCP route handler (will fail until implemented)
-import { handleMcpRequest, McpSession, createMcpSession } from '../../routes/mcp'
+// Import the MCP route handler
+import { handleMcpRequest, McpSession, createMcpSession } from '../../src/routes/mcp'
 
 // Mock request helper
 function createRequest(method: string, path: string, options?: {

@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Hono } from 'hono'
 
 /**
  * REST API Route Tests
@@ -13,11 +12,8 @@ import { Hono } from 'hono'
  * - Implement Thing CRUD operations with proper status codes
  */
 
-// TODO: Import the actual app once routes are implemented
-// import { app } from '../../src/app'
-
-// Placeholder app - tests will fail because routes don't exist
-const app = new Hono()
+// Import the actual app
+import { app } from '../../src/index'
 
 // ============================================================================
 // Test Types

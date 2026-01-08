@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { parse } from 'smol-toml'
 
 /**
  * RED Phase Tests for Workers Static Assets Configuration
@@ -20,11 +21,7 @@ import { join } from 'path'
 const WORKER_ROOT = join(__dirname, '..')
 const WRANGLER_PATH = join(WORKER_ROOT, 'wrangler.toml')
 
-/**
- * Simple TOML parser for wrangler.toml
- * Handles the specific structure we need for assets configuration
- */
-function parseWranglerToml(): {
+interface WranglerConfig {
   assets?: {
     directory?: string
     binding?: string
@@ -33,51 +30,20 @@ function parseWranglerToml(): {
     run_worker_first?: string[]
   }
   raw: string
-} {
+}
+
+/**
+ * Parse wrangler.toml using smol-toml
+ */
+function parseWranglerToml(): WranglerConfig {
   if (!existsSync(WRANGLER_PATH)) {
     throw new Error(`wrangler.toml not found at ${WRANGLER_PATH}`)
   }
   const raw = readFileSync(WRANGLER_PATH, 'utf-8')
-
-  // Check if [assets] section exists
-  const hasAssetsSection = /^\[assets\]/m.test(raw)
-  if (!hasAssetsSection) {
-    return { raw }
-  }
-
-  // Extract the [assets] section content
-  const assetsSectionMatch = raw.match(/^\[assets\]\s*\n([\s\S]*?)(?=^\[|$)/m)
-  if (!assetsSectionMatch) {
-    return { raw }
-  }
-
-  const assetsContent = assetsSectionMatch[1]
-
-  // Parse individual values
-  const directoryMatch = assetsContent.match(/^directory\s*=\s*"([^"]+)"/m)
-  const bindingMatch = assetsContent.match(/^binding\s*=\s*"([^"]+)"/m)
-  const htmlHandlingMatch = assetsContent.match(/^html_handling\s*=\s*"([^"]+)"/m)
-  const notFoundHandlingMatch = assetsContent.match(/^not_found_handling\s*=\s*"([^"]+)"/m)
-
-  // Parse run_worker_first array
-  const runWorkerFirstMatch = assetsContent.match(/^run_worker_first\s*=\s*\[([\s\S]*?)\]/m)
-  let runWorkerFirst: string[] | undefined
-  if (runWorkerFirstMatch) {
-    const arrayContent = runWorkerFirstMatch[1]
-    runWorkerFirst = arrayContent
-      .split(',')
-      .map(item => item.trim().replace(/^["']|["']$/g, ''))
-      .filter(item => item.length > 0)
-  }
+  const config = parse(raw) as Record<string, unknown>
 
   return {
-    assets: {
-      directory: directoryMatch?.[1],
-      binding: bindingMatch?.[1],
-      html_handling: htmlHandlingMatch?.[1],
-      not_found_handling: notFoundHandlingMatch?.[1],
-      run_worker_first: runWorkerFirst,
-    },
+    assets: config.assets as WranglerConfig['assets'],
     raw,
   }
 }
