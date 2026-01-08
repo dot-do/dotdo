@@ -53,11 +53,30 @@ interface JWTPayload {
   exp?: number
 }
 
+// Variables available in Hono context after auth middleware
+type AppVariables = {
+  user?: AuthContext
+}
+
+// Response types for type assertions
+interface AuthResponse {
+  message?: string
+  user?: AuthContext
+  error?: string
+  authenticated?: boolean
+  // Direct auth context fields (some tests return these at top level)
+  userId?: string
+  email?: string
+  role?: 'admin' | 'user'
+  permissions?: string[]
+  hasAuth?: boolean
+}
+
 // ============================================================================
 // Test App with Auth Middleware
 // ============================================================================
 
-const app = new Hono()
+const app = new Hono<{ Variables: AppVariables }>()
 
 // Apply auth middleware globally
 app.use('*', authMiddleware({ jwtSecret: 'test-secret' }))
@@ -165,7 +184,7 @@ describe('Bearer Token Extraction', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -177,7 +196,7 @@ describe('Bearer Token Extraction', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -223,7 +242,7 @@ describe('API Key Validation', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -276,7 +295,7 @@ describe('API Key Validation', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.error).toContain('Invalid')
   })
 })
@@ -321,7 +340,7 @@ describe('JWT Token Verification', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.error).toContain('expired')
   })
 
@@ -336,7 +355,7 @@ describe('JWT Token Verification', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.error).toContain('Invalid')
   })
 
@@ -351,7 +370,7 @@ describe('JWT Token Verification', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -407,7 +426,7 @@ describe('Protected Routes Return 401 Without Auth', () => {
     const res = await request('GET', '/protected')
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
     expect(body.error).toBeTruthy()
   })
@@ -432,7 +451,7 @@ describe('Protected Routes Return 401 Without Auth', () => {
     expect(res.status).toBe(401)
     expect(res.headers.get('content-type')).toContain('application/json')
 
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -448,7 +467,7 @@ describe('Protected Routes Return 401 Without Auth', () => {
 
     // Public route should work without auth
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('public')
   })
 })
@@ -473,7 +492,7 @@ describe('Protected Routes Work With Valid Auth', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('protected')
   })
 
@@ -485,7 +504,7 @@ describe('Protected Routes Work With Valid Auth', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('protected')
   })
 
@@ -501,7 +520,7 @@ describe('Protected Routes Work With Valid Auth', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('created')
   })
 
@@ -516,7 +535,7 @@ describe('Protected Routes Work With Valid Auth', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('user profile')
   })
 })
@@ -541,7 +560,7 @@ describe('Role-Based Access Control (RBAC)', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.message).toBe('admin only')
   })
 
@@ -557,7 +576,7 @@ describe('Role-Based Access Control (RBAC)', () => {
 
     // Should return 403 Forbidden (authenticated but not authorized)
     expect(res.status).toBe(403)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -599,7 +618,7 @@ describe('Role-Based Access Control (RBAC)', () => {
     })
 
     expect(res.status).toBe(403)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.error).toContain('permission')
   })
 
@@ -677,7 +696,7 @@ describe('Auth Context Available in Request', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.userId).toBe('user-789')
   })
 
@@ -709,7 +728,7 @@ describe('Auth Context Available in Request', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.email).toBe('user@example.com')
   })
 
@@ -732,7 +751,7 @@ describe('Auth Context Available in Request', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.role).toBe('admin')
   })
 
@@ -763,7 +782,7 @@ describe('Auth Context Available in Request', () => {
     })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.permissions).toEqual(['read', 'write'])
   })
 
@@ -778,7 +797,7 @@ describe('Auth Context Available in Request', () => {
     const res = await testApp.request('/public', { method: 'GET' })
 
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
     expect(body.hasAuth).toBe(false)
   })
 
@@ -1037,7 +1056,7 @@ describe('Edge Cases and Error Handling', () => {
     })
 
     expect(res.status).toBe(401)
-    const body = await res.json()
+    const body = (await res.json()) as AuthResponse
 
     // Error message should be generic, not expose internal details
     expect(body.error).not.toContain('internal')

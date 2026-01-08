@@ -9,7 +9,7 @@ export * from './WorkflowContext'
 // Re-export key types for convenience
 export type { Thing, ThingData } from './Thing'
 
-export type { Things, ThingsCollection, ThingsOptions, CreateOptions, ForEachOptions, Query } from './Things'
+export type { Things, ThingsCollection, CreateOptions, ForEachOptions, Query } from './Things'
 
 export type { Noun, NounData, NounSchema, FieldDefinition, ParsedField } from './Noun'
 

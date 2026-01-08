@@ -83,7 +83,7 @@ export class Worker extends DO {
   /**
    * Execute a task
    */
-  async do(task: Task, context?: Context): Promise<TaskResult> {
+  async executeWork(task: Task, context?: Context): Promise<TaskResult> {
     const startTime = Date.now()
     const action = await this.createAction({
       type: 'task',

@@ -174,7 +174,7 @@ export const errorHandler: MiddlewareHandler = async (c, next) => {
       body.error.stack = err.stack
     }
 
-    return c.json(body, status)
+    return c.json(body, status as 400 | 401 | 403 | 404 | 405 | 422 | 500)
   }
 }
 

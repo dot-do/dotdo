@@ -46,8 +46,7 @@ export class Site extends DO {
    * Get parent App
    */
   async getApp(): Promise<string | null> {
-    const parent = await this.parent()
-    return parent?.doId || null
+    return this.parent || null
   }
 
   /**

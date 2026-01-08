@@ -130,7 +130,7 @@ describe('Vitest Infrastructure', () => {
 
       // The data from test 1 should NOT exist
       const response = await stub.fetch(`http://test/get?key=${STORAGE_KEY}`)
-      const data = await response.json()
+      const data = (await response.json()) as { value?: unknown }
 
       // This proves DO storage isolation works
       expect(data.value).toBeNull()

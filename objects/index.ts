@@ -23,7 +23,11 @@
  */
 
 // Base class
-export { DO, type Env, type Thing, type Relationship, type Action, type Event, type DOObject } from './DO'
+export { DO, type Env } from './DO'
+
+// Re-export core types from types module
+export type { Thing, ThingData } from '../types/Thing'
+export type { Relationship, Action, Event, ObjectRef, DOConfig } from '../types/DO'
 
 // Worker hierarchy
 export {

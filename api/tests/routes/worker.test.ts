@@ -72,19 +72,19 @@ describe('Hono Worker', () => {
 
     it('returns JSON body with status field', async () => {
       const res = await app.request('/api/health')
-      const body = await res.json()
+      const body = (await res.json()) as { status?: string; error?: string; timestamp?: string }
       expect(body).toHaveProperty('status')
     })
 
     it('returns status ok', async () => {
       const res = await app.request('/api/health')
-      const body = await res.json()
+      const body = (await res.json()) as { status?: string; error?: string; timestamp?: string }
       expect(body.status).toBe('ok')
     })
 
     it('includes timestamp in response', async () => {
       const res = await app.request('/api/health')
-      const body = await res.json()
+      const body = (await res.json()) as { status?: string; error?: string; timestamp?: string }
       expect(body).toHaveProperty('timestamp')
     })
   })
@@ -108,7 +108,7 @@ describe('Hono Worker', () => {
 
     it('404 response includes error message', async () => {
       const res = await app.request('/api/unknown-endpoint')
-      const body = await res.json()
+      const body = (await res.json()) as { status?: string; error?: string; timestamp?: string }
       expect(body).toHaveProperty('error')
     })
   })

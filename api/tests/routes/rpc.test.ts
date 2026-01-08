@@ -900,7 +900,7 @@ describe('Disposal and Cleanup', () => {
     })
 
     expect(response.status).toBe(200)
-    const body = await response.json()
+    const body = (await response.json()) as { type?: string }
     expect(body.type).not.toBe('error')
   })
 

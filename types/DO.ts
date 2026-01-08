@@ -254,7 +254,8 @@ export interface WorkflowContext {
   every: ScheduleBuilder
 
   // DO resolution: $.Startup('acme') → Thing or DO stub
-  [noun: string]: (id: string) => RpcPromise<Thing | DO>
+  // Index signature is compatible with all properties via unknown
+  [noun: string]: unknown
 }
 
 export interface EventSubscriptions {

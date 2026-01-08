@@ -402,8 +402,9 @@ export async function handleMcpRequest(request: Request, session?: McpSession): 
 
         // Validate required arguments
         const toolArgs = params.arguments || {}
-        if (tool.inputSchema?.required) {
-          const missingFields = tool.inputSchema.required.filter((field: string) => !(field in toolArgs))
+        const requiredFields = Array.isArray(tool.inputSchema?.required) ? tool.inputSchema.required : []
+        if (requiredFields.length > 0) {
+          const missingFields = requiredFields.filter((field: string) => !(field in toolArgs))
           if (missingFields.length > 0) {
             responses.push(jsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, `Missing required arguments: ${missingFields.join(', ')}`))
             continue

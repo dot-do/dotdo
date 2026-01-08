@@ -65,8 +65,7 @@ export class App extends DO {
    * Get parent Business
    */
   async getBusiness(): Promise<string | null> {
-    const parent = await this.parent()
-    return parent?.doId || null
+    return this.parent || null
   }
 
   async fetch(request: Request): Promise<Response> {

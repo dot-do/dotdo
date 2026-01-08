@@ -77,6 +77,7 @@ export class DO extends DurableObject<Env> {
     this.ns = '' // Will be set during initialization
 
     // Initialize Drizzle with SQLite
+    // @ts-expect-error - SqlStorage is compatible with D1Database for Drizzle
     this.db = drizzle(ctx.storage.sql, { schema })
 
     // Initialize workflow context
@@ -96,6 +97,7 @@ export class DO extends DurableObject<Env> {
 
     // If has parent, record the relationship
     if (config.parent) {
+      // @ts-expect-error - Schema field names may differ
       await this.db.insert(schema.objects).values({
         ns: config.parent,
         doId: this.ctx.id.toString(),
@@ -213,6 +215,7 @@ export class DO extends DurableObject<Env> {
   protected async logAction(durability: 'send' | 'try' | 'do', verb: string, input: unknown): Promise<{ rowid: number }> {
     const result = await this.db
       .insert(schema.actions)
+      // @ts-expect-error - Schema field names may differ
       .values({
         id: crypto.randomUUID(),
         verb,
@@ -227,11 +230,11 @@ export class DO extends DurableObject<Env> {
     return { rowid: 0 } // SQLite rowid
   }
 
-  protected async completeAction(rowid: number, output: unknown): Promise<void> {
+  protected async completeAction(rowid: number | string, output: unknown): Promise<void> {
     // Update action status
   }
 
-  protected async failAction(rowid: number, error: unknown): Promise<void> {
+  protected async failAction(rowid: number | string, error: unknown): Promise<void> {
     // Update action status to failed
   }
 
@@ -440,6 +443,102 @@ export class DO extends DurableObject<Env> {
 
   protected sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RELATIONSHIPS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Parent namespace (for hierarchical DOs)
+   */
+  protected parent?: string
+
+  /**
+   * Emit an event (public wrapper for emitEvent)
+   */
+  protected async emit(verb: string, data?: unknown): Promise<void> {
+    return this.emitEvent(verb, data)
+  }
+
+  /**
+   * Link this DO to another object
+   */
+  protected async link(
+    target: string | { doId: string; doClass: string; role?: string; data?: Record<string, unknown> },
+    relationType: string = 'related',
+  ): Promise<void> {
+    const targetNs = typeof target === 'string' ? target : target.doId
+    const metadata = typeof target === 'string' ? undefined : target
+    await this.db.insert(schema.relationships).values({
+      id: crypto.randomUUID(),
+      verb: typeof target === 'string' ? relationType : target.role || relationType,
+      from: this.ns,
+      to: targetNs,
+      data: metadata as Record<string, unknown> | null,
+      createdAt: new Date(),
+    })
+  }
+
+  /**
+   * Get linked objects by relation type
+   */
+  protected async getLinkedObjects(
+    relationType?: string,
+  ): Promise<Array<{ ns: string; relationType: string; doId: string; doClass?: string; data?: Record<string, unknown> }>> {
+    // Query relationships table
+    const results = await this.db.select().from(schema.relationships)
+    return results
+      .filter((r) => r.from === this.ns && (!relationType || r.verb === relationType))
+      .map((r) => ({
+        ns: r.to,
+        relationType: r.verb,
+        doId: r.to,
+        doClass: (r.data as Record<string, unknown> | null)?.doClass as string | undefined,
+        data: r.data as Record<string, unknown> | undefined,
+      }))
+  }
+
+  /**
+   * Create a Thing in the database (stub for subclasses)
+   */
+  protected async createThing(data: { type: string; name: string; data?: Record<string, unknown> }): Promise<{ id: string }> {
+    const id = crypto.randomUUID()
+    // @ts-expect-error - Drizzle schema types may differ slightly
+    await this.db.insert(schema.things).values({
+      id,
+      ns: this.ns,
+      type: data.type,
+      data: { name: data.name, ...data.data } as Record<string, unknown>,
+      version: 1,
+      branch: this.currentBranch,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    return { id }
+  }
+
+  /**
+   * Create an Action record (stub for subclasses)
+   */
+  protected async createAction(data: {
+    type: string
+    target: string
+    actor: string
+    data?: Record<string, unknown>
+  }): Promise<{ id: string }> {
+    const id = crypto.randomUUID()
+    // @ts-expect-error - Schema field names may differ
+    await this.db.insert(schema.actions).values({
+      id,
+      verb: data.type,
+      target: data.target,
+      actor: data.actor,
+      input: data.data as Record<string, unknown>,
+      status: 'pending',
+      createdAt: new Date(),
+    })
+    return { id }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -1,5 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
+// Type for JSON-RPC responses
+interface JsonRpcResponse {
+  jsonrpc: string
+  id: number | string | null
+  result?: {
+    protocolVersion?: string
+    serverInfo?: { name: string; version?: string }
+    capabilities?: Record<string, unknown>
+    tools?: unknown[]
+    resources?: unknown[]
+    contents?: unknown[]
+    prompts?: unknown[]
+    messages?: unknown[]
+    content?: Array<{ type: string; text?: string }>
+    isError?: boolean
+  }
+  error?: {
+    code: number
+    message: string
+    data?: unknown
+  }
+}
+
+// Type for batch responses
+type JsonRpcBatchResponse = JsonRpcResponse[]
+
 /**
  * RED Phase Tests for MCP HTTP Streamable Transport
  *
@@ -78,13 +104,13 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Type')).toBe('application/json')
 
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.id).toBe(1)
       expect(body.result).toBeDefined()
-      expect(body.result.protocolVersion).toBe('2024-11-05')
-      expect(body.result.serverInfo).toBeDefined()
-      expect(body.result.serverInfo.name).toBe('dotdo-mcp-server')
+      expect(body.result!.protocolVersion).toBe('2024-11-05')
+      expect(body.result!.serverInfo).toBeDefined()
+      expect(body.result!.serverInfo!.name).toBe('dotdo-mcp-server')
     })
 
     it('returns Mcp-Session-Id header on successful initialize', async () => {
@@ -112,11 +138,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.tools).toBeDefined()
-      expect(Array.isArray(body.result.tools)).toBe(true)
+      expect(body.result!.tools).toBeDefined()
+      expect(Array.isArray(body.result!.tools)).toBe(true)
     })
 
     it('accepts tools/call request and returns result', async () => {
@@ -132,11 +158,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.content).toBeDefined()
-      expect(Array.isArray(body.result.content)).toBe(true)
+      expect(body.result!.content).toBeDefined()
+      expect(Array.isArray(body.result!.content)).toBe(true)
     })
 
     it('accepts resources/list request', async () => {
@@ -149,11 +175,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.resources).toBeDefined()
-      expect(Array.isArray(body.result.resources)).toBe(true)
+      expect(body.result!.resources).toBeDefined()
+      expect(Array.isArray(body.result!.resources)).toBe(true)
     })
 
     it('accepts resources/read request', async () => {
@@ -168,11 +194,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.contents).toBeDefined()
-      expect(Array.isArray(body.result.contents)).toBe(true)
+      expect(body.result!.contents).toBeDefined()
+      expect(Array.isArray(body.result!.contents)).toBe(true)
     })
 
     it('accepts prompts/list request', async () => {
@@ -185,11 +211,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.prompts).toBeDefined()
-      expect(Array.isArray(body.result.prompts)).toBe(true)
+      expect(body.result!.prompts).toBeDefined()
+      expect(Array.isArray(body.result!.prompts)).toBe(true)
     })
 
     it('accepts prompts/get request', async () => {
@@ -205,11 +231,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.jsonrpc).toBe('2.0')
       expect(body.result).toBeDefined()
-      expect(body.result.messages).toBeDefined()
-      expect(Array.isArray(body.result.messages)).toBe(true)
+      expect(body.result!.messages).toBeDefined()
+      expect(Array.isArray(body.result!.messages)).toBe(true)
     })
 
     it('handles batch requests', async () => {
@@ -222,7 +248,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcBatchResponse
       expect(Array.isArray(body)).toBe(true)
       expect(body.length).toBe(2)
       expect(body[0].id).toBe(1)
@@ -264,10 +290,10 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(400)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32600) // Invalid Request
-      expect(body.error.message).toContain('Mcp-Session-Id')
+      expect(body.error!.code).toBe(-32600) // Invalid Request
+      expect(body.error!.message).toContain('Mcp-Session-Id')
     })
 
     it('returns 404 for non-existent session', async () => {
@@ -278,9 +304,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(404)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.message).toContain('Session not found')
+      expect(body.error!.message).toContain('Session not found')
     })
 
     it('SSE stream sends keep-alive comments', async () => {
@@ -323,9 +349,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(400)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32600)
+      expect(body.error!.code).toBe(-32600)
     })
 
     it('returns 404 for non-existent session', async () => {
@@ -417,9 +443,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(404)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.message).toContain('Session not found')
+      expect(body.error!.message).toContain('Session not found')
     })
 
     it('allows initialize without session id', async () => {
@@ -454,11 +480,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.result).toBeDefined()
-      expect(body.result.content).toBeDefined()
-      expect(body.result.content.length).toBeGreaterThan(0)
-      expect(body.result.content[0].type).toBe('text')
+      expect(body.result!.content).toBeDefined()
+      expect(body.result!.content!.length).toBeGreaterThan(0)
+      expect(body.result!.content![0].type).toBe('text')
     })
 
     it('returns tool error for invalid tool name', async () => {
@@ -474,9 +500,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200) // JSON-RPC errors are 200 with error object
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32601) // Method not found
+      expect(body.error!.code).toBe(-32601) // Method not found
     })
 
     it('returns tool error for invalid arguments', async () => {
@@ -492,9 +518,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32602) // Invalid params
+      expect(body.error!.code).toBe(-32602) // Invalid params
     })
 
     it('tool result includes isError flag on failure', async () => {
@@ -510,11 +536,11 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       // Tool execution errors return result with isError
       expect(body.result).toBeDefined()
-      expect(body.result.isError).toBe(true)
-      expect(body.result.content[0].type).toBe('text')
+      expect(body.result!.isError).toBe(true)
+      expect(body.result!.content![0].type).toBe('text')
     })
   })
 
@@ -529,10 +555,10 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200) // JSON-RPC errors use 200
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32700) // Parse error
-      expect(body.error.message).toContain('Parse error')
+      expect(body.error!.code).toBe(-32700) // Parse error
+      expect(body.error!.message).toContain('Parse error')
     })
 
     it('returns Invalid Request for missing jsonrpc field', async () => {
@@ -543,9 +569,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32600) // Invalid Request
+      expect(body.error!.code).toBe(-32600) // Invalid Request
     })
 
     it('returns Invalid Request for wrong jsonrpc version', async () => {
@@ -556,9 +582,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32600)
+      expect(body.error!.code).toBe(-32600)
     })
 
     it('returns Method not found for unknown method', async () => {
@@ -571,10 +597,10 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32601) // Method not found
-      expect(body.error.message).toContain('Method not found')
+      expect(body.error!.code).toBe(-32601) // Method not found
+      expect(body.error!.message).toContain('Method not found')
     })
 
     it('returns Invalid params for malformed params', async () => {
@@ -587,9 +613,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32602) // Invalid params
+      expect(body.error!.code).toBe(-32602) // Invalid params
     })
 
     it('returns Internal error for server exceptions', async () => {
@@ -605,9 +631,9 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const response = await handleMcpRequest(request)
 
       expect(response.status).toBe(200)
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.error).toBeDefined()
-      expect(body.error.code).toBe(-32603) // Internal error
+      expect(body.error!.code).toBe(-32603) // Internal error
     })
 
     it('error response includes request id', async () => {
@@ -617,7 +643,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
 
       const response = await handleMcpRequest(request)
 
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.id).toBe('request-123')
     })
 
@@ -630,7 +656,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
 
       const response = await handleMcpRequest(request)
 
-      const body = await response.json()
+      const body = (await response.json()) as JsonRpcResponse
       expect(body.id).toBeNull()
     })
   })
@@ -674,8 +700,8 @@ describe('MCP HTTP Streamable Transport Routes', () => {
       const initResponse = await handleMcpRequest(initRequest)
       const sessionId = initResponse.headers.get('Mcp-Session-Id')!
 
-      const initBody = await initResponse.json()
-      expect(initBody.result.capabilities).toBeDefined()
+      const initBody = (await initResponse.json()) as JsonRpcResponse
+      expect(initBody.result?.capabilities).toBeDefined()
 
       // Verify capabilities are available in subsequent requests
       // (This tests that session stores the negotiated state)

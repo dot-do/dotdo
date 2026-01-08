@@ -66,7 +66,13 @@ export class Business extends DO {
    */
   async listMembers(): Promise<{ doId: string; doClass: string; role: string }[]> {
     const objects = await this.getLinkedObjects()
-    return objects.filter((o) => o.doClass === 'Agent' || o.doClass === 'Human').map((o) => ({ doId: o.doId, doClass: o.doClass, role: o.role || 'member' }))
+    return objects
+      .filter((o) => o.doClass === 'Agent' || o.doClass === 'Human')
+      .map((o) => ({
+        doId: o.doId,
+        doClass: o.doClass || 'Worker',
+        role: (o.data as Record<string, unknown> | undefined)?.role as string || o.relationType || 'member',
+      }))
   }
 
   /**

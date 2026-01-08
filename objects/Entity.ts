@@ -5,7 +5,8 @@
  * Provides CRUD operations, validation, and lifecycle hooks.
  */
 
-import { DO, Env, Thing } from './DO'
+import { DO, Env } from './DO'
+import type { Thing } from '../types/Thing'
 
 export interface EntitySchema {
   name: string
