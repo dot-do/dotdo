@@ -2,16 +2,31 @@
   "name": "dotdo",
   "version": "0.0.1",
   "type": "module",
-  "main": "./objects/index.ts",
+  "main": "./index.ts",
   "exports": {
-    ".": "./objects/index.ts",
+    ".": "./index.ts",
     "./objects": "./objects/index.ts",
     "./objects/*": "./objects/*.ts",
+    "./types": "./types/index.ts",
+    "./types/*": "./types/*.ts",
+    "./snippets": "./snippets/index.ts",
+    "./snippets/*": "./snippets/*.ts",
+    "./streams": "./streams/index.ts",
+    "./streams/*": "./streams/*.sql",
     "./api": "./api/index.ts",
     "./api/*": "./api/*.ts",
-    "./types": "./types/index.ts",
-    "./types/*": "./types/*.ts"
+    "./docs": "./docs/index.mdx",
+    "./docs/*": "./docs/*"
   },
+  "files": [
+    "index.ts",
+    "objects",
+    "types",
+    "snippets",
+    "streams",
+    "api",
+    "docs"
+  ],
   "scripts": {
     "dev": "wrangler dev",
     "dev:app": "cd app && npm run dev",
