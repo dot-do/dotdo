@@ -14,6 +14,83 @@ The framework unifies:
 - **Event Streaming** - Cloudflare Pipelines integration for real-time data flows
 - **Distributed Systems** - Sharding, replication, geographic colocation
 
+## Key Design Decisions
+
+### URL-Based Identity
+
+All entities use fully qualified URLs for unambiguous identity:
+
+```typescript
+$id: 'https://startups.studio/headless.ly'    // Entity URL
+$type: 'https://startups.studio/Startup'      // Type URL (Noun)
+ns: 'https://startups.studio'                 // Namespace = DO identity
+```
+
+When `$id === ns`, the Thing IS a Durable Object.
+
+### Append-Only Version Model
+
+Things are versioned, not mutated. Time travel is free:
+
+```
+Things = version log (rowid IS the version ID)
+Actions = who did what, referencing before/after rowids
+Events = derived from actions, streamed to Pipelines
+```
+
+No `createdAt/updatedAt/createdBy` on Things - all derived from Actions.
+
+### Action Durability Spectrum
+
+```
+$.send(event, data)    → Fire-and-forget (non-blocking, non-durable)
+$.try(action, data)    → Quick attempt (blocking, non-durable)
+$.do(action, data)     → Durable execution (blocking, retries, guaranteed event)
+```
+
+### Version & Branch Addressing
+
+Git-like `@ref` syntax:
+
+```
+https://startups.studio/acme              → HEAD of main
+https://startups.studio/acme@main         → explicit main branch
+https://startups.studio/acme@experiment   → experiment branch
+https://startups.studio/acme@v1234        → specific version (rowid)
+https://startups.studio/acme@~1           → one version back
+```
+
+### Lifecycle Operations
+
+```typescript
+await do.fork({ to: 'https://new.ns' })   // New identity from current state
+await do.compact()                         // Squash history, same identity
+await do.moveTo('ORD')                     // Relocate to different colo
+await do.branch('experiment')              // Create branch
+await do.checkout('@v1234')                // Switch to version/branch
+await do.merge('experiment')               // Merge branch
+```
+
+### Local vs Global Schema
+
+| Layer | Identity | Optimization |
+|-------|----------|--------------|
+| In-DO SQLite | `type: rowid FK`, `id: 'acme'` | Integer FKs, efficient |
+| R2 SQL | `type: 'https://...Startup'`, `id: 'https://...acme'` | Full URLs, cross-DO queryable |
+
+### The $ Context
+
+Unified workflow interface:
+
+```typescript
+$.send('notify', data)                    // Fire-and-forget
+$.try('validate', data)                   // Quick attempt
+$.do('process', data)                     // Durable execution
+$.on.Customer.created(handler)            // Event subscription
+$.every.Monday.at9am(handler)             // Scheduling
+$.Startup('acme').prioritize()            // Cross-DO resolution
+```
+
 ## Architecture
 
 ```
