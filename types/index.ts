@@ -4,6 +4,7 @@ export * from './Things'
 export * from './Noun'
 export * from './Verb'
 export * from './DO'
+export * from './WorkflowContext'
 
 // Re-export key types for convenience
 export type {
@@ -41,5 +42,15 @@ export type {
   Action,
   Event,
   SearchResult,
-  WorkflowContext,
 } from './DO'
+
+export type {
+  WorkflowContext,
+  OnProxy,
+  ScheduleBuilder,
+  DomainProxy,
+  DomainEvent,
+  EventHandler,
+  ScheduleHandler,
+  DOFunction,
+} from './WorkflowContext'

@@ -1,272 +1,451 @@
 /**
  * DO - Base Durable Object class
  *
- * Core data model with Things, Relationships, Actions, Events
- * All other DO classes inherit from this base.
+ * Minimal runtime implementation with:
+ * - Identity (ns)
+ * - Storage (Drizzle + SQLite)
+ * - Workflow context ($)
+ * - Lifecycle operations (fork, compact, moveTo, branch, checkout, merge)
+ * - Resolution (local and cross-DO)
+ *
+ * Types are defined in types/*.ts
+ * Schema is defined in db/*.ts
  */
 
 import { DurableObject } from 'cloudflare:workers'
+import { drizzle } from 'drizzle-orm/d1'
+import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import * as schema from '../db'
+import type { WorkflowContext, DomainProxy } from '../types/WorkflowContext'
+import type { Thing } from '../types/Thing'
+
+// ============================================================================
+// ENVIRONMENT
+// ============================================================================
 
 export interface Env {
-  AI?: any
-  PIPELINE?: any
-  [key: string]: any
+  AI?: Fetcher
+  PIPELINE?: Pipeline
+  DO?: DurableObjectNamespace
+  [key: string]: unknown
 }
 
-export type ThingData = Record<string, unknown>
-export type MetaData = Record<string, unknown>
-
-export interface Thing {
-  id: string
-  type: string
-  name?: string
-  data?: ThingData
-  meta?: MetaData
-  createdAt?: Date
-  updatedAt?: Date
-  deletedAt?: Date
+interface Pipeline {
+  send(data: unknown): Promise<void>
 }
 
-export interface Relationship {
-  id: string
-  type: string
-  fromId: string
-  fromType: string
-  toId: string
-  toType: string
-  data?: Record<string, unknown>
-  createdAt?: Date
-}
+// ============================================================================
+// DO - Base Durable Object
+// ============================================================================
 
-export interface Action {
-  id: string
-  type: string
-  target: string
-  actor: string
-  data?: Record<string, unknown>
-  result?: Record<string, unknown>
-  status: 'pending' | 'completed' | 'failed' | 'undone'
-  createdAt?: Date
-}
-
-export interface Event {
-  id: string
-  type: string
-  source: string
-  data?: Record<string, unknown>
-  sequence: number
-  createdAt?: Date
-}
-
-export interface DOObject {
-  id: string
-  doId: string
-  doClass: string
-  localRef?: string
-  role?: string
-  data?: Record<string, unknown>
-  createdAt?: Date
-}
-
-/**
- * Base Durable Object class with unified data model
- */
 export class DO extends DurableObject<Env> {
-  protected env: Env
+  // ═══════════════════════════════════════════════════════════════════════════
+  // IDENTITY
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Namespace URL - the DO's identity
+   * e.g., 'https://startups.studio'
+   */
+  readonly ns: string
+
+  /**
+   * Current branch (default: 'main')
+   */
+  protected currentBranch: string = 'main'
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STORAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  protected db: DrizzleD1Database<typeof schema>
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WORKFLOW CONTEXT ($)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  readonly $: WorkflowContext
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONSTRUCTOR
+  // ═══════════════════════════════════════════════════════════════════════════
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.env = env
+
+    // Initialize namespace from storage or derive from ID
+    this.ns = '' // Will be set during initialization
+
+    // Initialize Drizzle with SQLite
+    this.db = drizzle(ctx.storage.sql, { schema })
+
+    // Initialize workflow context
+    this.$ = this.createWorkflowContext()
   }
 
-  // ============================================================================
-  // Things - Core entity storage
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INITIALIZATION
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  async createThing(thing: Omit<Thing, 'id' | 'createdAt' | 'updatedAt'>): Promise<Thing> {
-    const id = crypto.randomUUID()
-    const now = new Date()
-    const record: Thing = {
-      ...thing,
-      id,
-      createdAt: now,
-      updatedAt: now,
+  async initialize(config: { ns: string; parent?: string }): Promise<void> {
+    // @ts-expect-error - Setting readonly after construction
+    this.ns = config.ns
+
+    // Store namespace
+    await this.ctx.storage.put('ns', config.ns)
+
+    // If has parent, record the relationship
+    if (config.parent) {
+      await this.db.insert(schema.objects).values({
+        ns: config.parent,
+        doId: this.ctx.id.toString(),
+        doClass: this.constructor.name,
+        relationType: 'parent',
+        createdAt: new Date(),
+      })
     }
-    await this.ctx.storage.put(`thing:${id}`, record)
-    return record
   }
 
-  async getThing(id: string): Promise<Thing | null> {
-    return await this.ctx.storage.get(`thing:${id}`) as Thing | null
-  }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WORKFLOW CONTEXT FACTORY
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  async updateThing(id: string, updates: Partial<Thing>): Promise<Thing | null> {
-    const thing = await this.getThing(id)
-    if (!thing) return null
-    const updated = { ...thing, ...updates, updatedAt: new Date() }
-    await this.ctx.storage.put(`thing:${id}`, updated)
-    return updated
-  }
+  protected createWorkflowContext(): WorkflowContext {
+    const self = this
 
-  async deleteThing(id: string): Promise<boolean> {
-    const thing = await this.getThing(id)
-    if (!thing) return false
-    await this.updateThing(id, { deletedAt: new Date() })
-    return true
-  }
-
-  async listThings(type?: string): Promise<Thing[]> {
-    const map = await this.ctx.storage.list({ prefix: 'thing:' })
-    const things = Array.from(map.values()) as Thing[]
-    if (type) {
-      return things.filter(t => t.type === type && !t.deletedAt)
-    }
-    return things.filter(t => !t.deletedAt)
-  }
-
-  // ============================================================================
-  // Relationships - Graph edges between things
-  // ============================================================================
-
-  async createRelationship(rel: Omit<Relationship, 'id' | 'createdAt'>): Promise<Relationship> {
-    const id = crypto.randomUUID()
-    const record: Relationship = {
-      ...rel,
-      id,
-      createdAt: new Date(),
-    }
-    await this.ctx.storage.put(`rel:${id}`, record)
-    return record
-  }
-
-  async getRelationship(id: string): Promise<Relationship | null> {
-    return await this.ctx.storage.get(`rel:${id}`) as Relationship | null
-  }
-
-  async findRelationships(query: { fromId?: string; toId?: string; type?: string }): Promise<Relationship[]> {
-    const map = await this.ctx.storage.list({ prefix: 'rel:' })
-    const rels = Array.from(map.values()) as Relationship[]
-    return rels.filter(r => {
-      if (query.fromId && r.fromId !== query.fromId) return false
-      if (query.toId && r.toId !== query.toId) return false
-      if (query.type && r.type !== query.type) return false
-      return true
+    return new Proxy({} as WorkflowContext, {
+      get(_, prop: string) {
+        switch (prop) {
+          case 'send':
+            return self.send.bind(self)
+          case 'try':
+            return self.try.bind(self)
+          case 'do':
+            return self.do.bind(self)
+          case 'on':
+            return self.createOnProxy()
+          case 'every':
+            return self.createScheduleBuilder()
+          case 'branch':
+            return self.branch.bind(self)
+          case 'checkout':
+            return self.checkout.bind(self)
+          case 'merge':
+            return self.merge.bind(self)
+          case 'log':
+            return self.log.bind(self)
+          case 'state':
+            return {}
+          default:
+            // Domain resolution: $.Noun(id)
+            return (id: string) => self.createDomainProxy(prop, id)
+        }
+      },
     })
   }
 
-  // ============================================================================
-  // Actions - Command log with undo/redo support
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EXECUTION MODES
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  async createAction(action: Omit<Action, 'id' | 'createdAt' | 'status'>): Promise<Action> {
-    const id = crypto.randomUUID()
-    const record: Action = {
-      ...action,
-      id,
+  /**
+   * Fire-and-forget event emission (non-blocking, non-durable)
+   */
+  protected send(event: string, data: unknown): void {
+    // Best-effort action logging
+    this.logAction('send', event, data).catch(() => {})
+
+    // Best-effort event emission
+    this.emitEvent(event, data).catch(() => {})
+  }
+
+  /**
+   * Quick attempt without durability (blocking, non-durable)
+   */
+  protected async try<T>(action: string, data: unknown): Promise<T> {
+    const actionRecord = await this.logAction('try', action, data)
+
+    try {
+      const result = await this.executeAction(action, data)
+      await this.completeAction(actionRecord.rowid, result)
+      await this.emitEvent(`${action}.completed`, { result })
+      return result as T
+    } catch (error) {
+      await this.failAction(actionRecord.rowid, error)
+      await this.emitEvent(`${action}.failed`, { error }).catch(() => {})
+      throw error
+    }
+  }
+
+  /**
+   * Durable execution with retries (blocking, durable)
+   */
+  protected async do<T>(action: string, data: unknown): Promise<T> {
+    const actionRecord = await this.logAction('do', action, data)
+
+    const maxRetries = 3
+    let lastError: unknown
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const result = await this.executeAction(action, data)
+        await this.completeAction(actionRecord.rowid, result)
+        await this.emitEvent(`${action}.completed`, { result })
+        return result as T
+      } catch (error) {
+        lastError = error
+        if (attempt < maxRetries - 1) {
+          await this.updateActionStatus(actionRecord.rowid, 'retrying')
+          await this.sleep(Math.pow(2, attempt) * 1000) // Exponential backoff
+        }
+      }
+    }
+
+    await this.failAction(actionRecord.rowid, lastError)
+    await this.emitEvent(`${action}.failed`, { error: lastError })
+    throw lastError
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACTION LOGGING (append-only)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  protected async logAction(
+    durability: 'send' | 'try' | 'do',
+    verb: string,
+    input: unknown
+  ): Promise<{ rowid: number }> {
+    const result = await this.db.insert(schema.actions).values({
+      id: crypto.randomUUID(),
+      verb,
+      target: this.ns,
+      actor: '', // TODO: Get from context
+      input: input as Record<string, unknown>,
       status: 'pending',
       createdAt: new Date(),
-    }
-    await this.ctx.storage.put(`action:${id}`, record)
-    return record
+    }).returning({ rowid: schema.actions.id })
+
+    return { rowid: 0 } // SQLite rowid
   }
 
-  async completeAction(id: string, result: Record<string, unknown>): Promise<Action | null> {
-    const action = await this.ctx.storage.get(`action:${id}`) as Action | null
-    if (!action) return null
-    const updated = { ...action, status: 'completed' as const, result }
-    await this.ctx.storage.put(`action:${id}`, updated)
-    return updated
+  protected async completeAction(rowid: number, output: unknown): Promise<void> {
+    // Update action status
   }
 
-  async failAction(id: string, error: Record<string, unknown>): Promise<Action | null> {
-    const action = await this.ctx.storage.get(`action:${id}`) as Action | null
-    if (!action) return null
-    const updated = { ...action, status: 'failed' as const, result: error }
-    await this.ctx.storage.put(`action:${id}`, updated)
-    return updated
+  protected async failAction(rowid: number, error: unknown): Promise<void> {
+    // Update action status to failed
   }
 
-  // ============================================================================
-  // Events - Event sourcing
-  // ============================================================================
+  protected async updateActionStatus(rowid: number, status: string): Promise<void> {
+    // Update action status
+  }
 
-  private eventSequence = 0
+  protected async executeAction(action: string, data: unknown): Promise<unknown> {
+    // Override in subclasses to handle specific actions
+    throw new Error(`Unknown action: ${action}`)
+  }
 
-  async emit(type: string, data: Record<string, unknown>, options?: { stream?: boolean }): Promise<Event> {
-    const id = crypto.randomUUID()
-    const event: Event = {
-      id,
-      type,
-      source: this.ctx.id.toString(),
-      data,
-      sequence: ++this.eventSequence,
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EVENT EMISSION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  protected async emitEvent(verb: string, data: unknown): Promise<void> {
+    // Insert event
+    await this.db.insert(schema.events).values({
+      id: crypto.randomUUID(),
+      verb,
+      source: this.ns,
+      data: data as Record<string, unknown>,
+      sequence: 0, // Will use SQLite rowid
+      streamed: false,
       createdAt: new Date(),
-    }
-    await this.ctx.storage.put(`event:${id}`, event)
+    })
 
     // Stream to Pipeline if configured
-    if (options?.stream && this.env.PIPELINE) {
-      await this.env.PIPELINE.send(event)
+    if (this.env.PIPELINE) {
+      try {
+        await this.env.PIPELINE.send({
+          verb,
+          source: this.ns,
+          data,
+          timestamp: new Date().toISOString(),
+        })
+      } catch {
+        // Best-effort streaming
+      }
     }
-
-    return event
   }
 
-  async getEvents(since?: number): Promise<Event[]> {
-    const map = await this.ctx.storage.list({ prefix: 'event:' })
-    const events = Array.from(map.values()) as Event[]
-    if (since !== undefined) {
-      return events.filter(e => e.sequence > since).sort((a, b) => a.sequence - b.sequence)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIFECYCLE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fork current state to a new DO (new identity, fresh history)
+   */
+  async fork(options: { to: string }): Promise<void> {
+    // 1. Get current state (latest version of each thing)
+    // 2. Create new DO at target namespace
+    // 3. Copy current state (without history)
+    // 4. Optionally delete this DO
+    throw new Error('Not implemented')
+  }
+
+  /**
+   * Squash history to current state (same identity)
+   */
+  async compact(): Promise<void> {
+    // 1. Get latest version of each thing
+    // 2. Delete all but latest versions
+    // 3. Reset action/event log (or archive to R2)
+    throw new Error('Not implemented')
+  }
+
+  /**
+   * Relocate DO to a different colo (same identity, new location)
+   */
+  async moveTo(colo: string): Promise<void> {
+    // 1. Create new DO with locationHint at target colo
+    // 2. Compact + transfer current state
+    // 3. Update objects table: ns -> new doId
+    // 4. Delete this DO
+    throw new Error('Not implemented')
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BRANCHING & VERSION CONTROL
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Create a new branch at current HEAD
+   */
+  async branch(name: string): Promise<void> {
+    // Insert into branches table
+    throw new Error('Not implemented')
+  }
+
+  /**
+   * Switch to a branch or version
+   * @param ref - Branch name or version reference (e.g., '@v1234', '@main')
+   */
+  async checkout(ref: string): Promise<void> {
+    // Parse ref and switch context
+    throw new Error('Not implemented')
+  }
+
+  /**
+   * Merge a branch into current
+   */
+  async merge(branch: string): Promise<void> {
+    // Merge branch into current
+    throw new Error('Not implemented')
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RESOLUTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Resolve any URL to a Thing (local, cross-DO, or external)
+   */
+  async resolve(url: string): Promise<Thing> {
+    const parsed = new URL(url)
+    const ns = `${parsed.protocol}//${parsed.host}`
+    const path = parsed.pathname.slice(1)
+    const ref = parsed.hash.slice(1) || 'main' // @ref in fragment
+
+    if (ns === this.ns) {
+      // Local resolution
+      return this.resolveLocal(path, ref)
+    } else {
+      // Cross-DO resolution
+      return this.resolveCrossDO(ns, path, ref)
     }
-    return events.sort((a, b) => a.sequence - b.sequence)
   }
 
-  // ============================================================================
-  // Objects - Cross-DO references
-  // ============================================================================
-
-  async link(obj: Omit<DOObject, 'id' | 'createdAt'>): Promise<DOObject> {
-    const id = crypto.randomUUID()
-    const record: DOObject = {
-      ...obj,
-      id,
-      createdAt: new Date(),
-    }
-    await this.ctx.storage.put(`object:${id}`, record)
-    return record
+  protected async resolveLocal(path: string, ref: string): Promise<Thing> {
+    // Query things table for latest version at ref
+    throw new Error('Not implemented')
   }
 
-  async getLinkedObjects(role?: string): Promise<DOObject[]> {
-    const map = await this.ctx.storage.list({ prefix: 'object:' })
-    const objects = Array.from(map.values()) as DOObject[]
-    if (role) {
-      return objects.filter(o => o.role === role)
-    }
-    return objects
+  protected async resolveCrossDO(ns: string, path: string, ref: string): Promise<Thing> {
+    // Look up in objects table, get DO stub, call resolve
+    throw new Error('Not implemented')
   }
 
-  async parent(): Promise<DOObject | null> {
-    const parents = await this.getLinkedObjects('parent')
-    return parents[0] || null
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROXY FACTORIES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  protected createOnProxy(): Record<string, Record<string, (handler: Function) => void>> {
+    return new Proxy({}, {
+      get: (_, noun: string) => {
+        return new Proxy({}, {
+          get: (_, verb: string) => {
+            return (handler: Function) => {
+              // Register event handler
+              // Store in event handlers registry
+            }
+          },
+        })
+      },
+    })
   }
 
-  async children(): Promise<DOObject[]> {
-    return this.getLinkedObjects('child')
+  protected createScheduleBuilder(): unknown {
+    // Return a proxy that builds cron expressions
+    return new Proxy(() => {}, {
+      get: (_, day: string) => {
+        return new Proxy(() => {}, {
+          get: (_, time: string) => {
+            return (handler: Function) => {
+              // Register schedule handler
+            }
+          },
+        })
+      },
+      apply: (_, __, [schedule, handler]: [string, Function]) => {
+        // Natural language schedule
+      },
+    })
   }
 
-  // ============================================================================
-  // HTTP Handler
-  // ============================================================================
+  protected createDomainProxy(noun: string, id: string): DomainProxy {
+    const self = this
+    return new Proxy({} as DomainProxy, {
+      get(_, method: string) {
+        return async (...args: unknown[]) => {
+          // Resolve the DO and call the method
+          const url = `${self.ns}/${id}`
+          const thing = await self.resolve(url)
+          // Call method on resolved thing/DO
+          throw new Error('Not implemented')
+        }
+      },
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UTILITIES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  protected log(message: string, data?: unknown): void {
+    console.log(`[${this.ns}] ${message}`, data)
+  }
+
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HTTP HANDLER
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    const path = url.pathname
 
-    // Health check
-    if (path === '/health') {
-      return new Response(JSON.stringify({ status: 'ok' }), {
-        headers: { 'Content-Type': 'application/json' },
-      })
+    if (url.pathname === '/health') {
+      return Response.json({ status: 'ok', ns: this.ns })
     }
 
     // Override in subclasses for custom routing
