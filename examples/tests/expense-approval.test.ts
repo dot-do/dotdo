@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createWorkflowProxy, isPipelinePromise } from '../workflows/pipeline-promise'
+import { createWorkflowProxy, isPipelinePromise } from '../../workflows/pipeline-promise'
 
 describe('ExpenseApprovalWorkflow Example', () => {
   it('uses $.waitFor for human approval', () => {

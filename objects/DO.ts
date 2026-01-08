@@ -20,6 +20,31 @@ import type { WorkflowContext, DomainProxy } from '../types/WorkflowContext'
 import type { Thing } from '../types/Thing'
 
 // ============================================================================
+// COLLECTION & RELATIONSHIP TYPES
+// ============================================================================
+
+export interface ThingsCollection<T extends Thing = Thing> {
+  get(id: string): Promise<T | null>
+  list(): Promise<T[]>
+  find(query: Record<string, unknown>): Promise<T[]>
+  create(data: Partial<T>): Promise<T>
+}
+
+export interface RelationshipsAccessor {
+  create(data: { verb: string; from: string; to: string; data?: unknown }): Promise<{ id: string }>
+  list(query?: { from?: string; to?: string; verb?: string }): Promise<RelationshipRecord[]>
+}
+
+export interface RelationshipRecord {
+  id: string
+  verb: string
+  from: string
+  to: string
+  data: Record<string, unknown> | null
+  createdAt: Date
+}
+
+// ============================================================================
 // ENVIRONMENT
 // ============================================================================
 
@@ -38,7 +63,7 @@ interface Pipeline {
 // DO - Base Durable Object
 // ============================================================================
 
-export class DO extends DurableObject<Env> {
+export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
   // IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
@@ -61,6 +86,100 @@ export class DO extends DurableObject<Env> {
   protected db: DrizzleD1Database<typeof schema>
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // TYPED COLLECTION ACCESSORS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get a typed collection accessor for a noun
+   * Note: Uses simplified queries - in production would use proper noun FK resolution
+   */
+  protected collection<T extends Thing = Thing>(noun: string): ThingsCollection<T> {
+    const self = this
+    return {
+      get: async (id: string): Promise<T | null> => {
+        // Note: In full implementation, would resolve noun to type FK
+        const results = await self.db.select().from(schema.things)
+        const result = results.find((r) => r.id === id && !r.deleted)
+        if (!result) return null
+        const data = result.data as Record<string, unknown> | null
+        return { $id: result.id, $type: noun, ...data } as T
+      },
+      list: async (): Promise<T[]> => {
+        const results = await self.db.select().from(schema.things)
+        return results
+          .filter((r) => !r.deleted)
+          .map((r) => {
+            const data = r.data as Record<string, unknown> | null
+            return { $id: r.id, $type: noun, ...data } as T
+          })
+      },
+      find: async (query: Record<string, unknown>): Promise<T[]> => {
+        const results = await self.db.select().from(schema.things)
+        return results
+          .filter((r) => {
+            if (r.deleted) return false
+            const data = r.data as Record<string, unknown> | null
+            if (!data) return false
+            return Object.entries(query).every(([key, value]) => data[key] === value)
+          })
+          .map((r) => {
+            const data = r.data as Record<string, unknown> | null
+            return { $id: r.id, $type: noun, ...data } as T
+          })
+      },
+      create: async (data: Partial<T>): Promise<T> => {
+        const id = (data as Record<string, unknown>).$id as string || crypto.randomUUID()
+        await self.db.insert(schema.things).values({
+          id,
+          type: 0, // Would resolve noun to FK in full implementation
+          branch: self.currentBranch,
+          data: data as Record<string, unknown>,
+          deleted: false,
+        })
+        return { ...data, $id: id, $type: noun } as T
+      },
+    }
+  }
+
+  /**
+   * Relationships table accessor
+   */
+  protected get relationships(): RelationshipsAccessor {
+    return {
+      create: async (data: { verb: string; from: string; to: string; data?: unknown }): Promise<{ id: string }> => {
+        const id = crypto.randomUUID()
+        await this.db.insert(schema.relationships).values({
+          id,
+          verb: data.verb,
+          from: data.from,
+          to: data.to,
+          data: data.data as Record<string, unknown> | null,
+          createdAt: new Date(),
+        })
+        return { id }
+      },
+      list: async (query?: { from?: string; to?: string; verb?: string }): Promise<RelationshipRecord[]> => {
+        const results = await this.db.select().from(schema.relationships)
+        return results
+          .filter((r) => {
+            if (query?.from && r.from !== query.from) return false
+            if (query?.to && r.to !== query.to) return false
+            if (query?.verb && r.verb !== query.verb) return false
+            return true
+          })
+          .map((r) => ({
+            id: r.id,
+            verb: r.verb,
+            from: r.from,
+            to: r.to,
+            data: r.data as Record<string, unknown> | null,
+            createdAt: r.createdAt,
+          }))
+      },
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // WORKFLOW CONTEXT ($)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -70,7 +189,7 @@ export class DO extends DurableObject<Env> {
   // CONSTRUCTOR
   // ═══════════════════════════════════════════════════════════════════════════
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: E) {
     super(ctx, env)
 
     // Initialize namespace from storage or derive from ID

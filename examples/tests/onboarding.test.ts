@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createWorkflowProxy, collectExpressions, analyzeExpressions, isPipelinePromise } from '../workflows/pipeline-promise'
+import { createWorkflowProxy, collectExpressions, analyzeExpressions, isPipelinePromise } from '../../workflows/pipeline-promise'
 
 describe('OnboardingWorkflow Example', () => {
   it('captures all operations without execution', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createWorkflowProxy, isPipelinePromise, collectExpressions, analyzeExpressions } from '../workflows/pipeline-promise'
+import { createWorkflowProxy, isPipelinePromise, collectExpressions, analyzeExpressions } from '../../workflows/pipeline-promise'
 
 describe('SprintWorkflow Example', () => {
   it('uses AI for backlog prioritization', () => {

@@ -14,8 +14,13 @@
  *   - Has full DO capabilities (things, relationships, actions, events)
  */
 
-import { DO, type Env } from '../objects/DO'
+import { DO, type Env as BaseEnv } from '../objects/DO'
 import type { Thing } from '../types/Thing'
+
+// Extended Env with CRM-specific bindings
+interface Env extends BaseEnv {
+  TENANT?: DurableObjectNamespace
+}
 
 // ============================================================================
 // CRM TYPES
@@ -74,7 +79,7 @@ export interface Deal extends Thing {
 // CRM - App-Level DO (crm.headless.ly)
 // ============================================================================
 
-export class CRM extends DO {
+export class CRM extends DO<Env> {
   /**
    * Create a new tenant org
    *
@@ -168,7 +173,8 @@ export class CRM extends DO {
     })
 
     // Get stub with location hint
-    return this.env.TENANT.get(id, { locationHint }) as unknown as CRMTenant
+    if (!this.env.TENANT) throw new Error('TENANT binding not configured')
+    return this.env.TENANT.get(id, { locationHint: locationHint as DurableObjectLocationHint }) as unknown as CRMTenant
   }
 
   private async resolveTenantDO(ns: string): Promise<CRMTenant> {
@@ -179,8 +185,9 @@ export class CRM extends DO {
 
     if (!obj) throw new Error(`Tenant not found: ${ns}`)
 
-    const id = this.env.TENANT?.idFromString(obj.id)
-    if (!id) throw new Error('TENANT binding not configured')
+    if (!this.env.TENANT) throw new Error('TENANT binding not configured')
+    const id = this.env.TENANT.idFromString(obj.id)
+    if (!id) throw new Error('Invalid DO ID')
 
     return this.env.TENANT.get(id) as unknown as CRMTenant
   }
@@ -203,7 +210,7 @@ export class CRM extends DO {
 // CRM TENANT - Per-Org DO (crm.headless.ly/acme)
 // ============================================================================
 
-export class CRMTenant extends DO {
+export class CRMTenant extends DO<Env> {
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTACTS
   // ═══════════════════════════════════════════════════════════════════════════
