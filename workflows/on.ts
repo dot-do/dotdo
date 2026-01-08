@@ -44,9 +44,9 @@ export const on: OnProxy = new Proxy({} as OnProxy, {
         return (handler: Function) => {
           registerHandler(`${entity}.${event}`, handler)
         }
-      }
+      },
     })
-  }
+  },
 })
 
 // ============================================================================
@@ -54,18 +54,42 @@ export const on: OnProxy = new Proxy({} as OnProxy, {
 // ============================================================================
 
 const DAYS: Record<string, string> = {
-  Sunday: '0', Monday: '1', Tuesday: '2', Wednesday: '3',
-  Thursday: '4', Friday: '5', Saturday: '6',
-  day: '*', daily: '*'
+  Sunday: '0',
+  Monday: '1',
+  Tuesday: '2',
+  Wednesday: '3',
+  Thursday: '4',
+  Friday: '5',
+  Saturday: '6',
+  day: '*',
+  daily: '*',
 }
 
 const TIMES: Record<string, string> = {
-  at12am: '0 0', at1am: '0 1', at2am: '0 2', at3am: '0 3',
-  at4am: '0 4', at5am: '0 5', at6am: '0 6', at7am: '0 7',
-  at8am: '0 8', at9am: '0 9', at10am: '0 10', at11am: '0 11',
-  at12pm: '0 12', at1pm: '0 13', at2pm: '0 14', at3pm: '0 15',
-  at4pm: '0 16', at5pm: '0 17', at6pm: '0 18', at7pm: '0 19',
-  at8pm: '0 20', at9pm: '0 21', at10pm: '0 22', at11pm: '0 23'
+  at12am: '0 0',
+  at1am: '0 1',
+  at2am: '0 2',
+  at3am: '0 3',
+  at4am: '0 4',
+  at5am: '0 5',
+  at6am: '0 6',
+  at7am: '0 7',
+  at8am: '0 8',
+  at9am: '0 9',
+  at10am: '0 10',
+  at11am: '0 11',
+  at12pm: '0 12',
+  at1pm: '0 13',
+  at2pm: '0 14',
+  at3pm: '0 15',
+  at4pm: '0 16',
+  at5pm: '0 17',
+  at6pm: '0 18',
+  at7pm: '0 19',
+  at8pm: '0 20',
+  at9pm: '0 21',
+  at10pm: '0 22',
+  at11pm: '0 23',
 }
 
 function toCron(day: string, time?: string): string {
@@ -151,14 +175,14 @@ const everyHandler = {
         // every.day(handler) without time
         const cron = toCron(day)
         registerHandler(`schedule:${cron}`, handler)
-      }
+      },
     })
   },
   apply(_: any, __: any, [schedule, handler]: [string, Function]) {
     // every('Monday at 9am', handler)
     const cron = parseNaturalSchedule(schedule)
     registerHandler(`schedule:${cron}`, handler)
-  }
+  },
 }
 
 export const every: EveryFunction = new Proxy((() => {}) as EveryFunction, everyHandler)
@@ -184,45 +208,36 @@ export const send: SendProxy = new Proxy({} as SendProxy, {
             type: 'send',
             entity,
             event,
-            payload
+            payload,
           } as any // extend PipelineExpression type
           return createPipelinePromise(expr, {})
         }
-      }
+      },
     })
-  }
+  },
 })
 
 // ============================================================================
 // when(condition, { then, else }) - Declarative conditional
 // ============================================================================
 
-export function when(
-  condition: any,
-  branches: { then: () => any; else?: () => any }
-): any {
-  const conditionExpr = isPipelinePromise(condition)
-    ? condition.__expr
-    : { type: 'literal', value: condition }
+export function when(condition: any, branches: { then: () => any; else?: () => any }): any {
+  const conditionExpr = isPipelinePromise(condition) ? condition.__expr : { type: 'literal', value: condition }
 
   const thenResult = branches.then()
-  const thenExpr = isPipelinePromise(thenResult)
-    ? thenResult.__expr
-    : { type: 'literal', value: thenResult }
+  const thenExpr = isPipelinePromise(thenResult) ? thenResult.__expr : { type: 'literal', value: thenResult }
 
   let elseExpr = null
   if (branches.else) {
     const elseResult = branches.else()
-    elseExpr = isPipelinePromise(elseResult)
-      ? elseResult.__expr
-      : { type: 'literal', value: elseResult }
+    elseExpr = isPipelinePromise(elseResult) ? elseResult.__expr : { type: 'literal', value: elseResult }
   }
 
   const expr: PipelineExpression = {
     type: 'conditional',
     condition: conditionExpr,
     thenBranch: thenExpr,
-    elseBranch: elseExpr
+    elseBranch: elseExpr,
   } as any
 
   return createPipelinePromise(expr, {})
@@ -232,14 +247,11 @@ export function when(
 // waitFor(eventName, options) - Human-in-the-loop
 // ============================================================================
 
-export function waitFor(
-  eventName: string,
-  options: { timeout?: string; type?: string } = {}
-): any {
+export function waitFor(eventName: string, options: { timeout?: string; type?: string } = {}): any {
   const expr: PipelineExpression = {
     type: 'waitFor',
     eventName,
-    options
+    options,
   } as any
 
   return createPipelinePromise(expr, {})
@@ -268,31 +280,31 @@ type DomainCallable = {
  * // Use directly - returns PipelinePromise
  * const result = CRM(customer).createAccount()
  */
-export function Domain(
-  name: string,
-  handlers: Record<string, Function>
-): DomainCallable {
+export function Domain(name: string, handlers: Record<string, Function>): DomainCallable {
   // Register with base domain system
   const domainObj = BaseDomain(name, handlers)
   baseRegisterDomain(domainObj)
 
   // Create callable that returns a proxy for method access
   const callable = ((context: unknown) => {
-    return new Proxy({}, {
-      get(_, method: string) {
-        // Return function that creates PipelinePromise
-        return (...args: unknown[]) => {
-          const expr: PipelineExpression = {
-            type: 'call',
-            domain: name,
-            method: [method],
-            context,
-            args
+    return new Proxy(
+      {},
+      {
+        get(_, method: string) {
+          // Return function that creates PipelinePromise
+          return (...args: unknown[]) => {
+            const expr: PipelineExpression = {
+              type: 'call',
+              domain: name,
+              method: [method],
+              context,
+              args,
+            }
+            return createPipelinePromise(expr, {})
           }
-          return createPipelinePromise(expr, {})
-        }
-      }
-    })
+        },
+      },
+    )
   }) as DomainCallable
 
   callable.__domainName = name

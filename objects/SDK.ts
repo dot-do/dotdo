@@ -33,7 +33,7 @@ export class SDK extends Package {
    */
   async getSDKConfig(): Promise<SDKConfig | null> {
     if (!this.sdkConfig) {
-      this.sdkConfig = await this.ctx.storage.get('sdk_config') as SDKConfig | null
+      this.sdkConfig = (await this.ctx.storage.get('sdk_config')) as SDKConfig | null
     }
     return this.sdkConfig
   }
@@ -71,12 +71,16 @@ export class SDK extends Package {
         })
         files.push({
           path: 'package.json',
-          content: JSON.stringify({
-            name: config.name,
-            version: '0.0.1',
-            main: 'dist/index.js',
-            types: 'dist/index.d.ts',
-          }, null, 2),
+          content: JSON.stringify(
+            {
+              name: config.name,
+              version: '0.0.1',
+              main: 'dist/index.js',
+              types: 'dist/index.d.ts',
+            },
+            null,
+            2,
+          ),
           language: 'json',
         })
         break
@@ -122,7 +126,7 @@ export class SDK extends Package {
     const files = await this.generate()
 
     // Combine files into a single source bundle
-    const source = files.map(f => `// ${f.path}\n${f.content}`).join('\n\n')
+    const source = files.map((f) => `// ${f.path}\n${f.content}`).join('\n\n')
     const hash = await this.hashContent(source)
 
     return this.publish({
@@ -142,7 +146,7 @@ export class SDK extends Package {
     const data = encoder.encode(content)
     const hashBuffer = await crypto.subtle.digest('SHA-256', data)
     const hashArray = Array.from(new Uint8Array(hashBuffer))
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -156,7 +160,7 @@ export class SDK extends Package {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as SDKConfig
+        const config = (await request.json()) as SDKConfig
         await this.configureSDK(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -172,7 +176,7 @@ export class SDK extends Package {
     }
 
     if (url.pathname === '/sdk/publish' && request.method === 'POST') {
-      const { version, publishedBy } = await request.json() as { version: string; publishedBy: string }
+      const { version, publishedBy } = (await request.json()) as { version: string; publishedBy: string }
       const published = await this.buildAndPublish(version, publishedBy)
       return new Response(JSON.stringify(published), {
         status: 201,

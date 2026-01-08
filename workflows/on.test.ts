@@ -71,7 +71,7 @@ describe('on.Entity.event', () => {
 describe('Domain calls without $', () => {
   it('Domain(ctx).method() returns PipelinePromise', () => {
     const CRM = Domain('CRM', {
-      createAccount: (customer: any) => ({ accountId: '123' })
+      createAccount: (customer: any) => ({ accountId: '123' }),
     })
 
     const customer = { id: 'cust-1' }
@@ -85,7 +85,7 @@ describe('Domain calls without $', () => {
 
   it('property access on domain result works', () => {
     const CRM = Domain('CRM', {
-      createAccount: (customer: any) => ({ accountId: '123' })
+      createAccount: (customer: any) => ({ accountId: '123' }),
     })
 
     const customer = { id: 'cust-1' }
@@ -97,10 +97,10 @@ describe('Domain calls without $', () => {
 
   it('domain results can be passed to other domains', () => {
     const CRM = Domain('CRM', {
-      createAccount: (customer: any) => ({ id: '123' })
+      createAccount: (customer: any) => ({ id: '123' }),
     })
     const Email = Domain('Email', {
-      sendWelcome: (customer: any, data: any) => ({ sent: true })
+      sendWelcome: (customer: any, data: any) => ({ sent: true }),
     })
 
     const customer = { id: 'cust-1' }
@@ -194,13 +194,13 @@ describe('send fire-and-forget', () => {
 describe('when conditional', () => {
   it('when returns PipelinePromise', () => {
     const CRM = Domain('CRM', {
-      check: () => ({ valid: true })
+      check: () => ({ valid: true }),
     })
 
     const result = CRM({}).check()
     const conditional = when(result.valid, {
       then: () => ({ status: 'approved' }),
-      else: () => ({ status: 'rejected' })
+      else: () => ({ status: 'rejected' }),
     })
 
     expect(conditional.__expr.type).toBe('conditional')
@@ -228,11 +228,11 @@ describe('complete workflow example', () => {
     const Billing = Domain('Billing', { setupSubscription: () => {} })
     const Email = Domain('Email', { sendWelcome: () => {} })
 
-    on.Customer.signup(customer => {
+    on.Customer.signup((customer) => {
       CRM(customer).createAccount()
       Billing(customer).setupSubscription()
       Email(customer).sendWelcome({
-        crmId: CRM(customer).createAccount().id
+        crmId: CRM(customer).createAccount().id,
       })
     })
 

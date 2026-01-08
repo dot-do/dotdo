@@ -39,7 +39,7 @@ export class Function extends DO {
    */
   async getConfig(): Promise<FunctionConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as FunctionConfig | null
+      this.config = (await this.ctx.storage.get('config')) as FunctionConfig | null
     }
     return this.config
   }
@@ -113,9 +113,7 @@ export class Function extends DO {
   async getInvocations(limit: number = 10): Promise<FunctionInvocation[]> {
     const map = await this.ctx.storage.list({ prefix: 'invocation:' })
     const invocations = Array.from(map.values()) as FunctionInvocation[]
-    return invocations
-      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
-      .slice(0, limit)
+    return invocations.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, limit)
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -131,7 +129,7 @@ export class Function extends DO {
     }
 
     if (url.pathname === '/deploy' && request.method === 'POST') {
-      const config = await request.json() as FunctionConfig
+      const config = (await request.json()) as FunctionConfig
       await this.deploy(config)
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },

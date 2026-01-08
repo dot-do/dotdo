@@ -26,7 +26,19 @@
 export { DO, type Env, type Thing, type Relationship, type Action, type Event, type DOObject } from './DO'
 
 // Worker hierarchy
-export { Worker, type WorkerMode, type Task, type TaskResult, type Context, type Answer, type Option, type Decision, type ApprovalRequest, type ApprovalResult, type Channel } from './Worker'
+export {
+  Worker,
+  type WorkerMode,
+  type Task,
+  type TaskResult,
+  type Context,
+  type Answer,
+  type Option,
+  type Decision,
+  type ApprovalRequest,
+  type ApprovalResult,
+  type Channel,
+} from './Worker'
 export { Agent, type Tool, type Goal, type GoalResult, type Memory } from './Agent'
 export { Human, type NotificationChannel, type EscalationRule, type EscalationPolicy, type PendingApproval } from './Human'
 
@@ -48,7 +60,16 @@ export { Function, type FunctionConfig, type FunctionInvocation } from './Functi
 export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './Workflow'
 
 // Business services
-export { Service, type ServiceType, type DeliveryMethod, type ServiceTier, type ServiceConfig, type ServiceSubscription, type ServiceRequest, type ServiceDeliverable } from './Service'
+export {
+  Service,
+  type ServiceType,
+  type DeliveryMethod,
+  type ServiceTier,
+  type ServiceConfig,
+  type ServiceSubscription,
+  type ServiceRequest,
+  type ServiceDeliverable,
+} from './Service'
 
 // Interface types
 export { API, type Route, type APIConfig, type RequestContext, type RateLimitState } from './API'

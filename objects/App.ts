@@ -26,7 +26,7 @@ export class App extends DO {
    */
   async getConfig(): Promise<AppConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as AppConfig | null
+      this.config = (await this.ctx.storage.get('config')) as AppConfig | null
     }
     return this.config
   }
@@ -58,9 +58,7 @@ export class App extends DO {
    */
   async listSites(): Promise<{ doId: string; domain: string }[]> {
     const objects = await this.getLinkedObjects('child')
-    return objects
-      .filter(o => o.doClass === 'Site')
-      .map(o => ({ doId: o.doId, domain: (o.data as any)?.domain || '' }))
+    return objects.filter((o) => o.doClass === 'Site').map((o) => ({ doId: o.doId, domain: (o.data as any)?.domain || '' }))
   }
 
   /**
@@ -82,7 +80,7 @@ export class App extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as AppConfig
+        const config = (await request.json()) as AppConfig
         await this.setConfig(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },

@@ -9,7 +9,7 @@ Transform collections on the server without awaiting individual elements.
 
 ```typescript
 // Transform each post without fetching them first
-const titles = await rpc.getPosts().map(post => post.title)
+const titles = await rpc.getPosts().map((post) => post.title)
 ```
 
 ## How It Works
@@ -21,8 +21,8 @@ The `.map()` call doesn't execute locally - it creates a pipeline instruction th
 ```typescript
 const result = await rpc
   .getUsers()
-  .filter(user => user.active)
-  .map(user => user.email)
+  .filter((user) => user.active)
+  .map((user) => user.email)
   .slice(0, 10)
 ```
 

@@ -104,9 +104,7 @@ describe('Search Ranking', () => {
     const data = await response.json()
 
     // Exact phrase match should be ranked higher
-    const exactMatch = data.results.find((r: { title: string }) =>
-      r.title.toLowerCase().includes('getting started')
-    )
+    const exactMatch = data.results.find((r: { title: string }) => r.title.toLowerCase().includes('getting started'))
     expect(exactMatch).toBeDefined()
     expect(data.results[0].title.toLowerCase()).toContain('getting started')
   })
@@ -118,9 +116,7 @@ describe('Search Ranking', () => {
 
     expect(data.results.length).toBeGreaterThan(0)
     // Result with "introduction" in title should rank higher than one with it only in description
-    const titleMatch = data.results.find((r: { title: string }) =>
-      r.title.toLowerCase().includes('introduction')
-    )
+    const titleMatch = data.results.find((r: { title: string }) => r.title.toLowerCase().includes('introduction'))
     if (titleMatch && data.results.length > 1) {
       expect(data.results.indexOf(titleMatch)).toBeLessThan(data.results.length / 2)
     }
@@ -135,15 +131,15 @@ describe('Search Index Generation', () => {
         title: 'Getting Started',
         url: '/docs/getting-started',
         description: 'Learn how to get started with our platform',
-        content: 'This guide will help you get started quickly.'
+        content: 'This guide will help you get started quickly.',
       },
       {
         id: '2',
         title: 'API Reference',
         url: '/docs/api',
         description: 'Complete API documentation',
-        content: 'Full reference for all API endpoints.'
-      }
+        content: 'Full reference for all API endpoints.',
+      },
     ]
 
     const index = await generateSearchIndex(content)
@@ -159,8 +155,8 @@ describe('Search Index Generation', () => {
         title: 'Test Page',
         url: '/test',
         description: 'A test page',
-        content: 'Test content'
-      }
+        content: 'Test content',
+      },
     ]
 
     const index = await generateSearchIndex(content)
@@ -195,9 +191,8 @@ describe('Partial Matching', () => {
     const data = await response.json()
 
     // Should match "introduction", "introducing", etc.
-    const hasMatch = data.results.some((r: { title: string; description: string }) =>
-      r.title.toLowerCase().includes('intro') ||
-      r.description.toLowerCase().includes('intro')
+    const hasMatch = data.results.some(
+      (r: { title: string; description: string }) => r.title.toLowerCase().includes('intro') || r.description.toLowerCase().includes('intro'),
     )
     expect(hasMatch).toBe(true)
   })
@@ -242,9 +237,7 @@ describe('Search Highlighting', () => {
     const highlights = data.results[0].highlights
 
     // At least one field should have <mark> tags
-    const hasMarkTags =
-      (highlights.title && highlights.title.includes('<mark>')) ||
-      (highlights.description && highlights.description.includes('<mark>'))
+    const hasMarkTags = (highlights.title && highlights.title.includes('<mark>')) || (highlights.description && highlights.description.includes('<mark>'))
 
     expect(hasMarkTags).toBe(true)
   })
@@ -277,7 +270,7 @@ describe('Orama Search Client', () => {
     const results = await client.search('test', {
       limit: 5,
       offset: 0,
-      boost: { title: 2 }
+      boost: { title: 2 },
     })
 
     expect(results).toBeDefined()
@@ -300,8 +293,8 @@ describe('Orama Search Client', () => {
   it('supports faceted search', async () => {
     const results = await client.search('api', {
       facets: {
-        category: true
-      }
+        category: true,
+      },
     })
 
     expect(results).toHaveProperty('facets')
@@ -339,15 +332,9 @@ describe('Search Edge Cases', () => {
     const request1 = new Request('http://localhost/api/search?q=test')
     const request2 = new Request('http://localhost/api/search?q=test')
 
-    const [response1, response2] = await Promise.all([
-      searchHandler(request1),
-      searchHandler(request2)
-    ])
+    const [response1, response2] = await Promise.all([searchHandler(request1), searchHandler(request2)])
 
-    const [data1, data2] = await Promise.all([
-      response1.json(),
-      response2.json()
-    ])
+    const [data1, data2] = await Promise.all([response1.json(), response2.json()])
 
     expect(data1.results).toEqual(data2.results)
   })

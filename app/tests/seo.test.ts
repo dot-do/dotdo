@@ -75,7 +75,7 @@ function getHeadings(html: string): { level: number; text: string }[] {
   while ((match = regex.exec(html)) !== null) {
     headings.push({
       level: parseInt(match[1]),
-      text: match[2].replace(/<[^>]*>/g, '').trim()
+      text: match[2].replace(/<[^>]*>/g, '').trim(),
     })
   }
   return headings
@@ -137,17 +137,13 @@ describe('JSON-LD Structured Data', () => {
       })
 
       it('should have valid @context', () => {
-        const hasValidContext = jsonLdData.some(
-          (data: any) => data['@context'] === 'https://schema.org'
-        )
+        const hasValidContext = jsonLdData.some((data: any) => data['@context'] === 'https://schema.org')
         expect(hasValidContext).toBe(true)
       })
 
       it('should have a valid @type', () => {
         const validTypes = ['Article', 'WebPage', 'Organization', 'WebSite', 'BlogPosting']
-        const hasValidType = jsonLdData.some(
-          (data: any) => validTypes.includes(data['@type'])
-        )
+        const hasValidType = jsonLdData.some((data: any) => validTypes.includes(data['@type']))
         expect(hasValidType).toBe(true)
       })
     })
@@ -163,47 +159,35 @@ describe('JSON-LD Structured Data', () => {
     })
 
     it('should have Article or BlogPosting schema', () => {
-      const hasArticleSchema = jsonLdData.some(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      )
+      const hasArticleSchema = jsonLdData.some((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting')
       expect(hasArticleSchema).toBe(true)
     })
 
     it('should have headline property', () => {
-      const articleSchema = jsonLdData.find(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      ) as any
+      const articleSchema = jsonLdData.find((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting') as any
       expect(articleSchema?.headline).toBeDefined()
       expect(articleSchema?.headline.length).toBeGreaterThan(0)
     })
 
     it('should have author property', () => {
-      const articleSchema = jsonLdData.find(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      ) as any
+      const articleSchema = jsonLdData.find((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting') as any
       expect(articleSchema?.author).toBeDefined()
     })
 
     it('should have datePublished property', () => {
-      const articleSchema = jsonLdData.find(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      ) as any
+      const articleSchema = jsonLdData.find((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting') as any
       expect(articleSchema?.datePublished).toBeDefined()
       // Validate ISO 8601 format
       expect(articleSchema?.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}/)
     })
 
     it('should have description property', () => {
-      const articleSchema = jsonLdData.find(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      ) as any
+      const articleSchema = jsonLdData.find((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting') as any
       expect(articleSchema?.description).toBeDefined()
     })
 
     it('should have image property', () => {
-      const articleSchema = jsonLdData.find(
-        (data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting'
-      ) as any
+      const articleSchema = jsonLdData.find((data: any) => data['@type'] === 'Article' || data['@type'] === 'BlogPosting') as any
       expect(articleSchema?.image).toBeDefined()
     })
   })
@@ -401,7 +385,7 @@ describe('Meta Descriptions', () => {
           testPages.map(async (path) => {
             const pageHtml = await fetchPage(path)
             return getMetaContent(pageHtml, 'description')
-          })
+          }),
         )
         const uniqueDescriptions = new Set(descriptions)
         expect(uniqueDescriptions.size).toBe(descriptions.length)
@@ -528,9 +512,7 @@ describe('Sitemap', () => {
 
   it('should have changefreq for URLs', () => {
     const validFrequencies = ['always', 'hourly', 'daily', 'weekly', 'monthly', 'yearly', 'never']
-    const hasChangefreq = validFrequencies.some((freq) =>
-      sitemap.includes(`<changefreq>${freq}</changefreq>`)
-    )
+    const hasChangefreq = validFrequencies.some((freq) => sitemap.includes(`<changefreq>${freq}</changefreq>`))
     expect(hasChangefreq).toBe(true)
   })
 
@@ -596,10 +578,8 @@ describe('Additional SEO Requirements', () => {
 
   it('should have favicon', async () => {
     const html = await fetchPage('/')
-    const hasFavicon = html.includes('rel="icon"') ||
-                       html.includes("rel='icon'") ||
-                       html.includes('rel="shortcut icon"') ||
-                       html.includes("rel='shortcut icon'")
+    const hasFavicon =
+      html.includes('rel="icon"') || html.includes("rel='icon'") || html.includes('rel="shortcut icon"') || html.includes("rel='shortcut icon'")
     expect(hasFavicon).toBe(true)
   })
 })

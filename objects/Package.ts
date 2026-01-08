@@ -42,7 +42,7 @@ export class Package extends Entity {
    */
   async getPackageConfig(): Promise<PackageConfig | null> {
     if (!this.packageConfig) {
-      this.packageConfig = await this.ctx.storage.get('package_config') as PackageConfig | null
+      this.packageConfig = (await this.ctx.storage.get('package_config')) as PackageConfig | null
     }
     return this.packageConfig
   }
@@ -81,14 +81,14 @@ export class Package extends Entity {
    * Get a specific version
    */
   async getVersion(version: string): Promise<PackageVersion | null> {
-    return await this.ctx.storage.get(`version:${version}`) as PackageVersion | null
+    return (await this.ctx.storage.get(`version:${version}`)) as PackageVersion | null
   }
 
   /**
    * Get latest version
    */
   async getLatest(): Promise<PackageVersion | null> {
-    const latest = await this.ctx.storage.get('latest') as string | undefined
+    const latest = (await this.ctx.storage.get('latest')) as string | undefined
     if (!latest) return null
     return this.getVersion(latest)
   }
@@ -124,8 +124,8 @@ export class Package extends Entity {
    * Get download count (stub)
    */
   async getDownloads(): Promise<{ total: number; weekly: number }> {
-    const total = await this.ctx.storage.get('downloads:total') as number || 0
-    const weekly = await this.ctx.storage.get('downloads:weekly') as number || 0
+    const total = ((await this.ctx.storage.get('downloads:total')) as number) || 0
+    const weekly = ((await this.ctx.storage.get('downloads:weekly')) as number) || 0
     return { total, weekly }
   }
 
@@ -133,8 +133,8 @@ export class Package extends Entity {
    * Increment download count
    */
   async recordDownload(): Promise<void> {
-    const total = await this.ctx.storage.get('downloads:total') as number || 0
-    const weekly = await this.ctx.storage.get('downloads:weekly') as number || 0
+    const total = ((await this.ctx.storage.get('downloads:total')) as number) || 0
+    const weekly = ((await this.ctx.storage.get('downloads:weekly')) as number) || 0
 
     await this.ctx.storage.put('downloads:total', total + 1)
     await this.ctx.storage.put('downloads:weekly', weekly + 1)
@@ -151,7 +151,7 @@ export class Package extends Entity {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as PackageConfig
+        const config = (await request.json()) as PackageConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -174,7 +174,7 @@ export class Package extends Entity {
     }
 
     if (url.pathname === '/publish' && request.method === 'POST') {
-      const version = await request.json() as Omit<PackageVersion, 'publishedAt'>
+      const version = (await request.json()) as Omit<PackageVersion, 'publishedAt'>
       const published = await this.publish(version)
       return new Response(JSON.stringify(published), {
         status: 201,

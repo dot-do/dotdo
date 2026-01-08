@@ -46,7 +46,7 @@ async function embed(ai: Ai, text: string, dims: 128 | 256 | 512 | 768 = 768): P
   if (dims < 768) {
     const truncated = vec.slice(0, dims)
     const norm = Math.sqrt(truncated.reduce((a, b) => a + b * b, 0))
-    return new Float32Array(truncated.map(x => x / norm))
+    return new Float32Array(truncated.map((x) => x / norm))
   }
 
   return new Float32Array(vec)
@@ -55,12 +55,12 @@ async function embed(ai: Ai, text: string, dims: 128 | 256 | 512 | 768 = 768): P
 
 ### Dimension Trade-offs
 
-| Dimensions | Quality | Storage | Latency | Use Case |
-|------------|---------|---------|---------|----------|
-| 128 | ~90% | 512 B | <1ms | DO local filter |
-| 256 | ~95% | 1 KB | ~1ms | Good balance |
-| 512 | ~98% | 2 KB | ~2ms | High quality local |
-| 768 | 100% | 3 KB | ~5ms | Global index |
+| Dimensions | Quality | Storage | Latency | Use Case           |
+| ---------- | ------- | ------- | ------- | ------------------ |
+| 128        | ~90%    | 512 B   | <1ms    | DO local filter    |
+| 256        | ~95%    | 1 KB    | ~1ms    | Good balance       |
+| 512        | ~98%    | 2 KB    | ~2ms    | High quality local |
+| 768        | 100%    | 3 KB    | ~5ms    | Global index       |
 
 ## Tier 1: DO SQLite Local Search
 
@@ -73,7 +73,9 @@ import { sqliteTable, text, integer, blob } from 'drizzle-orm/sqlite-core'
 
 export const searchIndex = sqliteTable('search_index', {
   id: text('id').primaryKey(),
-  thingId: text('thing_id').notNull().references(() => things.id),
+  thingId: text('thing_id')
+    .notNull()
+    .references(() => things.id),
   content: text('content').notNull(),
   embedding: blob('embedding', { mode: 'buffer' }).notNull(), // 128-dim × 4 bytes = 512 B
   createdAt: integer('created_at', { mode: 'timestamp' }),
@@ -100,7 +102,9 @@ async function indexThing(thing: Thing): Promise<void> {
 
 ```typescript
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  let dot = 0, normA = 0, normB = 0
+  let dot = 0,
+    normA = 0,
+    normB = 0
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i]
     normA += a[i] * a[i]
@@ -114,10 +118,10 @@ async function searchLocal(query: string, limit = 10): Promise<SearchResult[]> {
   const rows = await this.db.select().from(searchIndex)
 
   return rows
-    .map(row => ({
+    .map((row) => ({
       thingId: row.thingId,
       content: row.content,
-      score: cosineSimilarity(queryVec, new Float32Array(row.embedding))
+      score: cosineSimilarity(queryVec, new Float32Array(row.embedding)),
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
@@ -159,15 +163,17 @@ async function indexToVectorize(thing: Thing): Promise<void> {
   const searchableText = extractSearchableText(thing)
   const embedding = await embed(this.ai, searchableText, 768) // Full
 
-  await this.env.VECTORIZE.upsert([{
-    id: thing.id,
-    values: Array.from(embedding),
-    metadata: {
-      doId: this.doId,
-      type: thing.type,
-      name: thing.name,
-    }
-  }])
+  await this.env.VECTORIZE.upsert([
+    {
+      id: thing.id,
+      values: Array.from(embedding),
+      metadata: {
+        doId: this.doId,
+        type: thing.type,
+        name: thing.name,
+      },
+    },
+  ])
 }
 ```
 
@@ -182,7 +188,7 @@ async function searchGlobal(query: string, limit = 100): Promise<SearchResult[]>
     returnMetadata: true,
   })
 
-  return results.matches.map(match => ({
+  return results.matches.map((match) => ({
     thingId: match.id,
     doId: match.metadata.doId,
     score: match.score,
@@ -214,14 +220,16 @@ binding = "SEARCH_PIPELINE"
 
 ```typescript
 async function streamToAnalytics(thing: Thing, embedding: Float32Array): Promise<void> {
-  await this.env.SEARCH_PIPELINE.send([{
-    id: thing.id,
-    do_id: this.doId,
-    type: thing.type,
-    content: extractSearchableText(thing),
-    embedding: Buffer.from(embedding.buffer).toString('base64'),
-    created_at: new Date().toISOString(),
-  }])
+  await this.env.SEARCH_PIPELINE.send([
+    {
+      id: thing.id,
+      do_id: this.doId,
+      type: thing.type,
+      content: extractSearchableText(thing),
+      embedding: Buffer.from(embedding.buffer).toString('base64'),
+      created_at: new Date().toISOString(),
+    },
+  ])
 }
 ```
 
@@ -229,20 +237,20 @@ async function streamToAnalytics(thing: Thing, embedding: Float32Array): Promise
 
 **Important**: R2-SQL does NOT support vector similarity functions. It has severe constraints:
 
-| Feature | Supported | Notes |
-|---------|-----------|-------|
-| Basic comparisons | ✅ | `=`, `!=`, `<`, `>`, `BETWEEN` |
-| Aggregations | ✅ | `COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX` |
-| `LIKE` | ✅ | Prefix matching only (`'value%'`) |
-| Arrays | ❌ | No array type support |
-| JSON fields | ❌ | Cannot query JSON |
-| Arithmetic | ❌ | No `+`, `-`, `*`, `/` in queries |
-| Column comparisons | ❌ | No `WHERE a = b` |
-| JOINs | ❌ | Single table only |
-| Subqueries | ❌ | No nested queries |
-| ORDER BY | ⚠️ | Partition keys only |
+| Feature            | Supported | Notes                                  |
+| ------------------ | --------- | -------------------------------------- |
+| Basic comparisons  | ✅        | `=`, `!=`, `<`, `>`, `BETWEEN`         |
+| Aggregations       | ✅        | `COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX` |
+| `LIKE`             | ✅        | Prefix matching only (`'value%'`)      |
+| Arrays             | ❌        | No array type support                  |
+| JSON fields        | ❌        | Cannot query JSON                      |
+| Arithmetic         | ❌        | No `+`, `-`, `*`, `/` in queries       |
+| Column comparisons | ❌        | No `WHERE a = b`                       |
+| JOINs              | ❌        | Single table only                      |
+| Subqueries         | ❌        | No nested queries                      |
+| ORDER BY           | ⚠️        | Partition keys only                    |
 
-**The key insight**: *All similarity computation must happen at write time, not query time.* R2-SQL is a coarse filter; your application is the fine ranker.
+**The key insight**: _All similarity computation must happen at write time, not query time._ R2-SQL is a coarse filter; your application is the fine ranker.
 
 ### R2 Iceberg Schema (Future-Proof)
 
@@ -294,8 +302,8 @@ Locality-Sensitive Hashing produces similar hashes for similar vectors. Use LIKE
 // At ingest time: compute LSH hashes
 function computeLSH(embedding: Float32Array, numBands = 3, bitsPerBand = 8): string[] {
   const hyperplanes = getHyperplanes(numBands, bitsPerBand, embedding.length)
-  return hyperplanes.map(planes => {
-    const bits = planes.map(p => dotProduct(embedding, p) > 0 ? '1' : '0')
+  return hyperplanes.map((planes) => {
+    const bits = planes.map((p) => (dotProduct(embedding, p) > 0 ? '1' : '0'))
     return parseInt(bits.join(''), 2).toString(16).padStart(2, '0')
   })
 }
@@ -338,8 +346,8 @@ Pre-compute hierarchical categories via clustering:
 
 ```typescript
 // At ingest time: assign semantic "zipcode"
-const semanticL1 = getTopLevelCategory(embedding)  // 'technology'
-const semanticL2 = getMidLevelCategory(embedding)  // 'technology_ai'
+const semanticL1 = getTopLevelCategory(embedding) // 'technology'
+const semanticL2 = getMidLevelCategory(embedding) // 'technology_ai'
 const semanticL3 = getFineLevelCategory(embedding) // 'technology_ai_nlp'
 ```
 
@@ -408,7 +416,7 @@ const candidates = await r2sql(`
 const queryVec = await embed(this.ai, query, 768)
 const results = await this.env.VECTORIZE.query(queryVec, {
   topK: 10,
-  filter: { id: { $in: candidates.map(c => c.id) } }
+  filter: { id: { $in: candidates.map((c) => c.id) } },
 })
 ```
 
@@ -461,14 +469,14 @@ async function prepareForR2(thing: Thing, embedding: Float32Array): Promise<R2Re
 
 ### Strategy Comparison
 
-| Strategy | Best For | Recall | Precision | Complexity |
-|----------|----------|--------|-----------|------------|
-| **LSH Prefix** | General similarity | High | Medium | Medium |
-| **Cluster ID** | Partitioned search | Medium | High | Low |
-| **Semantic Hierarchy** | Category browsing | Medium | High | Low |
-| **Product Quantization** | Large scale | High | Medium | High |
-| **Hilbert Curve** | Range queries | Medium | Medium | Medium |
-| **Two-Phase** | Filtered similarity | High | High | Medium |
+| Strategy                 | Best For            | Recall | Precision | Complexity |
+| ------------------------ | ------------------- | ------ | --------- | ---------- |
+| **LSH Prefix**           | General similarity  | High   | Medium    | Medium     |
+| **Cluster ID**           | Partitioned search  | Medium | High      | Low        |
+| **Semantic Hierarchy**   | Category browsing   | Medium | High      | Low        |
+| **Product Quantization** | Large scale         | High   | Medium    | High       |
+| **Hilbert Curve**        | Range queries       | Medium | Medium    | Medium     |
+| **Two-Phase**            | Filtered similarity | High   | High      | Medium     |
 
 **Recommended**: Combine **LSH Prefix** (recall) + **Semantic Hierarchy** (filtering) + **Two-Phase Vectorize** (precision)
 
@@ -489,7 +497,7 @@ async function search(query: string, options?: SearchOptions): Promise<SearchRes
   if (!options?.global) {
     const local = await this.searchLocal(query, options?.limit)
     if (local.length > 0 && local[0].score > 0.8) {
-      return local.map(r => ({ ...r, tier: 'local' }))
+      return local.map((r) => ({ ...r, tier: 'local' }))
     }
   }
 
@@ -498,11 +506,14 @@ async function search(query: string, options?: SearchOptions): Promise<SearchRes
 
   // 3. Optionally filter by R2-SQL metadata
   if (options?.dateRange || options?.type) {
-    const filtered = await this.filterByMetadata(global.map(r => r.thingId), options)
-    return global.filter(r => filtered.includes(r.thingId))
+    const filtered = await this.filterByMetadata(
+      global.map((r) => r.thingId),
+      options,
+    )
+    return global.filter((r) => filtered.includes(r.thingId))
   }
 
-  return global.map(r => ({ ...r, tier: 'global' }))
+  return global.map((r) => ({ ...r, tier: 'global' }))
 }
 ```
 
@@ -511,14 +522,10 @@ async function search(query: string, options?: SearchOptions): Promise<SearchRes
 For high-precision results, use the bge-reranker model to rerank top candidates:
 
 ```typescript
-async function rerankResults(
-  query: string,
-  candidates: SearchResult[],
-  topK = 10
-): Promise<SearchResult[]> {
-  const pairs = candidates.slice(0, 50).map(c => ({
+async function rerankResults(query: string, candidates: SearchResult[], topK = 10): Promise<SearchResult[]> {
+  const pairs = candidates.slice(0, 50).map((c) => ({
     query,
-    document: c.content
+    document: c.content,
   }))
 
   const scores = await this.ai.run('@cf/baai/bge-reranker-base', { pairs })
@@ -533,11 +540,11 @@ async function rerankResults(
 
 ## Storage Cost Analysis
 
-| Tier | Dimensions | Per Vector | 1M Vectors | Cost Driver |
-|------|------------|------------|------------|-------------|
-| DO SQLite | 128 | 512 B | 512 MB | DO storage |
-| Vectorize | 768 | 3 KB | 3 GB | Vectorize pricing |
-| R2 Iceberg | 768 + meta | ~4 KB | 4 GB | R2 storage |
+| Tier       | Dimensions | Per Vector | 1M Vectors | Cost Driver       |
+| ---------- | ---------- | ---------- | ---------- | ----------------- |
+| DO SQLite  | 128        | 512 B      | 512 MB     | DO storage        |
+| Vectorize  | 768        | 3 KB       | 3 GB       | Vectorize pricing |
+| R2 Iceberg | 768 + meta | ~4 KB      | 4 GB       | R2 storage        |
 
 ### MRL Savings
 
@@ -549,13 +556,13 @@ Using 128-dim instead of 768-dim reduces storage by **6x** while retaining ~90% 
 
 Based on industry trends (pgvector, sqlite-vec), Cloudflare will likely add:
 
-| Expected Feature | pgvector Syntax | Likely R2-SQL Syntax |
-|------------------|-----------------|----------------------|
-| Cosine distance | `<=>` | `cosine_distance(a, b)` or `<=>` |
-| Euclidean distance | `<->` | `l2_distance(a, b)` or `<->` |
-| Inner product | `<#>` | `inner_product(a, b)` or `<#>` |
-| Vector type | `vector(768)` | `VECTOR(768)` or `FLOAT32_ARRAY` |
-| KNN query | `ORDER BY col <=> query LIMIT k` | Similar |
+| Expected Feature   | pgvector Syntax                  | Likely R2-SQL Syntax             |
+| ------------------ | -------------------------------- | -------------------------------- |
+| Cosine distance    | `<=>`                            | `cosine_distance(a, b)` or `<=>` |
+| Euclidean distance | `<->`                            | `l2_distance(a, b)` or `<->`     |
+| Inner product      | `<#>`                            | `inner_product(a, b)` or `<#>`   |
+| Vector type        | `vector(768)`                    | `VECTOR(768)` or `FLOAT32_ARRAY` |
+| KNN query          | `ORDER BY col <=> query LIMIT k` | Similar                          |
 
 ### Migration Path
 
@@ -599,12 +606,15 @@ class R2VectorSearch {
 
   private async nativeVectorSearch(queryVec: Float32Array, limit: number) {
     // When R2-SQL adds vector support
-    return r2sql(`
+    return r2sql(
+      `
       SELECT id, content, cosine_distance(embedding, ?) as score
       FROM embeddings
       ORDER BY score ASC
       LIMIT ?
-    `, [queryVec, limit])
+    `,
+      [queryVec, limit],
+    )
   }
 
   private async preComputedSearch(queryVec: Float32Array, limit: number) {
@@ -617,7 +627,7 @@ class R2VectorSearch {
     `)
     return this.env.VECTORIZE.query(queryVec, {
       topK: limit,
-      filter: { id: { $in: candidates.map(c => c.id) } }
+      filter: { id: { $in: candidates.map((c) => c.id) } },
     })
   }
 }
@@ -644,8 +654,8 @@ class R2VectorSearch {
 export const searchConfig = {
   embedding: {
     model: '@cf/google/embeddinggemma-300m',
-    localDimensions: 128,    // For DO SQLite
-    globalDimensions: 768,   // For Vectorize/R2
+    localDimensions: 128, // For DO SQLite
+    globalDimensions: 768, // For Vectorize/R2
   },
   vectorize: {
     indexName: 'things-index',
@@ -653,11 +663,11 @@ export const searchConfig = {
   },
   reranker: {
     model: '@cf/baai/bge-reranker-base',
-    topK: 50,  // Candidates to rerank
+    topK: 50, // Candidates to rerank
   },
   thresholds: {
-    localConfidence: 0.8,   // Use local if score > this
-    rerankThreshold: 0.5,   // Rerank if score < this
-  }
+    localConfidence: 0.8, // Use local if score > this
+    rerankThreshold: 0.5, // Rerank if score < this
+  },
 }
 ```

@@ -54,7 +54,7 @@ export class SaaS extends App {
    */
   async getSaaSConfig(): Promise<SaaSConfig | null> {
     if (!this.saasConfig) {
-      this.saasConfig = await this.ctx.storage.get('saas_config') as SaaSConfig | null
+      this.saasConfig = (await this.ctx.storage.get('saas_config')) as SaaSConfig | null
     }
     return this.saasConfig
   }
@@ -72,15 +72,11 @@ export class SaaS extends App {
   /**
    * Create a subscription
    */
-  async createSubscription(
-    customerId: string,
-    planId: string,
-    trial: boolean = false
-  ): Promise<SaaSSubscription> {
+  async createSubscription(customerId: string, planId: string, trial: boolean = false): Promise<SaaSSubscription> {
     const config = await this.getSaaSConfig()
     if (!config) throw new Error('SaaS not configured')
 
-    const plan = config.plans.find(p => p.id === planId)
+    const plan = config.plans.find((p) => p.id === planId)
     if (!plan) throw new Error(`Plan not found: ${planId}`)
 
     const now = new Date()
@@ -113,7 +109,7 @@ export class SaaS extends App {
    * Get subscription
    */
   async getSubscription(subscriptionId: string): Promise<SaaSSubscription | null> {
-    return await this.ctx.storage.get(`subscription:${subscriptionId}`) as SaaSSubscription | null
+    return (await this.ctx.storage.get(`subscription:${subscriptionId}`)) as SaaSSubscription | null
   }
 
   /**
@@ -122,7 +118,7 @@ export class SaaS extends App {
   async getCustomerSubscription(customerId: string): Promise<SaaSSubscription | null> {
     const map = await this.ctx.storage.list({ prefix: 'subscription:' })
     const subscriptions = Array.from(map.values()) as SaaSSubscription[]
-    return subscriptions.find(s => s.customerId === customerId && s.status !== 'canceled') || null
+    return subscriptions.find((s) => s.customerId === customerId && s.status !== 'canceled') || null
   }
 
   /**
@@ -148,7 +144,7 @@ export class SaaS extends App {
     const config = await this.getSaaSConfig()
     if (!config) throw new Error('SaaS not configured')
 
-    const plan = config.plans.find(p => p.id === newPlanId)
+    const plan = config.plans.find((p) => p.id === newPlanId)
     if (!plan) throw new Error(`Plan not found: ${newPlanId}`)
 
     const subscription = await this.getSubscription(subscriptionId)
@@ -184,22 +180,18 @@ export class SaaS extends App {
   /**
    * Get usage for subscription
    */
-  async getUsage(
-    subscriptionId: string,
-    metric?: string,
-    since?: Date
-  ): Promise<{ metric: string; total: number }[]> {
+  async getUsage(subscriptionId: string, metric?: string, since?: Date): Promise<{ metric: string; total: number }[]> {
     const map = await this.ctx.storage.list({ prefix: 'usage:' })
     let records = Array.from(map.values()) as UsageRecord[]
 
-    records = records.filter(r => r.subscriptionId === subscriptionId)
+    records = records.filter((r) => r.subscriptionId === subscriptionId)
 
     if (metric) {
-      records = records.filter(r => r.metric === metric)
+      records = records.filter((r) => r.metric === metric)
     }
 
     if (since) {
-      records = records.filter(r => r.timestamp >= since)
+      records = records.filter((r) => r.timestamp >= since)
     }
 
     // Aggregate by metric
@@ -221,7 +213,7 @@ export class SaaS extends App {
     const subscription = await this.getSubscription(subscriptionId)
     if (!subscription || subscription.status === 'canceled') return false
 
-    const plan = config.plans.find(p => p.id === subscription.planId)
+    const plan = config.plans.find((p) => p.id === subscription.planId)
     if (!plan) return false
 
     return plan.features.includes(feature)
@@ -237,7 +229,7 @@ export class SaaS extends App {
     const subscription = await this.getSubscription(subscriptionId)
     if (!subscription) throw new Error(`Subscription not found: ${subscriptionId}`)
 
-    const plan = config.plans.find(p => p.id === subscription.planId)
+    const plan = config.plans.find((p) => p.id === subscription.planId)
     if (!plan) throw new Error(`Plan not found: ${subscription.planId}`)
 
     const limit = plan.limits[metric] || Infinity
@@ -262,7 +254,7 @@ export class SaaS extends App {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as SaaSConfig
+        const config = (await request.json()) as SaaSConfig
         await this.configureSaaS(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -278,7 +270,7 @@ export class SaaS extends App {
     }
 
     if (url.pathname === '/saas/subscribe' && request.method === 'POST') {
-      const { customerId, planId, trial } = await request.json() as {
+      const { customerId, planId, trial } = (await request.json()) as {
         customerId: string
         planId: string
         trial?: boolean
@@ -291,7 +283,7 @@ export class SaaS extends App {
     }
 
     if (url.pathname === '/saas/usage' && request.method === 'POST') {
-      const { subscriptionId, metric, quantity } = await request.json() as {
+      const { subscriptionId, metric, quantity } = (await request.json()) as {
         subscriptionId: string
         metric: string
         quantity: number

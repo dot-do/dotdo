@@ -25,14 +25,14 @@ import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const verbs = sqliteTable('verbs', {
   // Predicate form - reads naturally in graph relationships
-  verb: text('verb').primaryKey(),                 // 'creates' (Subject creates Object)
+  verb: text('verb').primaryKey(), // 'creates' (Subject creates Object)
 
   // Linguistic forms
-  action: text('action'),                          // 'create' (imperative / base form)
-  activity: text('activity'),                      // 'creating' (present participle / gerund)
-  event: text('event'),                            // 'created' (past participle)
-  reverse: text('reverse'),                        // 'createdBy' (for <-, <~ backward operators)
-  inverse: text('inverse'),                        // 'deletes' (opposite predicate)
+  action: text('action'), // 'create' (imperative / base form)
+  activity: text('activity'), // 'creating' (present participle / gerund)
+  event: text('event'), // 'created' (past participle)
+  reverse: text('reverse'), // 'createdBy' (for <-, <~ backward operators)
+  inverse: text('inverse'), // 'deletes' (opposite predicate)
 
   // Metadata
   description: text('description'),

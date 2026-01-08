@@ -20,37 +20,37 @@ App → id.org.ai (better-auth OAuth Provider) → WorkOS AuthKit
 
 ## better-auth Plugins Used
 
-| Plugin | Purpose |
-|--------|---------|
+| Plugin          | Purpose                                                        |
+| --------------- | -------------------------------------------------------------- |
 | `oauthProvider` | Makes id.org.ai an OAuth 2.1 provider ("Login with id.org.ai") |
-| `oauthProxy` | Cross-domain auth when child DOs are on different domains |
-| `organization` | Multi-tenant support with `activeOrganizationId` |
+| `oauthProxy`    | Cross-domain auth when child DOs are on different domains      |
+| `organization`  | Multi-tenant support with `activeOrganizationId`               |
 
 ## Identity Types
 
-| Type | Description |
-|------|-------------|
-| `human` | Real users, OAuth login via WorkOS |
-| `agent` | AI with scoped capabilities |
+| Type      | Description                             |
+| --------- | --------------------------------------- |
+| `human`   | Real users, OAuth login via WorkOS      |
+| `agent`   | AI with scoped capabilities             |
 | `service` | Functions, workflows, automated systems |
 
 ## Linked Account Types
 
 Linked accounts connect identities to external services with credentials stored in WorkOS Vault.
 
-| Type | Services | Use Case |
-|------|----------|----------|
-| `auth` | WorkOS, GitHub, Google | Identity providers, SSO |
-| `channel` | Slack, Discord, Teams, Email | Communication, notifications |
-| `ai` | Anthropic, OpenAI, OpenRouter | AI provider credentials |
-| `finance` | Stripe | Payments, billing |
-| `infra` | Cloudflare, Vercel, AWS | Cloud infrastructure |
-| `devtools` | GitHub, GitLab, Linear | Code, project management |
-| `workspace` | Notion, Google Workspace | Productivity tools |
-| `data` | Databases, analytics | Data sources |
-| `customer` | CRM, support | Customer management |
-| `social` | Social media | Social integrations |
-| `custom` | User-defined | Extensible for any service |
+| Type        | Services                      | Use Case                     |
+| ----------- | ----------------------------- | ---------------------------- |
+| `auth`      | WorkOS, GitHub, Google        | Identity providers, SSO      |
+| `channel`   | Slack, Discord, Teams, Email  | Communication, notifications |
+| `ai`        | Anthropic, OpenAI, OpenRouter | AI provider credentials      |
+| `finance`   | Stripe                        | Payments, billing            |
+| `infra`     | Cloudflare, Vercel, AWS       | Cloud infrastructure         |
+| `devtools`  | GitHub, GitLab, Linear        | Code, project management     |
+| `workspace` | Notion, Google Workspace      | Productivity tools           |
+| `data`      | Databases, analytics          | Data sources                 |
+| `customer`  | CRM, support                  | Customer management          |
+| `social`    | Social media                  | Social integrations          |
+| `custom`    | User-defined                  | Extensible for any service   |
 
 ## Configuration Modes
 
@@ -115,8 +115,8 @@ import { auth, type AuthConfig } from '@dotdo/auth'
 
 const config: AuthConfig = {
   // Federation settings
-  federation: true,                    // Delegate to parent DO (default: true)
-  federationUrl: 'https://id.org.ai',  // Parent OAuth provider URL
+  federation: true, // Delegate to parent DO (default: true)
+  federationUrl: 'https://id.org.ai', // Parent OAuth provider URL
 
   // OAuth provider settings (when federation: false)
   providers: {
@@ -128,26 +128,26 @@ const config: AuthConfig = {
   // better-auth plugin options
   plugins: {
     oauthProvider: {
-      enabled: true,                   // Act as OAuth 2.1 provider
-      clients: [],                     // Registered OAuth clients
+      enabled: true, // Act as OAuth 2.1 provider
+      clients: [], // Registered OAuth clients
     },
     oauthProxy: {
-      enabled: true,                   // Cross-domain auth support
+      enabled: true, // Cross-domain auth support
       allowedOrigins: ['*.example.com'],
     },
     organization: {
-      enabled: true,                   // Multi-tenant support
+      enabled: true, // Multi-tenant support
       allowUserToCreateOrganization: true,
     },
   },
 
   // Session configuration
   session: {
-    expiresIn: 60 * 60 * 24 * 7,      // 7 days
-    updateAge: 60 * 60 * 24,           // Update session every 24 hours
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    updateAge: 60 * 60 * 24, // Update session every 24 hours
     cookieCache: {
       enabled: true,
-      maxAge: 60 * 5,                  // 5 minute cache
+      maxAge: 60 * 5, // 5 minute cache
     },
   },
 
@@ -163,8 +163,8 @@ const config: AuthConfig = {
 
   // WorkOS Vault integration for token storage
   vault: {
-    enabled: true,                     // Store tokens in WorkOS Vault
-    encrypt: true,                     // Encrypt at rest
+    enabled: true, // Store tokens in WorkOS Vault
+    encrypt: true, // Encrypt at rest
   },
 }
 
@@ -215,11 +215,11 @@ interface VaultEntry {
   userId: string
   accountType: LinkedAccountType
   provider: string
-  credentials: Record<string, unknown>  // Encrypted at rest
+  credentials: Record<string, unknown> // Encrypted at rest
   metadata: {
     scopes?: string[]
     expiresAt?: Date
-    refreshToken?: string              // For OAuth tokens
+    refreshToken?: string // For OAuth tokens
   }
   createdAt: Date
   updatedAt: Date

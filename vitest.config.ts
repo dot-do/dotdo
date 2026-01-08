@@ -6,10 +6,6 @@ export default defineConfig({
     include: ['api/tests/**/*.test.ts', 'db/tests/**/*.test.ts'],
     environment: 'node',
     // Exclude workers tests from default config - they use workspace
-    exclude: [
-      'api/tests/infrastructure/**/*.test.ts',
-      'api/tests/routes/**/*.test.ts',
-      'api/tests/middleware/**/*.test.ts',
-    ],
+    exclude: ['api/tests/infrastructure/**/*.test.ts', 'api/tests/routes/**/*.test.ts', 'api/tests/middleware/**/*.test.ts'],
   },
 })

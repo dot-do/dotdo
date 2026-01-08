@@ -47,11 +47,11 @@
 
 We define three main pipelines:
 
-| Pipeline | Purpose | SQL File |
-|----------|---------|----------|
-| `events` | Domain events for analytics | `events.sql` |
-| `things` | Thing versions for cross-DO queries | `things.sql` |
-| `actions` | Audit log for SOC2 compliance | `actions.sql` |
+| Pipeline  | Purpose                             | SQL File      |
+| --------- | ----------------------------------- | ------------- |
+| `events`  | Domain events for analytics         | `events.sql`  |
+| `things`  | Thing versions for cross-DO queries | `things.sql`  |
+| `actions` | Audit log for SOC2 compliance       | `actions.sql` |
 
 ## Creating Pipelines
 
@@ -80,10 +80,10 @@ npx wrangler pipelines setup
 
 The SQL transforms convert local DO identifiers to fully qualified URLs:
 
-| Local (in DO) | Global (in R2 SQL) |
-|---------------|-------------------|
-| `type: 1` (rowid) | `type: 'https://startups.studio/Startup'` |
-| `id: 'acme'` | `id: 'https://startups.studio/acme'` |
+| Local (in DO)           | Global (in R2 SQL)                              |
+| ----------------------- | ----------------------------------------------- |
+| `type: 1` (rowid)       | `type: 'https://startups.studio/Startup'`       |
+| `id: 'acme'`            | `id: 'https://startups.studio/acme'`            |
 | `actor: 'Human/nathan'` | `actor: 'https://startups.studio/Human/nathan'` |
 
 This is done by including the `ns` (namespace) in the event payload from the DO, then concatenating in the SQL transform.

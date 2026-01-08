@@ -50,14 +50,7 @@ export interface AuthConfig {
 // ============================================================================
 
 export function createAuth(config: AuthConfig) {
-  const {
-    db,
-    authDomain,
-    allowedDomainPatterns,
-    resolveTenantNs,
-    stripeClient,
-    stripeWebhookSecret,
-  } = config
+  const { db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret } = config
 
   const baseURL = `https://${authDomain}`
 
@@ -93,7 +86,7 @@ export function createAuth(config: AuthConfig) {
 
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
-      updateAge: 60 * 60 * 24,     // Update session every 24 hours
+      updateAge: 60 * 60 * 24, // Update session every 24 hours
 
       // Generate cross-domain session tokens
       // These can be exchanged for session cookies on tenant domains
@@ -197,9 +190,7 @@ export function createAuth(config: AuthConfig) {
       // After OAuth completes, handle cross-domain redirect
       async onOAuthSuccess({ user, session, state }) {
         // Decode state to get return URL
-        const stateData = JSON.parse(
-          Buffer.from(state || '', 'base64url').toString()
-        )
+        const stateData = JSON.parse(Buffer.from(state || '', 'base64url').toString())
         const returnTo = stateData?.returnTo
 
         if (returnTo) {
@@ -233,10 +224,7 @@ export function createAuth(config: AuthConfig) {
  * Generate a one-time token for cross-domain session transfer.
  * Token is stored in verifications table with short expiry.
  */
-async function generateCrossDomainToken(
-  db: DrizzleD1Database<typeof schema>,
-  sessionId: string
-): Promise<string> {
+async function generateCrossDomainToken(db: DrizzleD1Database<typeof schema>, sessionId: string): Promise<string> {
   const token = crypto.randomUUID()
 
   await db.insert(schema.verifications).values({
@@ -255,16 +243,9 @@ async function generateCrossDomainToken(
  * Exchange a cross-domain token for a session.
  * Call this on the tenant domain to establish a session cookie.
  */
-export async function exchangeCrossDomainToken(
-  db: DrizzleD1Database<typeof schema>,
-  token: string
-): Promise<{ sessionId: string } | null> {
+export async function exchangeCrossDomainToken(db: DrizzleD1Database<typeof schema>, token: string): Promise<{ sessionId: string } | null> {
   const verification = await db.query.verifications.findFirst({
-    where: (t, { eq, and, gt }) =>
-      and(
-        eq(t.identifier, `cross_domain:${token}`),
-        gt(t.expiresAt, new Date())
-      ),
+    where: (t, { eq, and, gt }) => and(eq(t.identifier, `cross_domain:${token}`), gt(t.expiresAt, new Date())),
   })
 
   if (!verification) {
@@ -272,9 +253,7 @@ export async function exchangeCrossDomainToken(
   }
 
   // Delete the token (one-time use)
-  await db.delete(schema.verifications).where(
-    (t, { eq }) => eq(t.id, verification.id)
-  )
+  await db.delete(schema.verifications).where((t, { eq }) => eq(t.id, verification.id))
 
   return { sessionId: verification.value }
 }
@@ -286,11 +265,7 @@ export async function exchangeCrossDomainToken(
 /**
  * Validate that a domain is allowed for cross-domain redirect.
  */
-async function validateDomain(
-  domain: string,
-  patterns: string[],
-  resolveTenantNs: (domain: string) => Promise<string | null>
-): Promise<boolean> {
+async function validateDomain(domain: string, patterns: string[], resolveTenantNs: (domain: string) => Promise<string | null>): Promise<boolean> {
   // Check against patterns (e.g., '*.headless.ly', 'crm.*.com')
   for (const pattern of patterns) {
     if (matchDomainPattern(domain, pattern)) {
@@ -307,9 +282,7 @@ async function validateDomain(
  * Match a domain against a wildcard pattern.
  */
 function matchDomainPattern(domain: string, pattern: string): boolean {
-  const regex = new RegExp(
-    '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '[^.]+') + '$'
-  )
+  const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '[^.]+') + '$')
   return regex.test(domain)
 }
 
@@ -333,10 +306,7 @@ function extractRootDomain(domain: string): string {
  * Handler for tenant domain auth callback.
  * Call this at /auth/callback on each tenant domain.
  */
-export async function handleTenantAuthCallback(
-  request: Request,
-  db: DrizzleD1Database<typeof schema>
-): Promise<Response> {
+export async function handleTenantAuthCallback(request: Request, db: DrizzleD1Database<typeof schema>): Promise<Response> {
   const url = new URL(request.url)
   const token = url.searchParams.get('auth_token')
 
@@ -362,10 +332,7 @@ export async function handleTenantAuthCallback(
 
   // Set session cookie on this domain
   const headers = new Headers()
-  headers.set(
-    'Set-Cookie',
-    `session_token=${session.token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`
-  )
+  headers.set('Set-Cookie', `session_token=${session.token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`)
 
   // Redirect to dashboard or intended page
   const returnTo = url.searchParams.get('return_to') || '/'
@@ -385,7 +352,7 @@ export async function handleTenantAuthCallback(
 export async function registerCustomDomain(
   db: DrizzleD1Database<typeof schema>,
   organizationId: string,
-  domain: string
+  domain: string,
 ): Promise<{ verificationToken: string }> {
   // Get org to find tenantNs
   const org = await db.query.organizations.findFirst({
@@ -418,10 +385,7 @@ export async function registerCustomDomain(
 /**
  * Verify a custom domain via DNS TXT record.
  */
-export async function verifyCustomDomain(
-  db: DrizzleD1Database<typeof schema>,
-  domainId: string
-): Promise<boolean> {
+export async function verifyCustomDomain(db: DrizzleD1Database<typeof schema>, domainId: string): Promise<boolean> {
   const customDomain = await db.query.customDomains.findFirst({
     where: (t, { eq }) => eq(t.id, domainId),
   })
@@ -458,13 +422,9 @@ export async function verifyCustomDomain(
 /**
  * Look up tenant namespace by custom domain.
  */
-export async function lookupCustomDomain(
-  db: DrizzleD1Database<typeof schema>,
-  domain: string
-): Promise<string | null> {
+export async function lookupCustomDomain(db: DrizzleD1Database<typeof schema>, domain: string): Promise<string | null> {
   const customDomain = await db.query.customDomains.findFirst({
-    where: (t, { eq, and }) =>
-      and(eq(t.domain, domain), eq(t.verified, true)),
+    where: (t, { eq, and }) => and(eq(t.domain, domain), eq(t.verified, true)),
   })
 
   return customDomain?.tenantNs || null

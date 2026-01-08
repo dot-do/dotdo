@@ -31,22 +31,19 @@ const domainRegistry = new Map<string, DomainObject>()
  *   check: async (product, _, $) => ({ available: true })
  * })
  */
-export function Domain(
-  name: string,
-  handlers: Record<string, Function>
-): DomainObject {
+export function Domain(name: string, handlers: Record<string, Function>): DomainObject {
   const wrappedHandlers: Record<string, Handler> = {}
 
   for (const [handlerName, fn] of Object.entries(handlers)) {
     wrappedHandlers[handlerName] = {
       fn,
-      source: fn.toString()
+      source: fn.toString(),
     }
   }
 
   return {
     name,
-    handlers: wrappedHandlers
+    handlers: wrappedHandlers,
   }
 }
 

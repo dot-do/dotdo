@@ -15,10 +15,10 @@ description: Use when working with the base Durable Object class (dotdo). Handle
 ## Entry Points
 
 ```typescript
-import { DO } from 'dotdo'        // Full featured
-import { DO } from 'dotdo/tiny'   // Minimal, no deps
-import { DO } from 'dotdo/rpc'    // Expects deps as RPC bindings
-import { DO } from 'dotdo/auth'   // With Better Auth
+import { DO } from 'dotdo' // Full featured
+import { DO } from 'dotdo/tiny' // Minimal, no deps
+import { DO } from 'dotdo/rpc' // Expects deps as RPC bindings
+import { DO } from 'dotdo/auth' // With Better Auth
 ```
 
 ### When to Use Each
@@ -67,8 +67,8 @@ Every DO has an AI agent built in. The `do()` method accepts natural language:
 
 ```typescript
 // Via any transport
-await myDO.do("Create a user named Alice with admin privileges")
-await myDO.do("Generate a report of sales from last month")
+await myDO.do('Create a user named Alice with admin privileges')
+await myDO.do('Generate a report of sales from last month')
 ```
 
 ## Checklist for New DO Features

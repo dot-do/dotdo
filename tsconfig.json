@@ -18,10 +18,6 @@
       "dotdo/*": ["./*"]
     }
   },
-  "include": [
-    "api/**/*",
-    "objects/**/*",
-    "types/**/*"
-  ],
+  "include": ["api/**/*", "objects/**/*", "types/**/*"],
   "exclude": ["node_modules", "dist", "app"]
 }

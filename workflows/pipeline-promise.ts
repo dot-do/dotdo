@@ -49,22 +49,14 @@ const PIPELINE_PROMISE_MARKER = Symbol.for('__isPipelinePromise')
  * Type guard to check if a value is a PipelinePromise
  */
 export function isPipelinePromise(value: unknown): value is PipelinePromise {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    '__isPipelinePromise' in value &&
-    (value as any).__isPipelinePromise === true
-  )
+  return value !== null && typeof value === 'object' && '__isPipelinePromise' in value && (value as any).__isPipelinePromise === true
 }
 
 /**
  * Creates a PipelinePromise that captures an expression without executing it.
  * The promise is both a Thenable (can be awaited) and a Proxy (property access works).
  */
-export function createPipelinePromise<T = unknown>(
-  expr: PipelineExpression,
-  options: WorkflowProxyOptions
-): PipelinePromise<T> {
+export function createPipelinePromise<T = unknown>(expr: PipelineExpression, options: WorkflowProxyOptions): PipelinePromise<T> {
   const defaultExecute = async (e: PipelineExpression): Promise<unknown> => {
     throw new Error('No execute function provided - cannot resolve pipeline')
   }
@@ -78,22 +70,17 @@ export function createPipelinePromise<T = unknown>(
 
     then<TResult1 = T, TResult2 = never>(
       onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-      onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+      onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
     ): PipelinePromise<TResult1 | TResult2> {
       // When awaited, trigger execution
-      const resultPromise = execute(expr).then(
-        onFulfilled as any,
-        onRejected
-      )
+      const resultPromise = execute(expr).then(onFulfilled as any, onRejected)
 
       // Wrap the result in a PipelinePromise for chaining
       // This creates a "resolved" pipeline promise
       return createResolvedPipelinePromise(resultPromise, options)
     },
 
-    catch<TResult = never>(
-      onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null
-    ): PipelinePromise<T | TResult> {
+    catch<TResult = never>(onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): PipelinePromise<T | TResult> {
       return this.then(undefined, onRejected) as PipelinePromise<T | TResult>
     },
 
@@ -111,11 +98,11 @@ export function createPipelinePromise<T = unknown>(
       const mapExpr: PipelineExpression = {
         type: 'map',
         array: expr,
-        mapper
+        mapper,
       }
 
       return createPipelinePromise<U[]>(mapExpr, options)
-    }
+    },
   }
 
   // Wrap in Proxy for property access
@@ -145,38 +132,33 @@ export function createPipelinePromise<T = unknown>(
       const propertyExpr: PipelineExpression = {
         type: 'property',
         base: expr,
-        property: String(prop)
+        property: String(prop),
       }
 
       return createPipelinePromise(propertyExpr, options)
-    }
+    },
   }) as PipelinePromise<T>
 }
 
 /**
  * Creates a resolved pipeline promise (for chained .then() calls)
  */
-function createResolvedPipelinePromise<T>(
-  resultPromise: Promise<T>,
-  options: WorkflowProxyOptions
-): PipelinePromise<T> {
+function createResolvedPipelinePromise<T>(resultPromise: Promise<T>, options: WorkflowProxyOptions): PipelinePromise<T> {
   const promiseBase = {
     __expr: { type: 'call', domain: '__resolved__', method: [], context: null, args: [] } as PipelineExpression,
     __isPipelinePromise: true as const,
 
     then<TResult1 = T, TResult2 = never>(
       onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-      onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+      onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
     ): PipelinePromise<TResult1 | TResult2> {
       const nextPromise = resultPromise.then(onFulfilled as any, onRejected)
       return createResolvedPipelinePromise(nextPromise, options)
     },
 
-    catch<TResult = never>(
-      onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null
-    ): PipelinePromise<T | TResult> {
+    catch<TResult = never>(onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): PipelinePromise<T | TResult> {
       return this.then(undefined, onRejected) as PipelinePromise<T | TResult>
-    }
+    },
   }
 
   return new Proxy(promiseBase, {
@@ -186,7 +168,7 @@ function createResolvedPipelinePromise<T>(
         return typeof value === 'function' ? value.bind(target) : value
       }
       return undefined
-    }
+    },
   }) as PipelinePromise<T>
 }
 
@@ -217,11 +199,11 @@ function createPlaceholderProxy(path: string[], options: WorkflowProxyOptions): 
       const mapExpr: PipelineExpression = {
         type: 'map',
         array: expr,
-        mapper
+        mapper,
       }
 
       return createPipelinePromise(mapExpr, options)
-    }
+    },
   }
 
   return new Proxy(placeholder, {
@@ -241,7 +223,7 @@ function createPlaceholderProxy(path: string[], options: WorkflowProxyOptions): 
 
       // Return a new placeholder with extended path for property access
       return createPlaceholderProxy([...path, String(prop)], options)
-    }
+    },
   })
 }
 
@@ -255,11 +237,13 @@ function extractMapperInstructions(result: any, placeholder: any): MapperInstruc
     if (expr.type === 'call') {
       // Find input paths by looking at placeholder properties used in context
       const inputPaths = findPlaceholderPaths(expr.context)
-      return [{
-        operation: 'call',
-        path: [expr.domain, ...expr.method],
-        inputPaths
-      }]
+      return [
+        {
+          operation: 'call',
+          path: [expr.domain, ...expr.method],
+          inputPaths,
+        },
+      ]
     }
   }
   return []
@@ -329,130 +313,142 @@ function captureExpr(value: unknown, options: WorkflowProxyOptions): PipelineExp
  * Creates the $ workflow proxy that captures domain method calls
  */
 export function createWorkflowProxy(options: WorkflowProxyOptions = {}): any {
-  return new Proxy({}, {
-    get(target, domain) {
-      if (typeof domain === 'symbol') {
-        return undefined
-      }
-
-      // Handle $.when(condition, { then, else }) - simple conditional
-      if (domain === 'when') {
-        return (condition: PipelinePromise<boolean>, branches: { then: () => unknown; else?: () => unknown }) => {
-          const conditionExpr = isPipelinePromise(condition) ? condition.__expr : {
-            type: 'literal' as const,
-            value: condition
-          }
-
-          // Capture branch expressions
-          const thenResult = branches.then()
-          const elseResult = branches.else?.()
-
-          const thenBranch = captureExpr(thenResult, options)
-          const elseBranch = elseResult !== undefined ? captureExpr(elseResult, options) : null
-
-          const conditionalExpr: PipelineExpression = {
-            type: 'conditional',
-            condition: conditionExpr,
-            thenBranch,
-            elseBranch
-          }
-
-          return createPipelinePromise(conditionalExpr, options)
+  return new Proxy(
+    {},
+    {
+      get(target, domain) {
+        if (typeof domain === 'symbol') {
+          return undefined
         }
-      }
 
-      // Handle $.branch(value, cases) - multi-way conditional
-      if (domain === 'branch') {
-        return (value: PipelinePromise<string>, cases: Record<string, () => unknown> & { default?: () => unknown }) => {
-          const valueExpr = isPipelinePromise(value) ? value.__expr : {
-            type: 'literal' as const,
-            value
-          }
+        // Handle $.when(condition, { then, else }) - simple conditional
+        if (domain === 'when') {
+          return (condition: PipelinePromise<boolean>, branches: { then: () => unknown; else?: () => unknown }) => {
+            const conditionExpr = isPipelinePromise(condition)
+              ? condition.__expr
+              : {
+                  type: 'literal' as const,
+                  value: condition,
+                }
 
-          const capturedCases: Record<string, PipelineExpression> = {}
-          for (const [key, fn] of Object.entries(cases)) {
-            if (typeof fn === 'function') {
-              const result = fn()
-              capturedCases[key] = captureExpr(result, options)
-            }
-          }
+            // Capture branch expressions
+            const thenResult = branches.then()
+            const elseResult = branches.else?.()
 
-          const branchExpr: PipelineExpression = {
-            type: 'branch',
-            value: valueExpr,
-            cases: capturedCases
-          }
+            const thenBranch = captureExpr(thenResult, options)
+            const elseBranch = elseResult !== undefined ? captureExpr(elseResult, options) : null
 
-          return createPipelinePromise(branchExpr, options)
-        }
-      }
-
-      // Handle $.match(value, patterns) - pattern matching
-      if (domain === 'match') {
-        return (value: PipelinePromise, patterns: Array<[(v: unknown) => boolean, () => unknown]>) => {
-          const valueExpr = isPipelinePromise(value) ? value.__expr : {
-            type: 'literal' as const,
-            value
-          }
-
-          const capturedPatterns = patterns.map(([predicate, resultFn]) => ({
-            predicateSource: predicate.toString(),
-            result: captureExpr(resultFn(), options)
-          }))
-
-          const matchExpr: PipelineExpression = {
-            type: 'match',
-            value: valueExpr,
-            patterns: capturedPatterns
-          }
-
-          return createPipelinePromise(matchExpr, options)
-        }
-      }
-
-      // Handle $.waitFor(eventName, options) - human-in-the-loop / external events
-      // This causes the workflow to hibernate until the event is received
-      if (domain === 'waitFor') {
-        return (eventName: string, waitOptions: { timeout?: string; type?: string } = {}) => {
-          const waitForExpr: PipelineExpression = {
-            type: 'waitFor',
-            eventName,
-            options: waitOptions
-          }
-
-          return createPipelinePromise(waitForExpr, options)
-        }
-      }
-
-      // Return a function that creates the domain context
-      return (context: unknown) => {
-        // Return a proxy for method calls on the domain
-        return new Proxy({}, {
-          get(methodTarget, method) {
-            if (typeof method === 'symbol') {
-              return undefined
+            const conditionalExpr: PipelineExpression = {
+              type: 'conditional',
+              condition: conditionExpr,
+              thenBranch,
+              elseBranch,
             }
 
-            // Return a function that creates the pipeline expression
-            return (...args: unknown[]) => {
-              const expr: PipelineExpression = {
-                type: 'call',
-                domain: String(domain),
-                method: [String(method)],
-                context,
-                args
+            return createPipelinePromise(conditionalExpr, options)
+          }
+        }
+
+        // Handle $.branch(value, cases) - multi-way conditional
+        if (domain === 'branch') {
+          return (value: PipelinePromise<string>, cases: Record<string, () => unknown> & { default?: () => unknown }) => {
+            const valueExpr = isPipelinePromise(value)
+              ? value.__expr
+              : {
+                  type: 'literal' as const,
+                  value,
+                }
+
+            const capturedCases: Record<string, PipelineExpression> = {}
+            for (const [key, fn] of Object.entries(cases)) {
+              if (typeof fn === 'function') {
+                const result = fn()
+                capturedCases[key] = captureExpr(result, options)
               }
-
-              // Don't execute immediately, just capture
-              // Note: onExecute is NOT called here - that's the point of deferred execution
-
-              return createPipelinePromise(expr, options)
             }
+
+            const branchExpr: PipelineExpression = {
+              type: 'branch',
+              value: valueExpr,
+              cases: capturedCases,
+            }
+
+            return createPipelinePromise(branchExpr, options)
           }
-        })
-      }
-    }
-  })
+        }
+
+        // Handle $.match(value, patterns) - pattern matching
+        if (domain === 'match') {
+          return (value: PipelinePromise, patterns: Array<[(v: unknown) => boolean, () => unknown]>) => {
+            const valueExpr = isPipelinePromise(value)
+              ? value.__expr
+              : {
+                  type: 'literal' as const,
+                  value,
+                }
+
+            const capturedPatterns = patterns.map(([predicate, resultFn]) => ({
+              predicateSource: predicate.toString(),
+              result: captureExpr(resultFn(), options),
+            }))
+
+            const matchExpr: PipelineExpression = {
+              type: 'match',
+              value: valueExpr,
+              patterns: capturedPatterns,
+            }
+
+            return createPipelinePromise(matchExpr, options)
+          }
+        }
+
+        // Handle $.waitFor(eventName, options) - human-in-the-loop / external events
+        // This causes the workflow to hibernate until the event is received
+        if (domain === 'waitFor') {
+          return (eventName: string, waitOptions: { timeout?: string; type?: string } = {}) => {
+            const waitForExpr: PipelineExpression = {
+              type: 'waitFor',
+              eventName,
+              options: waitOptions,
+            }
+
+            return createPipelinePromise(waitForExpr, options)
+          }
+        }
+
+        // Return a function that creates the domain context
+        return (context: unknown) => {
+          // Return a proxy for method calls on the domain
+          return new Proxy(
+            {},
+            {
+              get(methodTarget, method) {
+                if (typeof method === 'symbol') {
+                  return undefined
+                }
+
+                // Return a function that creates the pipeline expression
+                return (...args: unknown[]) => {
+                  const expr: PipelineExpression = {
+                    type: 'call',
+                    domain: String(domain),
+                    method: [String(method)],
+                    context,
+                    args,
+                  }
+
+                  // Don't execute immediately, just capture
+                  // Note: onExecute is NOT called here - that's the point of deferred execution
+
+                  return createPipelinePromise(expr, options)
+                }
+              },
+            },
+          )
+        }
+      },
+    },
+  )
 }
 
 // ============================================================================
@@ -544,7 +540,7 @@ export function analyzeExpressions(expressions: PipelinePromise[]): {
   const dependent: PipelinePromise[] = []
 
   // Build a set of all expression references
-  const exprSet = new Set(expressions.map(e => e.__expr))
+  const exprSet = new Set(expressions.map((e) => e.__expr))
 
   for (const expr of expressions) {
     const deps = findDependencies(expr.__expr, exprSet)
@@ -606,9 +602,4 @@ function findBaseExpression(expr: PipelineExpression): PipelineExpression {
 // Re-exports from analyzer module (for advanced analysis)
 // ============================================================================
 
-export {
-  analyzeExpressionsFull,
-  findEmbeddedPromises,
-  type AnalysisResult,
-  type SimpleAnalysisResult
-} from './analyzer'
+export { analyzeExpressionsFull, findEmbeddedPromises, type AnalysisResult, type SimpleAnalysisResult } from './analyzer'

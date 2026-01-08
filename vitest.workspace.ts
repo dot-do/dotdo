@@ -5,10 +5,15 @@ export default defineWorkspace([
   {
     test: {
       name: 'node',
-      include: [
-        'api/tests/setup.test.ts',
-        'api/tests/static-assets.test.ts',
-      ],
+      include: ['api/tests/setup.test.ts', 'api/tests/static-assets.test.ts'],
+      environment: 'node',
+    },
+  },
+  // Schema tests for database/auth
+  {
+    test: {
+      name: 'schema',
+      include: ['db/tests/**/*.test.ts'],
       environment: 'node',
     },
   },
@@ -17,11 +22,7 @@ export default defineWorkspace([
     extends: './vitest.workers.config.ts',
     test: {
       name: 'workers',
-      include: [
-        'api/tests/infrastructure/**/*.test.ts',
-        'api/tests/routes/**/*.test.ts',
-        'api/tests/middleware/**/*.test.ts',
-      ],
+      include: ['api/tests/infrastructure/**/*.test.ts', 'api/tests/routes/**/*.test.ts', 'api/tests/middleware/**/*.test.ts'],
     },
   },
 ])

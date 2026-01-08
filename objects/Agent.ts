@@ -122,8 +122,8 @@ export class Agent extends Worker {
     const memories = await this.getRecentMemories(5)
     return {
       goal: goal.description,
-      memories: memories.map(m => m.content),
-      tools: this.getTools().map(t => t.name),
+      memories: memories.map((m) => m.content),
+      tools: this.getTools().map((t) => t.name),
     }
   }
 
@@ -133,7 +133,7 @@ export class Agent extends Worker {
   protected async think(
     goal: Goal,
     observation: Record<string, unknown>,
-    previousActions: string[]
+    previousActions: string[],
   ): Promise<{ type: 'action' | 'complete'; description: string; tool?: string; input?: unknown; result?: unknown }> {
     // Override in subclasses with actual AI reasoning
     // This is a stub that completes immediately
@@ -174,9 +174,7 @@ export class Agent extends Worker {
   async getRecentMemories(limit: number = 10): Promise<Memory[]> {
     const map = await this.ctx.storage.list({ prefix: 'memory:' })
     const memories = Array.from(map.values()) as Memory[]
-    return memories
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, limit)
+    return memories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit)
   }
 
   /**
@@ -185,7 +183,7 @@ export class Agent extends Worker {
   async searchMemories(query: string): Promise<Memory[]> {
     const memories = await this.getRecentMemories(100)
     const lowerQuery = query.toLowerCase()
-    return memories.filter(m => m.content.toLowerCase().includes(lowerQuery))
+    return memories.filter((m) => m.content.toLowerCase().includes(lowerQuery))
   }
 
   // Worker interface implementations
@@ -202,7 +200,7 @@ export class Agent extends Worker {
     const memories = await this.searchMemories(question)
     return {
       text: `Agent answer to: ${question}`,
-      sources: memories.map(m => m.id),
+      sources: memories.map((m) => m.id),
     }
   }
 

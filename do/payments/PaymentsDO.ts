@@ -127,7 +127,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: data.connectedAccountId,
-      }
+      },
     )
 
     // Record the charge
@@ -188,7 +188,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: data.connectedAccountId,
-      }
+      },
     )
 
     // Record the charge
@@ -227,7 +227,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
    */
   async refundCharge(
     chargeId: string,
-    options?: { amount?: number; reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer' }
+    options?: { amount?: number; reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer' },
   ): Promise<{ refundId: string; amount: number }> {
     const charge = await this.db.query.charges.findFirst({
       where: eq(schema.charges.id, chargeId),
@@ -246,14 +246,11 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: charge.connectedAccountId,
-      }
+      },
     )
 
     // Update charge status
-    await this.db
-      .update(schema.charges)
-      .set({ status: 'refunded', updatedAt: new Date() })
-      .where(eq(schema.charges.id, chargeId))
+    await this.db.update(schema.charges).set({ status: 'refunded', updatedAt: new Date() }).where(eq(schema.charges.id, chargeId))
 
     return {
       refundId: refund.id,
@@ -285,7 +282,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: data.connectedAccountId,
-      }
+      },
     )
 
     // Record subscription
@@ -320,10 +317,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
   /**
    * Cancel a subscription
    */
-  async cancelSubscription(
-    subscriptionId: string,
-    options?: { cancelAtPeriodEnd?: boolean }
-  ): Promise<void> {
+  async cancelSubscription(subscriptionId: string, options?: { cancelAtPeriodEnd?: boolean }): Promise<void> {
     const sub = await this.db.query.subscriptions.findFirst({
       where: eq(schema.subscriptions.id, subscriptionId),
     })
@@ -333,23 +327,13 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
     }
 
     if (options?.cancelAtPeriodEnd) {
-      await this.stripe.subscriptions.update(
-        sub.stripeSubscriptionId,
-        { cancel_at_period_end: true },
-        { stripeAccount: sub.connectedAccountId }
-      )
-      await this.db
-        .update(schema.subscriptions)
-        .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
-        .where(eq(schema.subscriptions.id, subscriptionId))
+      await this.stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true }, { stripeAccount: sub.connectedAccountId })
+      await this.db.update(schema.subscriptions).set({ cancelAtPeriodEnd: true, updatedAt: new Date() }).where(eq(schema.subscriptions.id, subscriptionId))
     } else {
       await this.stripe.subscriptions.cancel(sub.stripeSubscriptionId, {
         stripeAccount: sub.connectedAccountId,
       })
-      await this.db
-        .update(schema.subscriptions)
-        .set({ status: 'canceled', updatedAt: new Date() })
-        .where(eq(schema.subscriptions.id, subscriptionId))
+      await this.db.update(schema.subscriptions).set({ status: 'canceled', updatedAt: new Date() }).where(eq(schema.subscriptions.id, subscriptionId))
     }
   }
 
@@ -380,7 +364,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: data.connectedAccountId,
-      }
+      },
     )
 
     // Record locally
@@ -407,11 +391,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
   /**
    * Get usage summary for a subscription item
    */
-  async getUsageSummary(
-    subscriptionItemId: string,
-    periodStart?: Date,
-    periodEnd?: Date
-  ): Promise<{ quantity: number; records: UsageRecord[] }> {
+  async getUsageSummary(subscriptionItemId: string, periodStart?: Date, periodEnd?: Date): Promise<{ quantity: number; records: UsageRecord[] }> {
     const conditions = [eq(schema.usageRecords.subscriptionItemId, subscriptionItemId)]
 
     if (periodStart) {
@@ -466,7 +446,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
       },
       {
         stripeAccount: data.connectedAccountId,
-      }
+      },
     )
 
     const id = crypto.randomUUID()
@@ -491,17 +471,10 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
   /**
    * Get or create customer by email
    */
-  async getOrCreateCustomer(data: {
-    connectedAccountId: string
-    email: string
-    name?: string
-  }): Promise<{ id: string; stripeCustomerId: string }> {
+  async getOrCreateCustomer(data: { connectedAccountId: string; email: string; name?: string }): Promise<{ id: string; stripeCustomerId: string }> {
     // Check if exists locally
     const existing = await this.db.query.customers.findFirst({
-      where: and(
-        eq(schema.customers.connectedAccountId, data.connectedAccountId),
-        eq(schema.customers.email, data.email)
-      ),
+      where: and(eq(schema.customers.connectedAccountId, data.connectedAccountId), eq(schema.customers.email, data.email)),
     })
 
     if (existing) {
@@ -521,11 +494,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
   /**
    * Get platform revenue for a period
    */
-  async getPlatformRevenue(options?: {
-    startDate?: Date
-    endDate?: Date
-    connectedAccountId?: string
-  }): Promise<{
+  async getPlatformRevenue(options?: { startDate?: Date; endDate?: Date; connectedAccountId?: string }): Promise<{
     totalRevenue: number
     totalFees: number
     chargeCount: number
@@ -630,10 +599,7 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
   }
 
   private async handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-    await this.db
-      .update(schema.charges)
-      .set({ status: 'failed', updatedAt: new Date() })
-      .where(eq(schema.charges.stripePaymentIntentId, paymentIntent.id))
+    await this.db.update(schema.charges).set({ status: 'failed', updatedAt: new Date() }).where(eq(schema.charges.stripePaymentIntentId, paymentIntent.id))
   }
 
   private async handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
@@ -663,14 +629,12 @@ export class PaymentsDO extends DurableObject<PaymentsEnv> {
         id: crypto.randomUUID(),
         stripeInvoiceId: invoice.id,
         subscriptionId: invoice.subscription as string,
-        connectedAccountId: invoice.account as string || '',
+        connectedAccountId: (invoice.account as string) || '',
         customerId: invoice.customer as string,
         amount: invoice.amount_paid,
         currency: invoice.currency,
         status: 'paid',
-        paidAt: invoice.status_transitions?.paid_at
-          ? new Date(invoice.status_transitions.paid_at * 1000)
-          : new Date(),
+        paidAt: invoice.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000) : new Date(),
         createdAt: new Date(),
       })
     }

@@ -210,20 +210,19 @@ export class DO extends DurableObject<Env> {
   // ACTION LOGGING (append-only)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  protected async logAction(
-    durability: 'send' | 'try' | 'do',
-    verb: string,
-    input: unknown
-  ): Promise<{ rowid: number }> {
-    const result = await this.db.insert(schema.actions).values({
-      id: crypto.randomUUID(),
-      verb,
-      target: this.ns,
-      actor: '', // TODO: Get from context
-      input: input as Record<string, unknown>,
-      status: 'pending',
-      createdAt: new Date(),
-    }).returning({ rowid: schema.actions.id })
+  protected async logAction(durability: 'send' | 'try' | 'do', verb: string, input: unknown): Promise<{ rowid: number }> {
+    const result = await this.db
+      .insert(schema.actions)
+      .values({
+        id: crypto.randomUUID(),
+        verb,
+        target: this.ns,
+        actor: '', // TODO: Get from context
+        input: input as Record<string, unknown>,
+        status: 'pending',
+        createdAt: new Date(),
+      })
+      .returning({ rowid: schema.actions.id })
 
     return { rowid: 0 } // SQLite rowid
   }
@@ -378,18 +377,24 @@ export class DO extends DurableObject<Env> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   protected createOnProxy(): Record<string, Record<string, (handler: Function) => void>> {
-    return new Proxy({}, {
-      get: (_, noun: string) => {
-        return new Proxy({}, {
-          get: (_, verb: string) => {
-            return (handler: Function) => {
-              // Register event handler
-              // Store in event handlers registry
-            }
-          },
-        })
+    return new Proxy(
+      {},
+      {
+        get: (_, noun: string) => {
+          return new Proxy(
+            {},
+            {
+              get: (_, verb: string) => {
+                return (handler: Function) => {
+                  // Register event handler
+                  // Store in event handlers registry
+                }
+              },
+            },
+          )
+        },
       },
-    })
+    )
   }
 
   protected createScheduleBuilder(): unknown {

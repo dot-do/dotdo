@@ -14,6 +14,7 @@ description: Use when working with Cloudflare Snippets - free tier workers with 
 ## Snippet Constraints
 
 **CRITICAL** - All snippets must:
+
 - Use < 5ms CPU time
 - Be < 32KB compressed
 - Have NO bindings (no KV, D1, DO, etc.)
@@ -32,16 +33,19 @@ Each snippet passes control to the next via `fetch(request)`.
 ## Available Snippets
 
 ### cache.ts
+
 - Edge caching with Cloudflare Cache API
 - Analytics event capture (fires on every request, even cache hits)
 - Settings/session cookie management (sqid-based)
 
 ### auth.ts
+
 - JWT verification via subrequest to jose worker
 - Adds auth context to request headers
 - Cookie parsing for auth token
 
 ### router.ts
+
 - Dynamic routing to Static Assets
 - Hostname → site bundle mapping
 - llms.txt endpoint for LLM consumption
@@ -65,11 +69,11 @@ Each snippet passes control to the next via `fetch(request)`.
 
 ## Cookie Strategy
 
-| Cookie | Format | Purpose |
-|--------|--------|---------|
-| auth | JWT | User authentication |
-| settings | sqid | Anonymous ID + preferences |
-| session | sqid | Session tracking |
+| Cookie   | Format | Purpose                    |
+| -------- | ------ | -------------------------- |
+| auth     | JWT    | User authentication        |
+| settings | sqid   | Anonymous ID + preferences |
+| session  | sqid   | Session tracking           |
 
 ## Checklist for New Snippets
 

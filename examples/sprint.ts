@@ -70,61 +70,61 @@ export const SprintCycleWorkflow = Workflow('sprint-cycle', ($, startup: Startup
   const backlog = $.Backlog({ startupId: startup.id }).getItems()
 
   // Magic map: AI analyzes each item
-  const prioritized = backlog.map(item =>
+  const prioritized = backlog.map((item) =>
     $.AI({ context: startup.mission }).prioritize({
       item,
-      criteria: ['business_impact', 'technical_feasibility', 'user_demand', 'strategic_alignment']
-    })
+      criteria: ['business_impact', 'technical_feasibility', 'user_demand', 'strategic_alignment'],
+    }),
   )
 
   // Step 2: Create sprint with top 10 items (sorted by AI priority)
   const sprint = $.Sprint({ startupId: startup.id }).create({
     items: prioritized, // Will be sorted by engine
     duration: '2 weeks',
-    goal: $.AI({ context: startup.mission }).generateSprintGoal({ items: prioritized })
+    goal: $.AI({ context: startup.mission }).generateSprintGoal({ items: prioritized }),
   })
 
   // Step 3: Schedule daily standups
   $.Standup({ teamId: startup.id }).scheduleDaily({
     time: '9am',
     channel: startup.teamSlackChannel,
-    sprintId: sprint.id
+    sprintId: sprint.id,
   })
 
   // Notify team
   $.Slack({ channel: startup.teamSlackChannel }).post({
     template: 'sprint-started',
-    data: { sprint, prioritized }
+    data: { sprint, prioritized },
   })
 
   // Step 4: HIBERNATE FOR 2 WEEKS - zero compute cost
   const sprintResult = $.waitFor('sprint-complete', {
     timeout: '2 weeks',
-    type: 'sprint-ended'
+    type: 'sprint-ended',
   })
 
   // Step 5: Generate AI-powered retrospective
   const standupFeedback = $.Standup({ teamId: startup.id }).aggregateFeedback({
-    sprintId: sprint.id
+    sprintId: sprint.id,
   })
 
   const retrospective = $.AI({ role: 'agile-coach' }).generateRetro({
     sprint: sprintResult,
     standupFeedback,
-    teamContext: startup
+    teamContext: startup,
   })
 
   // Step 6: Post retro and plan next sprint
   $.Slack({ channel: startup.teamSlackChannel }).post({
     template: 'sprint-retro',
-    data: { retrospective, sprint: sprintResult }
+    data: { retrospective, sprint: sprintResult },
   })
 
   // Carry over incomplete items
   const nextSprintItems = $.Sprint({ startupId: startup.id }).planNext({
     previousRetro: retrospective,
     incompleteItems: sprintResult.incomplete,
-    remainingBacklog: backlog // Filtered by engine
+    remainingBacklog: backlog, // Filtered by engine
   })
 
   return {
@@ -133,7 +133,7 @@ export const SprintCycleWorkflow = Workflow('sprint-cycle', ($, startup: Startup
     result: sprintResult,
     retrospective,
     nextSprintItems,
-    velocity: sprintResult.velocity
+    velocity: sprintResult.velocity,
   }
 })
 
@@ -158,25 +158,25 @@ export const WeeklyReportWorkflow = Workflow('weekly-report')
     const insights = $.AI({ role: 'business-analyst' }).generateInsights({
       current: { sales, support, engineering, product },
       previous: previousWeek,
-      trends: $.Analytics({}).calculateTrends({ weeks: 4 })
+      trends: $.Analytics({}).calculateTrends({ weeks: 4 }),
     })
 
     // Create and store report
     const report = $.Reports({ type: 'weekly' }).create({
       metrics: { sales, support, engineering, product },
       insights,
-      generatedAt: new Date()
+      generatedAt: new Date(),
     })
 
     // Distribute to stakeholders
     $.Slack({ channel: '#leadership' }).post({
       template: 'weekly-report',
-      data: { report, insights }
+      data: { report, insights },
     })
 
     $.Email({ list: 'executives' }).send({
       template: 'weekly-digest',
-      data: { report, insights }
+      data: { report, insights },
     })
 
     return report
@@ -191,7 +191,7 @@ export const BacklogGroomingWorkflow = Workflow('backlog-grooming', ($, startupI
   const rawItems = $.Backlog({ startupId }).getUngroomed()
 
   // AI processes each item
-  const enriched = rawItems.map(item => ({
+  const enriched = rawItems.map((item) => ({
     ...item,
     // AI estimates effort
     effort: $.AI({ role: 'tech-lead' }).estimateEffort({ item }),
@@ -200,21 +200,19 @@ export const BacklogGroomingWorkflow = Workflow('backlog-grooming', ($, startupI
     // AI identifies dependencies
     dependencies: $.AI({ role: 'architect' }).identifyDependencies({
       item,
-      existingItems: rawItems
+      existingItems: rawItems,
     }),
     // AI generates acceptance criteria
-    acceptanceCriteria: $.AI({ role: 'qa-engineer' }).generateAcceptanceCriteria({ item })
+    acceptanceCriteria: $.AI({ role: 'qa-engineer' }).generateAcceptanceCriteria({ item }),
   }))
 
   // Update items in backlog
-  const updated = enriched.map(item =>
-    $.Backlog({ startupId }).updateItem(item)
-  )
+  const updated = enriched.map((item) => $.Backlog({ startupId }).updateItem(item))
 
   // Notify product team
   $.Slack({ channel: '#product' }).post({
     template: 'grooming-complete',
-    data: { itemCount: rawItems.length, enriched }
+    data: { itemCount: rawItems.length, enriched },
   })
 
   return { groomedCount: rawItems.length, items: enriched }

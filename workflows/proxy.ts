@@ -105,7 +105,7 @@ function createPipelineProxy(pipeline: Pipeline): PipelineProxy {
       // Create a new pipeline with extended path
       return createPipelineProxy({
         ...pipeline,
-        path: [...pipeline.path, prop]
+        path: [...pipeline.path, prop],
       })
     },
 
@@ -113,7 +113,7 @@ function createPipelineProxy(pipeline: Pipeline): PipelineProxy {
     apply(_target, _thisArg, args: unknown[]) {
       const stepId = generateStepId(pipeline.path, pipeline.contextHash)
       return pipeline.runtime.executeStep(stepId, pipeline, args)
-    }
+    },
   })
 }
 
@@ -142,9 +142,9 @@ export function createWorkflowProxy(runtime: WorkflowRuntime): WorkflowAPI {
           path: [domain],
           context,
           contextHash,
-          runtime
+          runtime,
         })
       }
-    }
+    },
   })
 }

@@ -22,7 +22,7 @@ describe('Domain Registry', () => {
   describe('Domain factory (dotdo-1wv)', () => {
     it('creates domain object with name property', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true })
+        check: async (product, _, $) => ({ available: true }),
       })
 
       expect(inventory.name).toBe('Inventory')
@@ -31,7 +31,7 @@ describe('Domain Registry', () => {
     it('creates domain object with handlers object', () => {
       const inventory = Domain('Inventory', {
         check: async (product, _, $) => ({ available: true }),
-        reserve: async (product, { quantity }, $) => ({ reservationId: '123' })
+        reserve: async (product, { quantity }, $) => ({ reservationId: '123' }),
       })
 
       expect(inventory.handlers).toBeDefined()
@@ -41,7 +41,7 @@ describe('Domain Registry', () => {
 
     it('preserves handler functions that can be called', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true, sku: product.sku })
+        check: async (product, _, $) => ({ available: true, sku: product.sku }),
       })
 
       // The handler's fn property should be callable
@@ -50,10 +50,10 @@ describe('Domain Registry', () => {
 
     it('creates unique domains with different names', () => {
       const inventory = Domain('Inventory', {
-        check: async () => ({ available: true })
+        check: async () => ({ available: true }),
       })
       const payment = Domain('Payment', {
-        process: async () => ({ success: true })
+        process: async () => ({ success: true }),
       })
 
       expect(inventory.name).toBe('Inventory')
@@ -65,7 +65,7 @@ describe('Domain Registry', () => {
   describe('Handler source code capture (dotdo-s0z)', () => {
     it('stores handler source code as string', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true })
+        check: async (product, _, $) => ({ available: true }),
       })
 
       expect(typeof inventory.handlers.check.source).toBe('string')
@@ -76,7 +76,7 @@ describe('Domain Registry', () => {
         check: async (product, _, $) => {
           const result = { available: true, quantity: 42 }
           return result
-        }
+        },
       })
 
       // Source should contain recognizable parts of the function
@@ -89,7 +89,7 @@ describe('Domain Registry', () => {
         check: async (product, _, $) => {
           // This comment should appear in source
           return { available: product.inStock }
-        }
+        },
       })
 
       // The source should contain distinctive code from the handler
@@ -101,8 +101,8 @@ describe('Domain Registry', () => {
         check: async (product, _, $) => ({ available: true }),
         reserve: async (product, { quantity }, $) => ({
           reservationId: 'res-123',
-          quantity
-        })
+          quantity,
+        }),
       })
 
       expect(inventory.handlers.check.source).not.toBe(inventory.handlers.reserve.source)
@@ -114,7 +114,7 @@ describe('Domain Registry', () => {
   describe('resolveHandler by path (dotdo-pha)', () => {
     it('finds registered handler by domain and method path', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true })
+        check: async (product, _, $) => ({ available: true }),
       })
       registerDomain(inventory)
 
@@ -125,7 +125,7 @@ describe('Domain Registry', () => {
 
     it('resolved handler has fn property that is callable', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true })
+        check: async (product, _, $) => ({ available: true }),
       })
       registerDomain(inventory)
 
@@ -136,7 +136,7 @@ describe('Domain Registry', () => {
 
     it('resolved handler has source property', () => {
       const inventory = Domain('Inventory', {
-        check: async (product, _, $) => ({ available: true })
+        check: async (product, _, $) => ({ available: true }),
       })
       registerDomain(inventory)
 
@@ -149,7 +149,7 @@ describe('Domain Registry', () => {
     it('resolves different methods from same domain', () => {
       const inventory = Domain('Inventory', {
         check: async (product, _, $) => ({ available: true }),
-        reserve: async (product, args, $) => ({ reservationId: 'abc' })
+        reserve: async (product, args, $) => ({ reservationId: 'abc' }),
       })
       registerDomain(inventory)
 
@@ -163,10 +163,10 @@ describe('Domain Registry', () => {
 
     it('resolves handlers from multiple registered domains', () => {
       const inventory = Domain('Inventory', {
-        check: async () => ({ available: true })
+        check: async () => ({ available: true }),
       })
       const payment = Domain('Payment', {
-        process: async () => ({ success: true })
+        process: async () => ({ success: true }),
       })
       registerDomain(inventory)
       registerDomain(payment)
@@ -180,7 +180,7 @@ describe('Domain Registry', () => {
 
     it('returns undefined for unregistered domain', () => {
       const inventory = Domain('Inventory', {
-        check: async () => ({ available: true })
+        check: async () => ({ available: true }),
       })
       registerDomain(inventory)
 
@@ -191,7 +191,7 @@ describe('Domain Registry', () => {
 
     it('returns undefined for unregistered method on valid domain', () => {
       const inventory = Domain('Inventory', {
-        check: async () => ({ available: true })
+        check: async () => ({ available: true }),
       })
       registerDomain(inventory)
 

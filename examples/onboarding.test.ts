@@ -17,13 +17,13 @@ describe('OnboardingWorkflow Example', () => {
       crmId: crm.id,
       billingPortal: billing.portalUrl,
       supportEmail: support.email,
-      dashboardUrl: analytics.dashboardUrl
+      dashboardUrl: analytics.dashboardUrl,
     })
 
     const result = {
       customerId: customer.id,
       crmAccountId: crm.id,
-      status: 'onboarded'
+      status: 'onboarded',
     }
 
     // Verify PipelinePromises are captured

@@ -18,8 +18,8 @@ import * as schema from '../db'
 
 export interface AuthEnv {
   DB: D1Database
-  AUTH_DOMAIN: string                    // 'auth.headless.ly'
-  ALLOWED_DOMAIN_PATTERNS: string        // '*.headless.ly,*.do'
+  AUTH_DOMAIN: string // 'auth.headless.ly'
+  ALLOWED_DOMAIN_PATTERNS: string // '*.headless.ly,*.do'
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   GOOGLE_CLIENT_ID: string
@@ -35,11 +35,7 @@ export interface AuthEnv {
 // HANDLER
 // ============================================================================
 
-export async function handleAuthRequest(
-  request: Request,
-  env: AuthEnv,
-  db: DrizzleD1Database<typeof schema>
-): Promise<Response> {
+export async function handleAuthRequest(request: Request, env: AuthEnv, db: DrizzleD1Database<typeof schema>): Promise<Response> {
   const url = new URL(request.url)
   const currentDomain = url.host
   const isAuthDomain = currentDomain === env.AUTH_DOMAIN
@@ -57,8 +53,7 @@ export async function handleAuthRequest(
       resolveTenantNs: async (domain) => {
         // Look up custom domain in customDomains table
         const customDomain = await db.query.customDomains.findFirst({
-          where: (t, { eq, and }) =>
-            and(eq(t.domain, domain), eq(t.verified, true)),
+          where: (t, { eq, and }) => and(eq(t.domain, domain), eq(t.verified, true)),
         })
         return customDomain?.tenantNs || null
       },
@@ -112,12 +107,14 @@ export async function handleAuthRequest(
 
     return Response.json({
       authenticated: true,
-      user: user ? {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        image: user.image,
-      } : null,
+      user: user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          }
+        : null,
       session: {
         id: session.id,
         activeOrganizationId: session.activeOrganizationId,
@@ -136,21 +133,14 @@ export async function handleAuthRequest(
 /**
  * Get session from request cookies.
  */
-export async function getSessionFromRequest(
-  request: Request,
-  db: DrizzleD1Database<typeof schema>
-) {
+export async function getSessionFromRequest(request: Request, db: DrizzleD1Database<typeof schema>) {
   const cookies = parseCookies(request.headers.get('Cookie') || '')
   const token = cookies['session_token']
 
   if (!token) return null
 
   const session = await db.query.sessions.findFirst({
-    where: (t, { eq, and, gt }) =>
-      and(
-        eq(t.token, token),
-        gt(t.expiresAt, new Date())
-      ),
+    where: (t, { eq, and, gt }) => and(eq(t.token, token), gt(t.expiresAt, new Date())),
   })
 
   return session
@@ -161,7 +151,7 @@ export async function getSessionFromRequest(
  */
 export async function requireAuth(
   request: Request,
-  db: DrizzleD1Database<typeof schema>
+  db: DrizzleD1Database<typeof schema>,
 ): Promise<{ session: typeof schema.sessions.$inferSelect; user: typeof schema.users.$inferSelect } | Response> {
   const session = await getSessionFromRequest(request, db)
 
@@ -186,7 +176,7 @@ export async function requireAuth(
 export async function requireOrgMembership(
   request: Request,
   db: DrizzleD1Database<typeof schema>,
-  organizationId: string
+  organizationId: string,
 ): Promise<{ session: typeof schema.sessions.$inferSelect; user: typeof schema.users.$inferSelect; member: typeof schema.members.$inferSelect } | Response> {
   const authResult = await requireAuth(request, db)
   if (authResult instanceof Response) return authResult
@@ -194,11 +184,7 @@ export async function requireOrgMembership(
   const { session, user } = authResult
 
   const member = await db.query.members.findFirst({
-    where: (t, { eq, and }) =>
-      and(
-        eq(t.userId, user.id),
-        eq(t.organizationId, organizationId)
-      ),
+    where: (t, { eq, and }) => and(eq(t.userId, user.id), eq(t.organizationId, organizationId)),
   })
 
   if (!member) {

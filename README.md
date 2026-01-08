@@ -16,22 +16,22 @@ The **.do platform** provides everything you need to build distributed, AI-nativ
 
 Every integration exposes three primitives:
 
-| Primitive | Description | Example |
-|-----------|-------------|---------|
-| **Trigger** | Events that start workflows | `on.github.push`, `on.stripe.payment` |
-| **Search** | Query external data | `search.slack.messages`, `search.github.issues` |
-| **Action** | Perform operations | `actions.email.send`, `actions.slack.post` |
+| Primitive   | Description                 | Example                                         |
+| ----------- | --------------------------- | ----------------------------------------------- |
+| **Trigger** | Events that start workflows | `on.github.push`, `on.stripe.payment`           |
+| **Search**  | Query external data         | `search.slack.messages`, `search.github.issues` |
+| **Action**  | Perform operations          | `actions.email.send`, `actions.slack.post`      |
 
 ### Function Types
 
 Functions can be implemented in four ways:
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| **Code** | Deterministic TypeScript | Validation, transforms, calculations |
-| **Generative** | AI-generated output | Content, summaries, analysis |
-| **Agentic** | Multi-step AI reasoning | Complex tasks, research, planning |
-| **Human** | Human-in-the-loop | Approvals, reviews, decisions |
+| Type           | Description              | Use Case                             |
+| -------------- | ------------------------ | ------------------------------------ |
+| **Code**       | Deterministic TypeScript | Validation, transforms, calculations |
+| **Generative** | AI-generated output      | Content, summaries, analysis         |
+| **Agentic**    | Multi-step AI reasoning  | Complex tasks, research, planning    |
+| **Human**      | Human-in-the-loop        | Approvals, reviews, decisions        |
 
 ## Quick Example
 
@@ -60,17 +60,20 @@ import { auth } from 'dotdo/middleware'
 app.use('/api/auth/*', auth())
 
 // Custom providers
-app.use('/api/auth/*', auth({
-  providers: ['github', 'google', 'custom-oidc']
-}))
+app.use(
+  '/api/auth/*',
+  auth({
+    providers: ['github', 'google', 'custom-oidc'],
+  }),
+)
 ```
 
 ### Identity Types
 
-| Type | Description |
-|------|-------------|
-| **Human** | End users with OAuth/OIDC |
-| **Agent** | AI agents with API keys |
+| Type        | Description                |
+| ----------- | -------------------------- |
+| **Human**   | End users with OAuth/OIDC  |
+| **Agent**   | AI agents with API keys    |
 | **Service** | Backend services with mTLS |
 
 ## Integrations
@@ -94,7 +97,7 @@ When workflows need human input, reach them where they are:
 await $.human.ask('Approve this expense?', {
   channels: ['slack', 'email'],
   timeout: '24h',
-  escalate: 'manager'
+  escalate: 'manager',
 })
 ```
 

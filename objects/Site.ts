@@ -28,7 +28,7 @@ export class Site extends DO {
    */
   async getConfig(): Promise<SiteConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as SiteConfig | null
+      this.config = (await this.ctx.storage.get('config')) as SiteConfig | null
     }
     return this.config
   }
@@ -85,7 +85,7 @@ export class Site extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as SiteConfig
+        const config = (await request.json()) as SiteConfig
         await this.setConfig(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },

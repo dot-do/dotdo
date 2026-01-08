@@ -3,14 +3,14 @@
 ## The Vision
 
 ```typescript
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
   Email(customer).sendWelcome()
 })
 ```
 
-Reads as: *"On customer signup, create CRM account, setup billing, send welcome email."*
+Reads as: _"On customer signup, create CRM account, setup billing, send welcome email."_
 
 ## Core Principles
 
@@ -41,7 +41,7 @@ on.<Entity>.<event>(handler)
 ### Domain Calls (No $ Prefix)
 
 ```typescript
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   // Direct domain calls - no $ needed
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
@@ -51,7 +51,7 @@ on.Customer.signup(customer => {
   // Property access on unresolved values still works
   Email(customer).sendWelcome({
     crmId: CRM(customer).id,
-    portalUrl: Billing(customer).portalUrl
+    portalUrl: Billing(customer).portalUrl,
   })
 })
 ```
@@ -81,7 +81,7 @@ every('15 minutes', () => { ... })
 ### Conditionals
 
 ```typescript
-on.Expense.submitted(expense => {
+on.Expense.submitted((expense) => {
   Expenses(expense).validate()
 
   when(expense.amount > 1000, {
@@ -91,7 +91,7 @@ on.Expense.submitted(expense => {
     },
     else: () => {
       Finance(expense).autoApprove()
-    }
+    },
   })
 })
 ```
@@ -99,14 +99,14 @@ on.Expense.submitted(expense => {
 ### Human-in-the-Loop
 
 ```typescript
-on.Expense.needsApproval(expense => {
+on.Expense.needsApproval((expense) => {
   Slack(expense.approver).send({ template: 'approval-request', expense })
 
   const decision = waitFor('approval', { timeout: '7 days' })
 
   when(decision.approved, {
     then: () => Finance(expense).reimburse(),
-    else: () => Email(expense.submitter).sendRejection({ reason: decision.reason })
+    else: () => Email(expense.submitter).sendRejection({ reason: decision.reason }),
   })
 })
 ```
@@ -114,9 +114,9 @@ on.Expense.needsApproval(expense => {
 ### Batch Processing (Magic Map)
 
 ```typescript
-on.Order.placed(order => {
+on.Order.placed((order) => {
   // Magic map - each item processed in batch
-  order.items.map(item => {
+  order.items.map((item) => {
     Inventory(item.product).check()
     Inventory(item.product).reserve({ quantity: item.quantity })
   })
@@ -129,18 +129,18 @@ on.Order.placed(order => {
 ### Chained Events (Fire-and-Forget)
 
 ```typescript
-on.Order.paid(order => {
+on.Order.paid((order) => {
   // Fire-and-forget: triggers Order.shipped event when done
   send.Order.readyToShip(order)
 })
 
-on.Order.readyToShip(order => {
+on.Order.readyToShip((order) => {
   Fulfillment(order).createLabel()
   Warehouse(order).pickAndPack()
   send.Order.shipped(order)
 })
 
-on.Order.shipped(order => {
+on.Order.shipped((order) => {
   Email(order.customer).sendShippingNotification()
   Analytics.trackShipment(order)
 })
@@ -152,18 +152,24 @@ on.Order.shipped(order => {
 
 ```typescript
 // on.Customer.signup(handler) creates an event subscription
-const on = new Proxy({}, {
-  get(_, entity: string) {
-    return new Proxy({}, {
-      get(_, event: string) {
-        return (handler: Function) => {
-          // Register: when entity.event fires, run handler
-          registerEventHandler(`${entity}.${event}`, handler)
-        }
-      }
-    })
-  }
-})
+const on = new Proxy(
+  {},
+  {
+    get(_, entity: string) {
+      return new Proxy(
+        {},
+        {
+          get(_, event: string) {
+            return (handler: Function) => {
+              // Register: when entity.event fires, run handler
+              registerEventHandler(`${entity}.${event}`, handler)
+            }
+          },
+        },
+      )
+    },
+  },
+)
 ```
 
 ### Domain as First-Class
@@ -184,18 +190,24 @@ CRM(customer).createAccount()
 
 ```typescript
 // Fluent: every.Monday.at9am(handler)
-const every = new Proxy({}, {
-  get(_, day: string) {
-    return new Proxy({}, {
-      get(_, time: string) {
-        return (handler: Function) => {
-          const cron = parseToCron(day, time) // 'Monday', 'at9am' -> '0 9 * * 1'
-          registerScheduledHandler(cron, handler)
-        }
-      }
-    })
-  }
-})
+const every = new Proxy(
+  {},
+  {
+    get(_, day: string) {
+      return new Proxy(
+        {},
+        {
+          get(_, time: string) {
+            return (handler: Function) => {
+              const cron = parseToCron(day, time) // 'Monday', 'at9am' -> '0 9 * * 1'
+              registerScheduledHandler(cron, handler)
+            }
+          },
+        },
+      )
+    },
+  },
+)
 
 // String: every('Monday at 9am', handler)
 function every(schedule: string, handler: Function) {
@@ -208,23 +220,29 @@ function every(schedule: string, handler: Function) {
 
 ```typescript
 // send.Order.shipped(order) - fires event, doesn't wait
-const send = new Proxy({}, {
-  get(_, entity: string) {
-    return new Proxy({}, {
-      get(_, event: string) {
-        return (payload: unknown) => {
-          // Queue event for async processing
-          return createPipelinePromise({
-            type: 'send',
-            entity,
-            event,
-            payload
-          })
-        }
-      }
-    })
-  }
-})
+const send = new Proxy(
+  {},
+  {
+    get(_, entity: string) {
+      return new Proxy(
+        {},
+        {
+          get(_, event: string) {
+            return (payload: unknown) => {
+              // Queue event for async processing
+              return createPipelinePromise({
+                type: 'send',
+                entity,
+                event,
+                payload,
+              })
+            }
+          },
+        },
+      )
+    },
+  },
+)
 ```
 
 ## Examples Reimagined
@@ -241,7 +259,7 @@ const OnboardingWorkflow = Workflow('customer-onboarding', ($, customer) => {
 })
 
 // AFTER
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
   Support(customer).createTicketQueue()
@@ -249,7 +267,7 @@ on.Customer.signup(customer => {
 
   Email(customer).sendWelcome({
     crmId: CRM(customer).id,
-    portalUrl: Billing(customer).portalUrl
+    portalUrl: Billing(customer).portalUrl,
   })
 })
 ```
@@ -310,17 +328,17 @@ every.Monday.at9am(() => {
 ### SprintWorkflow → on.Sprint.started + every
 
 ```typescript
-on.Sprint.started(sprint => {
+on.Sprint.started((sprint) => {
   const backlog = Backlog(sprint.startup).getItems()
 
   // AI prioritizes each item
-  backlog.map(item => AI(sprint.startup.mission).prioritize({ item }))
+  backlog.map((item) => AI(sprint.startup.mission).prioritize({ item }))
 
   Standup(sprint.team).scheduleDaily({ time: '9am', channel: sprint.slackChannel })
   Slack(sprint.slackChannel).post({ template: 'sprint-started', sprint })
 })
 
-on.Sprint.ended(sprint => {
+on.Sprint.ended((sprint) => {
   const feedback = Standup(sprint.team).aggregateFeedback()
   const retro = AI('agile-coach').generateRetro({ sprint, feedback })
 
@@ -331,7 +349,7 @@ on.Sprint.ended(sprint => {
 })
 
 // Trigger sprint end after 2 weeks
-on.Sprint.started(sprint => {
+on.Sprint.started((sprint) => {
   sleep('2 weeks')
   send.Sprint.ended(sprint)
 })
@@ -339,13 +357,13 @@ on.Sprint.started(sprint => {
 
 ## Comparison
 
-| Aspect | v1 (Workflow) | v2 (on.Event) |
-|--------|---------------|---------------|
-| Declaration | `Workflow('name', ($, input) => ...)` | `on.Entity.event(input => ...)` |
-| Domain calls | `$.CRM(ctx).method()` | `CRM(ctx).method()` |
-| Scheduling | `Workflow().every('...').run()` | `every.Monday.at9am(() => ...)` |
-| Fire-and-forget | N/A | `send.Entity.event(payload)` |
-| Mental model | "Define and call workflows" | "React to events" |
+| Aspect          | v1 (Workflow)                         | v2 (on.Event)                   |
+| --------------- | ------------------------------------- | ------------------------------- |
+| Declaration     | `Workflow('name', ($, input) => ...)` | `on.Entity.event(input => ...)` |
+| Domain calls    | `$.CRM(ctx).method()`                 | `CRM(ctx).method()`             |
+| Scheduling      | `Workflow().every('...').run()`       | `every.Monday.at9am(() => ...)` |
+| Fire-and-forget | N/A                                   | `send.Entity.event(payload)`    |
+| Mental model    | "Define and call workflows"           | "React to events"               |
 
 ## Benefits
 

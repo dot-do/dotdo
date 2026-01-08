@@ -46,7 +46,7 @@ describe('PipelinePromise', () => {
         domain: 'Inventory',
         method: ['check'],
         context: { sku: 'ABC' },
-        args: []
+        args: [],
       })
     })
 
@@ -81,7 +81,7 @@ describe('PipelinePromise', () => {
       expect(crmId.__expr).toEqual({
         type: 'property',
         base: crm.__expr,
-        property: 'id'
+        property: 'id',
       })
     })
 
@@ -98,11 +98,11 @@ describe('PipelinePromise', () => {
           base: {
             type: 'property',
             base: result.__expr,
-            property: 'settings'
+            property: 'settings',
           },
-          property: 'ui'
+          property: 'ui',
         },
-        property: 'theme'
+        property: 'theme',
       })
     })
 
@@ -145,7 +145,7 @@ describe('PipelinePromise', () => {
       const $ = createWorkflowProxy({ execute: async () => ({ dummy: true }) })
 
       const pipeline = $.Inventory({ sku: 'ABC' }).check()
-      const chained = pipeline.then(result => result)
+      const chained = pipeline.then((result) => result)
 
       expect(isPipelinePromise(chained)).toBe(true)
     })
@@ -159,7 +159,7 @@ describe('PipelinePromise', () => {
       const $ = createWorkflowProxy()
 
       const items = $.Cart({ id: 'cart-1' }).getItems()
-      const checked = items.map(item => $.Inventory(item.product).check())
+      const checked = items.map((item) => $.Inventory(item.product).check())
 
       expect(isPipelinePromise(checked)).toBe(true)
     })
@@ -168,7 +168,7 @@ describe('PipelinePromise', () => {
       const $ = createWorkflowProxy()
 
       const items = $.Cart({ id: 'cart-1' }).getItems()
-      const checked = items.map(item => $.Inventory(item.product).check())
+      const checked = items.map((item) => $.Inventory(item.product).check())
 
       expect(checked.__expr.type).toBe('map')
       expect(checked.__expr.array).toBe(items.__expr)
@@ -176,7 +176,7 @@ describe('PipelinePromise', () => {
     })
 
     it('records operations without executing callback multiple times', () => {
-      const callbackSpy = vi.fn(item => $.Inventory(item.product).check())
+      const callbackSpy = vi.fn((item) => $.Inventory(item.product).check())
       const $ = createWorkflowProxy()
 
       const items = $.Cart({ id: 'cart-1' }).getItems()
@@ -191,7 +191,7 @@ describe('PipelinePromise', () => {
       let receivedItem: any
 
       const items = $.Cart({ id: 'cart-1' }).getItems()
-      items.map(item => {
+      items.map((item) => {
         receivedItem = item
         return $.Inventory(item.product).check()
       })
@@ -205,9 +205,7 @@ describe('PipelinePromise', () => {
       const $ = createWorkflowProxy()
 
       const orders = $.Orders({ customer: 'cust-1' }).list()
-      const itemCounts = orders.map(order =>
-        order.items.map(item => $.Inventory(item.sku).count())
-      )
+      const itemCounts = orders.map((order) => order.items.map((item) => $.Inventory(item.sku).count()))
 
       expect(isPipelinePromise(itemCounts)).toBe(true)
       expect(itemCounts.__expr.type).toBe('map')
@@ -227,7 +225,7 @@ describe('PipelinePromise', () => {
       const returnValue = {
         crmId: crm.id,
         billingId: billing.id,
-        combined: { crm: crm.data, billing: billing.data }
+        combined: { crm: crm.data, billing: billing.data },
       }
 
       const expressions = collectExpressions(returnValue)
@@ -239,11 +237,7 @@ describe('PipelinePromise', () => {
     it('collectExpressions handles nested objects and arrays', () => {
       const $ = createWorkflowProxy()
 
-      const results = [
-        $.Service1({}).call(),
-        $.Service2({}).call(),
-        { nested: $.Service3({}).call() }
-      ]
+      const results = [$.Service1({}).call(), $.Service2({}).call(), { nested: $.Service3({}).call() }]
 
       const expressions = collectExpressions(results)
 
@@ -259,7 +253,7 @@ describe('PipelinePromise', () => {
       const expressions = collectExpressions({ order, payment })
 
       // payment depends on order (uses order.id)
-      const paymentExpr = expressions.find(e => e.__expr.domain === 'Payment')
+      const paymentExpr = expressions.find((e) => e.__expr.domain === 'Payment')
       expect(paymentExpr.__expr.context.orderId.__expr.base).toBe(order.__expr)
     })
   })
@@ -316,13 +310,13 @@ describe('Example Workflows (no async/await)', () => {
         $.Email(customer).sendWelcome({
           crmId: crm.id,
           billingPortal: billing.portalUrl,
-          supportEmail: support.email
+          supportEmail: support.email,
         })
 
         return {
           customerId: customer.id,
           crmId: crm.id,
-          status: 'onboarded'
+          status: 'onboarded',
         }
       }
 
@@ -345,11 +339,11 @@ describe('Example Workflows (no async/await)', () => {
         const items = $.Warehouse(batch).getItems()
 
         // Magic map - record-replay pattern
-        const checked = items.map(item => $.Inventory(item.sku).check())
+        const checked = items.map((item) => $.Inventory(item.sku).check())
         const reserved = checked.map((check, i) =>
           $.when(check.available, {
-            then: () => $.Inventory(items[i].sku).reserve()
-          })
+            then: () => $.Inventory(items[i].sku).reserve(),
+          }),
         )
 
         return { results: reserved }
@@ -373,12 +367,12 @@ describe('Example Workflows (no async/await)', () => {
         return $.when(inventory.available, {
           then: () => ({
             status: 'confirmed',
-            reservation: $.Inventory(order.product).reserve({ quantity: order.quantity })
+            reservation: $.Inventory(order.product).reserve({ quantity: order.quantity }),
           }),
           else: () => ({
             status: 'unavailable',
-            notification: $.Notification(order.customer).sendOutOfStock()
-          })
+            notification: $.Notification(order.customer).sendOutOfStock(),
+          }),
         })
       }
 
@@ -402,7 +396,7 @@ describe('Declarative Conditionals', () => {
 
       const inventory = $.Inventory({ sku: 'ABC' }).check()
       const result = $.when(inventory.available, {
-        then: () => $.Inventory({ sku: 'ABC' }).reserve()
+        then: () => $.Inventory({ sku: 'ABC' }).reserve(),
       })
 
       expect(isPipelinePromise(result)).toBe(true)
@@ -414,7 +408,7 @@ describe('Declarative Conditionals', () => {
       const inventory = $.Inventory({ sku: 'ABC' }).check()
       const result = $.when(inventory.available, {
         then: () => $.Inventory({ sku: 'ABC' }).reserve(),
-        else: () => $.Email({ to: 'customer@example.com' }).sendOutOfStock()
+        else: () => $.Email({ to: 'customer@example.com' }).sendOutOfStock(),
       })
 
       const expr = result.__expr
@@ -450,7 +444,7 @@ describe('Declarative Conditionals', () => {
 
       const inventory = $.Inventory({ sku: 'ABC' }).check()
       const result = $.when(inventory.available, {
-        then: () => $.Inventory({ sku: 'ABC' }).reserve()
+        then: () => $.Inventory({ sku: 'ABC' }).reserve(),
       })
 
       const expr = result.__expr
@@ -467,9 +461,9 @@ describe('Declarative Conditionals', () => {
 
       const order = $.Orders({ id: 'order-1' }).get()
       const result = $.branch(order.status, {
-        'pending': () => $.Payment(order).process(),
-        'shipped': () => $.Tracking(order).update(),
-        'delivered': () => $.Review(order.customer).request()
+        pending: () => $.Payment(order).process(),
+        shipped: () => $.Tracking(order).update(),
+        delivered: () => $.Review(order.customer).request(),
       })
 
       expect(isPipelinePromise(result)).toBe(true)
@@ -480,10 +474,10 @@ describe('Declarative Conditionals', () => {
 
       const order = $.Orders({ id: 'order-1' }).get()
       const result = $.branch(order.status, {
-        'pending': () => $.Payment(order).process(),
-        'shipped': () => $.Tracking(order).update(),
-        'delivered': () => $.Review(order.customer).request(),
-        default: () => $.Log({ message: 'Unknown status' }).write()
+        pending: () => $.Payment(order).process(),
+        shipped: () => $.Tracking(order).update(),
+        delivered: () => $.Review(order.customer).request(),
+        default: () => $.Log({ message: 'Unknown status' }).write(),
       })
 
       const expr = result.__expr
@@ -518,8 +512,8 @@ describe('Declarative Conditionals', () => {
 
       const result = $.Service({}).call()
       const matched = $.match(result, [
-        [r => r.success, () => $.Email({}).sendSuccess()],
-        [r => r.error, () => $.Alert({}).notify()]
+        [(r) => r.success, () => $.Email({}).sendSuccess()],
+        [(r) => r.error, () => $.Alert({}).notify()],
       ])
 
       expect(isPipelinePromise(matched)).toBe(true)
@@ -530,9 +524,9 @@ describe('Declarative Conditionals', () => {
 
       const result = $.Service({}).call()
       const matched = $.match(result, [
-        [r => r.success, () => $.Email({}).sendSuccess()],
-        [r => r.error, () => $.Alert({}).notify()],
-        [r => r.retry, () => $.Queue({}).requeue()]
+        [(r) => r.success, () => $.Email({}).sendSuccess()],
+        [(r) => r.error, () => $.Alert({}).notify()],
+        [(r) => r.retry, () => $.Queue({}).requeue()],
       ])
 
       const expr = matched.__expr

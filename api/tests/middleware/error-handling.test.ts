@@ -33,11 +33,7 @@ interface ErrorBody {
 // Helper Functions
 // ============================================================================
 
-async function request(
-  method: string,
-  path: string,
-  options: RequestInit = {}
-): Promise<Response> {
+async function request(method: string, path: string, options: RequestInit = {}): Promise<Response> {
   return app.request(path, { method, ...options })
 }
 
@@ -101,7 +97,7 @@ describe('400 Bad Request - Invalid JSON Input', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await postRaw('/api/things', '{ bad json')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -111,7 +107,7 @@ describe('400 Bad Request - Invalid JSON Input', () => {
 
   it('error message indicates JSON parsing failed', async () => {
     const res = await postRaw('/api/things', 'not json at all')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/json|parse|invalid|malformed/)
   })
@@ -154,7 +150,7 @@ describe('401 Unauthorized - Missing Authentication', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await get('/api/protected')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -164,7 +160,7 @@ describe('401 Unauthorized - Missing Authentication', () => {
 
   it('error message indicates authentication required', async () => {
     const res = await get('/api/protected')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/auth|unauthorized|token|credentials/)
   })
@@ -210,7 +206,7 @@ describe('403 Forbidden - Insufficient Permissions', () => {
     const res = await get('/api/admin/settings', {
       Authorization: 'Bearer valid-but-not-admin-token',
     })
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -222,7 +218,7 @@ describe('403 Forbidden - Insufficient Permissions', () => {
     const res = await get('/api/admin/settings', {
       Authorization: 'Bearer valid-but-not-admin-token',
     })
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/forbidden|permission|access|denied|not allowed/)
   })
@@ -268,7 +264,7 @@ describe('404 Not Found - Missing Resources', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await get('/api/things/not-found')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -278,7 +274,7 @@ describe('404 Not Found - Missing Resources', () => {
 
   it('error message indicates resource not found', async () => {
     const res = await get('/api/things/missing-id')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/not found|does not exist|missing|unknown/)
   })
@@ -327,7 +323,7 @@ describe('405 Method Not Allowed - Wrong HTTP Method', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await request('PATCH', '/api/things')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -337,7 +333,7 @@ describe('405 Method Not Allowed - Wrong HTTP Method', () => {
 
   it('error message indicates method not allowed', async () => {
     const res = await request('PATCH', '/api/health')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/method|not allowed|not supported/)
   })
@@ -422,7 +418,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await post('/api/things', {})
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -432,7 +428,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
 
   it('error message indicates validation failure', async () => {
     const res = await post('/api/things', { name: '' })
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/validation|invalid|required|must/)
   })
@@ -442,7 +438,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
       name: '',
       $type: 'invalid',
     })
-    const body = await res.json() as { error: ErrorBody['error'] & { details?: Record<string, string> } }
+    const body = (await res.json()) as { error: ErrorBody['error'] & { details?: Record<string, string> } }
 
     // Middleware should include details about which fields failed
     expect(body.error.details || body.error.message).toBeTruthy()
@@ -475,7 +471,7 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 
   it('does not expose sensitive error details in production', async () => {
     const res = await get('/api/error/unhandled')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     // Should not contain sensitive info like file paths, SQL, etc.
     expect(body.error.message).not.toMatch(/\/Users\/|\/home\/|\.ts:|\.js:/)
@@ -484,7 +480,7 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 
   it('error response has correct JSON structure', async () => {
     const res = await get('/api/error/unhandled')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body).toHaveProperty('error')
     expect(body.error).toHaveProperty('code')
@@ -494,7 +490,7 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 
   it('error message is user-friendly', async () => {
     const res = await get('/api/error/unhandled')
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
 
     expect(body.error.message.toLowerCase()).toMatch(/internal|server|error|unexpected|problem/)
   })
@@ -510,7 +506,7 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     expect(body.error.code).toBe('INTERNAL_SERVER_ERROR')
   })
 
@@ -519,7 +515,7 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     expect(body.error.code).toBe('INTERNAL_SERVER_ERROR')
   })
 })
@@ -531,11 +527,11 @@ describe('500 Internal Server Error - Caught and Formatted', () => {
 describe('Error Response Format - JSON Structure', () => {
   it('all error responses are JSON', async () => {
     const responses = await Promise.all([
-      postRaw('/api/things', 'invalid json'),  // 400
-      get('/api/protected'),                    // 401
-      get('/api/things/not-found'),             // 404
-      request('PATCH', '/api/health'),          // 405
-      post('/api/things', {}),                  // 422
+      postRaw('/api/things', 'invalid json'), // 400
+      get('/api/protected'), // 401
+      get('/api/things/not-found'), // 404
+      request('PATCH', '/api/health'), // 405
+      post('/api/things', {}), // 422
     ])
 
     for (const res of responses) {
@@ -544,28 +540,20 @@ describe('Error Response Format - JSON Structure', () => {
   })
 
   it('all error responses have error.code field', async () => {
-    const responses = await Promise.all([
-      postRaw('/api/things', 'invalid'),
-      get('/api/things/missing'),
-      request('PATCH', '/api/health'),
-    ])
+    const responses = await Promise.all([postRaw('/api/things', 'invalid'), get('/api/things/missing'), request('PATCH', '/api/health')])
 
     for (const res of responses) {
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
       expect(body.error).toHaveProperty('code')
       expect(typeof body.error.code).toBe('string')
     }
   })
 
   it('all error responses have error.message field', async () => {
-    const responses = await Promise.all([
-      postRaw('/api/things', 'invalid'),
-      get('/api/things/missing'),
-      request('PATCH', '/api/health'),
-    ])
+    const responses = await Promise.all([postRaw('/api/things', 'invalid'), get('/api/things/missing'), request('PATCH', '/api/health')])
 
     for (const res of responses) {
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
       expect(body.error).toHaveProperty('message')
       expect(typeof body.error.message).toBe('string')
       expect(body.error.message.length).toBeGreaterThan(0)
@@ -586,28 +574,24 @@ describe('Error Response Format - JSON Structure', () => {
       const res = await requestFn()
       expect(res.status).toBe(expectedStatus)
 
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
       expect(body.error.code).toBe(expectedCode)
     }
   })
 
   it('error response does not have extra top-level fields', async () => {
     const res = await get('/api/things/not-found')
-    const body = await res.json() as Record<string, unknown>
+    const body = (await res.json()) as Record<string, unknown>
 
     const topLevelKeys = Object.keys(body)
     expect(topLevelKeys).toEqual(['error'])
   })
 
   it('error.code is uppercase snake_case', async () => {
-    const responses = await Promise.all([
-      get('/api/things/missing'),
-      postRaw('/api/things', 'invalid'),
-      request('PATCH', '/api/health'),
-    ])
+    const responses = await Promise.all([get('/api/things/missing'), postRaw('/api/things', 'invalid'), request('PATCH', '/api/health')])
 
     for (const res of responses) {
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
       expect(body.error.code).toMatch(/^[A-Z][A-Z0-9_]*$/)
     }
   })
@@ -623,21 +607,21 @@ describe('Stack Traces - Development Mode Only', () => {
 
     it('500 errors do not include stack trace', async () => {
       const res = await get('/api/error/unhandled')
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
 
       expect(body.error.stack).toBeUndefined()
     })
 
     it('400 errors do not include stack trace', async () => {
       const res = await postRaw('/api/things', 'invalid')
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
 
       expect(body.error.stack).toBeUndefined()
     })
 
     it('error messages do not leak implementation details', async () => {
       const res = await get('/api/error/unhandled')
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
 
       // Should not contain file paths, line numbers, or technical details
       expect(body.error.message).not.toMatch(/at\s+\w+\s+\(/)
@@ -658,7 +642,7 @@ describe('Stack Traces - Development Mode Only', () => {
       })
 
       if (res.status === 500) {
-        const body = await res.json() as ErrorBody
+        const body = (await res.json()) as ErrorBody
         // In dev mode, stack should be present
         // This test will fail in production (which is expected)
         expect(body.error.stack).toBeDefined()
@@ -673,7 +657,7 @@ describe('Stack Traces - Development Mode Only', () => {
       })
 
       if (res.status === 500) {
-        const body = await res.json() as ErrorBody
+        const body = (await res.json()) as ErrorBody
         if (body.error.stack) {
           // Stack should contain file and line info
           expect(body.error.stack).toMatch(/at\s+/)
@@ -688,7 +672,7 @@ describe('Stack Traces - Development Mode Only', () => {
       })
 
       if (res.status === 500) {
-        const body = await res.json() as { error: ErrorBody['error'] & { name?: string } }
+        const body = (await res.json()) as { error: ErrorBody['error'] & { name?: string } }
         // In dev mode, might include error type/name
         // E.g., TypeError, ReferenceError, CustomError
         expect(body.error.name || body.error.code).toBeTruthy()
@@ -701,7 +685,7 @@ describe('Stack Traces - Development Mode Only', () => {
       // The middleware should check process.env.NODE_ENV or similar
       // and only include stack traces when not in production
       const res = await get('/api/error/unhandled')
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
 
       // We can't test both modes in the same run, but we can verify
       // the middleware at least returns a valid response
@@ -711,7 +695,7 @@ describe('Stack Traces - Development Mode Only', () => {
 
     it('uses generic message for unexpected errors in production', async () => {
       const res = await get('/api/error/unhandled')
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
 
       // Production should have a generic, safe message
       if (!body.error.stack) {
@@ -732,7 +716,7 @@ describe('Edge Cases', () => {
     // Should not crash, should return valid JSON
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     expect(body.error).toHaveProperty('code')
   })
 
@@ -741,7 +725,7 @@ describe('Edge Cases', () => {
 
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     // Message should be truncated or handled gracefully
     expect(body.error.message.length).toBeLessThanOrEqual(1000)
   })
@@ -749,7 +733,7 @@ describe('Edge Cases', () => {
   it('handles errors with special characters in message', async () => {
     const res = await get('/api/error/special-chars')
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     // Should properly escape/handle special chars in JSON
     expect(body.error).toHaveProperty('message')
   })
@@ -759,7 +743,7 @@ describe('Edge Cases', () => {
 
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     expect(body.error.code).toBe('INTERNAL_SERVER_ERROR')
   })
 
@@ -768,7 +752,7 @@ describe('Edge Cases', () => {
 
     expect(res.status).toBe(500)
 
-    const body = await res.json() as ErrorBody
+    const body = (await res.json()) as ErrorBody
     expect(body.error.code).toBe('INTERNAL_SERVER_ERROR')
   })
 
@@ -778,22 +762,20 @@ describe('Edge Cases', () => {
       headers: { 'X-Request-ID': 'test-request-123' },
     })
 
-    const body = await res.json() as { error: ErrorBody['error'] & { requestId?: string } }
+    const body = (await res.json()) as { error: ErrorBody['error'] & { requestId?: string } }
     // If the middleware tracks request IDs, it should include it
     // This helps with debugging and log correlation
     expect(body.error.requestId || res.headers.get('X-Request-ID')).toBeTruthy()
   })
 
   it('handles concurrent errors without interference', async () => {
-    const requests = Array.from({ length: 10 }, (_, i) =>
-      get(`/api/error/concurrent/${i}`)
-    )
+    const requests = Array.from({ length: 10 }, (_, i) => get(`/api/error/concurrent/${i}`))
 
     const responses = await Promise.all(requests)
 
     for (const res of responses) {
       expect(res.status).toBe(500)
-      const body = await res.json() as ErrorBody
+      const body = (await res.json()) as ErrorBody
       expect(body.error.code).toBe('INTERNAL_SERVER_ERROR')
     }
   })

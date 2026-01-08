@@ -16,9 +16,9 @@ import type { Thing, ThingData, ThingDO } from './Thing'
 
 export interface ThingsData {
   // Fully qualified URLs
-  $id: string           // URL: 'https://startups.studio'
-  $type: string         // URL: 'https://schema.org.ai/Things' (meta-type)
-  itemType: string      // URL: 'https://startups.studio/Startup' (what it contains)
+  $id: string // URL: 'https://startups.studio'
+  $type: string // URL: 'https://schema.org.ai/Things' (meta-type)
+  itemType: string // URL: 'https://startups.studio/Startup' (what it contains)
 
   // Metadata
   name?: string
@@ -76,9 +76,9 @@ export interface Things<T extends Thing = Thing> extends ThingsData {
   // IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
 
-  readonly $id: string        // URL: 'https://startups.studio'
-  readonly $type: string      // URL: 'https://schema.org.ai/Things'
-  readonly itemType: string   // URL: 'https://startups.studio/Startup'
+  readonly $id: string // URL: 'https://startups.studio'
+  readonly $type: string // URL: 'https://schema.org.ai/Things'
+  readonly itemType: string // URL: 'https://startups.studio/Startup'
 
   // Is this collection itself a DO?
   readonly isDO: boolean
@@ -126,10 +126,7 @@ export interface Things<T extends Thing = Thing> extends ThingsData {
   // BATCH PROCESSING (ai-database forEach)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  forEach(
-    fn: (item: T) => Promise<void>,
-    options?: ForEachOptions
-  ): RpcPromise<ForEachProgress>
+  forEach(fn: (item: T) => Promise<void>, options?: ForEachOptions): RpcPromise<ForEachProgress>
 
   // ═══════════════════════════════════════════════════════════════════════════
   // NATURAL LANGUAGE QUERY (template literal)
@@ -170,7 +167,5 @@ export interface ThingsDO<T extends Thing = Thing> extends Things<T> {
 // Wrap Things to integrate with CapnWeb RpcPromise
 export type ThingsCollection<T extends Thing = Thing> = Things<T> & {
   // RpcPromise integration for method chaining across RPC boundary
-  then<TResult>(
-    onfulfilled?: (value: T[]) => TResult | PromiseLike<TResult>
-  ): RpcPromise<TResult>
+  then<TResult>(onfulfilled?: (value: T[]) => TResult | PromiseLike<TResult>): RpcPromise<TResult>
 }

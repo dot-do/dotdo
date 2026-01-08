@@ -255,7 +255,7 @@ describe('Individual .mdx page routes', () => {
 
     // Extract all page paths
     const pageMatches = indexText.matchAll(/\]\(([^)]+\.mdx)\)/g)
-    const pagePaths = Array.from(pageMatches, m => m[1])
+    const pagePaths = Array.from(pageMatches, (m) => m[1])
 
     expect(pagePaths.length).toBeGreaterThan(0)
 

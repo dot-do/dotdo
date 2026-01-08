@@ -9,11 +9,7 @@ Pipelines batch multiple independent operations into a single network round-trip
 
 ```typescript
 // These three calls are batched automatically:
-const [user, posts, settings] = await Promise.all([
-  rpc.getUser('alice'),
-  rpc.getPosts({ limit: 10 }),
-  rpc.getSettings()
-])
+const [user, posts, settings] = await Promise.all([rpc.getUser('alice'), rpc.getPosts({ limit: 10 }), rpc.getSettings()])
 ```
 
 ## Promise Pipelining
@@ -32,9 +28,5 @@ Use `Promise.all` to batch independent operations:
 
 ```typescript
 // Single round-trip for all three
-const [a, b, c] = await Promise.all([
-  rpc.operationA(),
-  rpc.operationB(),
-  rpc.operationC()
-])
+const [a, b, c] = await Promise.all([rpc.operationA(), rpc.operationB(), rpc.operationC()])
 ```

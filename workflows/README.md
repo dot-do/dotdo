@@ -5,14 +5,14 @@
 ## The Vision
 
 ```typescript
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
   Email(customer).sendWelcome()
 })
 ```
 
-Reads as: *"On customer signup, create CRM account, setup billing, send welcome email."*
+Reads as: _"On customer signup, create CRM account, setup billing, send welcome email."_
 
 ## Core Principles
 
@@ -47,14 +47,14 @@ on.Order.delivered(order => { ... })
 
 ```typescript
 const CRM = Domain('CRM', {
-  createAccount: (customer) => ({ accountId: '123' })
+  createAccount: (customer) => ({ accountId: '123' }),
 })
 
 const Billing = Domain('Billing', {
-  setupSubscription: (customer) => ({ subscriptionId: '456' })
+  setupSubscription: (customer) => ({ subscriptionId: '456' }),
 })
 
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   // Direct domain calls - no $ needed
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
@@ -62,7 +62,7 @@ on.Customer.signup(customer => {
   // Property access on unresolved values works
   Email(customer).sendWelcome({
     crmId: CRM(customer).createAccount().accountId,
-    portalUrl: Billing(customer).setupSubscription().portalUrl
+    portalUrl: Billing(customer).setupSubscription().portalUrl,
   })
 })
 ```
@@ -96,18 +96,18 @@ every('daily at 6am', () => { ... })
 ```typescript
 import { send } from './on'
 
-on.Order.paid(order => {
+on.Order.paid((order) => {
   // Fire-and-forget: triggers Order.readyToShip event
   send.Order.readyToShip(order)
 })
 
-on.Order.readyToShip(order => {
+on.Order.readyToShip((order) => {
   Fulfillment(order).createLabel()
   Warehouse(order).pickAndPack()
   send.Order.shipped(order)
 })
 
-on.Order.shipped(order => {
+on.Order.shipped((order) => {
   Email(order.customer).sendShippingNotification()
   Analytics.trackShipment(order)
 })
@@ -118,7 +118,7 @@ on.Order.shipped(order => {
 ```typescript
 import { when } from './on'
 
-on.Expense.submitted(expense => {
+on.Expense.submitted((expense) => {
   const validation = Expenses(expense).validate()
 
   when(expense.amount > 1000, {
@@ -128,7 +128,7 @@ on.Expense.submitted(expense => {
     },
     else: () => {
       Finance(expense).autoApprove()
-    }
+    },
   })
 })
 ```
@@ -138,14 +138,14 @@ on.Expense.submitted(expense => {
 ```typescript
 import { waitFor, when } from './on'
 
-on.Expense.needsApproval(expense => {
+on.Expense.needsApproval((expense) => {
   Slack(expense.approver).send({ template: 'approval-request', expense })
 
   const decision = waitFor('approval', { timeout: '7 days' })
 
   when(decision.approved, {
     then: () => Finance(expense).reimburse(),
-    else: () => Email(expense.submitter).sendRejection({ reason: decision.reason })
+    else: () => Email(expense.submitter).sendRejection({ reason: decision.reason }),
   })
 })
 ```
@@ -158,17 +158,23 @@ on.Expense.needsApproval(expense => {
 
 ```typescript
 // on.Customer.signup(handler) creates an event subscription
-export const on = new Proxy({}, {
-  get(_, entity: string) {
-    return new Proxy({}, {
-      get(_, event: string) {
-        return (handler: Function) => {
-          registerEventHandler(`${entity}.${event}`, handler)
-        }
-      }
-    })
-  }
-})
+export const on = new Proxy(
+  {},
+  {
+    get(_, entity: string) {
+      return new Proxy(
+        {},
+        {
+          get(_, event: string) {
+            return (handler: Function) => {
+              registerEventHandler(`${entity}.${event}`, handler)
+            }
+          },
+        },
+      )
+    },
+  },
+)
 ```
 
 ### Domain as First-Class
@@ -207,22 +213,28 @@ export const every = new Proxy(..., {
 
 ```typescript
 // send.Order.shipped(order) - fires event, doesn't wait
-export const send = new Proxy({}, {
-  get(_, entity: string) {
-    return new Proxy({}, {
-      get(_, event: string) {
-        return (payload: unknown) => {
-          return createPipelinePromise({
-            type: 'send',
-            entity,
-            event,
-            payload
-          })
-        }
-      }
-    })
-  }
-})
+export const send = new Proxy(
+  {},
+  {
+    get(_, entity: string) {
+      return new Proxy(
+        {},
+        {
+          get(_, event: string) {
+            return (payload: unknown) => {
+              return createPipelinePromise({
+                type: 'send',
+                entity,
+                event,
+                payload,
+              })
+            }
+          },
+        },
+      )
+    },
+  },
+)
 ```
 
 ---
@@ -262,11 +274,11 @@ const accountId = crm.accountId  // Returns PipelinePromise, not actual value
 
 ### Deferred Execution Benefits
 
-| Benefit | Explanation |
-|---------|-------------|
-| **No async/await** | Workflows read like synchronous code |
-| **Dependency analysis** | Runtime can analyze the expression graph |
-| **Parallel execution** | Independent operations execute concurrently |
+| Benefit                  | Explanation                                 |
+| ------------------------ | ------------------------------------------- |
+| **No async/await**       | Workflows read like synchronous code        |
+| **Dependency analysis**  | Runtime can analyze the expression graph    |
+| **Parallel execution**   | Independent operations execute concurrently |
 | **Deterministic replay** | Expressions serialize for durable execution |
 
 ---
@@ -280,13 +292,13 @@ const CRM = Domain('CRM', { createAccount: () => {} })
 const Billing = Domain('Billing', { setupSubscription: () => {} })
 const Email = Domain('Email', { sendWelcome: () => {} })
 
-on.Customer.signup(customer => {
+on.Customer.signup((customer) => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
 
   Email(customer).sendWelcome({
     crmId: CRM(customer).createAccount().accountId,
-    portalUrl: Billing(customer).setupSubscription().portalUrl
+    portalUrl: Billing(customer).setupSubscription().portalUrl,
   })
 })
 ```
@@ -313,7 +325,7 @@ const Finance = Domain('Finance', { reimburse: () => {}, autoApprove: () => {} }
 const Slack = Domain('Slack', { requestApproval: () => {} })
 const Email = Domain('Email', { reject: () => {} })
 
-on.Expense.submitted(expense => {
+on.Expense.submitted((expense) => {
   const validation = Expenses(expense).validate()
 
   when(validation.requiresApproval, {
@@ -323,12 +335,12 @@ on.Expense.submitted(expense => {
 
       when(decision.approved, {
         then: () => Finance(expense).reimburse(),
-        else: () => Email(expense.submitter).reject({ reason: decision.reason })
+        else: () => Email(expense.submitter).reject({ reason: decision.reason }),
       })
     },
     else: () => {
       Finance(expense).autoApprove()
-    }
+    },
   })
 })
 ```
@@ -336,15 +348,15 @@ on.Expense.submitted(expense => {
 ### Sprint Lifecycle
 
 ```typescript
-on.Sprint.started(sprint => {
+on.Sprint.started((sprint) => {
   const backlog = Backlog(sprint.startup).getItems()
-  backlog.map(item => AI(sprint.startup.mission).prioritize({ item }))
+  backlog.map((item) => AI(sprint.startup.mission).prioritize({ item }))
 
   Standup(sprint.team).scheduleDaily({ time: '9am', channel: sprint.slackChannel })
   Slack(sprint.slackChannel).post({ template: 'sprint-started', sprint })
 })
 
-on.Sprint.ended(sprint => {
+on.Sprint.ended((sprint) => {
   const feedback = Standup(sprint.team).aggregateFeedback()
   const retro = AI('agile-coach').generateRetro({ sprint, feedback })
 
@@ -357,14 +369,14 @@ on.Sprint.ended(sprint => {
 
 ## Comparison: v1 vs v2
 
-| Aspect | v1 (Workflow) | v2 (on.Event) |
-|--------|---------------|---------------|
-| Declaration | `Workflow('name', ($, input) => ...)` | `on.Entity.event(input => ...)` |
-| Domain calls | `$.CRM(ctx).method()` | `CRM(ctx).method()` |
-| Async | `await`, `Promise.all` | No await needed |
-| Scheduling | `Workflow().every('...').run()` | `every.Monday.at9am(() => ...)` |
-| Fire-and-forget | N/A | `send.Entity.event(payload)` |
-| Mental model | "Define and call workflows" | "React to events" |
+| Aspect          | v1 (Workflow)                         | v2 (on.Event)                   |
+| --------------- | ------------------------------------- | ------------------------------- |
+| Declaration     | `Workflow('name', ($, input) => ...)` | `on.Entity.event(input => ...)` |
+| Domain calls    | `$.CRM(ctx).method()`                 | `CRM(ctx).method()`             |
+| Async           | `await`, `Promise.all`                | No await needed                 |
+| Scheduling      | `Workflow().every('...').run()`       | `every.Monday.at9am(() => ...)` |
+| Fire-and-forget | N/A                                   | `send.Entity.event(payload)`    |
+| Mental model    | "Define and call workflows"           | "React to events"               |
 
 ---
 

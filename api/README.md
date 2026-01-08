@@ -44,15 +44,16 @@ Receive events from linked providers.
 POST /api/webhooks/:source
 ```
 
-| Source | Events |
-|--------|--------|
-| `github` | push, pull_request, issues, etc. |
+| Source   | Events                                      |
+| -------- | ------------------------------------------- |
+| `github` | push, pull_request, issues, etc.            |
 | `stripe` | payment_intent, invoice, subscription, etc. |
-| `slack` | message, reaction, app_mention, etc. |
-| `linear` | issue, comment, project, etc. |
-| `custom` | Any JSON payload |
+| `slack`  | message, reaction, app_mention, etc.        |
+| `linear` | issue, comment, project, etc.               |
+| `custom` | Any JSON payload                            |
 
 **Request:**
+
 ```json
 {
   "event": "issues.opened",
@@ -61,6 +62,7 @@ POST /api/webhooks/:source
 ```
 
 **Response:**
+
 ```json
 {
   "received": true,
@@ -69,14 +71,18 @@ POST /api/webhooks/:source
 ```
 
 **Middleware:**
+
 ```ts
-app.use('/api/webhooks/:source', webhookMiddleware({
-  verify: {
-    github: process.env.GITHUB_WEBHOOK_SECRET,
-    stripe: process.env.STRIPE_WEBHOOK_SECRET,
-  },
-  queue: true, // async processing
-}))
+app.use(
+  '/api/webhooks/:source',
+  webhookMiddleware({
+    verify: {
+      github: process.env.GITHUB_WEBHOOK_SECRET,
+      stripe: process.env.STRIPE_WEBHOOK_SECRET,
+    },
+    queue: true, // async processing
+  }),
+)
 ```
 
 ---
@@ -124,13 +130,17 @@ GET /api/search/salesforce:leads?status=new
 ```
 
 **Middleware:**
+
 ```ts
-app.use('/api/search/*', searchMiddleware({
-  defaultLimit: 20,
-  maxLimit: 100,
-  timeout: 5000,
-  cache: '5m',
-}))
+app.use(
+  '/api/search/*',
+  searchMiddleware({
+    defaultLimit: 20,
+    maxLimit: 100,
+    timeout: 5000,
+    cache: '5m',
+  }),
+)
 ```
 
 ---
@@ -139,14 +149,14 @@ app.use('/api/search/*', searchMiddleware({
 
 CRUD operations on schema types.
 
-| Method | Path | Operation |
-|--------|------|-----------|
-| `GET` | `/api/:type` | List |
-| `GET` | `/api/:type/:id` | Get |
-| `POST` | `/api/:type` | Create |
-| `PUT` | `/api/:type/:id` | Update (full) |
-| `PATCH` | `/api/:type/:id` | Update (partial) |
-| `DELETE` | `/api/:type/:id` | Delete |
+| Method   | Path             | Operation        |
+| -------- | ---------------- | ---------------- |
+| `GET`    | `/api/:type`     | List             |
+| `GET`    | `/api/:type/:id` | Get              |
+| `POST`   | `/api/:type`     | Create           |
+| `PUT`    | `/api/:type/:id` | Update (full)    |
+| `PATCH`  | `/api/:type/:id` | Update (partial) |
+| `DELETE` | `/api/:type/:id` | Delete           |
 
 ### List
 
@@ -212,16 +222,20 @@ DELETE /api/contacts/con_abc123
 ```
 
 **Middleware:**
+
 ```ts
-app.use('/api/:type/*', resourceMiddleware({
-  validate: true,       // validate against schema
-  timestamps: true,     // auto created_at/updated_at
-  softDelete: false,    // hard delete by default
-  hooks: {
-    beforeCreate: async (ctx, data) => data,
-    afterCreate: async (ctx, record) => {},
-  },
-}))
+app.use(
+  '/api/:type/*',
+  resourceMiddleware({
+    validate: true, // validate against schema
+    timestamps: true, // auto created_at/updated_at
+    softDelete: false, // hard delete by default
+    hooks: {
+      beforeCreate: async (ctx, data) => data,
+      afterCreate: async (ctx, record) => {},
+    },
+  }),
+)
 ```
 
 ---
@@ -258,14 +272,15 @@ Content-Type: application/json
 
 ### Function Types
 
-| Type | Description |
-|------|-------------|
-| `code` | Traditional serverless function |
-| `generative` | AI completion (single inference) |
-| `agentic` | AI + tools loop (multi-step reasoning) |
-| `human` | Human-in-the-loop via channel |
+| Type         | Description                            |
+| ------------ | -------------------------------------- |
+| `code`       | Traditional serverless function        |
+| `generative` | AI completion (single inference)       |
+| `agentic`    | AI + tools loop (multi-step reasoning) |
+| `human`      | Human-in-the-loop via channel          |
 
 **Code Function:**
+
 ```ts
 {
   type: 'code',
@@ -276,6 +291,7 @@ Content-Type: application/json
 ```
 
 **Generative Function:**
+
 ```ts
 {
   type: 'generative',
@@ -286,6 +302,7 @@ Content-Type: application/json
 ```
 
 **Agentic Function:**
+
 ```ts
 {
   type: 'agentic',
@@ -297,6 +314,7 @@ Content-Type: application/json
 ```
 
 **Human Function:**
+
 ```ts
 {
   type: 'human',
@@ -308,12 +326,16 @@ Content-Type: application/json
 ```
 
 **Middleware:**
+
 ```ts
-app.use('/api/actions/*', actionMiddleware({
-  timeout: 30000,
-  retry: { attempts: 3, backoff: 'exponential' },
-  trace: true,
-}))
+app.use(
+  '/api/actions/*',
+  actionMiddleware({
+    timeout: 30000,
+    retry: { attempts: 3, backoff: 'exponential' },
+    trace: true,
+  }),
+)
 ```
 
 ---
@@ -378,12 +400,16 @@ GET /api/workflows/:workflow/runs/:runId
 ```
 
 **Middleware:**
+
 ```ts
-app.use('/api/workflows/*', workflowMiddleware({
-  persistence: 'durable-object',
-  maxDuration: '1h',
-  retryPolicy: { attempts: 3 },
-}))
+app.use(
+  '/api/workflows/*',
+  workflowMiddleware({
+    persistence: 'durable-object',
+    maxDuration: '1h',
+    retryPolicy: { attempts: 3 },
+  }),
+)
 ```
 
 ---
@@ -417,21 +443,26 @@ GET  /.well-known/jwks.json
 ```
 
 **Middleware:**
-```ts
-app.use('/api/auth/*', authMiddleware({
-  session: { expiresIn: '7d' },
-  oauth: {
-    providers: ['github', 'google'],
-  },
-}))
 
-app.use('/oauth/*', oauthProviderMiddleware({
-  issuer: 'https://do.example.com',
-  clients: [
-    { id: 'app1', secret: '...', redirectUris: ['...'] }
-  ],
-  scopes: ['read', 'write', 'admin'],
-}))
+```ts
+app.use(
+  '/api/auth/*',
+  authMiddleware({
+    session: { expiresIn: '7d' },
+    oauth: {
+      providers: ['github', 'google'],
+    },
+  }),
+)
+
+app.use(
+  '/oauth/*',
+  oauthProviderMiddleware({
+    issuer: 'https://do.example.com',
+    clients: [{ id: 'app1', secret: '...', redirectUris: ['...'] }],
+    scopes: ['read', 'write', 'admin'],
+  }),
+)
 ```
 
 ---

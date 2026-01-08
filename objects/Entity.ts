@@ -43,7 +43,7 @@ export class Entity extends DO {
    */
   async getSchema(): Promise<EntitySchema | null> {
     if (!this.schema) {
-      this.schema = await this.ctx.storage.get('schema') as EntitySchema | null
+      this.schema = (await this.ctx.storage.get('schema')) as EntitySchema | null
     }
     return this.schema
   }
@@ -147,7 +147,7 @@ export class Entity extends DO {
    * Get entity record by ID
    */
   async get(id: string): Promise<EntityRecord | null> {
-    return await this.ctx.storage.get(`record:${id}`) as EntityRecord | null
+    return (await this.ctx.storage.get(`record:${id}`)) as EntityRecord | null
   }
 
   /**
@@ -214,7 +214,7 @@ export class Entity extends DO {
    */
   async find(field: string, value: unknown): Promise<EntityRecord[]> {
     const all = await this.list()
-    return all.filter(r => r.data[field] === value)
+    return all.filter((r) => r.data[field] === value)
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -228,7 +228,7 @@ export class Entity extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const schema = await request.json() as EntitySchema
+        const schema = (await request.json()) as EntitySchema
         await this.setSchema(schema)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -244,7 +244,7 @@ export class Entity extends DO {
         })
       }
       if (request.method === 'POST') {
-        const data = await request.json() as Record<string, unknown>
+        const data = (await request.json()) as Record<string, unknown>
         const record = await this.create(data)
         return new Response(JSON.stringify(record), {
           status: 201,
@@ -267,7 +267,7 @@ export class Entity extends DO {
       }
 
       if (request.method === 'PUT') {
-        const data = await request.json() as Record<string, unknown>
+        const data = (await request.json()) as Record<string, unknown>
         const record = await this.update(id, data)
         if (!record) {
           return new Response('Not Found', { status: 404 })

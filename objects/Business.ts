@@ -26,7 +26,7 @@ export class Business extends DO {
    */
   async getConfig(): Promise<BusinessConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as BusinessConfig | null
+      this.config = (await this.ctx.storage.get('config')) as BusinessConfig | null
     }
     return this.config
   }
@@ -58,9 +58,7 @@ export class Business extends DO {
    */
   async listApps(): Promise<{ doId: string; name: string }[]> {
     const objects = await this.getLinkedObjects('child')
-    return objects
-      .filter(o => o.doClass === 'App')
-      .map(o => ({ doId: o.doId, name: (o.data as any)?.name || '' }))
+    return objects.filter((o) => o.doClass === 'App').map((o) => ({ doId: o.doId, name: (o.data as any)?.name || '' }))
   }
 
   /**
@@ -68,9 +66,7 @@ export class Business extends DO {
    */
   async listMembers(): Promise<{ doId: string; doClass: string; role: string }[]> {
     const objects = await this.getLinkedObjects()
-    return objects
-      .filter(o => o.doClass === 'Agent' || o.doClass === 'Human')
-      .map(o => ({ doId: o.doId, doClass: o.doClass, role: o.role || 'member' }))
+    return objects.filter((o) => o.doClass === 'Agent' || o.doClass === 'Human').map((o) => ({ doId: o.doId, doClass: o.doClass, role: o.role || 'member' }))
   }
 
   /**
@@ -96,7 +92,7 @@ export class Business extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as BusinessConfig
+        const config = (await request.json()) as BusinessConfig
         await this.setConfig(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },

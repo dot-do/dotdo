@@ -6,8 +6,8 @@ import type { RpcPromise } from 'capnweb'
 
 export interface ThingData {
   // Fully qualified URLs for unambiguous identity
-  $id: string           // URL: 'https://startups.studio/headless.ly'
-  $type: string         // URL: 'https://startups.studio/Startup' (Noun URL)
+  $id: string // URL: 'https://startups.studio/headless.ly'
+  $type: string // URL: 'https://startups.studio/Startup' (Noun URL)
 
   // Core fields
   name?: string
@@ -22,9 +22,9 @@ export interface ThingData {
 
 // Parsed from $id for convenience (computed, not stored)
 export interface ThingIdentity {
-  url: URL              // Parsed URL object
-  ns: string            // Namespace/DO: 'https://startups.studio'
-  path: string          // Path after ns: 'headless.ly'
+  url: URL // Parsed URL object
+  ns: string // Namespace/DO: 'https://startups.studio'
+  path: string // Path after ns: 'headless.ly'
 }
 
 export interface Thing extends ThingData {

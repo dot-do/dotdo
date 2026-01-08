@@ -159,6 +159,7 @@ events = {
 ```
 
 **Direct paths (low latency, no queue cost):**
+
 - DO → Pipelines (every event, for materialization)
 - DO → Workflows (initiate durable execution)
 - DO → Other DOs (RPC calls via CapnWeb)
@@ -202,12 +203,12 @@ events = {
 
 All four are supported, with different latency requirements:
 
-| Use Case | Description | Acceptable Latency |
-|----------|-------------|-------------------|
-| **Cross-DO queries** | "All Startups that raised in Q4" | Seconds to minutes |
-| **Analytics dashboards** | Real-time metrics, time-series | Minutes |
-| **Global search/discovery** | Find any Thing by properties | Seconds |
-| **Audit/SOC2** | Full event history, compliance | Async (must be complete) |
+| Use Case                    | Description                      | Acceptable Latency       |
+| --------------------------- | -------------------------------- | ------------------------ |
+| **Cross-DO queries**        | "All Startups that raised in Q4" | Seconds to minutes       |
+| **Analytics dashboards**    | Real-time metrics, time-series   | Minutes                  |
+| **Global search/discovery** | Find any Thing by properties     | Seconds                  |
+| **Audit/SOC2**              | Full event history, compliance   | Async (must be complete) |
 
 For low-latency requirements, see issue **dotdo-6io** (sharding, replication, replicated indexes).
 
@@ -254,7 +255,7 @@ branches = {
 ```typescript
 // Fork - new identity from current state
 await $.Startup('headless.ly').fork({
-  to: 'https://startups.studio/headless-v2'
+  to: 'https://startups.studio/headless-v2',
 })
 // Result: New DO, new URL, fresh history
 
@@ -293,14 +294,14 @@ await do.shardBy('customerId')            // Split by key
 All DO methods follow this signature:
 
 ```typescript
-type DOFunction<
-  Output,
-  Input = unknown,
-  Options extends Record<string, unknown> = Record<string, unknown>
-> = (input: Input, options?: Options) => Promise<Output>
+type DOFunction<Output, Input = unknown, Options extends Record<string, unknown> = Record<string, unknown>> = (
+  input: Input,
+  options?: Options,
+) => Promise<Output>
 ```
 
 Every action has:
+
 - **verb** - the action being performed
 - **actor** - who did it (Code/Agent/Human)
 - **target** - what was affected

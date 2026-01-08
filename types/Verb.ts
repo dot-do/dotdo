@@ -3,10 +3,10 @@
 // ============================================================================
 
 export interface VerbData {
-  verb: string              // 'create' (base action form / imperative)
-  activity?: string         // 'creating' (present participle / gerund)
-  event?: string            // 'created' (past participle)
-  inverse?: string          // 'delete' (opposite verb)
+  verb: string // 'create' (base action form / imperative)
+  activity?: string // 'creating' (present participle / gerund)
+  event?: string // 'created' (past participle)
+  inverse?: string // 'delete' (opposite verb)
   description?: string
 }
 
@@ -17,9 +17,9 @@ export interface VerbData {
 
 export interface Verb extends VerbData {
   // Derived forms
-  readonly by: string       // '{event}By' - actor reference
-  readonly at: string       // '{event}At' - timestamp field
-  readonly in: string       // '{event}In' - context field
+  readonly by: string // '{event}By' - actor reference
+  readonly at: string // '{event}At' - timestamp field
+  readonly in: string // '{event}In' - context field
 }
 
 // ============================================================================

@@ -136,11 +136,14 @@ function extractSessionCookie(c: Context, cookieName: string): string | null {
   const cookie = c.req.header('cookie')
   if (!cookie) return null
 
-  const cookies = cookie.split(';').reduce((acc, curr) => {
-    const [key, value] = curr.trim().split('=')
-    acc[key] = value
-    return acc
-  }, {} as Record<string, string>)
+  const cookies = cookie.split(';').reduce(
+    (acc, curr) => {
+      const [key, value] = curr.trim().split('=')
+      acc[key] = value
+      return acc
+    },
+    {} as Record<string, string>,
+  )
 
   return cookies[cookieName] || null
 }
@@ -207,7 +210,7 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
     const path = c.req.path
 
     // Skip auth for public paths
-    if (mergedConfig.publicPaths?.some(p => path.startsWith(p))) {
+    if (mergedConfig.publicPaths?.some((p) => path.startsWith(p))) {
       return next()
     }
 
@@ -340,18 +343,10 @@ export function validateApiKey(key: string): ApiKeyConfig | undefined {
 // JWT Token Generation (for testing/development)
 // ============================================================================
 
-export async function generateJWT(
-  payload: Omit<JWTPayload, 'iat' | 'exp'>,
-  secret: string,
-  expiresIn: string = '1h'
-): Promise<string> {
+export async function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>, secret: string, expiresIn: string = '1h'): Promise<string> {
   const secretKey = new TextEncoder().encode(secret)
 
-  const jwt = await new jose.SignJWT(payload as jose.JWTPayload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(expiresIn)
-    .sign(secretKey)
+  const jwt = await new jose.SignJWT(payload as jose.JWTPayload).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime(expiresIn).sign(secretKey)
 
   return jwt
 }

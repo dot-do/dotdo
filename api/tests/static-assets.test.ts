@@ -117,9 +117,7 @@ describe('Workers Static Assets Configuration', () => {
       const runWorkerFirst = config.assets?.run_worker_first ?? []
 
       // Root should not be in run_worker_first - it should serve static index.html
-      const matchesRoot = runWorkerFirst.some(pattern =>
-        pattern === '/' || pattern === '/*'
-      )
+      const matchesRoot = runWorkerFirst.some((pattern) => pattern === '/' || pattern === '/*')
       expect(matchesRoot).toBe(false)
     })
 
@@ -128,9 +126,7 @@ describe('Workers Static Assets Configuration', () => {
       const runWorkerFirst = config.assets?.run_worker_first ?? []
 
       // Docs should be static - not in run_worker_first
-      const matchesDocs = runWorkerFirst.some(pattern =>
-        pattern === '/docs/*' || pattern === '/docs' || pattern === '/docs/**'
-      )
+      const matchesDocs = runWorkerFirst.some((pattern) => pattern === '/docs/*' || pattern === '/docs' || pattern === '/docs/**')
       expect(matchesDocs).toBe(false)
     })
 
@@ -139,9 +135,7 @@ describe('Workers Static Assets Configuration', () => {
       const runWorkerFirst = config.assets?.run_worker_first ?? []
 
       // Admin UI should be static - not in run_worker_first
-      const matchesAdmin = runWorkerFirst.some(pattern =>
-        pattern === '/admin/*' || pattern === '/admin' || pattern === '/admin/**'
-      )
+      const matchesAdmin = runWorkerFirst.some((pattern) => pattern === '/admin/*' || pattern === '/admin' || pattern === '/admin/**')
       expect(matchesAdmin).toBe(false)
     })
 

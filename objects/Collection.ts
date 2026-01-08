@@ -34,7 +34,7 @@ export class Collection extends Entity {
    */
   async getCollectionConfig(): Promise<CollectionConfig | null> {
     if (!this.collectionConfig) {
-      this.collectionConfig = await this.ctx.storage.get('collection_config') as CollectionConfig | null
+      this.collectionConfig = (await this.ctx.storage.get('collection_config')) as CollectionConfig | null
     }
     return this.collectionConfig
   }
@@ -66,7 +66,7 @@ export class Collection extends Entity {
   async query(filters: Record<string, unknown>): Promise<EntityRecord[]> {
     const all = await this.list()
 
-    return all.filter(record => {
+    return all.filter((record) => {
       for (const [field, value] of Object.entries(filters)) {
         if (record.data[field] !== value) {
           return false
@@ -81,7 +81,7 @@ export class Collection extends Entity {
    */
   async aggregate(
     groupBy: string,
-    aggregations: { field: string; op: 'count' | 'sum' | 'avg' | 'min' | 'max' }[]
+    aggregations: { field: string; op: 'count' | 'sum' | 'avg' | 'min' | 'max' }[],
   ): Promise<Record<string, Record<string, number>>> {
     const records = await this.list()
     const groups: Record<string, EntityRecord[]> = {}
@@ -100,9 +100,7 @@ export class Collection extends Entity {
       result[key] = {}
 
       for (const agg of aggregations) {
-        const values = groupRecords
-          .map(r => r.data[agg.field])
-          .filter(v => typeof v === 'number') as number[]
+        const values = groupRecords.map((r) => r.data[agg.field]).filter((v) => typeof v === 'number') as number[]
 
         switch (agg.op) {
           case 'count':
@@ -112,9 +110,7 @@ export class Collection extends Entity {
             result[key][`${agg.field}_sum`] = values.reduce((a, b) => a + b, 0)
             break
           case 'avg':
-            result[key][`${agg.field}_avg`] = values.length > 0
-              ? values.reduce((a, b) => a + b, 0) / values.length
-              : 0
+            result[key][`${agg.field}_avg`] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0
             break
           case 'min':
             result[key][`${agg.field}_min`] = values.length > 0 ? Math.min(...values) : 0
@@ -171,7 +167,7 @@ export class Collection extends Entity {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as CollectionConfig
+        const config = (await request.json()) as CollectionConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -187,7 +183,7 @@ export class Collection extends Entity {
     }
 
     if (url.pathname === '/query' && request.method === 'POST') {
-      const filters = await request.json() as Record<string, unknown>
+      const filters = (await request.json()) as Record<string, unknown>
       const records = await this.query(filters)
       return new Response(JSON.stringify(records), {
         headers: { 'Content-Type': 'application/json' },
@@ -195,7 +191,7 @@ export class Collection extends Entity {
     }
 
     if (url.pathname === '/bulk' && request.method === 'POST') {
-      const records = await request.json() as Record<string, unknown>[]
+      const records = (await request.json()) as Record<string, unknown>[]
       const created = await this.bulkCreate(records)
       return new Response(JSON.stringify(created), {
         status: 201,

@@ -20,32 +20,36 @@ import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqli
 //   $.merge('experiment')    → merge into current
 // ============================================================================
 
-export const branches = sqliteTable('branches', {
-  // rowid is implicit
+export const branches = sqliteTable(
+  'branches',
+  {
+    // rowid is implicit
 
-  // Branch identity
-  name: text('name').notNull(),                    // 'main', 'experiment', 'feature/x'
+    // Branch identity
+    name: text('name').notNull(), // 'main', 'experiment', 'feature/x'
 
-  // What this branch tracks (thing id, not rowid)
-  thingId: text('thing_id').notNull(),             // 'Startup/acme'
+    // What this branch tracks (thing id, not rowid)
+    thingId: text('thing_id').notNull(), // 'Startup/acme'
 
-  // HEAD pointer (current version)
-  head: integer('head').notNull(),                 // things.rowid (current version)
+    // HEAD pointer (current version)
+    head: integer('head').notNull(), // things.rowid (current version)
 
-  // Fork point
-  base: integer('base'),                           // things.rowid (where branch diverged)
-  forkedFrom: text('forked_from'),                 // Branch name it was forked from
+    // Fork point
+    base: integer('base'), // things.rowid (where branch diverged)
+    forkedFrom: text('forked_from'), // Branch name it was forked from
 
-  // Metadata
-  description: text('description'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
-}, (table) => [
-  // Each thing can only have one branch with a given name
-  uniqueIndex('branches_thing_name_idx').on(table.thingId, table.name),
-  index('branches_name_idx').on(table.name),
-  index('branches_thing_idx').on(table.thingId),
-])
+    // Metadata
+    description: text('description'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    // Each thing can only have one branch with a given name
+    uniqueIndex('branches_thing_name_idx').on(table.thingId, table.name),
+    index('branches_name_idx').on(table.name),
+    index('branches_thing_idx').on(table.thingId),
+  ],
+)
 
 // ============================================================================
 // DEFAULT BRANCHES

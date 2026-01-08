@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What is dotdo?
 
 dotdo is a framework for building AI-native applications on Cloudflare Workers with Durable Objects and SQLite. It provides:
+
 - A base DO class with built-in Drizzle ORM, workflow context, and lifecycle operations
 - Hono-based API routes with multiple transports (REST, MCP, RPC)
 - Better Auth integration for authentication
@@ -31,10 +32,12 @@ npm run typecheck        # TypeScript type checking
 ### Test Workspaces
 
 Tests are split into two workspaces in `vitest.workspace.ts`:
+
 - **node**: File system / config verification tests (`api/tests/setup.test.ts`, `api/tests/static-assets.test.ts`)
 - **workers**: Cloudflare Workers pool tests (`api/tests/infrastructure/`, `api/tests/routes/`, `api/tests/middleware/`)
 
 Run a specific test file:
+
 ```bash
 npx vitest run api/tests/routes/api.test.ts
 ```
@@ -82,9 +85,9 @@ The `$` object on every DO provides the workflow API:
 
 ```typescript
 // Execution modes
-$.send(event, data)      // Fire-and-forget (non-blocking, non-durable)
-$.try(action, data)      // Quick attempt (blocking, non-durable)
-$.do(action, data)       // Durable execution with retries (blocking, durable)
+$.send(event, data) // Fire-and-forget (non-blocking, non-durable)
+$.try(action, data) // Quick attempt (blocking, non-durable)
+$.do(action, data) // Durable execution with retries (blocking, durable)
 
 // Event handlers
 $.on.Customer.created(handler)
@@ -94,7 +97,7 @@ $.on.Payment.failed(handler)
 $.every.monday.at('9am')(handler)
 
 // Domain resolution
-$.Customer(id).notify()  // Resolves and calls method on DO
+$.Customer(id).notify() // Resolves and calls method on DO
 ```
 
 ### DO Class Hierarchy
@@ -113,15 +116,16 @@ DO (Base)
 ### Entry Points (Tree-Shakable)
 
 ```typescript
-import { DO } from 'dotdo'         // Full featured
-import { DO } from 'dotdo/tiny'    // Minimal, no deps
-import { DO } from 'dotdo/rpc'     // Deps via RPC bindings
-import { DO } from 'dotdo/auth'    // With Better Auth
+import { DO } from 'dotdo' // Full featured
+import { DO } from 'dotdo/tiny' // Minimal, no deps
+import { DO } from 'dotdo/rpc' // Deps via RPC bindings
+import { DO } from 'dotdo/auth' // With Better Auth
 ```
 
 ## Wrangler Configuration
 
 Key bindings in `wrangler.toml`:
+
 - `KV` - KV namespace for sessions/caching
 - `DO` - Main Durable Object namespace
 - `ASSETS` - Static asset serving with SPA fallback

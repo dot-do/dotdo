@@ -33,17 +33,20 @@ Integrate WorkOS AuthKit into id.org.ai for enterprise-grade human authenticatio
 ## Key Decisions
 
 ### 1. Identity Mapping
+
 - **Decision:** Federated identity mapping (Option 3)
 - id.org.ai maintains `identities` table as source of truth
 - WorkOS user linked as `type: 'auth'` in `linkedAccounts`
 - Agents/services created separately without WorkOS
 
 ### 2. better-auth Plugins
+
 - **oauthProvider:** id.org.ai issues tokens to apps
 - **oauthProxy:** Cross-domain auth for child DOs on different domains
 - **organization:** Multi-tenant with `activeOrganizationId`
 
 ### 3. Schema Extension
+
 ```typescript
 // Extend better-auth users → identities
 user: {
@@ -76,26 +79,31 @@ organization: {
 ```
 
 ### 4. Auth Configuration Modes
+
 1. **Federate to parent** (default) - Zero config
 2. **Own providers** - Full control
 3. **Hybrid** - Mix of both
 
 ### 5. CLI (org.ai)
+
 - Device authorization flow for CLI auth
 - Token storage: `env ORG_AI_TOKEN > ~/.config/org.ai/credentials.json`
 - Keychain deferred due to cross-platform issues
 
 ### 6. Integrations as First-Class
+
 - Linked accounts = integrations
 - No Zapier/Composio needed
 - `this.integration('github')` pattern in DOs
 
 ### 7. Core Primitives
+
 - **Triggers:** Events from providers, cron, webhooks
 - **Searches:** Queries across local DB and linked providers
 - **Actions (Functions):** CodeFunction, GenerativeFunction, AgenticFunction, HumanFunction
 
 ### 8. API Routes (Hono middleware)
+
 ```typescript
 .use('/api/auth/*', auth())
 .use('/api/webhooks/*', webhooks())
@@ -105,6 +113,7 @@ organization: {
 ```
 
 ## WorkOS Features Used
+
 - **AuthKit:** Human authentication (SSO, MFA, user management)
 - **Vault:** Secure token storage for linked accounts
 - **FGA:** Fine-grained authorization (future)

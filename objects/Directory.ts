@@ -51,14 +51,14 @@ export class Directory extends Entity {
    * Get entry by ID
    */
   async getEntry(id: string): Promise<DirectoryEntry | null> {
-    return await this.ctx.storage.get(`entry:${id}`) as DirectoryEntry | null
+    return (await this.ctx.storage.get(`entry:${id}`)) as DirectoryEntry | null
   }
 
   /**
    * Get entry by path
    */
   async getByPath(path: string): Promise<DirectoryEntry | null> {
-    const id = await this.ctx.storage.get(`path:${path}`) as string | undefined
+    const id = (await this.ctx.storage.get(`path:${path}`)) as string | undefined
     if (!id) return null
     return this.getEntry(id)
   }
@@ -70,15 +70,20 @@ export class Directory extends Entity {
     const map = await this.ctx.storage.list({ prefix: 'entry:' })
     const entries = Array.from(map.values()) as DirectoryEntry[]
 
-    return entries.filter(e => {
+    return entries.filter((e) => {
       if (parentPath === '/') {
         // Root level - no parent path component
-        const parts = e.path.split('/').filter(p => p)
+        const parts = e.path.split('/').filter((p) => p)
         return parts.length === 1
       }
       // Check if parent path matches
-      return e.path.startsWith(parentPath + '/') &&
-        e.path.slice(parentPath.length + 1).split('/').filter(p => p).length === 1
+      return (
+        e.path.startsWith(parentPath + '/') &&
+        e.path
+          .slice(parentPath.length + 1)
+          .split('/')
+          .filter((p) => p).length === 1
+      )
     })
   }
 
@@ -93,7 +98,7 @@ export class Directory extends Entity {
       return entries
     }
 
-    return entries.filter(e => e.path.startsWith(path + '/') || e.path === path)
+    return entries.filter((e) => e.path.startsWith(path + '/') || e.path === path)
   }
 
   /**
@@ -206,7 +211,7 @@ export class Directory extends Entity {
     }
 
     if (url.pathname === '/entry' && request.method === 'POST') {
-      const entry = await request.json() as Omit<DirectoryEntry, 'id' | 'createdAt' | 'updatedAt'>
+      const entry = (await request.json()) as Omit<DirectoryEntry, 'id' | 'createdAt' | 'updatedAt'>
       const created = await this.createEntry(entry)
       return new Response(JSON.stringify(created), {
         status: 201,
@@ -215,7 +220,7 @@ export class Directory extends Entity {
     }
 
     if (url.pathname === '/folder' && request.method === 'POST') {
-      const { path, name } = await request.json() as { path: string; name: string }
+      const { path, name } = (await request.json()) as { path: string; name: string }
       const folder = await this.createFolder(path, name)
       return new Response(JSON.stringify(folder), {
         status: 201,
@@ -224,7 +229,7 @@ export class Directory extends Entity {
     }
 
     if (url.pathname === '/file' && request.method === 'POST') {
-      const { path, name, data } = await request.json() as { path: string; name: string; data?: Record<string, unknown> }
+      const { path, name, data } = (await request.json()) as { path: string; name: string; data?: Record<string, unknown> }
       const file = await this.createFile(path, name, data)
       return new Response(JSON.stringify(file), {
         status: 201,

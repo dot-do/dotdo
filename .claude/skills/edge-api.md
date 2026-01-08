@@ -88,6 +88,7 @@ Request → edge-api (HATEOAS shell) → RPC (method dispatch) → handler
 ## Content Negotiation
 
 Responses adapt to Accept header:
+
 - `application/json` → JSON response
 - `text/html` → Rendered HTML via mdxui
 - `text/plain` → Plain text

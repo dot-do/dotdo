@@ -7,7 +7,7 @@ describe('ExpenseApprovalWorkflow Example', () => {
 
     const decision = $.waitFor('manager-approval', {
       timeout: '7 days',
-      type: 'expense-decision'
+      type: 'expense-decision',
     })
 
     expect(isPipelinePromise(decision)).toBe(true)
@@ -22,7 +22,7 @@ describe('ExpenseApprovalWorkflow Example', () => {
     const validation = $.Expenses({ id: 'exp-1' }).validate()
     const result = $.when(validation.requiresApproval, {
       then: () => $.Slack({}).send({ message: 'Approval needed' }),
-      else: () => $.Finance({}).autoReimburse()
+      else: () => $.Finance({}).autoReimburse(),
     })
 
     expect(isPipelinePromise(result)).toBe(true)
@@ -36,9 +36,9 @@ describe('ExpenseApprovalWorkflow Example', () => {
     const level = $.Expenses(expense).getApprovalLevel()
 
     const result = $.branch(level, {
-      'manager': () => $.Manager({}).approve(),
-      'director': () => $.Director({}).approve(),
-      default: () => $.System({}).autoApprove()
+      manager: () => $.Manager({}).approve(),
+      director: () => $.Director({}).approve(),
+      default: () => $.System({}).autoApprove(),
     })
 
     expect(isPipelinePromise(result)).toBe(true)
@@ -56,11 +56,12 @@ describe('ExpenseApprovalWorkflow Example', () => {
     // Comparisons like `decision.amount > 1000` require resolved values
     // Use $.branch or domain methods for threshold checks
     const result = $.when(decision.approved, {
-      then: () => $.when(decision.requiresReview, {
-        then: () => $.Finance({}).manualReview(),
-        else: () => $.Finance({}).autoProcess()
-      }),
-      else: () => $.Email({}).sendRejection()
+      then: () =>
+        $.when(decision.requiresReview, {
+          then: () => $.Finance({}).manualReview(),
+          else: () => $.Finance({}).autoProcess(),
+        }),
+      else: () => $.Email({}).sendRejection(),
     })
 
     expect(isPipelinePromise(result)).toBe(true)
@@ -72,7 +73,7 @@ describe('ExpenseApprovalWorkflow Example', () => {
 
     const decision = $.waitFor('manager-approval', {
       timeout: '7 days',
-      type: 'expense-decision'
+      type: 'expense-decision',
     })
 
     // Access properties on the decision (e.g., decision.approved, decision.reason)
@@ -99,7 +100,7 @@ describe('ExpenseApprovalWorkflow Example', () => {
     // Slack notification
     $.Slack({ channel: '#approvals' }).send({
       template: 'approval-request',
-      data: { expense, validation }
+      data: { expense, validation },
     })
 
     // Wait for human approval
@@ -111,17 +112,17 @@ describe('ExpenseApprovalWorkflow Example', () => {
         const reimbursement = $.Finance(expense).reimburse()
         $.Email({ to: 'submitter@example.com' }).send({
           template: 'approved',
-          data: { reimbursement }
+          data: { reimbursement },
         })
         return reimbursement
       },
       else: () => {
         $.Email({ to: 'submitter@example.com' }).send({
           template: 'rejected',
-          data: { reason: decision.reason }
+          data: { reason: decision.reason },
         })
         return { status: 'rejected' }
-      }
+      },
     })
 
     expect(isPipelinePromise(result)).toBe(true)
@@ -146,26 +147,26 @@ describe('ExpenseApprovalWorkflow Example', () => {
     const level = $.Expenses(expense).getApprovalLevel()
 
     const result = $.branch(level, {
-      'manager': () => $.Manager({}).requestApproval(expense),
-      'director': () => {
+      manager: () => $.Manager({}).requestApproval(expense),
+      director: () => {
         const mgr = $.Manager({}).requestApproval(expense)
         return $.when(mgr.approved, {
-          then: () => $.Director({}).requestApproval(expense)
+          then: () => $.Director({}).requestApproval(expense),
         })
       },
-      'cfo': () => {
+      cfo: () => {
         const dir = $.Director({}).requestApproval(expense)
         return $.when(dir.approved, {
-          then: () => $.CFO({}).requestApproval(expense)
+          then: () => $.CFO({}).requestApproval(expense),
         })
       },
-      'board': () => {
+      board: () => {
         const cfo = $.CFO({}).requestApproval(expense)
         return $.when(cfo.approved, {
-          then: () => $.Board({}).requestApproval(expense)
+          then: () => $.Board({}).requestApproval(expense),
         })
       },
-      default: () => $.Expenses(expense).autoApprove()
+      default: () => $.Expenses(expense).autoApprove(),
     })
 
     expect(isPipelinePromise(result)).toBe(true)

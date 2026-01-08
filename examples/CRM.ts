@@ -23,17 +23,17 @@ import type { Thing } from '../types/Thing'
 
 export interface Org extends Thing {
   $type: 'Org'
-  slug: string              // 'acme'
-  name: string              // 'Acme Corp'
+  slug: string // 'acme'
+  name: string // 'Acme Corp'
   plan: 'free' | 'pro' | 'enterprise'
-  region: string            // 'SFO', 'ORD', 'LHR'
+  region: string // 'SFO', 'ORD', 'LHR'
   memberCount: number
 }
 
 export interface Member extends Thing {
   $type: 'Member'
-  userId: string            // Auth user ID
-  orgId: string             // Org slug
+  userId: string // Auth user ID
+  orgId: string // Org slug
   role: 'owner' | 'admin' | 'member'
   email: string
 }
@@ -44,7 +44,7 @@ export interface Contact extends Thing {
   lastName: string
   email: string
   phone?: string
-  company?: string          // Reference to Company
+  company?: string // Reference to Company
   status: 'lead' | 'prospect' | 'customer' | 'churned'
   source?: string
 }
@@ -65,8 +65,8 @@ export interface Deal extends Thing {
   currency: string
   stage: 'discovery' | 'qualification' | 'proposal' | 'negotiation' | 'closed-won' | 'closed-lost'
   probability: number
-  company?: string          // Reference to Company
-  contact?: string          // Reference to Contact
+  company?: string // Reference to Company
+  contact?: string // Reference to Contact
   expectedCloseDate?: string
 }
 
@@ -82,17 +82,11 @@ export class CRM extends DO {
    * 2. Creates CRMTenant DO at crm.headless.ly/{slug}
    * 3. Sets locationHint based on region
    */
-  async createOrg(data: {
-    slug: string
-    name: string
-    plan?: Org['plan']
-    region?: string
-    ownerId: string
-  }): Promise<Org> {
+  async createOrg(data: { slug: string; name: string; plan?: Org['plan']; region?: string; ownerId: string }): Promise<Org> {
     const { slug, name, plan = 'free', region = 'SFO', ownerId } = data
 
     // Create Org thing in app DO
-    const org = await this.$.do('createOrg', {
+    const org = (await this.$.do('createOrg', {
       $type: 'Org',
       $id: slug,
       slug,
@@ -100,7 +94,7 @@ export class CRM extends DO {
       plan,
       region,
       memberCount: 1,
-    }) as Org
+    })) as Org
 
     // Create tenant DO with location hint
     const tenantNs = `${this.ns}/${slug}`
@@ -142,13 +136,10 @@ export class CRM extends DO {
    * Get orgs for a user
    */
   async getOrgsForUser(userId: string): Promise<Org[]> {
-    const memberships = await this.collection<Member>('Member')
-      .find({ userId })
+    const memberships = await this.collection<Member>('Member').find({ userId })
 
-    const orgSlugs = memberships.map(m => m.orgId)
-    const orgs = await Promise.all(
-      orgSlugs.map(slug => this.collection<Org>('Org').get(slug))
-    )
+    const orgSlugs = memberships.map((m) => m.orgId)
+    const orgs = await Promise.all(orgSlugs.map((slug) => this.collection<Org>('Org').get(slug)))
 
     return orgs.filter((o): o is Org => o !== null)
   }
@@ -201,7 +192,7 @@ export class CRM extends DO {
       'US-CENTRAL': 'ORD',
       'EU-WEST': 'LHR',
       'EU-CENTRAL': 'FRA',
-      'APAC': 'SIN',
+      APAC: 'SIN',
       // Default to region as colo
     }
     return mapping[region] || region
@@ -317,7 +308,7 @@ export class CRMTenant extends DO {
     return deals.reduce((sum, deal) => {
       if (deal.stage === 'closed-won') return sum + deal.value
       if (deal.stage === 'closed-lost') return sum
-      return sum + (deal.value * deal.probability)
+      return sum + deal.value * deal.probability
     }, 0)
   }
 
@@ -348,10 +339,8 @@ export class CRMTenant extends DO {
       verb: 'worksAt',
     })
 
-    const contactIds = rels.map(r => r.from.split('/').pop()!)
-    const contacts = await Promise.all(
-      contactIds.map(id => this.getContact(id))
-    )
+    const contactIds = rels.map((r) => r.from.split('/').pop()!)
+    const contacts = await Promise.all(contactIds.map((id) => this.getContact(id)))
 
     return contacts.filter((c): c is Contact => c !== null)
   }

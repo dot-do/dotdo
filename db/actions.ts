@@ -18,55 +18,63 @@ import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 // Time travel: Join actions with things to reconstruct state at any point.
 // ============================================================================
 
-export const actions = sqliteTable('actions', {
-  // rowid is implicit and serves as sequence number
+export const actions = sqliteTable(
+  'actions',
+  {
+    // rowid is implicit and serves as sequence number
 
-  // Identity
-  id: text('id').notNull().unique(),               // UUID for external reference
+    // Identity
+    id: text('id').notNull().unique(), // UUID for external reference
 
-  // The action
-  verb: text('verb').notNull(),                    // 'create', 'update', 'delete' (action form)
+    // The action
+    verb: text('verb').notNull(), // 'create', 'update', 'delete' (action form)
 
-  // Actor and target (local paths within this DO)
-  actor: text('actor'),                            // 'Human/nathan', 'Agent/support'
-  target: text('target').notNull(),                // 'Startup/acme'
+    // Actor and target (local paths within this DO)
+    actor: text('actor'), // 'Human/nathan', 'Agent/support'
+    target: text('target').notNull(), // 'Startup/acme'
 
-  // Version references (rowids into things table)
-  input: integer('input'),                         // things.rowid before (null for create)
-  output: integer('output'),                       // things.rowid after (null for delete)
+    // Version references (rowids into things table)
+    input: integer('input'), // things.rowid before (null for create)
+    output: integer('output'), // things.rowid after (null for delete)
 
-  // Additional parameters
-  options: text('options', { mode: 'json' }),
+    // Additional parameters
+    options: text('options', { mode: 'json' }),
 
-  // Durability level
-  durability: text('durability', {
-    enum: ['send', 'try', 'do']
-  }).notNull().default('try'),
+    // Durability level
+    durability: text('durability', {
+      enum: ['send', 'try', 'do'],
+    })
+      .notNull()
+      .default('try'),
 
-  // Status
-  status: text('status', {
-    enum: ['pending', 'running', 'completed', 'failed', 'undone', 'retrying']
-  }).notNull().default('pending'),
-  error: text('error', { mode: 'json' }),
+    // Status
+    status: text('status', {
+      enum: ['pending', 'running', 'completed', 'failed', 'undone', 'retrying'],
+    })
+      .notNull()
+      .default('pending'),
+    error: text('error', { mode: 'json' }),
 
-  // Context (for correlation)
-  requestId: text('request_id'),
-  sessionId: text('session_id'),
-  workflowId: text('workflow_id'),
+    // Context (for correlation)
+    requestId: text('request_id'),
+    sessionId: text('session_id'),
+    workflowId: text('workflow_id'),
 
-  // Timing (derived, not source of truth for things)
-  startedAt: integer('started_at', { mode: 'timestamp' }),
-  completedAt: integer('completed_at', { mode: 'timestamp' }),
-  duration: integer('duration'),                   // ms
+    // Timing (derived, not source of truth for things)
+    startedAt: integer('started_at', { mode: 'timestamp' }),
+    completedAt: integer('completed_at', { mode: 'timestamp' }),
+    duration: integer('duration'), // ms
 
-  // Created timestamp (for this action record)
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-}, (table) => [
-  index('actions_verb_idx').on(table.verb),
-  index('actions_target_idx').on(table.target),
-  index('actions_actor_idx').on(table.actor),
-  index('actions_status_idx').on(table.status),
-  index('actions_request_idx').on(table.requestId),
-  index('actions_created_idx').on(table.createdAt),
-  index('actions_output_idx').on(table.output),
-])
+    // Created timestamp (for this action record)
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    index('actions_verb_idx').on(table.verb),
+    index('actions_target_idx').on(table.target),
+    index('actions_actor_idx').on(table.actor),
+    index('actions_status_idx').on(table.status),
+    index('actions_request_idx').on(table.requestId),
+    index('actions_created_idx').on(table.createdAt),
+    index('actions_output_idx').on(table.output),
+  ],
+)

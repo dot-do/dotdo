@@ -22,10 +22,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { handleMcpRequest, McpSession, createMcpSession } from '../../routes/mcp'
 
 // Mock request helper
-function createRequest(method: string, path: string, options?: {
-  body?: unknown
-  headers?: Record<string, string>
-}): Request {
+function createRequest(
+  method: string,
+  path: string,
+  options?: {
+    body?: unknown
+    headers?: Record<string, string>
+  },
+): Request {
   const url = `https://example.com${path}`
   const init: RequestInit = {
     method,
@@ -211,10 +215,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
     it('handles batch requests', async () => {
       const sessionId = 'test-session-1'
       const request = createRequest('POST', '/mcp', {
-        body: [
-          jsonRpcRequest('tools/list', undefined, 1),
-          jsonRpcRequest('resources/list', undefined, 2),
-        ],
+        body: [jsonRpcRequest('tools/list', undefined, 1), jsonRpcRequest('resources/list', undefined, 2)],
         headers: { 'Mcp-Session-Id': sessionId },
       })
 
@@ -726,10 +727,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
         headers: { 'Mcp-Session-Id': sessionId2 },
       })
 
-      const [res1, res2] = await Promise.all([
-        handleMcpRequest(req1),
-        handleMcpRequest(req2),
-      ])
+      const [res1, res2] = await Promise.all([handleMcpRequest(req1), handleMcpRequest(req2)])
 
       expect(res1.status).toBe(200)
       expect(res2.status).toBe(200)

@@ -13,7 +13,7 @@ export interface DO extends RpcTarget {
   // IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
 
-  readonly ns: string       // Namespace (domain by default)
+  readonly ns: string // Namespace (domain by default)
 
   // A DO's ns IS its identity
   // When a Thing is promoted, its $id becomes a DO's ns
@@ -174,14 +174,14 @@ export interface SearchTable {
 
 export interface DOConfig {
   ns: string
-  parent?: string           // Parent DO's ns
+  parent?: string // Parent DO's ns
 }
 
 export interface Relationship {
   id: string
   verb: string
-  from: string              // URL
-  to: string                // URL
+  from: string // URL
+  to: string // URL
   data?: Record<string, unknown>
   createdAt: Date
 }
@@ -246,8 +246,8 @@ export interface WorkflowContext {
   on: EventSubscriptions
 
   // Execution modes
-  send(event: string, data: unknown): RpcPromise<void>   // Fire and forget
-  do(task: string, data: unknown): RpcPromise<unknown>   // Durable execution
+  send(event: string, data: unknown): RpcPromise<void> // Fire and forget
+  do(task: string, data: unknown): RpcPromise<unknown> // Durable execution
   try(action: string, data: unknown): RpcPromise<unknown> // Non-durable
 
   // Scheduling: $.every.Monday.at9am(handler)
@@ -293,7 +293,7 @@ export interface ScheduleBuilder {
   month: () => ScheduleBuilder
 
   minutes: (n: number) => ScheduleBuilder
-  hours: (n: number) => ScheduleBuilder
+  hours: (n: number) => ScheduleBuilder;
 
   // Natural language
   (expression: string, handler: () => Promise<void>): void

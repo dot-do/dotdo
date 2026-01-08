@@ -41,7 +41,7 @@ export class Product extends Entity {
    */
   async getProductConfig(): Promise<ProductConfig | null> {
     if (!this.productConfig) {
-      this.productConfig = await this.ctx.storage.get('product_config') as ProductConfig | null
+      this.productConfig = (await this.ctx.storage.get('product_config')) as ProductConfig | null
     }
     return this.productConfig
   }
@@ -93,7 +93,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config) throw new Error('Product not configured')
 
-    const index = config.variants.findIndex(v => v.id === variantId)
+    const index = config.variants.findIndex((v) => v.id === variantId)
     if (index === -1) return null
 
     config.variants[index] = { ...config.variants[index], ...updates }
@@ -110,7 +110,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config) throw new Error('Product not configured')
 
-    const index = config.variants.findIndex(v => v.id === variantId)
+    const index = config.variants.findIndex((v) => v.id === variantId)
     if (index === -1) return false
 
     config.variants.splice(index, 1)
@@ -127,7 +127,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config) throw new Error('Product not configured')
 
-    const variant = config.variants.find(v => v.id === variantId)
+    const variant = config.variants.find((v) => v.id === variantId)
     if (!variant) throw new Error(`Variant not found: ${variantId}`)
 
     return {
@@ -143,7 +143,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config) throw new Error('Product not configured')
 
-    const variant = config.variants.find(v => v.id === variantId)
+    const variant = config.variants.find((v) => v.id === variantId)
     if (!variant) throw new Error(`Variant not found: ${variantId}`)
 
     if (variant.inventory < quantity) {
@@ -164,7 +164,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config) throw new Error('Product not configured')
 
-    const variant = config.variants.find(v => v.id === variantId)
+    const variant = config.variants.find((v) => v.id === variantId)
     if (!variant) throw new Error(`Variant not found: ${variantId}`)
 
     variant.inventory += quantity
@@ -179,7 +179,7 @@ export class Product extends Entity {
     const config = await this.getProductConfig()
     if (!config || config.variants.length === 0) return null
 
-    return Math.min(...config.variants.map(v => v.price))
+    return Math.min(...config.variants.map((v) => v.price))
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -193,7 +193,7 @@ export class Product extends Entity {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as ProductConfig
+        const config = (await request.json()) as ProductConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -209,7 +209,7 @@ export class Product extends Entity {
     }
 
     if (url.pathname === '/variant' && request.method === 'POST') {
-      const variant = await request.json() as Omit<ProductVariant, 'id'>
+      const variant = (await request.json()) as Omit<ProductVariant, 'id'>
       const created = await this.addVariant(variant)
       return new Response(JSON.stringify(created), {
         status: 201,
@@ -218,7 +218,7 @@ export class Product extends Entity {
     }
 
     if (url.pathname === '/inventory' && request.method === 'POST') {
-      const { variantId, quantity, action } = await request.json() as {
+      const { variantId, quantity, action } = (await request.json()) as {
         variantId: string
         quantity: number
         action: 'reserve' | 'release'

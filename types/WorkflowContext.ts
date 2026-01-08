@@ -113,8 +113,8 @@ export type EventHandler = (event: DomainEvent) => Promise<void>
 
 export interface DomainEvent {
   id: string
-  verb: string              // 'created', 'updated', 'paid'
-  source: string            // URL of source entity
+  verb: string // 'created', 'updated', 'paid'
+  source: string // URL of source entity
   data: unknown
   actionId?: string
   timestamp: Date
@@ -139,7 +139,7 @@ export interface ScheduleBuilder {
 
   // Intervals
   hour: ScheduleExecutor
-  minute: ScheduleExecutor
+  minute: ScheduleExecutor;
 
   // Natural language
   (schedule: string, handler: ScheduleHandler): void
@@ -161,7 +161,7 @@ export interface ScheduleTimeProxy {
   at5pm: ScheduleExecutor
   at6pm: ScheduleExecutor
   atnoon: ScheduleExecutor
-  atmidnight: ScheduleExecutor
+  atmidnight: ScheduleExecutor;
 
   // Direct execution (no time specified)
   (handler: ScheduleHandler): void
@@ -186,8 +186,7 @@ export interface DomainProxy {
  * Generic function type for all DO methods
  * Function<Output, Input, Options>
  */
-export type DOFunction<
-  Output,
-  Input = unknown,
-  Options extends Record<string, unknown> = Record<string, unknown>
-> = (input: Input, options?: Options) => Promise<Output>
+export type DOFunction<Output, Input = unknown, Options extends Record<string, unknown> = Record<string, unknown>> = (
+  input: Input,
+  options?: Options,
+) => Promise<Output>

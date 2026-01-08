@@ -64,7 +64,7 @@ export class CLI extends Package {
    */
   async getCLIConfig(): Promise<CLIConfig | null> {
     if (!this.cliConfig) {
-      this.cliConfig = await this.ctx.storage.get('cli_config') as CLIConfig | null
+      this.cliConfig = (await this.ctx.storage.get('cli_config')) as CLIConfig | null
     }
     return this.cliConfig
   }
@@ -181,11 +181,7 @@ export class CLI extends Package {
   /**
    * Execute command handler (stub)
    */
-  protected async executeHandler(
-    cmd: CLICommand,
-    args: string[],
-    options: Record<string, unknown>
-  ): Promise<string> {
+  protected async executeHandler(cmd: CLICommand, args: string[], options: Record<string, unknown>): Promise<string> {
     // Override in subclasses for actual command execution
     return `Executed: ${cmd.name} ${args.join(' ')}\nOptions: ${JSON.stringify(options)}`
   }
@@ -245,9 +241,7 @@ export class CLI extends Package {
   async getExecutionHistory(limit: number = 10): Promise<CLIExecution[]> {
     const map = await this.ctx.storage.list({ prefix: 'execution:' })
     const executions = Array.from(map.values()) as CLIExecution[]
-    return executions
-      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
-      .slice(0, limit)
+    return executions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, limit)
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -261,7 +255,7 @@ export class CLI extends Package {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as CLIConfig
+        const config = (await request.json()) as CLIConfig
         await this.configureCLI(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -270,7 +264,7 @@ export class CLI extends Package {
     }
 
     if (url.pathname === '/cli/execute' && request.method === 'POST') {
-      const { args } = await request.json() as { args: string[] }
+      const { args } = (await request.json()) as { args: string[] }
       const execution = await this.execute(args)
       return new Response(JSON.stringify(execution), {
         headers: { 'Content-Type': 'application/json' },

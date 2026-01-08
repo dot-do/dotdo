@@ -20,7 +20,7 @@ Workers can be defined in MDX files. The frontmatter is wrangler.json shape plus
 ```mdx
 ---
 name: my-worker
-compatibility_date: "2024-01-01"
+compatibility_date: '2024-01-01'
 d1_databases:
   - binding: DB
     database_name: users
@@ -33,7 +33,7 @@ dependencies:
 Documentation here.
 
 export default {
-  users: { list: () => db.query('SELECT * FROM users') }
+  users: { list: () => db.query('SELECT * FROM users') },
 }
 ```
 
@@ -50,6 +50,7 @@ export default RPC(new SomePackage(env.API_KEY))
 ```
 
 This exposes the package via:
+
 - Workers RPC: `env.MY_WORKER.method()`
 - REST: `GET /api/method?arg=val`
 - CapnWeb: WebSocket RPC

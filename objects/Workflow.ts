@@ -57,7 +57,7 @@ export class Workflow extends DO {
    */
   async getConfig(): Promise<WorkflowConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as WorkflowConfig | null
+      this.config = (await this.ctx.storage.get('config')) as WorkflowConfig | null
     }
     return this.config
   }
@@ -163,7 +163,7 @@ export class Workflow extends DO {
       case 'sleep':
         // In production, use step.sleep()
         const duration = (stepDef.config.duration as number) || 1000
-        await new Promise(resolve => setTimeout(resolve, Math.min(duration, 100)))
+        await new Promise((resolve) => setTimeout(resolve, Math.min(duration, 100)))
         return { slept: duration }
 
       case 'waitForEvent':
@@ -179,7 +179,7 @@ export class Workflow extends DO {
    * Send event to a waiting workflow
    */
   async sendEvent(instanceId: string, eventType: string, payload: unknown): Promise<void> {
-    const instance = await this.ctx.storage.get(`instance:${instanceId}`) as WorkflowInstance | undefined
+    const instance = (await this.ctx.storage.get(`instance:${instanceId}`)) as WorkflowInstance | undefined
     if (!instance) {
       throw new Error(`Instance not found: ${instanceId}`)
     }
@@ -206,7 +206,7 @@ export class Workflow extends DO {
    * Get workflow instance
    */
   async getInstance(instanceId: string): Promise<WorkflowInstance | null> {
-    return await this.ctx.storage.get(`instance:${instanceId}`) as WorkflowInstance | null
+    return (await this.ctx.storage.get(`instance:${instanceId}`)) as WorkflowInstance | null
   }
 
   /**
@@ -215,9 +215,7 @@ export class Workflow extends DO {
   async listInstances(limit: number = 10): Promise<WorkflowInstance[]> {
     const map = await this.ctx.storage.list({ prefix: 'instance:' })
     const instances = Array.from(map.values()) as WorkflowInstance[]
-    return instances
-      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
-      .slice(0, limit)
+    return instances.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, limit)
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -231,7 +229,7 @@ export class Workflow extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as WorkflowConfig
+        const config = (await request.json()) as WorkflowConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },

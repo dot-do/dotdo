@@ -14,28 +14,32 @@ import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 // this version.
 // ============================================================================
 
-export const things = sqliteTable('things', {
-  // rowid is implicit in SQLite and serves as version ID
+export const things = sqliteTable(
+  'things',
+  {
+    // rowid is implicit in SQLite and serves as version ID
 
-  // Identity
-  id: text('id').notNull(),                        // Local path: 'acme', 'headless.ly'
-  type: integer('type').notNull(),                 // FK → nouns.rowid
+    // Identity
+    id: text('id').notNull(), // Local path: 'acme', 'headless.ly'
+    type: integer('type').notNull(), // FK → nouns.rowid
 
-  // Branch (null = main)
-  branch: text('branch'),                          // 'main', 'experiment', null = main
+    // Branch (null = main)
+    branch: text('branch'), // 'main', 'experiment', null = main
 
-  // Core fields
-  name: text('name'),
-  data: text('data', { mode: 'json' }),
+    // Core fields
+    name: text('name'),
+    data: text('data', { mode: 'json' }),
 
-  // Soft delete marker (version where thing was deleted)
-  deleted: integer('deleted', { mode: 'boolean' }).default(false),
-}, (table) => [
-  index('things_id_idx').on(table.id),
-  index('things_type_idx').on(table.type),
-  index('things_branch_idx').on(table.branch),
-  index('things_id_branch_idx').on(table.id, table.branch),
-])
+    // Soft delete marker (version where thing was deleted)
+    deleted: integer('deleted', { mode: 'boolean' }).default(false),
+  },
+  (table) => [
+    index('things_id_idx').on(table.id),
+    index('things_type_idx').on(table.type),
+    index('things_branch_idx').on(table.branch),
+    index('things_id_branch_idx').on(table.id, table.branch),
+  ],
+)
 
 // ============================================================================
 // Helper: Get current version of a thing

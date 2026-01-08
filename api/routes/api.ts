@@ -34,45 +34,25 @@ apiRoutes.get('/health', (c) => {
 
 // Method not allowed for health endpoint
 apiRoutes.all('/health', (c) => {
-  return c.json(
-    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET' } },
-    405,
-    { Allow: 'GET' }
-  )
+  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET' } }, 405, { Allow: 'GET' })
 })
 
 // Handle method not allowed for /things collection - only GET and POST
 apiRoutes.delete('/things', (c) => {
-  return c.json(
-    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } },
-    405,
-    { Allow: 'GET, POST' }
-  )
+  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } }, 405, { Allow: 'GET, POST' })
 })
 
 apiRoutes.put('/things', (c) => {
-  return c.json(
-    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } },
-    405,
-    { Allow: 'GET, POST' }
-  )
+  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } }, 405, { Allow: 'GET, POST' })
 })
 
 apiRoutes.patch('/things', (c) => {
-  return c.json(
-    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } },
-    405,
-    { Allow: 'GET, POST' }
-  )
+  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } }, 405, { Allow: 'GET, POST' })
 })
 
 // Handle method not allowed for /things/:id - no PATCH by default
 apiRoutes.patch('/things/:id', (c) => {
-  return c.json(
-    { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, PUT, DELETE' } },
-    405,
-    { Allow: 'GET, PUT, DELETE' }
-  )
+  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, PUT, DELETE' } }, 405, { Allow: 'GET, PUT, DELETE' })
 })
 
 // List all things with pagination - returns array directly
@@ -84,14 +64,14 @@ apiRoutes.get('/things', (c) => {
   if (limitParam !== undefined) {
     const limit = parseInt(limitParam, 10)
     if (isNaN(limit) || limit < 0) {
-      return c.json({ error: 'Invalid limit parameter' }, 400)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid limit parameter' } }, 400)
     }
   }
 
   if (offsetParam !== undefined) {
     const offset = parseInt(offsetParam, 10)
     if (isNaN(offset) || offset < 0) {
-      return c.json({ error: 'Invalid offset parameter' }, 400)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid offset parameter' } }, 400)
     }
   }
 
@@ -126,46 +106,58 @@ apiRoutes.post('/things', async (c) => {
 
   // Validation for 422 responses - check for proper types and values
   if (body.name !== undefined && typeof body.name !== 'string') {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: name must be a string',
-        details: { name: ['Must be a string'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: name must be a string',
+          details: { name: ['Must be a string'] },
+        },
+      },
+      422,
+    )
   }
 
   if (body.name === '') {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: name is required',
-        details: { name: ['Name is required'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: name is required',
+          details: { name: ['Name is required'] },
+        },
+      },
+      422,
+    )
   }
 
   if (body.name && body.name.length > 10000) {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: name exceeds maximum length',
-        details: { name: ['Name must be 10000 characters or less'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: name exceeds maximum length',
+          details: { name: ['Name must be 10000 characters or less'] },
+        },
+      },
+      422,
+    )
   }
 
   if (body.$type !== undefined && typeof body.$type === 'string') {
     // URL validation for $type - must be valid URL
     try {
       if (!body.$type.startsWith('http://') && !body.$type.startsWith('https://') && body.$type !== 'thing') {
-        return c.json({
-          error: {
-            code: 'UNPROCESSABLE_ENTITY',
-            message: 'Validation failed: $type must be a valid URL or "thing"',
-            details: { $type: ['Invalid URL format'] }
-          }
-        }, 422)
+        return c.json(
+          {
+            error: {
+              code: 'UNPROCESSABLE_ENTITY',
+              message: 'Validation failed: $type must be a valid URL or "thing"',
+              details: { $type: ['Invalid URL format'] },
+            },
+          },
+          422,
+        )
       }
     } catch {
       // Invalid URL
@@ -173,36 +165,45 @@ apiRoutes.post('/things', async (c) => {
   }
 
   if (body.priority !== undefined && (typeof body.priority !== 'number' || body.priority < 0 || body.priority > 100)) {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: priority must be between 0 and 100',
-        details: { priority: ['Priority must be between 0 and 100'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: priority must be between 0 and 100',
+          details: { priority: ['Priority must be between 0 and 100'] },
+        },
+      },
+      422,
+    )
   }
 
   if (body.status !== undefined) {
     const validStatuses = ['draft', 'active', 'archived', 'deleted']
     if (!validStatuses.includes(body.status)) {
-      return c.json({
-        error: {
-          code: 'UNPROCESSABLE_ENTITY',
-          message: 'Validation failed: invalid status value',
-          details: { status: [`Status must be one of: ${validStatuses.join(', ')}`] }
-        }
-      }, 422)
+      return c.json(
+        {
+          error: {
+            code: 'UNPROCESSABLE_ENTITY',
+            message: 'Validation failed: invalid status value',
+            details: { status: [`Status must be one of: ${validStatuses.join(', ')}`] },
+          },
+        },
+        422,
+      )
     }
   }
 
   if (!body.name || typeof body.name !== 'string') {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: missing required field name',
-        details: { name: ['Name is required'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: missing required field name',
+          details: { name: ['Name is required'] },
+        },
+      },
+      422,
+    )
   }
 
   const id = crypto.randomUUID()
@@ -228,7 +229,7 @@ apiRoutes.get('/things/:id', (c) => {
   const thing = things.get(id)
 
   if (!thing) {
-    return c.json({ error: 'Thing not found' }, 404)
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
   return c.json(thing)
@@ -240,7 +241,7 @@ apiRoutes.put('/things/:id', async (c) => {
   const existing = things.get(id)
 
   if (!existing) {
-    return c.json({ error: 'Thing not found' }, 404)
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
   let body: { name?: string; data?: Record<string, unknown> }
@@ -248,12 +249,12 @@ apiRoutes.put('/things/:id', async (c) => {
   try {
     body = await c.req.json()
   } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
   }
 
   // Validate that body is an object
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return c.json({ error: 'Invalid update data' }, 400)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid update data' } }, 400)
   }
 
   const updated: Thing = {
@@ -274,7 +275,7 @@ apiRoutes.delete('/things/:id', (c) => {
   const existed = things.delete(id)
 
   if (!existed) {
-    return c.json({ error: 'Thing not found' }, 404)
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
   return new Response(null, { status: 204 })
@@ -318,24 +319,30 @@ apiRoutes.post('/users', async (c) => {
   }
 
   if (!body.email || typeof body.email !== 'string') {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: email is required',
-        details: { email: ['Email is required'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: email is required',
+          details: { email: ['Email is required'] },
+        },
+      },
+      422,
+    )
   }
 
   // Simple email validation
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
-    return c.json({
-      error: {
-        code: 'UNPROCESSABLE_ENTITY',
-        message: 'Validation failed: invalid email format',
-        details: { email: ['Invalid email format'] }
-      }
-    }, 422)
+    return c.json(
+      {
+        error: {
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Validation failed: invalid email format',
+          details: { email: ['Invalid email format'] },
+        },
+      },
+      422,
+    )
   }
 
   return c.json({ id: crypto.randomUUID(), ...body }, 201)

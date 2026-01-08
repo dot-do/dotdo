@@ -35,8 +35,8 @@ export const STREAMS = {
  * Thing record schema for do_things table
  */
 export interface ThingRecord {
-  id: string           // Full URL: ns + '/' + id
-  type: string         // Full URL: ns + '/' + type
+  id: string // Full URL: ns + '/' + id
+  type: string // Full URL: ns + '/' + type
   version: number
   branch: string
   name: string
@@ -52,8 +52,8 @@ export interface ThingRecord {
  */
 export interface EventRecord {
   verb: string
-  source: string       // Full URL: ns + '/' + source
-  source_type: string  // Full URL: ns + '/' + sourceType
+  source: string // Full URL: ns + '/' + source
+  source_type: string // Full URL: ns + '/' + sourceType
   data: Record<string, unknown>
   action_id: string
   timestamp: string
@@ -66,8 +66,8 @@ export interface EventRecord {
 export interface ActionRecord {
   id: string
   verb: string
-  actor: string        // Full URL (may already be URL or ns + '/' + actor)
-  target: string       // Full URL: ns + '/' + target
+  actor: string // Full URL (may already be URL or ns + '/' + actor)
+  target: string // Full URL: ns + '/' + target
   input_version: number
   output_version: number
   durability: 'do' | 'local' | 'confirmed'

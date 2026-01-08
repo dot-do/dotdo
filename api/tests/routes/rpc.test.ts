@@ -37,15 +37,9 @@ interface RPCCall {
   args: RPCArg[]
 }
 
-type RPCTarget =
-  | { type: 'root' }
-  | { type: 'promise'; promiseId: string }
-  | { type: 'property'; base: RPCTarget; property: string }
+type RPCTarget = { type: 'root' } | { type: 'promise'; promiseId: string } | { type: 'property'; base: RPCTarget; property: string }
 
-type RPCArg =
-  | { type: 'value'; value: unknown }
-  | { type: 'promise'; promiseId: string }
-  | { type: 'callback'; callbackId: string }
+type RPCArg = { type: 'value'; value: unknown } | { type: 'promise'; promiseId: string } | { type: 'callback'; callbackId: string }
 
 /**
  * RPC Response message format
@@ -74,22 +68,18 @@ interface RPCError {
 // Test Helpers
 // ============================================================================
 
-function createCallMessage(options: {
-  id?: string
-  promiseId: string
-  method: string
-  args?: RPCArg[]
-  target?: RPCTarget
-}): RPCRequest {
+function createCallMessage(options: { id?: string; promiseId: string; method: string; args?: RPCArg[]; target?: RPCTarget }): RPCRequest {
   return {
     id: options.id ?? crypto.randomUUID(),
     type: 'call',
-    calls: [{
-      promiseId: options.promiseId,
-      target: options.target ?? { type: 'root' },
-      method: options.method,
-      args: options.args ?? []
-    }]
+    calls: [
+      {
+        promiseId: options.promiseId,
+        target: options.target ?? { type: 'root' },
+        method: options.method,
+        args: options.args ?? [],
+      },
+    ],
   }
 }
 
@@ -97,7 +87,7 @@ function createBatchMessage(calls: RPCCall[], id?: string): RPCRequest {
   return {
     id: id ?? crypto.randomUUID(),
     type: 'batch',
-    calls
+    calls,
   }
 }
 
@@ -105,7 +95,7 @@ function createResolveMessage(promiseId: string, id?: string): RPCRequest {
   return {
     id: id ?? crypto.randomUUID(),
     type: 'resolve',
-    resolve: { promiseId }
+    resolve: { promiseId },
   }
 }
 
@@ -113,7 +103,7 @@ function createDisposeMessage(promiseIds: string[], id?: string): RPCRequest {
   return {
     id: id ?? crypto.randomUUID(),
     type: 'dispose',
-    dispose: { promiseIds }
+    dispose: { promiseIds },
   }
 }
 
@@ -127,13 +117,13 @@ describe('POST /rpc - HTTP Batch Mode', () => {
       const request = createCallMessage({
         promiseId: 'p1',
         method: 'echo',
-        args: [{ type: 'value', value: 'hello' }]
+        args: [{ type: 'value', value: 'hello' }],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       // Should return 200 OK (not 404)
@@ -144,13 +134,13 @@ describe('POST /rpc - HTTP Batch Mode', () => {
       const request = createCallMessage({
         promiseId: 'p1',
         method: 'echo',
-        args: [{ type: 'value', value: 'test' }]
+        args: [{ type: 'value', value: 'test' }],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       expect(response.headers.get('Content-Type')).toContain('application/json')
@@ -161,13 +151,13 @@ describe('POST /rpc - HTTP Batch Mode', () => {
       const request = createCallMessage({
         id: requestId,
         promiseId: 'p1',
-        method: 'ping'
+        method: 'ping',
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -180,26 +170,26 @@ describe('POST /rpc - HTTP Batch Mode', () => {
           promiseId: 'p1',
           target: { type: 'root' },
           method: 'getUser',
-          args: [{ type: 'value', value: 'alice' }]
+          args: [{ type: 'value', value: 'alice' }],
         },
         {
           promiseId: 'p2',
           target: { type: 'root' },
           method: 'getPosts',
-          args: [{ type: 'value', value: { limit: 10 } }]
+          args: [{ type: 'value', value: { limit: 10 } }],
         },
         {
           promiseId: 'p3',
           target: { type: 'root' },
           method: 'getSettings',
-          args: []
-        }
+          args: [],
+        },
       ])
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -216,7 +206,7 @@ describe('POST /rpc - HTTP Batch Mode', () => {
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: 'not valid json {'
+        body: 'not valid json {',
       })
 
       expect(response.status).toBe(400)
@@ -226,7 +216,7 @@ describe('POST /rpc - HTTP Batch Mode', () => {
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'call' }) // missing id and calls
+        body: JSON.stringify({ type: 'call' }), // missing id and calls
       })
 
       expect(response.status).toBe(400)
@@ -234,7 +224,7 @@ describe('POST /rpc - HTTP Batch Mode', () => {
 
     it('should return 405 for non-POST methods', async () => {
       const response = await SELF.fetch('http://localhost/rpc', {
-        method: 'GET'
+        method: 'GET',
       })
 
       // GET without upgrade header should return 405 or redirect to WebSocket info
@@ -252,11 +242,11 @@ describe('GET /rpc - WebSocket Upgrade', () => {
     // Note: In Vitest with Workers, we use a special approach for WebSocket testing
     const response = await SELF.fetch('http://localhost/rpc', {
       headers: {
-        'Upgrade': 'websocket',
-        'Connection': 'Upgrade',
+        Upgrade: 'websocket',
+        Connection: 'Upgrade',
         'Sec-WebSocket-Key': btoa(crypto.randomUUID()),
-        'Sec-WebSocket-Version': '13'
-      }
+        'Sec-WebSocket-Version': '13',
+      },
     })
 
     expect(response.status).toBe(101)
@@ -265,7 +255,7 @@ describe('GET /rpc - WebSocket Upgrade', () => {
 
   it('should return 426 Upgrade Required when upgrade header missing', async () => {
     const response = await SELF.fetch('http://localhost/rpc', {
-      method: 'GET'
+      method: 'GET',
     })
 
     // Should indicate WebSocket upgrade is required
@@ -276,11 +266,11 @@ describe('GET /rpc - WebSocket Upgrade', () => {
     const key = btoa(crypto.randomUUID())
     const response = await SELF.fetch('http://localhost/rpc', {
       headers: {
-        'Upgrade': 'websocket',
-        'Connection': 'Upgrade',
+        Upgrade: 'websocket',
+        Connection: 'Upgrade',
         'Sec-WebSocket-Key': key,
-        'Sec-WebSocket-Version': '13'
-      }
+        'Sec-WebSocket-Version': '13',
+      },
     })
 
     expect(response.headers.get('Sec-WebSocket-Accept')).toBeDefined()
@@ -297,13 +287,13 @@ describe('RPC Method Invocation', () => {
       const request = createCallMessage({
         promiseId: 'p1',
         method: 'echo',
-        args: [{ type: 'value', value: 'hello world' }]
+        args: [{ type: 'value', value: 'hello world' }],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -318,14 +308,14 @@ describe('RPC Method Invocation', () => {
         method: 'add',
         args: [
           { type: 'value', value: 5 },
-          { type: 'value', value: 3 }
-        ]
+          { type: 'value', value: 3 },
+        ],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -336,20 +326,20 @@ describe('RPC Method Invocation', () => {
       const request = createCallMessage({
         promiseId: 'p1',
         method: 'createUser',
-        args: [{ type: 'value', value: { name: 'Alice', email: 'alice@example.com' } }]
+        args: [{ type: 'value', value: { name: 'Alice', email: 'alice@example.com' } }],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
       expect(body.results?.[0].type).toBe('value')
       expect(body.results?.[0].value).toMatchObject({
         name: 'Alice',
-        email: 'alice@example.com'
+        email: 'alice@example.com',
       })
     })
   })
@@ -363,20 +353,20 @@ describe('RPC Method Invocation', () => {
           promiseId: 'p1',
           target: { type: 'root' },
           method: 'getUser',
-          args: [{ type: 'value', value: 'alice' }]
+          args: [{ type: 'value', value: 'alice' }],
         },
         {
           promiseId: 'p2',
           target: { type: 'property', base: { type: 'promise', promiseId: 'p1' }, property: 'email' },
           method: '__get__', // Special method for property access
-          args: []
-        }
+          args: [],
+        },
       ])
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -389,7 +379,7 @@ describe('RPC Method Invocation', () => {
           promiseId: 'p1',
           target: { type: 'root' },
           method: 'getConfig',
-          args: []
+          args: [],
         },
         {
           promiseId: 'p2',
@@ -398,19 +388,19 @@ describe('RPC Method Invocation', () => {
             base: {
               type: 'property',
               base: { type: 'promise', promiseId: 'p1' },
-              property: 'settings'
+              property: 'settings',
             },
-            property: 'theme'
+            property: 'theme',
           },
           method: '__get__',
-          args: []
-        }
+          args: [],
+        },
       ])
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -426,20 +416,20 @@ describe('RPC Method Invocation', () => {
           promiseId: 'p1',
           target: { type: 'root' },
           method: 'getUser',
-          args: [{ type: 'value', value: 'alice' }]
+          args: [{ type: 'value', value: 'alice' }],
         },
         {
           promiseId: 'p2',
           target: { type: 'promise', promiseId: 'p1' },
           method: 'getPosts',
-          args: []
-        }
+          args: [],
+        },
       ])
 
       const response = await SELF.fetch('http://localhost/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       })
 
       const body: RPCResponse = await response.json()
@@ -462,26 +452,26 @@ describe('Promise Pipelining', () => {
         promiseId: 'p1',
         target: { type: 'root' },
         method: 'getUser',
-        args: [{ type: 'value', value: 'alice' }]
+        args: [{ type: 'value', value: 'alice' }],
       },
       {
         promiseId: 'p2',
         target: { type: 'root' },
         method: 'getPosts',
-        args: [{ type: 'value', value: { limit: 10 } }]
+        args: [{ type: 'value', value: { limit: 10 } }],
       },
       {
         promiseId: 'p3',
         target: { type: 'root' },
         method: 'getSettings',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -502,26 +492,26 @@ describe('Promise Pipelining', () => {
         promiseId: 'p1',
         target: { type: 'root' },
         method: 'getUser',
-        args: [{ type: 'value', value: 'alice' }]
+        args: [{ type: 'value', value: 'alice' }],
       },
       {
         promiseId: 'p2',
         target: { type: 'promise', promiseId: 'p1' },
         method: 'getPosts',
-        args: []
+        args: [],
       },
       {
         promiseId: 'p3',
         target: { type: 'property', base: { type: 'promise', promiseId: 'p2' }, property: '0' },
         method: '__get__',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -541,7 +531,7 @@ describe('Promise Pipelining', () => {
         promiseId: 'p1',
         target: { type: 'root' },
         method: 'getUser',
-        args: [{ type: 'value', value: 'alice' }]
+        args: [{ type: 'value', value: 'alice' }],
       },
       {
         promiseId: 'p2',
@@ -549,15 +539,15 @@ describe('Promise Pipelining', () => {
         method: 'sendNotification',
         args: [
           { type: 'promise', promiseId: 'p1' },
-          { type: 'value', value: 'Hello!' }
-        ]
-      }
+          { type: 'value', value: 'Hello!' },
+        ],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -566,31 +556,34 @@ describe('Promise Pipelining', () => {
 
   it('should handle map operations (magic map)', async () => {
     // Simulate: rpc.getPosts().map(post => post.title)
-    const request = createBatchMessage([
-      {
-        promiseId: 'p1',
-        target: { type: 'root' },
-        method: 'getPosts',
-        args: []
-      },
-      {
-        promiseId: 'p2',
-        target: { type: 'promise', promiseId: 'p1' },
-        method: '__map__',
-        args: [
-          {
-            type: 'callback',
-            callbackId: 'cb1'
-            // Callback instruction: for each item, access .title
-          }
-        ]
-      }
-    ], 'map-test')
+    const request = createBatchMessage(
+      [
+        {
+          promiseId: 'p1',
+          target: { type: 'root' },
+          method: 'getPosts',
+          args: [],
+        },
+        {
+          promiseId: 'p2',
+          target: { type: 'promise', promiseId: 'p1' },
+          method: '__map__',
+          args: [
+            {
+              type: 'callback',
+              callbackId: 'cb1',
+              // Callback instruction: for each item, access .title
+            },
+          ],
+        },
+      ],
+      'map-test',
+    )
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -608,13 +601,13 @@ describe('Error Response Format', () => {
     const request = createCallMessage({
       promiseId: 'p1',
       method: 'nonExistentMethod',
-      args: []
+      args: [],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -627,13 +620,13 @@ describe('Error Response Format', () => {
     const request = createCallMessage({
       promiseId: 'p1',
       method: 'throwError',
-      args: []
+      args: [],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -645,13 +638,13 @@ describe('Error Response Format', () => {
     const request = createCallMessage({
       promiseId: 'p1',
       method: 'throwError',
-      args: [{ type: 'value', value: 'Custom error message' }]
+      args: [{ type: 'value', value: 'Custom error message' }],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -665,20 +658,20 @@ describe('Error Response Format', () => {
         promiseId: 'p1',
         target: { type: 'root' },
         method: 'throwError',
-        args: []
+        args: [],
       },
       {
         promiseId: 'p2',
         target: { type: 'promise', promiseId: 'p1' },
         method: 'someMethod',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -694,14 +687,14 @@ describe('Error Response Format', () => {
         promiseId: 'p2',
         target: { type: 'promise', promiseId: 'p-nonexistent' },
         method: 'someMethod',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -713,13 +706,13 @@ describe('Error Response Format', () => {
     const request = createCallMessage({
       promiseId: 'p1',
       method: 'throwDetailedError',
-      args: []
+      args: [],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -739,13 +732,13 @@ describe('Pass-by-Reference Objects', () => {
     const request = createCallMessage({
       promiseId: 'p1',
       method: 'createSession',
-      args: []
+      args: [],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -760,26 +753,26 @@ describe('Pass-by-Reference Objects', () => {
         promiseId: 'p1',
         target: { type: 'root' },
         method: 'createSession',
-        args: []
+        args: [],
       },
       {
         promiseId: 'p2',
         target: { type: 'promise', promiseId: 'p1' },
         method: 'setData',
-        args: [{ type: 'value', value: { key: 'value' } }]
+        args: [{ type: 'value', value: { key: 'value' } }],
       },
       {
         promiseId: 'p3',
         target: { type: 'promise', promiseId: 'p1' },
         method: 'getData',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -788,50 +781,56 @@ describe('Pass-by-Reference Objects', () => {
 
   it('should maintain object state across multiple calls', async () => {
     // First batch: create session and set counter
-    const batch1 = createBatchMessage([
-      {
-        promiseId: 'session',
-        target: { type: 'root' },
-        method: 'createCounter',
-        args: []
-      },
-      {
-        promiseId: 'inc1',
-        target: { type: 'promise', promiseId: 'session' },
-        method: 'increment',
-        args: []
-      }
-    ], 'batch1')
+    const batch1 = createBatchMessage(
+      [
+        {
+          promiseId: 'session',
+          target: { type: 'root' },
+          method: 'createCounter',
+          args: [],
+        },
+        {
+          promiseId: 'inc1',
+          target: { type: 'promise', promiseId: 'session' },
+          method: 'increment',
+          args: [],
+        },
+      ],
+      'batch1',
+    )
 
     const response1 = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch1)
+      body: JSON.stringify(batch1),
     })
 
     const body1: RPCResponse = await response1.json()
     expect(body1.results?.[1].value).toBe(1)
 
     // Second batch: use same session reference to continue incrementing
-    const batch2 = createBatchMessage([
-      {
-        promiseId: 'inc2',
-        target: { type: 'promise', promiseId: 'session' },
-        method: 'increment',
-        args: []
-      },
-      {
-        promiseId: 'val',
-        target: { type: 'promise', promiseId: 'session' },
-        method: 'getValue',
-        args: []
-      }
-    ], 'batch2')
+    const batch2 = createBatchMessage(
+      [
+        {
+          promiseId: 'inc2',
+          target: { type: 'promise', promiseId: 'session' },
+          method: 'increment',
+          args: [],
+        },
+        {
+          promiseId: 'val',
+          target: { type: 'promise', promiseId: 'session' },
+          method: 'getValue',
+          args: [],
+        },
+      ],
+      'batch2',
+    )
 
     const response2 = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch2)
+      body: JSON.stringify(batch2),
     })
 
     const body2: RPCResponse = await response2.json()
@@ -845,26 +844,26 @@ describe('Pass-by-Reference Objects', () => {
         promiseId: 'container',
         target: { type: 'root' },
         method: 'createContainer',
-        args: []
+        args: [],
       },
       {
         promiseId: 'child',
         target: { type: 'promise', promiseId: 'container' },
         method: 'createChild',
-        args: [{ type: 'value', value: 'child-1' }]
+        args: [{ type: 'value', value: 'child-1' }],
       },
       {
         promiseId: 'childMethod',
         target: { type: 'promise', promiseId: 'child' },
         method: 'getName',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
     })
 
     const body: RPCResponse = await response.json()
@@ -882,13 +881,13 @@ describe('Disposal and Cleanup', () => {
     // First create a reference
     const createRequest = createCallMessage({
       promiseId: 'p1',
-      method: 'createSession'
+      method: 'createSession',
     })
 
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequest)
+      body: JSON.stringify(createRequest),
     })
 
     // Then dispose it
@@ -897,7 +896,7 @@ describe('Disposal and Cleanup', () => {
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     expect(response.status).toBe(200)
@@ -909,20 +908,20 @@ describe('Disposal and Cleanup', () => {
     // Create, dispose, then try to use
     const createRequest = createCallMessage({
       promiseId: 'session',
-      method: 'createSession'
+      method: 'createSession',
     })
 
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequest)
+      body: JSON.stringify(createRequest),
     })
 
     const disposeRequest = createDisposeMessage(['session'])
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     // Try to use disposed reference
@@ -931,14 +930,14 @@ describe('Disposal and Cleanup', () => {
         promiseId: 'result',
         target: { type: 'promise', promiseId: 'session' },
         method: 'getData',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(useRequest)
+      body: JSON.stringify(useRequest),
     })
 
     const body: RPCResponse = await response.json()
@@ -951,13 +950,13 @@ describe('Disposal and Cleanup', () => {
     const createRequest = createBatchMessage([
       { promiseId: 'p1', target: { type: 'root' }, method: 'createSession', args: [] },
       { promiseId: 'p2', target: { type: 'root' }, method: 'createSession', args: [] },
-      { promiseId: 'p3', target: { type: 'root' }, method: 'createSession', args: [] }
+      { promiseId: 'p3', target: { type: 'root' }, method: 'createSession', args: [] },
     ])
 
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequest)
+      body: JSON.stringify(createRequest),
     })
 
     // Dispose all at once
@@ -966,7 +965,7 @@ describe('Disposal and Cleanup', () => {
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     expect(response.status).toBe(200)
@@ -978,7 +977,7 @@ describe('Disposal and Cleanup', () => {
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     // Should succeed (idempotent) or return specific error
@@ -990,13 +989,13 @@ describe('Disposal and Cleanup', () => {
     const createRequest = createCallMessage({
       promiseId: 'resource',
       method: 'createResource',
-      args: [{ type: 'value', value: 'test-resource' }]
+      args: [{ type: 'value', value: 'test-resource' }],
     })
 
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequest)
+      body: JSON.stringify(createRequest),
     })
 
     // Dispose the resource
@@ -1004,20 +1003,20 @@ describe('Disposal and Cleanup', () => {
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     // Verify cleanup was called by checking cleanup log
     const verifyRequest = createCallMessage({
       promiseId: 'check',
       method: 'wasResourceCleaned',
-      args: [{ type: 'value', value: 'test-resource' }]
+      args: [{ type: 'value', value: 'test-resource' }],
     })
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(verifyRequest)
+      body: JSON.stringify(verifyRequest),
     })
 
     const body: RPCResponse = await response.json()
@@ -1031,26 +1030,26 @@ describe('Disposal and Cleanup', () => {
         promiseId: 'parent',
         target: { type: 'root' },
         method: 'createContainer',
-        args: []
+        args: [],
       },
       {
         promiseId: 'child1',
         target: { type: 'promise', promiseId: 'parent' },
         method: 'createChild',
-        args: [{ type: 'value', value: 'c1' }]
+        args: [{ type: 'value', value: 'c1' }],
       },
       {
         promiseId: 'child2',
         target: { type: 'promise', promiseId: 'parent' },
         method: 'createChild',
-        args: [{ type: 'value', value: 'c2' }]
-      }
+        args: [{ type: 'value', value: 'c2' }],
+      },
     ])
 
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequest)
+      body: JSON.stringify(createRequest),
     })
 
     // Dispose parent
@@ -1058,7 +1057,7 @@ describe('Disposal and Cleanup', () => {
     await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(disposeRequest)
+      body: JSON.stringify(disposeRequest),
     })
 
     // Try to use child - should be disposed
@@ -1067,14 +1066,14 @@ describe('Disposal and Cleanup', () => {
         promiseId: 'result',
         target: { type: 'promise', promiseId: 'child1' },
         method: 'getName',
-        args: []
-      }
+        args: [],
+      },
     ])
 
     const response = await SELF.fetch('http://localhost/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(useChildRequest)
+      body: JSON.stringify(useChildRequest),
     })
 
     const body: RPCResponse = await response.json()

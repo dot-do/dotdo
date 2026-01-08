@@ -14,6 +14,7 @@ const OrderWorkflow = Workflow('order', async ($, order) => {
 ## The Solution: PipelinePromise
 
 Inspired by [capnweb](https://github.com/cloudflare/capnweb), we use **lazy pipeline expressions** that:
+
 1. Capture operations without executing them
 2. Allow property access on unresolved values
 3. Support magic `.map()` via record-replay
@@ -28,8 +29,8 @@ const OrderWorkflow = Workflow('order', ($, order) => {
 
   // Property access on unresolved values WORKS
   $.Email(customer).sendWelcome({
-    crmId: crm.id,           // PipelinePromise capturing ["CRM", "createAccount", "id"]
-    portalUrl: billing.portalUrl
+    crmId: crm.id, // PipelinePromise capturing ["CRM", "createAccount", "id"]
+    portalUrl: billing.portalUrl,
   })
 
   return { customerId: customer.id, crmId: crm.id }
@@ -41,6 +42,7 @@ const OrderWorkflow = Workflow('order', ($, order) => {
 ### 1. PipelinePromise
 
 A **PipelinePromise<T>** is simultaneously:
+
 - A **Thenable** (can be awaited for compatibility)
 - A **Proxy** (property access returns another PipelinePromise)
 - A **Pipeline Expression** (captures the operation for later execution)
@@ -67,9 +69,9 @@ The underlying data structure capturing what should happen:
 
 ```typescript
 type PipelineExpression =
-  | { type: 'call', domain: string, method: string[], context: unknown, args: unknown[] }
-  | { type: 'property', base: PipelineExpression, property: string }
-  | { type: 'map', array: PipelineExpression, mapper: MapperInstruction[] }
+  | { type: 'call'; domain: string; method: string[]; context: unknown; args: unknown[] }
+  | { type: 'property'; base: PipelineExpression; property: string }
+  | { type: 'map'; array: PipelineExpression; mapper: MapperInstruction[] }
 ```
 
 ### 3. Deferred Execution
@@ -106,20 +108,23 @@ const nested = crm.account.settings.theme
 
 ```typescript
 const items = $.Cart(cart).getItems()
-const checked = items.map(item => $.Inventory(item.product).check())
+const checked = items.map((item) => $.Inventory(item.product).check())
 ```
 
 **Record Phase:**
+
 1. Create a "recording context" with placeholder value
 2. Execute callback once: `$.Inventory(placeholder.product).check()`
 3. Capture the operations performed (not results)
 
 **Replay Phase:**
+
 1. For each actual item, replay the captured operations
 2. `placeholder.product` becomes `items[0].product`, `items[1].product`, etc.
 3. All checks batch into a single workflow step
 
 **MapperInstruction Format:**
+
 ```typescript
 interface MapperInstruction {
   operation: 'call' | 'property'
@@ -155,7 +160,7 @@ Dependent operations execute in sequence:
 
 ```typescript
 const order = $.Orders(customer).create({ items })
-const payment = $.Payment(order.id).process()  // Depends on order.id
+const payment = $.Payment(order.id).process() // Depends on order.id
 
 // Engine sees dependency: payment needs order.id
 // Executes order first, then payment
@@ -169,21 +174,21 @@ Since we can't use JavaScript `if` without resolved values, we provide declarati
 // Option 1: $.when() for simple branching
 $.when(inventory.available, {
   then: () => $.Inventory(product).reserve({ quantity }),
-  else: () => $.Notification(customer).sendOutOfStock()
+  else: () => $.Notification(customer).sendOutOfStock(),
 })
 
 // Option 2: $.branch() for multi-way
 $.branch(order.status, {
-  'pending': () => $.Payment(order).process(),
-  'shipped': () => $.Tracking(order).update(),
-  'delivered': () => $.Review(customer).request(),
-  default: () => $.Log('Unknown status')
+  pending: () => $.Payment(order).process(),
+  shipped: () => $.Tracking(order).update(),
+  delivered: () => $.Review(customer).request(),
+  default: () => $.Log('Unknown status'),
 })
 
 // Option 3: $.match() for pattern matching
 $.match(result, [
-  [r => r.success, () => $.Email(customer).sendSuccess()],
-  [r => r.error, () => $.Alert(ops).notify({ error: result.error })]
+  [(r) => r.success, () => $.Email(customer).sendSuccess()],
+  [(r) => r.error, () => $.Alert(ops).notify({ error: result.error })],
 ])
 ```
 
@@ -244,24 +249,22 @@ const OnboardingWorkflow = Workflow('customer-onboarding', ($, customer) => {
   $.Email(customer).sendWelcome({
     crmId: crm.id,
     billingPortal: billing.portalUrl,
-    supportEmail: support.email
+    supportEmail: support.email,
   })
 
   // Magic map: process all items in parallel
-  const itemResults = customer.cartItems.map(item =>
-    $.Inventory(item).reserve({ quantity: item.quantity })
-  )
+  const itemResults = customer.cartItems.map((item) => $.Inventory(item).reserve({ quantity: item.quantity }))
 
   // Conditional based on result
   $.when(billing.trialActive, {
     then: () => $.Calendar(customer).scheduleOnboarding(),
-    else: () => $.Sales(customer).flagForFollowUp()
+    else: () => $.Sales(customer).flagForFollowUp(),
   })
 
   return {
     customerId: customer.id,
     crmId: crm.id,
-    reservations: itemResults
+    reservations: itemResults,
   }
 })
 ```
@@ -291,9 +294,9 @@ const OrderWorkflow = Workflow('order', ($, order) => {
   return $.when(inventory.available, {
     then: () => ({
       status: 'success',
-      reservation: $.Inventory(order.product).reserve({ quantity: order.quantity })
+      reservation: $.Inventory(order.product).reserve({ quantity: order.quantity }),
     }),
-    else: () => ({ status: 'unavailable' })
+    else: () => ({ status: 'unavailable' }),
   })
 })
 ```

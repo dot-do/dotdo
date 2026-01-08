@@ -104,7 +104,7 @@ async function request(
   options: {
     headers?: Record<string, string>
     body?: unknown
-  } = {}
+  } = {},
 ): Promise<Response> {
   const init: RequestInit = {
     method,
@@ -306,7 +306,7 @@ describe('JWT Token Verification', () => {
       expect.anything(), // JWKS
       expect.objectContaining({
         algorithms: expect.arrayContaining(['RS256']),
-      })
+      }),
     )
   })
 
@@ -994,9 +994,7 @@ describe('Edge Cases and Error Handling', () => {
     const token = createJWT({ sub: 'user-123', role: 'user' })
 
     // Simulate timeout
-    mockedJwtVerify.mockImplementationOnce(
-      () => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 100))
-    )
+    mockedJwtVerify.mockImplementationOnce(() => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 100)))
 
     const res = await request('GET', '/protected', {
       headers: {

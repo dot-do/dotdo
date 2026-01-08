@@ -3,11 +3,11 @@
 // ============================================================================
 
 export interface NounData {
-  noun: string              // 'Startup'
-  plural?: string           // 'Startups'
-  description?: string      // 'A company in the portfolio'
-  schema?: NounSchema       // Field definitions
-  doClass?: string          // CF binding if this noun is a DO subclass
+  noun: string // 'Startup'
+  plural?: string // 'Startups'
+  description?: string // 'A company in the portfolio'
+  schema?: NounSchema // Field definitions
+  doClass?: string // CF binding if this noun is a DO subclass
 }
 
 export interface NounSchema {
@@ -17,16 +17,16 @@ export interface NounSchema {
 }
 
 export interface FieldDefinition {
-  type: string              // 'string', 'number', 'boolean', 'date', etc.
+  type: string // 'string', 'number', 'boolean', 'date', etc.
   description?: string
   required?: boolean
   default?: unknown
 
   // Relationship operators (ai-database)
   operator?: '->' | '~>' | '<-' | '<~'
-  targetType?: string       // For relationships
-  prompt?: string           // AI generation prompt
-  threshold?: number        // Fuzzy match threshold (0-1)
+  targetType?: string // For relationships
+  prompt?: string // AI generation prompt
+  threshold?: number // Fuzzy match threshold (0-1)
 }
 
 // ============================================================================

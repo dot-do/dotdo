@@ -55,16 +55,16 @@ export const OnboardingWorkflow = Workflow('customer-onboarding', ($, customer: 
   // This operation DEPENDS on the above (uses their properties)
   // Engine automatically sequences this after the parallel operations complete
   $.Email(customer).sendWelcome({
-    crmId: crm.id,                    // Property access on unresolved value
-    billingPortal: billing.portalUrl,  // Works without await!
+    crmId: crm.id, // Property access on unresolved value
+    billingPortal: billing.portalUrl, // Works without await!
     supportEmail: support.email,
-    dashboardUrl: analytics.dashboardUrl
+    dashboardUrl: analytics.dashboardUrl,
   })
 
   // Conditional based on plan type
   $.when(customer.plan === 'enterprise', {
     then: () => $.Sales(customer).assignAccountManager(),
-    else: () => $.Automation(customer).startDripCampaign()
+    else: () => $.Automation(customer).startDripCampaign(),
   })
 
   // Return value uses unresolved properties
@@ -74,6 +74,6 @@ export const OnboardingWorkflow = Workflow('customer-onboarding', ($, customer: 
     billingSubscriptionId: billing.id,
     supportEmail: support.email,
     trackingId: analytics.trackingId,
-    status: 'onboarded'
+    status: 'onboarded',
   }
 })

@@ -93,7 +93,7 @@ export class Service extends DO {
    */
   async getConfig(): Promise<ServiceConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as ServiceConfig | null
+      this.config = (await this.ctx.storage.get('config')) as ServiceConfig | null
     }
     return this.config
   }
@@ -118,7 +118,7 @@ export class Service extends DO {
     const config = await this.getConfig()
     if (!config) throw new Error('Service not configured')
 
-    const tier = config.tiers.find(t => t.id === tierId)
+    const tier = config.tiers.find((t) => t.id === tierId)
     if (!tier) throw new Error(`Tier not found: ${tierId}`)
 
     const now = new Date()
@@ -153,7 +153,7 @@ export class Service extends DO {
    * Get subscription
    */
   async getSubscription(subscriptionId: string): Promise<ServiceSubscription | null> {
-    return await this.ctx.storage.get(`subscription:${subscriptionId}`) as ServiceSubscription | null
+    return (await this.ctx.storage.get(`subscription:${subscriptionId}`)) as ServiceSubscription | null
   }
 
   /**
@@ -164,7 +164,7 @@ export class Service extends DO {
     let subscriptions = Array.from(map.values()) as ServiceSubscription[]
 
     if (customerId) {
-      subscriptions = subscriptions.filter(s => s.customerId === customerId)
+      subscriptions = subscriptions.filter((s) => s.customerId === customerId)
     }
 
     return subscriptions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
@@ -198,7 +198,7 @@ export class Service extends DO {
     type: string,
     description: string,
     input: Record<string, unknown>,
-    priority: ServiceRequest['priority'] = 'normal'
+    priority: ServiceRequest['priority'] = 'normal',
   ): Promise<ServiceRequest> {
     const subscription = await this.getSubscription(subscriptionId)
     if (!subscription || subscription.status === 'canceled') {
@@ -229,7 +229,7 @@ export class Service extends DO {
    * Get service request
    */
   async getRequest(requestId: string): Promise<ServiceRequest | null> {
-    return await this.ctx.storage.get(`request:${requestId}`) as ServiceRequest | null
+    return (await this.ctx.storage.get(`request:${requestId}`)) as ServiceRequest | null
   }
 
   /**
@@ -240,10 +240,10 @@ export class Service extends DO {
     let requests = Array.from(map.values()) as ServiceRequest[]
 
     if (subscriptionId) {
-      requests = requests.filter(r => r.subscriptionId === subscriptionId)
+      requests = requests.filter((r) => r.subscriptionId === subscriptionId)
     }
     if (status) {
-      requests = requests.filter(r => r.status === status)
+      requests = requests.filter((r) => r.status === status)
     }
 
     return requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -266,13 +266,11 @@ export class Service extends DO {
       const workerLoads: Record<string, number> = {}
 
       for (const worker of config.assignedWorkers) {
-        workerLoads[worker] = activeRequests.filter(r => r.assignedTo === worker).length
+        workerLoads[worker] = activeRequests.filter((r) => r.assignedTo === worker).length
       }
 
       // Pick least loaded worker
-      workerId = config.assignedWorkers.reduce((a, b) =>
-        (workerLoads[a] || 0) <= (workerLoads[b] || 0) ? a : b
-      )
+      workerId = config.assignedWorkers.reduce((a, b) => ((workerLoads[a] || 0) <= (workerLoads[b] || 0) ? a : b))
     }
 
     request.assignedTo = workerId
@@ -339,13 +337,7 @@ export class Service extends DO {
   /**
    * Create a deliverable
    */
-  async createDeliverable(
-    requestId: string,
-    type: string,
-    name: string,
-    content: unknown,
-    createdBy: string
-  ): Promise<ServiceDeliverable> {
+  async createDeliverable(requestId: string, type: string, name: string, content: unknown, createdBy: string): Promise<ServiceDeliverable> {
     // Get existing versions
     const existing = await this.getDeliverables(requestId, type)
     const version = existing.length + 1
@@ -374,9 +366,9 @@ export class Service extends DO {
     const map = await this.ctx.storage.list({ prefix: 'deliverable:' })
     let deliverables = Array.from(map.values()) as ServiceDeliverable[]
 
-    deliverables = deliverables.filter(d => d.requestId === requestId)
+    deliverables = deliverables.filter((d) => d.requestId === requestId)
     if (type) {
-      deliverables = deliverables.filter(d => d.type === type)
+      deliverables = deliverables.filter((d) => d.type === type)
     }
 
     return deliverables.sort((a, b) => a.version - b.version)
@@ -400,28 +392,20 @@ export class Service extends DO {
     const subscriptions = await this.listSubscriptions()
     const requests = await this.listRequests()
 
-    const activeSubscriptions = subscriptions.filter(s => s.status === 'active' || s.status === 'trial')
-    const completedRequests = requests.filter(r => r.status === 'completed')
+    const activeSubscriptions = subscriptions.filter((s) => s.status === 'active' || s.status === 'trial')
+    const completedRequests = requests.filter((r) => r.status === 'completed')
 
-    const completionTimes = completedRequests
-      .filter(r => r.startedAt && r.completedAt)
-      .map(r => r.completedAt!.getTime() - r.startedAt!.getTime())
+    const completionTimes = completedRequests.filter((r) => r.startedAt && r.completedAt).map((r) => r.completedAt!.getTime() - r.startedAt!.getTime())
 
-    const ratings = completedRequests
-      .filter(r => r.feedback?.rating)
-      .map(r => r.feedback!.rating)
+    const ratings = completedRequests.filter((r) => r.feedback?.rating).map((r) => r.feedback!.rating)
 
     return {
       totalSubscriptions: subscriptions.length,
       activeSubscriptions: activeSubscriptions.length,
       totalRequests: requests.length,
       completedRequests: completedRequests.length,
-      avgCompletionTime: completionTimes.length > 0
-        ? completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length
-        : 0,
-      avgRating: ratings.length > 0
-        ? ratings.reduce((a, b) => a + b, 0) / ratings.length
-        : 0,
+      avgCompletionTime: completionTimes.length > 0 ? completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length : 0,
+      avgRating: ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0,
     }
   }
 
@@ -436,7 +420,7 @@ export class Service extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as ServiceConfig
+        const config = (await request.json()) as ServiceConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -445,7 +429,7 @@ export class Service extends DO {
     }
 
     if (url.pathname === '/subscribe' && request.method === 'POST') {
-      const { customerId, tierId, trial } = await request.json() as {
+      const { customerId, tierId, trial } = (await request.json()) as {
         customerId: string
         tierId: string
         trial?: boolean
@@ -466,7 +450,7 @@ export class Service extends DO {
     }
 
     if (url.pathname === '/request' && request.method === 'POST') {
-      const { subscriptionId, type, description, input, priority } = await request.json() as {
+      const { subscriptionId, type, description, input, priority } = (await request.json()) as {
         subscriptionId: string
         type: string
         description: string

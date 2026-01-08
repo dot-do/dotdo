@@ -33,15 +33,9 @@ export interface RPCCall {
   args: RPCArg[]
 }
 
-export type RPCTarget =
-  | { type: 'root' }
-  | { type: 'promise'; promiseId: string }
-  | { type: 'property'; base: RPCTarget; property: string }
+export type RPCTarget = { type: 'root' } | { type: 'promise'; promiseId: string } | { type: 'property'; base: RPCTarget; property: string }
 
-export type RPCArg =
-  | { type: 'value'; value: unknown }
-  | { type: 'promise'; promiseId: string }
-  | { type: 'callback'; callbackId: string }
+export type RPCArg = { type: 'value'; value: unknown } | { type: 'promise'; promiseId: string } | { type: 'callback'; callbackId: string }
 
 export interface RPCResponse {
   id: string
@@ -175,7 +169,7 @@ function resolveArg(arg: RPCArg, ctx: RPCContext): unknown {
 async function executeCall(call: RPCCall, ctx: RPCContext): Promise<RPCResult> {
   try {
     const target = resolveTarget(call.target, ctx)
-    const args = call.args.map(arg => resolveArg(arg, ctx))
+    const args = call.args.map((arg) => resolveArg(arg, ctx))
 
     let result: unknown
 
@@ -204,9 +198,7 @@ async function executeCall(call: RPCCall, ctx: RPCContext): Promise<RPCResult> {
       value: result,
     }
   } catch (error) {
-    const rpcError: RPCError = error && typeof error === 'object' && 'code' in error
-      ? error as RPCError
-      : { code: 'EXECUTION_ERROR', message: String(error) }
+    const rpcError: RPCError = error && typeof error === 'object' && 'code' in error ? (error as RPCError) : { code: 'EXECUTION_ERROR', message: String(error) }
 
     return {
       promiseId: call.promiseId,
@@ -263,11 +255,13 @@ async function executeRequest(request: RPCRequest, ctx: RPCContext): Promise<RPC
       return {
         id: request.id,
         type: 'result',
-        results: [{
-          promiseId,
-          type: 'value',
-          value,
-        }],
+        results: [
+          {
+            promiseId,
+            type: 'value',
+            value,
+          },
+        ],
       }
     }
 
@@ -316,21 +310,27 @@ rpcRoutes.post('/', async (c) => {
 
   let request: RPCRequest
   try {
-    request = await c.req.json() as RPCRequest
+    request = (await c.req.json()) as RPCRequest
   } catch {
-    return c.json({
-      id: '',
-      type: 'error',
-      error: { code: 'PARSE_ERROR', message: 'Invalid JSON' },
-    } satisfies RPCResponse, 400)
+    return c.json(
+      {
+        id: '',
+        type: 'error',
+        error: { code: 'PARSE_ERROR', message: 'Invalid JSON' },
+      } satisfies RPCResponse,
+      400,
+    )
   }
 
   if (!request.id) {
-    return c.json({
-      id: '',
-      type: 'error',
-      error: { code: 'INVALID_REQUEST', message: 'Missing request id' },
-    } satisfies RPCResponse, 400)
+    return c.json(
+      {
+        id: '',
+        type: 'error',
+        error: { code: 'INVALID_REQUEST', message: 'Missing request id' },
+      } satisfies RPCResponse,
+      400,
+    )
   }
 
   const response = await executeRequest(request, ctx)
@@ -366,11 +366,13 @@ rpcRoutes.get('/', async (c) => {
       const response = await executeRequest(request, ctx)
       server.send(JSON.stringify(response))
     } catch (error) {
-      server.send(JSON.stringify({
-        id: '',
-        type: 'error',
-        error: { code: 'PARSE_ERROR', message: String(error) },
-      }))
+      server.send(
+        JSON.stringify({
+          id: '',
+          type: 'error',
+          error: { code: 'PARSE_ERROR', message: String(error) },
+        }),
+      )
     }
   })
 

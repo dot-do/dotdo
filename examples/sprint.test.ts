@@ -6,9 +6,7 @@ describe('SprintWorkflow Example', () => {
     const $ = createWorkflowProxy()
 
     const backlog = $.Backlog({ startupId: 'startup-1' }).getItems()
-    const prioritized = backlog.map(item =>
-      $.AI({ context: 'Build great products' }).prioritize({ item })
-    )
+    const prioritized = backlog.map((item) => $.AI({ context: 'Build great products' }).prioritize({ item }))
 
     expect(isPipelinePromise(prioritized)).toBe(true)
     expect(prioritized.__expr.type).toBe('map')
@@ -19,7 +17,7 @@ describe('SprintWorkflow Example', () => {
 
     const result = $.waitFor('sprint-complete', {
       timeout: '2 weeks',
-      type: 'sprint-ended'
+      type: 'sprint-ended',
     })
 
     expect(isPipelinePromise(result)).toBe(true)
@@ -57,9 +55,9 @@ describe('SprintWorkflow Example', () => {
     const $ = createWorkflowProxy()
 
     const items = $.Backlog({}).getItems()
-    const enriched = items.map(item => ({
+    const enriched = items.map((item) => ({
       effort: $.AI({}).estimateEffort({ item }),
-      labels: $.AI({}).suggestLabels({ item })
+      labels: $.AI({}).suggestLabels({ item }),
     }))
 
     expect(isPipelinePromise(enriched)).toBe(true)

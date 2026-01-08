@@ -54,7 +54,7 @@ export class Human extends Worker {
    */
   async getChannels(): Promise<NotificationChannel[]> {
     if (this.channels.length === 0) {
-      const stored = await this.ctx.storage.get('channels') as NotificationChannel[] | undefined
+      const stored = (await this.ctx.storage.get('channels')) as NotificationChannel[] | undefined
       this.channels = stored || []
     }
     return this.channels
@@ -73,7 +73,7 @@ export class Human extends Worker {
    */
   async getEscalationPolicy(): Promise<EscalationPolicy | null> {
     if (!this.escalationPolicy) {
-      this.escalationPolicy = await this.ctx.storage.get('escalation_policy') as EscalationPolicy | null
+      this.escalationPolicy = (await this.ctx.storage.get('escalation_policy')) as EscalationPolicy | null
     }
     return this.escalationPolicy
   }
@@ -113,12 +113,8 @@ export class Human extends Worker {
   /**
    * Submit an approval decision
    */
-  async submitApproval(
-    requestId: string,
-    approved: boolean,
-    reason?: string
-  ): Promise<ApprovalResult> {
-    const pending = await this.ctx.storage.get(`pending:${requestId}`) as PendingApproval | undefined
+  async submitApproval(requestId: string, approved: boolean, reason?: string): Promise<ApprovalResult> {
+    const pending = (await this.ctx.storage.get(`pending:${requestId}`)) as PendingApproval | undefined
     if (!pending) {
       throw new Error(`Approval request not found: ${requestId}`)
     }
@@ -169,10 +165,7 @@ export class Human extends Worker {
 
           // Notify escalation target
           for (const channel of rule.notifyChannels) {
-            await this.sendToChannel(
-              `Escalation: ${approval.request.description} (waiting ${Math.round(waitingMinutes)} minutes)`,
-              channel
-            )
+            await this.sendToChannel(`Escalation: ${approval.request.description} (waiting ${Math.round(waitingMinutes)} minutes)`, channel)
           }
 
           await this.emit('approval.escalated', {
@@ -220,7 +213,7 @@ export class Human extends Worker {
     })
 
     const channels = await this.getChannels()
-    const optionList = options.map(o => o.label).join(', ')
+    const optionList = options.map((o) => o.label).join(', ')
     await this.notify(`Decision needed: ${question}\nOptions: ${optionList}`, channels)
 
     // Return placeholder - real decision comes asynchronously
@@ -273,7 +266,7 @@ export class Human extends Worker {
     }
 
     if (url.pathname === '/approve' && request.method === 'POST') {
-      const { requestId, approved, reason } = await request.json() as {
+      const { requestId, approved, reason } = (await request.json()) as {
         requestId: string
         approved: boolean
         reason?: string
@@ -292,7 +285,7 @@ export class Human extends Worker {
         })
       }
       if (request.method === 'PUT') {
-        const channels = await request.json() as NotificationChannel[]
+        const channels = (await request.json()) as NotificationChannel[]
         await this.setChannels(channels)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },

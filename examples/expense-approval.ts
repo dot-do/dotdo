@@ -60,20 +60,20 @@ export const ExpenseApprovalWorkflow = Workflow('expense-approval', ($, expense:
       // Notify approver via Slack
       $.Slack({ channel: expense.approver }).send({
         template: 'expense-approval-request',
-        data: { expense, validation }
+        data: { expense, validation },
       })
 
       // WORKFLOW HIBERNATES HERE - zero compute cost
       // Can wait days or weeks for human response
       const decision = $.waitFor('manager-approval', {
         timeout: '7 days',
-        type: 'expense-decision'
+        type: 'expense-decision',
       })
 
       // Process based on decision
       return $.when(decision.approved, {
         then: () => processApproval($, expense, decision),
-        else: () => processRejection($, expense, decision)
+        else: () => processRejection($, expense, decision),
       })
     },
     else: () => {
@@ -83,9 +83,9 @@ export const ExpenseApprovalWorkflow = Workflow('expense-approval', ($, expense:
         approved: true,
         approver: 'system',
         reason: validation.autoApproveReason,
-        approvedAt: new Date()
+        approvedAt: new Date(),
       })
-    }
+    },
   })
 })
 
@@ -95,7 +95,7 @@ function processApproval($: any, expense: Expense, decision: any) {
 
   $.Email({ to: expense.submitterId }).send({
     template: 'expense-approved',
-    data: { expense, reimbursement }
+    data: { expense, reimbursement },
   })
 
   $.Audit(expense).logApproval({ decision, reimbursement })
@@ -104,7 +104,7 @@ function processApproval($: any, expense: Expense, decision: any) {
     status: 'approved',
     expenseId: expense.id,
     reimbursementId: reimbursement.id,
-    amount: expense.amount
+    amount: expense.amount,
   }
 }
 
@@ -112,7 +112,7 @@ function processApproval($: any, expense: Expense, decision: any) {
 function processRejection($: any, expense: Expense, decision: any) {
   $.Email({ to: expense.submitterId }).send({
     template: 'expense-rejected',
-    data: { expense, reason: decision.reason }
+    data: { expense, reason: decision.reason },
   })
 
   $.Audit(expense).logRejection({ decision })
@@ -120,7 +120,7 @@ function processRejection($: any, expense: Expense, decision: any) {
   return {
     status: 'rejected',
     expenseId: expense.id,
-    reason: decision.reason
+    reason: decision.reason,
   }
 }
 
@@ -134,30 +134,30 @@ export const MultiLevelApprovalWorkflow = Workflow('multi-level-approval', ($, e
   return $.branch(
     $.Expenses(expense).getApprovalLevel(), // Returns 'manager' | 'director' | 'cfo' | 'board'
     {
-      'manager': () => $.Manager(expense.submitterId).requestApproval(expense),
-      'director': () => {
+      manager: () => $.Manager(expense.submitterId).requestApproval(expense),
+      director: () => {
         const managerApproval = $.Manager(expense.submitterId).requestApproval(expense)
         return $.when(managerApproval.approved, {
-          then: () => $.Director(expense.submitterId).requestApproval(expense)
+          then: () => $.Director(expense.submitterId).requestApproval(expense),
         })
       },
-      'cfo': () => {
+      cfo: () => {
         const managerApproval = $.Manager(expense.submitterId).requestApproval(expense)
         const directorApproval = $.when(managerApproval.approved, {
-          then: () => $.Director(expense.submitterId).requestApproval(expense)
+          then: () => $.Director(expense.submitterId).requestApproval(expense),
         })
         return $.when(directorApproval.approved, {
-          then: () => $.CFO({}).requestApproval(expense)
+          then: () => $.CFO({}).requestApproval(expense),
         })
       },
-      'board': () => {
+      board: () => {
         // Board approval requires CFO pre-approval
         const cfoApproval = $.CFO({}).requestApproval(expense)
         return $.when(cfoApproval.approved, {
-          then: () => $.Board({}).requestApproval(expense)
+          then: () => $.Board({}).requestApproval(expense),
         })
       },
-      default: () => $.Expenses(expense).autoApprove()
-    }
+      default: () => $.Expenses(expense).autoApprove(),
+    },
   )
 })

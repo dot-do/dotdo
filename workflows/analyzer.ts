@@ -64,7 +64,7 @@ export interface SimpleAnalysisResult {
  * ```
  */
 export function analyzeExpressionsFull(expressions: PipelinePromise[]): AnalysisResult {
-  const exprs = expressions.map(e => e.__expr)
+  const exprs = expressions.map((e) => e.__expr)
   const deps = new Map<PipelineExpression, Set<PipelineExpression>>()
 
   // Build dependency map
@@ -78,7 +78,7 @@ export function analyzeExpressionsFull(expressions: PipelinePromise[]): Analysis
   return {
     expressions: exprs,
     dependencies: deps,
-    executionOrder
+    executionOrder,
   }
 }
 
@@ -102,7 +102,7 @@ export function analyzeExpressions(expressions: PipelinePromise[]): SimpleAnalys
   const dependent: PipelinePromise[] = []
 
   // Build a set of all expression references for dependency detection
-  const exprSet = new Set(expressions.map(e => e.__expr))
+  const exprSet = new Set(expressions.map((e) => e.__expr))
 
   for (const expr of expressions) {
     const deps = findDependenciesInSet(expr.__expr, exprSet)
@@ -126,12 +126,9 @@ export function analyzeExpressions(expressions: PipelinePromise[]): SimpleAnalys
  * Traverses the expression's context and args to find embedded PipelinePromises,
  * then traces those back to their root call expressions.
  */
-function findDependencies(
-  expr: PipelineExpression,
-  allExprs: PipelinePromise[]
-): Set<PipelineExpression> {
+function findDependencies(expr: PipelineExpression, allExprs: PipelinePromise[]): Set<PipelineExpression> {
   const deps = new Set<PipelineExpression>()
-  const exprSet = new Set(allExprs.map(e => e.__expr))
+  const exprSet = new Set(allExprs.map((e) => e.__expr))
 
   // Visitor to traverse values and find PipelinePromises
   function visitValue(v: unknown): void {
@@ -166,10 +163,7 @@ function findDependencies(
  * Finds dependencies that exist in a specific set of expressions.
  * Used for simple independent/dependent classification.
  */
-function findDependenciesInSet(
-  expr: PipelineExpression,
-  knownExprs: Set<PipelineExpression>
-): Set<PipelineExpression> {
+function findDependenciesInSet(expr: PipelineExpression, knownExprs: Set<PipelineExpression>): Set<PipelineExpression> {
   const deps = new Set<PipelineExpression>()
 
   function visitValue(v: unknown): void {
@@ -201,10 +195,7 @@ function findDependenciesInSet(
  * Visits an expression and calls the visitor for all embedded values
  * that might contain PipelinePromises.
  */
-function visitExpression(
-  expr: PipelineExpression,
-  visitor: (v: unknown) => void
-): void {
+function visitExpression(expr: PipelineExpression, visitor: (v: unknown) => void): void {
   switch (expr.type) {
     case 'call':
       // Check context and args for embedded PipelinePromises
@@ -249,12 +240,9 @@ function visitExpression(
  * Used to detect when method arguments contain references to other
  * pipeline results.
  */
-export function findEmbeddedPromises(
-  value: unknown,
-  allExprs: PipelinePromise[]
-): Set<PipelineExpression> {
+export function findEmbeddedPromises(value: unknown, allExprs: PipelinePromise[]): Set<PipelineExpression> {
   const embedded = new Set<PipelineExpression>()
-  const exprSet = new Set(allExprs.map(e => e.__expr))
+  const exprSet = new Set(allExprs.map((e) => e.__expr))
 
   function traverse(v: unknown): void {
     if (v === null || v === undefined) return
@@ -295,9 +283,7 @@ export function findEmbeddedPromises(
  *
  * @throws Error if circular dependency is detected
  */
-function topologicalSort(
-  deps: Map<PipelineExpression, Set<PipelineExpression>>
-): PipelineExpression[][] {
+function topologicalSort(deps: Map<PipelineExpression, Set<PipelineExpression>>): PipelineExpression[][] {
   const result: PipelineExpression[][] = []
   const remaining = new Set(deps.keys())
 
@@ -308,7 +294,7 @@ function topologicalSort(
     for (const expr of remaining) {
       const exprDeps = deps.get(expr)!
       // Check if all dependencies have been resolved (not in remaining)
-      const hasUnresolved = [...exprDeps].some(d => remaining.has(d))
+      const hasUnresolved = [...exprDeps].some((d) => remaining.has(d))
       if (!hasUnresolved) {
         ready.push(expr)
       }
@@ -336,10 +322,7 @@ function topologicalSort(
 /**
  * Attempts to detect and report a circular dependency path.
  */
-function detectCycle(
-  deps: Map<PipelineExpression, Set<PipelineExpression>>,
-  remaining: Set<PipelineExpression>
-): string[] {
+function detectCycle(deps: Map<PipelineExpression, Set<PipelineExpression>>, remaining: Set<PipelineExpression>): string[] {
   // Simple DFS to find a cycle
   const visited = new Set<PipelineExpression>()
   const path: PipelineExpression[] = []

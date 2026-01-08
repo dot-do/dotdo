@@ -61,7 +61,7 @@ export class API extends DO {
    */
   async getConfig(): Promise<APIConfig | null> {
     if (!this.config) {
-      this.config = await this.ctx.storage.get('config') as APIConfig | null
+      this.config = (await this.ctx.storage.get('config')) as APIConfig | null
     }
     return this.config
   }
@@ -134,7 +134,7 @@ export class API extends DO {
 
     const key = `ratelimit:${clientId}`
     const now = Date.now()
-    let state = await this.ctx.storage.get(key) as RateLimitState | undefined
+    let state = (await this.ctx.storage.get(key)) as RateLimitState | undefined
 
     if (!state || state.resetAt < now) {
       state = {
@@ -337,7 +337,7 @@ export class API extends DO {
         })
       }
       if (request.method === 'PUT') {
-        const config = await request.json() as APIConfig
+        const config = (await request.json()) as APIConfig
         await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
@@ -355,24 +355,28 @@ export class API extends DO {
     // Validate authentication
     const auth = await this.validateAuth(request)
     if (!auth.valid) {
-      return this.addCorsHeaders(new Response(JSON.stringify({ error: auth.error }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      }))
+      return this.addCorsHeaders(
+        new Response(JSON.stringify({ error: auth.error }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
     }
 
     // Check rate limit
     if (auth.clientId) {
       const rateLimit = await this.checkRateLimit(auth.clientId)
       if (!rateLimit.allowed) {
-        return this.addCorsHeaders(new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
-          status: 429,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(rateLimit.resetAt),
-          },
-        }))
+        return this.addCorsHeaders(
+          new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-RateLimit-Remaining': '0',
+              'X-RateLimit-Reset': String(rateLimit.resetAt),
+            },
+          }),
+        )
       }
     }
 

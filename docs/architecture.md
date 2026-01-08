@@ -66,6 +66,7 @@ Events that initiate workflows:
 ```
 
 **Event Subscription DSL:**
+
 ```typescript
 // Subscribe to domain events
 $.on.Customer.created(async (event) => { ... })
@@ -101,6 +102,7 @@ Queries across local SQLite and linked provider APIs:
 ```
 
 **Search Index Schema:**
+
 ```
 search
 +-------+----------+-------------+-----------+
@@ -136,10 +138,11 @@ Four function types with different execution characteristics:
 ```
 
 **Execution Durability Spectrum:**
+
 ```typescript
-$.send(event, data)    // Fire-and-forget (non-blocking, non-durable)
-$.try(action, data)    // Quick attempt (blocking, non-durable)
-$.do(action, data)     // Durable execution (blocking, retries, guaranteed)
+$.send(event, data) // Fire-and-forget (non-blocking, non-durable)
+$.try(action, data) // Quick attempt (blocking, non-durable)
+$.do(action, data) // Durable execution (blocking, retries, guaranteed)
 ```
 
 ---
@@ -167,18 +170,18 @@ $.do(action, data)     // Durable execution (blocking, retries, guaranteed)
 
 ### Class Purposes
 
-| Class | Purpose | Example |
-|-------|---------|---------|
-| **DO** | Base class with storage, workflow context, versioning | All objects inherit |
-| **Business** | Multi-tenant organization container | `acme-corp` |
-| **App** | Application within a business | `crm-app`, `dashboard` |
-| **Site** | Website/domain within an app | `docs.acme.com` |
-| **Worker** | Base for work-performing entities | Common interface |
-| **Agent** | AI-powered autonomous worker | `support-agent` |
-| **Human** | Human worker with approval flows | `john@acme.com` |
-| **Entity** | Domain object container | `Customer`, `Order` |
-| **Function** | Serverless execution unit | Deployed functions |
-| **Workflow** | Multi-step process orchestration | Approval flows |
+| Class        | Purpose                                               | Example                |
+| ------------ | ----------------------------------------------------- | ---------------------- |
+| **DO**       | Base class with storage, workflow context, versioning | All objects inherit    |
+| **Business** | Multi-tenant organization container                   | `acme-corp`            |
+| **App**      | Application within a business                         | `crm-app`, `dashboard` |
+| **Site**     | Website/domain within an app                          | `docs.acme.com`        |
+| **Worker**   | Base for work-performing entities                     | Common interface       |
+| **Agent**    | AI-powered autonomous worker                          | `support-agent`        |
+| **Human**    | Human worker with approval flows                      | `john@acme.com`        |
+| **Entity**   | Domain object container                               | `Customer`, `Order`    |
+| **Function** | Serverless execution unit                             | Deployed functions     |
+| **Workflow** | Multi-step process orchestration                      | Approval flows         |
 
 ---
 
@@ -319,23 +322,23 @@ await do.merge('experiment')               // Merge branch
 ```typescript
 betterAuth({
   plugins: [
-    organization(),      // Multi-tenancy
-    admin(),             // Admin roles
-    apiKey(),            // API key auth
-    sso(),               // Enterprise SAML/OIDC
-    oauthProvider(),     // Your app as OAuth provider (for MCP)
-    stripe(),            // Subscription billing
-  ]
+    organization(), // Multi-tenancy
+    admin(), // Admin roles
+    apiKey(), // API key auth
+    sso(), // Enterprise SAML/OIDC
+    oauthProvider(), // Your app as OAuth provider (for MCP)
+    stripe(), // Subscription billing
+  ],
 })
 ```
 
 ### Identity Types
 
-| Type | Description | Auth Method |
-|------|-------------|-------------|
-| **Human** | Real person | WorkOS AuthKit (OAuth, SSO, MFA) |
-| **Agent** | AI worker | API key or OAuth client credentials |
-| **Service** | System-to-system | API key or mTLS |
+| Type        | Description      | Auth Method                         |
+| ----------- | ---------------- | ----------------------------------- |
+| **Human**   | Real person      | WorkOS AuthKit (OAuth, SSO, MFA)    |
+| **Agent**   | AI worker        | API key or OAuth client credentials |
+| **Service** | System-to-system | API key or mTLS                     |
 
 ### Federation
 
@@ -488,7 +491,7 @@ export default {
     // Verify session from AuthKit
     const session = await verifyAuthKitSession(request, env)
     // ...
-  }
+  },
 }
 ```
 
@@ -670,29 +673,29 @@ bucket_name = "analytics"
 
 ### Token Types
 
-| Token | Scope | Lifetime | Storage |
-|-------|-------|----------|---------|
-| Session | User browser | 7 days | Cookie |
-| API Key | Service auth | Configurable | Env/Config |
-| OAuth Access | Provider API | 1 hour | WorkOS Vault |
-| OAuth Refresh | Token renewal | 90 days | WorkOS Vault |
-| Cross-Domain | Session transfer | 1 minute | DB (one-time) |
+| Token         | Scope            | Lifetime     | Storage       |
+| ------------- | ---------------- | ------------ | ------------- |
+| Session       | User browser     | 7 days       | Cookie        |
+| API Key       | Service auth     | Configurable | Env/Config    |
+| OAuth Access  | Provider API     | 1 hour       | WorkOS Vault  |
+| OAuth Refresh | Token renewal    | 90 days      | WorkOS Vault  |
+| Cross-Domain  | Session transfer | 1 minute     | DB (one-time) |
 
 ---
 
 ## Glossary
 
-| Term | Definition |
-|------|------------|
-| **DO** | Durable Object - Cloudflare's stateful serverless primitive |
-| **Namespace (ns)** | The URL identity of a DO (e.g., `https://startups.studio`) |
-| **Thing** | A versioned entity stored in a DO's SQLite |
-| **Action** | A logged command that creates/modifies Things |
-| **Event** | A domain event emitted after Actions |
-| **Worker** | Base class for entities that perform work (Agent, Human) |
-| **Integration** | Connected OAuth provider (GitHub, Slack, etc.) |
-| **Federation** | Delegating auth/policy to parent DO |
-| **id.org.ai** | Root identity provider for the platform |
+| Term               | Definition                                                  |
+| ------------------ | ----------------------------------------------------------- |
+| **DO**             | Durable Object - Cloudflare's stateful serverless primitive |
+| **Namespace (ns)** | The URL identity of a DO (e.g., `https://startups.studio`)  |
+| **Thing**          | A versioned entity stored in a DO's SQLite                  |
+| **Action**         | A logged command that creates/modifies Things               |
+| **Event**          | A domain event emitted after Actions                        |
+| **Worker**         | Base class for entities that perform work (Agent, Human)    |
+| **Integration**    | Connected OAuth provider (GitHub, Slack, etc.)              |
+| **Federation**     | Delegating auth/policy to parent DO                         |
+| **id.org.ai**      | Root identity provider for the platform                     |
 
 ---
 

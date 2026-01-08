@@ -26,23 +26,23 @@ import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqli
 
 interface Identity {
   id: string
-  userId: string                           // References better-auth users.id
-  type: 'human' | 'agent' | 'service'      // Identity type discriminator
-  handle: string                           // Unique handle (e.g., @alice, @codebot)
+  userId: string // References better-auth users.id
+  type: 'human' | 'agent' | 'service' // Identity type discriminator
+  handle: string // Unique handle (e.g., @alice, @codebot)
   displayName?: string | null
   avatarUrl?: string | null
   bio?: string | null
   status: 'active' | 'suspended' | 'deleted'
 
   // Agent-specific fields
-  agentType?: string | null                // 'assistant', 'bot', 'tool', etc.
-  ownerId?: string | null                  // Owner identity ID for agents
-  capabilities?: string[] | null           // JSON array of capabilities
-  modelId?: string | null                  // AI model identifier
+  agentType?: string | null // 'assistant', 'bot', 'tool', etc.
+  ownerId?: string | null // Owner identity ID for agents
+  capabilities?: string[] | null // JSON array of capabilities
+  modelId?: string | null // AI model identifier
 
   // Service-specific fields
-  serviceType?: string | null              // 'api', 'webhook', 'integration'
-  endpoint?: string | null                 // Service endpoint URL
+  serviceType?: string | null // 'api', 'webhook', 'integration'
+  endpoint?: string | null // Service endpoint URL
 
   // Metadata
   metadata?: Record<string, unknown> | null
@@ -222,27 +222,21 @@ describe('Handle Uniqueness', () => {
 
   it('handle format is validated (alphanumeric + underscores)', () => {
     // Valid handles
-    const validHandles = [
-      'alice',
-      'code_bot',
-      'service_api_v2',
-      'A1B2C3',
-      'user_123',
-    ]
+    const validHandles = ['alice', 'code_bot', 'service_api_v2', 'A1B2C3', 'user_123']
 
     // Invalid handles (should be rejected at application layer)
     const invalidHandles = [
-      'alice smith',   // no spaces
-      '@alice',        // no @ prefix (stored without it)
-      'alice!',        // no special chars
-      '',              // not empty
+      'alice smith', // no spaces
+      '@alice', // no @ prefix (stored without it)
+      'alice!', // no special chars
+      '', // not empty
     ]
 
-    validHandles.forEach(handle => {
+    validHandles.forEach((handle) => {
       expect(/^[a-zA-Z0-9_]+$/.test(handle)).toBe(true)
     })
 
-    invalidHandles.forEach(handle => {
+    invalidHandles.forEach((handle) => {
       expect(/^[a-zA-Z0-9_]+$/.test(handle)).toBe(false)
     })
   })
@@ -267,13 +261,7 @@ describe('Capabilities Field', () => {
   })
 
   it('capabilities stores JSON array of strings', () => {
-    const capabilities: string[] = [
-      'code-generation',
-      'code-review',
-      'testing',
-      'documentation',
-      'refactoring',
-    ]
+    const capabilities: string[] = ['code-generation', 'code-review', 'testing', 'documentation', 'refactoring']
 
     // Verify it can be serialized as JSON
     const json = JSON.stringify(capabilities)
@@ -302,11 +290,11 @@ describe('Capabilities Field', () => {
   it('capabilities supports standard capability names', () => {
     // Define standard capabilities for the platform
     const standardCapabilities = [
-      'read',           // Read resources
-      'write',          // Write/create resources
-      'delete',         // Delete resources
-      'execute',        // Execute actions
-      'delegate',       // Delegate to other agents
+      'read', // Read resources
+      'write', // Write/create resources
+      'delete', // Delete resources
+      'execute', // Execute actions
+      'delegate', // Delegate to other agents
       'code-generation',
       'code-review',
       'testing',
@@ -316,7 +304,7 @@ describe('Capabilities Field', () => {
       'communication',
     ]
 
-    standardCapabilities.forEach(cap => {
+    standardCapabilities.forEach((cap) => {
       expect(typeof cap).toBe('string')
       expect(cap.length).toBeGreaterThan(0)
     })
@@ -348,13 +336,9 @@ describe('Status Field', () => {
   })
 
   it('status accepts valid values: active, suspended, deleted', () => {
-    const validStatuses: Array<'active' | 'suspended' | 'deleted'> = [
-      'active',
-      'suspended',
-      'deleted',
-    ]
+    const validStatuses: Array<'active' | 'suspended' | 'deleted'> = ['active', 'suspended', 'deleted']
 
-    validStatuses.forEach(status => {
+    validStatuses.forEach((status) => {
       expect(['active', 'suspended', 'deleted']).toContain(status)
     })
   })
@@ -516,7 +500,7 @@ describe('Identity Relationships', () => {
       { id: 'id-3', userId: 'user-1', type: 'agent', handle: 'alice-helper' },
     ]
 
-    const uniqueUserIds = new Set(user1Identities.map(i => i.userId))
+    const uniqueUserIds = new Set(user1Identities.map((i) => i.userId))
     expect(uniqueUserIds.size).toBe(1) // All same user
     expect(user1Identities.length).toBe(3) // Multiple identities
   })
@@ -566,9 +550,7 @@ describe('better-auth Integration', () => {
         { type: 'agent', handle: 'alice-coder', agentType: 'assistant' },
         { type: 'agent', handle: 'alice-reviewer', agentType: 'assistant' },
       ],
-      services: [
-        { type: 'service', handle: 'alice-github', serviceType: 'integration' },
-      ],
+      services: [{ type: 'service', handle: 'alice-github', serviceType: 'integration' }],
     }
 
     expect(userPersonas.primaryIdentity.type).toBe('human')

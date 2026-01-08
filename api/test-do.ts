@@ -13,7 +13,7 @@ export class TestDurableObject implements DurableObject {
     const url = new URL(request.url)
 
     if (url.pathname === '/store' && request.method === 'POST') {
-      const body = await request.json() as { key: string; value: string }
+      const body = (await request.json()) as { key: string; value: string }
       await this.state.storage.put(body.key, body.value)
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },

@@ -38,11 +38,7 @@ interface ErrorResponse {
 // Helper Functions
 // ============================================================================
 
-async function request(
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<Response> {
+async function request(method: string, path: string, body?: unknown): Promise<Response> {
   const options: RequestInit = {
     method,
     headers: {
@@ -114,7 +110,7 @@ describe('GET /api/things', () => {
 
   it('returns things with required fields', async () => {
     const res = await get('/api/things')
-    const body = await res.json() as Thing[]
+    const body = (await res.json()) as Thing[]
 
     // If there are any things, verify they have required fields
     if (body.length > 0) {
@@ -132,7 +128,7 @@ describe('GET /api/things', () => {
 
     expect(res.status).toBe(200)
 
-    const body = await res.json() as Thing[]
+    const body = (await res.json()) as Thing[]
     expect(body.length).toBeLessThanOrEqual(5)
   })
 
@@ -159,7 +155,7 @@ describe('POST /api/things', () => {
 
     expect(res.status).toBe(201)
 
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
     expect(body.name).toBe('Test Thing')
     expect(body.$type).toBe('https://example.com/TestThing')
     expect(body.data).toEqual({ foo: 'bar' })
@@ -172,7 +168,7 @@ describe('POST /api/things', () => {
     }
 
     const res = await post('/api/things', newThing)
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
 
     expect(body).toHaveProperty('id')
     expect(body).toHaveProperty('$id')
@@ -187,7 +183,7 @@ describe('POST /api/things', () => {
     }
 
     const res = await post('/api/things', newThing)
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
 
     expect(body).toHaveProperty('createdAt')
     expect(body).toHaveProperty('updatedAt')
@@ -206,7 +202,7 @@ describe('POST /api/things', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -219,7 +215,7 @@ describe('POST /api/things', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -244,14 +240,14 @@ describe('GET /api/things/:id', () => {
       name: 'Specific Thing',
       $type: 'https://example.com/SpecificThing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Then fetch it
     const res = await get(`/api/things/${createdThing.id}`)
 
     expect(res.status).toBe(200)
 
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
     expect(body.id).toBe(createdThing.id)
     expect(body.name).toBe('Specific Thing')
   })
@@ -261,7 +257,7 @@ describe('GET /api/things/:id', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -278,7 +274,7 @@ describe('GET /api/things/:id', () => {
       name: 'Thing with Relationships',
       $type: 'https://example.com/RelatedThing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     const res = await get(`/api/things/${createdThing.id}`)
     const body = await res.json()
@@ -300,7 +296,7 @@ describe('PUT /api/things/:id', () => {
       $type: 'https://example.com/UpdateableThing',
       data: { version: 1 },
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Then update it
     const res = await put(`/api/things/${createdThing.id}`, {
@@ -310,7 +306,7 @@ describe('PUT /api/things/:id', () => {
 
     expect(res.status).toBe(200)
 
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
     expect(body.name).toBe('Updated Name')
     expect(body.data).toEqual({ version: 2 })
   })
@@ -320,13 +316,13 @@ describe('PUT /api/things/:id', () => {
       name: 'Before Update',
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     const res = await put(`/api/things/${createdThing.id}`, {
       name: 'After Update',
     })
 
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
     expect(body.id).toBe(createdThing.id)
     expect(body.name).toBe('After Update')
   })
@@ -336,20 +332,18 @@ describe('PUT /api/things/:id', () => {
       name: 'Timestamp Test',
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
     const originalUpdatedAt = createdThing.updatedAt
 
     // Small delay to ensure timestamp changes
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise((resolve) => setTimeout(resolve, 10))
 
     const res = await put(`/api/things/${createdThing.id}`, {
       name: 'Updated Timestamp Test',
     })
 
-    const body = await res.json() as Thing
-    expect(new Date(body.updatedAt).getTime()).toBeGreaterThanOrEqual(
-      new Date(originalUpdatedAt).getTime()
-    )
+    const body = (await res.json()) as Thing
+    expect(new Date(body.updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(originalUpdatedAt).getTime())
   })
 
   it('returns 404 for non-existent thing', async () => {
@@ -359,7 +353,7 @@ describe('PUT /api/things/:id', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -368,7 +362,7 @@ describe('PUT /api/things/:id', () => {
       name: 'Valid Thing',
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Try to update with invalid data (e.g., wrong type)
     const res = await app.request(`/api/things/${createdThing.id}`, {
@@ -386,14 +380,14 @@ describe('PUT /api/things/:id', () => {
       $type: 'https://example.com/Thing',
       data: { preserved: true, updated: false },
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Update only name, not data
     const res = await put(`/api/things/${createdThing.id}`, {
       name: 'Updated',
     })
 
-    const body = await res.json() as Thing
+    const body = (await res.json()) as Thing
     expect(body.name).toBe('Updated')
     // $type should be preserved
     expect(body.$type).toBe('https://example.com/Thing')
@@ -411,7 +405,7 @@ describe('DELETE /api/things/:id', () => {
       name: 'To Be Deleted',
       $type: 'https://example.com/DeletableThing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Then delete it
     const res = await del(`/api/things/${createdThing.id}`)
@@ -424,7 +418,7 @@ describe('DELETE /api/things/:id', () => {
       name: 'Delete Me',
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     const res = await del(`/api/things/${createdThing.id}`)
 
@@ -438,7 +432,7 @@ describe('DELETE /api/things/:id', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -447,7 +441,7 @@ describe('DELETE /api/things/:id', () => {
       name: 'Will Be Gone',
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Delete it
     await del(`/api/things/${createdThing.id}`)
@@ -463,20 +457,20 @@ describe('DELETE /api/things/:id', () => {
       name: 'Unique Deletable Thing ' + Date.now(),
       $type: 'https://example.com/Thing',
     })
-    const createdThing = await created.json() as Thing
+    const createdThing = (await created.json()) as Thing
 
     // Verify it's in the list
     const beforeList = await get('/api/things')
-    const beforeThings = await beforeList.json() as Thing[]
-    expect(beforeThings.some(t => t.id === createdThing.id)).toBe(true)
+    const beforeThings = (await beforeList.json()) as Thing[]
+    expect(beforeThings.some((t) => t.id === createdThing.id)).toBe(true)
 
     // Delete it
     await del(`/api/things/${createdThing.id}`)
 
     // Verify it's not in the list
     const afterList = await get('/api/things')
-    const afterThings = await afterList.json() as Thing[]
-    expect(afterThings.some(t => t.id === createdThing.id)).toBe(false)
+    const afterThings = (await afterList.json()) as Thing[]
+    expect(afterThings.some((t) => t.id === createdThing.id)).toBe(false)
   })
 })
 
@@ -494,7 +488,7 @@ describe('Invalid Requests (400)', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
     expect(body.error).toBeTruthy()
   })
@@ -508,7 +502,7 @@ describe('Invalid Requests (400)', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -527,7 +521,7 @@ describe('Invalid Requests (400)', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -552,7 +546,7 @@ describe('Invalid Requests (400)', () => {
 
     expect(res.status).toBe(400)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body.error).toBeTruthy()
     expect(typeof body.error).toBe('string')
   })
@@ -568,7 +562,7 @@ describe('Missing Resources (404)', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -579,7 +573,7 @@ describe('Missing Resources (404)', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -588,7 +582,7 @@ describe('Missing Resources (404)', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body).toHaveProperty('error')
   })
 
@@ -609,7 +603,7 @@ describe('Missing Resources (404)', () => {
 
     expect(res.status).toBe(404)
 
-    const body = await res.json() as ErrorResponse
+    const body = (await res.json()) as ErrorResponse
     expect(body.error).toBeTruthy()
     expect(typeof body.error).toBe('string')
   })

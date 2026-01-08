@@ -109,14 +109,22 @@ function getStatusCode(err: unknown): number {
 function getErrorCode(err: unknown): string {
   if (err instanceof HTTPException) {
     switch (err.status) {
-      case 400: return 'BAD_REQUEST'
-      case 401: return 'UNAUTHORIZED'
-      case 403: return 'FORBIDDEN'
-      case 404: return 'NOT_FOUND'
-      case 405: return 'METHOD_NOT_ALLOWED'
-      case 409: return 'CONFLICT'
-      case 422: return 'UNPROCESSABLE_ENTITY'
-      default: return 'INTERNAL_SERVER_ERROR'
+      case 400:
+        return 'BAD_REQUEST'
+      case 401:
+        return 'UNAUTHORIZED'
+      case 403:
+        return 'FORBIDDEN'
+      case 404:
+        return 'NOT_FOUND'
+      case 405:
+        return 'METHOD_NOT_ALLOWED'
+      case 409:
+        return 'CONFLICT'
+      case 422:
+        return 'UNPROCESSABLE_ENTITY'
+      default:
+        return 'INTERNAL_SERVER_ERROR'
     }
   }
   if (err && typeof err === 'object' && 'code' in err) {
@@ -174,12 +182,15 @@ export const errorHandler: MiddlewareHandler = async (c, next) => {
  * 404 handler for routes that don't match
  */
 export function notFoundHandler(c: Context) {
-  return c.json({
-    error: {
-      code: 'NOT_FOUND',
-      message: `Route not found: ${c.req.method} ${c.req.path}`,
+  return c.json(
+    {
+      error: {
+        code: 'NOT_FOUND',
+        message: `Route not found: ${c.req.method} ${c.req.path}`,
+      },
     },
-  }, 404)
+    404,
+  )
 }
 
 export default errorHandler

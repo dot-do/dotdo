@@ -41,8 +41,8 @@ describe('Hashing System', () => {
       const context = {
         order: {
           id: '12345',
-          items: [{ sku: 'A' }, { sku: 'B' }]
-        }
+          items: [{ sku: 'A' }, { sku: 'B' }],
+        },
       }
       const hash1 = hashContext(context)
       const hash2 = hashContext(context)
@@ -180,8 +180,8 @@ describe('Hashing System', () => {
       const args = {
         user: {
           name: 'Alice',
-          preferences: { theme: 'dark' }
-        }
+          preferences: { theme: 'dark' },
+        },
       }
       const hash1 = hashArgs(args)
       const hash2 = hashArgs(args)
@@ -194,7 +194,11 @@ describe('Hashing System', () => {
     })
 
     it('handles nested array arguments', () => {
-      const args = [[1, 2], [3, 4], [5, [6, 7]]]
+      const args = [
+        [1, 2],
+        [3, 4],
+        [5, [6, 7]],
+      ]
       const hash1 = hashArgs(args)
       const hash2 = hashArgs(args)
       expect(hash1).toBe(hash2)

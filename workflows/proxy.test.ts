@@ -94,7 +94,7 @@ describe('Pipeline Proxy', () => {
         id: 'startup-1',
         name: 'TechCorp',
         mission: 'Build great products',
-        team: ['alice', 'bob', 'charlie']
+        team: ['alice', 'bob', 'charlie'],
       }
 
       const pipeline = $.Roadmap(startup)
@@ -166,7 +166,7 @@ describe('Pipeline Proxy', () => {
 
     it('accumulates path correctly through deep chaining', () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ success: true })
+        executeStep: vi.fn().mockResolvedValue({ success: true }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -189,7 +189,7 @@ describe('Pipeline Proxy', () => {
   describe('Method call returns awaitable with step execution (dotdo-kvb)', () => {
     it('returns a Promise when method is called', () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ available: true, quantity: 42 })
+        executeStep: vi.fn().mockResolvedValue({ available: true, quantity: 42 }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -202,7 +202,7 @@ describe('Pipeline Proxy', () => {
 
     it('executes step through runtime when awaited', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ available: true, quantity: 42 })
+        executeStep: vi.fn().mockResolvedValue({ available: true, quantity: 42 }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -215,7 +215,7 @@ describe('Pipeline Proxy', () => {
 
     it('passes correct pipeline info to runtime', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ success: true })
+        executeStep: vi.fn().mockResolvedValue({ success: true }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -237,7 +237,7 @@ describe('Pipeline Proxy', () => {
 
     it('passes method arguments to runtime', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ reservationId: 'res-123' })
+        executeStep: vi.fn().mockResolvedValue({ reservationId: 'res-123' }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -255,10 +255,10 @@ describe('Pipeline Proxy', () => {
       const expectedResult = {
         available: true,
         quantity: 42,
-        reorderPoint: 10
+        reorderPoint: 10,
       }
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue(expectedResult)
+        executeStep: vi.fn().mockResolvedValue(expectedResult),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -270,7 +270,7 @@ describe('Pipeline Proxy', () => {
 
     it('propagates errors from runtime execution', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockRejectedValue(new Error('Step execution failed'))
+        executeStep: vi.fn().mockRejectedValue(new Error('Step execution failed')),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -281,7 +281,7 @@ describe('Pipeline Proxy', () => {
 
     it('generates unique step IDs for different contexts', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({})
+        executeStep: vi.fn().mockResolvedValue({}),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -300,7 +300,7 @@ describe('Pipeline Proxy', () => {
 
     it('generates same step ID for same context and path', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({})
+        executeStep: vi.fn().mockResolvedValue({}),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 
@@ -318,7 +318,7 @@ describe('Pipeline Proxy', () => {
 
     it('supports method calls on extended paths', async () => {
       const mockRuntime = {
-        executeStep: vi.fn().mockResolvedValue({ processed: true })
+        executeStep: vi.fn().mockResolvedValue({ processed: true }),
       }
       const $ = createWorkflowProxy(mockRuntime as any)
 

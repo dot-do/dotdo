@@ -32,10 +32,7 @@ import { organization } from '@dotdo/auth-plugin-org'
 
 export const authConfig = auth({
   database: drizzleAdapter(db),
-  plugins: [
-    apiKey(),
-    organization(),
-  ],
+  plugins: [apiKey(), organization()],
 })
 ```
 
@@ -43,11 +40,11 @@ export const authConfig = auth({
 
 Three cookies with distinct purposes:
 
-| Cookie | Format | Purpose |
-|--------|--------|---------|
-| `auth` | JWT | User authentication (signed, verified) |
-| `settings` | sqid | Anonymous ID + preferences |
-| `session` | sqid | Session tracking |
+| Cookie     | Format | Purpose                                |
+| ---------- | ------ | -------------------------------------- |
+| `auth`     | JWT    | User authentication (signed, verified) |
+| `settings` | sqid   | Anonymous ID + preferences             |
+| `session`  | sqid   | Session tracking                       |
 
 ## JWT for Auth Cookie
 
@@ -58,6 +55,7 @@ Three cookies with distinct purposes:
 ## sqid for Settings/Session
 
 Lightweight encoding without crypto overhead:
+
 - Anonymous ID from: ASN, colo, country, language, IP prefix
 - Preferences: theme, language, etc.
 - Session: sessionId, createdAt
@@ -65,18 +63,23 @@ Lightweight encoding without crypto overhead:
 ## Better Auth Plugins
 
 ### api-key
+
 Programmatic access tokens for CI/CD, scripts, integrations.
 
 ### mcp
+
 MCP (Model Context Protocol) authentication for AI tools.
 
 ### organization
+
 Multi-tenancy with organizations, members, roles.
 
 ### admin
+
 User management UI and admin operations.
 
 ### oauth-proxy
+
 OAuth flow handling for third-party providers.
 
 ## Checklist for Auth Setup

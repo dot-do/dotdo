@@ -45,31 +45,28 @@ export const BatchProcessingWorkflow = Workflow('batch-order-processing', ($, or
   // Magic map: checks ALL items in a single workflow step
   // Callback runs once with placeholder, captures the pattern,
   // then replays for each item server-side
-  const inventoryChecks = order.items.map(item =>
-    $.Inventory({ sku: item.sku }).check()
-  )
+  const inventoryChecks = order.items.map((item) => $.Inventory({ sku: item.sku }).check())
 
   // Process each item based on availability
   const reservations = order.items.map((item, index) =>
     $.when(inventoryChecks[index].available, {
       then: () => $.Inventory({ sku: item.sku }).reserve({ quantity: item.quantity }),
-      else: () => $.Backorder({ sku: item.sku }).create({
-        quantity: item.quantity,
-        customerId: order.customerId
-      })
-    })
+      else: () =>
+        $.Backorder({ sku: item.sku }).create({
+          quantity: item.quantity,
+          customerId: order.customerId,
+        }),
+    }),
   )
 
   // Calculate totals using map
-  const itemTotals = order.items.map(item =>
-    $.Pricing({ sku: item.sku }).calculate({ quantity: item.quantity })
-  )
+  const itemTotals = order.items.map((item) => $.Pricing({ sku: item.sku }).calculate({ quantity: item.quantity }))
 
   // Notify customer
   $.Email({ customerId: order.customerId }).sendOrderConfirmation({
     orderId: order.id,
     items: order.items,
-    reservations: reservations
+    reservations: reservations,
   })
 
   return {
@@ -77,7 +74,7 @@ export const BatchProcessingWorkflow = Workflow('batch-order-processing', ($, or
     inventoryChecks,
     reservations,
     itemTotals,
-    status: 'processed'
+    status: 'processed',
   }
 })
 
@@ -91,14 +88,14 @@ export const WarehouseAuditWorkflow = Workflow('warehouse-audit', ($, warehouseI
   const sections = $.Warehouse({ id: warehouseId }).getSections()
 
   // For each section, get items and check each one
-  const auditResults = sections.map(section => ({
+  const auditResults = sections.map((section) => ({
     sectionId: section.id,
-    items: section.items.map(item => ({
+    items: section.items.map((item) => ({
       sku: item.sku,
       expected: item.expectedQuantity,
       actual: $.Inventory({ sku: item.sku }).count(),
-      discrepancy: $.Inventory({ sku: item.sku }).checkDiscrepancy()
-    }))
+      discrepancy: $.Inventory({ sku: item.sku }).checkDiscrepancy(),
+    })),
   }))
 
   // Aggregate results
@@ -107,6 +104,6 @@ export const WarehouseAuditWorkflow = Workflow('warehouse-audit', ($, warehouseI
   return {
     warehouseId,
     auditResults,
-    summary
+    summary,
   }
 })
