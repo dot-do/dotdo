@@ -11,7 +11,7 @@ import {
   type DataFile,
   type PartitionFilter,
   type FieldSummary,
-} from './manifest'
+} from '../manifest'
 
 /**
  * Iceberg Manifest Navigation Tests

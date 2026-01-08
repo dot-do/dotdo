@@ -24,7 +24,7 @@ import {
   type PartitionSpec,
   type Snapshot,
   type ParsedMetadata,
-} from './metadata'
+} from '../metadata'
 
 // ============================================================================
 // Test Fixtures

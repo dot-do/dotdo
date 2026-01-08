@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest'
-import { IcebergReader } from './reader'
+import { IcebergReader } from '../reader'
 import type {
   IcebergMetadata,
   ManifestList,
@@ -13,7 +13,7 @@ import type {
   DataFileEntry,
   FindFileResult,
   IcebergRecord,
-} from './types'
+} from '../types'
 
 /**
  * Mock R2Bucket for testing

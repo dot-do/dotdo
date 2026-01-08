@@ -36,7 +36,7 @@ import {
   type ManifestEntry,
   type FileSelectionOptions,
   type FileSelectionResult,
-} from './stats'
+} from '../stats'
 
 // ============================================================================
 // Test Fixtures
