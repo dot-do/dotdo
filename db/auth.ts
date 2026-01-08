@@ -585,6 +585,93 @@ export type Identity = typeof identities.$inferSelect
 export type NewIdentity = typeof identities.$inferInsert
 
 // ============================================================================
+// LINKED ACCOUNTS: Third-party account connections
+// ============================================================================
+
+/**
+ * Linked Accounts table - stores third-party account connections for identities.
+ *
+ * Key design decisions:
+ * - The `type` field is a DYNAMIC STRING, not an enum
+ * - Types come from integrations.do (e.g., 'github', 'slack', 'linear')
+ * - This allows new integration types without schema changes
+ * - Credentials are stored securely in WorkOS Vault, referenced by vaultRef
+ *
+ * @example
+ * ```ts
+ * // GitHub OAuth connection
+ * {
+ *   id: 'la-001',
+ *   identityId: 'identity-alice',
+ *   type: 'github',
+ *   provider: 'github-oauth',
+ *   providerAccountId: 'gh-12345',
+ *   vaultRef: 'vault://workos/secrets/la-001',
+ *   status: 'active',
+ * }
+ * ```
+ */
+export const linkedAccounts = sqliteTable(
+  'linked_accounts',
+  {
+    /** Primary key - unique identifier for this linked account */
+    id: text('id').primaryKey(),
+
+    /** Foreign key to identities table - the identity this account belongs to */
+    identityId: text('identity_id')
+      .notNull()
+      .references(() => identities.id, { onDelete: 'cascade' }),
+
+    /** Dynamic type string - NOT an enum, types come from integrations.do */
+    type: text('type').notNull(),
+
+    /** OAuth provider or integration name (e.g., 'github-oauth', 'slack-api') */
+    provider: text('provider').notNull(),
+
+    /** Unique account identifier from the external provider */
+    providerAccountId: text('provider_account_id').notNull(),
+
+    /** WorkOS Vault reference for secure credential storage */
+    vaultRef: text('vault_ref'),
+
+    /** Account status: 'active', 'pending', 'expired', 'revoked' */
+    status: text('status').notNull().default('active'),
+
+    /** Token expiration timestamp */
+    expiresAt: integer('expires_at', { mode: 'timestamp' }),
+
+    /** Additional metadata stored as JSON */
+    metadata: text('metadata', { mode: 'json' }),
+
+    /** Timestamp when linked account was created */
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+
+    /** Timestamp when linked account was last updated */
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    /** Index for looking up linked accounts by identity */
+    index('linked_accounts_identity_idx').on(table.identityId),
+    /** Index for filtering by integration type */
+    index('linked_accounts_type_idx').on(table.type),
+    /** Index for filtering by status */
+    index('linked_accounts_status_idx').on(table.status),
+    /** Unique constraint: one linked account per identity+provider+providerAccountId */
+    uniqueIndex('linked_accounts_unique_idx').on(table.identityId, table.provider, table.providerAccountId),
+  ],
+)
+
+/**
+ * TypeScript type for a linked account record inferred from the schema.
+ */
+export type LinkedAccount = typeof linkedAccounts.$inferSelect
+
+/**
+ * TypeScript type for inserting a new linked account.
+ */
+export type NewLinkedAccount = typeof linkedAccounts.$inferInsert
+
+// ============================================================================
 // STRIPE: Subscriptions
 // ============================================================================
 

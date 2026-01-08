@@ -41,4 +41,12 @@ export default defineWorkspace([
       environment: 'node',
     },
   },
+  // Durable Objects tests
+  {
+    test: {
+      name: 'objects',
+      include: ['objects/tests/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
 ])

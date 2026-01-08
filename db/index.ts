@@ -48,6 +48,8 @@ import {
   subscriptions,
   // Identities (multi-type: human, agent, service)
   identities,
+  // Linked accounts (third-party connections)
+  linkedAccounts,
 } from './auth'
 
 export const schema = {
@@ -96,4 +98,7 @@ export const schema = {
 
   // Auth - Identities (multi-type: human, agent, service)
   identities,
+
+  // Auth - Linked accounts (third-party connections)
+  linkedAccounts,
 }
