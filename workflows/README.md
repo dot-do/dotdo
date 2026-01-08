@@ -259,120 +259,142 @@ export const OrderWorkflow = Workflow('order-processing', async ($, order) => {
 
 ---
 
-## Compilation: DSL → Cloudflare Workflows
+## Compilation: Pipeline Chains → Hashed Step IDs
 
-The compiler transforms the fluent DSL into Cloudflare WorkflowEntrypoint classes:
+The compilation model is inspired by [capnweb](https://github.com/cloudflare/capnweb), Cloudflare's JavaScript-native RPC system. Instead of generating literal step names like `'Inventory.check'`, we compile to **hashed pipeline chains** for deterministic, collision-resistant step identification.
 
-### Input (Developer writes)
+### The capnweb Pattern
+
+capnweb uses **property path accumulation** via Proxies. Each property access or method call appends to a path array:
 
 ```typescript
+$.Inventory(product).check()
+//  ↓ becomes
+["pipeline", contextHash, ["Inventory", "check"], ...args]
+```
+
+### How It Works
+
+1. **Proxy Interception**: `$` returns a Proxy that intercepts property access
+2. **Path Accumulation**: Each `.property` or `.method()` call appends to a path array
+3. **Hash Generation**: The complete pipeline chain is hashed for step identification
+4. **Deferred Execution**: Actual execution happens only on `await`
+
+```typescript
+// User writes:
 const inventory = await $.Inventory(product).check()
+
+// Runtime captures pipeline:
+{
+  path: ["Inventory", "check"],
+  context: product,
+  args: [],
+  contextHash: sha256(JSON.stringify(product)).slice(0, 8)
+}
+
+// Step ID is hash of the pipeline chain:
+stepId = sha256(JSON.stringify({
+  path: ["Inventory", "check"],
+  contextHash: "a3f2c91b"
+}))
+// → "7f4d8c2a..."
 ```
 
-### Output (Compiler generates)
+### Why Hash-Based Step IDs?
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Deterministic** | Same pipeline chain always produces same hash |
+| **Collision-resistant** | SHA-256 prevents conflicts across domains/methods |
+| **Content-addressable** | Step results cached by their execution identity |
+| **Refactoring-aware** | Renaming methods intentionally changes the hash |
+| **Human-readable source** | Original path preserved for debugging |
+
+### Pipeline Chain Serialization
+
+Following capnweb's wire format, pipeline chains serialize as:
 
 ```typescript
-const inventory = await step.do('Inventory.check', {
-  retries: { limit: 5, delay: '1s', backoff: 'exponential' },
-  timeout: '5m'
-}, async () => {
-  const result = await evaluate({
-    script: `
-      const handler = ${InventoryDomain.check.source}
-      return handler(context, args, $)
-    `,
-    env: {
-      context: ${JSON.stringify(product)},
-      args: {}
-    },
-    sdk: { context: 'local', aiGateway: env.AI_GATEWAY }
-  }, { LOADER: this.env.LOADER, TEST: this.env.TEST })
+// Simple call
+["pipeline", importId, ["Domain", "method"], ...args]
 
-  if (!result.success) {
-    throw new Error(result.error)
-  }
-  return result.value
-})
+// Chained calls (promise pipelining)
+["pipeline", importId, ["Domain", "validate", "process", "save"], ...args]
+
+// With context hash for deduplication
+["pipeline", "ctx:a3f2c91b", ["Inventory", "check"]]
 ```
 
-### Full Generated Workflow Class
+### The $ Proxy Implementation
 
 ```typescript
-import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workflows'
-import { evaluate } from 'ai-evaluate'
-
-export class OrderProcessingWorkflow extends WorkflowEntrypoint<Env, OrderEvent> {
-  private domains = {
-    Inventory: InventoryHandlers,
-    Payment: PaymentHandlers,
-    Fulfillment: FulfillmentHandlers,
-    Email: EmailHandlers
-  }
-
-  async run(event: WorkflowEvent<OrderEvent>, step: WorkflowStep) {
-    const order = event.payload
-
-    // Step 1: Inventory.check
-    const inventory = await this.executeStep(step, 'Inventory', 'check', order.product, {})
-
-    if (!inventory.available) {
-      await this.executeStep(step, 'Email', 'send', order.customer, {
-        template: 'out-of-stock',
-        data: { product: order.product, eta: inventory.restockDate }
+function createWorkflowProxy(runtime: WorkflowRuntime): WorkflowAPI {
+  return new Proxy({}, {
+    get(_, domain: string) {
+      // $.Domain returns a function that captures context
+      return (context: unknown) => createPipelineProxy({
+        path: [domain],
+        context,
+        contextHash: hashContext(context),
+        runtime
       })
-      return { status: 'backordered', orderId: order.id }
     }
+  })
+}
 
-    // Step 2: Inventory.reserve
-    const reservation = await this.executeStep(step, 'Inventory', 'reserve', order.product, {
-      quantity: order.quantity
-    })
-
-    // Step 3: Payment.process
-    const payment = await this.executeStep(step, 'Payment', 'process', order, {
-      amount: order.total,
-      method: order.paymentMethod
-    })
-
-    if (!payment.success) {
-      await this.executeStep(step, 'Inventory', 'release', reservation, {})
-      return { status: 'payment-failed', error: payment.error }
+function createPipelineProxy(pipeline: Pipeline): PipelineProxy {
+  return new Proxy(function() {}, {
+    get(_, prop: string) {
+      // Property access extends the path
+      return createPipelineProxy({
+        ...pipeline,
+        path: [...pipeline.path, prop]
+      })
+    },
+    apply(_, __, args: unknown[]) {
+      // Method invocation - return awaitable result
+      const stepId = hashPipeline(pipeline.path, pipeline.contextHash, args)
+      return pipeline.runtime.executeStep(stepId, pipeline, args)
     }
+  })
+}
 
-    // Step 4: Fulfillment.create
-    const fulfillment = await this.executeStep(step, 'Fulfillment', 'create', order, {
-      reservationId: reservation.id,
-      shippingAddress: order.shippingAddress
-    })
+function hashPipeline(
+  path: string[],
+  contextHash: string,
+  args: unknown[]
+): string {
+  const payload = JSON.stringify({ path, contextHash, argsHash: hashArgs(args) })
+  return sha256(payload).slice(0, 16)  // 64-bit identifier
+}
+```
 
-    // Step 5: Email.send
-    await this.executeStep(step, 'Email', 'send', order.customer, {
-      template: 'order-confirmed',
-      data: { order, tracking: fulfillment.trackingNumber }
-    })
+### Step Execution with Hashed IDs
 
-    return { status: 'confirmed', orderId: order.id }
-  }
-
-  private async executeStep<T>(
-    step: WorkflowStep,
-    domain: string,
-    method: string,
-    context: unknown,
-    args: unknown
+```typescript
+class WorkflowRuntime {
+  async executeStep<T>(
+    stepId: string,
+    pipeline: Pipeline,
+    args: unknown[]
   ): Promise<T> {
-    const handler = this.domains[domain]?.[method]
-    if (!handler) throw new Error(`Unknown: ${domain}.${method}`)
-
-    return step.do(`${domain}.${method}`, {
-      retries: handler.retries ?? { limit: 5, delay: '1s', backoff: 'exponential' },
-      timeout: handler.timeout ?? '5m'
+    // stepId is the hash - used as checkpoint key
+    return this.step.do(stepId, {
+      retries: { limit: 5, delay: '1s', backoff: 'exponential' },
+      timeout: '5m'
     }, async () => {
+      // Resolve handler from pipeline path
+      const handler = this.resolveHandler(pipeline.path)
+
+      // Execute in ai-evaluate sandbox
       const result = await evaluate({
         script: handler.source,
-        env: { context: JSON.stringify(context), args: JSON.stringify(args) },
+        env: {
+          context: JSON.stringify(pipeline.context),
+          args: JSON.stringify(args)
+        },
         sdk: { context: 'local', aiGateway: this.env.AI_GATEWAY }
-      }, { LOADER: this.env.LOADER, TEST: this.env.TEST })
+      }, this.env)
 
       if (!result.success) throw new Error(result.error)
       return result.value as T
@@ -380,6 +402,48 @@ export class OrderProcessingWorkflow extends WorkflowEntrypoint<Env, OrderEvent>
   }
 }
 ```
+
+### Chained Pipelines (Promise Pipelining)
+
+Like capnweb, dependent calls can execute in a single checkpoint:
+
+```typescript
+// These chain without intermediate awaits
+const result = await $.Order(order)
+  .validate()      // path: ["Order", "validate"]
+  .enrichData()    // path: ["Order", "validate", "enrichData"]
+  .process()       // path: ["Order", "validate", "enrichData", "process"]
+
+// Single step ID for the entire chain:
+stepId = hash(["Order", "validate", "enrichData", "process"], contextHash)
+```
+
+### Workflow Instance Storage
+
+```typescript
+// Durable Object stores step results by hash
+interface WorkflowState {
+  instanceId: string
+  steps: Map<string, {        // keyed by stepId hash
+    path: string[]            // human-readable path
+    contextHash: string
+    result: unknown
+    completedAt: Date
+  }>
+  status: 'running' | 'paused' | 'completed' | 'failed'
+}
+```
+
+### Comparison: String IDs vs Hash IDs
+
+| Aspect | String IDs | Hash IDs (capnweb-style) |
+|--------|-----------|--------------------------|
+| Format | `"Inventory.check"` | `"7f4d8c2a..."` |
+| Uniqueness | Manual naming | Automatic via hashing |
+| Context-aware | No | Yes (includes context hash) |
+| Collision risk | High (same method, different context) | None (cryptographic) |
+| Debugging | Direct | Path stored alongside hash |
+| Refactoring | Silent breakage | Explicit hash change |
 
 ---
 
