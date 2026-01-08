@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dotdo",
+  "main": "api/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets configuration
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  // KV namespaces
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "placeholder-kv-id"
+    },
+    {
+      "binding": "TEST_KV",
+      "id": "placeholder-test-kv-id"
+    }
+  ],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DO",
+        "class_name": "DurableObject"
+      },
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDurableObject"
+      }
+    ]
+  },
+
+  // Migrations
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["DurableObject", "TestDurableObject"]
+    }
+  ]
+}

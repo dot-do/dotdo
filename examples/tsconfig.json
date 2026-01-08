@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "vite/client"],
+    "noEmit": true
+  },
+  "include": ["./**/*", "../workflows/**/*", "../types/**/*", "../worker.d.ts"],
+  "exclude": ["node_modules"]
+}

@@ -28,6 +28,7 @@
     "docs"
   ],
   "scripts": {
+    "types": "wrangler types worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && npm run dev",
     "build": "cd app && npm run build",
@@ -39,6 +40,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "typecheck": "tsc --noEmit",
+    "typecheck:examples": "tsc -p examples/tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
