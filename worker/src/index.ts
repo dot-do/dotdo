@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
+import { errorHandler, notFoundHandler } from './middleware/error-handling'
 
 // Types for Cloudflare Workers bindings
 export interface Env {
@@ -17,6 +18,7 @@ export interface Env {
 export const app = new Hono<{ Bindings: Env }>()
 
 // Global middleware
+app.use('*', errorHandler)
 app.use('*', logger())
 app.use('*', cors())
 
@@ -50,9 +52,7 @@ app.all('/rpc/*', (c) => {
 })
 
 // Catch-all for unknown routes
-app.all('*', (c) => {
-  return c.json({ error: 'Not found', path: c.req.path }, 404)
-})
+app.all('*', notFoundHandler)
 
 // Export the app with fetch handler
 export default app

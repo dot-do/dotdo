@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Hono } from 'hono'
 
 /**
  * Error Handling Middleware Tests
@@ -15,12 +14,8 @@ import { Hono } from 'hono'
  * - Include stack traces only in development mode
  */
 
-// TODO: Import the actual app once middleware is implemented
-// import { app } from '../../src/app'
-// import { errorHandler } from '../../src/middleware/error-handling'
-
-// Placeholder app - tests will fail because error middleware doesn't exist
-const app = new Hono()
+// Import the actual app
+import { app } from '../../src/index'
 
 // ============================================================================
 // Test Types
