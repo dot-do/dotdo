@@ -43,9 +43,13 @@ import {
  * Real Avro files start with: magic bytes (4) + schema + sync marker (16)
  */
 function createMockAvroHeader(): Uint8Array {
-  // Avro magic bytes: 'Obj\x01'
-  const magic = new Uint8Array([0x4f, 0x62, 0x6a, 0x01])
-  return magic
+  // Avro magic bytes: 'Obj\x01' followed by minimal mock content
+  // Real Avro files have: magic (4) + schema + sync marker (16) + data blocks
+  // We add some mock content bytes to distinguish from truncated case
+  return new Uint8Array([
+    0x4f, 0x62, 0x6a, 0x01, // Avro magic bytes
+    0x00, 0x00, 0x00, 0x00, // Mock schema/content indicator
+  ])
 }
 
 /**

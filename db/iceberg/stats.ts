@@ -110,7 +110,26 @@ export interface FileSelectionResult {
  * @returns Column statistics or null if not available
  */
 export function extractColumnStats(entry: ManifestEntry, fieldId: number): ColumnStats | null {
-  throw new Error('extractColumnStats: not implemented')
+  const { dataFile } = entry
+  const lowerBound = dataFile.lowerBounds?.get(fieldId) ?? null
+  const upperBound = dataFile.upperBounds?.get(fieldId) ?? null
+  const nullCount = dataFile.nullValueCounts?.get(fieldId) ?? null
+  const nanCount = dataFile.nanValueCounts?.get(fieldId) ?? null
+  const valueCount = dataFile.valueCounts?.get(fieldId) ?? null
+
+  // Return null if no statistics available for this field
+  if (lowerBound === null && upperBound === null && nullCount === null && valueCount === null) {
+    return null
+  }
+
+  return {
+    fieldId,
+    lowerBound,
+    upperBound,
+    nullCount,
+    nanCount,
+    valueCount,
+  }
 }
 
 /**
@@ -120,7 +139,26 @@ export function extractColumnStats(entry: ManifestEntry, fieldId: number): Colum
  * @returns Map of field ID to column statistics
  */
 export function extractAllColumnStats(entry: ManifestEntry): Map<number, ColumnStats> {
-  throw new Error('extractAllColumnStats: not implemented')
+  const result = new Map<number, ColumnStats>()
+  const { dataFile } = entry
+
+  // Collect all field IDs from all statistics maps
+  const fieldIds = new Set<number>()
+  dataFile.lowerBounds?.forEach((_, id) => fieldIds.add(id))
+  dataFile.upperBounds?.forEach((_, id) => fieldIds.add(id))
+  dataFile.nullValueCounts?.forEach((_, id) => fieldIds.add(id))
+  dataFile.valueCounts?.forEach((_, id) => fieldIds.add(id))
+  dataFile.nanValueCounts?.forEach((_, id) => fieldIds.add(id))
+
+  // Extract stats for each field
+  for (const fieldId of fieldIds) {
+    const stats = extractColumnStats(entry, fieldId)
+    if (stats !== null) {
+      result.set(fieldId, stats)
+    }
+  }
+
+  return result
 }
 
 // ============================================================================
@@ -136,7 +174,28 @@ export function extractAllColumnStats(entry: ManifestEntry): Map<number, ColumnS
  * @returns Binary encoded value
  */
 export function encodeValue(value: string | number | bigint | boolean, type: 'string' | 'int' | 'long' | 'boolean' | 'binary'): Uint8Array {
-  throw new Error('encodeValue: not implemented')
+  switch (type) {
+    case 'string':
+      return new TextEncoder().encode(value as string)
+    case 'int': {
+      const buffer = new ArrayBuffer(4)
+      new DataView(buffer).setInt32(0, value as number, true) // little-endian
+      return new Uint8Array(buffer)
+    }
+    case 'long': {
+      const buffer = new ArrayBuffer(8)
+      new DataView(buffer).setBigInt64(0, value as bigint, true) // little-endian
+      return new Uint8Array(buffer)
+    }
+    case 'boolean':
+      return new Uint8Array([value ? 1 : 0])
+    case 'binary':
+      // Binary values are already Uint8Array or can be passed through
+      if (value instanceof Uint8Array) {
+        return value
+      }
+      return new TextEncoder().encode(String(value))
+  }
 }
 
 /**
@@ -147,7 +206,18 @@ export function encodeValue(value: string | number | bigint | boolean, type: 'st
  * @returns Decoded value
  */
 export function decodeValue(bytes: Uint8Array, type: 'string' | 'int' | 'long' | 'boolean' | 'binary'): string | number | bigint | boolean {
-  throw new Error('decodeValue: not implemented')
+  switch (type) {
+    case 'string':
+      return new TextDecoder().decode(bytes)
+    case 'int':
+      return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0, true)
+    case 'long':
+      return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigInt64(0, true)
+    case 'boolean':
+      return bytes[0] === 1
+    case 'binary':
+      return new TextDecoder().decode(bytes)
+  }
 }
 
 // ============================================================================
@@ -164,7 +234,15 @@ export function decodeValue(bytes: Uint8Array, type: 'string' | 'int' | 'long' |
  * @returns true if value might be in range, false if definitely not
  */
 export function isInRange(value: Uint8Array, lowerBound: Uint8Array | null, upperBound: Uint8Array | null): boolean {
-  throw new Error('isInRange: not implemented')
+  // If lower bound exists, value must be >= lower bound
+  if (lowerBound !== null && compareBinary(value, lowerBound) < 0) {
+    return false
+  }
+  // If upper bound exists, value must be <= upper bound
+  if (upperBound !== null && compareBinary(value, upperBound) > 0) {
+    return false
+  }
+  return true
 }
 
 /**
@@ -175,7 +253,15 @@ export function isInRange(value: Uint8Array, lowerBound: Uint8Array | null, uppe
  * @returns -1 if a < b, 0 if a === b, 1 if a > b
  */
 export function compareBinary(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 {
-  throw new Error('compareBinary: not implemented')
+  const minLen = Math.min(a.length, b.length)
+  for (let i = 0; i < minLen; i++) {
+    if (a[i] < b[i]) return -1
+    if (a[i] > b[i]) return 1
+  }
+  // If all bytes are equal up to minLen, shorter array is "less"
+  if (a.length < b.length) return -1
+  if (a.length > b.length) return 1
+  return 0
 }
 
 /**
@@ -188,7 +274,25 @@ export function compareBinary(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 {
  * @returns Filtered entries that might contain the id
  */
 export function filterByIdRange(entries: ManifestEntry[], idFieldId: number, targetId: string): ManifestEntry[] {
-  throw new Error('filterByIdRange: not implemented')
+  const encodedTarget = encodeValue(targetId, 'string')
+
+  return entries.filter((entry) => {
+    // Exclude deleted entries
+    if (entry.status === 2) {
+      return false
+    }
+
+    const { dataFile } = entry
+    const lowerBound = dataFile.lowerBounds?.get(idFieldId) ?? null
+    const upperBound = dataFile.upperBounds?.get(idFieldId) ?? null
+
+    // If no statistics, include conservatively (might contain the value)
+    if (lowerBound === null && upperBound === null) {
+      return true
+    }
+
+    return isInRange(encodedTarget, lowerBound, upperBound)
+  })
 }
 
 // ============================================================================
@@ -204,7 +308,91 @@ export function filterByIdRange(entries: ManifestEntry[], idFieldId: number, tar
  * @returns List of files that may contain the value
  */
 export function selectFilesForValue(entries: ManifestEntry[], options: FileSelectionOptions): FileSelectionResult[] {
-  throw new Error('selectFilesForValue: not implemented')
+  const { fieldId, value, columnType } = options
+  const results: FileSelectionResult[] = []
+
+  for (const entry of entries) {
+    // Skip deleted entries
+    if (entry.status === 2) {
+      continue
+    }
+
+    const { dataFile } = entry
+    const lowerBoundBytes = dataFile.lowerBounds?.get(fieldId) ?? null
+    const upperBoundBytes = dataFile.upperBounds?.get(fieldId) ?? null
+
+    // Decode bounds for typed comparison
+    const lower = lowerBoundBytes ? decodeValue(lowerBoundBytes, columnType) : null
+    const upper = upperBoundBytes ? decodeValue(upperBoundBytes, columnType) : null
+
+    // Check if value is in range using typed comparison
+    if (!isInRangeTyped(value, lower, upper)) {
+      continue
+    }
+
+    // Determine if the match is definite (value equals both bounds)
+    const definite = lower !== null && upper !== null && value === lower && value === upper
+
+    results.push({
+      filePath: dataFile.filePath,
+      definite,
+      lowerBound: lower,
+      upperBound: upper,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Check if a typed value is in range (for selectFilesForValue)
+ * Handles proper comparison for different types
+ */
+function isInRangeTyped(
+  value: string | number | bigint | boolean,
+  lower: string | number | bigint | boolean | null,
+  upper: string | number | bigint | boolean | null
+): boolean {
+  // If both bounds are null, always in range
+  if (lower === null && upper === null) {
+    return true
+  }
+
+  // For numeric types, compare numerically
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    if (lower !== null && value < (lower as number | bigint)) {
+      return false
+    }
+    if (upper !== null && value > (upper as number | bigint)) {
+      return false
+    }
+    return true
+  }
+
+  // For strings, compare lexicographically
+  if (typeof value === 'string') {
+    if (lower !== null && value < (lower as string)) {
+      return false
+    }
+    if (upper !== null && value > (upper as string)) {
+      return false
+    }
+    return true
+  }
+
+  // For booleans, compare directly
+  if (typeof value === 'boolean') {
+    // Boolean range: false(0) <= x <= true(1)
+    if (lower !== null && !value && (lower as boolean)) {
+      return false // value is false, lower is true
+    }
+    if (upper !== null && value && !(upper as boolean)) {
+      return false // value is true, upper is false
+    }
+    return true
+  }
+
+  return true
 }
 
 /**
@@ -217,7 +405,59 @@ export function selectFilesForValue(entries: ManifestEntry[], options: FileSelec
  * @returns The file most likely to contain the id, or null if none
  */
 export function findFileForId(entries: ManifestEntry[], idFieldId: number, targetId: string): FileSelectionResult | null {
-  throw new Error('findFileForId: not implemented')
+  const candidates = selectFilesForValue(entries, {
+    fieldId: idFieldId,
+    value: targetId,
+    columnType: 'string',
+  })
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  // If only one candidate, return it
+  if (candidates.length === 1) {
+    return candidates[0]
+  }
+
+  // Prefer files with narrower ranges
+  let best = candidates[0]
+  let bestRangeSize = getRangeSize(best.lowerBound as string | null, best.upperBound as string | null)
+
+  for (let i = 1; i < candidates.length; i++) {
+    const candidate = candidates[i]
+    const rangeSize = getRangeSize(candidate.lowerBound as string | null, candidate.upperBound as string | null)
+    if (rangeSize < bestRangeSize) {
+      best = candidate
+      bestRangeSize = rangeSize
+    }
+  }
+
+  return best
+}
+
+/**
+ * Helper to compute a rough range size for string bounds
+ */
+function getRangeSize(lower: string | null, upper: string | null): number {
+  if (lower === null || upper === null) {
+    return Infinity // Unbounded = largest
+  }
+  // Use length difference as a simple heuristic for string range size
+  // A more precise approach would compare byte-by-byte
+  const lowerBytes = new TextEncoder().encode(lower)
+  const upperBytes = new TextEncoder().encode(upper)
+
+  // Compute a simple distance based on byte values
+  let distance = 0
+  const maxLen = Math.max(lowerBytes.length, upperBytes.length)
+  for (let i = 0; i < maxLen; i++) {
+    const lb = lowerBytes[i] ?? 0
+    const ub = upperBytes[i] ?? 0
+    distance = distance * 256 + (ub - lb)
+    if (distance > 1e15) break // Avoid overflow, we just need relative comparison
+  }
+  return distance
 }
 
 // ============================================================================
@@ -231,7 +471,13 @@ export function findFileForId(entries: ManifestEntry[], idFieldId: number, targe
  * @returns true if the entry has column statistics
  */
 export function hasStatistics(entry: ManifestEntry): boolean {
-  throw new Error('hasStatistics: not implemented')
+  const { dataFile } = entry
+  return (
+    (dataFile.lowerBounds !== null && dataFile.lowerBounds.size > 0) ||
+    (dataFile.upperBounds !== null && dataFile.upperBounds.size > 0) ||
+    (dataFile.nullValueCounts !== null && dataFile.nullValueCounts.size > 0) ||
+    (dataFile.valueCounts !== null && dataFile.valueCounts.size > 0)
+  )
 }
 
 /**
@@ -242,7 +488,7 @@ export function hasStatistics(entry: ManifestEntry): boolean {
  * @returns Null count or null if not available
  */
 export function getNullCount(entry: ManifestEntry, fieldId: number): bigint | null {
-  throw new Error('getNullCount: not implemented')
+  return entry.dataFile.nullValueCounts?.get(fieldId) ?? null
 }
 
 /**
@@ -253,5 +499,27 @@ export function getNullCount(entry: ManifestEntry, fieldId: number): bigint | nu
  * @returns true if the column has at least one non-null value
  */
 export function hasNonNullValues(entry: ManifestEntry, fieldId: number): boolean {
-  throw new Error('hasNonNullValues: not implemented')
+  const { dataFile } = entry
+
+  // If bounds exist, there must be non-null values
+  if (dataFile.lowerBounds?.has(fieldId) || dataFile.upperBounds?.has(fieldId)) {
+    return true
+  }
+
+  const valueCount = dataFile.valueCounts?.get(fieldId)
+  const nullCount = dataFile.nullValueCounts?.get(fieldId)
+
+  // If we have both counts, check if value count > 0
+  if (valueCount !== undefined && valueCount > 0) {
+    return true
+  }
+
+  // If we only have null count and it's >= 0, but no value count, we can't determine
+  // If stats are missing, assume conservatively there might be non-null values
+  if (valueCount === undefined && nullCount === undefined) {
+    return true
+  }
+
+  // value count is 0 and null count exists
+  return false
 }
