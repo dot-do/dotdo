@@ -16,24 +16,22 @@ import { Hono } from 'hono'
  * - Configure CORS headers appropriately
  */
 
-// TODO: Import the actual middleware once implemented
-// import { authMiddleware, requireAuth, requireRole } from '../../src/middleware/auth'
-// import { app } from '../../src/app'
+// Import the actual middleware
+import { authMiddleware, requireAuth, requireRole, generateJWT } from '../../src/middleware/auth'
+import * as jose from 'jose'
 
-// ============================================================================
-// Mock jose library for JWT verification
-// ============================================================================
+// Mock jose for controlled testing
+vi.mock('jose', async () => {
+  const actual = await vi.importActual('jose')
+  return {
+    ...actual,
+    jwtVerify: vi.fn(),
+    createRemoteJWKSet: vi.fn(() => vi.fn()),
+  }
+})
 
-vi.mock('jose', () => ({
-  jwtVerify: vi.fn(),
-  createRemoteJWKSet: vi.fn(() => vi.fn()),
-}))
-
-// Import mocked jose
-import { jwtVerify, createRemoteJWKSet } from 'jose'
-
-const mockedJwtVerify = vi.mocked(jwtVerify)
-const mockedCreateRemoteJWKSet = vi.mocked(createRemoteJWKSet)
+const mockedJwtVerify = vi.mocked(jose.jwtVerify)
+const mockedCreateRemoteJWKSet = vi.mocked(jose.createRemoteJWKSet)
 
 // ============================================================================
 // Test Types
@@ -56,21 +54,22 @@ interface JWTPayload {
 }
 
 // ============================================================================
-// Placeholder App - Tests will fail because middleware doesn't exist
+// Test App with Auth Middleware
 // ============================================================================
 
-// This creates a minimal app without auth middleware
-// Tests expect auth middleware to be applied and will fail without it
 const app = new Hono()
+
+// Apply auth middleware globally
+app.use('*', authMiddleware({ jwtSecret: 'test-secret' }))
 
 // Public route (should work without auth)
 app.get('/public', (c) => c.json({ message: 'public' }))
 
-// Protected routes (should require auth - but middleware doesn't exist yet)
-app.get('/protected', (c) => c.json({ message: 'protected' }))
-app.get('/admin', (c) => c.json({ message: 'admin only' }))
-app.get('/user-profile', (c) => c.json({ message: 'user profile' }))
-app.post('/api/things', (c) => c.json({ message: 'created' }))
+// Protected routes
+app.get('/protected', requireAuth(), (c) => c.json({ message: 'protected', user: c.get('user') }))
+app.get('/admin', requireAuth(), requireRole('admin'), (c) => c.json({ message: 'admin only' }))
+app.get('/user-profile', requireAuth(), (c) => c.json({ message: 'user profile', user: c.get('user') }))
+app.post('/api/things', requireAuth(), (c) => c.json({ message: 'created' }))
 
 // ============================================================================
 // Helper Functions

@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
+import { rpcRoutes } from './routes/rpc'
 import { errorHandler, notFoundHandler } from './middleware/error-handling'
 
 // Types for Cloudflare Workers bindings
@@ -46,10 +47,8 @@ app.route('/api', apiRoutes)
 // Mount MCP routes
 app.route('/mcp', mcpRoutes)
 
-// RPC endpoint (placeholder)
-app.all('/rpc/*', (c) => {
-  return c.json({ error: 'RPC not implemented' })
-})
+// Mount RPC routes
+app.route('/rpc', rpcRoutes)
 
 // Catch-all for unknown routes
 app.all('*', notFoundHandler)
