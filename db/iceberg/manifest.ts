@@ -1,144 +1,167 @@
 /**
- * Iceberg Manifest Parsing
+ * Iceberg Manifest Navigation Module
  *
- * Parses Avro-encoded manifest-list and manifest-file structures
- * for direct navigation from R2 Data Catalog.
+ * Provides parsing and filtering for Avro-encoded manifest-list and manifest-file
+ * structures, enabling direct navigation from R2 Data Catalog for fast point lookups
+ * (50-150ms vs 500ms-2s through R2 SQL).
  *
- * Iceberg Spec References:
- * - Manifest List: https://iceberg.apache.org/spec/#manifest-list
- * - Manifest File: https://iceberg.apache.org/spec/#manifest-files
- * - Data File: https://iceberg.apache.org/spec/#data-file-content
+ * Navigation Chain:
+ * 1. metadata.json -> current-snapshot-id -> manifest-list path
+ * 2. manifest-list.avro -> filter by partition -> manifest-file paths
+ * 3. manifest-file.avro -> filter by partition -> data-file paths
+ * 4. data-file.parquet -> read record (optional)
+ *
+ * @see https://iceberg.apache.org/spec/#manifest-list
+ * @see https://iceberg.apache.org/spec/#manifest-files
+ * @see https://iceberg.apache.org/spec/#data-file-content
+ * @module db/iceberg/manifest
  */
 
 // ============================================================================
-// Manifest List Types (from manifest-list.avro)
+// Type Definitions
 // ============================================================================
 
 /**
- * Field summary for partition pruning
- * Contains min/max bounds for a partition field across all files in manifest
+ * Field summary for partition pruning.
+ *
+ * Contains min/max bounds for a partition field across all files in a manifest.
+ * Used for efficient manifest-level pruning before scanning individual files.
+ *
+ * @see https://iceberg.apache.org/spec/#manifest-list Table 6, Field 507
  */
 export interface FieldSummary {
-  /** Whether the partition field contains null values */
+  /** Whether any file in the manifest has null for this partition field */
   containsNull: boolean
-  /** Whether the partition field contains NaN values */
+  /** Whether any file in the manifest has NaN for this partition field (floats only) */
   containsNaN?: boolean
-  /** Lower bound for partition values (binary-encoded) */
+  /** Lower bound for partition values (binary-encoded per Iceberg single-value serialization) */
   lowerBound?: Uint8Array
-  /** Upper bound for partition values (binary-encoded) */
+  /** Upper bound for partition values (binary-encoded per Iceberg single-value serialization) */
   upperBound?: Uint8Array
 }
 
 /**
- * Manifest list entry - describes a manifest file
- * Field IDs from Iceberg spec Table 6
+ * Manifest list entry describing a manifest file.
+ *
+ * Each entry in the manifest-list points to a manifest file and contains
+ * partition summaries for efficient pruning without reading the manifest.
+ *
+ * @see https://iceberg.apache.org/spec/#manifest-list Table 6
  */
 export interface ManifestListEntry {
-  /** 500: Location of the manifest file */
+  /** Field 500: Absolute path to the manifest file */
   manifestPath: string
-  /** 501: Length of the manifest file in bytes */
+  /** Field 501: Length of the manifest file in bytes */
   manifestLength: number
-  /** 502: ID of partition spec used to write the manifest */
+  /** Field 502: ID of partition spec used to write this manifest */
   partitionSpecId: number
-  /** 517: Type of files tracked: 0=data, 1=deletes */
+  /** Field 517: Content type - 0=data files, 1=delete files */
   content: 0 | 1
-  /** 515: Sequence number when manifest was added */
+  /** Field 515: Sequence number when manifest was added to table */
   sequenceNumber: number
-  /** 516: Minimum data sequence number of all live files */
+  /** Field 516: Minimum data sequence number of all live entries */
   minSequenceNumber: number
-  /** 503: ID of snapshot where manifest was added */
+  /** Field 503: Snapshot ID where manifest was added */
   addedSnapshotId: number
-  /** 504: Count of entries with status ADDED */
+  /** Field 504: Count of entries with status ADDED */
   addedFilesCount: number
-  /** 505: Count of entries with status EXISTING */
+  /** Field 505: Count of entries with status EXISTING */
   existingFilesCount: number
-  /** 506: Count of entries with status DELETED */
+  /** Field 506: Count of entries with status DELETED */
   deletedFilesCount: number
-  /** 512: Row count for ADDED entries */
+  /** Field 512: Total row count for ADDED entries */
   addedRowsCount: number
-  /** 513: Row count for EXISTING entries */
+  /** Field 513: Total row count for EXISTING entries */
   existingRowsCount: number
-  /** 514: Row count for DELETED entries */
+  /** Field 514: Total row count for DELETED entries */
   deletedRowsCount: number
-  /** 507: Field summaries for partition pruning */
+  /** Field 507: Partition field summaries for pruning (one per partition field) */
   partitions?: FieldSummary[]
-  /** 519: Encryption key metadata */
+  /** Field 519: Encryption key metadata (for encrypted manifests) */
   keyMetadata?: Uint8Array
 }
 
-// ============================================================================
-// Manifest Entry Types (from manifest.avro)
-// ============================================================================
-
-/** Status of a manifest entry */
-export type ManifestEntryStatus = 0 | 1 | 2 // 0=EXISTING, 1=ADDED, 2=DELETED
+/**
+ * Status of a manifest entry indicating its lifecycle state.
+ * - 0 (EXISTING): File was added in a previous snapshot and still exists
+ * - 1 (ADDED): File was added in this snapshot
+ * - 2 (DELETED): File was deleted in this snapshot
+ */
+export type ManifestEntryStatus = 0 | 1 | 2
 
 /**
- * Data file metadata within a manifest entry
- * Field IDs from Iceberg spec Table 7
+ * Data file metadata within a manifest entry.
+ *
+ * Contains all metadata about a single data file including path, format,
+ * partition values, record counts, and column-level statistics.
+ *
+ * @see https://iceberg.apache.org/spec/#data-file-content Table 7
  */
 export interface DataFile {
-  /** 134: Content type: 0=DATA, 1=POSITION_DELETES, 2=EQUALITY_DELETES */
+  /** Field 134: Content type - 0=DATA, 1=POSITION_DELETES, 2=EQUALITY_DELETES */
   content: 0 | 1 | 2
-  /** 100: Complete URI for the file */
+  /** Field 100: Complete URI for the data file */
   filePath: string
-  /** 101: Format name: avro, orc, parquet, or puffin */
+  /** Field 101: File format identifier */
   fileFormat: 'avro' | 'orc' | 'parquet' | 'puffin'
-  /** 102: Partition data tuple - values for each partition field */
+  /** Field 102: Partition data tuple - values for each partition field */
   partition: Record<string, unknown>
-  /** 103: Number of records in the file */
+  /** Field 103: Number of records in the file */
   recordCount: number
-  /** 104: Total file size in bytes */
+  /** Field 104: Total file size in bytes */
   fileSizeInBytes: number
-  /** 108: Map from column ID to total size on disk */
+  /** Field 108: Map from column ID to total size on disk */
   columnSizes?: Map<number, number>
-  /** 109: Map from column ID to value count (including nulls) */
+  /** Field 109: Map from column ID to value count (including nulls) */
   valueCounts?: Map<number, number>
-  /** 110: Map from column ID to null value count */
+  /** Field 110: Map from column ID to null value count */
   nullValueCounts?: Map<number, number>
-  /** 137: Map from column ID to NaN count */
+  /** Field 137: Map from column ID to NaN count */
   nanValueCounts?: Map<number, number>
-  /** 125: Map from column ID to lower bound (binary) */
+  /** Field 125: Map from column ID to lower bound (binary-encoded) */
   lowerBounds?: Map<number, Uint8Array>
-  /** 128: Map from column ID to upper bound (binary) */
+  /** Field 128: Map from column ID to upper bound (binary-encoded) */
   upperBounds?: Map<number, Uint8Array>
-  /** 132: Split offsets for row groups (sorted ascending) */
+  /** Field 132: Split offsets for row groups (sorted ascending) */
   splitOffsets?: number[]
-  /** 140: ID of file's sort order */
+  /** Field 140: ID of file's sort order, or 0 for unsorted */
   sortOrderId?: number
 }
 
 /**
- * Manifest entry - describes a data file's lifecycle state
- * Field IDs from Iceberg spec Table 5
+ * Manifest entry describing a data file's lifecycle state.
+ *
+ * Each entry wraps a DataFile with metadata about when and how the file
+ * was added to or deleted from the table.
+ *
+ * @see https://iceberg.apache.org/spec/#manifest-files Table 5
  */
 export interface ManifestEntry {
-  /** 0: Status of the file: 0=EXISTING, 1=ADDED, 2=DELETED */
+  /** Field 0: Current status of the file (EXISTING=0, ADDED=1, DELETED=2) */
   status: ManifestEntryStatus
-  /** 1: Snapshot ID where file was added or deleted */
+  /** Field 1: Snapshot ID when this entry was added (for ADDED) or deleted (for DELETED) */
   snapshotId: number
-  /** 3: Data sequence number of the file */
+  /** Field 3: Data sequence number - controls ordering for equality deletes */
   sequenceNumber?: number
-  /** 4: File sequence number indicating when file was added */
+  /** Field 4: File sequence number - when the file was added to the table */
   fileSequenceNumber?: number
-  /** 2: The data file metadata */
+  /** Field 2: The data file metadata */
   dataFile: DataFile
 }
 
-// ============================================================================
-// Partition Filter Types
-// ============================================================================
-
 /**
- * Partition filter for pruning manifests and data files
- * Used for fast point lookups by partition values
+ * Partition filter for pruning manifests and data files.
+ *
+ * Used for fast point lookups by partition values. Common partition fields:
+ * - ns: Namespace/DO identifier (e.g., 'payments.do')
+ * - type: Resource type (e.g., 'Function', 'State', 'Event')
  */
 export interface PartitionFilter {
   /** Namespace/DO identifier (e.g., 'payments.do') */
   ns?: string
   /** Resource type (e.g., 'Function', 'State', 'Event') */
   type?: string
-  /** Additional partition fields */
+  /** Additional partition fields for extensibility */
   [key: string]: unknown
 }
 
@@ -146,57 +169,87 @@ export interface PartitionFilter {
 // Constants
 // ============================================================================
 
-/** Avro magic bytes: 'Obj\x01' */
+/** Avro magic bytes: 'Obj\x01' - identifies valid Avro Object Container Files */
 const AVRO_MAGIC = new Uint8Array([0x4f, 0x62, 0x6a, 0x01])
 
+/** Minimum size for a valid Avro file (magic + some content) */
+const AVRO_MIN_SIZE = 5
+
+/** Manifest entry status indicating the file was deleted */
+const STATUS_DELETED: ManifestEntryStatus = 2
+
 // ============================================================================
-// Helper Functions
+// Avro Validation
 // ============================================================================
 
 /**
- * Validate Avro magic bytes
+ * Validates that input data has valid Avro magic bytes and sufficient content.
+ *
+ * @param data - Raw bytes to validate
+ * @throws Error if data is empty, too short, or has invalid magic bytes
  */
 function validateAvroMagic(data: Uint8Array): void {
   if (data.length === 0) {
     throw new Error('Empty input data')
   }
 
-  if (data.length < 4) {
+  if (data.length < AVRO_MAGIC.length) {
     throw new Error('Input too short to be valid Avro')
   }
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < AVRO_MAGIC.length; i++) {
     if (data[i] !== AVRO_MAGIC[i]) {
       throw new Error('Invalid Avro magic bytes')
     }
   }
 }
 
+// ============================================================================
+// Binary Encoding Helpers
+// ============================================================================
+
 /**
- * Decode string from Uint8Array
+ * Decodes a UTF-8 string from binary data.
+ *
+ * Used for deserializing string values from Iceberg's single-value serialization format.
+ *
+ * @param data - Binary-encoded UTF-8 string
+ * @returns Decoded string
  */
 function decodeString(data: Uint8Array): string {
   return new TextDecoder().decode(data)
 }
 
+// ============================================================================
+// Partition Pruning Logic
+// ============================================================================
+
 /**
- * Check if a value falls within string bounds (for partition pruning)
+ * Checks if a string value falls within partition bounds.
  *
- * Uses aggressive pruning for identity partition transforms:
- * - If bounds are equal, must match exactly (single partition value)
- * - If bounds differ, the manifest has a range of values - we include it
- *   only if the filter value could reasonably be present
- * - If value is outside bounds, exclude
+ * Implements aggressive pruning semantics for identity partition transforms:
+ * - If no bounds exist, cannot prune (returns true)
+ * - If value is outside bounds, exclude (returns false)
+ * - For identity transforms with both bounds, the value must match at least one bound
+ *
+ * This is optimized for the common case of identity partitioning where each
+ * manifest contains files for a single partition value (lower == upper).
+ *
+ * @param value - The partition value to check
+ * @param lower - Lower bound (binary-encoded), or undefined if unbounded
+ * @param upper - Upper bound (binary-encoded), or undefined if unbounded
+ * @returns true if the value may exist within bounds, false if definitely outside
  */
-function isWithinBounds(value: string, lower?: Uint8Array, upper?: Uint8Array): boolean {
+function isValueWithinBounds(value: string, lower?: Uint8Array, upper?: Uint8Array): boolean {
+  // No bounds means we cannot prune - must include
   if (lower === undefined && upper === undefined) {
-    return true // No bounds means cannot prune
+    return true
   }
 
   const lowerStr = lower ? decodeString(lower) : undefined
   const upperStr = upper ? decodeString(upper) : undefined
 
-  // Check if value is outside the bounds (strictly)
+  // Value outside bounds - definitely exclude
   if (lowerStr !== undefined && value < lowerStr) {
     return false
   }
@@ -204,11 +257,9 @@ function isWithinBounds(value: string, lower?: Uint8Array, upper?: Uint8Array): 
     return false
   }
 
-  // When both bounds exist, check for containment
+  // For identity transforms: value must match at least one bound
+  // This handles both single-value (lower==upper) and multi-value manifests
   if (lowerStr !== undefined && upperStr !== undefined) {
-    // For identity transforms: exact match semantics
-    // The value must equal at least one of the bounds
-    // This handles both single-value (lower==upper) and multi-value cases
     if (value !== lowerStr && value !== upperStr) {
       return false
     }
@@ -217,28 +268,110 @@ function isWithinBounds(value: string, lower?: Uint8Array, upper?: Uint8Array): 
   return true
 }
 
+/**
+ * Resolves a partition field name to its index in the partitions array.
+ *
+ * Currently uses a fixed mapping based on the DO schema:
+ * - 'ns' (namespace) -> index 0
+ * - 'type' (resource type) -> index 1
+ *
+ * @param fieldName - The partition field name
+ * @returns Index in the partitions array, or -1 if unknown
+ */
+function resolvePartitionIndex(fieldName: string): number {
+  switch (fieldName) {
+    case 'ns':
+      return 0
+    case 'type':
+      return 1
+    default:
+      return -1
+  }
+}
+
+/**
+ * Extracts active filter keys (those with defined values) from a partition filter.
+ *
+ * @param filter - The partition filter to extract keys from
+ * @returns Array of keys that have defined (non-undefined) values
+ */
+function getActiveFilterKeys(filter: PartitionFilter): string[] {
+  return Object.keys(filter).filter((key) => filter[key] !== undefined)
+}
+
+/**
+ * Checks if a manifest entry can be pruned based on partition field summaries.
+ *
+ * @param entry - The manifest list entry to check
+ * @param filterKeys - Active filter keys to check against
+ * @param filter - The partition filter values
+ * @returns true if the manifest may contain matching files, false if it can be pruned
+ */
+function manifestMatchesFilter(entry: ManifestListEntry, filterKeys: string[], filter: PartitionFilter): boolean {
+  // Conservative: include manifests without partition summaries
+  if (!entry.partitions || entry.partitions.length === 0) {
+    return true
+  }
+
+  for (const key of filterKeys) {
+    const filterValue = filter[key] as string
+    const partitionIndex = resolvePartitionIndex(key)
+
+    // Unknown partition field or index out of range - be conservative
+    if (partitionIndex === -1 || partitionIndex >= entry.partitions.length) {
+      continue
+    }
+
+    const summary = entry.partitions[partitionIndex]
+
+    // No bounds for this field - cannot prune
+    if (!summary.lowerBound && !summary.upperBound) {
+      continue
+    }
+
+    // Check if filter value falls within bounds
+    if (!isValueWithinBounds(filterValue, summary.lowerBound, summary.upperBound)) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * Checks if a data file's partition values match the filter.
+ *
+ * @param partition - The data file's partition values
+ * @param filterKeys - Active filter keys to check against
+ * @param filter - The partition filter values
+ * @returns true if all filter values match, false otherwise
+ */
+function dataFileMatchesFilter(
+  partition: Record<string, unknown>,
+  filterKeys: string[],
+  filter: PartitionFilter
+): boolean {
+  for (const key of filterKeys) {
+    if (partition[key] !== filter[key]) {
+      return false
+    }
+  }
+  return true
+}
+
 // ============================================================================
-// Parse Functions
+// Manifest Parsing Functions
 // ============================================================================
 
 /**
- * Parse an Avro-encoded manifest-list file
+ * Creates a sample manifest list entry for testing purposes.
  *
- * @param data - Raw Avro bytes from manifest-list file
- * @returns Array of manifest list entries with paths and partition summaries
- * @throws Error if parsing fails or data is invalid
+ * In production, this would be replaced with actual Avro deserialization.
+ *
+ * @returns A sample ManifestListEntry
  */
-export function parseManifestList(data: Uint8Array): ManifestListEntry[] {
-  validateAvroMagic(data)
-
-  // Avro files need more than just magic bytes - require at least some content
-  if (data.length <= 4) {
-    throw new Error('Truncated Avro file - missing content after header')
-  }
-
-  // For test mocks with valid magic, return sample manifest list entry
-  // In production, this would parse actual Avro data
-  const sampleEntry: ManifestListEntry = {
+function createSampleManifestListEntry(): ManifestListEntry {
+  return {
     manifestPath: 's3://bucket/warehouse/db/table/metadata/snap-123-manifest-1.avro',
     manifestLength: 4096,
     partitionSpecId: 0,
@@ -267,22 +400,16 @@ export function parseManifestList(data: Uint8Array): ManifestListEntry[] {
       },
     ],
   }
-
-  return [sampleEntry]
 }
 
 /**
- * Parse an Avro-encoded manifest file
+ * Creates a sample manifest entry for testing purposes.
  *
- * @param data - Raw Avro bytes from manifest file
- * @returns Array of manifest entries with data file metadata
- * @throws Error if parsing fails or data is invalid
+ * In production, this would be replaced with actual Avro deserialization.
+ *
+ * @returns A sample ManifestEntry
  */
-export function parseManifestFile(data: Uint8Array): ManifestEntry[] {
-  validateAvroMagic(data)
-
-  // For test mocks with valid magic, return sample manifest entry
-  // In production, this would parse actual Avro data
+function createSampleManifestEntry(): ManifestEntry {
   const sampleDataFile: DataFile = {
     content: 0,
     filePath: 's3://bucket/warehouse/db/table/data/ns=payments.do/type=Function/00001.parquet',
@@ -316,132 +443,199 @@ export function parseManifestFile(data: Uint8Array): ManifestEntry[] {
     sortOrderId: 0,
   }
 
-  const sampleEntry: ManifestEntry = {
+  return {
     status: 1, // ADDED
     snapshotId: 123456789,
     sequenceNumber: 1,
     fileSequenceNumber: 1,
     dataFile: sampleDataFile,
   }
-
-  return [sampleEntry]
 }
 
 /**
- * Filter manifest entries by partition values
+ * Parses an Avro-encoded manifest-list file.
  *
- * Uses partition field summaries for efficient pruning:
- * 1. Check if partition value falls within min/max bounds
- * 2. Exclude manifests that cannot contain matching files
+ * The manifest-list is the entry point for navigating to data files.
+ * Each entry describes a manifest file and contains partition summaries
+ * for efficient pruning.
+ *
+ * @param data - Raw Avro bytes from manifest-list file
+ * @returns Array of manifest list entries with paths and partition summaries
+ * @throws Error if data is empty, invalid, or truncated
+ *
+ * @example
+ * ```typescript
+ * const manifestListBytes = await fetchManifestList(snapshotPath)
+ * const entries = parseManifestList(manifestListBytes)
+ * const paths = entries.map(e => e.manifestPath)
+ * ```
+ */
+export function parseManifestList(data: Uint8Array): ManifestListEntry[] {
+  validateAvroMagic(data)
+
+  // Require content beyond just magic bytes
+  if (data.length < AVRO_MIN_SIZE) {
+    throw new Error('Truncated Avro file - missing content after header')
+  }
+
+  // TODO: Implement actual Avro deserialization
+  // For now, return sample data for testing
+  return [createSampleManifestListEntry()]
+}
+
+/**
+ * Parses an Avro-encoded manifest file.
+ *
+ * A manifest file contains entries describing data files and their
+ * lifecycle states (added, existing, deleted).
+ *
+ * @param data - Raw Avro bytes from manifest file
+ * @returns Array of manifest entries with data file metadata
+ * @throws Error if data is empty or has invalid Avro format
+ *
+ * @example
+ * ```typescript
+ * const manifestBytes = await fetchManifest(manifestPath)
+ * const entries = parseManifestFile(manifestBytes)
+ * const dataFiles = entries.filter(e => e.status !== 2).map(e => e.dataFile)
+ * ```
+ */
+export function parseManifestFile(data: Uint8Array): ManifestEntry[] {
+  validateAvroMagic(data)
+
+  // TODO: Implement actual Avro deserialization
+  // For now, return sample data for testing
+  return [createSampleManifestEntry()]
+}
+
+// ============================================================================
+// Partition Filtering Functions
+// ============================================================================
+
+/**
+ * Filters manifest entries by partition values using partition field summaries.
+ *
+ * Uses partition summaries (min/max bounds) for efficient manifest-level pruning.
+ * This avoids reading manifests that cannot contain matching data files.
+ *
+ * Pruning behavior:
+ * - Manifests without partition summaries are included (conservative)
+ * - Manifests where filter value is outside bounds are excluded
+ * - Empty filter returns all manifests
  *
  * @param entries - Manifest list entries to filter
- * @param filter - Partition values to match
- * @param partitionSpec - Mapping of partition field names to field IDs
+ * @param filter - Partition values to match (e.g., { ns: 'payments.do', type: 'Function' })
+ * @param _partitionSpec - Partition spec (reserved for future use)
  * @returns Filtered entries that may contain matching data files
+ *
+ * @example
+ * ```typescript
+ * const allManifests = parseManifestList(data)
+ * const filtered = filterManifestsByPartition(
+ *   allManifests,
+ *   { ns: 'payments.do', type: 'Function' },
+ *   partitionSpec
+ * )
+ * // filtered contains only manifests that may have matching files
+ * ```
  */
 export function filterManifestsByPartition(
   entries: ManifestListEntry[],
   filter: PartitionFilter,
-  partitionSpec: Record<string, number>
+  _partitionSpec: Record<string, number>
 ): ManifestListEntry[] {
-  // If no filter criteria, return all entries
-  const filterKeys = Object.keys(filter).filter((k) => filter[k] !== undefined)
+  const filterKeys = getActiveFilterKeys(filter)
+
+  // No filter criteria - return all entries
   if (filterKeys.length === 0) {
     return entries
   }
 
-  return entries.filter((entry) => {
-    // Conservative: if no partition summaries, include the manifest
-    // (we can't prove it doesn't contain matching data)
-    if (!entry.partitions || entry.partitions.length === 0) {
-      return true
-    }
-
-    // Check each filter key against corresponding partition summary
-    for (let i = 0; i < filterKeys.length; i++) {
-      const key = filterKeys[i]
-      const filterValue = filter[key] as string
-
-      // Get the partition index for this filter key
-      // ns is at index 0, type is at index 1 based on test structure
-      const partitionIndex = key === 'ns' ? 0 : key === 'type' ? 1 : -1
-      if (partitionIndex === -1 || partitionIndex >= entry.partitions.length) {
-        // Can't find partition for this filter key, be conservative
-        continue
-      }
-
-      const summary = entry.partitions[partitionIndex]
-
-      // If summary has no bounds, we can't prune based on it
-      if (!summary.lowerBound && !summary.upperBound) {
-        continue
-      }
-
-      // Check if filter value falls within bounds
-      if (!isWithinBounds(filterValue, summary.lowerBound, summary.upperBound)) {
-        return false // Exclude this manifest
-      }
-    }
-
-    return true // Include this manifest
-  })
+  return entries.filter((entry) => manifestMatchesFilter(entry, filterKeys, filter))
 }
 
 /**
- * Filter data files by partition values
+ * Filters manifest entries by exact partition value match.
+ *
+ * Unlike filterManifestsByPartition which uses summary bounds, this function
+ * checks exact partition values on individual data files. Use this after
+ * fetching and parsing manifest files.
+ *
+ * Behavior:
+ * - Deleted entries (status=2) are always excluded
+ * - Empty filter returns all non-deleted entries
+ * - All filter values must match exactly
  *
  * @param entries - Manifest entries to filter
- * @param filter - Partition values to match
+ * @param filter - Partition values to match exactly
  * @returns Entries with matching partition values (excluding deleted entries)
+ *
+ * @example
+ * ```typescript
+ * const manifestEntries = parseManifestFile(data)
+ * const matching = filterDataFilesByPartition(
+ *   manifestEntries,
+ *   { ns: 'payments.do', type: 'Function' }
+ * )
+ * // matching contains only entries with exact partition match
+ * ```
  */
 export function filterDataFilesByPartition(entries: ManifestEntry[], filter: PartitionFilter): ManifestEntry[] {
-  // If no filter criteria, return all non-deleted entries
-  const filterKeys = Object.keys(filter).filter((k) => filter[k] !== undefined)
+  const filterKeys = getActiveFilterKeys(filter)
 
   return entries.filter((entry) => {
-    // Exclude deleted entries (status 2)
-    if (entry.status === 2) {
+    // Always exclude deleted entries
+    if (entry.status === STATUS_DELETED) {
       return false
     }
 
-    // If no filter criteria, include the entry
+    // No filter criteria - include all non-deleted entries
     if (filterKeys.length === 0) {
       return true
     }
 
-    // Check each filter key against partition values
-    const partition = entry.dataFile.partition as Record<string, unknown>
-
-    for (const key of filterKeys) {
-      const filterValue = filter[key]
-      const partitionValue = partition[key]
-
-      if (partitionValue !== filterValue) {
-        return false
-      }
-    }
-
-    return true
+    // Check exact partition match
+    return dataFileMatchesFilter(entry.dataFile.partition as Record<string, unknown>, filterKeys, filter)
   })
 }
 
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
 /**
- * Get manifest file paths from manifest list
- * Convenience function for extracting just the paths
+ * Extracts manifest file paths from manifest list entries.
+ *
+ * Convenience function for getting just the paths after filtering.
  *
  * @param entries - Parsed manifest list entries
  * @returns Array of manifest file paths
+ *
+ * @example
+ * ```typescript
+ * const filtered = filterManifestsByPartition(entries, filter, spec)
+ * const paths = getManifestPaths(filtered)
+ * // paths: ['s3://bucket/manifest-1.avro', 's3://bucket/manifest-2.avro']
+ * ```
  */
 export function getManifestPaths(entries: ManifestListEntry[]): string[] {
   return entries.map((entry) => entry.manifestPath)
 }
 
 /**
- * Get data file paths from manifest entries
- * Convenience function for extracting just the paths
+ * Extracts data file paths from manifest entries.
+ *
+ * Convenience function for getting just the paths after filtering.
  *
  * @param entries - Parsed manifest entries
  * @returns Array of data file paths
+ *
+ * @example
+ * ```typescript
+ * const filtered = filterDataFilesByPartition(entries, filter)
+ * const paths = getDataFilePaths(filtered)
+ * // paths: ['s3://bucket/data/1.parquet', 's3://bucket/data/2.parquet']
+ * ```
  */
 export function getDataFilePaths(entries: ManifestEntry[]): string[] {
   return entries.map((entry) => entry.dataFile.filePath)

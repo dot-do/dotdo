@@ -415,7 +415,7 @@ describe('Range Filtering', () => {
     })
 
     it('returns true when upper bound is null (unbounded above)', () => {
-      const value = stringToBytes('anything')
+      const value = stringToBytes('banana')
       const lower = stringToBytes('apple')
 
       expect(isInRange(value, lower, null)).toBe(true)
@@ -555,7 +555,7 @@ describe('File Selection', () => {
     it('returns empty array when no files match', () => {
       const options: FileSelectionOptions = {
         fieldId: FIELD_IDS.id,
-        value: 'nonexistent',
+        value: 'zzz-outside-all-ranges',
         columnType: 'string',
       }
 

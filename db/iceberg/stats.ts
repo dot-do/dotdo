@@ -14,8 +14,28 @@
  */
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/** Manifest entry status codes as defined in the Iceberg spec */
+export const ENTRY_STATUS = {
+  /** Entry references an existing data file */
+  EXISTING: 0,
+  /** Entry was added in this snapshot */
+  ADDED: 1,
+  /** Entry was deleted in this snapshot */
+  DELETED: 2,
+} as const
+
+// ============================================================================
 // Types
 // ============================================================================
+
+/** Supported column types for value encoding/decoding */
+export type ColumnType = 'string' | 'int' | 'long' | 'boolean' | 'binary'
+
+/** Primitive value types supported for column statistics */
+export type PrimitiveValue = string | number | bigint | boolean
 
 /**
  * Column statistics from a manifest entry
@@ -79,9 +99,9 @@ export interface FileSelectionOptions {
   /** Column field ID to filter on */
   fieldId: number
   /** Value to look up (will be encoded appropriately) */
-  value: string | number | bigint | boolean
+  value: PrimitiveValue
   /** Column type for encoding */
-  columnType: 'string' | 'int' | 'long' | 'boolean' | 'binary'
+  columnType: ColumnType
 }
 
 /**
@@ -93,9 +113,9 @@ export interface FileSelectionResult {
   /** Whether file definitely contains the value (vs. might contain) */
   definite: boolean
   /** Lower bound for the column (decoded) */
-  lowerBound: string | number | bigint | boolean | null
+  lowerBound: PrimitiveValue | null
   /** Upper bound for the column (decoded) */
-  upperBound: string | number | bigint | boolean | null
+  upperBound: PrimitiveValue | null
 }
 
 // ============================================================================
@@ -166,14 +186,22 @@ export function extractAllColumnStats(entry: ManifestEntry): Map<number, ColumnS
 // ============================================================================
 
 /**
- * Encode a value to binary format for comparison with column bounds
- * Uses Iceberg's single-value serialization format
+ * Encode a value to binary format for comparison with column bounds.
+ * Uses Iceberg's single-value serialization format (little-endian for numeric types).
  *
  * @param value - The value to encode
- * @param type - The column type
- * @returns Binary encoded value
+ * @param type - The column type determining the encoding strategy
+ * @returns Binary encoded value as Uint8Array
+ *
+ * @example
+ * ```ts
+ * encodeValue('hello', 'string')  // UTF-8 bytes
+ * encodeValue(42, 'int')          // 4-byte little-endian
+ * encodeValue(BigInt(1000), 'long') // 8-byte little-endian
+ * encodeValue(true, 'boolean')    // Single byte [1]
+ * ```
  */
-export function encodeValue(value: string | number | bigint | boolean, type: 'string' | 'int' | 'long' | 'boolean' | 'binary'): Uint8Array {
+export function encodeValue(value: PrimitiveValue, type: ColumnType): Uint8Array {
   switch (type) {
     case 'string':
       return new TextEncoder().encode(value as string)
@@ -199,13 +227,20 @@ export function encodeValue(value: string | number | bigint | boolean, type: 'st
 }
 
 /**
- * Decode a binary value from column bounds to its typed value
+ * Decode a binary value from column bounds to its typed value.
+ * Reverses the encoding performed by {@link encodeValue}.
  *
- * @param bytes - The binary encoded value
- * @param type - The column type
- * @returns Decoded value
+ * @param bytes - The binary encoded value from Iceberg column bounds
+ * @param type - The column type determining the decoding strategy
+ * @returns Decoded value in its native TypeScript type
+ *
+ * @example
+ * ```ts
+ * decodeValue(new Uint8Array([104, 101, 108, 108, 111]), 'string')  // 'hello'
+ * decodeValue(new Uint8Array([42, 0, 0, 0]), 'int')  // 42
+ * ```
  */
-export function decodeValue(bytes: Uint8Array, type: 'string' | 'int' | 'long' | 'boolean' | 'binary'): string | number | bigint | boolean {
+export function decodeValue(bytes: Uint8Array, type: ColumnType): PrimitiveValue {
   switch (type) {
     case 'string':
       return new TextDecoder().decode(bytes)
@@ -278,7 +313,7 @@ export function filterByIdRange(entries: ManifestEntry[], idFieldId: number, tar
 
   return entries.filter((entry) => {
     // Exclude deleted entries
-    if (entry.status === 2) {
+    if (entry.status === ENTRY_STATUS.DELETED) {
       return false
     }
 
@@ -313,7 +348,7 @@ export function selectFilesForValue(entries: ManifestEntry[], options: FileSelec
 
   for (const entry of entries) {
     // Skip deleted entries
-    if (entry.status === 2) {
+    if (entry.status === ENTRY_STATUS.DELETED) {
       continue
     }
 
@@ -326,11 +361,12 @@ export function selectFilesForValue(entries: ManifestEntry[], options: FileSelec
     const upper = upperBoundBytes ? decodeValue(upperBoundBytes, columnType) : null
 
     // Check if value is in range using typed comparison
-    if (!isInRangeTyped(value, lower, upper)) {
+    if (!isValueInRange(value, lower, upper)) {
       continue
     }
 
     // Determine if the match is definite (value equals both bounds)
+    // This means the file contains only this one value for this column
     const definite = lower !== null && upper !== null && value === lower && value === upper
 
     results.push({
@@ -345,13 +381,25 @@ export function selectFilesForValue(entries: ManifestEntry[], options: FileSelec
 }
 
 /**
- * Check if a typed value is in range (for selectFilesForValue)
- * Handles proper comparison for different types
+ * Check if a typed value falls within the given bounds.
+ * Used by {@link selectFilesForValue} for type-aware comparisons.
+ *
+ * Handles different comparison semantics:
+ * - Numeric types (int, long): Mathematical comparison
+ * - Strings: Lexicographic comparison
+ * - Booleans: false < true ordering
+ *
+ * @param value - The value to check
+ * @param lower - Lower bound (null = unbounded below)
+ * @param upper - Upper bound (null = unbounded above)
+ * @returns true if value is within bounds (inclusive), false otherwise
+ *
+ * @internal
  */
-function isInRangeTyped(
-  value: string | number | bigint | boolean,
-  lower: string | number | bigint | boolean | null,
-  upper: string | number | bigint | boolean | null
+function isValueInRange(
+  value: PrimitiveValue,
+  lower: PrimitiveValue | null,
+  upper: PrimitiveValue | null
 ): boolean {
   // If both bounds are null, always in range
   if (lower === null && upper === null) {
@@ -420,13 +468,13 @@ export function findFileForId(entries: ManifestEntry[], idFieldId: number, targe
     return candidates[0]
   }
 
-  // Prefer files with narrower ranges
+  // Prefer files with narrower ranges - more likely to contain the target
   let best = candidates[0]
-  let bestRangeSize = getRangeSize(best.lowerBound as string | null, best.upperBound as string | null)
+  let bestRangeSize = computeStringRangeSize(best.lowerBound as string | null, best.upperBound as string | null)
 
   for (let i = 1; i < candidates.length; i++) {
     const candidate = candidates[i]
-    const rangeSize = getRangeSize(candidate.lowerBound as string | null, candidate.upperBound as string | null)
+    const rangeSize = computeStringRangeSize(candidate.lowerBound as string | null, candidate.upperBound as string | null)
     if (rangeSize < bestRangeSize) {
       best = candidate
       bestRangeSize = rangeSize
@@ -437,9 +485,19 @@ export function findFileForId(entries: ManifestEntry[], idFieldId: number, targe
 }
 
 /**
- * Helper to compute a rough range size for string bounds
+ * Compute a rough estimate of the range size for string bounds.
+ * Used by {@link findFileForId} to prefer files with narrower ranges.
+ *
+ * The algorithm computes a byte-weighted distance where early bytes
+ * have more weight than later bytes (base-256 positional weighting).
+ *
+ * @param lower - Lower bound string (null = unbounded)
+ * @param upper - Upper bound string (null = unbounded)
+ * @returns Estimated range size (Infinity for unbounded ranges)
+ *
+ * @internal
  */
-function getRangeSize(lower: string | null, upper: string | null): number {
+function computeStringRangeSize(lower: string | null, upper: string | null): number {
   if (lower === null || upper === null) {
     return Infinity // Unbounded = largest
   }
