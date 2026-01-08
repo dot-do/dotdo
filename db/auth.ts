@@ -656,6 +656,10 @@ export const linkedAccounts = sqliteTable(
     index('linked_accounts_type_idx').on(table.type),
     /** Index for filtering by status */
     index('linked_accounts_status_idx').on(table.status),
+    /** Composite index for efficient identity+provider lookups (common query pattern) */
+    index('linked_accounts_identity_provider_idx').on(table.identityId, table.provider),
+    /** Index for provider-based queries */
+    index('linked_accounts_provider_idx').on(table.provider),
     /** Unique constraint: one linked account per identity+provider+providerAccountId */
     uniqueIndex('linked_accounts_unique_idx').on(table.identityId, table.provider, table.providerAccountId),
   ],

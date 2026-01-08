@@ -39,6 +39,118 @@ export interface ProviderAction {
   path: string
 }
 
+/**
+ * JSON Schema type for input/output validation
+ */
+export interface JSONSchema {
+  type: 'object' | 'array' | 'string' | 'number' | 'boolean'
+  properties?: Record<string, JSONSchema>
+  required?: string[]
+  items?: JSONSchema
+}
+
+/**
+ * Extended ProviderAction with input/output schemas and rate limits
+ */
+export interface ExtendedProviderAction {
+  name: string
+  description: string
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  endpoint: string
+  scopes: string[]
+  inputSchema?: JSONSchema
+  outputSchema?: JSONSchema
+  rateLimit?: RateLimitConfig
+}
+
+/**
+ * Provider with extended actions
+ */
+export interface ProviderWithActions {
+  slug: string
+  name: string
+  accountType: string
+  icon: string
+  oauthConfig: OAuthConfig
+  webhookConfig?: WebhookConfig
+  actions: ExtendedProviderAction[]
+  rateLimit?: RateLimitConfig
+}
+
+/**
+ * SDK configuration options
+ */
+export interface SDKOptions {
+  maxRetries?: number
+  retryDelayMs?: number
+  timeout?: number
+}
+
+/**
+ * SDK error with request ID and typed error codes
+ */
+export type SDKErrorCode = 'UNAUTHORIZED' | 'RATE_LIMITED' | 'SERVER_ERROR' | 'VALIDATION_ERROR' | 'NETWORK_ERROR'
+
+export class SDKError extends Error {
+  code: SDKErrorCode
+  requestId: string
+  statusCode?: number
+  retryable: boolean
+
+  constructor(message: string, code: SDKErrorCode, requestId: string, statusCode?: number, retryable = false) {
+    super(message)
+    this.name = 'SDKError'
+    this.code = code
+    this.requestId = requestId
+    this.statusCode = statusCode
+    this.retryable = retryable
+  }
+}
+
+/**
+ * Rate limit info returned in responses
+ */
+export interface RateLimitInfo {
+  remaining: number
+  limit: number
+  resetAt: Date
+}
+
+/**
+ * Rate limit state for tracking
+ */
+export interface RateLimitState {
+  requestCount: number
+  windowStart: number
+}
+
+/**
+ * Token data from Vault
+ */
+interface TokenData {
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+}
+
+/**
+ * SDK metadata
+ */
+interface SDKMetadata {
+  provider: string
+  linkedAccountId: string
+  actions: string[]
+  options: SDKOptions
+}
+
+/**
+ * Validation result
+ */
+interface ValidationResult {
+  valid: boolean
+  errors: string[]
+}
+
 export interface Provider {
   id: string
   slug: string
@@ -246,6 +358,9 @@ export class IntegrationsDO {
   // Track deleted account type slugs (so we don't fall back to built-ins for deleted types)
   private deletedAccountTypeSlugs: Set<string> = new Set()
   private initialized = false
+
+  // Providers with extended actions (SDK support)
+  private providersWithActions: Map<string, ProviderWithActions> = new Map()
 
   constructor(ctx: DurableObjectState, env: Record<string, unknown>) {
     this.ctx = ctx
@@ -753,6 +868,467 @@ export class IntegrationsDO {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // PROVIDER ACTIONS SDK
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Register a provider with extended action definitions (input/output schemas, rate limits)
+   */
+  async registerProviderWithActions(provider: ProviderWithActions): Promise<ProviderWithActions> {
+    await this.ensureInitialized()
+
+    const slug = provider.slug
+
+    // Store in providers with actions map
+    this.providersWithActions.set(slug, provider)
+
+    // Persist to storage
+    await this.ctx.storage.put(`providerWithActions:${slug}`, provider)
+
+    return provider
+  }
+
+  /**
+   * Get a specific action from a provider
+   */
+  async getAction(providerSlug: string, actionName: string): Promise<ExtendedProviderAction | null> {
+    await this.ensureInitialized()
+
+    const provider = this.providersWithActions.get(providerSlug)
+    if (!provider) {
+      return null
+    }
+
+    const action = provider.actions.find((a) => a.name === actionName)
+    return action || null
+  }
+
+  /**
+   * Get all actions for a provider
+   */
+  async getActions(providerSlug: string): Promise<ExtendedProviderAction[]> {
+    await this.ensureInitialized()
+
+    const provider = this.providersWithActions.get(providerSlug)
+    if (!provider) {
+      return []
+    }
+
+    return provider.actions
+  }
+
+  /**
+   * Get the effective rate limit for an action (action-level or provider-level)
+   */
+  async getEffectiveRateLimit(providerSlug: string, actionName: string): Promise<RateLimitConfig> {
+    await this.ensureInitialized()
+
+    const provider = this.providersWithActions.get(providerSlug)
+    if (!provider) {
+      throw new Error(`Provider '${providerSlug}' not found`)
+    }
+
+    const action = provider.actions.find((a) => a.name === actionName)
+
+    // Action-level rate limit takes precedence
+    if (action?.rateLimit) {
+      return action.rateLimit
+    }
+
+    // Fall back to provider-level rate limit
+    if (provider.rateLimit) {
+      return provider.rateLimit
+    }
+
+    // Default rate limit if none specified
+    return { max: 1000, windowMs: 60000 }
+  }
+
+  /**
+   * Validate input against an action's input schema
+   */
+  async validateActionInput(
+    providerSlug: string,
+    actionName: string,
+    input: Record<string, unknown>,
+  ): Promise<ValidationResult> {
+    await this.ensureInitialized()
+
+    const action = await this.getAction(providerSlug, actionName)
+    if (!action) {
+      return { valid: false, errors: [`Action '${actionName}' not found`] }
+    }
+
+    if (!action.inputSchema) {
+      // No schema means any input is valid
+      return { valid: true, errors: [] }
+    }
+
+    const errors: string[] = []
+
+    // Validate required fields
+    if (action.inputSchema.required) {
+      for (const field of action.inputSchema.required) {
+        if (input[field] === undefined) {
+          errors.push(`${field} is required`)
+        }
+      }
+    }
+
+    // Validate type of provided fields
+    if (action.inputSchema.properties) {
+      for (const [field, value] of Object.entries(input)) {
+        const schema = action.inputSchema.properties[field]
+        if (schema) {
+          const typeValid = this.validateType(value, schema)
+          if (!typeValid) {
+            errors.push(`${field} has invalid type`)
+          }
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors }
+  }
+
+  /**
+   * Helper to validate value against schema type
+   */
+  private validateType(value: unknown, schema: JSONSchema): boolean {
+    switch (schema.type) {
+      case 'string':
+        return typeof value === 'string'
+      case 'number':
+        return typeof value === 'number'
+      case 'boolean':
+        return typeof value === 'boolean'
+      case 'array':
+        return Array.isArray(value)
+      case 'object':
+        return typeof value === 'object' && value !== null && !Array.isArray(value)
+      default:
+        return true
+    }
+  }
+
+  /**
+   * Fetch token from Vault DO
+   */
+  private async fetchTokenFromVault(linkedAccountId: string): Promise<TokenData | null> {
+    const vaultDO = this.env.VAULT_DO as DurableObjectNamespace
+    if (!vaultDO) {
+      return null
+    }
+
+    const stub = vaultDO.get(vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId)
+    const response = await stub.fetch(new Request(`http://vault/token/${linkedAccountId}`))
+
+    if (!response.ok) {
+      return null
+    }
+
+    // Clone response before reading to handle test mocks that reuse same Response object
+    try {
+      const data = (await response.clone().json()) as TokenData
+      return data
+    } catch {
+      // If clone fails, try reading directly
+      const data = (await response.json()) as TokenData
+      return data
+    }
+  }
+
+  /**
+   * Refresh token in Vault DO
+   */
+  private async refreshTokenInVault(linkedAccountId: string): Promise<TokenData | null> {
+    const vaultDO = this.env.VAULT_DO as DurableObjectNamespace
+    if (!vaultDO) {
+      return null
+    }
+
+    const stub = vaultDO.get(vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId)
+    const response = await stub.fetch(
+      new Request(`http://vault/token/${linkedAccountId}/refresh`, { method: 'POST' }),
+    )
+
+    if (!response.ok) {
+      return null
+    }
+
+    // Clone response before reading to handle test mocks that reuse same Response object
+    try {
+      const data = (await response.clone().json()) as TokenData
+      return data
+    } catch {
+      // If clone fails, try reading directly
+      const data = (await response.json()) as TokenData
+      return data
+    }
+  }
+
+  /**
+   * Create a typed SDK for a provider
+   */
+  async createSDK(
+    providerSlug: string,
+    linkedAccountId: string,
+    options: SDKOptions = {},
+  ): Promise<Record<string, unknown>> {
+    await this.ensureInitialized()
+
+    const provider = this.providersWithActions.get(providerSlug)
+    if (!provider) {
+      throw new Error(`Provider '${providerSlug}' not found`)
+    }
+
+    // Fetch initial token
+    const tokenData = await this.fetchTokenFromVault(linkedAccountId)
+    if (!tokenData) {
+      throw new Error(`Linked account '${linkedAccountId}' not found - no valid token`)
+    }
+
+    // Default options
+    const sdkOptions: SDKOptions = {
+      maxRetries: options.maxRetries ?? 3,
+      retryDelayMs: options.retryDelayMs ?? 100,
+      timeout: options.timeout ?? 30000,
+    }
+
+    // Track rate limits per action
+    const rateLimitStates: Map<string, RateLimitState> = new Map()
+
+    // Token state (mutable for refresh)
+    let currentToken = tokenData
+
+    // Generate request ID
+    const generateRequestId = () => `sdk-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+
+    // Helper to sleep
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    // Check and update rate limit
+    const checkRateLimit = async (actionName: string): Promise<boolean> => {
+      const rateLimit = await this.getEffectiveRateLimit(providerSlug, actionName)
+      const now = Date.now()
+
+      let state = rateLimitStates.get(actionName)
+      if (!state || now - state.windowStart > rateLimit.windowMs) {
+        // Reset window
+        state = { requestCount: 0, windowStart: now }
+        rateLimitStates.set(actionName, state)
+      }
+
+      if (state.requestCount >= rateLimit.max) {
+        return false // Rate limited
+      }
+
+      state.requestCount++
+      return true
+    }
+
+    // Get rate limit state for an action
+    const getRateLimitState = (actionName: string): RateLimitState | undefined => {
+      return rateLimitStates.get(actionName)
+    }
+
+    // Execute action with retry logic
+    const executeAction = async (
+      action: ExtendedProviderAction,
+      params: Record<string, unknown>,
+      callOptions?: { queue?: boolean; includeRateLimit?: boolean },
+    ): Promise<unknown> => {
+      const requestId = generateRequestId()
+
+      // Validate input
+      const validation = await this.validateActionInput(providerSlug, action.name, params)
+      if (!validation.valid) {
+        throw new SDKError(
+          `Validation failed: ${validation.errors.join(', ')}`,
+          'VALIDATION_ERROR',
+          requestId,
+          400,
+          false,
+        )
+      }
+
+      // Check rate limit
+      if (!callOptions?.queue) {
+        const allowed = await checkRateLimit(action.name)
+        if (!allowed) {
+          throw new SDKError('Rate limit exceeded', 'RATE_LIMITED', requestId, 429, true)
+        }
+      }
+
+      // Build URL with path parameters
+      let url = action.endpoint
+      const bodyParams: Record<string, unknown> = {}
+
+      for (const [key, value] of Object.entries(params)) {
+        const placeholder = `{${key}}`
+        if (url.includes(placeholder)) {
+          url = url.replace(placeholder, String(value))
+        } else {
+          bodyParams[key] = value
+        }
+      }
+
+      // Retry loop
+      let lastError: Error | null = null
+      let retryCount = 0
+      const maxRetries = sdkOptions.maxRetries!
+
+      while (retryCount <= maxRetries) {
+        try {
+          // Check if token is expired and refresh
+          if (currentToken.expiresAt < Date.now()) {
+            const newToken = await this.refreshTokenInVault(linkedAccountId)
+            if (newToken) {
+              currentToken = newToken
+            }
+          }
+
+          const fetchOptions: RequestInit = {
+            method: action.method,
+            headers: {
+              Authorization: `Bearer ${currentToken.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+
+          if (action.method !== 'GET' && Object.keys(bodyParams).length > 0) {
+            fetchOptions.body = JSON.stringify(bodyParams)
+          }
+
+          const response = await fetch(`https://api.example.com${url}`, fetchOptions)
+
+          // Handle response - clone before reading to handle test mocks that reuse Response objects
+          if (response.ok) {
+            let data: unknown
+            try {
+              data = await response.clone().json()
+            } catch {
+              data = await response.json()
+            }
+
+            if (callOptions?.includeRateLimit) {
+              const rateLimitInfo: RateLimitInfo = {
+                remaining: parseInt(response.headers.get('X-RateLimit-Remaining') || '0', 10),
+                limit: parseInt(response.headers.get('X-RateLimit-Limit') || '0', 10),
+                resetAt: new Date(parseInt(response.headers.get('X-RateLimit-Reset') || '0', 10) * 1000),
+              }
+              return { data, rateLimit: rateLimitInfo }
+            }
+
+            return data
+          }
+
+          // Get request ID from response
+          const responseRequestId = response.headers.get('X-Request-Id') || requestId
+
+          // Handle specific status codes
+          if (response.status === 401) {
+            // Try to refresh token
+            const newToken = await this.refreshTokenInVault(linkedAccountId)
+            if (newToken && retryCount < maxRetries) {
+              currentToken = newToken
+              retryCount++
+              continue
+            }
+            throw new SDKError('Unauthorized', 'UNAUTHORIZED', responseRequestId, 401, false)
+          }
+
+          if (response.status === 429) {
+            if (retryCount < maxRetries) {
+              const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10)
+              await sleep(retryAfter * 1000)
+              retryCount++
+              continue
+            }
+            throw new SDKError('Rate limited', 'RATE_LIMITED', responseRequestId, 429, true)
+          }
+
+          if (response.status >= 400 && response.status < 500) {
+            // Client errors (except 401, 429) are not retryable
+            throw new SDKError(
+              `Client error: ${response.status}`,
+              'VALIDATION_ERROR',
+              responseRequestId,
+              response.status,
+              false,
+            )
+          }
+
+          if (response.status >= 500) {
+            // Server errors are retryable
+            if (retryCount < maxRetries) {
+              const delay = sdkOptions.retryDelayMs! * Math.pow(2, retryCount)
+              await sleep(delay)
+              retryCount++
+              continue
+            }
+            throw new SDKError(
+              `Server error: ${response.status}`,
+              'SERVER_ERROR',
+              responseRequestId,
+              response.status,
+              true,
+            )
+          }
+        } catch (error) {
+          if (error instanceof SDKError) {
+            throw error
+          }
+
+          // Network error
+          if (retryCount < maxRetries) {
+            const delay = sdkOptions.retryDelayMs! * Math.pow(2, retryCount)
+            await sleep(delay)
+            retryCount++
+            lastError = error as Error
+            continue
+          }
+
+          throw new SDKError(
+            `Network error: ${(error as Error).message}`,
+            'NETWORK_ERROR',
+            requestId,
+            undefined,
+            true,
+          )
+        }
+      }
+
+      throw lastError || new SDKError('Max retries exceeded', 'SERVER_ERROR', requestId, undefined, true)
+    }
+
+    // Build SDK object with methods for each action
+    const sdk: Record<string, unknown> = {}
+
+    for (const action of provider.actions) {
+      sdk[action.name] = async (
+        params: Record<string, unknown>,
+        callOptions?: { queue?: boolean; includeRateLimit?: boolean },
+      ) => {
+        return executeAction(action, params, callOptions)
+      }
+    }
+
+    // Add metadata
+    sdk._metadata = {
+      provider: providerSlug,
+      linkedAccountId,
+      actions: provider.actions.map((a) => a.name),
+      options: sdkOptions,
+    } as SDKMetadata
+
+    // Add rate limit state getter
+    sdk.getRateLimitState = getRateLimitState
+
+    return sdk
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // WEBHOOK VERIFICATION
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -960,6 +1536,56 @@ export class IntegrationsDO {
           const message = error instanceof Error ? error.message : 'Unknown error'
           return Response.json({ error: message }, { status: 400 })
         }
+      }
+
+      // GET /providers/:slug/actions - list all actions for a provider
+      const actionsListMatch = path.match(/^\/providers\/([^/]+)\/actions$/)
+      if (method === 'GET' && actionsListMatch) {
+        const slug = actionsListMatch[1]
+        const actions = await this.getActions(slug)
+        return Response.json(actions)
+      }
+
+      // GET /providers/:slug/actions/:action - get single action
+      const actionMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)$/)
+      if (method === 'GET' && actionMatch) {
+        const slug = actionMatch[1]
+        const actionName = actionMatch[2]
+        const action = await this.getAction(slug, actionName)
+
+        if (!action) {
+          return new Response('Action not found', { status: 404 })
+        }
+
+        return Response.json(action)
+      }
+
+      // POST /providers/:slug/actions/:action/validate - validate action input
+      const validateMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)\/validate$/)
+      if (method === 'POST' && validateMatch) {
+        const slug = validateMatch[1]
+        const actionName = validateMatch[2]
+        const body = (await request.json()) as Record<string, unknown>
+        const validation = await this.validateActionInput(slug, actionName, body)
+        return Response.json(validation)
+      }
+
+      // POST /providers/:slug/actions/:action/execute - execute action via SDK
+      const executeMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)\/execute$/)
+      if (method === 'POST' && executeMatch) {
+        const slug = executeMatch[1]
+        const actionName = executeMatch[2]
+        const body = (await request.json()) as { linkedAccountId: string; params: Record<string, unknown> }
+
+        const sdk = await this.createSDK(slug, body.linkedAccountId)
+        const actionFn = sdk[actionName] as (params: Record<string, unknown>) => Promise<unknown>
+
+        if (!actionFn) {
+          return new Response('Action not found', { status: 404 })
+        }
+
+        const result = await actionFn(body.params)
+        return Response.json(result)
       }
 
       // Health check

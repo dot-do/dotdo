@@ -10,6 +10,9 @@ export * from './search'
 export * from './branches'
 export * from './auth'
 
+// Linked accounts query helpers and validation
+export * from './linked-accounts'
+
 // Re-export all tables as schema object for Drizzle
 import { nouns } from './nouns'
 import { verbs } from './verbs'
