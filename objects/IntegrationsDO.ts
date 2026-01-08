@@ -51,6 +51,15 @@ export interface Provider {
   rateLimit?: RateLimitConfig
 }
 
+export interface AccountType {
+  id: string
+  slug: string // 'devtools'
+  name: string // 'Developer Tools'
+  icon: string // 'code'
+  description: string
+  providers: string[] // ['github', 'gitlab', 'bitbucket']
+}
+
 // ============================================================================
 // BUILT-IN PROVIDERS
 // ============================================================================
@@ -156,6 +165,63 @@ const BUILT_IN_PROVIDERS: Provider[] = [
 const BUILT_IN_SLUGS = new Set(BUILT_IN_PROVIDERS.map((p) => p.slug))
 
 // ============================================================================
+// BUILT-IN ACCOUNT TYPES
+// ============================================================================
+
+const BUILT_IN_ACCOUNT_TYPES: AccountType[] = [
+  {
+    id: 'devtools',
+    slug: 'devtools',
+    name: 'Developer Tools',
+    icon: 'code',
+    description: 'Tools for software development, version control, and CI/CD',
+    providers: [],
+  },
+  {
+    id: 'crm',
+    slug: 'crm',
+    name: 'Customer Relationship Management',
+    icon: 'users',
+    description: 'Customer relationship and sales management tools',
+    providers: [],
+  },
+  {
+    id: 'payments',
+    slug: 'payments',
+    name: 'Payments',
+    icon: 'credit-card',
+    description: 'Payment processing and financial services',
+    providers: [],
+  },
+  {
+    id: 'communication',
+    slug: 'communication',
+    name: 'Communication',
+    icon: 'message-circle',
+    description: 'Messaging, email, and communication platforms',
+    providers: [],
+  },
+  {
+    id: 'productivity',
+    slug: 'productivity',
+    name: 'Productivity',
+    icon: 'briefcase',
+    description: 'Productivity and collaboration tools',
+    providers: [],
+  },
+  {
+    id: 'storage',
+    slug: 'storage',
+    name: 'Storage',
+    icon: 'hard-drive',
+    description: 'Cloud storage and file management services',
+    providers: [],
+  },
+]
+
+const BUILT_IN_ACCOUNT_TYPE_SLUGS = new Set(BUILT_IN_ACCOUNT_TYPES.map((t) => t.slug))
+
+// ============================================================================
 // INTEGRATIONS DO
 // ============================================================================
 
@@ -175,6 +241,10 @@ export class IntegrationsDO {
   private registeredProviders: Map<string, Provider> = new Map()
   // Track deleted slugs (so we don't fall back to built-ins for deleted providers)
   private deletedSlugs: Set<string> = new Set()
+  // Registered account types (custom account types + re-registered built-ins)
+  private registeredAccountTypes: Map<string, AccountType> = new Map()
+  // Track deleted account type slugs (so we don't fall back to built-ins for deleted types)
+  private deletedAccountTypeSlugs: Set<string> = new Set()
   private initialized = false
 
   constructor(ctx: DurableObjectState, env: Record<string, unknown>) {
@@ -190,9 +260,15 @@ export class IntegrationsDO {
     if (this.initialized) return
 
     // Load custom providers from storage (not built-ins)
-    const stored = await this.ctx.storage.list<Provider>({ prefix: 'provider:' })
-    for (const [, provider] of stored) {
+    const storedProviders = await this.ctx.storage.list<Provider>({ prefix: 'provider:' })
+    for (const [, provider] of storedProviders) {
       this.registeredProviders.set(provider.slug, provider)
+    }
+
+    // Load custom account types from storage (not built-ins)
+    const storedAccountTypes = await this.ctx.storage.list<AccountType>({ prefix: 'accountType:' })
+    for (const [, accountType] of storedAccountTypes) {
+      this.registeredAccountTypes.set(accountType.slug, accountType)
     }
 
     this.initialized = true
@@ -207,6 +283,32 @@ export class IntegrationsDO {
       return { ...builtIn, actions: [...builtIn.actions] }
     }
     return undefined
+  }
+
+  /**
+   * Get a built-in account type by slug (returns a copy with dynamic providers list)
+   */
+  private getBuiltInAccountType(slug: string): AccountType | undefined {
+    const builtIn = BUILT_IN_ACCOUNT_TYPES.find((t) => t.slug === slug)
+    if (builtIn) {
+      // Dynamically populate providers list from registered providers
+      const providers = this.getProvidersForAccountType(slug)
+      return { ...builtIn, providers }
+    }
+    return undefined
+  }
+
+  /**
+   * Get provider slugs for a given account type
+   */
+  private getProvidersForAccountType(accountTypeSlug: string): string[] {
+    const providers: string[] = []
+    for (const provider of this.registeredProviders.values()) {
+      if (provider.accountType === accountTypeSlug) {
+        providers.push(provider.slug)
+      }
+    }
+    return providers
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -396,6 +498,162 @@ export class IntegrationsDO {
     this.deletedSlugs.add(slug)
 
     return true
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACCOUNT TYPE CRUD
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async registerAccountType(type: Omit<AccountType, 'id'> | AccountType): Promise<AccountType> {
+    await this.ensureInitialized()
+
+    const slug = type.slug
+    const id = (type as AccountType).id || slug
+
+    // Check if slug already exists in registered account types (not built-ins)
+    // This allows registering custom types that override built-ins
+    if (this.registeredAccountTypes.has(slug)) {
+      throw new Error(`Account type with slug '${slug}' already exists`)
+    }
+
+    const newType: AccountType = {
+      ...type,
+      id,
+      providers: type.providers ? [...type.providers] : [],
+    }
+
+    // Store in registered account types
+    this.registeredAccountTypes.set(slug, newType)
+
+    // Remove from deleted set (in case it was previously deleted)
+    this.deletedAccountTypeSlugs.delete(slug)
+
+    // Persist to storage
+    await this.ctx.storage.put(`accountType:${slug}`, newType)
+
+    return newType
+  }
+
+  async getAccountType(slug: string): Promise<AccountType | null> {
+    await this.ensureInitialized()
+
+    // If this slug was explicitly deleted, return null
+    if (this.deletedAccountTypeSlugs.has(slug)) {
+      return null
+    }
+
+    // First check registered account types
+    const registered = this.registeredAccountTypes.get(slug)
+    if (registered) {
+      // Merge explicitly registered providers with dynamically discovered ones
+      const dynamicProviders = this.getProvidersForAccountType(slug)
+      const explicitProviders = registered.providers || []
+      const allProviders = new Set([...explicitProviders, ...dynamicProviders])
+      return { ...registered, providers: Array.from(allProviders) }
+    }
+
+    // Fall back to built-in account types
+    return this.getBuiltInAccountType(slug) || null
+  }
+
+  async updateAccountType(slug: string, updates: Partial<AccountType>): Promise<AccountType | null> {
+    await this.ensureInitialized()
+
+    // Cannot update slug
+    if (updates.slug && updates.slug !== slug) {
+      throw new Error('Cannot update slug: slug is immutable')
+    }
+
+    // Get existing account type (from registered or built-in)
+    const existing = this.registeredAccountTypes.get(slug) || this.getBuiltInAccountType(slug)
+    if (!existing) {
+      return null
+    }
+
+    // Merge updates (but don't allow slug or id to change)
+    const { slug: _slug, id: _id, ...safeUpdates } = updates
+    const updated: AccountType = {
+      ...existing,
+      ...safeUpdates,
+      id: existing.id,
+      slug: existing.slug,
+    }
+
+    // Store as registered (even for built-ins that get updated)
+    this.registeredAccountTypes.set(slug, updated)
+    await this.ctx.storage.put(`accountType:${slug}`, updated)
+
+    // Dynamically populate providers list
+    const providers = this.getProvidersForAccountType(slug)
+    return { ...updated, providers }
+  }
+
+  async deleteAccountType(slug: string, options?: { force?: boolean }): Promise<boolean> {
+    await this.ensureInitialized()
+
+    const isRegistered = this.registeredAccountTypes.has(slug)
+    const isBuiltIn = BUILT_IN_ACCOUNT_TYPE_SLUGS.has(slug)
+    const wasDeleted = this.deletedAccountTypeSlugs.has(slug)
+
+    // If not registered, not built-in, and not previously deleted, nothing to delete
+    if (!isRegistered && !isBuiltIn) {
+      return false
+    }
+
+    // If already deleted, return false
+    if (wasDeleted && !isRegistered) {
+      return false
+    }
+
+    // Protect built-in account types that haven't been re-registered
+    if (isBuiltIn && !isRegistered && !options?.force) {
+      throw new Error(`Cannot delete built-in account type '${slug}' without force flag`)
+    }
+
+    // Remove from registered account types
+    this.registeredAccountTypes.delete(slug)
+    await this.ctx.storage.delete(`accountType:${slug}`)
+
+    // Mark as deleted so getAccountType won't return built-in
+    this.deletedAccountTypeSlugs.add(slug)
+
+    return true
+  }
+
+  async listAccountTypes(): Promise<AccountType[]> {
+    await this.ensureInitialized()
+
+    const typesMap = new Map<string, AccountType>()
+
+    // Add built-in account types that haven't been deleted
+    for (const builtIn of BUILT_IN_ACCOUNT_TYPES) {
+      if (!this.deletedAccountTypeSlugs.has(builtIn.slug)) {
+        const providers = this.getProvidersForAccountType(builtIn.slug)
+        typesMap.set(builtIn.slug, { ...builtIn, providers })
+      }
+    }
+
+    // Add/override with registered account types
+    for (const [slug, type] of this.registeredAccountTypes) {
+      const providers = this.getProvidersForAccountType(slug)
+      typesMap.set(slug, { ...type, providers })
+    }
+
+    return Array.from(typesMap.values())
+  }
+
+  async listBuiltInAccountTypes(): Promise<AccountType[]> {
+    await this.ensureInitialized()
+
+    // Return copies of built-in account types with dynamic providers
+    return BUILT_IN_ACCOUNT_TYPES.map((t) => {
+      const providers = this.getProvidersForAccountType(t.slug)
+      return { ...t, providers }
+    })
+  }
+
+  async isBuiltInAccountType(slug: string): Promise<boolean> {
+    return BUILT_IN_ACCOUNT_TYPE_SLUGS.has(slug)
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -640,10 +898,68 @@ export class IntegrationsDO {
         return Response.json({ valid })
       }
 
-      // GET /account-types
+      // GET /account-types - list all account types as objects
       if (method === 'GET' && path === '/account-types') {
-        const types = await this.getAccountTypes()
+        const types = await this.listAccountTypes()
         return Response.json(types)
+      }
+
+      // Account type routes
+      const accountTypeMatch = path.match(/^\/account-types\/([^/]+)$/)
+
+      // GET /account-types/:slug
+      if (method === 'GET' && accountTypeMatch) {
+        const slug = accountTypeMatch[1]
+        const accountType = await this.getAccountType(slug)
+
+        if (!accountType) {
+          return new Response('Account type not found', { status: 404 })
+        }
+
+        return Response.json(accountType)
+      }
+
+      // POST /account-types
+      if (method === 'POST' && path === '/account-types') {
+        const body = (await request.json()) as Omit<AccountType, 'id'>
+        // Check if this slug already exists (as built-in or registered)
+        const existing = await this.getAccountType(body.slug)
+        if (existing) {
+          return Response.json({ error: `Account type with slug '${body.slug}' already exists` }, { status: 400 })
+        }
+        const accountType = await this.registerAccountType(body)
+        return Response.json(accountType, { status: 201 })
+      }
+
+      // PUT /account-types/:slug
+      if (method === 'PUT' && accountTypeMatch) {
+        const slug = accountTypeMatch[1]
+        const body = (await request.json()) as Partial<AccountType>
+        const accountType = await this.updateAccountType(slug, body)
+
+        if (!accountType) {
+          return new Response('Account type not found', { status: 404 })
+        }
+
+        return Response.json(accountType)
+      }
+
+      // DELETE /account-types/:slug
+      if (method === 'DELETE' && accountTypeMatch) {
+        const slug = accountTypeMatch[1]
+        try {
+          const deleted = await this.deleteAccountType(slug)
+
+          if (!deleted) {
+            return new Response('Account type not found', { status: 404 })
+          }
+
+          return Response.json({ success: true })
+        } catch (error) {
+          // Built-in account types can't be deleted without force
+          const message = error instanceof Error ? error.message : 'Unknown error'
+          return Response.json({ error: message }, { status: 400 })
+        }
       }
 
       // Health check
