@@ -1,16 +1,25 @@
 /**
  * API - REST/GraphQL API endpoint
  *
- * Extends Service with API-specific features: versioning, rate limiting, docs.
+ * HTTP API with routing, rate limiting, authentication, CORS.
  * Examples: 'api.acme.com/v1', 'graphql.acme.com'
  */
 
-import { Service, ServiceConfig, Route, RequestContext } from './Service'
-import { Env } from './DO'
+import { DO, Env } from './DO'
 
-export interface APIConfig extends ServiceConfig {
+export interface Route {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+  path: string
+  handler: string
+  middleware?: string[]
+}
+
+export interface APIConfig {
+  name: string
+  description?: string
   version: string
   basePath: string
+  routes: Route[]
   rateLimit?: {
     requests: number
     window: number // seconds
@@ -26,13 +35,22 @@ export interface APIConfig extends ServiceConfig {
   }
 }
 
+export interface RequestContext {
+  method: string
+  path: string
+  params: Record<string, string>
+  query: Record<string, string>
+  headers: Record<string, string>
+  body?: unknown
+}
+
 export interface RateLimitState {
   count: number
   resetAt: number
 }
 
-export class API extends Service {
-  private apiConfig: APIConfig | null = null
+export class API extends DO {
+  private config: APIConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -41,28 +59,75 @@ export class API extends Service {
   /**
    * Get API configuration
    */
-  async getAPIConfig(): Promise<APIConfig | null> {
-    if (!this.apiConfig) {
-      this.apiConfig = await this.ctx.storage.get('api_config') as APIConfig | null
+  async getConfig(): Promise<APIConfig | null> {
+    if (!this.config) {
+      this.config = await this.ctx.storage.get('config') as APIConfig | null
     }
-    return this.apiConfig
+    return this.config
   }
 
   /**
    * Configure the API
    */
-  async configureAPI(config: APIConfig): Promise<void> {
-    this.apiConfig = config
-    await this.ctx.storage.put('api_config', config)
-    await this.configure(config)
+  async configure(config: APIConfig): Promise<void> {
+    this.config = config
+    await this.ctx.storage.put('config', config)
     await this.emit('api.configured', { config })
+  }
+
+  /**
+   * Add a route
+   */
+  async addRoute(route: Route): Promise<void> {
+    const config = await this.getConfig()
+    if (!config) {
+      throw new Error('API not configured')
+    }
+    config.routes.push(route)
+    await this.ctx.storage.put('config', config)
+    await this.emit('route.added', { route })
+  }
+
+  /**
+   * Match a route to a request
+   */
+  protected matchRoute(method: string, path: string): { route: Route; params: Record<string, string> } | null {
+    if (!this.config) return null
+
+    for (const route of this.config.routes) {
+      if (route.method !== method) continue
+
+      // Simple path matching with :params
+      const routeParts = route.path.split('/')
+      const pathParts = path.split('/')
+
+      if (routeParts.length !== pathParts.length) continue
+
+      const params: Record<string, string> = {}
+      let match = true
+
+      for (let i = 0; i < routeParts.length; i++) {
+        if (routeParts[i].startsWith(':')) {
+          params[routeParts[i].slice(1)] = pathParts[i]
+        } else if (routeParts[i] !== pathParts[i]) {
+          match = false
+          break
+        }
+      }
+
+      if (match) {
+        return { route, params }
+      }
+    }
+
+    return null
   }
 
   /**
    * Check rate limit for a client
    */
   async checkRateLimit(clientId: string): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-    const config = await this.getAPIConfig()
+    const config = await this.getConfig()
     if (!config?.rateLimit) {
       return { allowed: true, remaining: Infinity, resetAt: 0 }
     }
@@ -93,7 +158,7 @@ export class API extends Service {
    * Validate authentication
    */
   async validateAuth(request: Request): Promise<{ valid: boolean; clientId?: string; error?: string }> {
-    const config = await this.getAPIConfig()
+    const config = await this.getConfig()
     if (!config?.authentication) {
       return { valid: true }
     }
@@ -139,7 +204,7 @@ export class API extends Service {
    * Add CORS headers to response
    */
   addCorsHeaders(response: Response): Response {
-    const config = this.apiConfig
+    const config = this.config
     if (!config?.cors) return response
 
     const headers = new Headers(response.headers)
@@ -155,10 +220,77 @@ export class API extends Service {
   }
 
   /**
+   * Execute a handler (stub - override in subclasses)
+   */
+  protected async executeHandler(handler: string, context: RequestContext): Promise<unknown> {
+    // Override in subclasses to implement actual handler execution
+    return { handler, context }
+  }
+
+  /**
+   * Handle an API request
+   */
+  async handleRequest(request: Request): Promise<Response> {
+    const config = await this.getConfig()
+    if (!config) {
+      return new Response('API not configured', { status: 503 })
+    }
+
+    const url = new URL(request.url)
+    const match = this.matchRoute(request.method, url.pathname)
+
+    if (!match) {
+      return new Response('Not Found', { status: 404 })
+    }
+
+    const query: Record<string, string> = {}
+    url.searchParams.forEach((value, key) => {
+      query[key] = value
+    })
+
+    const headers: Record<string, string> = {}
+    request.headers.forEach((value, key) => {
+      headers[key] = value
+    })
+
+    const context: RequestContext = {
+      method: request.method,
+      path: url.pathname,
+      params: match.params,
+      query,
+      headers,
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      try {
+        context.body = await request.json()
+      } catch {
+        // Body not JSON
+      }
+    }
+
+    await this.emit('request.received', { handler: match.route.handler, context })
+
+    try {
+      const result = await this.executeHandler(match.route.handler, context)
+      return new Response(JSON.stringify(result), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await this.emit('request.failed', { handler: match.route.handler, error: message })
+      return new Response(JSON.stringify({ error: message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+  }
+
+  /**
    * Generate OpenAPI spec (stub)
    */
   async getOpenAPISpec(): Promise<Record<string, unknown>> {
-    const config = await this.getAPIConfig()
+    const config = await this.getConfig()
     if (!config) {
       return { openapi: '3.0.0', info: { title: 'API', version: '1.0.0' }, paths: {} }
     }
@@ -190,30 +322,30 @@ export class API extends Service {
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      const config = await this.getAPIConfig()
+      const config = await this.getConfig()
       if (config?.cors) {
         return this.addCorsHeaders(new Response(null, { status: 204 }))
       }
     }
 
-    // API-specific endpoints
-    if (url.pathname === '/_api/config') {
+    // API management endpoints
+    if (url.pathname === '/_config') {
       if (request.method === 'GET') {
-        const config = await this.getAPIConfig()
+        const config = await this.getConfig()
         return new Response(JSON.stringify(config), {
           headers: { 'Content-Type': 'application/json' },
         })
       }
       if (request.method === 'PUT') {
         const config = await request.json() as APIConfig
-        await this.configureAPI(config)
+        await this.configure(config)
         return new Response(JSON.stringify({ success: true }), {
           headers: { 'Content-Type': 'application/json' },
         })
       }
     }
 
-    if (url.pathname === '/_api/openapi') {
+    if (url.pathname === '/_openapi') {
       const spec = await this.getOpenAPISpec()
       return new Response(JSON.stringify(spec), {
         headers: { 'Content-Type': 'application/json' },
@@ -244,8 +376,8 @@ export class API extends Service {
       }
     }
 
-    // Handle request via Service
-    const response = await super.fetch(request)
+    // Handle API request
+    const response = await this.handleRequest(request)
     return this.addCorsHeaders(response)
   }
 }

@@ -46,9 +46,11 @@ export { Product, type ProductVariant, type ProductConfig } from './Product'
 // Execution units
 export { Function, type FunctionConfig, type FunctionInvocation } from './Function'
 export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './Workflow'
-export { Service, type Route, type ServiceConfig, type RequestContext } from './Service'
+
+// Business services
+export { Service, type ServiceType, type DeliveryMethod, type ServiceTier, type ServiceConfig, type ServiceSubscription, type ServiceRequest, type ServiceDeliverable } from './Service'
 
 // Interface types
-export { API, type APIConfig, type RateLimitState } from './API'
+export { API, type Route, type APIConfig, type RequestContext, type RateLimitState } from './API'
 export { SDK, type SDKConfig, type GeneratedFile } from './SDK'
 export { CLI, type CLICommand, type CLIArgument, type CLIOption, type CLIConfig, type CLIExecution } from './CLI'
