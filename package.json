@@ -16,7 +16,9 @@
     "./api": "./api/index.ts",
     "./api/*": "./api/*.ts",
     "./docs": "./docs/index.mdx",
-    "./docs/*": "./docs/*"
+    "./docs/*": "./docs/*",
+    "./dist": "./dist/index.html",
+    "./dist/*": "./dist/*"
   },
   "files": [
     "index.ts",
@@ -25,7 +27,8 @@
     "snippets",
     "streams",
     "api",
-    "docs"
+    "docs",
+    "dist"
   ],
   "scripts": {
     "types": "wrangler types worker.d.ts -c wrangler.jsonc",
@@ -45,23 +48,42 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@mdxui/beacon": "^0.2.0",
+    "@mdxui/cockpit": "^0.2.0",
+    "@mdxui/primitives": "^0.0.0",
+    "@mdxui/themes": "^0.0.1",
+    "@tanstack/react-router": "^1.144.0",
+    "@tanstack/react-start": "^1.145.5",
     "better-auth": "^1.4.10",
     "drizzle-orm": "^0.45.1",
+    "fumadocs-core": "^15.0.0",
+    "fumadocs-mdx": "^11.0.0",
+    "fumadocs-ui": "^15.0.0",
     "hono": "^4.6.0",
-    "jose": "^6.1.3"
+    "jose": "^6.1.3",
+    "mdxui": "^0.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.0.0",
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20241230.0",
     "@playwright/test": "^1.57.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/mdx": "^2.0.0",
     "@types/node": "^25.0.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.0",
     "@vitest/runner": "^2.0.5",
     "@vitest/snapshot": "^2.0.5",
     "prettier": "^3.7.4",
     "smol-toml": "^1.6.0",
+    "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
+    "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^2.0.5",
     "wrangler": "^3.100.0"
   }
