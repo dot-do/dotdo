@@ -20,7 +20,33 @@ import { actions } from './actions'
 import { events } from './events'
 import { search } from './search'
 import { branches } from './branches'
-import { users, sessions, accounts, verifications } from './auth'
+import {
+  // Core auth
+  users,
+  sessions,
+  accounts,
+  verifications,
+  // Organization plugin
+  organizations,
+  members,
+  invitations,
+  teams,
+  teamMembers,
+  // API Key plugin
+  apiKeys,
+  // SSO plugin
+  ssoProviders,
+  // OAuth Provider plugin
+  oauthClients,
+  oauthAccessTokens,
+  oauthRefreshTokens,
+  oauthConsents,
+  oauthAuthorizationCodes,
+  // Custom domains
+  customDomains,
+  // Stripe plugin
+  subscriptions,
+} from './auth'
 
 export const schema = {
   // Core DO tables
@@ -33,9 +59,36 @@ export const schema = {
   events,
   search,
   branches,
-  // Auth tables (better-auth)
+
+  // Auth - Core (better-auth)
   users,
   sessions,
   accounts,
   verifications,
+
+  // Auth - Organization plugin
+  organizations,
+  members,
+  invitations,
+  teams,
+  teamMembers,
+
+  // Auth - API Key plugin
+  apiKeys,
+
+  // Auth - SSO plugin
+  ssoProviders,
+
+  // Auth - OAuth Provider plugin
+  oauthClients,
+  oauthAccessTokens,
+  oauthRefreshTokens,
+  oauthConsents,
+  oauthAuthorizationCodes,
+
+  // Auth - Custom domains
+  customDomains,
+
+  // Auth - Stripe plugin
+  subscriptions,
 }
