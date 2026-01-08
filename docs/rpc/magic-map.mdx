@@ -1,0 +1,35 @@
+---
+title: Magic Map
+description: Transform collections without awaiting each element
+---
+
+# Magic Map
+
+Transform collections on the server without awaiting individual elements.
+
+```typescript
+// Transform each post without fetching them first
+const titles = await rpc.getPosts().map(post => post.title)
+```
+
+## How It Works
+
+The `.map()` call doesn't execute locally - it creates a pipeline instruction that runs on the server. The transformation happens where the data lives.
+
+## Chaining Transforms
+
+```typescript
+const result = await rpc
+  .getUsers()
+  .filter(user => user.active)
+  .map(user => user.email)
+  .slice(0, 10)
+```
+
+## Supported Operations
+
+- `.map(fn)` - Transform each element
+- `.filter(fn)` - Filter elements
+- `.slice(start, end)` - Take a subset
+- `.find(fn)` - Find first match
+- `.reduce(fn, initial)` - Reduce to single value

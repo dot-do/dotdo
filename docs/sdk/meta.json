@@ -1,0 +1,6 @@
+{
+  "title": "SDK Reference",
+  "description": "TypeScript SDK types and client documentation",
+  "root": true,
+  "pages": ["index"]
+}

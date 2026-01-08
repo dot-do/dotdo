@@ -1,0 +1,40 @@
+---
+title: Pipelines
+description: Batch multiple operations into single round-trips
+---
+
+# Pipelines
+
+Pipelines batch multiple independent operations into a single network round-trip.
+
+```typescript
+// These three calls are batched automatically:
+const [user, posts, settings] = await Promise.all([
+  rpc.getUser('alice'),
+  rpc.getPosts({ limit: 10 }),
+  rpc.getSettings()
+])
+```
+
+## Promise Pipelining
+
+When you chain calls, the server can start processing the next step before sending the previous result back:
+
+```typescript
+// Server processes getUser, then immediately processes getPosts
+// without sending user data back first
+const posts = await rpc.getUser('alice').getPosts()
+```
+
+## Batching Independent Calls
+
+Use `Promise.all` to batch independent operations:
+
+```typescript
+// Single round-trip for all three
+const [a, b, c] = await Promise.all([
+  rpc.operationA(),
+  rpc.operationB(),
+  rpc.operationC()
+])
+```

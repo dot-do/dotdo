@@ -1,0 +1,55 @@
+---
+title: Await Patterns
+description: When to await and when to keep pipelining
+---
+
+# Await Patterns
+
+Understanding when to `await` is key to getting the most out of RPC.do.
+
+## Don't Await: When Chaining
+
+```typescript
+// DON'T await intermediate steps
+const posts = await rpc.getUser('alice').getPosts()
+
+// NOT this - creates unnecessary round-trips
+const user = await rpc.getUser('alice')
+const posts = await user.getPosts()
+```
+
+## Do Await: When You Need the Value
+
+```typescript
+// Await when you need to branch on the result
+const user = await rpc.getUser('alice')
+if (user.isAdmin) {
+  // different code path
+}
+
+// Await when you need to use the value locally
+const count = await rpc.getPosts().length
+console.log(`Found ${count} posts`)
+```
+
+## Do Await: At Function Boundaries
+
+```typescript
+async function getUserPosts(id: string) {
+  // Await at the return - caller gets resolved value
+  return await rpc.getUser(id).getPosts()
+}
+```
+
+## Don't Await: When Passing to Another RPC
+
+```typescript
+// The proxy can be passed directly to another RPC call
+const userProxy = rpc.getUser('alice')
+await rpc.sendNotification(userProxy, 'Hello!')
+```
+
+## Rule of Thumb
+
+- **Pipeline** when the next step is another RPC operation
+- **Await** when you need to inspect, branch, or return the value

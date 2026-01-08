@@ -1,0 +1,28 @@
+---
+title: Proxy Chaining
+description: Chain method calls on remote objects without awaiting
+---
+
+# Proxy Chaining
+
+Chain method calls on remote objects. Each call returns a proxy that can be chained further.
+
+```typescript
+// Instead of:
+const user = await rpc.getUser('alice')
+const posts = await user.getPosts()
+const first = await posts[0]
+
+// Chain without awaiting intermediate results:
+const first = await rpc.getUser('alice').getPosts()[0]
+```
+
+## How It Works
+
+When you access a property or call a method on an RPC proxy, you get back another proxy - not the actual value. The chain is only resolved when you `await` the final result.
+
+## Benefits
+
+- **Fewer round-trips** - The entire chain is sent as one request
+- **Lower latency** - No waiting between each step
+- **Cleaner code** - Express intent without ceremony
