@@ -1,6 +1,4 @@
-# ai-workflows
-
-> Event-Driven Domain DSL for Durable Execution
+# ai-workflows v2: Event-Driven Domain DSL
 
 ## The Vision
 
@@ -21,15 +19,11 @@ Reads as: *"On customer signup, create CRM account, setup billing, send welcome 
 3. **No ceremony** - No `Workflow()` wrapper, no `async/await`
 4. **Natural language** - `on.Order.placed`, `every.Monday.at9am`
 
----
-
 ## API Design
 
 ### Event Subscriptions
 
 ```typescript
-import { on, Domain } from './on'
-
 // Entity lifecycle events
 on.Customer.signup(customer => { ... })
 on.Customer.upgraded(customer => { ... })
@@ -40,29 +34,24 @@ on.Order.paid(order => { ... })
 on.Order.shipped(order => { ... })
 on.Order.delivered(order => { ... })
 
-// The pattern: on.<Entity>.<event>(handler)
+// The event name is the method, entity is the namespace
+on.<Entity>.<event>(handler)
 ```
 
 ### Domain Calls (No $ Prefix)
 
 ```typescript
-const CRM = Domain('CRM', {
-  createAccount: (customer) => ({ accountId: '123' })
-})
-
-const Billing = Domain('Billing', {
-  setupSubscription: (customer) => ({ subscriptionId: '456' })
-})
-
 on.Customer.signup(customer => {
   // Direct domain calls - no $ needed
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
+  Support(customer).createTicketQueue()
+  Analytics(customer).initializeTracking()
 
-  // Property access on unresolved values works
+  // Property access on unresolved values still works
   Email(customer).sendWelcome({
-    crmId: CRM(customer).createAccount().accountId,
-    portalUrl: Billing(customer).setupSubscription().portalUrl
+    crmId: CRM(customer).id,
+    portalUrl: Billing(customer).portalUrl
   })
 })
 ```
@@ -70,12 +59,9 @@ on.Customer.signup(customer => {
 ### Scheduling
 
 ```typescript
-import { every } from './on'
-
 // Fluent API
 every.Monday.at9am(() => {
-  Analytics('sales').weeklyMetrics()
-  Slack('#leadership').post({ template: 'weekly-report' })
+  Analytics.weeklyReport()
 })
 
 every.day.at6am(() => {
@@ -86,40 +72,17 @@ every.hour(() => {
   Metrics.collect()
 })
 
-// Natural language string
+// Or natural language string
 every('Monday at 9am', () => { ... })
-every('daily at 6am', () => { ... })
+every('first day of month', () => { ... })
+every('15 minutes', () => { ... })
 ```
 
-### Fire-and-Forget Events
+### Conditionals
 
 ```typescript
-import { send } from './on'
-
-on.Order.paid(order => {
-  // Fire-and-forget: triggers Order.readyToShip event
-  send.Order.readyToShip(order)
-})
-
-on.Order.readyToShip(order => {
-  Fulfillment(order).createLabel()
-  Warehouse(order).pickAndPack()
-  send.Order.shipped(order)
-})
-
-on.Order.shipped(order => {
-  Email(order.customer).sendShippingNotification()
-  Analytics.trackShipment(order)
-})
-```
-
-### Declarative Conditionals
-
-```typescript
-import { when } from './on'
-
 on.Expense.submitted(expense => {
-  const validation = Expenses(expense).validate()
+  Expenses(expense).validate()
 
   when(expense.amount > 1000, {
     then: () => {
@@ -136,8 +99,6 @@ on.Expense.submitted(expense => {
 ### Human-in-the-Loop
 
 ```typescript
-import { waitFor, when } from './on'
-
 on.Expense.needsApproval(expense => {
   Slack(expense.approver).send({ template: 'approval-request', expense })
 
@@ -150,7 +111,40 @@ on.Expense.needsApproval(expense => {
 })
 ```
 
----
+### Batch Processing (Magic Map)
+
+```typescript
+on.Order.placed(order => {
+  // Magic map - each item processed in batch
+  order.items.map(item => {
+    Inventory(item.product).check()
+    Inventory(item.product).reserve({ quantity: item.quantity })
+  })
+
+  Payment(order).process()
+  Email(order.customer).sendConfirmation()
+})
+```
+
+### Chained Events (Fire-and-Forget)
+
+```typescript
+on.Order.paid(order => {
+  // Fire-and-forget: triggers Order.shipped event when done
+  send.Order.readyToShip(order)
+})
+
+on.Order.readyToShip(order => {
+  Fulfillment(order).createLabel()
+  Warehouse(order).pickAndPack()
+  send.Order.shipped(order)
+})
+
+on.Order.shipped(order => {
+  Email(order.customer).sendShippingNotification()
+  Analytics.trackShipment(order)
+})
+```
 
 ## Implementation
 
@@ -158,11 +152,12 @@ on.Expense.needsApproval(expense => {
 
 ```typescript
 // on.Customer.signup(handler) creates an event subscription
-export const on = new Proxy({}, {
+const on = new Proxy({}, {
   get(_, entity: string) {
     return new Proxy({}, {
       get(_, event: string) {
         return (handler: Function) => {
+          // Register: when entity.event fires, run handler
           registerEventHandler(`${entity}.${event}`, handler)
         }
       }
@@ -174,44 +169,51 @@ export const on = new Proxy({}, {
 ### Domain as First-Class
 
 ```typescript
-// Domains are callable without $ prefix
+// Domains are registered globally, callable without $
 const CRM = Domain('CRM', {
-  createAccount: (customer) => { ... }
+  createAccount: (customer) => { ... },
+  updateAccount: (customer, data) => { ... }
 })
 
-// When called, returns PipelinePromise (deferred execution)
+// When called, returns PipelinePromise (same as before)
 CRM(customer).createAccount()
-// Returns: { __expr: { type: 'call', domain: 'CRM', method: ['createAccount'], context: customer } }
+// Returns PipelinePromise with expr: { type: 'call', domain: 'CRM', method: ['createAccount'], context: customer }
 ```
 
 ### The `every` Scheduler
 
 ```typescript
 // Fluent: every.Monday.at9am(handler)
-// String: every('Monday at 9am', handler)
-export const every = new Proxy(..., {
+const every = new Proxy({}, {
   get(_, day: string) {
-    return new Proxy(..., {
+    return new Proxy({}, {
       get(_, time: string) {
         return (handler: Function) => {
-          const cron = toCron(day, time) // 'Monday', 'at9am' -> '0 9 * * 1'
+          const cron = parseToCron(day, time) // 'Monday', 'at9am' -> '0 9 * * 1'
           registerScheduledHandler(cron, handler)
         }
       }
     })
   }
 })
+
+// String: every('Monday at 9am', handler)
+function every(schedule: string, handler: Function) {
+  const cron = parseNaturalLanguage(schedule)
+  registerScheduledHandler(cron, handler)
+}
 ```
 
 ### The `send` Fire-and-Forget
 
 ```typescript
 // send.Order.shipped(order) - fires event, doesn't wait
-export const send = new Proxy({}, {
+const send = new Proxy({}, {
   get(_, entity: string) {
     return new Proxy({}, {
       get(_, event: string) {
         return (payload: unknown) => {
+          // Queue event for async processing
           return createPipelinePromise({
             type: 'send',
             entity,
@@ -225,94 +227,43 @@ export const send = new Proxy({}, {
 })
 ```
 
----
+## Examples Reimagined
 
-## PipelinePromise: Capnweb-Style Lazy Execution
-
-Inspired by [capnweb](https://github.com/cloudflare/capnweb), all domain calls return **PipelinePromises** that capture expressions without executing:
+### OnboardingWorkflow → on.Customer.signup
 
 ```typescript
-// User writes:
-CRM(customer).createAccount()
+// BEFORE
+const OnboardingWorkflow = Workflow('customer-onboarding', ($, customer) => {
+  const crm = $.CRM(customer).createAccount()
+  const billing = $.Billing(customer).setupSubscription()
+  $.Email(customer).sendWelcome({ crmId: crm.id })
+  return { crmId: crm.id }
+})
 
-// Runtime captures (no execution yet):
-{
-  __expr: {
-    type: 'call',
-    domain: 'CRM',
-    method: ['createAccount'],
-    context: customer
-  }
-}
-```
-
-### Property Access on Unresolved Values
-
-```typescript
-const crm = CRM(customer).createAccount()
-const accountId = crm.accountId  // Returns PipelinePromise, not actual value
-
-// accountId.__expr:
-{
-  type: 'property',
-  base: { type: 'call', domain: 'CRM', ... },
-  property: 'accountId'
-}
-```
-
-### Deferred Execution Benefits
-
-| Benefit | Explanation |
-|---------|-------------|
-| **No async/await** | Workflows read like synchronous code |
-| **Dependency analysis** | Runtime can analyze the expression graph |
-| **Parallel execution** | Independent operations execute concurrently |
-| **Deterministic replay** | Expressions serialize for durable execution |
-
----
-
-## Examples
-
-### Customer Onboarding
-
-```typescript
-const CRM = Domain('CRM', { createAccount: () => {} })
-const Billing = Domain('Billing', { setupSubscription: () => {} })
-const Email = Domain('Email', { sendWelcome: () => {} })
-
+// AFTER
 on.Customer.signup(customer => {
   CRM(customer).createAccount()
   Billing(customer).setupSubscription()
+  Support(customer).createTicketQueue()
+  Analytics(customer).initializeTracking()
 
   Email(customer).sendWelcome({
-    crmId: CRM(customer).createAccount().accountId,
-    portalUrl: Billing(customer).setupSubscription().portalUrl
+    crmId: CRM(customer).id,
+    portalUrl: Billing(customer).portalUrl
   })
 })
 ```
 
-### Weekly Reports
+### ExpenseApprovalWorkflow → on.Expense.submitted
 
 ```typescript
-const Analytics = Domain('Analytics', { weeklyMetrics: () => {} })
-const AI = Domain('AI', { generateInsights: () => {} })
-const Slack = Domain('Slack', { post: () => {} })
-
-every.Monday.at9am(() => {
-  const metrics = Analytics('sales').weeklyMetrics()
-  const insights = AI('analyst').generateInsights({ metrics })
-  Slack('#leadership').post({ report: { metrics, insights } })
+// BEFORE
+const ExpenseApprovalWorkflow = Workflow('expense-approval', ($, expense) => {
+  const validation = $.Expenses(expense).validate()
+  return $.when(validation.requiresApproval, { ... })
 })
-```
 
-### Expense Approval with Human-in-Loop
-
-```typescript
-const Expenses = Domain('Expenses', { validate: () => {} })
-const Finance = Domain('Finance', { reimburse: () => {}, autoApprove: () => {} })
-const Slack = Domain('Slack', { requestApproval: () => {} })
-const Email = Domain('Email', { reject: () => {} })
-
+// AFTER
 on.Expense.submitted(expense => {
   const validation = Expenses(expense).validate()
 
@@ -333,11 +284,36 @@ on.Expense.submitted(expense => {
 })
 ```
 
-### Sprint Lifecycle
+### WeeklyReportWorkflow → every.Monday.at9am
+
+```typescript
+// BEFORE
+const WeeklyReportWorkflow = Workflow('weekly-report')
+  .every('Monday at 9am')
+  .run(($) => { ... })
+
+// AFTER
+every.Monday.at9am(() => {
+  const sales = Analytics('sales').weeklyMetrics()
+  const support = Support('tickets').weeklyStats()
+  const engineering = Engineering('velocity').sprintMetrics()
+
+  const insights = AI('analyst').generateInsights({ sales, support, engineering })
+
+  const report = Reports.create({ metrics: { sales, support, engineering }, insights })
+
+  Slack('#leadership').post({ template: 'weekly-report', report })
+  Email('executives').send({ template: 'weekly-digest', report })
+})
+```
+
+### SprintWorkflow → on.Sprint.started + every
 
 ```typescript
 on.Sprint.started(sprint => {
   const backlog = Backlog(sprint.startup).getItems()
+
+  // AI prioritizes each item
   backlog.map(item => AI(sprint.startup.mission).prioritize({ item }))
 
   Standup(sprint.team).scheduleDaily({ time: '9am', channel: sprint.slackChannel })
@@ -349,60 +325,39 @@ on.Sprint.ended(sprint => {
   const retro = AI('agile-coach').generateRetro({ sprint, feedback })
 
   Slack(sprint.slackChannel).post({ template: 'sprint-retro', retro })
+
+  // Start next sprint
   send.Sprint.started(Sprint(sprint.startup).planNext({ retro }))
+})
+
+// Trigger sprint end after 2 weeks
+on.Sprint.started(sprint => {
+  sleep('2 weeks')
+  send.Sprint.ended(sprint)
 })
 ```
 
----
-
-## Comparison: v1 vs v2
+## Comparison
 
 | Aspect | v1 (Workflow) | v2 (on.Event) |
 |--------|---------------|---------------|
 | Declaration | `Workflow('name', ($, input) => ...)` | `on.Entity.event(input => ...)` |
 | Domain calls | `$.CRM(ctx).method()` | `CRM(ctx).method()` |
-| Async | `await`, `Promise.all` | No await needed |
 | Scheduling | `Workflow().every('...').run()` | `every.Monday.at9am(() => ...)` |
 | Fire-and-forget | N/A | `send.Entity.event(payload)` |
 | Mental model | "Define and call workflows" | "React to events" |
 
----
-
 ## Benefits
 
-1. **Simpler** - No Workflow wrapper, no $ prefix, no await
+1. **Simpler** - No Workflow wrapper, no $ prefix
 2. **Declarative** - "When X happens, do Y"
 3. **Composable** - Events can trigger other events via `send`
 4. **Natural** - Reads like English
 5. **Event-sourced** - Every action is an event
 
----
+## Open Questions
 
-## File Structure
-
-```
-workflows/
-├── on.ts                    # Event DSL: on, every, send, when, waitFor, Domain
-├── on.test.ts               # Tests for event DSL
-├── pipeline-promise.ts      # PipelinePromise implementation
-├── pipeline-promise.test.ts # Tests for PipelinePromise
-├── analyzer.ts              # Expression dependency analysis
-├── domain.ts                # Base domain registry
-├── DESIGN.md                # Original architecture doc
-├── DESIGN-v2.md             # Event-driven design doc
-└── README.md                # This file
-```
-
----
-
-## Running Tests
-
-```bash
-npx vitest run workflows/
-```
-
----
-
-## License
-
-MIT
+1. **Return values** - Do event handlers return anything? Or is everything fire-and-forget with `send`?
+2. **Error handling** - How do we handle failures in event handlers?
+3. **Ordering** - Can multiple handlers subscribe to the same event? What order?
+4. **Idempotency** - How do we ensure handlers don't double-process?

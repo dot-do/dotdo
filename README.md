@@ -309,7 +309,7 @@ bucket_name = "analytics"
 | **Drizzle ORM** | Type-safe SQLite persistence |
 | **digital-workers** | Common Worker interface for AI/Human |
 | **ai-functions** | Promise-pipelined AI primitives |
-| **ai-workflows** | Event-driven `$` context |
+| **ai-workflows** | Event-driven DSL: `on.Customer.signup`, `every.Monday.at9am` |
 | **human-in-the-loop** | Approval flows and escalation |
 | **Pipelines/Streams** | Event streaming to R2 Iceberg |
 | **R2 Data Catalog** | Analytics with R2-SQL |
