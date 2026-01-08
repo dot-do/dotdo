@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "my-do-app",
+  "main": "worker.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./content",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "DO", "class_name": "App" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }]
+}
