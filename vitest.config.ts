@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     globals: true,
-    include: ['api/tests/**/*.test.ts'],
+    include: ['api/tests/**/*.test.ts', 'db/tests/**/*.test.ts'],
     environment: 'node',
     // Exclude workers tests from default config - they use workspace
     exclude: [

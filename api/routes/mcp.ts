@@ -18,9 +18,13 @@ const sessions = new Map<string, McpSession>()
 export interface McpSession {
   id: string
   createdAt: Date
+  lastAccessedAt: Date
   lastActivity: Date
   tools: Map<string, McpTool>
   resources: Map<string, McpResource>
+  clientInfo?: { name: string; version: string }
+  capabilities: Record<string, unknown>
+  subscriptions: string[]
 }
 
 export interface McpTool {
@@ -56,12 +60,17 @@ export interface JsonRpcResponse {
 
 export function createMcpSession(): McpSession {
   const id = crypto.randomUUID()
+  const now = new Date()
   const session: McpSession = {
     id,
-    createdAt: new Date(),
-    lastActivity: new Date(),
+    createdAt: now,
+    lastAccessedAt: now,
+    lastActivity: now,
     tools: new Map(),
     resources: new Map(),
+    clientInfo: undefined,
+    capabilities: {},
+    subscriptions: [],
   }
   sessions.set(id, session)
   return session
@@ -210,6 +219,7 @@ export async function handleMcpRequest(request: Request, session?: McpSession): 
           sessionId = currentSession.id
         }
         responseHeaders['mcp-session-id'] = currentSession.id
+        responseHeaders['Mcp-Session-Id'] = currentSession.id
         responses.push(jsonRpcSuccess(req.id, {
           protocolVersion: '2024-11-05',
           capabilities: {
@@ -218,7 +228,7 @@ export async function handleMcpRequest(request: Request, session?: McpSession): 
             prompts: { listChanged: true },
           },
           serverInfo: {
-            name: 'dotdo-mcp',
+            name: 'dotdo-mcp-server',
             version: '0.1.0',
           },
         }))
