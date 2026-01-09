@@ -308,3 +308,78 @@ export function hasGit(ctx: WorkflowContext): ctx is WithGit {
 export function hasBash(ctx: WorkflowContext): ctx is WithBash {
   return ctx != null && typeof (ctx as WithBash).bash === 'object' && (ctx as WithBash).bash !== null
 }
+
+// ============================================================================
+// RATE LIMITING TYPES
+// ============================================================================
+
+/**
+ * Result from rate limit check/consume operations
+ */
+export interface RateLimitResult {
+  /** Whether the action is allowed */
+  success: boolean
+  /** Remaining quota in the current window */
+  remaining: number
+  /** Optional: When the limit resets (epoch ms) */
+  resetAt?: number
+  /** Optional: Limit that was checked */
+  limit?: number
+}
+
+/**
+ * Options for rate limit check
+ */
+export interface RateLimitCheckOptions {
+  /** Maximum requests allowed in the window */
+  limit?: number
+  /** Window size in milliseconds */
+  windowMs?: number
+  /** Cost of this operation (default 1) */
+  cost?: number
+  /** Named limit to use (e.g., 'api', 'auth') */
+  name?: string
+}
+
+/**
+ * Rate limit capability on WorkflowContext
+ */
+export interface RateLimitCapability {
+  /**
+   * Check if an action is rate limited without consuming quota
+   * @param key - Unique key for the rate limit (e.g., user ID, IP)
+   * @param options - Rate limit configuration
+   */
+  check(key: string, options?: RateLimitCheckOptions): Promise<RateLimitResult>
+
+  /**
+   * Consume rate limit quota
+   * @param key - Unique key for the rate limit
+   * @param cost - Cost to consume (default 1)
+   */
+  consume(key: string, cost?: number): Promise<RateLimitResult>
+
+  /**
+   * Get current quota status without modifying it
+   * @param key - Unique key for the rate limit
+   */
+  status(key: string): Promise<RateLimitResult>
+
+  /**
+   * Reset rate limit for a key
+   * @param key - Unique key to reset
+   */
+  reset(key: string): Promise<void>
+}
+
+/**
+ * WorkflowContext with rate limiting capability
+ */
+export type WithRateLimit = WorkflowContext & { rateLimit: RateLimitCapability }
+
+/**
+ * Check if context has rate limiting capability
+ */
+export function hasRateLimit(ctx: WorkflowContext): ctx is WithRateLimit {
+  return ctx != null && typeof (ctx as WithRateLimit).rateLimit === 'object' && (ctx as WithRateLimit).rateLimit !== null
+}
