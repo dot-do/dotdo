@@ -106,6 +106,9 @@ The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records 
   <Card title="Custom Agents" href="/docs/agents/custom-agents">
     Build domain-specific agents for your industry.
   </Card>
+  <Card title="Human Actors" href="/docs/humans/">
+    When AI needs human judgment - escalation, approvals, and human-in-the-loop workflows.
+  </Card>
 </Cards>
 
 ## Human Escalation
@@ -117,7 +120,7 @@ import { legal, ceo } from 'humans.do'
 
 const approved = await ceo`approve the partnership`
 
-escalation = this.HumanFunction({
+const escalation = this.HumanFunction({
   trigger: 'refund > $10000',
   role: 'senior-accountant',
   sla: '4 hours',

@@ -1,10 +1,715 @@
 ---
 title: MCP Reference
-description: Model Context Protocol tools and resources
+description: Model Context Protocol tools and resources for AI agent integration
 ---
 
 # MCP Reference
 
-Auto-generated MCP documentation.
+Model Context Protocol (MCP) integration for dotdo. Expose your Durable Object methods as tools and data as resources for AI agents.
 
-{/* This file will be auto-generated from MCP server tool/resource definitions */}
+```typescript
+class MyStartup extends DO {
+  static $mcp = {
+    tools: {
+      search: {
+        description: 'Search items by query',
+        inputSchema: {
+          query: { type: 'string', description: 'Search query' },
+        },
+        required: ['query'],
+      },
+    },
+    resources: ['items', 'users'],
+  }
+
+  search(query: string) {
+    return this.items.filter(item => item.name.includes(query))
+  }
+}
+```
+
+## Overview
+
+MCP is an open protocol that enables AI agents to interact with external tools and resources. dotdo implements MCP as a first-class transport for Durable Objects, allowing:
+
+- **Tool Invocation** - AI agents call DO methods as MCP tools
+- **Resource Access** - AI agents read DO data as MCP resources
+- **Session Management** - Stateful connections with automatic cleanup
+- **SSE Streaming** - Server-initiated notifications to clients
+
+### Why MCP for dotdo?
+
+Every Durable Object is a potential MCP server. Your business logic becomes directly accessible to AI agents like Claude, GPT, or any MCP-compatible client.
+
+| Feature | Benefit |
+|---------|---------|
+| **Automatic Schema Generation** | JSON Schema derived from `$mcp` config |
+| **Session Isolation** | Each AI conversation gets its own session |
+| **Edge Deployment** | MCP endpoints run in 300+ cities |
+| **Unified Transport** | Same DO handles REST, WebSocket, and MCP |
+
+## Transport Specification
+
+dotdo implements the MCP Streamable HTTP Transport (JSON-RPC 2.0 over HTTP):
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `POST` | `/mcp` | JSON-RPC requests (tools/call, resources/read) |
+| `GET` | `/mcp` | SSE stream for server notifications |
+| `DELETE` | `/mcp` | Terminate session |
+
+### Session Management
+
+Sessions are identified by the `Mcp-Session-Id` header:
+
+```bash
+# Initialize session
+curl -X POST https://my.do/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"my-client","version":"1.0.0"}}}'
+
+# Response includes session header
+# Mcp-Session-Id: abc-123-session
+```
+
+Use the returned session ID for subsequent requests:
+
+```bash
+curl -X POST https://my.do/mcp \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: abc-123-session" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+## Available Tools
+
+### Configuring Tools
+
+Define tools via the static `$mcp.tools` configuration on your DO class:
+
+```typescript
+class CustomerDO extends DO {
+  static $mcp = {
+    tools: {
+      getCustomer: {
+        description: 'Retrieve customer by ID',
+        inputSchema: {
+          id: { type: 'string', description: 'Customer ID' },
+        },
+        required: ['id'],
+      },
+      updateCustomer: {
+        description: 'Update customer data',
+        inputSchema: {
+          id: { type: 'string', description: 'Customer ID' },
+          data: { type: 'object', description: 'Fields to update' },
+        },
+        required: ['id', 'data'],
+      },
+      searchCustomers: {
+        description: 'Search customers by query',
+        inputSchema: {
+          query: { type: 'string', description: 'Search term' },
+          limit: { type: 'number', description: 'Max results' },
+        },
+        required: ['query'],
+      },
+    },
+  }
+
+  // Methods must match tool names
+  getCustomer(id: string) { /* ... */ }
+  updateCustomer(id: string, data: object) { /* ... */ }
+  searchCustomers(query: string, limit?: number) { /* ... */ }
+}
+```
+
+### Tool Schema Format
+
+Each tool requires:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | string | Yes | Human-readable tool description |
+| `inputSchema` | object | Yes | Parameter definitions |
+| `required` | string[] | No | Required parameter names |
+
+Input schema properties:
+
+```typescript
+inputSchema: {
+  paramName: {
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array',
+    description: 'Parameter description',
+  },
+}
+```
+
+### tools/list
+
+List all available tools:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list"
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "name": "getCustomer",
+        "description": "Retrieve customer by ID",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "description": "Customer ID" }
+          },
+          "required": ["id"]
+        }
+      }
+    ]
+  }
+}
+```
+
+### tools/call
+
+Invoke a tool:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "searchCustomers",
+    "arguments": {
+      "query": "acme",
+      "limit": 10
+    }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"id\":\"cust-1\",\"name\":\"Acme Corp\"}]"
+      }
+    ]
+  }
+}
+```
+
+### Error Handling
+
+Tool errors return `isError: true` in the result (not JSON-RPC error):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      { "type": "text", "text": "Customer not found" }
+    ],
+    "isError": true
+  }
+}
+```
+
+## Resources
+
+### Configuring Resources
+
+Define resources via `$mcp.resources`:
+
+```typescript
+class InventoryDO extends DO {
+  static $mcp = {
+    resources: ['items', 'categories', 'suppliers'],
+  }
+
+  // Resource accessors: getItems(), getCategories(), getSuppliers()
+  getItems() {
+    return this._items
+  }
+
+  getCategories() {
+    return this._categories
+  }
+
+  getSuppliers() {
+    return this._suppliers
+  }
+}
+```
+
+### Resource URI Pattern
+
+Resources use the `do://` URI scheme:
+
+```
+do://{host}/{resourceName}
+do://{host}/{resourceName}/{id}
+```
+
+Examples:
+
+```
+do://inventory.example.com/items
+do://inventory.example.com/items/item-123
+do://inventory.example.com/categories
+```
+
+### resources/list
+
+List available resources:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "resources/list"
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "resources": [
+      {
+        "uri": "do://inventory.example.com/items",
+        "name": "items",
+        "mimeType": "application/json"
+      },
+      {
+        "uri": "do://inventory.example.com/categories",
+        "name": "categories",
+        "mimeType": "application/json"
+      }
+    ]
+  }
+}
+```
+
+### resources/read
+
+Read resource contents:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "resources/read",
+  "params": {
+    "uri": "do://inventory.example.com/items"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "contents": [
+      {
+        "uri": "do://inventory.example.com/items",
+        "mimeType": "application/json",
+        "text": "[{\"id\":\"1\",\"name\":\"Widget\"}]"
+      }
+    ]
+  }
+}
+```
+
+Read specific item by ID:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "resources/read",
+  "params": {
+    "uri": "do://inventory.example.com/items/1"
+  }
+}
+```
+
+### Resource Subscriptions
+
+Subscribe to resource updates (requires SSE connection):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "resources/subscribe",
+  "params": {
+    "uri": "do://inventory.example.com/items"
+  }
+}
+```
+
+Unsubscribe:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "resources/unsubscribe",
+  "params": {
+    "uri": "do://inventory.example.com/items"
+  }
+}
+```
+
+## Integration Examples
+
+### Claude Desktop Configuration
+
+Add your dotdo MCP server to Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-startup": {
+      "command": "dotdo",
+      "args": ["mcp", "--url", "https://my-startup.do"]
+    }
+  }
+}
+```
+
+Or use the stdio bridge directly:
+
+```json
+{
+  "mcpServers": {
+    "my-startup": {
+      "command": "npx",
+      "args": ["dotdo", "mcp", "--url", "https://my-startup.do"]
+    }
+  }
+}
+```
+
+### Programmatic Client
+
+```typescript
+import { createMcpBridge, startMcpServer } from 'dotdo/cli/mcp-stdio'
+
+// Create HTTP bridge to DO
+const bridge = createMcpBridge({
+  targetUrl: 'https://my.do',
+})
+
+// Proxy messages
+const response = await bridge.proxy({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'tools/list',
+})
+```
+
+### Using with AI SDKs
+
+```typescript
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic()
+
+// MCP tools from your DO are available via tool_use
+const response = await client.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1024,
+  tools: [
+    {
+      type: 'mcp',
+      server_url: 'https://my-startup.do/mcp',
+    },
+  ],
+  messages: [
+    { role: 'user', content: 'Search for customers named Acme' },
+  ],
+})
+```
+
+### Direct HTTP Client
+
+```typescript
+class McpClient {
+  private sessionId: string | null = null
+
+  constructor(private baseUrl: string) {}
+
+  async initialize() {
+    const response = await fetch(`${this.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          clientInfo: { name: 'my-client', version: '1.0.0' },
+          capabilities: {},
+        },
+      }),
+    })
+
+    this.sessionId = response.headers.get('Mcp-Session-Id')
+    return response.json()
+  }
+
+  async callTool(name: string, args: Record<string, unknown>) {
+    const response = await fetch(`${this.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Mcp-Session-Id': this.sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    })
+    return response.json()
+  }
+
+  async close() {
+    await fetch(`${this.baseUrl}/mcp`, {
+      method: 'DELETE',
+      headers: { 'Mcp-Session-Id': this.sessionId! },
+    })
+  }
+}
+
+// Usage
+const client = new McpClient('https://my.do')
+await client.initialize()
+const result = await client.callTool('searchCustomers', { query: 'acme' })
+await client.close()
+```
+
+## Configuration
+
+### Server Setup
+
+MCP is automatically enabled for any DO class with `$mcp` configuration:
+
+```typescript
+class MyDO extends DO {
+  static $mcp = {
+    tools: { /* ... */ },
+    resources: ['data'],
+  }
+}
+```
+
+The `/mcp` endpoint is auto-wired when `$mcp` is present.
+
+### Authentication
+
+MCP requests go through your standard DO authentication layer:
+
+```typescript
+class SecureDO extends DO {
+  static $auth = {
+    '/mcp': { required: true, roles: ['agent'] },
+  }
+
+  static $mcp = {
+    tools: {
+      secretOperation: {
+        description: 'Perform secret operation',
+        inputSchema: {},
+      },
+    },
+  }
+}
+```
+
+Use bearer tokens in MCP requests:
+
+```bash
+curl -X POST https://secure.do/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-token" \
+  -H "Mcp-Session-Id: session-123" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"secretOperation"}}'
+```
+
+### Tool Permissions
+
+Restrict tool access per role:
+
+```typescript
+class AdminDO extends DO {
+  static $mcp = {
+    tools: {
+      readData: {
+        description: 'Read data',
+        inputSchema: {},
+        // Available to all authenticated users
+      },
+      deleteData: {
+        description: 'Delete all data',
+        inputSchema: {},
+        roles: ['admin'], // Only admin role
+      },
+    },
+  }
+}
+```
+
+## Protocol Reference
+
+### JSON-RPC 2.0 Methods
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Start session, negotiate capabilities |
+| `ping` | Keep-alive (no session required) |
+| `tools/list` | List available tools |
+| `tools/call` | Invoke a tool |
+| `resources/list` | List available resources |
+| `resources/read` | Read resource contents |
+| `resources/subscribe` | Subscribe to resource updates |
+| `resources/unsubscribe` | Unsubscribe from updates |
+| `prompts/list` | List available prompts (empty by default) |
+
+### Error Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| `-32700` | Parse Error | Invalid JSON |
+| `-32600` | Invalid Request | Invalid JSON-RPC |
+| `-32601` | Method Not Found | Unknown method/tool |
+| `-32602` | Invalid Params | Invalid arguments |
+| `-32603` | Internal Error | Server exception |
+
+### Capabilities
+
+Server capabilities returned on initialize:
+
+```json
+{
+  "capabilities": {
+    "tools": { "listChanged": true },
+    "resources": { "subscribe": true, "listChanged": true },
+    "prompts": { "listChanged": true }
+  }
+}
+```
+
+### Batch Requests
+
+Send multiple requests in one call:
+
+```json
+[
+  {"jsonrpc":"2.0","id":1,"method":"tools/list"},
+  {"jsonrpc":"2.0","id":2,"method":"resources/list"}
+]
+```
+
+Response is an array in the same order:
+
+```json
+[
+  {"jsonrpc":"2.0","id":1,"result":{"tools":[...]}},
+  {"jsonrpc":"2.0","id":2,"result":{"resources":[...]}}
+]
+```
+
+### Notifications
+
+Requests without `id` are notifications (no response expected):
+
+```json
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+```
+
+Server returns `204 No Content` for notification-only requests.
+
+## CLI Reference
+
+### mcp Command
+
+Start an MCP stdio bridge to a DO:
+
+```bash
+dotdo mcp --url https://my.do
+```
+
+Options:
+
+| Flag | Description |
+|------|-------------|
+| `--url` | Target DO URL (or set `DO_URL` env var) |
+
+The bridge translates stdio JSON-RPC to HTTP requests against the DO's `/mcp` endpoint.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DO_URL` | Default target URL for MCP bridge |
+
+## Best Practices
+
+### Tool Design
+
+1. **Keep tools focused** - One action per tool
+2. **Use descriptive names** - `searchCustomers` not `search`
+3. **Document parameters** - AI agents need clear descriptions
+4. **Validate inputs** - Check required fields, types
+5. **Return structured data** - JSON over plain text
+
+### Resource Organization
+
+1. **Group related data** - `orders`, `order-items`, `customers`
+2. **Support filtering** - Allow ID-based reads
+3. **Consider pagination** - Large collections should paginate
+4. **Use standard MIME types** - `application/json` for structured data
+
+### Security
+
+1. **Authenticate MCP endpoints** - Use `$auth` configuration
+2. **Scope by role** - Different tools for different access levels
+3. **Audit tool calls** - Log all MCP invocations
+4. **Rate limit** - Protect against runaway agents
+
+### Performance
+
+1. **Cache tool results** - Use DO storage for expensive operations
+2. **Stream large responses** - Break into chunks if needed
+3. **Timeout long operations** - Set reasonable limits
+4. **Monitor usage** - Track tool call patterns

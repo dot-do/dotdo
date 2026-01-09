@@ -5,7 +5,46 @@ description: Scale from prototype to production with sharding, geo-replication, 
 
 # Deployment
 
-dotdo runs on Cloudflare's edge network: 300+ cities, 0ms cold starts, V8 isolates with persistent state. This section covers the scaling primitives that let you grow from a single Durable Object to a globally distributed system.
+dotdo runs on Cloudflare's edge network: 300+ cities, 0ms cold starts, V8 isolates with persistent state. This section covers deploying to production and the scaling primitives that let you grow from a single Durable Object to a globally distributed system.
+
+## Getting Started
+
+### Prerequisites
+
+Before deploying, ensure you have:
+
+- Cloudflare account configured
+- Wrangler CLI installed
+- Production secrets set
+
+### Basic Deployment
+
+```bash
+npm run deploy
+```
+
+Or using wrangler directly:
+
+```bash
+wrangler deploy
+```
+
+### Environment Variables
+
+Set production environment variables:
+
+```bash
+wrangler secret put DATABASE_URL
+wrangler secret put API_SECRET
+```
+
+### Rollback
+
+If something goes wrong:
+
+```bash
+wrangler rollback
+```
 
 ## The 10GB Problem
 

@@ -1,0 +1,701 @@
+---
+title: Realtime
+description: API-compatible realtime SDKs for Pusher, Ably, and Socket.IO.
+---
+
+# Realtime Compat SDKs
+
+Three realtime APIs, rebuilt on Durable Objects. WebSockets that scale to millions of concurrent connections.
+
+## The Problem
+
+When 10,000 AI agents need real-time communication:
+
+- **Pusher** caps connections at 100 per channel (need Enterprise for more)
+- **Ably** hits message rate limits on high-frequency updates
+- **Socket.IO** requires sticky sessions and Redis adapters for horizontal scaling
+- **All of them** charge per message, per connection, per channel
+
+The real problem: traditional WebSocket infrastructure wasn't designed for edge. Connections terminate at origin servers, adding latency. Scaling requires complex coordination layers.
+
+The solution: DO-native WebSockets. Each channel is a Durable Object. Connections terminate at the edge (300+ cities). No sticky sessions. No Redis adapter. No connection limits per channel.
+
+## Quick Start
+
+```typescript
+import Pusher from '@dotdo/pusher'
+
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: 'auto', // Routes to nearest edge
+})
+
+await pusher.trigger('my-channel', 'my-event', {
+  message: 'Hello from the edge',
+})
+```
+
+## Available SDKs
+
+### @dotdo/pusher
+
+Pusher Channels API compatible. Server and client libraries.
+
+```typescript
+// Server-side: Push events to channels
+import Pusher from '@dotdo/pusher'
+
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: 'auto',
+})
+
+// Trigger event on a channel
+await pusher.trigger('notifications', 'new-message', {
+  from: 'user-123',
+  text: 'Hello!',
+  timestamp: Date.now(),
+})
+
+// Trigger on multiple channels
+await pusher.trigger(
+  ['user-123', 'user-456'],
+  'friend-request',
+  { from: 'user-789' }
+)
+
+// Batch triggers (single round trip)
+await pusher.triggerBatch([
+  { channel: 'user-123', name: 'notification', data: { type: 'like' } },
+  { channel: 'user-456', name: 'notification', data: { type: 'comment' } },
+])
+
+// Private channels with authentication
+app.post('/pusher/auth', async (req, res) => {
+  const { socket_id, channel_name } = req.body
+  const auth = pusher.authorizeChannel(socket_id, channel_name)
+  res.json(auth)
+})
+
+// Presence channels
+app.post('/pusher/auth', async (req, res) => {
+  const { socket_id, channel_name } = req.body
+  const presenceData = {
+    user_id: req.user.id,
+    user_info: { name: req.user.name, avatar: req.user.avatar },
+  }
+  const auth = pusher.authorizeChannel(socket_id, channel_name, presenceData)
+  res.json(auth)
+})
+
+// Query channel state
+const channels = await pusher.get({ path: '/channels' })
+const channel = await pusher.get({ path: '/channels/my-channel' })
+const users = await pusher.get({ path: '/channels/presence-room/users' })
+```
+
+```typescript
+// Client-side: Subscribe to channels
+import PusherClient from '@dotdo/pusher/client'
+
+const pusher = new PusherClient(process.env.NEXT_PUBLIC_PUSHER_KEY, {
+  cluster: 'auto',
+  authEndpoint: '/api/pusher/auth',
+})
+
+// Public channel
+const channel = pusher.subscribe('notifications')
+channel.bind('new-message', (data) => {
+  console.log('Message:', data.text)
+})
+
+// Private channel (requires auth)
+const privateChannel = pusher.subscribe('private-user-123')
+privateChannel.bind('dm', (data) => {
+  console.log('DM:', data)
+})
+
+// Presence channel (who's online)
+const presence = pusher.subscribe('presence-room-1')
+presence.bind('pusher:subscription_succeeded', (members) => {
+  console.log('Members online:', members.count)
+  members.each((member) => {
+    console.log(member.id, member.info)
+  })
+})
+presence.bind('pusher:member_added', (member) => {
+  console.log('Joined:', member.info.name)
+})
+presence.bind('pusher:member_removed', (member) => {
+  console.log('Left:', member.info.name)
+})
+
+// Unsubscribe
+pusher.unsubscribe('notifications')
+```
+
+Under the hood:
+- Each channel is a Durable Object
+- Connections terminate at nearest edge location
+- No connection limit per channel (vs Pusher's 100)
+- Presence state persists in DO SQLite
+
+### @dotdo/ably
+
+Ably Realtime API compatible. Pub/sub with presence and history.
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime({
+  key: process.env.ABLY_API_KEY,
+})
+
+// Connect and get channel
+const channel = ably.channels.get('chat-room')
+
+// Subscribe to messages
+await channel.subscribe('message', (message) => {
+  console.log('Received:', message.data)
+  console.log('From:', message.clientId)
+  console.log('Timestamp:', message.timestamp)
+})
+
+// Publish message
+await channel.publish('message', {
+  text: 'Hello, world!',
+  sender: 'user-123',
+})
+
+// Presence: see who's in the channel
+await channel.presence.enter({ status: 'online' })
+
+channel.presence.subscribe('enter', (member) => {
+  console.log('Joined:', member.clientId, member.data)
+})
+
+channel.presence.subscribe('leave', (member) => {
+  console.log('Left:', member.clientId)
+})
+
+channel.presence.subscribe('update', (member) => {
+  console.log('Updated:', member.clientId, member.data)
+})
+
+// Get current members
+const members = await channel.presence.get()
+console.log('Online:', members.map(m => m.clientId))
+
+// Update presence data
+await channel.presence.update({ status: 'away' })
+
+// Leave presence
+await channel.presence.leave()
+
+// Message history
+const history = await channel.history({ limit: 100 })
+for (const message of history.items) {
+  console.log(message.data)
+}
+
+// Paginate through history
+let page = await channel.history({ limit: 50 })
+while (page) {
+  for (const message of page.items) {
+    console.log(message.data)
+  }
+  page = await page.next()
+}
+```
+
+```typescript
+// REST API for server-side publishing
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Rest({ key: process.env.ABLY_API_KEY })
+const channel = ably.channels.get('announcements')
+
+// Publish without maintaining connection
+await channel.publish('alert', {
+  type: 'maintenance',
+  message: 'System maintenance in 1 hour',
+})
+
+// Publish batch
+await ably.request('POST', '/messages', {}, [
+  { channel: 'user-123', name: 'notification', data: { type: 'like' } },
+  { channel: 'user-456', name: 'notification', data: { type: 'follow' } },
+])
+
+// Query presence via REST
+const presence = await channel.presence.get()
+```
+
+Key features:
+- Full pub/sub with wildcards (`channel.*`, `channel:*`)
+- Presence with member data
+- Message history with pagination
+- Connection state recovery
+- Token authentication
+
+### @dotdo/socketio
+
+Socket.IO API compatible. The familiar API, without the scaling headaches.
+
+```typescript
+// Server-side
+import { Server } from '@dotdo/socketio'
+
+const io = new Server({
+  // No Redis adapter needed
+  // No sticky sessions required
+})
+
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id)
+
+  // Join rooms
+  socket.join('room-1')
+  socket.join(`user-${socket.data.userId}`)
+
+  // Handle events
+  socket.on('chat:message', (data) => {
+    // Broadcast to room
+    io.to('room-1').emit('chat:message', {
+      from: socket.data.userId,
+      text: data.text,
+      timestamp: Date.now(),
+    })
+  })
+
+  socket.on('chat:typing', (data) => {
+    // Broadcast to others in room
+    socket.to('room-1').emit('chat:typing', {
+      user: socket.data.userId,
+    })
+  })
+
+  // Private messaging
+  socket.on('dm', (data) => {
+    io.to(`user-${data.to}`).emit('dm', {
+      from: socket.data.userId,
+      text: data.text,
+    })
+  })
+
+  // Acknowledgements
+  socket.on('save:document', async (data, callback) => {
+    const saved = await saveDocument(data)
+    callback({ success: true, id: saved.id })
+  })
+
+  socket.on('disconnect', (reason) => {
+    console.log('Disconnected:', socket.id, reason)
+  })
+})
+
+// Broadcast to all connected clients
+io.emit('announcement', { message: 'Server update in 5 minutes' })
+
+// Get room members
+const sockets = await io.in('room-1').fetchSockets()
+console.log('Room members:', sockets.map(s => s.id))
+```
+
+```typescript
+// Client-side
+import { io } from '@dotdo/socketio/client'
+
+const socket = io('https://your-app.dotdo.io', {
+  auth: {
+    token: 'user-auth-token',
+  },
+})
+
+socket.on('connect', () => {
+  console.log('Connected:', socket.id)
+})
+
+socket.on('chat:message', (data) => {
+  console.log(`${data.from}: ${data.text}`)
+})
+
+// Send with acknowledgement
+socket.emit('save:document', { content: '...' }, (response) => {
+  console.log('Saved:', response.id)
+})
+
+// Volatile messages (drop if client can't receive)
+socket.volatile.emit('cursor:move', { x: 100, y: 200 })
+
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected:', reason)
+})
+```
+
+Key differences from standard Socket.IO:
+- No Redis adapter required (rooms backed by DOs)
+- No sticky sessions (connection state in DO)
+- Rooms automatically scale across edge locations
+- Binary data supported via MessagePack
+
+## Architecture
+
+### DO-Native WebSockets
+
+Each channel/room is a Durable Object:
+
+```
+                     ┌─────────────────────────────────────────┐
+                     │              Client (NYC)                │
+                     │     const channel = pusher.subscribe()   │
+                     └─────────────────────────────────────────┘
+                                        │
+                                        ▼
+                     ┌─────────────────────────────────────────┐
+                     │           Edge (NYC Colo)               │
+                     │     WebSocket terminates here           │
+                     └─────────────────────────────────────────┘
+                                        │
+                                        ▼
+                     ┌─────────────────────────────────────────┐
+                     │        Channel DO (runs nearest         │
+                     │         to first connection)            │
+                     │                                         │
+                     │  ┌─────────────────────────────────┐   │
+                     │  │        SQLite State             │   │
+                     │  │  - Connection registry          │   │
+                     │  │  - Presence data                │   │
+                     │  │  - Message history              │   │
+                     │  └─────────────────────────────────┘   │
+                     │                                         │
+                     │  ┌─────────────────────────────────┐   │
+                     │  │     Hibernatable WebSockets     │   │
+                     │  │  - 0 CPU when idle              │   │
+                     │  │  - Wake on message              │   │
+                     │  └─────────────────────────────────┘   │
+                     └─────────────────────────────────────────┘
+                                        │
+                    ┌───────────────────┼───────────────────┐
+                    ▼                   ▼                   ▼
+            ┌───────────┐       ┌───────────┐       ┌───────────┐
+            │  Client   │       │  Client   │       │  Client   │
+            │  (Tokyo)  │       │  (London) │       │  (Sydney) │
+            └───────────┘       └───────────┘       └───────────┘
+```
+
+### Connection Handling
+
+Durable Object WebSockets hibernate when idle:
+
+```typescript
+export class RealtimeChannel extends DurableObject {
+  connections = new Map<string, WebSocket>()
+
+  async fetch(request: Request) {
+    if (request.headers.get('Upgrade') === 'websocket') {
+      const pair = new WebSocketPair()
+      const [client, server] = Object.values(pair)
+
+      // Accept with hibernation
+      this.ctx.acceptWebSocket(server)
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      })
+    }
+  }
+
+  // Called when hibernated DO receives message
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    const data = JSON.parse(message as string)
+
+    // Broadcast to all connections
+    for (const client of this.ctx.getWebSockets()) {
+      if (client !== ws) {
+        client.send(JSON.stringify(data))
+      }
+    }
+  }
+
+  async webSocketClose(ws: WebSocket) {
+    // Cleanup presence, etc.
+  }
+}
+```
+
+### Presence State
+
+Presence persists in DO SQLite:
+
+```typescript
+// Presence stored in SQLite for durability
+await this.sql.exec(`
+  INSERT INTO presence (user_id, channel, data, connected_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT (user_id, channel) DO UPDATE SET data = ?, connected_at = ?
+`, [userId, channel, JSON.stringify(data), Date.now(), JSON.stringify(data), Date.now()])
+
+// Query current presence
+const members = await this.sql.exec(`
+  SELECT user_id, data FROM presence
+  WHERE channel = ? AND connected_at > ?
+`, [channel, Date.now() - PRESENCE_TTL])
+```
+
+## Patterns
+
+### Chat Rooms
+
+```typescript
+// Server
+const io = new Server()
+
+io.on('connection', (socket) => {
+  socket.on('join:room', async (roomId) => {
+    socket.join(roomId)
+    socket.to(roomId).emit('user:joined', { userId: socket.data.userId })
+  })
+
+  socket.on('message', async (data) => {
+    const message = {
+      id: crypto.randomUUID(),
+      roomId: data.roomId,
+      userId: socket.data.userId,
+      text: data.text,
+      timestamp: Date.now(),
+    }
+
+    // Persist message
+    await db.messages.insert(message)
+
+    // Broadcast to room
+    io.to(data.roomId).emit('message', message)
+  })
+})
+```
+
+### Live Cursors
+
+```typescript
+// Client
+socket.on('cursors', (cursors) => {
+  renderCursors(cursors)
+})
+
+// Throttle cursor updates
+let lastUpdate = 0
+document.addEventListener('mousemove', (e) => {
+  if (Date.now() - lastUpdate > 50) {
+    socket.volatile.emit('cursor:move', {
+      x: e.clientX,
+      y: e.clientY,
+    })
+    lastUpdate = Date.now()
+  }
+})
+```
+
+### Collaborative Editing
+
+```typescript
+// Using Y.js with dotdo realtime
+import * as Y from 'yjs'
+import { WebsocketProvider } from '@dotdo/socketio/yjs'
+
+const doc = new Y.Doc()
+const provider = new WebsocketProvider(
+  'wss://your-app.dotdo.io',
+  'document-123',
+  doc
+)
+
+// Awareness (cursors, selections)
+provider.awareness.setLocalStateField('user', {
+  name: 'Alice',
+  color: '#ff0000',
+})
+
+// Sync text
+const text = doc.getText('content')
+text.insert(0, 'Hello, world!')
+```
+
+### Notification Broadcasting
+
+```typescript
+// Push notification to specific user
+await pusher.trigger(`private-user-${userId}`, 'notification', {
+  type: 'order-shipped',
+  orderId: 'ord-123',
+  message: 'Your order has shipped!',
+})
+
+// Broadcast to all users in an org
+await pusher.trigger(`org-${orgId}`, 'announcement', {
+  type: 'maintenance',
+  message: 'Scheduled maintenance tonight at 10pm',
+})
+
+// Fan-out to multiple channels efficiently
+const userChannels = userIds.map(id => `private-user-${id}`)
+await pusher.trigger(userChannels, 'alert', { type: 'urgent' })
+```
+
+### Real-Time Analytics
+
+```typescript
+// Dashboard receives live metrics
+const channel = ably.channels.get('metrics:dashboard')
+
+channel.subscribe('pageview', (msg) => {
+  updatePageviewCounter(msg.data.count)
+})
+
+channel.subscribe('active-users', (msg) => {
+  updateActiveUsers(msg.data.count)
+})
+
+// Server pushes updates
+setInterval(async () => {
+  const metrics = await getMetrics()
+  await channel.publish('pageview', { count: metrics.pageviews })
+  await channel.publish('active-users', { count: metrics.activeUsers })
+}, 1000)
+```
+
+## Migration Patterns
+
+### From Pusher
+
+```typescript
+// Before: Pusher
+import Pusher from 'pusher'
+const pusher = new Pusher({
+  appId: 'xxx',
+  key: 'xxx',
+  secret: 'xxx',
+  cluster: 'us2',
+})
+
+// After: dotdo
+import Pusher from '@dotdo/pusher'
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: 'auto', // Routes to nearest edge
+})
+
+// Code stays the same
+await pusher.trigger('channel', 'event', { data: 'hello' })
+```
+
+```typescript
+// Client migration
+// Before
+import PusherClient from 'pusher-js'
+
+// After
+import PusherClient from '@dotdo/pusher/client'
+
+// Code stays the same
+const pusher = new PusherClient(key, { cluster: 'auto' })
+const channel = pusher.subscribe('my-channel')
+```
+
+### From Ably
+
+```typescript
+// Before: Ably
+import Ably from 'ably'
+const ably = new Ably.Realtime('xxx.yyy:zzz')
+
+// After: dotdo
+import Ably from '@dotdo/ably'
+const ably = new Ably.Realtime({
+  key: process.env.ABLY_API_KEY,
+})
+
+// Code stays the same
+const channel = ably.channels.get('chat')
+await channel.publish('message', { text: 'hello' })
+```
+
+### From Socket.IO
+
+```typescript
+// Before: Socket.IO with Redis adapter
+import { Server } from 'socket.io'
+import { createAdapter } from '@socket.io/redis-adapter'
+import { createClient } from 'redis'
+
+const pubClient = createClient({ url: 'redis://...' })
+const subClient = pubClient.duplicate()
+
+const io = new Server(server)
+io.adapter(createAdapter(pubClient, subClient))
+
+// After: dotdo (no adapter needed)
+import { Server } from '@dotdo/socketio'
+
+const io = new Server()
+
+// Code stays the same
+io.on('connection', (socket) => {
+  socket.join('room-1')
+  socket.to('room-1').emit('hello')
+})
+```
+
+## Performance
+
+| Operation | Latency | Capacity |
+|-----------|---------|----------|
+| Publish to channel | < 10ms | 100K msg/s |
+| Broadcast to room | < 20ms | 10K recipients |
+| Presence update | < 15ms | 50K members/channel |
+| Connection establish | < 50ms | Unlimited |
+| Message history | < 30ms | 1M messages |
+
+### Scaling
+
+No configuration needed. Each channel scales independently:
+
+```typescript
+// Each channel is isolated
+// High traffic on channel A doesn't affect channel B
+const channelA = pusher.subscribe('high-traffic')  // 100K connections
+const channelB = pusher.subscribe('low-traffic')   // 10 connections
+```
+
+### Connection Limits
+
+Traditional realtime services impose connection limits:
+
+| Service | Connections/Channel | dotdo |
+|---------|---------------------|-------|
+| Pusher (free) | 100 | Unlimited |
+| Pusher (Enterprise) | 10,000 | Unlimited |
+| Ably (free) | 200 | Unlimited |
+| Socket.IO | Limited by server RAM | Unlimited |
+
+## Limitations
+
+What's different from hosted services:
+
+- **No guaranteed message ordering across channels** - Use sequence numbers if needed
+- **No cross-datacenter replication** - Single DO handles each channel
+- **Presence TTL is 30 seconds** - Members auto-removed after disconnect
+- **History limited to 7 days** - Archive to R2/Iceberg for longer retention
+
+## Related
+
+- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS
+- [Database SDKs](/docs/compat/databases) - Postgres, MySQL, MongoDB
+- [Search SDKs](/docs/compat/search) - Elasticsearch, Algolia, Meilisearch

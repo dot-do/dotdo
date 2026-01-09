@@ -4,6 +4,7 @@ description: Build a complete SaaS with auth, subscriptions, and dashboard in 30
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
+import type { Stripe } from 'stripe'
 
 # Build a SaaS in 30 Minutes
 
@@ -220,7 +221,7 @@ export class Billing extends DO {
   }
 
   // Stripe webhook handler
-  async handleWebhook(event: StripeEvent) {
+  async handleWebhook(event: Stripe.Event) {
     switch (event.type) {
       case 'checkout.session.completed':
         $.send('Payment.succeeded', {

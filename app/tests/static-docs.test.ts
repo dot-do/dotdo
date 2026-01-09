@@ -219,8 +219,8 @@ describe('Documentation Routing', () => {
       expect(response.status).toBe(200)
     })
 
-    it('should serve deeply nested paths /docs/guides/advanced/deployment', async () => {
-      const response = await fetchStaticPage('/docs/guides/advanced/deployment')
+    it('should serve deeply nested paths /docs/deployment/sharding', async () => {
+      const response = await fetchStaticPage('/docs/deployment/sharding')
       expect(response.status).toBe(200)
     })
   })
@@ -644,7 +644,7 @@ describe('Navigation Generation', () => {
     })
 
     it('should have clickable breadcrumb links', async () => {
-      const response = await fetchStaticPage('/docs/guides/deployment')
+      const response = await fetchStaticPage('/docs/deployment')
       const html = await response.text()
       // Breadcrumb items (except current) should be links
       expect(html).toMatch(/<a[^>]+href=["'][^"']*docs[^"']*["']/i)

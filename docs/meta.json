@@ -1,4 +1,4 @@
 {
-  "title": "do.md",
-  "pages": ["index", "getting-started", "tutorials", "concepts", "architecture", "primitives", "agents", "humans", "security", "guides", "deployment", "observability", "migration", "---", "api", "cli", "compat", "mcp", "rpc", "sdk", "storage"]
+  "title": "dotdo",
+  "pages": ["index", "why-dotdo", "getting-started", "tutorials", "concepts", "architecture", "primitives", "agents", "humans", "security", "guides", "deployment", "observability", "migration", "---", "api", "cli", "compat", "mcp", "rpc", "sdk", "storage"]
 }

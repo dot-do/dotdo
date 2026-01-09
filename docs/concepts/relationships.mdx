@@ -1,0 +1,324 @@
+---
+title: Relationships
+description: How Things connect to each other with typed edges and bidirectional navigation
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Relationships
+
+**Things don't exist in isolation.** Customers purchase orders, orders contain products, products belong to categories. Relationships are the edges that connect your domain graph.
+
+```typescript
+// Create a relationship
+await customer.relate('purchased', 'Order/ord-456')
+
+// Navigate relationships
+const orders = customer.relationships.purchased
+const buyer = order.references.purchasedBy
+
+// Query by relationship
+const vipOrders = await things.find({
+  where: { 'relationships.purchasedBy.data.plan': 'enterprise' }
+})
+```
+
+## How Relationships Work
+
+Relationships are typed edges stored in a dedicated `rels` store. Each relationship has:
+
+| Property | Description |
+|----------|-------------|
+| `from` | Source Thing `$id` |
+| `verb` | Relationship type (camelCase) |
+| `to` | Target Thing `$id` |
+| `createdAt` | When the relationship was created |
+| `data` | Optional metadata |
+
+```typescript
+// The stored relationship
+{
+  from: 'Customer/cust-123',
+  verb: 'purchased',
+  to: 'Order/ord-456',
+  createdAt: '2024-01-15T10:30:00Z',
+  data: { source: 'checkout' }
+}
+```
+
+<Callout type="info">
+Relationships are stored separately from Things, enabling efficient graph queries without loading full entity data.
+</Callout>
+
+## Creating Relationships
+
+### Via Thing Methods
+
+```typescript
+// Basic relationship
+await customer.relate('purchased', 'Order/ord-456')
+
+// With metadata
+await customer.relate('manages', 'Team/team-789', {
+  data: { role: 'owner', since: new Date() }
+})
+
+// Multiple targets
+await product.relate('categorizedIn', 'Category/electronics')
+await product.relate('categorizedIn', 'Category/gadgets')
+```
+
+### Via Collection
+
+```typescript
+// Create Thing with relationships in one call
+const order = await orders.create({
+  name: 'Order #1234',
+  data: { total: 99.99 },
+  relationships: {
+    purchasedBy: ['Customer/cust-123'],
+    contains: ['Product/prod-001', 'Product/prod-002']
+  }
+})
+```
+
+### Via Cascade Operators
+
+The generative cascade operators create relationships automatically:
+
+| Operator | Direction | Method | Description |
+|----------|-----------|--------|-------------|
+| `->` | Forward | Insert | Create target, link TO it |
+| `~>` | Forward | Search | Find target, link TO it |
+| `<-` | Backward | Insert | Create target, link FROM it |
+| `<~` | Backward | Search | Find target, link FROM it |
+
+```typescript
+// Create order and link to customer
+const order = await customer `-> Order ${{ total: 99.99 }}`
+
+// Find existing product and link
+const featured = await homepage `~> Product ${{ featured: true }}`
+```
+
+## Navigating Relationships
+
+### Outbound: relationships
+
+Access Things this entity points to:
+
+```typescript
+const customer = await $.Thing('Customer/cust-123')
+
+// All purchased orders
+const orders = customer.relationships.purchased
+// ['Order/ord-456', 'Order/ord-789']
+
+// All managed teams
+const teams = customer.relationships.manages
+// ['Team/team-001']
+```
+
+### Inbound: references
+
+Access Things that point to this entity:
+
+```typescript
+const order = await $.Thing('Order/ord-456')
+
+// Who purchased this order?
+const buyers = order.references.purchasedBy
+// ['Customer/cust-123']
+
+// What contains this order?
+const containers = order.references.contains
+// ['Shipment/ship-001']
+```
+
+<Callout type="info">
+The `references` property uses the reverse verb. `purchased` becomes `purchasedBy`, `manages` becomes `managedBy`.
+</Callout>
+
+### Loading Related Things
+
+Relationships store IDs, not full objects. Load the full Things when needed:
+
+```typescript
+// Get relationship IDs
+const orderIds = customer.relationships.purchased
+
+// Load full Things
+const orders = await Promise.all(
+  orderIds.map(id => $.Thing(id))
+)
+
+// Or use collection query
+const orders = await things.find({
+  where: { 'references.purchasedBy': customer.$id }
+})
+```
+
+## Relationship Patterns
+
+### Parent-Child
+
+Hierarchical relationships where children belong to a parent:
+
+```typescript
+// Organization hierarchy
+await company.relate('owns', 'Department/eng')
+await department.relate('contains', 'Team/platform')
+await team.relate('includes', 'Employee/alice')
+
+// Navigate down
+const departments = company.relationships.owns
+const teams = department.relationships.contains
+const employees = team.relationships.includes
+
+// Navigate up
+const team = employee.references.includedBy[0]
+const dept = team.references.containedBy[0]
+const company = dept.references.ownedBy[0]
+```
+
+### Many-to-Many
+
+Things can have multiple relationships of the same type:
+
+```typescript
+// Products in multiple categories
+await product.relate('categorizedIn', 'Category/electronics')
+await product.relate('categorizedIn', 'Category/gadgets')
+await product.relate('categorizedIn', 'Category/sale')
+
+// Categories with multiple products
+const electronics = await $.Thing('Category/electronics')
+const products = electronics.references.categorizedIn
+// ['Product/phone', 'Product/laptop', 'Product/tablet']
+```
+
+### Self-Referential
+
+Things can relate to Things of the same type:
+
+```typescript
+// Social graph
+await user.relate('follows', 'User/alice')
+await user.relate('follows', 'User/bob')
+
+// Followers and following
+const following = user.relationships.follows
+const followers = user.references.followedBy
+
+// Blocking
+await user.relate('blocks', 'User/troll')
+```
+
+### Versioned/Temporal
+
+Track relationship changes over time:
+
+```typescript
+// With temporal data
+await employee.relate('reportsTo', 'Employee/manager-new', {
+  data: { since: new Date(), previous: 'Employee/manager-old' }
+})
+
+// Version history
+await document.relate('versionOf', 'Document/doc-v1', {
+  data: { version: 2, changedBy: 'User/alice' }
+})
+```
+
+## Relationship in DO Architecture
+
+Relationships work across the DO hierarchy:
+
+```
+Startup DO
+├── Customer/cust-123
+│   └── relationships.purchased → [Order/ord-456]
+├── Order/ord-456
+│   ├── references.purchasedBy → [Customer/cust-123]
+│   └── relationships.contains → [Product/prod-001]
+└── Product/prod-001
+    └── references.containedBy → [Order/ord-456]
+```
+
+### Cross-DO Relationships
+
+When Things are promoted to their own DOs, relationships still work:
+
+```typescript
+// Customer promoted to its own DO
+const customerDO = await customer.promote()
+
+// Relationships still resolve
+const orders = customerDO.relationships.purchased
+// Order IDs resolve across DO boundaries
+
+// Cross-DO query
+await $.Order('ord-456').references.purchasedBy
+// Returns reference to Customer DO
+```
+
+### Relationship Storage
+
+Relationships are stored in the `rels` store (one of the 7 standard stores):
+
+```typescript
+// Direct access to relationship store
+const rels = doInstance.rels
+
+// Query relationships
+const customerOrders = await rels.find({
+  from: 'Customer/cust-123',
+  verb: 'purchased'
+})
+
+// Count relationships
+const orderCount = await rels.count({
+  from: 'Customer/cust-123',
+  verb: 'purchased'
+})
+```
+
+## Removing Relationships
+
+```typescript
+// Remove specific relationship
+await customer.unrelate('purchased', 'Order/ord-456')
+
+// Remove all relationships of a type
+const orderIds = customer.relationships.purchased
+for (const orderId of orderIds) {
+  await customer.unrelate('purchased', orderId)
+}
+
+// Cascade on delete
+await customer.delete()
+// All relationships from/to customer are cleaned up
+```
+
+## Relationship Verbs
+
+Use consistent verb naming for clarity:
+
+| Pattern | Examples | Reverse |
+|---------|----------|---------|
+| Ownership | `owns`, `created`, `authored` | `ownedBy`, `createdBy`, `authoredBy` |
+| Containment | `contains`, `includes`, `has` | `containedBy`, `includedBy`, `belongsTo` |
+| Association | `relatedTo`, `linkedTo` | `relatedTo`, `linkedTo` |
+| Actions | `purchased`, `reviewed`, `liked` | `purchasedBy`, `reviewedBy`, `likedBy` |
+| Hierarchy | `parentOf`, `manages`, `supervises` | `childOf`, `managedBy`, `supervisedBy` |
+
+<Callout type="info">
+Verbs are camelCase and should describe the relationship from the source's perspective. The system automatically generates reverse verbs by appending `By`.
+</Callout>
+
+## Related
+
+- [Things](/docs/concepts/things) - What Things are and how they work
+- [Actions](/docs/concepts/actions) - Operations on Things
+- [SDK: Thing](/docs/sdk/thing) - Thing interface with relationship methods
+- [Events](/docs/concepts/events) - Events emitted when relationships change

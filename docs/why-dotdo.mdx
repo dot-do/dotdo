@@ -1,0 +1,302 @@
+---
+title: Why dotdo?
+description: Build your 1-Person Unicorn. Understand what makes dotdo different from other AI agent frameworks.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Why dotdo?
+
+You want to build something meaningful. The AI tools exist. But stitching them together into a real business? That's the hard part.
+
+dotdo is **Business-as-Code**. Not a chatbot framework. Not a prompt orchestrator. A complete runtime for autonomous businesses run by AI agents.
+
+## The 1-Person Unicorn Philosophy
+
+### What It Means
+
+A 1-Person Unicorn isn't about working alone. It's about **leverage**.
+
+One person can now do what required a team of 50. AI agents handle the work—product specs, code, marketing copy, sales outreach. You make the decisions.
+
+```typescript
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class MyStartup extends Startup {
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
+  }
+}
+```
+
+This isn't pseudocode. This deploys.
+
+### Agents as Teammates, Not Tools
+
+Most AI frameworks treat agents as utilities. Call a function, get a response, move on.
+
+dotdo treats agents as **workers with real identity**:
+
+| Property | Chatbot | dotdo Agent |
+|----------|---------|-------------|
+| Identity | "AI Assistant" | `@tom-do` on GitHub |
+| Email | None | `tom@agents.do` |
+| Persistence | Stateless | Durable memory |
+| Audit trail | Logs | Full history |
+| Escalation | None | Routes to humans |
+
+When Tom reviews your PR, you see a comment from `@tom-do`. When Mark sends a launch email, it comes from `mark@agents.do`. Every action is traceable.
+
+### The Vision
+
+Scale without scaling your team.
+
+Traditional startups hit bottlenecks: hiring is slow, onboarding is slower, coordination gets expensive. With dotdo, you add capacity by deploying more agent instances—not by conducting interviews.
+
+When you do need humans (you will), they plug into the same system. Same APIs. Same workflow. The transition from 1-person to 10-person is seamless because the architecture supports both.
+
+## Why dotdo vs Alternatives
+
+<Callout type="info">
+We'll be honest about trade-offs. dotdo isn't for everyone.
+</Callout>
+
+### Comparison Table
+
+| Feature | dotdo | LangChain | CrewAI | AutoGPT |
+|---------|-------|-----------|--------|---------|
+| **Deployment** | Edge (300+ cities) | Self-hosted | Self-hosted | Self-hosted |
+| **Cold starts** | ~0ms | Depends on infra | Depends on infra | Depends on infra |
+| **Durability** | Built-in (SQLite per agent) | External DB required | External DB required | File-based |
+| **Agent identity** | Real (GitHub, email) | None | Role-based | None |
+| **Scalability** | Millions of agents | Manual scaling | Manual scaling | Single agent |
+| **Orchestration** | Promise pipelining | Chains | Sequential crews | Autonomous loops |
+| **Type safety** | Full TypeScript | Partial | Python | Python |
+| **Human escalation** | Built-in | DIY | DIY | None |
+| **Compat APIs** | 38 SDKs | Integrations | Tools | Plugins |
+
+### When to Choose Each
+
+**Choose LangChain if:**
+- You need maximum flexibility in LLM providers
+- You're building research prototypes
+- You want the largest ecosystem of integrations
+- You prefer Python
+
+**Choose CrewAI if:**
+- You're building multi-agent workflows in Python
+- Sequential task execution fits your use case
+- You want role-based agent composition
+- You're comfortable managing your own infrastructure
+
+**Choose AutoGPT if:**
+- You want fully autonomous agents
+- You're experimenting with agent capabilities
+- Single-task execution is sufficient
+- You don't need production reliability
+
+**Choose dotdo if:**
+- You're building a business, not a demo
+- You need agents that scale to millions of instances
+- You want deployment handled (not DevOps headaches)
+- TypeScript is your language
+- Durability and audit trails are requirements
+- Human escalation is part of your workflow
+
+## Technical Differentiation
+
+### V8 Isolates + Durable Objects
+
+dotdo runs on Cloudflare's global network. Each agent is a **Durable Object**—a V8 Isolate with persistent SQLite storage.
+
+```
+Traditional Server          dotdo
+┌──────────────┐           ┌──────────────┐
+│   Express    │           │  V8 Isolate  │
+│   + Redis    │           │  + SQLite    │
+│   + Postgres │           │  (all-in-one)│
+│   + K8s      │           └──────────────┘
+└──────────────┘                  ↓
+       ↓                    300+ cities
+  Single region             ~0ms cold start
+  100ms+ latency            Single-digit latency
+  Connection limits         No connection limits
+```
+
+Benefits:
+- **0ms cold starts** when warm (microseconds to spin up V8)
+- **~50ms cold starts** when loading SQLite state
+- **300+ edge locations** worldwide
+- **No connection pooling** needed—each DO has its own SQLite
+- **Actor model** eliminates race conditions
+
+### Cap'n Web RPC (Promise Pipelining)
+
+Most RPC frameworks make one call, wait, make another call, wait. Network latency compounds.
+
+dotdo uses **promise pipelining**. You express your entire workflow, and it executes as a single batched operation:
+
+```typescript
+// This looks like 4 sequential operations
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+  .map(pr => tom`merge ${pr}`)
+
+// But it's ONE network round trip
+// The server records your callbacks and replays them
+```
+
+This isn't magic—it's Cap'n Proto's promise pipelining adapted for the web. The `.map()` creates a **Magic Map** that captures your callback, sends it to the server, and executes it for each result.
+
+Result: **N operations in 1 round trip** instead of N round trips.
+
+### Named Agents with Real Identity
+
+dotdo agents aren't wrappers around chat completions. They have **real identity**:
+
+```typescript
+import { tom } from 'agents.do'
+
+// Tom has a GitHub account
+const pr = await tom`review this code`
+// Comment appears from @tom-do
+
+// Tom has an email address
+tom`send a summary to the team`
+// Email comes from tom@agents.do
+
+// Tom remembers context
+tom`what did you think of yesterday's PR?`
+// Tom recalls the previous review
+```
+
+This identity matters for:
+- **Audit trails** — Who did what, when
+- **Accountability** — Actions are traceable
+- **Integration** — Real accounts in real systems
+
+### 38 Compat SDKs
+
+You probably already know Supabase, MongoDB, Redis, or Kafka. dotdo provides **API-compatible SDKs** that run on edge:
+
+```typescript
+// Looks like Supabase
+import { createClient } from '@dotdo/supabase'
+const supabase = createClient()
+const { data } = await supabase.from('users').select()
+
+// Looks like MongoDB
+import { MongoClient } from '@dotdo/mongo'
+const client = new MongoClient()
+const users = await client.db('app').collection('users').find()
+
+// Looks like Redis
+import { Redis } from '@dotdo/redis'
+const redis = new Redis()
+await redis.set('key', 'value')
+```
+
+Same APIs you know. But they run on Durable Objects, scale to millions of agents, and cost a fraction of hosted services.
+
+## When to Use dotdo
+
+### Good Fit
+
+- **Autonomous businesses** — Companies that run with minimal human intervention
+- **Agent orchestration** — Coordinating multiple AI agents on complex tasks
+- **Multi-agent systems** — Applications where agents interact with each other
+- **SaaS with AI workflows** — Products that embed AI-powered automation
+- **Content businesses** — Publishing, marketing, outreach at scale
+- **E-commerce automation** — Inventory, pricing, customer service agents
+
+### Not Ideal For
+
+- **Simple chatbots** — If you just need a chat widget, use Intercom or a hosted solution
+- **One-off scripts** — For quick automation, a Python script is fine
+- **Non-TypeScript projects** — dotdo is TypeScript-first; Python support is not planned
+- **Research experiments** — If you're exploring agent architectures, LangChain offers more flexibility
+- **Tight budgets** — While cost-effective at scale, there's a learning curve investment
+
+## What You Get
+
+### Cost Comparison
+
+Traditional infrastructure for 10,000 parallel AI agents:
+
+| Component | Traditional | dotdo |
+|-----------|-------------|-------|
+| Compute | $500-2000/mo (K8s cluster) | $0 (pay-per-request) |
+| Database | $200-500/mo (managed Postgres) | $0 (SQLite included) |
+| Redis/Cache | $100-300/mo | $0 (built-in) |
+| Message queue | $100-200/mo | $0 (built-in) |
+| Egress | $0.09/GB | $0 (R2) |
+| **Total** | **$900-3000/mo** | **~$50-200/mo** |
+
+<Callout type="warn">
+Actual costs vary based on usage. dotdo pricing is based on requests and storage, not reserved capacity.
+</Callout>
+
+### Performance Comparison
+
+| Metric | Traditional | dotdo |
+|--------|-------------|-------|
+| Cold start | 500ms-5s | 0-50ms |
+| Global latency | 100-300ms | 10-50ms |
+| Agent instances | Thousands (with effort) | Millions (built-in) |
+| Connection limits | Yes (pooling required) | No (actor model) |
+| Failover | Manual/complex | Automatic |
+
+### Developer Experience
+
+```typescript
+// Type-safe from start to finish
+const spec = await priya`define the MVP`
+//    ^-- TypeScript knows this is a ProductSpec
+
+// IDE autocomplete for everything
+$.on.Customer.signup  // Shows all event types
+$.every.monday.at     // Shows scheduling options
+
+// No boilerplate
+export class MyStartup extends Startup {
+  // That's it. You're deployed.
+}
+```
+
+What you don't write:
+- Docker configurations
+- Kubernetes manifests
+- Database migrations (auto-handled)
+- Connection pooling
+- Rate limiting
+- Retry logic
+- Dead letter queues
+
+It's all built in.
+
+## Next Steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation">
+    Get dotdo running in 5 minutes.
+  </Card>
+  <Card title="Quickstart" href="/docs/getting-started/quickstart">
+    Build your first autonomous workflow.
+  </Card>
+  <Card title="Architecture" href="/docs/architecture">
+    Deep dive into the technical foundation.
+  </Card>
+  <Card title="Named Agents" href="/docs/agents/named-agents">
+    Meet Priya, Ralph, Tom, and the team.
+  </Card>
+</Cards>

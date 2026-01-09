@@ -7,6 +7,27 @@ description: Build your 1-Person Unicorn. Business-as-Code for autonomous busine
 
 Deploy a startup with product, engineering, marketing, and sales. It's Tuesday. You're one person.
 
+## Understanding the Code
+
+Before diving in, here's what makes dotdo different:
+
+**Template Literals are RPC Calls**
+
+When you write `ralph`build ${spec}``, this isn't string interpolation—it's a remote procedure call to the Ralph agent. The backticks invoke the agent, and the template contents become the task.
+
+**The $ Context**
+
+The `$` symbol is your workflow context. It provides:
+- `$.on.Noun.verb()` - Event handlers
+- `$.every.day.at('9am')` - Scheduling
+- `$.do()` / `$.try()` / `$.send()` - Durability levels
+
+**Don't Await by Default**
+
+dotdo uses promise pipelining. Pass promises directly to other agents—the system batches calls automatically. Only `await` when you need the value for a decision.
+
+---
+
 ```typescript
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally } from 'agents.do'
@@ -94,7 +115,7 @@ import { legal, ceo } from 'humans.do'
 
 const approved = await ceo`approve the partnership`
 
-escalation = this.HumanFunction({
+const escalation = this.HumanFunction({
   trigger: 'refund > $10000',
   role: 'senior-accountant',
   sla: '4 hours',

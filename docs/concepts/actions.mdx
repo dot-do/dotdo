@@ -1,0 +1,386 @@
+---
+title: Actions
+description: The Noun.verb pattern - what Things can do and how events flow
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Actions
+
+**Every operation in dotdo follows the Noun.verb pattern.** Customers signup, orders ship, payments fail. Actions are the verbs that Things perform, and they generate events that flow through the system.
+
+```typescript
+// Subscribe to actions
+$.on.Customer.signup(async (event) => {
+  await sendWelcomeEmail(event.data.email)
+})
+
+// Emit actions
+$.emit.Order.shipped({ orderId: 'ord-456', trackingNumber: 'TRK-789' })
+
+// Three durability levels
+$.send('Customer.activity', data)   // Fire-and-forget
+$.try('Order.validate', data)       // Single attempt
+$.do('Payment.process', data)       // Durable with retries
+```
+
+## The Noun.verb Pattern
+
+Actions combine a Thing type (Noun) with an operation (verb):
+
+```
+Customer.signup    Order.placed    Payment.failed    Inventory.depleted
+   │        │         │      │          │       │           │        │
+  Noun    verb      Noun   verb       Noun    verb        Noun     verb
+```
+
+This pattern enables:
+
+- **Infinite combinations** - Any noun, any verb, no configuration
+- **Natural language** - Reads like a sentence
+- **Event-driven architecture** - Actions become events
+- **Cross-cutting concerns** - Wildcards match patterns
+
+<Callout type="info">
+The Noun.verb pattern is implemented using JavaScript Proxies. No schema definitions needed - just write `$.on.Customer.signup` and it works.
+</Callout>
+
+## Subscribing to Actions
+
+### Basic Handlers
+
+```typescript
+// Customer actions
+$.on.Customer.signup(async (event) => {
+  const { email, name } = event.data
+  await sendWelcomeEmail(email)
+  await createDefaultSettings(event.source)
+})
+
+$.on.Customer.upgraded(async (event) => {
+  await enablePremiumFeatures(event.data.customerId)
+  await notifyAccountManager(event.data)
+})
+
+// Order actions
+$.on.Order.placed(async (event) => {
+  await notifyWarehouse(event.data.orderId)
+  await updateInventory(event.data.items)
+})
+
+$.on.Order.shipped(async (event) => {
+  await sendTrackingEmail(event.data)
+})
+
+// Payment actions
+$.on.Payment.completed(async (event) => {
+  await recordRevenue(event.data.amount)
+  await sendReceipt(event.data.email)
+})
+
+$.on.Payment.failed(async (event) => {
+  await notifyCustomer(event.data)
+  await scheduleRetry(event.data.paymentId)
+})
+```
+
+### Multiple Handlers
+
+Multiple handlers can respond to the same action:
+
+```typescript
+// Analytics
+$.on.Customer.signup(async (e) => await trackSignup(e.data))
+
+// Email
+$.on.Customer.signup(async (e) => await sendWelcome(e.data))
+
+// CRM
+$.on.Customer.signup(async (e) => await syncToCRM(e.data))
+
+// All three run when Customer.signup occurs
+```
+
+### Wildcard Handlers
+
+Pattern matching for cross-cutting concerns:
+
+```typescript
+// All 'created' actions across all nouns
+$.on['*'].created(async (event) => {
+  await auditLog('created', event.source, event.data)
+})
+
+// All actions for a specific noun
+$.on.Customer['*'](async (event) => {
+  await trackCustomerActivity(event.verb, event.data)
+})
+
+// Global handler - every action
+$.on['*']['*'](async (event) => {
+  console.log(`${event.source}: ${event.verb}`, event.data)
+})
+```
+
+<Callout type="info">
+Specific handlers run before wildcards by default. Use `priority` to change ordering.
+</Callout>
+
+### Handler Options
+
+Fine-tune handler behavior:
+
+```typescript
+$.on.Order.placed(
+  async (event) => {
+    await processHighValueOrder(event.data)
+  },
+  {
+    priority: 100,                        // Higher = runs first
+    filter: (e) => e.data.total > 1000,   // Only high-value orders
+    name: 'high-value-processor',         // For debugging
+    maxRetries: 5                         // DLQ retry limit
+  }
+)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `priority` | `number` | 0 | Execution order (higher first) |
+| `filter` | `(event) => boolean` | - | Skip if returns false |
+| `name` | `string` | auto | Handler identifier |
+| `maxRetries` | `number` | 3 | Max DLQ retry attempts |
+
+## Emitting Actions
+
+### $.emit - Domain Events
+
+Trigger handlers across the system:
+
+```typescript
+// Emit customer actions
+$.emit.Customer.signup({ id: 'cust-123', email: 'alice@example.com' })
+$.emit.Customer.upgraded({ customerId: 'cust-123', plan: 'professional' })
+
+// Emit order actions
+$.emit.Order.placed({ orderId: 'ord-456', items: [...], total: 99.99 })
+$.emit.Order.shipped({ orderId: 'ord-456', trackingNumber: 'TRK-789' })
+
+// Emit payment actions
+$.emit.Invoice.sent({ invoiceId: 'inv-001', recipientEmail: 'bob@example.com' })
+$.emit.Invoice.overdue({ invoiceId: 'inv-001', daysOverdue: 30 })
+```
+
+### Three Durability Levels
+
+Choose based on reliability requirements:
+
+```typescript
+// Fire-and-forget - best effort, non-blocking
+$.send('Customer.activity', { action: 'pageview', path: '/dashboard' })
+
+// Single attempt - blocking, no retries
+const valid = await $.try('Order.validate', { orderId, items })
+
+// Durable - blocking, retries, guaranteed
+const result = await $.do('Payment.process', {
+  amount: 100,
+  currency: 'USD',
+  customerId: 'cust-123'
+})
+```
+
+| Method | Blocking | Durable | Retries | Use Case |
+|--------|----------|---------|---------|----------|
+| `$.send()` | No | No | No | Analytics, logging |
+| `$.try()` | Yes | No | No | Validations, cache |
+| `$.do()` | Yes | Yes | Yes | Payments, orders |
+
+## Actions and Events
+
+Every action generates an event. The event captures the full context:
+
+```typescript
+// You emit:
+$.emit.Customer.signup({ email: 'alice@example.com' })
+
+// System records:
+{
+  // WHO
+  actor: 'agent:system',
+  source: 'https://app.example.com/signup',
+
+  // WHAT
+  object: 'Customer/cust-123',
+  type: 'Customer',
+
+  // WHEN
+  timestamp: '2024-01-15T10:30:00Z',
+
+  // WHY
+  verb: 'signup',
+  disposition: 'active',
+
+  // HOW
+  method: 'code',
+  context: { email: 'alice@example.com' }
+}
+```
+
+See [Events](/docs/concepts/events) for the full 5W+H model.
+
+## Action Handlers in DOs
+
+Register handlers in your DO's `setup()` method:
+
+```typescript
+import { DO } from 'dotdo'
+
+class UserDO extends DO {
+  async setup() {
+    // Customer actions
+    $.on.Customer.created(async (event) => {
+      await this.things.put('profile', event.data)
+      await this.sendWelcomeEmail(event.data.email)
+    })
+
+    $.on.Customer.upgraded(async (event) => {
+      await this.enablePremiumFeatures()
+    })
+
+    // Session actions
+    $.on.Session.started(async (event) => {
+      await this.trackLogin(event.data)
+    })
+
+    $.on.Session.ended(async (event) => {
+      await this.recordSessionDuration(event.data)
+    })
+  }
+}
+```
+
+### Startup Actions
+
+The `Startup` class has built-in action handling:
+
+```typescript
+class MyStartup extends Startup {
+  async setup() {
+    // Customer lifecycle
+    $.on.Customer.signup(async (event) => {
+      await this.onboardCustomer(event.data)
+    })
+
+    // Agent escalation
+    $.on.Agent.escalated(async (event) => {
+      await this.handleEscalation(event.data)
+    })
+
+    // Phase changes
+    $.on.Startup.phaseChanged(async (event) => {
+      await this.notifyTeam(event.data.newPhase)
+    })
+  }
+}
+```
+
+## Common Action Patterns
+
+### CRUD Actions
+
+Standard lifecycle actions for any Thing:
+
+| Action | When |
+|--------|------|
+| `Noun.created` | Thing created |
+| `Noun.updated` | Thing modified |
+| `Noun.deleted` | Thing removed |
+
+```typescript
+$.on.Customer.created(async (e) => await initializeCustomer(e.data))
+$.on.Customer.updated(async (e) => await syncCustomer(e.data))
+$.on.Customer.deleted(async (e) => await cleanupCustomer(e.data))
+```
+
+### Status Transitions
+
+State machine actions:
+
+```typescript
+// Order lifecycle
+$.on.Order.placed(handler)
+$.on.Order.paid(handler)
+$.on.Order.fulfilled(handler)
+$.on.Order.shipped(handler)
+$.on.Order.delivered(handler)
+$.on.Order.returned(handler)
+$.on.Order.refunded(handler)
+
+// User states
+$.on.User.activated(handler)
+$.on.User.suspended(handler)
+$.on.User.reactivated(handler)
+$.on.User.deleted(handler)
+```
+
+### Business Events
+
+Domain-specific actions:
+
+```typescript
+// Subscription actions
+$.on.Subscription.started(handler)
+$.on.Subscription.renewed(handler)
+$.on.Subscription.cancelled(handler)
+$.on.Subscription.expired(handler)
+
+// Inventory actions
+$.on.Inventory.depleted(handler)
+$.on.Inventory.restocked(handler)
+$.on.Inventory.reserved(handler)
+
+// Notification actions
+$.on.Alert.triggered(handler)
+$.on.Reminder.sent(handler)
+$.on.Report.generated(handler)
+```
+
+## Method Tracking
+
+Actions record HOW they were performed:
+
+| Method | Description | Example |
+|--------|-------------|---------|
+| `code` | Deterministic code | API handler, cron |
+| `generative` | AI completion | Blog draft, email |
+| `agentic` | AI with tools | Research, coding |
+| `human` | Manual action | Approval, data entry |
+
+```typescript
+// Agentic action
+{
+  verb: 'researched',
+  object: 'Lead/lead-123',
+  method: 'agentic',
+  model: 'claude-opus-4-5',
+  tools: ['web-search', 'linkedin-api']
+}
+
+// Human action
+{
+  verb: 'approved',
+  object: 'Refund/refund-789',
+  method: 'human',
+  channel: 'dashboard',
+  actor: 'user:alice@example.com'
+}
+```
+
+## Related
+
+- [Events](/docs/concepts/events) - The 5W+H event model
+- [Things](/docs/concepts/things) - What performs actions
+- [Relationships](/docs/concepts/relationships) - How actions connect Things
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - The $ proxy for actions
+- [SDK: Events](/docs/sdk/events) - Full event DSL reference

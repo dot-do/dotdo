@@ -220,4 +220,17 @@ Once debugged, remove the intermediate awaits to restore pipelining.
 | `await a; if (a.x) ...` | 1+ | Control flow needs value |
 | `a.map(fn)` | 0 (recorded) | Transform without awaiting |
 
-The rule is simple: **don't await until you need the value locally**. Let the pipeline do the work.
+The rule: **don't await until you need the value locally**. Let the pipeline do the work.
+
+## Deep Dive
+
+For more details on promise pipelining and related patterns, see the RPC documentation:
+
+<Cards>
+  <Card title="Pipeline Internals" href="/docs/rpc/pipelines">
+    How Cap'n Web RPC builds and executes pipeline graphs under the hood.
+  </Card>
+  <Card title="When to Await" href="/docs/rpc/await-patterns">
+    Detailed guidance on await placement and common anti-patterns to avoid.
+  </Card>
+</Cards>

@@ -6,8 +6,10 @@
     "index",
     "---Storage---",
     "databases",
+    "graph",
     "---Communication---",
     "messaging",
+    "realtime",
     "---Discovery---",
     "search",
     "vector"

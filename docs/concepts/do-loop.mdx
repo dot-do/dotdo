@@ -60,11 +60,11 @@ app = ralph`improve ${app} per ${tom}`
 
 The `per ${tom}` syntax means "according to Tom's feedback." But on the first pass, Tom hasn't given any feedback yet - `tom.feedback` is empty.
 
-Ralph sees this and does the minimal improvement pass: basic cleanup, obvious fixes, maybe a quick self-review. He doesn't have direction yet, so he doesn't invent it.
+Ralph sees this and does the minimal improvement pass: basic cleanup, obvious fixes, maybe a quick self-review. They don't have direction yet, so they don't invent it.
 
 ## Subsequent Iterations: Real Feedback
 
-Once Tom reviews and rejects (returning `false` from `approve`), his feedback becomes available. Now `per ${tom}` carries weight:
+Once Tom reviews and rejects (returning `false` from `approve`), their feedback becomes available. Now `per ${tom}` carries weight:
 
 ```typescript
 // Tom's feedback might include:
@@ -76,7 +76,7 @@ app = ralph`improve ${app} per ${tom}`
 // Ralph now incorporates this specific feedback
 ```
 
-Each iteration incorporates Tom's latest concerns until he's satisfied.
+Each iteration incorporates Tom's latest concerns until they're satisfied.
 
 ## The `per` Syntax
 

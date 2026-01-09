@@ -230,6 +230,7 @@ import { createDuckDB } from '@dotdo/duckdb'
 const db = await createDuckDB()
 
 // Query Parquet files directly from R2
+// Note: Use parameterized queries in production to prevent SQL injection
 const result = await db.query(`
   SELECT
     date_trunc('day', created_at) as day,
@@ -392,6 +393,7 @@ const recent = await pool.query(
 )
 
 // Cold queries go to DuckDB + Parquet
+// Note: Use parameterized queries in production to prevent SQL injection
 const historical = await pool.queryAnalytics(`
   SELECT
     date_trunc('month', created_at) as month,

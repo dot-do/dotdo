@@ -7,6 +7,30 @@ description: Build and deploy your first AI-powered startup in 5 minutes
 
 Five minutes. One startup. Let's go.
 
+## Before You Start: Key Concepts
+
+dotdo code looks like JavaScript but behaves differently. Understanding these three concepts will make everything click:
+
+<Callout type="info">
+**Template Literals = Agent Calls**
+
+`ralph`build ${spec}`` isn't string interpolation—it's an RPC call to the Ralph agent. The backticks invoke the agent, the template contents become the task, and you get back a promise-like proxy.
+</Callout>
+
+<Callout type="info">
+**Don't Await Everything**
+
+Unlike typical async code, you pass promises directly to other agents: `ralph`build ${spec}`` where `spec` is still a promise. The system uses *promise pipelining* to batch these into a single network round trip. Only `await` when you need the actual value for branching or logging.
+</Callout>
+
+<Callout type="info">
+**The $ Context**
+
+`$` is your workflow context, providing event handlers (`$.on.Customer.signup`), scheduling (`$.every.monday.at('9am')`), and durability levels (`$.do()`, `$.try()`, `$.send()`).
+</Callout>
+
+These patterns will make more sense as you see them in action below.
+
 <Steps>
 
 <Step>
@@ -273,7 +297,7 @@ You've built a startup. Here's what to explore next:
 - [RPC & Pipelines](/docs/rpc) - Deep dive into Cap'n Web
 - [The $ Context](/docs/sdk/workflow-context) - Event handling, scheduling, durability
 - [Things](/docs/sdk/thing) - Define custom entities
-- [Deployment](/docs/guides/deployment) - Production configuration
+- [Deployment](/docs/deployment) - Production configuration
 
 ---
 
