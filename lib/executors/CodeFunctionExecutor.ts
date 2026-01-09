@@ -248,25 +248,13 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<StreamOutput> {
-    let index = 0
     return {
       next: (): Promise<IteratorResult<StreamOutput>> => {
-        // Helper to get next valid chunk (skip chunks without data except result type)
-        const getNextChunk = (): StreamOutput | null => {
-          while (index < this.chunks.length) {
-            const chunk = this.chunks[index++]
-            // Return all chunks - let consumer filter by type
-            return chunk
-          }
-          return null
-        }
-
         if (this.cancelled) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })
         }
-        const chunk = getNextChunk()
-        if (chunk) {
-          return Promise.resolve({ value: chunk, done: false })
+        if (this.chunks.length > 0) {
+          return Promise.resolve({ value: this.chunks.shift()!, done: false })
         }
         if (this.done) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })

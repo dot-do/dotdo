@@ -1545,8 +1545,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
         // Health check - validate target is reachable
         try {
+          const targetUrl = new URL(target)
           const healthResponse = await Promise.race([
-            stub.fetch(new Request(`https://${target}/health`)),
+            stub.fetch(new Request(`${targetUrl.origin}/health`)),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('Health check timeout')), Math.min(timeout, 5000))
             ),

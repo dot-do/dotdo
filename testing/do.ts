@@ -409,6 +409,9 @@ export function createMockStorage(
   // Create mock SQL storage
   const sql = createMockSqlStorage(sqlTables)
 
+  // Track alarm time
+  let alarmTime: number | null = null
+
   const storage: MockDurableObjectStorage = {
     operations,
     puts,
@@ -416,6 +419,12 @@ export function createMockStorage(
     deletes,
     data,
     sql,
+    get alarmTime() {
+      return alarmTime
+    },
+    set alarmTime(value: number | null) {
+      alarmTime = value
+    },
 
     clearTracking() {
       operations.length = 0
@@ -520,6 +529,18 @@ export function createMockStorage(
     async deleteAll(): Promise<void> {
       operations.push({ type: 'deleteAll', timestamp: Date.now() })
       data.clear()
+    },
+
+    async getAlarm(): Promise<number | null> {
+      return alarmTime
+    },
+
+    async setAlarm(time: Date | number): Promise<void> {
+      alarmTime = typeof time === 'number' ? time : time.getTime()
+    },
+
+    async deleteAlarm(): Promise<void> {
+      alarmTime = null
     },
   }
 
