@@ -1475,6 +1475,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       return this.prepareStagedClone(target, options as typeof options & { mode: 'staged' })
     }
 
+    // Handle resumable mode (checkpoint-based)
+    if (mode === 'resumable') {
+      return this.initiateResumableClone(target, options as unknown as ResumableCloneOptions) as unknown as ReturnType<typeof this.clone>
+    }
+
     // For now, only atomic mode is implemented for other modes
     if (mode !== 'atomic') {
       throw new Error(`Clone mode '${mode}' not yet implemented`)

@@ -77,6 +77,11 @@ export interface MockDurableObjectStorage {
   delete(keys: string[]): Promise<number>
   deleteAll(): Promise<void>
 
+  // Alarm methods (on storage in Cloudflare Workers)
+  getAlarm(): Promise<number | null>
+  setAlarm(time: Date | number): Promise<void>
+  deleteAlarm(): Promise<void>
+
   // SQL storage
   sql: MockSqlStorage
 
@@ -91,6 +96,8 @@ export interface MockDurableObjectStorage {
   deletes: string[]
   /** Raw data store */
   data: Map<string, unknown>
+  /** Alarm time if set */
+  alarmTime: number | null
   /** Clear all tracking */
   clearTracking(): void
 }
