@@ -1,0 +1,98 @@
+---
+title: Functions
+description: Generic function type for all DO methods
+---
+
+import { AutoTypeTable } from 'fumadocs-typescript/ui'
+
+# DOFunction
+
+The `DOFunction` type is the generic function signature for all DO methods. It provides a standardized interface for function parameters and return types.
+
+## Overview
+
+<AutoTypeTable type="DOFunction" />
+
+## Type Parameters
+
+| Parameter | Constraint | Default | Description |
+|-----------|------------|---------|-------------|
+| `Output` | - | - | Return type of the function |
+| `Input` | - | `unknown` | Input parameter type |
+| `Options` | `Record<string, unknown>` | `Record<string, unknown>` | Additional options type |
+
+## Signature
+
+```typescript
+type DOFunction<
+  Output,
+  Input = unknown,
+  Options extends Record<string, unknown> = Record<string, unknown>
+> = (input: Input, options?: Options) => Promise<Output>
+```
+
+## Usage Examples
+
+### Basic Function
+
+```typescript
+// A simple DO function
+const greet: DOFunction<string, { name: string }> = async (input) => {
+  return `Hello, ${input.name}!`
+}
+```
+
+### Function with Options
+
+```typescript
+// Function with options parameter
+const fetchData: DOFunction<
+  Data[],
+  { query: string },
+  { limit?: number; offset?: number }
+> = async (input, options) => {
+  const limit = options?.limit ?? 10
+  const offset = options?.offset ?? 0
+  return query(input.query, { limit, offset })
+}
+```
+
+### Function in DO Context
+
+```typescript
+// Define a function on a DO
+class UserDO extends DO {
+  updateProfile: DOFunction<User, Partial<UserProfile>> = async (input) => {
+    return this.storage.update('profile', input)
+  }
+
+  getActivity: DOFunction<
+    Activity[],
+    { startDate: Date },
+    { includeArchived?: boolean }
+  > = async (input, options) => {
+    const query = { after: input.startDate }
+    if (!options?.includeArchived) {
+      query.archived = false
+    }
+    return this.storage.query('activity', query)
+  }
+}
+```
+
+## Type Inference
+
+When using DOFunction, TypeScript can infer the types:
+
+```typescript
+const myFunction: DOFunction<string, number> = async (n) => {
+  // n is inferred as number
+  // return type must be Promise<string>
+  return n.toString()
+}
+```
+
+## Related Types
+
+- [WorkflowContext](/docs/sdk/workflow-context) - The $ context interface
+- [Thing](/docs/sdk/thing) - Base entity type with operations

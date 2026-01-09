@@ -1531,3 +1531,492 @@ describe('Resources Middleware - Configuration', () => {
     })
   })
 })
+
+// ============================================================================
+// 10. ETag Caching Tests
+// ============================================================================
+
+describe('Resources Middleware - ETag Caching', () => {
+  let app: Hono
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDb.query.tasks.findFirst.mockResolvedValue({
+      id: 'task-1',
+      title: 'Test Task',
+      status: 'open',
+    })
+
+    app = createAuthenticatedApp({
+      types: {
+        tasks: {},
+      },
+      enableCaching: true,
+    })
+  })
+
+  describe('ETag generation', () => {
+    it('returns ETag header on GET single resource', async () => {
+      const res = await getRequest(app, 'tasks', 'task-1')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('ETag')).toBeDefined()
+    })
+
+    it('ETag is a weak ETag (W/ prefix)', async () => {
+      const res = await getRequest(app, 'tasks', 'task-1')
+      const etag = res.headers.get('ETag')
+      expect(etag).toMatch(/^W\//)
+    })
+
+    it('returns Cache-Control header', async () => {
+      const res = await getRequest(app, 'tasks', 'task-1')
+      expect(res.headers.get('Cache-Control')).toContain('must-revalidate')
+    })
+
+    it('same resource returns same ETag', async () => {
+      const res1 = await getRequest(app, 'tasks', 'task-1')
+      const res2 = await getRequest(app, 'tasks', 'task-1')
+      expect(res1.headers.get('ETag')).toBe(res2.headers.get('ETag'))
+    })
+
+    it('different resource returns different ETag', async () => {
+      const res1 = await getRequest(app, 'tasks', 'task-1')
+
+      mockDb.query.tasks.findFirst.mockResolvedValue({
+        id: 'task-2',
+        title: 'Different Task',
+        status: 'closed',
+      })
+
+      const res2 = await getRequest(app, 'tasks', 'task-2')
+      expect(res1.headers.get('ETag')).not.toBe(res2.headers.get('ETag'))
+    })
+  })
+
+  describe('If-None-Match handling', () => {
+    it('returns 304 Not Modified for matching ETag', async () => {
+      // First request to get ETag
+      const res1 = await getRequest(app, 'tasks', 'task-1')
+      const etag = res1.headers.get('ETag')
+
+      // Second request with If-None-Match
+      const res2 = await getRequest(app, 'tasks', 'task-1', {
+        'If-None-Match': etag!,
+      })
+      expect(res2.status).toBe(304)
+    })
+
+    it('returns 200 for non-matching ETag', async () => {
+      const res = await getRequest(app, 'tasks', 'task-1', {
+        'If-None-Match': 'W/"invalid-etag"',
+      })
+      expect(res.status).toBe(200)
+    })
+
+    it('304 response has empty body', async () => {
+      const res1 = await getRequest(app, 'tasks', 'task-1')
+      const etag = res1.headers.get('ETag')
+
+      const res2 = await getRequest(app, 'tasks', 'task-1', {
+        'If-None-Match': etag!,
+      })
+      const text = await res2.text()
+      expect(text).toBe('')
+    })
+  })
+
+  describe('Caching disabled', () => {
+    it('does not return ETag when caching is disabled', async () => {
+      const appNoCaching = createAuthenticatedApp({
+        types: {
+          tasks: {},
+        },
+        enableCaching: false,
+      })
+
+      const res = await getRequest(appNoCaching, 'tasks', 'task-1')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('ETag')).toBeNull()
+    })
+  })
+})
+
+// ============================================================================
+// 11. Content Negotiation Tests
+// ============================================================================
+
+describe('Resources Middleware - Content Negotiation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDb.query.tasks.findFirst.mockResolvedValue({
+      id: 'task-1',
+      title: 'Test Task',
+      status: 'open',
+    })
+    mockDb.query.tasks.findMany.mockResolvedValue([
+      { id: '1', title: 'Task 1' },
+    ])
+  })
+
+  describe('Accept header parsing', () => {
+    it('defaults to JSON when no Accept header', async () => {
+      const app = createAuthenticatedApp({
+        types: { tasks: {} },
+        contentTypes: ['json', 'yaml'],
+      })
+      const res = await getRequest(app, 'tasks', 'task-1')
+      expect(res.headers.get('Content-Type')).toContain('application/json')
+    })
+
+    it('returns JSON for application/json Accept', async () => {
+      const app = createAuthenticatedApp({
+        types: { tasks: {} },
+        contentTypes: ['json', 'yaml'],
+      })
+      const res = await getRequest(app, 'tasks', 'task-1', {
+        Accept: 'application/json',
+      })
+      expect(res.headers.get('Content-Type')).toContain('application/json')
+    })
+
+    it('always returns JSON from c.json() handler (content negotiation utility tested separately)', async () => {
+      // Note: The current handlers use c.json() for compatibility
+      // Full content negotiation would require custom response building
+      const app = createAuthenticatedApp({
+        types: { tasks: {} },
+        contentTypes: ['json', 'yaml'],
+      })
+      const res = await getRequest(app, 'tasks', 'task-1', {
+        Accept: 'application/yaml',
+      })
+      // Handler uses c.json(), so response is always JSON
+      expect(res.headers.get('Content-Type')).toContain('application/json')
+    })
+
+    it('content type negotiation is available via exported utility', async () => {
+      const { negotiateContentType } = await import('../../middleware/resources')
+      // The utility correctly negotiates
+      expect(negotiateContentType('application/yaml', ['json', 'yaml'])).toBe('yaml')
+      expect(negotiateContentType('text/yaml', ['json', 'yaml'])).toBe('yaml')
+    })
+
+    it('respects quality values in Accept header via utility', async () => {
+      const { negotiateContentType } = await import('../../middleware/resources')
+      const result = negotiateContentType('application/yaml;q=0.9, application/json;q=1.0', ['json', 'yaml'])
+      expect(result).toBe('json')
+    })
+  })
+
+  describe('YAML serialization utility', () => {
+    it('toYAML serializes objects correctly', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      const result = toYAML({ id: 'task-1', title: 'Test Task', status: 'open' })
+      expect(result).toContain('id: task-1')
+      expect(result).toContain('title: Test Task')
+      expect(result).toContain('status: open')
+    })
+
+    it('toYAML serializes nested objects with items array', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      const data = {
+        items: [{ id: '1', title: 'Task 1' }],
+        total: 1,
+      }
+      const result = toYAML(data)
+      expect(result).toContain('items:')
+      expect(result).toContain('total: 1')
+    })
+  })
+})
+
+// ============================================================================
+// 12. Batch Resource Loading Tests
+// ============================================================================
+
+describe('Resources Middleware - Batch Loading', () => {
+  let app: Hono
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDb.query.tasks.findFirst.mockImplementation(async (opts: { where: { id: string } }) => {
+      const data: Record<string, unknown> = {
+        'task-1': { id: 'task-1', title: 'Task 1' },
+        'task-2': { id: 'task-2', title: 'Task 2' },
+        'task-3': { id: 'task-3', title: 'Task 3' },
+      }
+      return data[opts.where.id] || null
+    })
+
+    app = createAuthenticatedApp({
+      types: {
+        tasks: {},
+      },
+    })
+  })
+
+  describe('POST /api/:type/_batch batch loading', () => {
+    it('returns multiple resources by IDs', async () => {
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ['task-1', 'task-2'] }),
+      })
+      expect(res.status).toBe(200)
+
+      const body = await res.json() as { items: Record<string, unknown>; missing: string[] }
+      expect(body.items['task-1']).toBeDefined()
+      expect(body.items['task-2']).toBeDefined()
+    })
+
+    it('returns items as object keyed by ID', async () => {
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ['task-1'] }),
+      })
+      const body = await res.json() as { items: Record<string, { id: string }> }
+      expect(body.items['task-1'].id).toBe('task-1')
+    })
+
+    it('returns missing array for non-existent IDs', async () => {
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ['task-1', 'non-existent'] }),
+      })
+      const body = await res.json() as { items: Record<string, unknown>; missing: string[] }
+      expect(body.items['task-1']).toBeDefined()
+      expect(body.missing).toContain('non-existent')
+    })
+
+    it('handles empty ids array', async () => {
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [] }),
+      })
+      expect(res.status).toBe(200)
+      const body = await res.json() as { items: Record<string, unknown>; missing: string[] }
+      expect(Object.keys(body.items)).toHaveLength(0)
+      expect(body.missing).toHaveLength(0)
+    })
+
+    it('returns 400 for invalid request body', async () => {
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notIds: ['task-1'] }),
+      })
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 400 for too many IDs', async () => {
+      const tooManyIds = Array.from({ length: 150 }, (_, i) => `task-${i}`)
+      const res = await app.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: tooManyIds }),
+      })
+      expect(res.status).toBe(400)
+    })
+
+    it('requires read permission for batch loading', async () => {
+      const restrictedApp = createAuthenticatedApp(
+        {
+          types: {
+            tasks: {
+              permissions: { read: 'admin' },
+            },
+          },
+        },
+        { id: 'user-1', role: 'user' }
+      )
+
+      const res = await restrictedApp.request('/api/tasks/_batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ['task-1'] }),
+      })
+      expect(res.status).toBe(403)
+    })
+  })
+})
+
+// ============================================================================
+// 13. Resource Versioning Tests
+// ============================================================================
+
+describe('Resources Middleware - Versioning', () => {
+  let app: Hono
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDb.query.tasks.findFirst.mockResolvedValue({
+      id: 'task-1',
+      title: 'Original Task',
+      _version: 1,
+    })
+    mockDb.insert.mockImplementation(async (data) => ({
+      ...data,
+      _version: 1,
+    }))
+    mockDb.update.mockImplementation(async (data) => data)
+
+    app = createAuthenticatedApp({
+      types: {
+        tasks: {
+          versioned: true,
+        },
+      },
+    })
+  })
+
+  describe('Version field on create', () => {
+    it('adds _version: 1 to new resources', async () => {
+      await createRequest(app, 'tasks', { title: 'New Task' })
+      expect(mockDb.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _version: 1,
+        })
+      )
+    })
+  })
+
+  describe('Version increment on update', () => {
+    it('increments version on update', async () => {
+      await updateRequest(app, 'tasks', 'task-1', { title: 'Updated' })
+      expect(mockDb.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _version: 2,
+        })
+      )
+    })
+
+    it('allows update with matching version', async () => {
+      const res = await updateRequest(app, 'tasks', 'task-1', {
+        title: 'Updated',
+        _version: 1,
+      })
+      expect(res.status).toBe(200)
+    })
+
+    it('returns 409 conflict for version mismatch', async () => {
+      const res = await updateRequest(app, 'tasks', 'task-1', {
+        title: 'Updated',
+        _version: 5, // Wrong version
+      })
+      expect(res.status).toBe(409)
+
+      const body = await res.json() as { error: string }
+      expect(body.error).toContain('conflict')
+    })
+  })
+})
+
+// ============================================================================
+// 14. Handler Registry Tests
+// ============================================================================
+
+describe('Resources Middleware - Handler Registry', () => {
+  // Test that the registry pattern is correctly extracting handlers
+  it('exports ResourceHandlerRegistry class', async () => {
+    const { ResourceHandlerRegistry } = await import('../../middleware/resources')
+    expect(ResourceHandlerRegistry).toBeDefined()
+  })
+
+  it('registry can register and retrieve handlers', async () => {
+    const { ResourceHandlerRegistry } = await import('../../middleware/resources')
+    const registry = new ResourceHandlerRegistry()
+
+    const mockHandler = vi.fn()
+    registry.register('GET', false, mockHandler)
+
+    expect(registry.get('GET', false)).toBe(mockHandler)
+    expect(registry.has('GET', false)).toBe(true)
+    expect(registry.has('POST', false)).toBe(false)
+  })
+})
+
+// ============================================================================
+// 15. Utility Function Tests
+// ============================================================================
+
+describe('Resources Middleware - Utility Functions', () => {
+  describe('ETag utilities', () => {
+    it('generateETag produces consistent hashes', async () => {
+      const { generateETag } = await import('../../middleware/resources')
+      const data = { id: '1', name: 'test' }
+      const etag1 = generateETag(data)
+      const etag2 = generateETag(data)
+      expect(etag1).toBe(etag2)
+    })
+
+    it('generateETag produces different hashes for different data', async () => {
+      const { generateETag } = await import('../../middleware/resources')
+      const etag1 = generateETag({ id: '1' })
+      const etag2 = generateETag({ id: '2' })
+      expect(etag1).not.toBe(etag2)
+    })
+
+    it('checkETagMatch handles weak ETags', async () => {
+      const { checkETagMatch } = await import('../../middleware/resources')
+      expect(checkETagMatch('W/"abc123"', 'W/"abc123"')).toBe(true)
+      expect(checkETagMatch('"abc123"', 'W/"abc123"')).toBe(true)
+      expect(checkETagMatch('W/"abc123"', '"abc123"')).toBe(true)
+    })
+
+    it('checkETagMatch returns false for non-matching', async () => {
+      const { checkETagMatch } = await import('../../middleware/resources')
+      expect(checkETagMatch('W/"abc"', 'W/"xyz"')).toBe(false)
+    })
+
+    it('checkETagMatch handles null', async () => {
+      const { checkETagMatch } = await import('../../middleware/resources')
+      expect(checkETagMatch(null, 'W/"abc"')).toBe(false)
+    })
+  })
+
+  describe('Content negotiation utilities', () => {
+    it('negotiateContentType defaults to json', async () => {
+      const { negotiateContentType } = await import('../../middleware/resources')
+      expect(negotiateContentType(null, ['json', 'yaml'])).toBe('json')
+      expect(negotiateContentType('', ['json', 'yaml'])).toBe('json')
+    })
+
+    it('negotiateContentType respects Accept header', async () => {
+      const { negotiateContentType } = await import('../../middleware/resources')
+      expect(negotiateContentType('application/yaml', ['json', 'yaml'])).toBe('yaml')
+      expect(negotiateContentType('application/json', ['json', 'yaml'])).toBe('json')
+    })
+  })
+
+  describe('YAML serialization', () => {
+    it('toYAML handles primitives', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      expect(toYAML(null)).toBe('null')
+      expect(toYAML(42)).toBe('42')
+      expect(toYAML(true)).toBe('true')
+      expect(toYAML('hello')).toBe('hello')
+    })
+
+    it('toYAML handles arrays', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      const result = toYAML(['a', 'b'])
+      expect(result).toContain('- a')
+      expect(result).toContain('- b')
+    })
+
+    it('toYAML handles objects', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      const result = toYAML({ name: 'test', value: 42 })
+      expect(result).toContain('name: test')
+      expect(result).toContain('value: 42')
+    })
+
+    it('toYAML quotes special characters', async () => {
+      const { toYAML } = await import('../../middleware/resources')
+      expect(toYAML('test: value')).toBe('"test: value"')
+      expect(toYAML('')).toBe('""')
+    })
+  })
+})

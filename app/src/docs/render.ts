@@ -122,6 +122,16 @@ async function generatePageHtml(path: string): Promise<string> {
   const spec = await loadOpenAPIDocument()
   const config = await loadAPIDocsConfig()
 
+  // Handle SDK documentation paths
+  if (path === '/docs/sdk' || path === '/docs/sdk/') {
+    return generateSdkIndexHtml()
+  }
+
+  if (path.startsWith('/docs/sdk/')) {
+    const sdkPath = path.replace('/docs/sdk/', '')
+    return generateSdkPageHtml(sdkPath)
+  }
+
   // Handle different paths
   if (path === '/docs/api' || path === '/docs/api/') {
     return generateApiIndexHtml(spec, config)
@@ -729,6 +739,662 @@ function generate404Html(path: string, config: APIDocsConfig): string {
   ${suggestions}
   <p>Similar endpoints you might be looking for: <a href="/docs/api/things">things</a></p>
   <p><a href="/docs/api">Back to API Documentation</a></p>
+</body>
+</html>`
+}
+
+// ============================================================================
+// SDK Documentation HTML Generators
+// ============================================================================
+
+function generateSdkIndexHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en" class="dark:dark-mode">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDK Reference - dotdo</title>
+  <meta name="description" content="TypeScript SDK types and client documentation for dotdo">
+  <meta property="og:title" content="SDK Reference - dotdo">
+  <meta property="og:description" content="TypeScript SDK types and client documentation for dotdo">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "name": "dotdo SDK Reference",
+    "description": "TypeScript SDK types and client documentation"
+  }
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; }
+    .sidebar { width: 250px; padding: 16px; }
+    .breadcrumb { display: flex; gap: 8px; margin-bottom: 16px; }
+    nav ul { list-style: none; padding: 0; }
+    nav li { margin: 8px 0; }
+    nav a { text-decoration: none; color: #0066cc; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .type-table { margin: 24px 0; }
+    h2 { border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+    @media (max-width: 768px) { .sidebar { width: 100%; } }
+    .dark\\:dark-mode { color-scheme: dark; }
+  </style>
+</head>
+<body>
+  <nav class="sidebar" aria-label="SDK Navigation">
+    <h2>SDK</h2>
+    <ul>
+      <li><strong>Core</strong></li>
+      <li><a href="/docs/sdk">Overview</a></li>
+      <li><a href="/docs/sdk/thing">Thing</a></li>
+      <li><a href="/docs/sdk/things">Things</a></li>
+      <li><strong>Utilities</strong></li>
+      <li><a href="/docs/sdk/workflow-context">WorkflowContext</a></li>
+      <li><strong>Capabilities</strong></li>
+      <li><a href="/docs/sdk/capabilities">Capabilities</a></li>
+      <li><a href="/docs/sdk/functions">Functions</a></li>
+      <li><a href="/docs/sdk/rate-limit">Rate Limiting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <div class="breadcrumb">
+      <a href="/docs">Docs</a> &gt; <a href="/docs/sdk">SDK</a>
+    </div>
+    <h1>SDK Reference</h1>
+    <p>TypeScript SDK documentation for dotdo. This documentation is auto-generated from TypeScript type definitions.</p>
+
+    <section>
+      <h2>Core Types</h2>
+      <ul>
+        <li><a href="/docs/sdk/thing"><strong>Thing</strong></a> - Base entity type with URL-based identity</li>
+        <li><a href="/docs/sdk/things"><strong>Things</strong></a> - Collection interface for managing Things</li>
+        <li><a href="/docs/sdk/workflow-context"><strong>WorkflowContext</strong></a> - The unified interface for all DO operations</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Capabilities</h2>
+      <ul>
+        <li><strong>FsCapability</strong> - Filesystem operations</li>
+        <li><strong>GitCapability</strong> - Git version control</li>
+        <li><strong>BashCapability</strong> - Shell command execution</li>
+      </ul>
+    </section>
+
+    <section class="type-table">
+      <h2>Type Overview</h2>
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>$id</code></td><td>string</td><td>*</td><td>Fully qualified URL identity</td></tr>
+          <tr><td><code>$type</code></td><td>string</td><td>*</td><td>Type URL (Noun URL)</td></tr>
+          <tr><td><code>name</code></td><td>string</td><td>optional</td><td>Display name</td></tr>
+          <tr><td><code>data</code></td><td>Record&lt;string, unknown&gt;</td><td>optional</td><td>Custom data fields</td></tr>
+          <tr><td><code>relationships</code></td><td>Record&lt;string, Thing&gt;</td><td>-</td><td>Outbound edges</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Quick Reference</h2>
+      <table>
+        <thead>
+          <tr><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Thing</code></td><td>Base entity with URL identity</td></tr>
+          <tr><td><code>ThingData</code></td><td>Data portion of a Thing</td></tr>
+          <tr><td><code>ThingDO</code></td><td>Thing promoted to a Durable Object</td></tr>
+          <tr><td><code>WorkflowContext</code></td><td>Workflow execution context ($)</td></tr>
+          <tr><td><code>DOFunction</code></td><td>Generic function type for DO methods</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>`
+}
+
+function generateSdkPageHtml(pageName: string): string {
+  // Map page names to content
+  const pages: Record<string, { title: string; content: string }> = {
+    thing: {
+      title: 'Thing',
+      content: generateThingPageContent(),
+    },
+    things: {
+      title: 'Things',
+      content: generateThingsPageContent(),
+    },
+    'workflow-context': {
+      title: 'WorkflowContext',
+      content: generateWorkflowContextPageContent(),
+    },
+    capabilities: {
+      title: 'Capabilities',
+      content: generateCapabilitiesPageContent(),
+    },
+    functions: {
+      title: 'Functions',
+      content: generateFunctionsPageContent(),
+    },
+    'rate-limit': {
+      title: 'Rate Limiting',
+      content: generateRateLimitPageContent(),
+    },
+  }
+
+  const page = pages[pageName]
+  if (!page) {
+    return generateSdk404Html(pageName)
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en" class="dark:dark-mode">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${page.title} - SDK Reference - dotdo</title>
+  <meta name="description" content="${page.title} type documentation for dotdo SDK">
+  <meta property="og:title" content="${page.title} - SDK Reference - dotdo">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "name": "${page.title} - dotdo SDK"
+  }
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; }
+    .sidebar { width: 250px; padding: 16px; }
+    .breadcrumb { display: flex; gap: 8px; margin-bottom: 16px; }
+    nav ul { list-style: none; padding: 0; }
+    nav li { margin: 8px 0; }
+    nav a { text-decoration: none; color: #0066cc; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .type-table { margin: 24px 0; }
+    h2, h3 { border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+    pre { background: #f5f5f5; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    pre code { background: none; padding: 0; }
+    .note, .remarks { background: #fff3cd; padding: 12px; border-radius: 4px; margin: 16px 0; }
+    @media (max-width: 768px) { .sidebar { width: 100%; } }
+    .dark\\:dark-mode { color-scheme: dark; }
+  </style>
+</head>
+<body>
+  <nav class="sidebar" aria-label="SDK Navigation">
+    <h2>SDK</h2>
+    <ul>
+      <li><strong>Core</strong></li>
+      <li><a href="/docs/sdk">Overview</a></li>
+      <li><a href="/docs/sdk/thing">Thing</a></li>
+      <li><a href="/docs/sdk/things">Things</a></li>
+      <li><strong>Utilities</strong></li>
+      <li><a href="/docs/sdk/workflow-context">WorkflowContext</a></li>
+      <li><strong>Capabilities</strong></li>
+      <li><a href="/docs/sdk/capabilities">Capabilities</a></li>
+      <li><a href="/docs/sdk/functions">Functions</a></li>
+      <li><a href="/docs/sdk/rate-limit">Rate Limiting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <div class="breadcrumb">
+      <a href="/docs">Docs</a> &gt; <a href="/docs/sdk">SDK</a> &gt; ${page.title}
+    </div>
+    ${page.content}
+  </main>
+</body>
+</html>`
+}
+
+function generateThingPageContent(): string {
+  return `
+    <h1>Thing</h1>
+    <p>The <code>Thing</code> interface is the base entity type in dotdo. Every entity in the system extends from Thing, which provides URL-based identity and standard CRUD operations.</p>
+
+    <section>
+      <h2><a href="/docs/sdk/ThingData">ThingData</a> Interface</h2>
+      <p>The data portion of a Thing, containing core fields and git provenance.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>$id</code></td><td>string</td><td>*</td><td>-</td><td>Fully qualified URL identity</td></tr>
+          <tr><td><code>$type</code></td><td>string</td><td>*</td><td>-</td><td>Type URL (Noun URL)</td></tr>
+          <tr><td><code>name</code></td><td>string</td><td>optional</td><td>undefined</td><td>Display name</td></tr>
+          <tr><td><code>data</code></td><td>Record&lt;string, unknown&gt;</td><td>optional</td><td>{}</td><td>Custom data fields</td></tr>
+          <tr><td><code>meta</code></td><td>Record&lt;string, unknown&gt;</td><td>optional</td><td>{}</td><td>Metadata</td></tr>
+          <tr><td><code>$source</code></td><td>{repo, path, branch, commit}</td><td>optional</td><td>undefined</td><td>Git provenance</td></tr>
+          <tr><td><code>createdAt</code></td><td>Date</td><td>*</td><td>now()</td><td>Creation timestamp</td></tr>
+          <tr><td><code>updatedAt</code></td><td>Date</td><td>*</td><td>now()</td><td>Last update timestamp</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Thing Interface</h2>
+      <p>The full Thing interface extends <a href="/docs/sdk/ThingData">ThingData</a> with identity helpers, relationships, and operations.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>identity</code></td><td>ThingIdentity</td><td>-</td><td>Computed identity from $id</td></tr>
+          <tr><td><code>isDO</code></td><td>boolean</td><td>false</td><td>Whether this Thing is a DO</td></tr>
+          <tr><td><code>relationships</code></td><td>Record&lt;string, Thing | Thing[]&gt;</td><td>{}</td><td>Outbound edges by verb</td></tr>
+          <tr><td><code>references</code></td><td>Record&lt;string, Thing | Thing[]&gt;</td><td>{}</td><td>Inbound edges by reverse verb</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>update</code></td><td>(data: Partial&lt;ThingData&gt;) =&gt; RpcPromise&lt;Thing&gt;</td><td>Update this Thing</td></tr>
+          <tr><td><code>delete</code></td><td>() =&gt; RpcPromise&lt;void&gt;</td><td>Delete this Thing</td></tr>
+          <tr><td><code>promote</code></td><td>() =&gt; RpcPromise&lt;ThingDO&gt;</td><td>Promote to its own DO</td></tr>
+          <tr><td><code>relate</code></td><td>(verb: string, to: string | Thing) =&gt; RpcPromise&lt;void&gt;</td><td>Create a relationship</td></tr>
+          <tr><td><code>unrelate</code></td><td>(verb: string, to: string | Thing) =&gt; RpcPromise&lt;void&gt;</td><td>Remove a relationship</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>ThingDO Interface</h2>
+      <p>A Thing that has been promoted to its own Durable Object (namespace). Extends Thing with <code>isDO: true</code>.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>isDO</code></td><td>true</td><td>Always true for ThingDO</td></tr>
+          <tr><td><code>$git</code></td><td>object</td><td>Git binding information</td></tr>
+          <tr><td><code>$parent</code></td><td>ThingDO</td><td>Parent DO relationship</td></tr>
+          <tr><td><code>$children</code></td><td>ThingDO[]</td><td>Child DOs</td></tr>
+        </tbody>
+      </table>
+      <p>Methods: <code>collection&lt;T&gt;(noun: string): Things&lt;T&gt;</code> - Get a collection of Things by noun</p>
+    </section>
+
+    <section>
+      <h2>Usage Examples</h2>
+      <pre><code>// Access a Thing's identity
+const thing: Thing = await $.Thing('user-123')
+console.log(thing.$id) // 'https://example.com/user-123'
+
+// Update a Thing
+await thing.update({ name: 'New Name' })
+
+// Create relationships
+await thing.relate('manages', 'https://example.com/project-456')
+
+// Promote to ThingDO
+const thingDO = await thing.promote()
+const users = thingDO.collection('User')</code></pre>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/things">Things</a>, <a href="/docs/sdk/workflow-context">WorkflowContext</a></p>
+    </section>
+  `
+}
+
+function generateThingsPageContent(): string {
+  return `
+    <h1>Things</h1>
+    <p>The <code>Things&lt;T&gt;</code> interface provides a collection interface for managing groups of Thing entities. It supports CRUD operations, querying, and iteration.</p>
+
+    <section>
+      <h2>Overview</h2>
+      <p>Things collections are accessed via ThingDO namespaces and provide typed access to entities.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>T</code></td><td>extends Thing</td><td>Generic type parameter for typed collections</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Usage Examples</h2>
+      <pre><code>// Get a collection from a ThingDO
+const startups = thingDO.collection&lt;Startup&gt;('Startup')
+
+// Create a new entity
+const newStartup = await startups.create({
+  name: 'Acme Corp',
+  data: { founded: 2024 }
+})
+
+// Iterate over entities
+for await (const startup of startups) {
+  console.log(startup.name)
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/thing">Thing</a>, <a href="/docs/sdk/thing#thingdo-interface">ThingDO</a></p>
+    </section>
+  `
+}
+
+function generateWorkflowContextPageContent(): string {
+  return `
+    <h1>WorkflowContext</h1>
+    <p>The <code>WorkflowContext</code> interface (commonly accessed as <code>$</code>) is the unified interface for all Durable Object operations.</p>
+
+    <section>
+      <h2>Execution Modes</h2>
+      <table class="type-table">
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>send</code></td><td>(event: string, data: unknown) =&gt; void</td><td>Fire-and-forget event emission</td></tr>
+          <tr><td><code>try</code></td><td>&lt;T&gt;(action: string, data: unknown) =&gt; Promise&lt;T&gt;</td><td>Quick attempt without durability</td></tr>
+          <tr><td><code>do</code></td><td>&lt;T&gt;(action: string, data: unknown) =&gt; Promise&lt;T&gt;</td><td>Durable execution with retries</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Event Subscriptions</h2>
+      <p>Subscribe to domain events using the fluent <code>$.on</code> proxy:</p>
+      <pre><code>// Subscribe to Customer created events
+$.on.Customer.created(async (event) => {
+  console.log('New customer:', event.data)
+})</code></pre>
+    </section>
+
+    <section>
+      <h2>Scheduling</h2>
+      <p>Schedule recurring tasks using the <code>$.every</code> builder:</p>
+      <pre><code>// Run every Monday at 9am
+$.every.Monday.at9am(async () => {
+  await generateWeeklyReport()
+})
+
+// Natural language scheduling
+$.every('daily at 6am', async () => {
+  await runBackup()
+})</code></pre>
+    </section>
+
+    <section>
+      <h2>Domain Resolution</h2>
+      <p>Resolve and call methods on other DOs:</p>
+      <pre><code>// Call methods on a Startup entity
+const startup = $.Startup('acme')
+await startup.prioritize()</code></pre>
+    </section>
+
+    <section>
+      <h2>Type Helpers</h2>
+      <table class="type-table">
+        <thead>
+          <tr><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>WithFs</code></td><td>WorkflowContext &amp; { fs: FsCapability }</td></tr>
+          <tr><td><code>WithGit</code></td><td>WorkflowContext &amp; { git: GitCapability }</td></tr>
+          <tr><td><code>WithBash</code></td><td>WorkflowContext &amp; { bash: BashCapability }</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/thing">Thing</a>, <a href="/docs/sdk/capabilities">Capabilities</a>, <a href="/docs/sdk/functions">Functions</a></p>
+    </section>
+  `
+}
+
+function generateCapabilitiesPageContent(): string {
+  return `
+    <h1>Capabilities</h1>
+    <p>Capability modules provide domain-specific functionality to workflows through the WorkflowContext ($).</p>
+
+    <section>
+      <h2>FsCapability</h2>
+      <p>Filesystem capability for workflows that need file access.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>readFile</code></td><td>(path: string) =&gt; Promise&lt;string | Buffer&gt;</td><td>Read file contents</td></tr>
+          <tr><td><code>writeFile</code></td><td>(path: string, content: string | Buffer) =&gt; Promise&lt;void&gt;</td><td>Write content to file</td></tr>
+          <tr><td><code>readDir</code></td><td>(path: string) =&gt; Promise&lt;string[]&gt;</td><td>List directory contents</td></tr>
+          <tr><td><code>exists</code></td><td>(path: string) =&gt; Promise&lt;boolean&gt;</td><td>Check if path exists</td></tr>
+          <tr><td><code>mkdir</code></td><td>(path: string, options?) =&gt; Promise&lt;void&gt;</td><td>Create directory</td></tr>
+          <tr><td><code>rm</code></td><td>(path: string, options?) =&gt; Promise&lt;void&gt;</td><td>Remove file or directory</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>GitCapability</h2>
+      <p>Git capability for workflows that need version control.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>status</code></td><td>() =&gt; Promise&lt;GitStatus&gt;</td><td>Get repository status</td></tr>
+          <tr><td><code>add</code></td><td>(files: string | string[]) =&gt; Promise&lt;void&gt;</td><td>Stage files for commit</td></tr>
+          <tr><td><code>commit</code></td><td>(message: string) =&gt; Promise&lt;string | {hash: string}&gt;</td><td>Create a commit</td></tr>
+          <tr><td><code>push</code></td><td>(remote?, branch?) =&gt; Promise&lt;void&gt;</td><td>Push to remote</td></tr>
+          <tr><td><code>pull</code></td><td>(remote?, branch?) =&gt; Promise&lt;void&gt;</td><td>Pull from remote</td></tr>
+          <tr><td><code>log</code></td><td>(options?) =&gt; Promise&lt;GitCommit[]&gt;</td><td>Get commit history</td></tr>
+          <tr><td><code>diff</code></td><td>(ref?) =&gt; Promise&lt;string&gt;</td><td>Get diff output</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>BashCapability</h2>
+      <p>Bash capability for workflows that need shell access.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>exec</code></td><td>(command: string, options?) =&gt; Promise&lt;ExecResult&gt;</td><td>Execute command and wait</td></tr>
+          <tr><td><code>spawn</code></td><td>(command: string, args?) =&gt; SpawnedProcess</td><td>Spawn child process</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Type Guards</h2>
+      <pre><code>// Check for filesystem capability
+if (hasFs($)) {
+  await $.fs.readFile('/data.json')
+}
+
+// Check for git capability
+if (hasGit($)) {
+  const status = await $.git.status()
+}
+
+// Check for bash capability
+if (hasBash($)) {
+  await $.bash.exec('echo hello')
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>CapabilityError</h2>
+      <p class="remarks">Error thrown when a capability is not available.</p>
+      <pre><code>throw new CapabilityError(
+  'fs',
+  'not_available',
+  'Filesystem capability is required'
+)</code></pre>
+      <p>Reasons: <code>not_available</code>, <code>permission_denied</code>, <code>load_failed</code></p>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/workflow-context">WorkflowContext</a></p>
+    </section>
+  `
+}
+
+function generateFunctionsPageContent(): string {
+  return `
+    <h1>DOFunction<Output, Input, Options></h1>
+    <p>The <code>DOFunction<T></code> type is the generic function signature for all DO methods.</p>
+
+    <section>
+      <h2>Type Parameters</h2>
+      <p>Generic type parameters: <code><Output, Input = unknown, Options extends Record<string, unknown>></code></p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Parameter</th><th>Constraint</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code><Output></code></td><td>-</td><td>-</td><td>Return type of the function</td></tr>
+          <tr><td><code><Input></code></td><td>-</td><td>unknown</td><td>Input parameter type</td></tr>
+          <tr><td><code><Options></code></td><td>extends Record&lt;string, unknown&gt;</td><td>Record&lt;string, unknown&gt;</td><td>Additional options type</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Signature</h2>
+      <pre><code>type DOFunction&lt;
+  Output,
+  Input = unknown,
+  Options extends Record&lt;string, unknown&gt; = Record&lt;string, unknown&gt;
+&gt; = (input: Input, options?: Options) =&gt; Promise&lt;Output&gt;</code></pre>
+    </section>
+
+    <section>
+      <h2>Usage Examples</h2>
+      <pre><code>// A simple DO function
+const greet: DOFunction&lt;string, { name: string }&gt; = async (input) => {
+  return \`Hello, \${input.name}!\`
+}
+
+// Function with options parameter
+const fetchData: DOFunction&lt;
+  Data[],
+  { query: string },
+  { limit?: number; offset?: number }
+&gt; = async (input, options) => {
+  const limit = options?.limit ?? 10
+  return query(input.query, { limit })
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/workflow-context">WorkflowContext</a>, <a href="/docs/sdk/thing">Thing</a></p>
+    </section>
+  `
+}
+
+function generateRateLimitPageContent(): string {
+  return `
+    <h1>Rate Limiting</h1>
+    <p>Rate limiting types for controlling access and preventing abuse.</p>
+
+    <section>
+      <h2>RateLimitResult</h2>
+      <p>Result from rate limit check/consume operations.</p>
+      <table class="type-table">
+        <thead>
+          <tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>success</code></td><td>boolean</td><td>*</td><td>Whether the action is allowed</td></tr>
+          <tr><td><code>remaining</code></td><td>number</td><td>*</td><td>Remaining quota in the current window</td></tr>
+          <tr><td><code>resetAt</code></td><td>number</td><td>optional</td><td>When the limit resets (epoch ms)</td></tr>
+          <tr><td><code>limit</code></td><td>number</td><td>optional</td><td>Limit that was checked</td></tr>
+        </tbody>
+      </table>
+      <p class="remarks note">Additional notes about rate limit behavior may apply.</p>
+    </section>
+
+    <section>
+      <h2>RateLimitCapability</h2>
+      <table class="type-table">
+        <thead>
+          <tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>check</code></td><td>(key: string, options?) =&gt; Promise&lt;RateLimitResult&gt;</td><td>Check if action is rate limited</td></tr>
+          <tr><td><code>consume</code></td><td>(key: string, cost?) =&gt; Promise&lt;RateLimitResult&gt;</td><td>Consume rate limit quota</td></tr>
+          <tr><td><code>status</code></td><td>(key: string) =&gt; Promise&lt;RateLimitResult&gt;</td><td>Get current quota status</td></tr>
+          <tr><td><code>reset</code></td><td>(key: string) =&gt; Promise&lt;void&gt;</td><td>Reset rate limit for a key</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Usage Example</h2>
+      <pre><code>const handleRequest = async ($: WorkflowContext, userId: string) => {
+  if (!hasRateLimit($)) {
+    throw new Error('Rate limiting not available')
+  }
+
+  const result = await $.rateLimit.check(userId, {
+    limit: 100,
+    windowMs: 60000 // 1 minute
+  })
+
+  if (!result.success) {
+    throw new Error('Rate limited')
+  }
+
+  await $.rateLimit.consume(userId)
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Related Types</h2>
+      <p>See also: <a href="/docs/sdk/workflow-context">WorkflowContext</a>, <a href="/docs/sdk/capabilities">Capabilities</a></p>
+    </section>
+  `
+}
+
+function generateSdk404Html(pageName: string): string {
+  // Find similar pages
+  const allPages = ['thing', 'things', 'workflow-context', 'capabilities', 'functions', 'rate-limit']
+  const similar = allPages.filter((p) => p.includes(pageName.toLowerCase()) || pageName.toLowerCase().includes(p))
+
+  const suggestions = similar.length > 0 ? `<p>Did you mean: ${similar.map((p) => `<a href="/docs/sdk/${p}">${p}</a>`).join(', ')}?</p>` : ''
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - Page Not Found - SDK Reference - dotdo</title>
+</head>
+<body>
+  <h1>404 - Page Not Found</h1>
+  <p>The SDK documentation page "${pageName}" was not found.</p>
+  ${suggestions}
+  <p>Similar pages you might be looking for: <a href="/docs/sdk/thing">Thing</a>, <a href="/docs/sdk/workflow-context">WorkflowContext</a></p>
+  <p><a href="/docs/sdk">Back to SDK Documentation</a></p>
 </body>
 </html>`
 }

@@ -1,9 +1,43 @@
 import { defineDocs, frontmatterSchema } from 'fumadocs-mdx/config'
 import { createOpenAPI } from 'fumadocs-openapi/server'
+import { createTypeTable } from 'fumadocs-typescript/ui'
 
 export const { docs, meta } = defineDocs({
   dir: 'docs',
 })
+
+// TypeScript type documentation configuration
+export const { AutoTypeTable } = createTypeTable({
+  // Source files for type extraction
+  files: ['./types/*.ts'],
+})
+
+// TypeDoc configuration for SDK documentation
+export const typeDocConfig = {
+  sourceFiles: [
+    'types/Thing.ts',
+    'types/WorkflowContext.ts',
+    'types/capabilities.ts',
+    'types/fn.ts',
+    'types/Things.ts',
+  ],
+  outputPath: 'docs/sdk',
+  exportedTypes: [
+    'Thing',
+    'ThingData',
+    'ThingDO',
+    'WorkflowContext',
+    'DOFunction',
+    'FsCapability',
+    'GitCapability',
+    'BashCapability',
+    'WithFs',
+    'WithGit',
+    'WithBash',
+    'RateLimitResult',
+  ],
+  typeTableComponent: 'AutoTypeTable',
+}
 
 // OpenAPI documentation configuration
 export const openapi = createOpenAPI({

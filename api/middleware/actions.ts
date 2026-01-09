@@ -14,18 +14,61 @@ import type { Context, MiddlewareHandler } from 'hono'
  * - POST /api/actions/:action to invoke functions
  * - Permission checks before execution
  * - Timeout handling per function type
+ * - Function type handler registry for extensibility
+ * - Automatic retry with exponential backoff
+ * - Action result caching
+ * - Execution tracing and metrics
  */
 
 // ============================================================================
-// Types
+// Types - Input/Output Typing
 // ============================================================================
 
-export interface CodeFunction {
+/** Base input type for all actions */
+export type ActionInput = Record<string, unknown>
+
+/** Result from any action execution */
+export type ActionOutput = unknown
+
+/** Generic typed handler signature */
+export type TypedHandler<TInput = ActionInput, TOutput = ActionOutput> = (
+  input: TInput,
+  c: Context
+) => TOutput | Promise<TOutput>
+
+/** AI service interface */
+export interface AIService {
+  generate: (params: { model: string; prompt: string }) => Promise<{ text: string }>
+  stream: (params: { model: string; prompt: string }) => AsyncIterable<{ text: string }>
+}
+
+/** Agent runner interface */
+export interface AgentRunner {
+  run: (params: { agent: string; input: unknown; maxIterations: number }) => Promise<unknown>
+}
+
+/** Notification service interface */
+export interface NotificationService {
+  send: (params: { channel: string; message: string }) => Promise<{ messageId: string }>
+  waitForResponse: (params: { timeout: number }) => Promise<unknown>
+}
+
+// ============================================================================
+// Function Type Definitions
+// ============================================================================
+
+export interface CodeFunction<TInput = ActionInput, TOutput = ActionOutput> {
   type: 'code'
   description?: string
-  handler: (input: unknown, c: Context) => unknown | Promise<unknown>
+  handler: TypedHandler<TInput, TOutput>
   timeout?: number
   requiredPermission?: string
+  /** Enable caching for this action */
+  cacheable?: boolean
+  /** Cache TTL in milliseconds */
+  cacheTTL?: number
+  /** Retry configuration */
+  retry?: RetryConfig
 }
 
 export interface GenerativeFunction {
@@ -36,6 +79,9 @@ export interface GenerativeFunction {
   stream?: boolean
   timeout?: number
   requiredPermission?: string
+  cacheable?: boolean
+  cacheTTL?: number
+  retry?: RetryConfig
 }
 
 export interface AgenticFunction {
@@ -45,6 +91,7 @@ export interface AgenticFunction {
   maxIterations?: number
   timeout?: number
   requiredPermission?: string
+  retry?: RetryConfig
 }
 
 export interface HumanFunction {
@@ -60,7 +107,182 @@ export type ActionFunction = CodeFunction | GenerativeFunction | AgenticFunction
 
 export interface ActionsConfig {
   actions?: Record<string, ActionFunction>
+  /** Global retry configuration */
+  defaultRetry?: RetryConfig
+  /** Global cache configuration */
+  cache?: CacheConfig
+  /** Enable execution metrics */
+  enableMetrics?: boolean
 }
+
+// ============================================================================
+// Retry Configuration
+// ============================================================================
+
+export interface RetryConfig {
+  /** Maximum number of retry attempts (default: 3) */
+  maxAttempts?: number
+  /** Initial delay in ms (default: 100) */
+  initialDelay?: number
+  /** Maximum delay in ms (default: 5000) */
+  maxDelay?: number
+  /** Backoff multiplier (default: 2) */
+  backoffMultiplier?: number
+  /** Errors that should trigger retry */
+  retryableErrors?: string[]
+}
+
+const DEFAULT_RETRY_CONFIG: Required<RetryConfig> = {
+  maxAttempts: 3,
+  initialDelay: 100,
+  maxDelay: 5000,
+  backoffMultiplier: 2,
+  retryableErrors: ['ECONNRESET', 'ETIMEDOUT', 'Service unavailable', 'rate limit'],
+}
+
+// ============================================================================
+// Cache Configuration
+// ============================================================================
+
+export interface CacheConfig {
+  /** Default TTL in milliseconds */
+  defaultTTL?: number
+  /** Maximum cache entries */
+  maxEntries?: number
+}
+
+interface CacheEntry {
+  value: unknown
+  expiresAt: number
+}
+
+// ============================================================================
+// Execution Metrics
+// ============================================================================
+
+export interface ExecutionMetrics {
+  actionName: string
+  actionType: string
+  startTime: number
+  endTime?: number
+  duration?: number
+  success: boolean
+  error?: string
+  retryCount: number
+  cacheHit: boolean
+}
+
+/** Metrics collector interface */
+export interface MetricsCollector {
+  record(metrics: ExecutionMetrics): void
+}
+
+// ============================================================================
+// Internal Cache Implementation
+// ============================================================================
+
+class ActionCache {
+  private cache = new Map<string, CacheEntry>()
+  private maxEntries: number
+
+  constructor(config?: CacheConfig) {
+    this.maxEntries = config?.maxEntries ?? 1000
+  }
+
+  private generateKey(actionName: string, input: unknown): string {
+    return `${actionName}:${JSON.stringify(input)}`
+  }
+
+  get(actionName: string, input: unknown): unknown | undefined {
+    const key = this.generateKey(actionName, input)
+    const entry = this.cache.get(key)
+
+    if (!entry) return undefined
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key)
+      return undefined
+    }
+
+    return entry.value
+  }
+
+  set(actionName: string, input: unknown, value: unknown, ttl: number): void {
+    // Evict oldest entries if at capacity
+    if (this.cache.size >= this.maxEntries) {
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) this.cache.delete(firstKey)
+    }
+
+    const key = this.generateKey(actionName, input)
+    this.cache.set(key, {
+      value,
+      expiresAt: Date.now() + ttl,
+    })
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+// ============================================================================
+// Execution Context
+// ============================================================================
+
+export interface ExecutionContext {
+  actionName: string
+  actionConfig: ActionFunction
+  input: unknown
+  honoContext: Context
+  retryCount: number
+  startTime: number
+  cacheHit: boolean
+}
+
+// ============================================================================
+// Function Type Handler Registry
+// ============================================================================
+
+export type FunctionTypeHandler<T extends ActionFunction = ActionFunction> = (
+  config: T,
+  input: unknown,
+  c: Context
+) => Promise<unknown>
+
+interface HandlerRegistryEntry<T extends ActionFunction = ActionFunction> {
+  handler: FunctionTypeHandler<T>
+  canRetry: boolean
+}
+
+/**
+ * Registry for function type handlers.
+ * Allows extensibility by registering custom handlers for new function types.
+ */
+class FunctionTypeHandlerRegistry {
+  private handlers = new Map<string, HandlerRegistryEntry>()
+
+  register<T extends ActionFunction>(
+    type: T['type'],
+    handler: FunctionTypeHandler<T>,
+    options: { canRetry?: boolean } = {}
+  ): void {
+    this.handlers.set(type, {
+      handler: handler as FunctionTypeHandler,
+      canRetry: options.canRetry ?? true,
+    })
+  }
+
+  get(type: string): HandlerRegistryEntry | undefined {
+    return this.handlers.get(type)
+  }
+
+  has(type: string): boolean {
+    return this.handlers.has(type)
+  }
+}
+
+// Create global handler registry
+const handlerRegistry = new FunctionTypeHandlerRegistry()
 
 // ============================================================================
 // Helper Functions
@@ -102,25 +324,57 @@ function hasPermission(user: { permissions?: string[] } | null, requiredPermissi
   return user.permissions.includes(requiredPermission) || user.permissions.includes('actions:*')
 }
 
+/**
+ * Determines if an error should trigger a retry
+ */
+function isRetryableError(error: Error, retryableErrors: string[]): boolean {
+  const message = error.message.toLowerCase()
+  return retryableErrors.some(pattern => message.includes(pattern.toLowerCase()))
+}
+
+/**
+ * Calculates delay with exponential backoff
+ */
+function calculateBackoffDelay(
+  attempt: number,
+  config: Required<RetryConfig>
+): number {
+  const delay = config.initialDelay * Math.pow(config.backoffMultiplier, attempt)
+  return Math.min(delay, config.maxDelay)
+}
+
+/**
+ * Sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 // ============================================================================
-// Function Executors
+// Function Type Handlers - Registered in Registry
 // ============================================================================
 
-async function executeCodeFunction(
-  config: CodeFunction,
-  input: unknown,
-  c: Context
-): Promise<unknown> {
-  const result = await Promise.resolve(config.handler(input, c))
+/**
+ * Executes a code function
+ */
+const executeCodeFunction: FunctionTypeHandler<CodeFunction> = async (
+  config,
+  input,
+  c
+) => {
+  const result = await Promise.resolve(config.handler(input as ActionInput, c))
   return result
 }
 
-async function executeGenerativeFunction(
-  config: GenerativeFunction,
-  input: unknown,
-  c: Context
-): Promise<unknown> {
-  const ai = c.get('ai') as { generate: Function; stream: Function } | undefined
+/**
+ * Executes a generative function
+ */
+const executeGenerativeFunction: FunctionTypeHandler<GenerativeFunction> = async (
+  config,
+  input,
+  c
+) => {
+  const ai = c.get('ai') as AIService | undefined
   if (!ai) {
     throw new Error('AI service not available')
   }
@@ -145,12 +399,15 @@ async function executeGenerativeFunction(
   return result
 }
 
-async function executeAgenticFunction(
-  config: AgenticFunction,
-  input: unknown,
-  c: Context
-): Promise<unknown> {
-  const agentRunner = c.get('agentRunner') as { run: Function } | undefined
+/**
+ * Executes an agentic function
+ */
+const executeAgenticFunction: FunctionTypeHandler<AgenticFunction> = async (
+  config,
+  input,
+  c
+) => {
+  const agentRunner = c.get('agentRunner') as AgentRunner | undefined
   if (!agentRunner) {
     throw new Error('Agent runner not available')
   }
@@ -166,15 +423,15 @@ async function executeAgenticFunction(
   return result
 }
 
-async function executeHumanFunction(
-  config: HumanFunction,
-  input: unknown,
-  c: Context
-): Promise<unknown> {
-  const notifications = c.get('notifications') as {
-    send: Function
-    waitForResponse: Function
-  } | undefined
+/**
+ * Executes a human function
+ */
+const executeHumanFunction: FunctionTypeHandler<HumanFunction> = async (
+  config,
+  input,
+  c
+) => {
+  const notifications = c.get('notifications') as NotificationService | undefined
 
   if (!notifications) {
     throw new Error('Notification channel not available')
@@ -195,6 +452,167 @@ async function executeHumanFunction(
   })
 
   return response
+}
+
+// Register default handlers
+handlerRegistry.register('code', executeCodeFunction, { canRetry: true })
+handlerRegistry.register('generative', executeGenerativeFunction, { canRetry: true })
+handlerRegistry.register('agentic', executeAgenticFunction, { canRetry: true })
+handlerRegistry.register('human', executeHumanFunction, { canRetry: false }) // Human actions should not auto-retry
+
+// ============================================================================
+// Execution Engine
+// ============================================================================
+
+/**
+ * Core execution engine that handles retry, caching, and metrics
+ */
+class ActionExecutionEngine {
+  private cache: ActionCache
+  private metricsCollector?: MetricsCollector
+  private defaultRetry: Required<RetryConfig>
+  private enableMetrics: boolean
+
+  constructor(config?: ActionsConfig) {
+    this.cache = new ActionCache(config?.cache)
+    this.defaultRetry = { ...DEFAULT_RETRY_CONFIG, ...config?.defaultRetry }
+    this.enableMetrics = config?.enableMetrics ?? false
+  }
+
+  /**
+   * Set metrics collector for execution tracing
+   */
+  setMetricsCollector(collector: MetricsCollector): void {
+    this.metricsCollector = collector
+  }
+
+  /**
+   * Execute an action with retry, caching, and metrics
+   */
+  async execute(ctx: ExecutionContext): Promise<unknown> {
+    const { actionName, actionConfig, input, honoContext } = ctx
+    const startTime = Date.now()
+    let cacheHit = false
+    let retryCount = 0
+
+    // Check cache first for cacheable actions
+    if (this.isCacheable(actionConfig)) {
+      const cached = this.cache.get(actionName, input)
+      if (cached !== undefined) {
+        cacheHit = true
+        this.recordMetrics({
+          actionName,
+          actionType: actionConfig.type,
+          startTime,
+          endTime: Date.now(),
+          duration: Date.now() - startTime,
+          success: true,
+          retryCount: 0,
+          cacheHit: true,
+        })
+        return cached
+      }
+    }
+
+    // Get handler from registry
+    const registryEntry = handlerRegistry.get(actionConfig.type)
+    if (!registryEntry) {
+      throw new Error(`Unknown action type`)
+    }
+
+    // Determine retry configuration
+    const retryConfig = this.getRetryConfig(actionConfig, registryEntry.canRetry)
+
+    // Execute with retry logic
+    let lastError: Error | undefined
+    for (let attempt = 0; attempt <= retryConfig.maxAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = calculateBackoffDelay(attempt - 1, retryConfig)
+          await sleep(delay)
+          retryCount = attempt
+        }
+
+        const result = await registryEntry.handler(actionConfig, input, honoContext)
+
+        // Cache result if cacheable
+        if (this.isCacheable(actionConfig)) {
+          const ttl = this.getCacheTTL(actionConfig)
+          this.cache.set(actionName, input, result, ttl)
+        }
+
+        // Record successful metrics
+        this.recordMetrics({
+          actionName,
+          actionType: actionConfig.type,
+          startTime,
+          endTime: Date.now(),
+          duration: Date.now() - startTime,
+          success: true,
+          retryCount,
+          cacheHit,
+        })
+
+        return result
+      } catch (error) {
+        lastError = error as Error
+
+        // Check if we should retry
+        const shouldRetry =
+          attempt < retryConfig.maxAttempts &&
+          registryEntry.canRetry &&
+          isRetryableError(lastError, retryConfig.retryableErrors)
+
+        if (!shouldRetry) {
+          break
+        }
+      }
+    }
+
+    // Record failed metrics
+    this.recordMetrics({
+      actionName,
+      actionType: actionConfig.type,
+      startTime,
+      endTime: Date.now(),
+      duration: Date.now() - startTime,
+      success: false,
+      error: lastError?.message,
+      retryCount,
+      cacheHit,
+    })
+
+    throw lastError
+  }
+
+  private isCacheable(config: ActionFunction): boolean {
+    if (config.type === 'code' || config.type === 'generative') {
+      return (config as CodeFunction | GenerativeFunction).cacheable ?? false
+    }
+    return false
+  }
+
+  private getCacheTTL(config: ActionFunction): number {
+    if (config.type === 'code' || config.type === 'generative') {
+      return (config as CodeFunction | GenerativeFunction).cacheTTL ?? 60000
+    }
+    return 60000
+  }
+
+  private getRetryConfig(config: ActionFunction, canRetry: boolean): Required<RetryConfig> {
+    if (!canRetry) {
+      return { ...this.defaultRetry, maxAttempts: 0 }
+    }
+
+    const actionRetry = 'retry' in config ? config.retry : undefined
+    return { ...this.defaultRetry, ...actionRetry }
+  }
+
+  private recordMetrics(metrics: ExecutionMetrics): void {
+    if (this.enableMetrics && this.metricsCollector) {
+      this.metricsCollector.record(metrics)
+    }
+  }
 }
 
 // ============================================================================
@@ -231,11 +649,20 @@ async function executeHumanFunction(
  *       timeout: 3600000,
  *     },
  *   },
+ *   defaultRetry: {
+ *     maxAttempts: 3,
+ *     initialDelay: 100,
+ *   },
+ *   cache: {
+ *     defaultTTL: 60000,
+ *   },
+ *   enableMetrics: true,
  * }))
  * ```
  */
 export function actions(config?: ActionsConfig): MiddlewareHandler {
   const actionsMap = config?.actions || {}
+  const executionEngine = new ActionExecutionEngine(config)
 
   return async (c, next) => {
     // Parse the path to determine what action to take
@@ -295,26 +722,23 @@ export function actions(config?: ActionsConfig): MiddlewareHandler {
         return c.json({ error: 'Invalid JSON input' }, 400)
       }
 
-      // Execute based on type
+      // Execute action using execution engine
       try {
-        let result: unknown
         const timeout = actionConfig.timeout
 
         const executeAction = async (): Promise<unknown> => {
-          switch (actionConfig.type) {
-            case 'code':
-              return await executeCodeFunction(actionConfig, input, c)
-            case 'generative':
-              return await executeGenerativeFunction(actionConfig, input, c)
-            case 'agentic':
-              return await executeAgenticFunction(actionConfig, input, c)
-            case 'human':
-              return await executeHumanFunction(actionConfig, input, c)
-            default:
-              throw new Error(`Unknown action type`)
-          }
+          return executionEngine.execute({
+            actionName,
+            actionConfig,
+            input,
+            honoContext: c,
+            retryCount: 0,
+            startTime: Date.now(),
+            cacheHit: false,
+          })
         }
 
+        let result: unknown
         if (timeout) {
           result = await withTimeout(executeAction(), timeout, 'Action timeout')
         } else {
@@ -354,5 +778,25 @@ export function actions(config?: ActionsConfig): MiddlewareHandler {
     await next()
   }
 }
+
+// ============================================================================
+// Exports for extensibility
+// ============================================================================
+
+/**
+ * Register a custom function type handler
+ */
+export function registerFunctionTypeHandler<T extends ActionFunction>(
+  type: T['type'],
+  handler: FunctionTypeHandler<T>,
+  options: { canRetry?: boolean } = {}
+): void {
+  handlerRegistry.register(type, handler, options)
+}
+
+/**
+ * Export handler registry for testing and advanced use cases
+ */
+export { handlerRegistry, ActionCache, ActionExecutionEngine }
 
 export default actions

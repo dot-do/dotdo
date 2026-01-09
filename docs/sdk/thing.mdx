@@ -1,0 +1,100 @@
+---
+title: Thing
+description: Base entity type with URL-based identity
+---
+
+import { AutoTypeTable } from 'fumadocs-typescript/ui'
+
+# Thing
+
+The `Thing` interface is the base entity type in dotdo. Every entity in the system extends from Thing, which provides URL-based identity and standard CRUD operations.
+
+## Overview
+
+Things have fully qualified URL identities (`$id`) and type identifiers (`$type`). They can contain relationships to other Things and can be promoted to their own Durable Objects.
+
+## ThingData Interface
+
+The data portion of a Thing, containing core fields and git provenance.
+
+<AutoTypeTable type="ThingData" />
+
+### Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `$id` | `string` | Yes | Fully qualified URL identity |
+| `$type` | `string` | Yes | Type URL (Noun URL) |
+| `name` | `string` | No | Display name |
+| `data` | `Record<string, unknown>` | No | Custom data fields |
+| `meta` | `Record<string, unknown>` | No | Metadata |
+| `$source` | `object` | No | Git provenance when synced from git |
+| `createdAt` | `Date` | Yes | Creation timestamp |
+| `updatedAt` | `Date` | Yes | Last update timestamp |
+
+## Thing Interface
+
+The full Thing interface extends ThingData with identity helpers, relationships, and operations.
+
+<AutoTypeTable type="Thing" />
+
+### Identity
+
+- `identity` - Computed identity object from `$id`
+- `isDO` - Whether this Thing is a Durable Object
+
+### Relationships
+
+- `relationships` - Outbound edges by verb (camelCase)
+- `references` - Inbound edges by reverse verb
+
+### Operations
+
+- `update(data)` - Update this Thing
+- `delete()` - Delete this Thing
+- `promote()` - Promote to its own DO
+- `relate(verb, to)` - Create a relationship
+- `unrelate(verb, to)` - Remove a relationship
+
+## ThingDO Interface
+
+A Thing that has been promoted to its own Durable Object (namespace).
+
+<AutoTypeTable type="ThingDO" />
+
+### Additional Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `isDO` | `true` | Always true for ThingDO |
+| `$git` | `object` | Git binding information |
+| `$parent` | `ThingDO` | Parent DO relationship |
+| `$children` | `ThingDO[]` | Child DOs |
+
+### Methods
+
+- `collection(noun)` - Get a collection of Things by noun
+
+## Usage Examples
+
+```typescript
+// Access a Thing's identity
+const thing: Thing = await $.Thing('user-123')
+console.log(thing.$id) // 'https://example.com/user-123'
+console.log(thing.identity.ns) // 'https://example.com'
+
+// Update a Thing
+await thing.update({ name: 'New Name' })
+
+// Create relationships
+await thing.relate('manages', 'https://example.com/project-456')
+
+// Promote to ThingDO
+const thingDO = await thing.promote()
+const users = thingDO.collection('User')
+```
+
+## Related Types
+
+- [Things](/docs/sdk/things) - Collection interface for managing Things
+- [WorkflowContext](/docs/sdk/workflow-context) - The $ context interface

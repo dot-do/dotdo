@@ -1,0 +1,156 @@
+---
+title: WorkflowContext
+description: The unified interface for all DO operations
+---
+
+import { AutoTypeTable } from 'fumadocs-typescript/ui'
+
+# WorkflowContext
+
+The `WorkflowContext` interface (commonly accessed as `$`) is the unified interface for all Durable Object operations. It provides execution modes, event subscriptions, scheduling, and domain resolution.
+
+## Overview
+
+WorkflowContext is the primary interface for interacting with the dotdo system within workflows and functions.
+
+<AutoTypeTable type="WorkflowContext" />
+
+## Execution Modes
+
+Different durability levels for executing operations:
+
+### send(event, data)
+
+Fire-and-forget event emission. Non-blocking, non-durable, best-effort.
+
+```typescript
+$.send('notification', { message: 'Hello' })
+```
+
+### try(action, data)
+
+Quick attempt without durability. Blocking but non-durable.
+
+```typescript
+const result = await $.try<Response>('fetch', { url: 'https://api.example.com' })
+```
+
+### do(action, data)
+
+Durable execution with retries. Blocking, durable, guaranteed event emission.
+
+```typescript
+const result = await $.do<PaymentResult>('processPayment', { amount: 100 })
+```
+
+## Event Subscriptions
+
+Subscribe to domain events using the fluent `$.on` proxy:
+
+```typescript
+// Subscribe to Customer created events
+$.on.Customer.created(async (event) => {
+  console.log('New customer:', event.data)
+})
+
+// Subscribe to Invoice paid events
+$.on.Invoice.paid(async (event) => {
+  await sendReceipt(event.data)
+})
+```
+
+## Scheduling
+
+Schedule recurring tasks using the `$.every` builder:
+
+```typescript
+// Run every Monday at 9am
+$.every.Monday.at9am(async () => {
+  await generateWeeklyReport()
+})
+
+// Run every day at noon
+$.every.day.atnoon(async () => {
+  await sendDailyDigest()
+})
+
+// Natural language scheduling
+$.every('daily at 6am', async () => {
+  await runBackup()
+})
+```
+
+## Domain Resolution
+
+Resolve and call methods on other DOs:
+
+```typescript
+// Call methods on a Startup entity
+const startup = $.Startup('acme')
+await startup.prioritize()
+
+// Call methods on an Invoice
+await $.Invoice('inv-123').send()
+```
+
+## Branching and Version Control
+
+### branch(name)
+
+Create a new branch at current HEAD:
+
+```typescript
+await $.branch('experiment-a')
+```
+
+### checkout(ref)
+
+Switch to a branch or version:
+
+```typescript
+await $.checkout('experiment-a')
+await $.checkout('@v1234') // Version reference
+```
+
+### merge(branch)
+
+Merge a branch into current:
+
+```typescript
+await $.merge('experiment-a')
+```
+
+## Utilities
+
+### log(message, data?)
+
+Structured logging with automatic history tracking:
+
+```typescript
+$.log('Processing order', { orderId: 'ord-123' })
+```
+
+### state
+
+Access current workflow state:
+
+```typescript
+console.log($.state.currentStep)
+$.state.progress = 0.5
+```
+
+## Type Helpers
+
+Composed context types for capability requirements:
+
+<AutoTypeTable type="WithFs" />
+
+<AutoTypeTable type="WithGit" />
+
+<AutoTypeTable type="WithBash" />
+
+## Related Types
+
+- [Thing](/docs/sdk/thing) - Base entity type
+- [Capabilities](/docs/sdk/capabilities) - Capability modules
+- [Functions](/docs/sdk/functions) - DOFunction type

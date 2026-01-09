@@ -1,0 +1,59 @@
+---
+title: Things
+description: Collection interface for managing Things
+---
+
+import { AutoTypeTable } from 'fumadocs-typescript/ui'
+
+# Things
+
+The `Things<T>` interface provides a collection interface for managing groups of Thing entities. It supports CRUD operations, querying, and iteration.
+
+## Overview
+
+Things collections are accessed via ThingDO namespaces and provide typed access to entities.
+
+<AutoTypeTable type="Things" />
+
+## Generic Type Parameter
+
+The Things interface is generic over `T extends Thing`:
+
+```typescript
+interface Things<T extends Thing = Thing> {
+  // Collection methods...
+}
+```
+
+This allows for typed collections:
+
+```typescript
+const users: Things<User> = thingDO.collection('User')
+const projects: Things<Project> = thingDO.collection('Project')
+```
+
+## Usage Examples
+
+```typescript
+// Get a collection from a ThingDO
+const startups = thingDO.collection<Startup>('Startup')
+
+// Create a new entity
+const newStartup = await startups.create({
+  name: 'Acme Corp',
+  data: { founded: 2024 }
+})
+
+// Query entities
+const active = await startups.find({ status: 'active' })
+
+// Iterate over entities
+for await (const startup of startups) {
+  console.log(startup.name)
+}
+```
+
+## Related Types
+
+- [Thing](/docs/sdk/thing) - Base entity type
+- [ThingDO](/docs/sdk/thing#thingdo-interface) - Namespace that contains collections
