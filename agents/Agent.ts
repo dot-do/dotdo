@@ -20,7 +20,6 @@ import type {
   ToolCall,
   ToolResult,
   ToolDefinition,
-  StopCondition,
   StepState,
   StepResult,
   TokenUsage,
@@ -32,44 +31,20 @@ import type {
 } from './types'
 import { validateInput } from './Tool'
 
-// ============================================================================
-// Stop Condition Helpers
-// ============================================================================
+// Import stop conditions from dedicated module
+import {
+  stepCountIs,
+  hasToolCall,
+  hasText,
+  customStop,
+  shouldStop,
+  all,
+  any,
+  not,
+} from './stopConditions'
 
-export function stepCountIs(count: number): StopCondition {
-  return { type: 'stepCount', count }
-}
-
-export function hasToolCall(toolName: string): StopCondition {
-  return { type: 'hasToolCall', toolName }
-}
-
-export function hasText(): StopCondition {
-  return { type: 'hasText' }
-}
-
-export function customStop(check: (state: StepState) => boolean): StopCondition {
-  return { type: 'custom', check }
-}
-
-function shouldStop(conditions: StopCondition | StopCondition[], state: StepState): boolean {
-  const conditionArray = Array.isArray(conditions) ? conditions : [conditions]
-
-  return conditionArray.some((condition) => {
-    switch (condition.type) {
-      case 'stepCount':
-        return state.stepNumber >= condition.count
-      case 'hasToolCall':
-        return state.lastStep.toolCalls?.some((tc) => tc.name === condition.toolName) ?? false
-      case 'hasText':
-        return !!state.lastStep.text && state.lastStep.text.length > 0
-      case 'custom':
-        return condition.check(state)
-      default:
-        return false
-    }
-  })
-}
+// Re-export for backwards compatibility
+export { stepCountIs, hasToolCall, hasText, customStop, all, any, not }
 
 // ============================================================================
 // Base Agent Implementation

@@ -25,6 +25,26 @@ import type {
 } from './types'
 
 // ============================================================================
+// EVALUATION OPTIONS
+// ============================================================================
+
+/**
+ * Options for evaluation with diagnostics and caching
+ */
+export interface EvaluationOptions {
+  /** Enable diagnostic tracing */
+  trace?: boolean
+  /** Enable result caching */
+  cache?: boolean
+  /** Custom cache instance */
+  cacheInstance?: EvaluationCache
+  /** Flag version for cache invalidation */
+  flagVersion?: string
+  /** Enable dry run mode (don't modify cache) */
+  dryRun?: boolean
+}
+
+// ============================================================================
 // DIAGNOSTICS TYPES
 // ============================================================================
 
@@ -63,6 +83,28 @@ export interface EvaluationTrace {
 }
 
 /**
+ * Detailed error context for debugging evaluation failures
+ */
+export interface EvaluationErrorContext {
+  /** The flag key that failed */
+  flagKey: string
+  /** The evaluation context used */
+  context: EvaluationContext
+  /** The error code */
+  errorCode: ErrorCode
+  /** The error message */
+  errorMessage: string
+  /** Stack trace of evaluation steps leading to error */
+  evaluationPath: string[]
+  /** Related flag keys (e.g., prerequisites) */
+  relatedFlags?: string[]
+  /** Timestamp of the error */
+  timestamp: number
+  /** Additional debug information */
+  debugInfo?: Record<string, unknown>
+}
+
+/**
  * Extended evaluation result with diagnostics
  */
 export interface EvaluationDetailsWithDiagnostics<T> extends EvaluationDetails<T> {
@@ -70,6 +112,8 @@ export interface EvaluationDetailsWithDiagnostics<T> extends EvaluationDetails<T
   trace?: EvaluationTrace
   /** Human-readable explanation of the decision */
   explanation?: string
+  /** Detailed error context if evaluation failed */
+  errorContext?: EvaluationErrorContext
 }
 
 // ============================================================================
@@ -210,6 +254,208 @@ export function getEvaluationCache(): EvaluationCache {
  */
 export function setEvaluationCache(cache: EvaluationCache): void {
   globalCache = cache
+}
+
+// ============================================================================
+// DIAGNOSTICS TRACE BUILDER
+// ============================================================================
+
+/**
+ * Builder for constructing evaluation traces
+ */
+class TraceBuilder {
+  private steps: EvaluationStep[] = []
+  private startTime: number
+  private stepStartTime: number
+
+  constructor(private flagKey: string, private context: EvaluationContext) {
+    this.startTime = performance.now()
+    this.stepStartTime = this.startTime
+  }
+
+  /**
+   * Add a step to the trace
+   */
+  addStep(
+    type: EvaluationStep['type'],
+    description: string,
+    result: EvaluationStep['result'],
+    metadata?: Record<string, unknown>
+  ): this {
+    const now = performance.now()
+    const durationUs = Math.round((now - this.stepStartTime) * 1000)
+    this.stepStartTime = now
+
+    this.steps.push({
+      type,
+      description,
+      result,
+      durationUs,
+      metadata,
+    })
+    return this
+  }
+
+  /**
+   * Build the complete trace
+   */
+  build(cached = false): EvaluationTrace {
+    const totalDurationUs = Math.round((performance.now() - this.startTime) * 1000)
+    return {
+      flagKey: this.flagKey,
+      context: this.context,
+      steps: this.steps,
+      totalDurationUs,
+      cached,
+      timestamp: Date.now(),
+    }
+  }
+}
+
+/**
+ * Generate a human-readable explanation from a trace
+ */
+export function generateExplanation(trace: EvaluationTrace): string {
+  const lines: string[] = []
+  lines.push(`Flag '${trace.flagKey}' evaluation:`)
+
+  for (const step of trace.steps) {
+    const status = step.result === 'matched' ? '[MATCH]' :
+                   step.result === 'selected' ? '[SELECTED]' :
+                   step.result === 'skipped' ? '[SKIP]' :
+                   step.result === 'error' ? '[ERROR]' : '[NO MATCH]'
+    lines.push(`  ${status} ${step.description}`)
+  }
+
+  lines.push(`  Total time: ${trace.totalDurationUs}us${trace.cached ? ' (cached)' : ''}`)
+  return lines.join('\n')
+}
+
+// ============================================================================
+// HOT FLAG OPTIMIZATION
+// ============================================================================
+
+/**
+ * Hot flag cache for frequently accessed flags
+ * Uses a simple LRU with access count tracking
+ */
+class HotFlagCache {
+  private cache = new Map<string, { result: EvaluationDetails<unknown>; accessCount: number; lastAccess: number }>()
+  private maxSize = 100
+  private hotThreshold = 10 // Access count to consider a flag "hot"
+
+  get<T>(key: string): EvaluationDetails<T> | null {
+    const entry = this.cache.get(key)
+    if (!entry) return null
+
+    entry.accessCount++
+    entry.lastAccess = Date.now()
+
+    // Move to end for LRU
+    this.cache.delete(key)
+    this.cache.set(key, entry)
+
+    return entry.result as EvaluationDetails<T>
+  }
+
+  set<T>(key: string, result: EvaluationDetails<T>): void {
+    // Evict cold entries if at capacity
+    if (this.cache.size >= this.maxSize) {
+      this.evictColdest()
+    }
+
+    this.cache.set(key, {
+      result,
+      accessCount: 1,
+      lastAccess: Date.now(),
+    })
+  }
+
+  private evictColdest(): void {
+    let coldestKey: string | null = null
+    let coldestScore = Infinity
+
+    for (const [key, entry] of this.cache) {
+      // Score based on access count and recency
+      const score = entry.accessCount * 1000 + (Date.now() - entry.lastAccess) / 1000
+      if (score < coldestScore) {
+        coldestScore = score
+        coldestKey = key
+      }
+    }
+
+    if (coldestKey) {
+      this.cache.delete(coldestKey)
+    }
+  }
+
+  isHot(key: string): boolean {
+    const entry = this.cache.get(key)
+    return entry !== null && entry !== undefined && entry.accessCount >= this.hotThreshold
+  }
+
+  getStats(): { size: number; hotCount: number } {
+    let hotCount = 0
+    for (const entry of this.cache.values()) {
+      if (entry.accessCount >= this.hotThreshold) hotCount++
+    }
+    return { size: this.cache.size, hotCount }
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+// Global hot flag cache
+const hotFlagCache = new HotFlagCache()
+
+/**
+ * Get hot flag cache statistics
+ */
+export function getHotFlagStats(): { size: number; hotCount: number } {
+  return hotFlagCache.getStats()
+}
+
+/**
+ * Clear the hot flag cache
+ */
+export function clearHotFlagCache(): void {
+  hotFlagCache.clear()
+}
+
+// ============================================================================
+// PREREQUISITE MEMOIZATION
+// ============================================================================
+
+/**
+ * Memoization cache for prerequisite evaluations within a single evaluation tree
+ */
+class PrerequisiteMemo {
+  private memo = new Map<string, EvaluationDetails<unknown>>()
+
+  getKey(flagKey: string, context: EvaluationContext): string {
+    const sortedContext = Object.keys(context)
+      .sort()
+      .map(k => `${k}:${JSON.stringify(context[k])}`)
+      .join('|')
+    return `${flagKey}::${sortedContext}`
+  }
+
+  get<T>(flagKey: string, context: EvaluationContext): EvaluationDetails<T> | null {
+    const key = this.getKey(flagKey, context)
+    return (this.memo.get(key) as EvaluationDetails<T>) ?? null
+  }
+
+  set<T>(flagKey: string, context: EvaluationContext, result: EvaluationDetails<T>): void {
+    const key = this.getKey(flagKey, context)
+    this.memo.set(key, result)
+  }
+
+  has(flagKey: string, context: EvaluationContext): boolean {
+    const key = this.getKey(flagKey, context)
+    return this.memo.has(key)
+  }
 }
 
 // ============================================================================
@@ -731,5 +977,436 @@ export async function evaluate<T>(
   return {
     value: flag.defaultValue,
     reason: 'DEFAULT',
+  }
+}
+
+// ============================================================================
+// ENHANCED EVALUATION WITH DIAGNOSTICS
+// ============================================================================
+
+/**
+ * Internal evaluation with full tracing support
+ */
+async function evaluateInternal<T>(
+  flagKey: string,
+  defaultValue: T,
+  context: EvaluationContext,
+  flag: ExtendedFlagDefinition<T> | undefined,
+  flags: Map<string, ExtendedFlagDefinition<unknown>> | undefined,
+  visitedFlags: Set<string>,
+  prerequisiteMemo: PrerequisiteMemo,
+  traceBuilder: TraceBuilder | null,
+  evaluationPath: string[]
+): Promise<EvaluationDetails<T>> {
+  evaluationPath.push(flagKey)
+
+  // Flag not found
+  if (!flag) {
+    traceBuilder?.addStep('flag_lookup', `Looking up flag '${flagKey}'`, 'error', { error: 'FLAG_NOT_FOUND' })
+    return {
+      value: defaultValue,
+      reason: 'DEFAULT',
+      errorCode: 'FLAG_NOT_FOUND',
+      errorMessage: `Flag '${flagKey}' not found`,
+    }
+  }
+
+  traceBuilder?.addStep('flag_lookup', `Looking up flag '${flagKey}'`, 'matched', { version: flag.version })
+
+  // Check for circular prerequisites
+  if (visitedFlags.has(flagKey)) {
+    traceBuilder?.addStep('prerequisite', `Circular dependency detected for '${flagKey}'`, 'error')
+    return {
+      value: defaultValue,
+      reason: 'ERROR',
+      errorCode: 'GENERAL',
+      errorMessage: 'circular prerequisite dependency detected',
+    }
+  }
+  visitedFlags.add(flagKey)
+
+  // Check if flag is disabled
+  if (flag.enabled === false) {
+    traceBuilder?.addStep('flag_lookup', `Flag '${flagKey}' is disabled`, 'skipped')
+    return {
+      value: flag.defaultValue,
+      reason: 'DISABLED',
+    }
+  }
+
+  // Check prerequisites with memoization
+  if (flag.prerequisites && flag.prerequisites.length > 0 && flags) {
+    for (const prereq of flag.prerequisites) {
+      const prereqFlag = flags.get(prereq.key) as ExtendedFlagDefinition<unknown> | undefined
+
+      if (!prereqFlag) {
+        traceBuilder?.addStep('prerequisite', `Prerequisite '${prereq.key}' not found`, 'error')
+        const offValue = flag.offVariation !== undefined && flag.variations
+          ? flag.variations[flag.offVariation]?.value ?? flag.defaultValue
+          : flag.defaultValue
+        return {
+          value: offValue as T,
+          reason: 'PREREQUISITE_FAILED' as EvaluationReason,
+        }
+      }
+
+      // Check memoization first
+      let prereqResult = prerequisiteMemo.get<unknown>(prereq.key, context)
+
+      if (!prereqResult) {
+        // Evaluate prerequisite and memoize
+        prereqResult = await evaluateInternal(
+          prereq.key,
+          prereqFlag.defaultValue,
+          context,
+          prereqFlag,
+          flags,
+          visitedFlags,
+          prerequisiteMemo,
+          traceBuilder,
+          evaluationPath
+        )
+        prerequisiteMemo.set(prereq.key, context, prereqResult)
+      } else {
+        traceBuilder?.addStep('prerequisite', `Prerequisite '${prereq.key}' result from memo`, 'matched')
+      }
+
+      // Propagate errors
+      if (prereqResult.reason === 'ERROR') {
+        traceBuilder?.addStep('prerequisite', `Prerequisite '${prereq.key}' evaluation error`, 'error')
+        return {
+          value: defaultValue,
+          reason: 'ERROR',
+          errorCode: prereqResult.errorCode,
+          errorMessage: prereqResult.errorMessage,
+        }
+      }
+
+      // Check if prerequisite matches required variation
+      const requiredVariation = prereqFlag.variations?.[prereq.variation as number]
+      if (!requiredVariation || prereqResult.value !== requiredVariation.value) {
+        traceBuilder?.addStep(
+          'prerequisite',
+          `Prerequisite '${prereq.key}' failed: expected ${JSON.stringify(requiredVariation?.value)}, got ${JSON.stringify(prereqResult.value)}`,
+          'not_matched'
+        )
+        const offValue = flag.offVariation !== undefined && flag.variations
+          ? flag.variations[flag.offVariation]?.value ?? flag.defaultValue
+          : flag.defaultValue
+        return {
+          value: offValue as T,
+          reason: 'PREREQUISITE_FAILED' as EvaluationReason,
+        }
+      }
+
+      traceBuilder?.addStep('prerequisite', `Prerequisite '${prereq.key}' passed`, 'matched')
+    }
+  }
+
+  // No variations - return default
+  if (!flag.variations || flag.variations.length === 0) {
+    traceBuilder?.addStep('variation', 'No variations defined, using default', 'selected')
+    return {
+      value: flag.defaultValue,
+      reason: 'DEFAULT',
+    }
+  }
+
+  // No targeting rules - check if we should use static or default
+  if (!flag.targeting || !flag.targeting.rules || flag.targeting.rules.length === 0) {
+    const dominantVariation = flag.variations.find(v => v.weight === 100)
+    const isEmptyContext = Object.keys(context).length === 0
+    const hasPrerequisites = flag.prerequisites && flag.prerequisites.length > 0
+
+    if (dominantVariation) {
+      if (isEmptyContext || hasPrerequisites || dominantVariation.value === flag.defaultValue) {
+        traceBuilder?.addStep('variation', `Static variation '${dominantVariation.label}' selected`, 'selected')
+        return {
+          value: dominantVariation.value,
+          reason: 'STATIC',
+          variant: dominantVariation.label,
+        }
+      }
+    }
+
+    traceBuilder?.addStep('variation', 'No targeting rules, using default', 'selected')
+    return {
+      value: flag.defaultValue,
+      reason: 'DEFAULT',
+    }
+  }
+
+  // Evaluate targeting rules in order
+  for (let i = 0; i < flag.targeting.rules.length; i++) {
+    const rule = flag.targeting.rules[i]
+    const clausesMatch = rule.clauses.length === 0 || matchesTargeting(rule, context)
+
+    if (clausesMatch) {
+      traceBuilder?.addStep(
+        'targeting_rule',
+        `Rule '${rule.id}' (${rule.description || 'no description'}) matched`,
+        'matched',
+        { ruleIndex: i }
+      )
+
+      // Rule matches - check for rollout or variation
+      if (rule.rollout) {
+        const bucketBy = rule.rollout.bucketBy || 'targetingKey'
+        const bucketValue = context[bucketBy]
+
+        if (bucketValue === undefined || bucketValue === null) {
+          traceBuilder?.addStep('rollout', `Bucket attribute '${bucketBy}' missing`, 'error')
+          return {
+            value: defaultValue,
+            reason: 'ERROR',
+            errorCode: 'TARGETING_KEY_MISSING',
+            errorMessage: `Bucket attribute '${bucketBy}' is missing from context`,
+          }
+        }
+
+        const bucket = getBucket(String(bucketValue), rule.rollout.seed)
+        traceBuilder?.addStep('rollout', `Bucket value: ${bucket} (from ${bucketBy}='${bucketValue}')`, 'matched', { bucket })
+
+        let cumulative = 0
+        for (const rolloutVariation of rule.rollout.variations) {
+          cumulative += rolloutVariation.weight
+          if (bucket < cumulative) {
+            const variation = flag.variations[rolloutVariation.variation]
+            if (!variation) {
+              traceBuilder?.addStep('variation', `Invalid variation index ${rolloutVariation.variation}`, 'error')
+              return {
+                value: defaultValue,
+                reason: 'ERROR',
+                errorCode: 'GENERAL',
+                errorMessage: `Invalid variation index ${rolloutVariation.variation}`,
+              }
+            }
+            traceBuilder?.addStep('variation', `Rollout selected variation '${variation.label}'`, 'selected')
+            return {
+              value: variation.value,
+              reason: 'SPLIT',
+              variant: variation.label,
+            }
+          }
+        }
+
+        // Fallback to last variation
+        const lastRollout = rule.rollout.variations[rule.rollout.variations.length - 1]
+        const lastVariation = flag.variations[lastRollout.variation]
+        traceBuilder?.addStep('variation', `Rollout fallback to '${lastVariation?.label}'`, 'selected')
+        return {
+          value: lastVariation?.value ?? defaultValue,
+          reason: 'SPLIT',
+          variant: lastVariation?.label,
+        }
+      } else if (rule.variation !== undefined) {
+        const variation = flag.variations[rule.variation]
+        if (!variation) {
+          traceBuilder?.addStep('variation', `Invalid variation index ${rule.variation}`, 'error')
+          return {
+            value: defaultValue,
+            reason: 'ERROR',
+            errorCode: 'GENERAL',
+            errorMessage: `Invalid variation index ${rule.variation}`,
+          }
+        }
+        traceBuilder?.addStep('variation', `Rule selected variation '${variation.label}'`, 'selected')
+        return {
+          value: variation.value,
+          reason: 'TARGETING_MATCH',
+          variant: variation.label,
+        }
+      }
+    } else {
+      traceBuilder?.addStep(
+        'targeting_rule',
+        `Rule '${rule.id}' (${rule.description || 'no description'}) did not match`,
+        'not_matched',
+        { ruleIndex: i }
+      )
+    }
+  }
+
+  // No rules matched - return default
+  traceBuilder?.addStep('variation', 'No rules matched, using default', 'selected')
+  return {
+    value: flag.defaultValue,
+    reason: 'DEFAULT',
+  }
+}
+
+/**
+ * Evaluate a flag with full diagnostics, caching, and optimization support
+ *
+ * @example Basic evaluation with tracing
+ * ```ts
+ * const result = await evaluateWithDiagnostics('my-flag', false, context, flag, flags, {
+ *   trace: true,
+ * })
+ * console.log(result.explanation)
+ * console.log(result.trace?.steps)
+ * ```
+ *
+ * @example Evaluation with caching
+ * ```ts
+ * const result = await evaluateWithDiagnostics('my-flag', false, context, flag, flags, {
+ *   cache: true,
+ *   flagVersion: '1.0.0',
+ * })
+ * ```
+ */
+export async function evaluateWithDiagnostics<T>(
+  flagKey: string,
+  defaultValue: T,
+  context: EvaluationContext,
+  flag?: ExtendedFlagDefinition<T>,
+  flags?: Map<string, ExtendedFlagDefinition<unknown>>,
+  options: EvaluationOptions = {}
+): Promise<EvaluationDetailsWithDiagnostics<T>> {
+  const {
+    trace: enableTrace = false,
+    cache: enableCache = false,
+    cacheInstance,
+    flagVersion,
+    dryRun = false,
+  } = options
+
+  const cache = cacheInstance ?? getEvaluationCache()
+  const hotCacheKey = `${flagKey}::${JSON.stringify(context)}`
+
+  // Check hot flag cache first (fastest path)
+  if (hotFlagCache.isHot(hotCacheKey)) {
+    const hotResult = hotFlagCache.get<T>(hotCacheKey)
+    if (hotResult) {
+      return {
+        ...hotResult,
+        trace: enableTrace ? new TraceBuilder(flagKey, context)
+          .addStep('flag_lookup', 'Retrieved from hot cache', 'matched')
+          .build(true) : undefined,
+        explanation: enableTrace ? `Flag '${flagKey}' evaluation:\n  [MATCH] Retrieved from hot cache` : undefined,
+      }
+    }
+  }
+
+  // Check regular cache
+  if (enableCache) {
+    const cached = cache.get<T>(flagKey, context, flagVersion)
+    if (cached) {
+      // Update hot cache
+      if (!dryRun) {
+        hotFlagCache.set(hotCacheKey, cached)
+      }
+
+      return {
+        ...cached,
+        trace: enableTrace ? new TraceBuilder(flagKey, context)
+          .addStep('flag_lookup', 'Retrieved from evaluation cache', 'matched')
+          .build(true) : undefined,
+        explanation: enableTrace ? `Flag '${flagKey}' evaluation:\n  [MATCH] Retrieved from evaluation cache` : undefined,
+      }
+    }
+  }
+
+  // Create trace builder if tracing is enabled
+  const traceBuilder = enableTrace ? new TraceBuilder(flagKey, context) : null
+  const prerequisiteMemo = new PrerequisiteMemo()
+  const evaluationPath: string[] = []
+
+  // Perform evaluation
+  const result = await evaluateInternal(
+    flagKey,
+    defaultValue,
+    context,
+    flag as ExtendedFlagDefinition<T> | undefined,
+    flags,
+    new Set<string>(),
+    prerequisiteMemo,
+    traceBuilder,
+    evaluationPath
+  )
+
+  // Build trace
+  const trace = traceBuilder?.build(false)
+
+  // Cache the result if caching is enabled and not in dry run mode
+  if (enableCache && !dryRun && result.reason !== 'ERROR') {
+    cache.set(flagKey, context, result, flagVersion)
+    hotFlagCache.set(hotCacheKey, result)
+  }
+
+  // Build response with diagnostics
+  const response: EvaluationDetailsWithDiagnostics<T> = {
+    ...result,
+    trace,
+    explanation: trace ? generateExplanation(trace) : undefined,
+  }
+
+  // Add error context if there was an error
+  if (result.reason === 'ERROR' && result.errorCode && result.errorMessage) {
+    response.errorContext = {
+      flagKey,
+      context,
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+      evaluationPath,
+      relatedFlags: evaluationPath.filter(f => f !== flagKey),
+      timestamp: Date.now(),
+      debugInfo: {
+        flagExists: !!flag,
+        flagEnabled: flag?.enabled,
+        hasPrerequisites: !!(flag?.prerequisites && flag.prerequisites.length > 0),
+        hasTargeting: !!(flag?.targeting && flag.targeting.rules.length > 0),
+      },
+    }
+  }
+
+  return response
+}
+
+/**
+ * Perform a dry run evaluation to test flag changes without affecting cache
+ *
+ * @example Test a flag configuration change
+ * ```ts
+ * const dryRunResult = await dryRunEvaluation('my-flag', false, context, proposedFlag, flags)
+ * console.log('Would return:', dryRunResult.value)
+ * console.log('Reason:', dryRunResult.reason)
+ * console.log('Explanation:', dryRunResult.explanation)
+ * ```
+ */
+export async function dryRunEvaluation<T>(
+  flagKey: string,
+  defaultValue: T,
+  context: EvaluationContext,
+  flag?: ExtendedFlagDefinition<T>,
+  flags?: Map<string, ExtendedFlagDefinition<unknown>>
+): Promise<EvaluationDetailsWithDiagnostics<T>> {
+  return evaluateWithDiagnostics(flagKey, defaultValue, context, flag, flags, {
+    trace: true,
+    cache: false,
+    dryRun: true,
+  })
+}
+
+/**
+ * Get detailed error context for a failed evaluation
+ */
+export function createErrorContext(
+  flagKey: string,
+  context: EvaluationContext,
+  errorCode: ErrorCode,
+  errorMessage: string,
+  evaluationPath: string[] = [],
+  debugInfo?: Record<string, unknown>
+): EvaluationErrorContext {
+  return {
+    flagKey,
+    context,
+    errorCode,
+    errorMessage,
+    evaluationPath,
+    relatedFlags: evaluationPath.filter(f => f !== flagKey),
+    timestamp: Date.now(),
+    debugInfo,
   }
 }

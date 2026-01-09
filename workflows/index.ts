@@ -144,3 +144,26 @@ export {
   type RateLimitStorage,
   type RateLimitContext,
 } from './context/rate-limit'
+
+// Foundation Sprint context API ($.foundation())
+export {
+  createMockContext as createFoundationContext,
+  type CustomerPersona,
+  type ProblemStatement,
+  type Differentiation,
+  type FoundingHypothesis,
+  type CustomerInterview,
+  type InterviewQuestion,
+  type InterviewResponse,
+  type HUNCHMetrics,
+  type ValidationResult,
+  type DifferentiationAnalysis,
+  type FoundationBuilder,
+  type FoundationHypothesisBuilder,
+  type FoundationValidationBuilder,
+  type FoundationInterviewBuilder,
+  type FoundationAnalyzerBuilder,
+  type FoundationMetricsBuilder,
+  type FoundationStorage,
+  type FoundationContext,
+} from './context/foundation'

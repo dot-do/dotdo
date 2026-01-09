@@ -15,6 +15,26 @@ import type {
   JsonSchema,
 } from './types'
 
+// Import schema utilities from centralized module
+import {
+  zodToJsonSchema,
+  isZodSchema,
+  isJsonSchema,
+  validateInput,
+  ValidationError,
+  type ValidationResult,
+} from './schema'
+
+// Re-export for backwards compatibility
+export {
+  zodToJsonSchema,
+  isZodSchema,
+  isJsonSchema,
+  validateInput,
+  ValidationError,
+  type ValidationResult,
+}
+
 // ============================================================================
 // Tool Creation Helper
 // ============================================================================
@@ -60,130 +80,6 @@ export function tool<TInput, TOutput>(
     interruptible: options.interruptible,
     permission: options.permission,
   }
-}
-
-// ============================================================================
-// Schema Conversion Utilities
-// ============================================================================
-
-/**
- * Convert a Zod schema to JSON Schema
- *
- * Supports Zod 4 which uses _def.type instead of typeName
- */
-export function zodToJsonSchema(schema: z.ZodType<unknown>): JsonSchema {
-  const def = schema._def as {
-    type?: string
-    shape?: Record<string, z.ZodType<unknown>>
-    element?: z.ZodType<unknown>
-    entries?: Record<string, string>
-    innerType?: z.ZodType<unknown>
-    defaultValue?: unknown
-  }
-
-  // Get description from schema object (Zod 4 puts it on the schema, not _def)
-  const description = (schema as { description?: string }).description
-
-  const zodType = def.type
-
-  switch (zodType) {
-    case 'string':
-      return { type: 'string', description }
-    case 'number':
-      return { type: 'number', description }
-    case 'boolean':
-      return { type: 'boolean', description }
-    case 'array': {
-      return {
-        type: 'array',
-        items: def.element ? zodToJsonSchema(def.element) : {},
-        description,
-      }
-    }
-    case 'object': {
-      const shape = def.shape ?? {}
-      const properties: Record<string, JsonSchema> = {}
-      const required: string[] = []
-
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = zodToJsonSchema(value)
-        if (!isOptional(value)) {
-          required.push(key)
-        }
-      }
-
-      return {
-        type: 'object',
-        properties,
-        required: required.length > 0 ? required : undefined,
-        description,
-      }
-    }
-    case 'enum': {
-      // Zod 4 uses entries object { a: 'a', b: 'b' }
-      const values = def.entries ? Object.values(def.entries) : []
-      return {
-        type: 'string',
-        enum: values,
-        description,
-      }
-    }
-    case 'optional':
-    case 'nullable': {
-      if (def.innerType) {
-        return zodToJsonSchema(def.innerType)
-      }
-      return { type: 'string' }
-    }
-    case 'default': {
-      if (def.innerType) {
-        const jsonSchema = zodToJsonSchema(def.innerType)
-        jsonSchema.default = def.defaultValue
-        return jsonSchema
-      }
-      return { type: 'string' }
-    }
-    default:
-      // Fallback - try to get type from schema itself for unknown types
-      return { type: 'string' }
-  }
-}
-
-function isOptional(schema: z.ZodType<unknown>): boolean {
-  const def = schema._def as { type?: string }
-  return def.type === 'optional' || def.type === 'default'
-}
-
-/**
- * Check if a schema is a Zod schema
- */
-export function isZodSchema(schema: unknown): schema is z.ZodType<unknown> {
-  return (
-    typeof schema === 'object' &&
-    schema !== null &&
-    '_def' in schema &&
-    'parse' in schema
-  )
-}
-
-/**
- * Validate input against a schema
- */
-export function validateInput<T>(
-  schema: Schema<T>,
-  input: unknown
-): { success: true; data: T } | { success: false; error: Error } {
-  if (isZodSchema(schema)) {
-    const result = schema.safeParse(input)
-    if (result.success) {
-      return { success: true, data: result.data }
-    }
-    return { success: false, error: new Error(result.error.message) }
-  }
-
-  // For JSON Schema, we'd use a validator like ajv
-  // For now, just pass through
-  return { success: true, data: input as T }
 }
 
 // ============================================================================

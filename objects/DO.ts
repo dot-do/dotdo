@@ -2644,6 +2644,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     const health = await Promise.all(
       registry.endpoints.map(async (endpoint) => {
         const startTime = Date.now()
+        const epShardIndex = this._getEndpointShardIndex(endpoint)
         try {
           const shardDoId = this.env.DO.idFromName(endpoint.ns)
           const stub = this.env.DO.get(shardDoId)
@@ -2652,14 +2653,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           const responseTime = Date.now() - startTime
 
           return {
-            shardIndex: endpoint.shardIndex,
+            shardIndex: epShardIndex,
             healthy: response.ok,
             lastCheck: new Date(),
             responseTime,
           }
         } catch {
           return {
-            shardIndex: endpoint.shardIndex,
+            shardIndex: epShardIndex,
             healthy: false,
             lastCheck: new Date(),
           }
@@ -2684,7 +2685,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     totalItems: number
   }> {
     const registry = await this.ctx.storage.get('shardRegistry') as {
-      endpoints: Array<{ shardIndex: number; ns: string; doId: string; status: string }>
+      endpoints: Array<{ shardIndex?: number; index?: number; ns: string; doId: string; status: string }>
     } | undefined
 
     if (!registry) {
@@ -2699,6 +2700,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     const allData: T[] = []
 
     for (const endpoint of registry.endpoints) {
+      const epShardIndex = this._getEndpointShardIndex(endpoint)
       const startTime = Date.now()
       try {
         const shardDoId = this.env.DO.idFromName(endpoint.ns)
@@ -2714,14 +2716,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           const result = await response.json() as { data: T[] }
           const duration = Date.now() - startTime
           allData.push(...result.data)
-          shardResults.push({ shardIndex: endpoint.shardIndex, itemCount: result.data.length, duration })
+          shardResults.push({ shardIndex: epShardIndex, itemCount: result.data.length, duration })
         } else {
           const duration = Date.now() - startTime
-          shardResults.push({ shardIndex: endpoint.shardIndex, itemCount: 0, duration, error: `Query failed: ${response.status}` })
+          shardResults.push({ shardIndex: epShardIndex, itemCount: 0, duration, error: `Query failed: ${response.status}` })
         }
       } catch (error) {
         const duration = Date.now() - startTime
-        shardResults.push({ shardIndex: endpoint.shardIndex, itemCount: 0, duration, error: (error as Error).message })
+        shardResults.push({ shardIndex: epShardIndex, itemCount: 0, duration, error: (error as Error).message })
         if (!options.continueOnError) throw error
       }
     }
@@ -2761,6 +2763,912 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHARD ROUTING OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Private state for shard routing
+  private _shardHealthStatus: Map<number, { healthy: boolean; failureCount: number; lastFailure?: Date; lastSuccess?: Date }> = new Map()
+  private _shardLoadStats: Map<number, { requestCount: number; totalResponseTime: number; currentLoad: number }> = new Map()
+  private _routingMetrics = { totalRequests: 0, singleShardRequests: 0, scatterGatherRequests: 0, failedRequests: 0 }
+  private _circuitBreakerStates: Map<number, { state: 'closed' | 'open' | 'half-open'; failureCount: number; lastFailure?: Date; nextRetryAt?: Date }> = new Map()
+
+  /** Helper to get shard index from endpoint (supports both shardIndex and index fields) */
+  private _getEndpointShardIndex(endpoint: { shardIndex?: number; index?: number }): number {
+    return endpoint.shardIndex ?? endpoint.index ?? 0
+  }
+
+  /**
+   * Get the shard router for routing operations to the correct shard
+   */
+  async getShardRouter(): Promise<{
+    getShardIndex(key: string): number
+    getShardForKey(key: string): Promise<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }>
+    getAllShards(): Promise<Array<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }>>
+    getHealthyShards(): Promise<Array<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }>>
+    isShardHealthy(shardIndex: number): Promise<boolean>
+    markShardUnhealthy(shardIndex: number, error?: Error): void
+    markShardHealthy(shardIndex: number): void
+  } | null> {
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      id: string
+      shardKey: string
+      shardCount: number
+      strategy: ShardStrategy
+      endpoints: Array<{ shardIndex?: number; index?: number; ns: string; doId: string; status: string }>
+    } | undefined
+
+    if (!registry) {
+      return null
+    }
+
+    const self = this
+
+    return {
+      getShardIndex(key: string): number {
+        // Handle null/undefined keys
+        if (key == null) {
+          key = ''
+        }
+        key = String(key)
+
+        // Simple consistent hash
+        let hash = 0
+        for (let i = 0; i < key.length; i++) {
+          hash = ((hash << 5) - hash) + key.charCodeAt(i)
+          hash = hash & hash
+        }
+        return Math.abs(hash) % registry.shardCount
+      },
+
+      async getShardForKey(key: string): Promise<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }> {
+        const index = this.getShardIndex(key)
+        const endpoint = registry.endpoints[index]
+        const healthStatus = self._shardHealthStatus.get(index)
+        const loadStats = self._shardLoadStats.get(index)
+
+        return {
+          index,
+          ns: endpoint.ns,
+          doId: endpoint.doId,
+          healthy: healthStatus?.healthy ?? true,
+          lastHealthCheck: healthStatus?.lastSuccess ?? healthStatus?.lastFailure,
+          currentLoad: loadStats?.currentLoad ?? 0,
+          avgResponseTime: loadStats ? loadStats.totalResponseTime / (loadStats.requestCount || 1) : undefined,
+        }
+      },
+
+      async getAllShards(): Promise<Array<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }>> {
+        return registry.endpoints.map(endpoint => {
+          const endpointIndex = self._getEndpointShardIndex(endpoint)
+          const healthStatus = self._shardHealthStatus.get(endpointIndex)
+          const loadStats = self._shardLoadStats.get(endpointIndex)
+
+          return {
+            index: endpointIndex,
+            ns: endpoint.ns,
+            doId: endpoint.doId,
+            healthy: healthStatus?.healthy ?? true,
+            lastHealthCheck: healthStatus?.lastSuccess ?? healthStatus?.lastFailure,
+            currentLoad: loadStats?.currentLoad ?? 0,
+            avgResponseTime: loadStats ? loadStats.totalResponseTime / (loadStats.requestCount || 1) : undefined,
+          }
+        })
+      },
+
+      async getHealthyShards(): Promise<Array<{ index: number; ns: string; doId: string; healthy: boolean; lastHealthCheck?: Date; currentLoad?: number; avgResponseTime?: number }>> {
+        const allShards = await this.getAllShards()
+        return allShards.filter(s => s.healthy)
+      },
+
+      async isShardHealthy(shardIndex: number): Promise<boolean> {
+        const healthStatus = self._shardHealthStatus.get(shardIndex)
+        return healthStatus?.healthy ?? true
+      },
+
+      markShardUnhealthy(shardIndex: number, error?: Error): void {
+        const current = self._shardHealthStatus.get(shardIndex) ?? { healthy: true, failureCount: 0 }
+        const newFailureCount = current.failureCount + 1
+        const isNowUnhealthy = newFailureCount >= 5 // Threshold for marking unhealthy
+
+        self._shardHealthStatus.set(shardIndex, {
+          healthy: !isNowUnhealthy,
+          failureCount: newFailureCount,
+          lastFailure: new Date(),
+          lastSuccess: current.lastSuccess,
+        })
+
+        // Update circuit breaker state
+        const cbState = self._circuitBreakerStates.get(shardIndex) ?? { state: 'closed' as const, failureCount: 0 }
+        if (isNowUnhealthy) {
+          self._circuitBreakerStates.set(shardIndex, {
+            state: 'open',
+            failureCount: newFailureCount,
+            lastFailure: new Date(),
+            nextRetryAt: new Date(Date.now() + 30000), // 30 second cooldown
+          })
+        } else {
+          self._circuitBreakerStates.set(shardIndex, {
+            ...cbState,
+            failureCount: newFailureCount,
+            lastFailure: new Date(),
+          })
+        }
+      },
+
+      markShardHealthy(shardIndex: number): void {
+        self._shardHealthStatus.set(shardIndex, {
+          healthy: true,
+          failureCount: 0,
+          lastSuccess: new Date(),
+        })
+
+        // Reset circuit breaker
+        self._circuitBreakerStates.set(shardIndex, {
+          state: 'closed',
+          failureCount: 0,
+        })
+      },
+    }
+  }
+
+  /**
+   * Get circuit breaker info for a shard
+   */
+  async getCircuitBreakerInfo(shardIndex: number): Promise<{
+    shardIndex: number
+    state: 'closed' | 'open' | 'half-open'
+    failureCount: number
+    lastFailure?: Date
+    nextRetryAt?: Date
+  }> {
+    const cbState = this._circuitBreakerStates.get(shardIndex) ?? { state: 'closed' as const, failureCount: 0 }
+
+    // Check if we should transition from open to half-open
+    if (cbState.state === 'open' && cbState.nextRetryAt && new Date() >= cbState.nextRetryAt) {
+      cbState.state = 'half-open'
+      this._circuitBreakerStates.set(shardIndex, cbState)
+    }
+
+    return {
+      shardIndex,
+      state: cbState.state,
+      failureCount: cbState.failureCount,
+      lastFailure: cbState.lastFailure,
+      nextRetryAt: cbState.nextRetryAt,
+    }
+  }
+
+  /**
+   * Get load balancer statistics
+   */
+  async getLoadBalancerStats(): Promise<{
+    totalRequests: number
+    requestsPerShard: Map<number, number>
+    avgResponseTimes: Map<number, number>
+    hotShards: number[]
+    coldShards: number[]
+  }> {
+    const requestsPerShard = new Map<number, number>()
+    const avgResponseTimes = new Map<number, number>()
+
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      shardCount: number
+      endpoints: Array<{ shardIndex: number }>
+    } | undefined
+
+    if (!registry) {
+      return {
+        totalRequests: this._routingMetrics.totalRequests,
+        requestsPerShard,
+        avgResponseTimes,
+        hotShards: [],
+        coldShards: [],
+      }
+    }
+
+    let totalRequests = 0
+    const avgRequestsPerShard = this._routingMetrics.totalRequests / (registry.shardCount || 1)
+
+    for (const endpoint of registry.endpoints) {
+      const epShardIndex = this._getEndpointShardIndex(endpoint)
+      const loadStats = this._shardLoadStats.get(epShardIndex)
+      const requestCount = loadStats?.requestCount ?? 0
+      totalRequests += requestCount
+      requestsPerShard.set(epShardIndex, requestCount)
+
+      if (loadStats && loadStats.requestCount > 0) {
+        avgResponseTimes.set(epShardIndex, loadStats.totalResponseTime / loadStats.requestCount)
+      }
+    }
+
+    // Determine hot and cold shards (> 2x average is hot, < 0.5x average is cold)
+    const hotShards: number[] = []
+    const coldShards: number[] = []
+
+    for (const [shardIndex, requests] of requestsPerShard) {
+      if (requests > avgRequestsPerShard * 2) {
+        hotShards.push(shardIndex)
+      } else if (requests < avgRequestsPerShard * 0.5) {
+        coldShards.push(shardIndex)
+      }
+    }
+
+    return {
+      totalRequests,
+      requestsPerShard,
+      avgResponseTimes,
+      hotShards,
+      coldShards,
+    }
+  }
+
+  /**
+   * Get routing metrics
+   */
+  async getRoutingMetrics(): Promise<{
+    totalRequests: number
+    singleShardRequests: number
+    scatterGatherRequests: number
+    failedRequests: number
+  }> {
+    return { ...this._routingMetrics }
+  }
+
+  /**
+   * Get shard latencies
+   */
+  async getShardLatencies(): Promise<Map<number, { avg: number; p50: number; p99: number }>> {
+    const latencies = new Map<number, { avg: number; p50: number; p99: number }>()
+
+    for (const [shardIndex, loadStats] of this._shardLoadStats) {
+      const avg = loadStats.requestCount > 0 ? loadStats.totalResponseTime / loadStats.requestCount : 0
+      // For now, use avg for all percentiles (full implementation would track all request times)
+      latencies.set(shardIndex, { avg, p50: avg, p99: avg })
+    }
+
+    return latencies
+  }
+
+  /**
+   * Route a query to the appropriate shard(s)
+   */
+  async routedQuery<T = unknown>(options: {
+    query: string
+    params?: unknown[]
+    shardKeyValue?: string
+    timeout?: number
+    continueOnError?: boolean
+    aggregation?: 'concat' | 'merge' | 'sum' | 'count' | 'avg' | 'min' | 'max'
+    limit?: number
+    orderBy?: string
+    orderDirection?: 'asc' | 'desc'
+  }): Promise<{
+    data: T[]
+    shardResults: Array<{
+      shardIndex: number
+      itemCount: number
+      duration: number
+      error?: string
+      fromCache?: boolean
+    }>
+    totalCount: number
+    duration: number
+    shardsQueried: number
+    shardsWithErrors: number
+  }> {
+    const startTime = Date.now()
+    this._routingMetrics.totalRequests++
+
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      shardKey: string
+      shardCount: number
+      endpoints: Array<{ shardIndex?: number; index?: number; ns: string; doId: string; status: string }>
+    } | undefined
+
+    if (!registry) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    const router = await this.getShardRouter()
+    if (!router) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    // Check if we can route to a single shard
+    let targetShardIndex: number | null = null
+
+    if (options.shardKeyValue !== undefined) {
+      targetShardIndex = router.getShardIndex(options.shardKeyValue)
+    } else {
+      // Try to extract shard key from query
+      const extractedKey = this._extractShardKeyFromQuery(options.query, registry.shardKey)
+      if (extractedKey !== null) {
+        targetShardIndex = router.getShardIndex(extractedKey)
+      }
+    }
+
+    const healthyShards = await router.getHealthyShards()
+    if (healthyShards.length === 0) {
+      throw new Error('All shards unhealthy: no healthy shards available')
+    }
+
+    const shardResults: Array<{ shardIndex: number; itemCount: number; duration: number; error?: string; fromCache?: boolean }> = []
+    const allData: T[] = []
+    let shardsWithErrors = 0
+
+    // Determine which shards to query
+    const shardsToQuery = targetShardIndex !== null
+      ? registry.endpoints.filter(e => this._getEndpointShardIndex(e) === targetShardIndex)
+      : registry.endpoints
+
+    if (targetShardIndex !== null) {
+      this._routingMetrics.singleShardRequests++
+    } else {
+      this._routingMetrics.scatterGatherRequests++
+    }
+
+    // Query shards
+    for (const endpoint of shardsToQuery) {
+      const shardStartTime = Date.now()
+      const epShardIndex = this._getEndpointShardIndex(endpoint)
+
+      // Check shard health
+      const isHealthy = await router.isShardHealthy(epShardIndex)
+      if (!isHealthy && targetShardIndex === null) {
+        // Skip unhealthy shards in scatter-gather, but must query in single-shard case
+        continue
+      }
+
+      // Update current load
+      const loadStats = this._shardLoadStats.get(epShardIndex) ?? { requestCount: 0, totalResponseTime: 0, currentLoad: 0 }
+      loadStats.currentLoad++
+      this._shardLoadStats.set(epShardIndex, loadStats)
+
+      try {
+        const shardDoId = this.env.DO.idFromName(endpoint.ns)
+        const stub = this.env.DO.get(shardDoId)
+
+        // Create timeout-wrapped fetch
+        const fetchPromise = stub.fetch(new Request(`https://${endpoint.ns}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: options.query,
+            params: options.params,
+            limit: options.limit,
+          }),
+        }))
+
+        let response: Response
+        if (options.timeout) {
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Shard query timeout')), options.timeout)
+          })
+          response = await Promise.race([fetchPromise, timeoutPromise])
+        } else {
+          response = await fetchPromise
+        }
+
+        const duration = Date.now() - shardStartTime
+
+        // Update load stats
+        loadStats.requestCount++
+        loadStats.totalResponseTime += duration
+        loadStats.currentLoad--
+        this._shardLoadStats.set(epShardIndex, loadStats)
+
+        if (response.ok) {
+          const text = await response.text()
+          if (text && text.startsWith('{')) {
+            const result = JSON.parse(text) as { data: T[] }
+            if (result.data && Array.isArray(result.data)) {
+              allData.push(...result.data)
+              shardResults.push({ shardIndex: epShardIndex, itemCount: result.data.length, duration })
+              router.markShardHealthy(epShardIndex)
+            } else {
+              shardResults.push({ shardIndex: epShardIndex, itemCount: 0, duration })
+            }
+          } else {
+            throw new Error('Invalid response: expected JSON')
+          }
+        } else {
+          const errorText = await response.text()
+          throw new Error(`Query failed: ${response.status} - ${errorText}`)
+        }
+      } catch (error) {
+        const duration = Date.now() - shardStartTime
+
+        // Update load stats
+        loadStats.currentLoad--
+        this._shardLoadStats.set(epShardIndex, loadStats)
+
+        router.markShardUnhealthy(epShardIndex, error as Error)
+        shardsWithErrors++
+        this._routingMetrics.failedRequests++
+
+        shardResults.push({
+          shardIndex: epShardIndex,
+          itemCount: 0,
+          duration,
+          error: (error as Error).message,
+        })
+
+        if (!options.continueOnError) {
+          throw error
+        }
+      }
+    }
+
+    // Apply ordering if specified
+    if (options.orderBy && allData.length > 0) {
+      allData.sort((a, b) => {
+        const aVal = (a as Record<string, unknown>)[options.orderBy!]
+        const bVal = (b as Record<string, unknown>)[options.orderBy!]
+        const comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+        return options.orderDirection === 'desc' ? -comparison : comparison
+      })
+    }
+
+    return {
+      data: allData,
+      shardResults,
+      totalCount: allData.length,
+      duration: Date.now() - startTime,
+      shardsQueried: shardResults.length,
+      shardsWithErrors,
+    }
+  }
+
+  /**
+   * Extract shard key value from a SQL query
+   */
+  private _extractShardKeyFromQuery(query: string, shardKey: string): string | null {
+    // Simple pattern matching for equality conditions like:
+    // WHERE data->>'tenantId' = 'value'
+    // WHERE data->>'tenantId' = ?
+    const patterns = [
+      new RegExp(`data->>'${shardKey}'\\s*=\\s*'([^']+)'`, 'i'),
+      new RegExp(`"${shardKey}"\\s*=\\s*'([^']+)'`, 'i'),
+      new RegExp(`${shardKey}\\s*=\\s*'([^']+)'`, 'i'),
+    ]
+
+    for (const pattern of patterns) {
+      const match = query.match(pattern)
+      if (match && match[1]) {
+        return match[1]
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Route a write to the correct shard
+   */
+  async routedWrite(options: {
+    data: {
+      id: string
+      type: number
+      branch: string | null
+      name: string
+      data: Record<string, unknown>
+      deleted: boolean
+      visibility: string
+    }
+    shardKeyValue?: string
+    timeout?: number
+    retries?: number
+  }): Promise<{
+    success: boolean
+    shardIndex: number
+    thingId: string
+    duration: number
+  }> {
+    const startTime = Date.now()
+    this._routingMetrics.totalRequests++
+    this._routingMetrics.singleShardRequests++
+
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      shardKey: string
+      shardCount: number
+      endpoints: Array<{ shardIndex: number; ns: string; doId: string; status: string }>
+    } | undefined
+
+    if (!registry) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    const router = await this.getShardRouter()
+    if (!router) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    // Get shard key value
+    let shardKeyValue = options.shardKeyValue
+    if (shardKeyValue === undefined) {
+      // Extract from data
+      const keyParts = registry.shardKey.split('.')
+      let value: unknown = options.data.data
+      for (const part of keyParts) {
+        if (value && typeof value === 'object') {
+          value = (value as Record<string, unknown>)[part]
+        } else {
+          value = undefined
+          break
+        }
+      }
+      shardKeyValue = value != null ? String(value) : undefined
+    }
+
+    if (shardKeyValue === undefined) {
+      throw new Error('Shard key required: cannot determine shard key for write operation')
+    }
+
+    const shardIndex = router.getShardIndex(shardKeyValue)
+    const endpoint = registry.endpoints[shardIndex]
+    const maxRetries = options.retries ?? 0
+
+    let lastError: Error | undefined
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const shardDoId = this.env.DO.idFromName(endpoint.ns)
+        const stub = this.env.DO.get(shardDoId)
+
+        const fetchPromise = stub.fetch(new Request(`https://${endpoint.ns}/write`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(options.data),
+        }))
+
+        let response: Response
+        if (options.timeout) {
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Write timeout')), options.timeout)
+          })
+          response = await Promise.race([fetchPromise, timeoutPromise])
+        } else {
+          response = await fetchPromise
+        }
+
+        if (response.ok) {
+          const result = await response.json() as { success: boolean; thingId: string }
+          router.markShardHealthy(shardIndex)
+
+          return {
+            success: true,
+            shardIndex,
+            thingId: result.thingId ?? options.data.id,
+            duration: Date.now() - startTime,
+          }
+        } else {
+          throw new Error(`Write failed: ${response.status}`)
+        }
+      } catch (error) {
+        lastError = error as Error
+        router.markShardUnhealthy(shardIndex, lastError)
+
+        if (attempt < maxRetries) {
+          // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100))
+        }
+      }
+    }
+
+    this._routingMetrics.failedRequests++
+    throw lastError
+  }
+
+  /**
+   * Route a write with failover support
+   */
+  async routedWriteWithFailover(options: {
+    data: {
+      id: string
+      type: number
+      branch: string | null
+      name: string
+      data: Record<string, unknown>
+      deleted: boolean
+      visibility: string
+    }
+    shardKeyValue?: string
+    timeout?: number
+    failover: boolean
+  }): Promise<{
+    success: boolean
+    shardIndex: number
+    thingId: string
+    duration: number
+  }> {
+    // For now, just delegate to routedWrite
+    // Full failover implementation would try alternative shards
+    return this.routedWrite({
+      ...options,
+      retries: options.failover ? 2 : 0,
+    })
+  }
+
+  /**
+   * Route batch writes to correct shards
+   */
+  async routedBatchWrite(options: {
+    items: Array<{
+      id: string
+      type: number
+      branch: string | null
+      name: string
+      data: Record<string, unknown>
+      deleted: boolean
+      visibility: string
+    }>
+    timeout?: number
+    continueOnError?: boolean
+    atomicPerShard?: boolean
+  }): Promise<{
+    successCount: number
+    failCount: number
+    shardResults: Array<{
+      shardIndex: number
+      successCount: number
+      failCount: number
+      error?: string
+      itemIds: string[]
+    }>
+    duration: number
+  }> {
+    const startTime = Date.now()
+    this._routingMetrics.totalRequests++
+
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      shardKey: string
+      shardCount: number
+      endpoints: Array<{ shardIndex: number; ns: string; doId: string; status: string }>
+    } | undefined
+
+    if (!registry) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    const router = await this.getShardRouter()
+    if (!router) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    // Group items by shard
+    const shardBatches = new Map<number, typeof options.items>()
+    for (const item of options.items) {
+      // Extract shard key
+      const keyParts = registry.shardKey.split('.')
+      let value: unknown = item.data
+      for (const part of keyParts) {
+        if (value && typeof value === 'object') {
+          value = (value as Record<string, unknown>)[part]
+        } else {
+          value = undefined
+          break
+        }
+      }
+      const shardKeyValue = value != null ? String(value) : ''
+      const shardIndex = router.getShardIndex(shardKeyValue)
+
+      if (!shardBatches.has(shardIndex)) {
+        shardBatches.set(shardIndex, [])
+      }
+      shardBatches.get(shardIndex)!.push(item)
+    }
+
+    const shardResults: Array<{
+      shardIndex: number
+      successCount: number
+      failCount: number
+      error?: string
+      itemIds: string[]
+    }> = []
+    let totalSuccessCount = 0
+    let totalFailCount = 0
+
+    // Write to each shard
+    for (const [shardIndex, items] of shardBatches) {
+      const endpoint = registry.endpoints[shardIndex]
+
+      try {
+        const shardDoId = this.env.DO.idFromName(endpoint.ns)
+        const stub = this.env.DO.get(shardDoId)
+
+        const response = await stub.fetch(new Request(`https://${endpoint.ns}/batch-write`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items,
+            atomic: options.atomicPerShard,
+          }),
+        }))
+
+        if (response.ok) {
+          const result = await response.json() as { success: boolean; count: number }
+          router.markShardHealthy(shardIndex)
+
+          shardResults.push({
+            shardIndex,
+            successCount: items.length,
+            failCount: 0,
+            itemIds: items.map(i => i.id),
+          })
+          totalSuccessCount += items.length
+        } else {
+          throw new Error(`Batch write failed: ${response.status}`)
+        }
+      } catch (error) {
+        router.markShardUnhealthy(shardIndex, error as Error)
+
+        const failCount = items.length
+        shardResults.push({
+          shardIndex,
+          successCount: 0,
+          failCount,
+          error: (error as Error).message,
+          itemIds: items.map(i => i.id),
+        })
+        totalFailCount += failCount
+
+        if (!options.continueOnError) {
+          break
+        }
+      }
+    }
+
+    return {
+      successCount: totalSuccessCount,
+      failCount: totalFailCount,
+      shardResults,
+      duration: Date.now() - startTime,
+    }
+  }
+
+  /**
+   * Route a lookup to the correct shard
+   */
+  async routedLookup(options: {
+    thingId: string
+    shardKeyValue?: string
+    timeout?: number
+    broadcastIfUnknown?: boolean
+  }): Promise<{
+    data: {
+      id: string
+      type: number
+      branch: string | null
+      name: string
+      data: Record<string, unknown>
+      deleted: boolean
+      visibility: string
+    } | null
+    shardIndex: number | null
+    duration: number
+    shardsQueried: number
+  }> {
+    const startTime = Date.now()
+    this._routingMetrics.totalRequests++
+
+    const registry = await this.ctx.storage.get('shardRegistry') as {
+      shardKey: string
+      shardCount: number
+      endpoints: Array<{ shardIndex: number; ns: string; doId: string; status: string }>
+    } | undefined
+
+    if (!registry) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    const router = await this.getShardRouter()
+    if (!router) {
+      throw new Error('DO is not sharded: no shard registry found')
+    }
+
+    let shardsQueried = 0
+
+    // If we know the shard key, route directly
+    if (options.shardKeyValue !== undefined) {
+      this._routingMetrics.singleShardRequests++
+      const shardIndex = router.getShardIndex(options.shardKeyValue)
+      const endpoint = registry.endpoints[shardIndex]
+
+      try {
+        const shardDoId = this.env.DO.idFromName(endpoint.ns)
+        const stub = this.env.DO.get(shardDoId)
+
+        const fetchPromise = stub.fetch(new Request(`https://${endpoint.ns}/lookup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thingId: options.thingId }),
+        }))
+
+        let response: Response
+        if (options.timeout) {
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Lookup timeout')), options.timeout)
+          })
+          response = await Promise.race([fetchPromise, timeoutPromise])
+        } else {
+          response = await fetchPromise
+        }
+
+        shardsQueried = 1
+
+        if (response.ok) {
+          const result = await response.json() as { data: typeof options extends { data: infer D } ? D : null }
+          router.markShardHealthy(shardIndex)
+
+          return {
+            data: result.data ?? null,
+            shardIndex: result.data ? shardIndex : null,
+            duration: Date.now() - startTime,
+            shardsQueried,
+          }
+        }
+      } catch (error) {
+        router.markShardUnhealthy(shardIndex, error as Error)
+        throw error
+      }
+    }
+
+    // Broadcast to all shards if unknown
+    if (options.broadcastIfUnknown) {
+      this._routingMetrics.scatterGatherRequests++
+
+      for (const endpoint of registry.endpoints) {
+        const epShardIndex = this._getEndpointShardIndex(endpoint)
+        try {
+          const shardDoId = this.env.DO.idFromName(endpoint.ns)
+          const stub = this.env.DO.get(shardDoId)
+
+          const response = await stub.fetch(new Request(`https://${endpoint.ns}/lookup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thingId: options.thingId }),
+          }))
+
+          shardsQueried++
+
+          if (response.ok) {
+            const result = await response.json() as { data: { id: string; type: number; branch: string | null; name: string; data: Record<string, unknown>; deleted: boolean; visibility: string } | null }
+            router.markShardHealthy(epShardIndex)
+
+            if (result.data) {
+              // Found it, short-circuit
+              return {
+                data: result.data,
+                shardIndex: epShardIndex,
+                duration: Date.now() - startTime,
+                shardsQueried,
+              }
+            }
+          }
+        } catch (error) {
+          router.markShardUnhealthy(epShardIndex, error as Error)
+          // Continue to next shard
+        }
+      }
+    }
+
+    return {
+      data: null,
+      shardIndex: null,
+      duration: Date.now() - startTime,
+      shardsQueried,
+    }
+  }
+
+  /**
+   * Handle shard topology change - invalidates routing cache
+   */
+  async onShardTopologyChange(): Promise<void> {
+    // Clear cached routing data
+    this._shardHealthStatus.clear()
+    this._shardLoadStats.clear()
+    this._circuitBreakerStates.clear()
+  }
 
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3806,6 +4714,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   private _broadcastCallbacks: Array<(type: string, target: string) => void> = []
 
   /**
+   * Register a callback for broadcast events (2PC coordinator broadcasts)
+   * @param callback Function called when coordinator broadcasts commit/abort
+   */
+  _onBroadcast(callback: (type: string, target: string) => void): void {
+    this._broadcastCallbacks.push(callback)
+  }
+
+  /**
    * Prepare a staged clone (Phase 1 of two-phase commit)
    *
    * This method validates the target, creates a staging area, and transfers
@@ -4191,6 +5107,29 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     // Emit commit started event
     await this.emitEvent('clone.commit.started', { token, target: staging.targetNs })
 
+    // Persist coordinator decision to durable storage (2PC requirement)
+    const commitDecision = {
+      decision: 'commit' as const,
+      startedAt: new Date(),
+      completedAt: null as Date | null,
+    }
+    await this.ctx.storage.put(`${DO.TWO_PC_PREFIX}decision:${token}`, commitDecision)
+
+    // Broadcast commit decision to all participants
+    for (const callback of this._broadcastCallbacks) {
+      callback('commit', staging.targetNs)
+    }
+
+    // Update audit log with commit started event
+    const auditLog = await this.ctx.storage.get(`${DO.TWO_PC_PREFIX}audit:${token}`) as TransactionAuditLog | undefined
+    if (auditLog) {
+      auditLog.events.push(
+        { type: 'commit', status: 'started', timestamp: new Date() },
+        { type: 'broadcast', status: 'completed', timestamp: new Date(), participant: staging.targetNs }
+      )
+      await this.ctx.storage.put(`${DO.TWO_PC_PREFIX}audit:${token}`, auditLog)
+    }
+
     // Create the target DO and transfer state
     if (!this.env.DO) {
       throw new Error('DO namespace not configured')
@@ -4209,6 +5148,10 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     const committedAt = new Date()
 
+    // Update coordinator decision with completion time
+    commitDecision.completedAt = committedAt
+    await this.ctx.storage.put(`${DO.TWO_PC_PREFIX}decision:${token}`, commitDecision)
+
     // Store a tombstone entry marking the token as committed (for status queries)
     const tombstone: StagingData = {
       ...staging,
@@ -4222,6 +5165,24 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       await this.ctx.storage.delete(key)
     }
 
+    // Update participant history
+    const historyKey = `${DO.TWO_PC_PREFIX}history:${token}:${staging.targetNs}`
+    const history = await this.ctx.storage.get(historyKey) as ParticipantStateHistory | undefined
+    if (history) {
+      history.transitions.push({ from: 'prepared', to: 'committed', timestamp: committedAt })
+      await this.ctx.storage.put(historyKey, history)
+    }
+
+    // Update audit log with commit completed event
+    if (auditLog) {
+      auditLog.events.push(
+        { type: 'commit', status: 'completed', timestamp: committedAt },
+        { type: 'participant_ack', status: 'completed', timestamp: committedAt, participant: staging.targetNs }
+      )
+      auditLog.outcome = 'committed'
+      await this.ctx.storage.put(`${DO.TWO_PC_PREFIX}audit:${token}`, auditLog)
+    }
+
     // Emit committed event
     await this.emitEvent('clone.committed', {
       token,
@@ -4232,6 +5193,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         mode: 'staged',
       },
     })
+
+    // Build participant acknowledgments
+    const participantAcks: ParticipantAck[] = [
+      { target: staging.targetNs, status: 'committed', timestamp: committedAt },
+    ]
 
     return {
       phase: 'committed',
@@ -4245,6 +5211,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         },
       },
       committedAt,
+      participantAcks,
     }
   }
 
@@ -4254,13 +5221,19 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * This method cleans up the staging area and releases any locks.
    * It is idempotent - multiple calls with the same token will succeed.
    */
-  async abortClone(token: string, reason?: string): Promise<StagedAbortResult> {
+  async abortClone(token: string, reason?: string): Promise<StagedAbortResult & { participantAcks?: ParticipantAck[] }> {
     // Get staging data (may not exist if already aborted - idempotent)
     const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${token}`) as StagingData | undefined
 
     const abortedAt = new Date()
+    const participantAcks: ParticipantAck[] = []
 
     if (staging) {
+      // Broadcast abort decision to all participants
+      for (const callback of this._broadcastCallbacks) {
+        callback('abort', staging.targetNs)
+      }
+
       // Store a tombstone entry marking the token as aborted (for status queries)
       const tombstone: StagingData = {
         ...staging,
@@ -4275,6 +5248,13 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         await this.ctx.storage.delete(key)
       }
 
+      // Build participant acknowledgment
+      participantAcks.push({
+        target: staging.targetNs,
+        status: 'aborted',
+        timestamp: abortedAt,
+      })
+
       // Emit aborted event
       await this.emitEvent('clone.aborted', { token, target: staging.targetNs, reason })
     }
@@ -4284,6 +5264,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       token,
       reason,
       abortedAt,
+      participantAcks,
     }
   }
 

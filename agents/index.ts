@@ -137,12 +137,15 @@ export {
   tool,
   zodToJsonSchema,
   isZodSchema,
+  isJsonSchema,
   validateInput,
+  ValidationError,
   createDelegationTool,
   createHandoffTool,
   createFinishTool,
   createEscalationTool,
   type ToolOptions,
+  type ValidationResult,
 } from './Tool'
 
 // Base Agent
@@ -152,6 +155,9 @@ export {
   hasToolCall,
   hasText,
   customStop,
+  all,
+  any,
+  not,
   type BaseAgentOptions,
 } from './Agent'
 

@@ -48,6 +48,22 @@ export { Human, type NotificationChannel, type EscalationRule, type EscalationPo
 
 // Organization hierarchy
 export { Business, type BusinessConfig } from './Business'
+export {
+  Startup,
+  type ServiceBinding,
+  type AgentBinding,
+  type EscalationRule as StartupEscalationRule,
+  type StartupEscalationPolicy,
+  type EscalationResult,
+  type FoundingHypothesis,
+  type HunchMetrics,
+  type MetricsHistoryEntry,
+  type FoundationSprintPhase,
+  type StartupConfig,
+  type OperationalStatus,
+  type WorkDispatchRequest,
+  type WorkDispatchResult,
+} from './Startup'
 export { App, type AppConfig } from './App'
 export { Site, type SiteConfig } from './Site'
 export { SaaS, type SaaSPlan, type SaaSSubscription, type UsageRecord, type SaaSConfig } from './SaaS'

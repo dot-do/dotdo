@@ -257,6 +257,63 @@ interface StreamSubscription {
   callback: (event: FlagChangeEvent) => void
 }
 
+/**
+ * Webhook configuration for flag change notifications
+ */
+interface WebhookConfig {
+  id: string
+  url: string
+  secret?: string
+  events: FlagChangeEvent['type'][]
+  flagKeys?: string[] | '*'
+  enabled: boolean
+  retryCount: number
+  timeoutMs: number
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Webhook delivery result
+ */
+interface WebhookDeliveryResult {
+  webhookId: string
+  eventType: FlagChangeEvent['type']
+  flagKey: string
+  success: boolean
+  statusCode?: number
+  error?: string
+  attemptCount: number
+  deliveredAt: string
+}
+
+/**
+ * Cache metrics for monitoring
+ */
+interface CacheMetrics {
+  memoryHits: number
+  memoryMisses: number
+  storageHits: number
+  storageMisses: number
+  edgeHits: number
+  edgeMisses: number
+  totalRequests: number
+  hitRate: number
+  invalidations: number
+  lastReset: string
+}
+
+/**
+ * Multi-level cache entry with source tracking
+ */
+interface MultiLevelCacheEntry<T = FlagValue> {
+  value: T
+  source: 'memory' | 'storage' | 'edge'
+  cachedAt: string
+  expiresAt: string
+  flagVersion: number
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -418,6 +475,25 @@ export class FlagsDO {
   private shardIndex?: number
   private initialized = false
 
+  // Webhook support
+  private webhooks: Map<string, WebhookConfig> = new Map()
+  private webhookDeliveries: WebhookDeliveryResult[] = []
+
+  // Multi-level cache with metrics
+  private memoryCache: Map<string, MultiLevelCacheEntry> = new Map()
+  private cacheMetrics: CacheMetrics = {
+    memoryHits: 0,
+    memoryMisses: 0,
+    storageHits: 0,
+    storageMisses: 0,
+    edgeHits: 0,
+    edgeMisses: 0,
+    totalRequests: 0,
+    hitRate: 0,
+    invalidations: 0,
+    lastReset: new Date().toISOString(),
+  }
+
   constructor(ctx: DurableObjectState, env: unknown) {
     this.ctx = ctx
     this.env = env
@@ -492,6 +568,19 @@ export class FlagsDO {
       this.edgeCacheConfig = edgeCacheData
     }
 
+    // Load webhooks from storage
+    const webhooksMap = await this.ctx.storage.list<WebhookConfig>({ prefix: 'webhook:' })
+    for (const [key, value] of webhooksMap) {
+      const webhookId = key.replace('webhook:', '')
+      this.webhooks.set(webhookId, value)
+    }
+
+    // Load cache metrics
+    const metricsData = await this.ctx.storage.get<CacheMetrics>('cacheMetrics')
+    if (metricsData) {
+      this.cacheMetrics = metricsData
+    }
+
     this.initialized = true
   }
 
@@ -560,6 +649,12 @@ export class FlagsDO {
 
     // Notify subscriptions
     this.notifySubscribers(event)
+
+    // Dispatch webhooks (non-blocking)
+    this.dispatchWebhooks(event)
+
+    // Auto-invalidate cache for the changed flag
+    await this.invalidateCacheForFlag(event.flagKey)
   }
 
   /**
@@ -577,6 +672,157 @@ export class FlagsDO {
         }
       }
     }
+  }
+
+  /**
+   * Dispatch webhooks for a flag change event (non-blocking)
+   */
+  private dispatchWebhooks(event: FlagChangeEvent): void {
+    for (const webhook of this.webhooks.values()) {
+      if (!webhook.enabled) continue
+
+      // Check if webhook is interested in this event type
+      if (!webhook.events.includes(event.type)) continue
+
+      // Check if webhook is interested in this flag
+      if (webhook.flagKeys !== '*' && webhook.flagKeys && !webhook.flagKeys.includes(event.flagKey)) continue
+
+      // Dispatch webhook asynchronously (fire and forget with retry)
+      this.deliverWebhook(webhook, event).catch(() => {
+        // Errors are logged in deliverWebhook
+      })
+    }
+  }
+
+  /**
+   * Deliver a webhook with retries
+   */
+  private async deliverWebhook(webhook: WebhookConfig, event: FlagChangeEvent): Promise<WebhookDeliveryResult> {
+    const payload = {
+      event: event.type,
+      flagKey: event.flagKey,
+      timestamp: event.timestamp,
+      version: event.version,
+      oldValue: event.oldValue,
+      newValue: event.newValue,
+    }
+
+    const result: WebhookDeliveryResult = {
+      webhookId: webhook.id,
+      eventType: event.type,
+      flagKey: event.flagKey,
+      success: false,
+      attemptCount: 0,
+      deliveredAt: now(),
+    }
+
+    for (let attempt = 0; attempt <= webhook.retryCount; attempt++) {
+      result.attemptCount = attempt + 1
+
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Webhook-Event': event.type,
+          'X-Webhook-Flag': event.flagKey,
+          'X-Webhook-Timestamp': event.timestamp,
+        }
+
+        // Add HMAC signature if secret is configured
+        if (webhook.secret) {
+          const encoder = new TextEncoder()
+          const key = await crypto.subtle.importKey(
+            'raw',
+            encoder.encode(webhook.secret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          )
+          const signature = await crypto.subtle.sign(
+            'HMAC',
+            key,
+            encoder.encode(JSON.stringify(payload))
+          )
+          headers['X-Webhook-Signature'] = 'sha256=' + Array.from(new Uint8Array(signature))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('')
+        }
+
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), webhook.timeoutMs)
+
+        try {
+          const response = await fetch(webhook.url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          })
+
+          clearTimeout(timeoutId)
+          result.statusCode = response.status
+          result.success = response.ok
+
+          if (response.ok) {
+            break
+          }
+
+          result.error = `HTTP ${response.status}: ${response.statusText}`
+        } finally {
+          clearTimeout(timeoutId)
+        }
+      } catch (error) {
+        result.error = error instanceof Error ? error.message : 'Unknown error'
+      }
+
+      // Exponential backoff between retries
+      if (attempt < webhook.retryCount) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000))
+      }
+    }
+
+    // Store delivery result
+    this.webhookDeliveries.push(result)
+    // Keep only last 1000 deliveries
+    if (this.webhookDeliveries.length > 1000) {
+      this.webhookDeliveries = this.webhookDeliveries.slice(-1000)
+    }
+
+    return result
+  }
+
+  /**
+   * Invalidate all caches for a specific flag (memory, storage, edge)
+   */
+  private async invalidateCacheForFlag(flagKey: string): Promise<void> {
+    // Invalidate memory cache
+    for (const key of this.memoryCache.keys()) {
+      if (key.startsWith(`${flagKey}:`)) {
+        this.memoryCache.delete(key)
+      }
+    }
+
+    // Invalidate DO storage evaluation cache
+    await this.invalidateCache(flagKey)
+
+    // Invalidate edge cache
+    await this.invalidateEdgeCache(flagKey)
+
+    // Update metrics
+    this.cacheMetrics.invalidations++
+    await this.saveCacheMetrics()
+  }
+
+  /**
+   * Save cache metrics to storage
+   */
+  private async saveCacheMetrics(): Promise<void> {
+    // Update hit rate
+    const totalHits = this.cacheMetrics.memoryHits + this.cacheMetrics.storageHits + this.cacheMetrics.edgeHits
+    this.cacheMetrics.hitRate = this.cacheMetrics.totalRequests > 0
+      ? totalHits / this.cacheMetrics.totalRequests
+      : 0
+
+    await this.ctx.storage.put('cacheMetrics', this.cacheMetrics)
   }
 
   // ==========================================================================
@@ -1481,11 +1727,22 @@ export class FlagsDO {
       return { flag, cached: false }
     }
 
+    // Check if caches API is available (Workers runtime only)
+    if (typeof caches === 'undefined') {
+      const flag = await this.getFlag<T>(key)
+      return { flag, cached: false }
+    }
+
     // Try to get from edge cache
     const cacheKey = new Request(`https://flags.internal/${key}`, { method: 'GET' })
-    const cache = (caches as unknown as { default: Cache }).default
 
     try {
+      const cache = (caches as unknown as { default: Cache }).default
+      if (!cache) {
+        const flag = await this.getFlag<T>(key)
+        return { flag, cached: false }
+      }
+
       const cachedResponse = await cache.match(cacheKey)
 
       if (cachedResponse) {
@@ -1499,31 +1756,33 @@ export class FlagsDO {
           cacheAge,
         }
       }
+
+      // Fetch from DO storage
+      const flag = await this.getFlag<T>(key)
+
+      if (flag) {
+        // Store in edge cache
+        try {
+          const response = new Response(JSON.stringify(flag), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': `public, max-age=${this.edgeCacheConfig.ttlSeconds}, stale-while-revalidate=${this.edgeCacheConfig.staleWhileRevalidateSeconds}`,
+              'Cache-Tag': this.edgeCacheConfig.tags.join(','),
+              'Date': new Date().toUTCString(),
+            },
+          })
+          await cache.put(cacheKey, response)
+        } catch {
+          // Cache API not available, ignore
+        }
+      }
+
+      return { flag, cached: false }
     } catch {
       // Cache API not available, fall through
+      const flag = await this.getFlag<T>(key)
+      return { flag, cached: false }
     }
-
-    // Fetch from DO storage
-    const flag = await this.getFlag<T>(key)
-
-    if (flag) {
-      // Store in edge cache
-      try {
-        const response = new Response(JSON.stringify(flag), {
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': `public, max-age=${this.edgeCacheConfig.ttlSeconds}, stale-while-revalidate=${this.edgeCacheConfig.staleWhileRevalidateSeconds}`,
-            'Cache-Tag': this.edgeCacheConfig.tags.join(','),
-            'Date': new Date().toUTCString(),
-          },
-        })
-        await cache.put(cacheKey, response)
-      } catch {
-        // Cache API not available, ignore
-      }
-    }
-
-    return { flag, cached: false }
   }
 
   /**
@@ -1532,9 +1791,13 @@ export class FlagsDO {
   async invalidateEdgeCache(flagKey?: string): Promise<void> {
     if (!this.edgeCacheConfig.enabled) return
 
-    const cache = (caches as unknown as { default: Cache }).default
+    // Check if caches API is available (Workers runtime only)
+    if (typeof caches === 'undefined') return
 
     try {
+      const cache = (caches as unknown as { default: Cache }).default
+      if (!cache) return
+
       if (flagKey) {
         const cacheKey = new Request(`https://flags.internal/${flagKey}`, { method: 'GET' })
         await cache.delete(cacheKey)
@@ -1709,6 +1972,385 @@ export class FlagsDO {
   }
 
   // ==========================================================================
+  // WEBHOOK MANAGEMENT
+  // ==========================================================================
+
+  /**
+   * Register a webhook for flag change notifications
+   */
+  async registerWebhook(
+    config: Omit<WebhookConfig, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<WebhookConfig> {
+    await this.initialize()
+
+    const id = generateId()
+    const timestamp = now()
+    const webhook: WebhookConfig = {
+      ...config,
+      id,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    this.webhooks.set(id, webhook)
+    await this.ctx.storage.put(`webhook:${id}`, webhook)
+
+    return webhook
+  }
+
+  /**
+   * Get a webhook by ID
+   */
+  async getWebhook(id: string): Promise<WebhookConfig | null> {
+    await this.initialize()
+    return this.webhooks.get(id) || null
+  }
+
+  /**
+   * Update a webhook configuration
+   */
+  async updateWebhook(
+    id: string,
+    updates: Partial<Omit<WebhookConfig, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<WebhookConfig> {
+    await this.initialize()
+
+    const existing = this.webhooks.get(id)
+    if (!existing) {
+      throw new Error(`Webhook with id '${id}' not found`)
+    }
+
+    const updated: WebhookConfig = {
+      ...existing,
+      ...updates,
+      id, // ID cannot be changed
+      createdAt: existing.createdAt,
+      updatedAt: now(),
+    }
+
+    this.webhooks.set(id, updated)
+    await this.ctx.storage.put(`webhook:${id}`, updated)
+
+    return updated
+  }
+
+  /**
+   * Delete a webhook
+   */
+  async deleteWebhook(id: string): Promise<boolean> {
+    await this.initialize()
+
+    if (!this.webhooks.has(id)) {
+      return false
+    }
+
+    this.webhooks.delete(id)
+    await this.ctx.storage.delete(`webhook:${id}`)
+
+    return true
+  }
+
+  /**
+   * List all registered webhooks
+   */
+  async listWebhooks(): Promise<WebhookConfig[]> {
+    await this.initialize()
+    return Array.from(this.webhooks.values())
+  }
+
+  /**
+   * Get recent webhook deliveries
+   */
+  async getWebhookDeliveries(options: {
+    webhookId?: string
+    flagKey?: string
+    success?: boolean
+    limit?: number
+  } = {}): Promise<WebhookDeliveryResult[]> {
+    await this.initialize()
+
+    let deliveries = [...this.webhookDeliveries]
+
+    if (options.webhookId) {
+      deliveries = deliveries.filter(d => d.webhookId === options.webhookId)
+    }
+
+    if (options.flagKey) {
+      deliveries = deliveries.filter(d => d.flagKey === options.flagKey)
+    }
+
+    if (options.success !== undefined) {
+      deliveries = deliveries.filter(d => d.success === options.success)
+    }
+
+    // Sort by deliveredAt descending
+    deliveries.sort((a, b) => new Date(b.deliveredAt).getTime() - new Date(a.deliveredAt).getTime())
+
+    const limit = options.limit || 100
+    return deliveries.slice(0, limit)
+  }
+
+  /**
+   * Test a webhook by sending a test event
+   */
+  async testWebhook(id: string): Promise<WebhookDeliveryResult> {
+    await this.initialize()
+
+    const webhook = this.webhooks.get(id)
+    if (!webhook) {
+      throw new Error(`Webhook with id '${id}' not found`)
+    }
+
+    const testEvent: FlagChangeEvent = {
+      type: 'flag_updated',
+      flagKey: '__test__',
+      timestamp: now(),
+      version: 0,
+      newValue: {
+        key: '__test__',
+        defaultValue: true,
+        version: 0,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    }
+
+    return this.deliverWebhook(webhook, testEvent)
+  }
+
+  // ==========================================================================
+  // CACHE METRICS
+  // ==========================================================================
+
+  /**
+   * Get cache metrics
+   */
+  async getCacheMetrics(): Promise<CacheMetrics> {
+    await this.initialize()
+    return { ...this.cacheMetrics }
+  }
+
+  /**
+   * Reset cache metrics
+   */
+  async resetCacheMetrics(): Promise<CacheMetrics> {
+    await this.initialize()
+
+    this.cacheMetrics = {
+      memoryHits: 0,
+      memoryMisses: 0,
+      storageHits: 0,
+      storageMisses: 0,
+      edgeHits: 0,
+      edgeMisses: 0,
+      totalRequests: 0,
+      hitRate: 0,
+      invalidations: 0,
+      lastReset: now(),
+    }
+
+    await this.saveCacheMetrics()
+    return { ...this.cacheMetrics }
+  }
+
+  // ==========================================================================
+  // MULTI-LEVEL CACHING
+  // ==========================================================================
+
+  /**
+   * Get a flag value with multi-level caching (memory -> storage -> edge)
+   * Returns the value and cache source information
+   */
+  async getFlagWithMultiLevelCache<T = FlagValue>(
+    key: string,
+    context?: EvaluationContext,
+    request?: Request
+  ): Promise<{
+    value: T | null
+    source: 'memory' | 'storage' | 'edge' | 'miss'
+    cacheAge?: number
+  }> {
+    await this.initialize()
+
+    this.cacheMetrics.totalRequests++
+    const cacheKey = context ? `${key}:${hashContext(context)}` : key
+
+    // Level 1: Memory cache (fastest)
+    const memoryEntry = this.memoryCache.get(cacheKey)
+    if (memoryEntry && new Date(memoryEntry.expiresAt).getTime() > Date.now()) {
+      this.cacheMetrics.memoryHits++
+      await this.saveCacheMetrics()
+      return {
+        value: memoryEntry.value as T,
+        source: 'memory',
+        cacheAge: Math.floor((Date.now() - new Date(memoryEntry.cachedAt).getTime()) / 1000),
+      }
+    }
+    this.cacheMetrics.memoryMisses++
+
+    // Level 2: DO storage cache
+    if (context) {
+      const storageEntry = await this.getCachedEvaluation<T>(key, context)
+      if (storageEntry) {
+        this.cacheMetrics.storageHits++
+
+        // Promote to memory cache
+        const flag = this.flags.get(key)
+        this.memoryCache.set(cacheKey, {
+          value: storageEntry.value as FlagValue,
+          source: 'storage',
+          cachedAt: storageEntry.cachedAt,
+          expiresAt: storageEntry.expiresAt,
+          flagVersion: flag?.version || 0,
+        })
+
+        await this.saveCacheMetrics()
+        return {
+          value: storageEntry.value,
+          source: 'storage',
+          cacheAge: Math.floor((Date.now() - new Date(storageEntry.cachedAt).getTime()) / 1000),
+        }
+      }
+    }
+    this.cacheMetrics.storageMisses++
+
+    // Level 3: Edge cache (for full flag objects)
+    if (request && this.edgeCacheConfig.enabled) {
+      const { flag, cached, cacheAge } = await this.getCachedFlag<T>(key, request)
+      if (cached && flag) {
+        this.cacheMetrics.edgeHits++
+
+        // Promote to memory and storage caches
+        const expiresAt = new Date(Date.now() + this.config.cacheTTLSeconds * 1000).toISOString()
+        this.memoryCache.set(cacheKey, {
+          value: flag.defaultValue as FlagValue,
+          source: 'edge',
+          cachedAt: now(),
+          expiresAt,
+          flagVersion: flag.version,
+        })
+
+        await this.saveCacheMetrics()
+        return {
+          value: flag.defaultValue as T,
+          source: 'edge',
+          cacheAge,
+        }
+      }
+    }
+    this.cacheMetrics.edgeMisses++
+
+    await this.saveCacheMetrics()
+
+    // Cache miss - fetch from primary storage
+    const flag = this.flags.get(key) as StoredFlag<T> | undefined
+    if (!flag) {
+      return { value: null, source: 'miss' }
+    }
+
+    // Evaluate if context provided, otherwise return default
+    let value: T
+    if (context) {
+      const result = await this.evaluateTargeting<T>(key, context)
+      value = result.value
+
+      // Cache the evaluation
+      await this.cacheEvaluation(key, context, value, result.reason, result.variant)
+    } else {
+      value = flag.defaultValue as T
+    }
+
+    // Add to memory cache
+    const expiresAt = new Date(Date.now() + this.config.cacheTTLSeconds * 1000).toISOString()
+    this.memoryCache.set(cacheKey, {
+      value: value as FlagValue,
+      source: 'memory',
+      cachedAt: now(),
+      expiresAt,
+      flagVersion: flag.version,
+    })
+
+    return { value, source: 'miss' }
+  }
+
+  /**
+   * Warm the memory cache with all flags
+   */
+  async warmCache(): Promise<number> {
+    await this.initialize()
+
+    let count = 0
+    const expiresAt = new Date(Date.now() + this.config.cacheTTLSeconds * 1000).toISOString()
+
+    for (const [key, flag] of this.flags) {
+      this.memoryCache.set(key, {
+        value: flag.defaultValue,
+        source: 'memory',
+        cachedAt: now(),
+        expiresAt,
+        flagVersion: flag.version,
+      })
+      count++
+    }
+
+    return count
+  }
+
+  /**
+   * Clear the memory cache
+   */
+  async clearMemoryCache(): Promise<number> {
+    await this.initialize()
+
+    const count = this.memoryCache.size
+    this.memoryCache.clear()
+
+    this.cacheMetrics.invalidations += count
+    await this.saveCacheMetrics()
+
+    return count
+  }
+
+  /**
+   * Get memory cache stats
+   */
+  async getMemoryCacheStats(): Promise<{
+    entries: number
+    sizeBytes: number
+    oldestEntry?: string
+    newestEntry?: string
+  }> {
+    await this.initialize()
+
+    let sizeBytes = 0
+    let oldestTime = Infinity
+    let newestTime = 0
+    let oldestEntry: string | undefined
+    let newestEntry: string | undefined
+
+    for (const [key, entry] of this.memoryCache) {
+      sizeBytes += JSON.stringify(entry).length
+      const cachedTime = new Date(entry.cachedAt).getTime()
+
+      if (cachedTime < oldestTime) {
+        oldestTime = cachedTime
+        oldestEntry = key
+      }
+      if (cachedTime > newestTime) {
+        newestTime = cachedTime
+        newestEntry = key
+      }
+    }
+
+    return {
+      entries: this.memoryCache.size,
+      sizeBytes,
+      oldestEntry,
+      newestEntry,
+    }
+  }
+
+  // ==========================================================================
   // STATISTICS
   // ==========================================================================
 
@@ -1764,4 +2406,8 @@ export type {
   FlagStorageStats,
   ShardInfo,
   StreamSubscription,
+  WebhookConfig,
+  WebhookDeliveryResult,
+  CacheMetrics,
+  MultiLevelCacheEntry,
 }
