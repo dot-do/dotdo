@@ -1,0 +1,436 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dotdo.dev/schemas/proxy-config.json",
+  "title": "Proxy Config",
+  "description": "Configuration schema for the universal proxy snippet",
+  "type": "object",
+  "required": ["version", "routes"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Config version identifier for cache busting and rollback"
+    },
+    "ttl": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60,
+      "description": "Cache TTL in seconds for config refresh"
+    },
+    "routes": {
+      "type": "array",
+      "description": "Ordered list of route definitions",
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "policies": {
+      "type": "object",
+      "description": "Named policy definitions",
+      "additionalProperties": {
+        "$ref": "#/$defs/policy"
+      }
+    },
+    "variables": {
+      "type": "object",
+      "description": "Config variables accessible via $config.* in transforms",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "route": {
+      "type": "object",
+      "required": ["match"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique route identifier for logging and debugging"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this route is active"
+        },
+        "priority": {
+          "type": "integer",
+          "default": 0,
+          "description": "Higher priority routes are matched first"
+        },
+        "match": {
+          "$ref": "#/$defs/routeMatch"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "transforms": {
+          "$ref": "#/$defs/transforms"
+        },
+        "policies": {
+          "type": "array",
+          "description": "List of policy IDs to apply (in order)",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "routeMatch": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Regex pattern to match URL path"
+        },
+        "methods": {
+          "type": "array",
+          "description": "HTTP methods to match (empty = all)",
+          "items": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+          }
+        },
+        "headers": {
+          "type": "object",
+          "description": "Header name/pattern pairs that must match",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["passthrough", "redirect", "static"],
+          "default": "passthrough",
+          "description": "Target handling type"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Target URL for redirect type"
+        },
+        "status": {
+          "type": "integer",
+          "description": "Status code for redirect/static types"
+        },
+        "body": {
+          "type": "string",
+          "description": "Response body for static type"
+        }
+      }
+    },
+    "transforms": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "array",
+          "description": "Transforms to apply to requests",
+          "items": {
+            "$ref": "#/$defs/transform"
+          }
+        },
+        "response": {
+          "type": "array",
+          "description": "Transforms to apply to responses",
+          "items": {
+            "$ref": "#/$defs/transform"
+          }
+        }
+      }
+    },
+    "transform": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": ["setHeader", "removeHeader", "rewritePath", "setQuery", "removeQuery", "setStatus"],
+          "description": "Transform operation"
+        },
+        "name": {
+          "type": "string",
+          "description": "Header or query parameter name"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value (supports $variable resolution)"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for rewritePath"
+        },
+        "replacement": {
+          "type": "string",
+          "description": "Replacement string for rewritePath"
+        },
+        "flags": {
+          "type": "string",
+          "description": "Regex flags for rewritePath (e.g., 'g' for global)"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "op": { "const": "setHeader" } }
+          },
+          "then": {
+            "required": ["name", "value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "op": { "const": "removeHeader" } }
+          },
+          "then": {
+            "required": ["name"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "op": { "const": "rewritePath" } }
+          },
+          "then": {
+            "required": ["pattern", "replacement"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "op": { "const": "setQuery" } }
+          },
+          "then": {
+            "required": ["name", "value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "op": { "const": "removeQuery" } }
+          },
+          "then": {
+            "required": ["name"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "op": { "const": "setStatus" } }
+          },
+          "then": {
+            "required": ["value"]
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["jwt", "apiKey", "rateLimitCache", "cors", "geoBlock", "botFilter"],
+          "description": "Policy type"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "jwt" } }
+          },
+          "then": {
+            "$ref": "#/$defs/jwtPolicy"
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "apiKey" } }
+          },
+          "then": {
+            "$ref": "#/$defs/apiKeyPolicy"
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "rateLimitCache" } }
+          },
+          "then": {
+            "$ref": "#/$defs/rateLimitCachePolicy"
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "cors" } }
+          },
+          "then": {
+            "$ref": "#/$defs/corsPolicy"
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "geoBlock" } }
+          },
+          "then": {
+            "$ref": "#/$defs/geoBlockPolicy"
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "botFilter" } }
+          },
+          "then": {
+            "$ref": "#/$defs/botFilterPolicy"
+          }
+        }
+      ]
+    },
+    "jwtPolicy": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "jwt" },
+        "algorithm": {
+          "type": "string",
+          "enum": ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+          "default": "RS256",
+          "description": "JWT signing algorithm"
+        },
+        "publicKey": {
+          "type": "string",
+          "description": "PEM-encoded public key"
+        },
+        "publicKeys": {
+          "type": "array",
+          "description": "Multiple public keys for key rotation (JWKS)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "issuer": {
+          "type": "string",
+          "description": "Expected token issuer (iss claim)"
+        },
+        "audience": {
+          "type": "string",
+          "description": "Expected token audience (aud claim)"
+        }
+      },
+      "anyOf": [
+        { "required": ["publicKey"] },
+        { "required": ["publicKeys"] }
+      ]
+    },
+    "apiKeyPolicy": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "apiKey" },
+        "header": {
+          "type": "string",
+          "default": "X-API-Key",
+          "description": "Header containing the API key"
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Required prefix for valid API keys"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for valid API keys"
+        }
+      }
+    },
+    "rateLimitCachePolicy": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "rateLimitCache" },
+        "keyFrom": {
+          "type": "string",
+          "default": "$cf.ip",
+          "description": "Variable to use as cache key (e.g., $jwt.sub, $cf.ip)"
+        }
+      }
+    },
+    "corsPolicy": {
+      "type": "object",
+      "required": ["origins"],
+      "properties": {
+        "type": { "const": "cors" },
+        "origins": {
+          "type": "array",
+          "description": "Allowed origins (* for all)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "methods": {
+          "type": "array",
+          "description": "Allowed HTTP methods",
+          "items": {
+            "type": "string"
+          }
+        },
+        "headers": {
+          "type": "array",
+          "description": "Allowed request headers",
+          "items": {
+            "type": "string"
+          }
+        },
+        "credentials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow credentials (cookies, auth headers)"
+        },
+        "maxAge": {
+          "type": "integer",
+          "description": "Preflight cache max age in seconds"
+        }
+      }
+    },
+    "geoBlockPolicy": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "geoBlock" },
+        "blockedCountries": {
+          "type": "array",
+          "description": "ISO 3166-1 alpha-2 country codes to block",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        },
+        "allowedCountries": {
+          "type": "array",
+          "description": "ISO 3166-1 alpha-2 country codes to allow (whitelist mode)",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        }
+      },
+      "oneOf": [
+        { "required": ["blockedCountries"] },
+        { "required": ["allowedCountries"] }
+      ]
+    },
+    "botFilterPolicy": {
+      "type": "object",
+      "required": ["minScore"],
+      "properties": {
+        "type": { "const": "botFilter" },
+        "minScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum bot score to allow (higher = more likely human)"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["block", "challenge"],
+          "default": "block",
+          "description": "Action to take on suspected bots"
+        }
+      }
+    }
+  }
+}
