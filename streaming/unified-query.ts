@@ -468,7 +468,7 @@ function parseSQL(sql: string, params: unknown[] = []): ParsedQuery {
     : ['*']
 
   // Extract WHERE clause
-  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+GROUP|\s+ORDER|\s+LIMIT|$)/i)
+  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+GROUP|\s+ORDER|\s+LIMIT|$)/is)
   const whereClause = whereMatch?.[1]
 
   // Parse filters from WHERE clause
