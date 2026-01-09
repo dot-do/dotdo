@@ -41,6 +41,8 @@ export interface Env extends CloudflareEnv {
   DO: DurableObjectNamespace
   /** Browser Durable Object namespace */
   BROWSER_DO: DurableObjectNamespace
+  /** Sandbox Durable Object namespace */
+  SANDBOX_DO: DurableObjectNamespace
   /** Observability Broadcaster DO namespace */
   OBS_BROADCASTER: DurableObjectNamespace
   /** Test KV namespace (dev/test only) */
@@ -167,6 +169,9 @@ app.route('/api', apiRoutes)
 
 // Mount Browser API routes
 app.route('/api/browsers', browsersRoutes)
+
+// Mount Sandbox API routes
+app.route('/api/sandboxes', sandboxesRoutes)
 
 // Mount Observability API routes
 app.route('/api/obs', obsRoutes)

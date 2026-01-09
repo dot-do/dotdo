@@ -929,9 +929,8 @@ describe('Atomic Clone Mode', () => {
             emptyObject: {},
             emptyArray: [],
           },
-          version: 1,
-          branch: 'main',
           deleted: false,
+          visibility: 'user',
         },
       ]
       result.sqlData.set('things', complexThings)

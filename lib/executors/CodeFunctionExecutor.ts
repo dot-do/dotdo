@@ -212,13 +212,16 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
   private cancelled = false
   private cancelCallback?: () => void
   private _result: StreamOutput | null = null
+  private resultPushedToIteration = false
 
   push(chunk: StreamOutput): void {
     if (this.cancelled || this.done) return
 
-    // Store result separately but also push to stream for iteration
+    // Store result separately
     if (chunk.type === 'result') {
       this._result = chunk
+      // Don't push result to chunks - it will be yielded when done
+      return
     }
 
     if (this.resolvers.length > 0) {
@@ -231,6 +234,12 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
 
   finish(): void {
     this.done = true
+    // Yield the result chunk if we have one and there are waiters
+    if (this._result && !this.resultPushedToIteration && this.resolvers.length > 0) {
+      this.resultPushedToIteration = true
+      const resolver = this.resolvers.shift()!
+      resolver({ value: this._result, done: false })
+    }
     while (this.resolvers.length > 0) {
       const resolver = this.resolvers.shift()!
       resolver({ value: undefined as unknown as StreamOutput, done: true })
@@ -255,6 +264,11 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
         }
         if (this.chunks.length > 0) {
           return Promise.resolve({ value: this.chunks.shift()!, done: false })
+        }
+        // If we're done and have a result that hasn't been yielded, yield it
+        if (this.done && this._result && !this.resultPushedToIteration) {
+          this.resultPushedToIteration = true
+          return Promise.resolve({ value: this._result, done: false })
         }
         if (this.done) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })

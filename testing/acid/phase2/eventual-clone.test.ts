@@ -440,7 +440,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
       result.sqlData.get('things')!.push({
         id: 'thing-100',
         type: 1,
-        data: JSON.stringify({ index: 100, name: 'New Item' }),
+        data: { index: 100, name: 'New Item' },
         version: 1,
         branch: null,
         deleted: false,
@@ -461,7 +461,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         result.sqlData.get('things')!.push({
           id: `thing-${i}`,
           type: 1,
-          data: JSON.stringify({ index: i }),
+          data: { index: i },
           version: 1,
           branch: null,
           deleted: false,
