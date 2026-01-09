@@ -223,6 +223,11 @@ export default defineWorkspace([
     'packages/duckdb-worker/tests/*.test.ts',  // Root test files only, not workers/
   ]),
 
+  // @dotdo/duckdb-worker E2E tests (live worker HTTP tests)
+  createNodeWorkspace('duckdb-worker-e2e', [
+    'packages/duckdb-worker/tests/e2e/**/*.test.ts',
+  ]),
+
   // @dotdo/worker-helpers package tests (Customer Worker Helpers)
   createNodeWorkspace('worker-helpers', ['packages/worker-helpers/tests/**/*.test.ts']),
 
