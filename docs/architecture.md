@@ -1,871 +1,493 @@
-# .do Platform Architecture
+# dotdo Architecture Overview
 
-> **AI. Humans. Identity.**
-
-The .do platform is a distributed application framework built on Cloudflare Durable Objects, enabling AI-native applications with built-in identity, integrations, and human-in-the-loop workflows.
+> **Build your 1-Person Unicorn.** Business-as-Code framework for autonomous businesses run by AI agents.
 
 ---
 
-## Platform Overview
+## 1. Core Philosophy
 
-```
-                              +-----------------------+
-                              |      id.org.ai        |
-                              |  (Root Identity DO)   |
-                              |  Default IdP for all  |
-                              +-----------+-----------+
-                                          |
-                    +---------------------+---------------------+
-                    |                     |                     |
-          +---------v--------+  +---------v--------+  +---------v--------+
-          |   Business DO    |  |   Business DO    |  |   Business DO    |
-          |  acme.example    |  | startup.inc      |  |  agency.co       |
-          +--------+---------+  +--------+---------+  +--------+---------+
-                   |                     |                     |
-          +--------v--------+   +--------v--------+   +--------v--------+
-          |     App DO      |   |     App DO      |   |     App DO      |
-          |  (CRM, ERP...)  |   |  (Dashboard...) |   |  (Studio...)    |
-          +--------+--------+   +-----------------+   +-----------------+
-                   |
-     +-------------+-------------+
-     |             |             |
-+----v----+  +----v----+  +-----v-----+
-| Site DO |  | Site DO |  | Entity DO |
-| (docs)  |  | (app)   |  | (Customer)|
-+---------+  +---------+  +-----------+
-```
+### V8 Isolates + Durable Objects = Virtual Chrome Tabs
 
-### Core Principles
+dotdo treats each Durable Object as a **virtual Chrome tab** with persistent state. Just as Chrome isolates tabs for security and performance, V8 Isolates provide:
 
-1. **URL-Based Identity** - Every DO has a namespace URL (e.g., `https://startups.studio`)
-2. **Append-Only Versioning** - Things are versioned, not mutated; time travel is free
-3. **Federated Auth** - All DOs can federate identity to parent or to `id.org.ai`
-4. **Integration-First** - OAuth providers baked in, no Zapier/Composio needed
-5. **AI + Human Unified** - Agents and Humans share the same Worker interface
-
----
-
-## Core Primitives
-
-### 1. Triggers
-
-Events that initiate workflows:
-
-```
-+------------------+     +------------------+     +------------------+
-|    Providers     |     |      Cron        |     |    Webhooks      |
-|  (GitHub, Slack) |     | ($.every.Monday) |     | (/api/webhooks/) |
-+--------+---------+     +--------+---------+     +--------+---------+
-         |                        |                        |
-         +------------------------+------------------------+
-                                  |
-                          +-------v-------+
-                          |   Event Bus   |
-                          | (DO internal) |
-                          +---------------+
-```
-
-**Event Subscription DSL:**
+- **Memory isolation** - Each DO runs in its own V8 isolate
+- **State persistence** - SQLite storage survives across requests
+- **Concurrent execution** - Millions of DOs can run simultaneously
+- **Actor model** - Single-threaded execution within each DO eliminates race conditions
 
 ```typescript
-// Subscribe to domain events
-$.on.Customer.created(async (event) => { ... })
-$.on.Invoice.paid(async (event) => { ... })
-
-// Schedule recurring tasks
-$.every.Monday.at9am(async () => { ... })
-$.every('daily at 6am', async () => { ... })
-```
-
-### 2. Searches
-
-Queries across local SQLite and linked provider APIs:
-
-```
-+-------------------+
-|   Search Query    |
-+--------+----------+
-         |
-         v
-+--------+----------+     +-------------------+
-|  Local SQLite     |     |  Linked Providers |
-|  - Full-text      |     |  - GitHub repos   |
-|  - Vector (MRL)   |     |  - Slack channels |
-|  - Semantic hash  |     |  - CRM contacts   |
-+--------+----------+     +--------+----------+
-         |                         |
-         +------------+------------+
-                      |
-              +-------v-------+
-              | Merged Results|
-              +---------------+
-```
-
-**Search Index Schema:**
-
-```
-search
-+-------+----------+-------------+-----------+
-| $id   | $type    | content     | embedding |
-+-------+----------+-------------+-----------+
-| URL   | Noun     | searchable  | 128-dim   |
-|       |          | text        | MRL vec   |
-+-------+----------+-------------+-----------+
-```
-
-### 3. Actions (Functions)
-
-**Function<Output, Input, Options>** is implementation-agnostic. Four types with different execution characteristics:
-
-```
-+------------------------------------------------------------------------------+
-|                            Function Types                                     |
-+------------------------------------------------------------------------------+
-|                                                                              |
-|  +------------------+    +------------------+                                |
-|  |  CodeFunction    |    | GenerativeFunc   |                                |
-|  |  Traditional     |    | AI completion    |                                |
-|  |  serverless      |    | (single call)    |                                |
-|  +------------------+    +------------------+                                |
-|                                                                              |
-|  +------------------+    +------------------+                                |
-|  |  AgenticFunction |    |  HumanFunction   |                                |
-|  |  AI + Tools      |    |  Human-in-loop   |                                |
-|  |  (loop)          |    |  via channels    |                                |
-|  +------------------+    +------------------+                                |
-|                                                                              |
-+------------------------------------------------------------------------------+
-```
-
-**Natural Expression:**
-
-```typescript
-// Code - just write code
-export const sum = (a, b) => a + b
-
-// Generative - ai.* template
-const brand = ai.storyBrand({ hero: customer, problem: pain })
-
-// Agentic - amy template literal
-const research = amy`research ${competitor} market position`
-
-// Human - user template literal
-const approval = user`please review ${expense} for ${amount}`
-```
-
-**Cascade Pattern** (try simpler/cheaper first):
-
-```
-Code (fastest, cheapest, deterministic)
-  ↓ fails
-Generative (AI inference, single call)
-  ↓ fails
-Agentic (AI + tools, multi-step)
-  ↓ fails
-Human (slowest, most expensive, guaranteed judgment)
-```
-
-**Execution Durability Spectrum:**
-
-```typescript
-$.send(event, data) // Fire-and-forget (non-blocking, non-durable)
-$.try(action, data) // Quick attempt (blocking, non-durable)
-$.do(action, data) // Durable execution (blocking, retries, guaranteed)
-```
-
-See [Functions Concept](/docs/concepts/functions) for details.
-
----
-
-## Durable Object Hierarchy
-
-```
-                                 +------------------+
-                                 |        DO        |
-                                 |   (Base Class)   |
-                                 +--------+---------+
-                                          |
-          +---------------+---------------+---------------+---------------+
-          |               |               |               |               |
-    +-----v-----+   +-----v-----+   +-----v-----+   +-----v-----+  +------v------+
-    |  Business |   |    App    |   |   Site    |   |  Worker   |  |   Entity    |
-    +-----------+   +-----+-----+   +-----------+   +-----+-----+  +------+------+
-                          |                               |               |
-                    +-----v-----+                   +-----+-----+   +-----+-----+
-                    |   SaaS    |                   |     |     |   | Collection|
-                    +-----------+               +---v---+ +--v--+   | Directory |
-                                                | Agent | |Human|   | Package   |
-                                                +-------+ +-----+   +-----------+
-```
-
-### Class Purposes
-
-| Class        | Purpose                                               | Example                |
-| ------------ | ----------------------------------------------------- | ---------------------- |
-| **DO**       | Base class with storage, workflow context, versioning | All objects inherit    |
-| **Business** | Multi-tenant organization container                   | `acme-corp`            |
-| **App**      | Application within a business                         | `crm-app`, `dashboard` |
-| **Site**     | Website/domain within an app                          | `docs.acme.com`        |
-| **Worker**   | Base for work-performing entities                     | Common interface       |
-| **Agent**    | AI-powered autonomous worker                          | `support-agent`        |
-| **Human**    | Human worker with approval flows                      | `john@acme.com`        |
-| **Entity**   | Domain object container                               | `Customer`, `Order`    |
-| **Function** | Serverless execution unit                             | Deployed functions     |
-| **Workflow** | Multi-step process orchestration                      | Approval flows         |
-
----
-
-## Data Model
-
-Every DO inherits a unified data model with append-only semantics:
-
-```
-+------------------+      +------------------+      +------------------+
-|     THINGS       |      |     ACTIONS      |      |     EVENTS       |
-| (Version Log)    |      | (Command Log)    |      | (Domain Events)  |
-+------------------+      +------------------+      +------------------+
-| rowid = version  |      | verb             |      | verb             |
-| id               |<-----| input (rowid)    |----->| source           |
-| type (FK nouns)  |<-----| output (rowid)   |      | data             |
-| branch           |      | actor            |      | actionId         |
-| name             |      | target           |      | sequence         |
-| data (JSON)      |      | durability       |      | streamed         |
-| deleted          |      | status           |      +------------------+
-+------------------+      +------------------+
-
-+------------------+      +------------------+
-|     OBJECTS      |      |     SEARCH       |
-| (DO References)  |      | (FTS + Vector)   |
-+------------------+      +------------------+
-| ns (URL)         |      | $id              |
-| id (CF DO ID)    |      | $type            |
-| class            |      | content          |
-| relation         |      | embedding        |
-| region           |      | cluster          |
-| shardKey         |      | semanticL1/L2/L3 |
-+------------------+      +------------------+
-```
-
-### Version & Branch Addressing
-
-Git-like `@ref` syntax for time travel:
-
-```
-https://startups.studio/acme              -> HEAD of main
-https://startups.studio/acme@main         -> explicit main branch
-https://startups.studio/acme@experiment   -> experiment branch
-https://startups.studio/acme@v1234        -> specific version (rowid)
-https://startups.studio/acme@~1           -> one version back
-```
-
-### Lifecycle Operations
-
-```typescript
-await do.fork({ to: 'https://new.ns' })   // New identity from current state
-await do.compact()                         // Squash history, same identity
-await do.moveTo('ORD')                     // Relocate to different colo
-await do.branch('experiment')              // Create branch
-await do.checkout('@v1234')                // Switch to version/branch
-await do.merge('experiment')               // Merge branch
-```
-
----
-
-## Experiments
-
-**Branches ARE Variants.** Every Thing has a `branch` field (default: `main`). Experiments compare branches with traffic allocation.
-
-### Experiment Schema
-
-```typescript
-Experiment: {
-  thing: string           // 'qualifyLead'
-  branches: string[]      // ['main', 'ai-experiment']
-  traffic: number         // 0-1, percentage in experiment
-  metric: string          // 'Sales.qualified'
-  status: 'draft' | 'running' | 'completed'
-  winner?: string         // Winning branch
-}
-```
-
-### Deterministic Assignment
-
-```typescript
-function resolveBranch(userId: string, thingId: string): string {
-  const experiment = getActiveExperiment(thingId)
-  if (!experiment) return 'main'
-
-  const trafficHash = hash(`${userId}:${experiment.id}`)
-  if (trafficHash % 10000 > experiment.traffic * 10000) {
-    return 'main'
+// Each DO is like a persistent browser tab
+class MyStartup extends DO {
+  // State lives in SQLite, survives restarts
+  async fetch(request: Request) {
+    const data = await this.db.select().from(things)
+    return Response.json(data)
   }
-
-  const branchHash = hash(`${userId}:${experiment.id}:branch`)
-  return experiment.branches[branchHash % experiment.branches.length]
 }
 ```
 
-### Git Semantics
+### Edge-First Architecture
+
+Cloudflare Workers + Durable Objects run on **300+ cities globally**:
+
+- **0ms cold starts** (when warm) - V8 Isolates spin up in microseconds
+- **~50ms cold starts** - When loading new isolate with SQLite state
+- **Single-digit latency** - Code runs close to users
+- **Automatic failover** - Cloudflare handles regional redundancy
+
+### SQLite as Universal Storage Layer
+
+Every DO has a built-in SQLite database via Drizzle ORM:
 
 ```typescript
-await $.Function('qualifyLead').branch('ai-experiment')    // Create variant
-await $.Function('qualifyLead@ai-experiment').update(...)  // Edit variant
-await $.Function('qualifyLead').merge('ai-experiment')     // Winner → main
-await $.Function('qualifyLead').diff('main', 'ai-v1')      // Compare
+// Initialize Drizzle with DO storage
+this.db = drizzle(ctx.storage, { schema })
+
+// Type-safe queries
+const startups = await this.db
+  .select()
+  .from(things)
+  .where(eq(things.type, startupFK))
 ```
 
-### Three Layers of Making Things Deterministic
-
-1. **is\` assertions** - `is\`${output} valid JSON?\`` → boolean
-2. **LLM-as-judge** - `prefer\`${A} vs ${B}\`` → arena-style ranking
-3. **Real-world experiments** - A/B test → conversions → deterministic winner
-
-### Feature Flags
-
-Feature flags are simple experiments:
-
-```typescript
-const enabled = await $.flag('new-checkout').isEnabled(userId)
-// Just: does branch exist + is user assigned to it
-```
-
-See [Experiments Concept](/docs/concepts/experiments) for details.
+SQLite provides:
+- **ACID transactions** - Consistent state within each DO
+- **JSON columns** - Flexible schema with `json_extract()` queries
+- **Full-text search** - FTS5 for text search
+- **Vector storage** - 128-dim MRL embeddings for semantic search
 
 ---
 
-## Integration Architecture
-
-### First-Class Integrations
+## 2. Package Structure
 
 ```
-+------------------------------------------------------------------+
-|                         DO Instance                               |
-|                                                                   |
-|  this.integration('github')  ----+                               |
-|  this.integration('slack')   ----+---> Integration Manager       |
-|  this.integration('stripe')  ----+     - Token refresh           |
-|                                        - Rate limiting            |
-|                                        - Retry logic              |
-|                                        - Webhook verification     |
-+------------------------------------------------------------------+
-                              |
-              +---------------+---------------+
-              |               |               |
-        +-----v-----+   +-----v-----+   +-----v-----+
-        |  GitHub   |   |   Slack   |   |  Stripe   |
-        |   API     |   |   API     |   |   API     |
-        +-----------+   +-----------+   +-----------+
-```
-
-**No Zapier/Composio needed** - integrations are baked into the platform:
-
-- OAuth flows handled by auth module
-- Token storage in WorkOS Vault (or DO storage)
-- Automatic token refresh before expiry
-- Rate limit handling with exponential backoff
-- Webhook signature verification
-
-### Linked Accounts Flow
-
-```
-1. User initiates: npx org.ai link github
-2. OAuth redirect to provider
-3. Callback stores tokens
-4. DO can now call: this.integration('github').repos.list()
+dotdo/
+├── do/                    # Entry points (tiny, index, full)
+│   ├── index.ts           # Default export (all capabilities)
+│   ├── tiny.ts            # Minimal DO (~15KB)
+│   ├── fs.ts              # DO + filesystem
+│   ├── git.ts             # DO + filesystem + git
+│   ├── bash.ts            # DO + filesystem + bash
+│   └── full.ts            # DO + all capabilities (~120KB)
+│
+├── objects/               # DO classes
+│   ├── DO.ts              # Base class (identity, storage, $)
+│   ├── Worker.ts          # Execution context
+│   ├── Entity.ts          # Data entity (Customer, Invoice)
+│   ├── Agent.ts           # AI agent
+│   ├── Human.ts           # Human actor
+│   ├── Business.ts        # Business organization
+│   ├── App.ts             # Application
+│   ├── Site.ts            # Website/docs
+│   ├── Collection.ts      # Entity collection
+│   ├── Directory.ts       # Entity directory
+│   └── lifecycle/         # Lifecycle modules
+│       ├── Clone.ts       # DO cloning
+│       ├── Branch.ts      # Git-style branching
+│       ├── Compact.ts     # State compaction
+│       ├── Promote.ts     # Entity -> DO promotion
+│       └── Shard.ts       # Horizontal sharding
+│
+├── db/                    # Database layer
+│   ├── index.ts           # Schema exports
+│   ├── stores.ts          # Store accessors
+│   ├── things.ts          # Things table (entities)
+│   ├── relationships.ts   # Relationships table (edges)
+│   ├── actions.ts         # Actions table (audit log)
+│   ├── events.ts          # Events table (domain events)
+│   ├── search.ts          # Search index (FTS + vector)
+│   ├── branches.ts        # Git-style branches
+│   ├── auth.ts            # Auth tables (better-auth)
+│   ├── vault.ts           # Secure credential storage
+│   └── compat/            # Database compatibility layers
+│       ├── sql/           # postgres, mysql, planetscale
+│       ├── nosql/         # mongo, dynamodb, firebase
+│       ├── cache/         # redis
+│       └── graph/         # neo4j
+│
+├── lib/                   # Utilities
+│   └── mixins/            # Capability mixins
+│       ├── fs.ts          # Filesystem (fsx)
+│       ├── git.ts         # Git operations (gitx)
+│       └── bash.ts        # Shell execution (bashx)
+│
+├── workflows/             # $ context DSL
+│   ├── proxy.ts           # Pipeline proxy
+│   ├── on.ts              # Event subscription DSL
+│   ├── schedule-builder.ts # Cron scheduling
+│   ├── runtime.ts         # Workflow runtime
+│   └── context/           # Context extensions
+│       ├── flag.ts        # Feature flags
+│       ├── rate-limit.ts  # Rate limiting
+│       └── vault.ts       # Secrets
+│
+├── api/                   # HTTP layer
+│   └── routes/            # Hono routes
+│
+├── agents/                # Agent SDK
+│   ├── Agent.ts           # Multi-provider agent
+│   ├── Tool.ts            # Tool definitions
+│   └── Providers/         # LLM providers
+│
+└── app/                   # Frontend
+    └── components/        # TanStack Start + MDXUI
 ```
 
 ---
 
-## Auth Architecture
+## 3. DO Class Hierarchy
 
 ```
-+-------------------------------------------------------------------------+
-|                      CENTRAL AUTH DOMAIN                                 |
-|                      (auth.headless.ly)                                  |
-|                                                                          |
-|   OAuth Providers:                                                       |
-|   +-- Google  -> callback: auth.headless.ly/api/auth/callback/google    |
-|   +-- GitHub  -> callback: auth.headless.ly/api/auth/callback/github    |
-|   +-- SSO     -> per-org SAML/OIDC via WorkOS                           |
-|                                                                          |
-|   Stores: users, sessions, accounts, organizations, members              |
-+------------------------------------+------------------------------------+
-                                     |
-                                     | After OAuth:
-                                     | 1. Create session
-                                     | 2. Generate one-time token
-                                     | 3. Redirect to tenant domain
-                                     v
-+-------------------------------------------------------------------------+
-|                         TENANT DOMAIN                                    |
-|              (crm.acme.com, acme.crm.headless.ly)                        |
-|                                                                          |
-|   /auth/login?provider=google  -> Redirect to auth domain               |
-|   /auth/callback?auth_token=x  -> Exchange token for session            |
-|   /auth/session                -> Get current session                   |
-|   /auth/logout                 -> Clear session cookie                  |
-|                                                                          |
-|   Route to Tenant DO: organizations[slug].tenantNs -> DO namespace      |
-+-------------------------------------------------------------------------+
+DOTiny (~15KB)
+│   Identity (ns)
+│   SQLite (Drizzle)
+│   fetch() handler
+│
+DO (~80KB)
+│   + WorkflowContext ($)
+│   + Stores (things, rels, actions, events, search)
+│   + Event handlers ($.on.Noun.verb)
+│   + Scheduling ($.every)
+│   + Cross-DO RPC
+│
+DOFull (~120KB)
+    + Filesystem ($.fs)
+    + Git ($.git)
+    + Bash ($.bash)
+    + Lifecycle (clone, branch, compact, promote, shard)
 ```
 
-### Better-Auth Configuration
+### Entry Point Selection
 
 ```typescript
-betterAuth({
-  plugins: [
-    organization(), // Multi-tenancy
-    admin(), // Admin roles
-    apiKey(), // API key auth
-    sso(), // Enterprise SAML/OIDC
-    oauthProvider(), // Your app as OAuth provider (for MCP)
-    stripe(), // Subscription billing
-  ],
+// Minimal - just identity and storage
+import { DO } from 'dotdo/tiny'
+
+// Standard - workflows, events, scheduling
+import { DO } from 'dotdo'
+
+// Full - all capabilities including fs, git, bash
+import { DO } from 'dotdo/full'
+
+// Selective - compose exactly what you need
+import { DO as BaseDO } from 'dotdo/tiny'
+import { withFs, withGit } from 'dotdo'
+
+class MyDO extends withGit(withFs(BaseDO)) {
+  // Has $.fs and $.git but not $.bash
+}
+```
+
+---
+
+## 4. Key Abstractions
+
+### Things - Universal Entities
+
+Every entity in dotdo is a **Thing** with URL-based identity:
+
+```typescript
+interface Thing {
+  $id: string      // URL: 'https://startups.studio/headless.ly'
+  $type: string    // URL: 'https://startups.studio/Startup'
+  name?: string
+  data?: Record<string, unknown>
+  meta?: Record<string, unknown>
+  visibility?: 'public' | 'unlisted' | 'org' | 'user'
+  $version?: number
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+**URL Identity:**
+- `$id` is a fully qualified URL (unambiguous globally)
+- `$type` points to a Noun definition (schema + behavior)
+- Namespace (`ns`) is derived from the URL host
+
+### Relationships - Typed Edges
+
+Relationships connect Things with typed verbs:
+
+```typescript
+interface Relationship {
+  id: string
+  verb: string      // 'manages', 'employs', 'owns'
+  from: string      // Thing $id
+  to: string        // Thing $id
+  data?: Record<string, unknown>
+  createdAt: Date
+}
+```
+
+### Actions - Recorded Operations
+
+Every operation is logged in an append-only audit trail:
+
+```typescript
+interface Action {
+  id: string
+  verb: string           // 'create', 'update', 'approve'
+  target: string         // Thing $id or namespace
+  actor: string          // 'Human/nathan', 'Agent/claude'
+  input: Record<string, unknown>
+  output?: unknown
+  durability: 'send' | 'try' | 'do'
+  status: ActionStatus
+  createdAt: Date
+  completedAt?: Date
+}
+
+type ActionStatus = 'pending' | 'running' | 'retrying' | 'completed' | 'failed'
+```
+
+### Events - Domain Events
+
+Domain events flow through the event system:
+
+```typescript
+interface DomainEvent {
+  id: string
+  verb: string           // 'signup', 'paid', 'shipped'
+  source: string         // Thing $id that emitted
+  data: unknown
+  timestamp: Date
+}
+```
+
+---
+
+## 5. WorkflowContext ($)
+
+The `$` proxy is the primary API for workflow operations:
+
+### Execution Modes
+
+```typescript
+// Fire-and-forget (non-blocking, non-durable)
+$.send('notify', { user, message })
+
+// Single attempt with timeout (blocking, non-durable)
+const result = await $.try('validate', data, { timeout: 5000 })
+
+// Durable execution with retries (blocking, durable)
+const output = await $.do('process', order, {
+  retry: {
+    maxAttempts: 3,
+    initialDelayMs: 100,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+    jitter: true
+  }
 })
 ```
 
-### Identity Types
-
-| Type        | Description      | Auth Method                         |
-| ----------- | ---------------- | ----------------------------------- |
-| **Human**   | Real person      | WorkOS AuthKit (OAuth, SSO, MFA)    |
-| **Agent**   | AI worker        | API key or OAuth client credentials |
-| **Service** | System-to-system | API key or mTLS                     |
-
-### Federation
-
-By default, every DO federates identity to its parent DO, with `id.org.ai` as the ultimate root:
-
-```
-Your App DO
-    |
-    +---> Parent Business DO
-              |
-              +---> id.org.ai (root identity provider)
-```
-
----
-
-## API Routes (Hono Middleware)
-
-```
-+------------------------------------------------------------------+
-|                         API Router                                |
-+------------------------------------------------------------------+
-|                                                                   |
-|  /api/webhooks/:source     POST   Inbound webhooks from providers|
-|                                   - GitHub, Stripe, Slack, etc.  |
-|                                   - Signature verification       |
-|                                                                   |
-|  /api/search/:type         GET    Search across resources        |
-|                                   - Full-text + vector           |
-|                                   - Federated to providers       |
-|                                                                   |
-|  /api/:type/:id            CRUD   REST resources                 |
-|                                   - Maps to Things in DO         |
-|                                   - Version headers supported    |
-|                                                                   |
-|  /api/actions/:action      POST   Execute named actions          |
-|                                   - CodeFunction invocation      |
-|                                   - AgenticFunction invocation   |
-|                                                                   |
-|  /api/workflows/:workflow  *      Workflow operations            |
-|                                   - Start, pause, resume, cancel |
-|                                   - Step status and history      |
-|                                                                   |
-+------------------------------------------------------------------+
-```
-
-### Request Flow
-
-```
-Request --> Hono Router --> Auth Middleware --> DO Resolution --> DO.fetch()
-                               |                     |
-                               v                     v
-                          Session/API Key       ns + path lookup
-                          validation            in objects table
-```
-
----
-
-## CLI (org.ai)
-
-```
-npx org.ai <command> [options]
-
-+------------------------------------------------------------------+
-|                         CLI Commands                              |
-+------------------------------------------------------------------+
-|                                                                   |
-|  Authentication:                                                  |
-|    login              Device auth flow (like gh auth login)      |
-|    logout             Clear stored credentials                   |
-|    whoami             Show current identity                      |
-|                                                                   |
-|  Integrations:                                                    |
-|    link <provider>    OAuth flow to connect provider             |
-|    unlink <provider>  Remove provider connection                 |
-|    integrations       List connected providers                   |
-|                                                                   |
-|  Resources:                                                       |
-|    agents list        List AI agents                             |
-|    agents create      Create new agent                           |
-|    functions deploy   Deploy a function                          |
-|    functions invoke   Invoke a function                          |
-|    workflows list     List workflows                             |
-|    workflows run      Start a workflow                           |
-|                                                                   |
-+------------------------------------------------------------------+
-```
-
-### Token Storage Priority
-
-```
-1. Environment variable: ORG_AI_TOKEN
-2. Config file: ~/.config/org.ai/credentials.json
-3. (Future) System keychain via keytar
-```
-
-### Device Auth Flow
-
-```
-$ npx org.ai login
-
-1. Open browser to: https://id.org.ai/device
-2. Enter code: ABCD-1234
-3. Waiting for authorization...
-4. Success! Logged in as nathan@example.com
-```
-
----
-
-## WorkOS Integration
-
-```
-+------------------------------------------------------------------+
-|                      WorkOS Services                              |
-+------------------------------------------------------------------+
-|                                                                   |
-|  AuthKit                                                          |
-|  +-- Human authentication (OAuth, SAML, MFA)                     |
-|  +-- Hosted login pages                                          |
-|  +-- User management                                             |
-|                                                                   |
-|  Vault                                                            |
-|  +-- Secure token storage for OAuth refresh tokens               |
-|  +-- Encrypted at rest and in transit                            |
-|  +-- Automatic rotation support                                  |
-|                                                                   |
-|  FGA (Fine-Grained Authorization) [Coming]                       |
-|  +-- ReBAC (Relationship-Based Access Control)                   |
-|  +-- Policy evaluation at edge                                   |
-|  +-- Audit trail                                                 |
-|                                                                   |
-|  Audit Logs                                                       |
-|  +-- All auth events logged                                      |
-|  +-- Exportable to SIEM                                          |
-|  +-- Compliance reporting                                        |
-|                                                                   |
-+------------------------------------------------------------------+
-```
-
-### AuthKit Integration
+### Event Subscription
 
 ```typescript
-// Worker entry point
-export default {
-  async fetch(request, env) {
-    // Redirect to WorkOS AuthKit for login
-    if (request.url.endsWith('/login')) {
-      return Response.redirect(env.WORKOS_AUTHKIT_URL)
-    }
+// Subscribe to domain events
+$.on.Customer.created(async (event) => {
+  await $.send('welcome-email', { customer: event.data })
+})
 
-    // Verify session from AuthKit
-    const session = await verifyAuthKitSession(request, env)
-    // ...
-  },
-}
+$.on.Payment.failed(async (event) => {
+  await $.do('retry-payment', event.data)
+})
+
+// With options
+$.on.Order.shipped.with({
+  priority: 'high',
+  timeout: 30000
+})(async (event) => {
+  // Handle high-priority order shipments
+})
+```
+
+### Scheduling
+
+```typescript
+// Fluent cron syntax
+$.every.Monday.at9am(async () => {
+  await $.do('weekly-report', {})
+})
+
+$.every.hour(async () => {
+  await $.try('health-check', {})
+})
+
+// Natural language
+$.every('daily at 6am', async () => {
+  await $.do('backup', {})
+})
+
+// Interval shortcuts
+$.every.minute(handler)    // '* * * * *'
+$.every.day.atnoon(handler) // '0 12 * * *'
+```
+
+### Cross-DO RPC
+
+```typescript
+// Call methods on other DOs
+await $.Customer(customerId).notify({ message: 'Hello!' })
+await $.Order(orderId).ship()
+
+// Chain operations
+const invoice = await $.Customer(id).orders().latest().invoice()
+```
+
+### AI Functions
+
+```typescript
+// Generation
+const content = await $.write`blog post about ${topic}`
+const summary = await $.summarize(document)
+const items = await $.list`10 marketing ideas for ${product}`
+const data = await $.extract({ name: 'string', email: 'email' }).from(text)
+
+// Classification
+const spam = await $.is`spam`(message)
+const category = await $.decide(['urgent', 'normal', 'low'])(ticket)
+```
+
+### Branching
+
+```typescript
+// Create a branch for experimentation
+await $.branch('feature/new-pricing')
+
+// Switch branches
+await $.checkout('feature/new-pricing')
+
+// Merge changes back
+await $.merge('main')
 ```
 
 ---
 
-## Worker Interface (AI + Human Unified)
+## 6. Compat Layer Architecture
 
-```
-+------------------------------------------------------------------+
-|                       Worker Interface                            |
-+------------------------------------------------------------------+
-|                                                                   |
-|  async do(task, context)       Execute a task                    |
-|  async ask(question, context)  Get an answer                     |
-|  async decide(question, opts)  Make a decision                   |
-|  async approve(request)        Approval workflow                 |
-|  async generate<T>(prompt)     Structured output                 |
-|  async notify(message, chans)  Send notifications                |
-|                                                                   |
-+------------------------------------------------------------------+
-               |                                  |
-               v                                  v
-+-----------------------------+    +-----------------------------+
-|          Agent              |    |          Human              |
-| (AI-powered, autonomous)    |    | (Manual, approval flows)    |
-+-----------------------------+    +-----------------------------+
-| mode: 'autonomous'          |    | mode: 'manual'              |
-| tools: Map<string, Tool>    |    | channels: NotificationChan[]|
-| memory: Memory[]            |    | escalationPolicy: Policy    |
-|                             |    |                             |
-| run(goal) -> GoalResult     |    | requestApproval(req)        |
-| observe() -> state          |    | submitApproval(id, result)  |
-| think() -> action           |    | checkEscalations()          |
-| act(action)                 |    | getPendingApprovals()       |
-+-----------------------------+    +-----------------------------+
-```
+dotdo provides **API-compatible SDKs** for familiar database and service APIs:
 
-### Agentic Loop (Agent)
+### Available Compat Layers
+
+| Category | SDKs |
+|----------|------|
+| SQL | `@dotdo/postgres`, `@dotdo/mysql`, `@dotdo/planetscale`, `@dotdo/neon`, `@dotdo/cockroach`, `@dotdo/tidb`, `@dotdo/duckdb` |
+| NoSQL | `@dotdo/mongo`, `@dotdo/dynamodb`, `@dotdo/firebase`, `@dotdo/couchdb`, `@dotdo/convex` |
+| Cache | `@dotdo/redis` |
+| Graph | `@dotdo/neo4j` |
+| BaaS | `@dotdo/supabase` |
+
+### Compat Architecture
+
+Each compat layer provides:
+
+1. **Familiar API** - Same method signatures as the original SDK
+2. **DO-backed storage** - Data stored in the DO's SQLite
+3. **SQL parsing** - Queries translated via `node-sql-parser` or `pgsql-parser`
+4. **Event emission** - Operations emit domain events
 
 ```typescript
-async run(goal: Goal): Promise<GoalResult> {
-  while (iteration < maxIterations) {
-    const observation = await this.observe()        // Current state
-    const action = await this.think(goal, obs)      // AI reasoning
+// Using postgres compat layer
+import { Client } from '@dotdo/postgres'
 
-    if (action.type === 'complete') {
-      return { success: true, result: action.result }
-    }
+const client = new Client({ do: this })
+await client.connect()
 
-    await this.act(action)                          // Execute tool
-    iteration++
+// Standard pg syntax, DO-backed storage
+const result = await client.query(
+  'SELECT * FROM users WHERE email = $1',
+  ['user@example.com']
+)
+```
+
+### Shared Infrastructure
+
+Compat layers share:
+
+- **EventEmitter** - Consolidated event emission
+- **SQL Parser** - Query translation
+- **Connection pooling simulation** - Managed by DO lifecycle
+- **Type coercion** - SQLite <-> target DB type mapping
+
+---
+
+## 7. Bundle Optimization Strategy
+
+### Lazy Loading
+
+Heavy operations are lazy-loaded to minimize cold start impact:
+
+```typescript
+// Stores are initialized on first access
+get things(): ThingsStore {
+  if (!this._things) {
+    this._things = new ThingsStore(this.getStoreContext())
   }
+  return this._things
 }
-```
 
-### Human-in-the-Loop (Human)
-
-```typescript
-async requestApproval(request: ApprovalRequest): Promise<void> {
-  // Store pending approval
-  await this.ctx.storage.put(`pending:${request.id}`, request)
-
-  // Notify via all channels (email, Slack, SMS)
-  for (const channel of this.channels) {
-    await this.sendToChannel(message, channel)
+// Schedule manager loaded when scheduling is used
+protected get scheduleManager(): ScheduleManager {
+  if (!this._scheduleManager) {
+    this._scheduleManager = new ScheduleManager(this.ctx)
   }
-
-  // Schedule escalation check
-  if (this.escalationPolicy) {
-    await this.scheduleEscalation(request.id)
-  }
+  return this._scheduleManager
 }
 ```
 
----
+### Mixin-Based Composition
 
-## 5W+H Events
-
-Every event captures the universal **5W+H** questions: WHO, WHAT, WHEN, WHERE, WHY, and HOW.
-
-### Event Flow
-
-```
-+------------------------------------------------------------------+
-|                      Event Flow                                   |
-+------------------------------------------------------------------+
-|                                                                   |
-|  DO Internal                                                      |
-|  +-----------+      +------------+      +------------+           |
-|  |  Action   | ---> |   Event    | ---> |  Events    |           |
-|  | executed  |      |  emitted   |      |  table     |           |
-|  +-----------+      +-----+------+      +------------+           |
-|                           |                                       |
-|                           v                                       |
-|  Cloudflare          +----+-----+                                |
-|  Pipeline            | do_events|                                |
-|                      +----+-----+                                |
-|                           |                                       |
-|                           v                                       |
-|  R2 Storage          +----+-----+      +------------+            |
-|                      | Parquet  | ---> | /api/search|            |
-|                      |  tables  |      |  + EPCIS   |            |
-|                      +----------+      +------------+            |
-|                                                                   |
-+------------------------------------------------------------------+
-```
-
-### 5W+H Schema
-
-| Question | Field(s) | Description |
-|----------|----------|-------------|
-| **WHO** | actor, source, destination | Who did it |
-| **WHAT** | object, type, quantity | What was affected |
-| **WHEN** | timestamp, recorded | When it happened |
-| **WHERE** | ns, location, readPoint | Where it happened |
-| **WHY** | verb, disposition, reason | Why it happened |
-| **HOW** | method, branch, model, tools, channel | How it happened |
-
-### Event Schema
+Capabilities are added via mixins, not inheritance:
 
 ```typescript
-Event: {
-  // WHO
-  actor: string              // User/Agent performing action
-  source?: string            // Origin location/system
-  destination?: string       // Target location/system
+// Each mixin adds specific capabilities
+export const DO = withBash(withGit(withFs(BaseDO)))
 
-  // WHAT
-  object: string             // Sqid / Thing ID
-  type: string               // Noun type
-  quantity?: number          // Amount (for countable events)
-
-  // WHEN
-  timestamp: datetime        // When it happened
-  recorded: datetime         // When we recorded it
-
-  // WHERE
-  ns: string                 // Namespace (DO identity)
-  location?: string          // Physical/logical location
-  readPoint?: string         // Capture point (sensor, API, etc.)
-
-  // WHY
-  verb: string               // Action taken
-  disposition?: string       // State after event
-  reason?: string            // Business reason
-
-  // HOW
-  method?: 'code' | 'generative' | 'agentic' | 'human'
-  branch?: string            // Which variant/experiment
-  model?: string             // Which AI model (if AI)
-  tools?: string[]           // Which tools (if agentic)
-  channel?: string           // Which channel (if human)
-  cascade?: json             // Cascade path taken
-  transaction?: string       // Business transaction ID
-  context?: json             // Additional data
-}
+// Users can compose exactly what they need
+class MinimalDO extends BaseDO { }           // ~15KB
+class FsDO extends withFs(BaseDO) { }        // ~40KB
+class FullDO extends withBash(withGit(withFs(BaseDO))) { } // ~120KB
 ```
 
-### EPCIS Compatibility
+### Tree-Shakeable Exports
 
-Our 5W+H model maps 1:1 to [EPCIS 2.0](https://www.gs1.org/epcis):
-
-| 5W+H | EPCIS Field |
-|------|-------------|
-| WHO | source, destination |
-| WHAT | epcList, parentID |
-| WHEN | eventTime, recordTime |
-| WHERE | readPoint, bizLocation |
-| WHY | bizStep, disposition |
-| HOW | bizTransaction |
-
-Query via `/api/search` with EPCIS query params:
-
-```
-GET /api/search?eventType=ObjectEvent&bizStep=shipping&MATCH_epc=urn:epc:id:sgtin:...
-```
-
-### Events Endpoint
-
-All events flow through `/e` → `do_events` pipeline → R2 Parquet:
+Entry points are structured for tree-shaking:
 
 ```typescript
-// POST /e - accepts any format, normalizes to 5W+H
-const events = normalize(body)  // Detects: internal, EPCIS, evalite
-await env.DO_EVENTS.send(events)
+// do/tiny.ts - Minimal exports
+export { DO } from '../objects/DO'
+export const capabilities: string[] = []
+
+// do/full.ts - All capabilities
+export const DO = withBash(withGit(withFs(BaseDO)))
+export const capabilities = ['fs', 'git', 'bash']
+export { withFs, withGit, withBash }
 ```
 
-See [Events Concept](/docs/concepts/events) for details.
+### RPC Workers for Heavy Operations
 
----
+Heavy operations can be offloaded to separate Workers:
 
-## Deployment Configuration
+```typescript
+// Lifecycle operations can be RPC'd to dedicated workers
+const shardResult = await this.env.LIFECYCLE_WORKER.shard(this.ns, options)
 
-```toml
-# wrangler.toml
-name = "my-app"
-main = "src/index.ts"
-compatibility_date = "2024-11-12"
-compatibility_flags = ["nodejs_compat"]
-
-[durable_objects]
-bindings = [
-  { name = "BUSINESS", class_name = "Business" },
-  { name = "APP", class_name = "App" },
-  { name = "SITE", class_name = "Site" },
-  { name = "AGENT", class_name = "Agent" },
-  { name = "HUMAN", class_name = "Human" },
-  { name = "ENTITY", class_name = "Entity" },
-  { name = "FUNCTION", class_name = "Function" },
-  { name = "WORKFLOW", class_name = "Workflow" }
-]
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["Business", "App", "Site", "Agent", "Human", "Entity", "Function", "Workflow"]
-
-[[pipelines]]
-name = "events"
-binding = "PIPELINE"
-
-[[r2_buckets]]
-binding = "ANALYTICS"
-bucket_name = "analytics"
+// AI inference goes through API gateway
+const response = await this.env.AI_GATEWAY.complete(prompt)
 ```
 
 ---
 
-## Security Model
+## Summary
 
-### Authentication Layers
+dotdo's architecture enables building autonomous businesses by combining:
 
-```
-+------------------------------------------------------------------+
-|  Layer 1: Edge (Cloudflare)                                       |
-|  - DDoS protection                                                |
-|  - WAF rules                                                      |
-|  - Bot management                                                 |
-+------------------------------------------------------------------+
-|  Layer 2: Auth Middleware                                         |
-|  - Session validation (better-auth)                               |
-|  - API key verification                                           |
-|  - OAuth token validation                                         |
-+------------------------------------------------------------------+
-|  Layer 3: DO-Level                                                |
-|  - Namespace authorization (is this DO accessible?)               |
-|  - Action-level permissions                                       |
-|  - Federation to parent for policy                                |
-+------------------------------------------------------------------+
-```
+1. **V8 Isolates** - Secure, fast execution
+2. **Durable Objects** - Persistent state with SQLite
+3. **WorkflowContext ($)** - Intuitive API for events, scheduling, RPC
+4. **Compat Layers** - Familiar APIs backed by DO storage
+5. **Mixin Composition** - Pay only for capabilities you use
 
-### Token Types
-
-| Token         | Scope            | Lifetime     | Storage       |
-| ------------- | ---------------- | ------------ | ------------- |
-| Session       | User browser     | 7 days       | Cookie        |
-| API Key       | Service auth     | Configurable | Env/Config    |
-| OAuth Access  | Provider API     | 1 hour       | WorkOS Vault  |
-| OAuth Refresh | Token renewal    | 90 days      | WorkOS Vault  |
-| Cross-Domain  | Session transfer | 1 minute     | DB (one-time) |
-
----
-
-## Glossary
-
-| Term               | Definition                                                  |
-| ------------------ | ----------------------------------------------------------- |
-| **DO**             | Durable Object - Cloudflare's stateful serverless primitive |
-| **Namespace (ns)** | The URL identity of a DO (e.g., `https://startups.studio`)  |
-| **Thing**          | A versioned entity stored in a DO's SQLite                  |
-| **Action**         | A logged command that creates/modifies Things               |
-| **Event**          | A domain event emitted after Actions                        |
-| **Worker**         | Base class for entities that perform work (Agent, Human)    |
-| **Integration**    | Connected OAuth provider (GitHub, Slack, etc.)              |
-| **Federation**     | Delegating auth/policy to parent DO                         |
-| **id.org.ai**      | Root identity provider for the platform                     |
-
----
-
-## Related Documentation
-
-- [Getting Started](/docs/getting-started)
-- [API Reference](/docs/api)
-- [CLI Reference](/docs/cli)
-- [SDK Documentation](/docs/sdk)
-- [RPC Patterns](/docs/rpc)
+This creates a platform where AI agents and humans can collaborate on running businesses, with the framework handling durability, identity, and infrastructure concerns.
