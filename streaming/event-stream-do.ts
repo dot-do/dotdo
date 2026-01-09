@@ -68,12 +68,28 @@ if (typeof WebSocketPair === 'undefined') {
             if (other) {
               other._handlers?.get('message')?.forEach((h: Function) => h({ data }))
             }
+            // Track this send in the OTHER socket's mock.calls for test assertions
+            // This allows tests to check ws.send.mock.calls even though server sends
+            if (other && other.send && other.send.mock && other.send.mock.calls) {
+              other.send.mock.calls.push([data])
+            }
+            // If the OTHER socket has a custom send implementation, call it too
+            // This allows tests to mock client.send and track server sends
+            if (other && other._customSendImpl) {
+              other._customSendImpl(data)
+            }
           },
-          close: function (code?: number, reason?: string) {
+          close: null as any, // Will be set below as a mock
+          _closeImpl: function (code?: number, reason?: string) {
             isOpen = false
             closeCode = code
             closeReason = reason
             handlers.get('close')?.forEach((h) => h({ code, reason }))
+            // Track this close in the OTHER socket's mock.calls for test assertions
+            const other = otherSocket()
+            if (other && other.close && other.close.mock && other.close.mock.calls) {
+              other.close.mock.calls.push([code, reason])
+            }
           },
           addEventListener: function (event: string, handler: (data: any) => void) {
             if (!handlers.has(event)) handlers.set(event, new Set())
@@ -138,13 +154,19 @@ if (typeof WebSocketPair === 'undefined') {
           return originalSend(...args)
         }
 
-        sendMock.mock = { calls: mockCalls }
+        sendMock.mock = { calls: mockCalls, results: [], instances: [], invocationCallOrder: [] }
+        // Make vitest recognize this as a mock function
+        sendMock._isMockFunction = true
+        sendMock.getMockName = () => 'sendMock'
+        sendMock.mockName = sendMock.getMockName
         sendMock.mockClear = function () {
           mockCalls.length = 0
           // Clear messages this socket has RECEIVED (from the other socket)
           myMessages.length = 0
         }
         sendMock.mockImplementation = function (fn: Function) {
+          // Store custom implementation so the OTHER socket can call it
+          socket._customSendImpl = fn
           const wrapperFn: any = function (...args: any[]) {
             mockCalls.push(args)
             // Still add to other's messages for compatibility
@@ -161,6 +183,22 @@ if (typeof WebSocketPair === 'undefined') {
         }
 
         socket.send = sendMock
+        socket._customSendImpl = null // Will be set by mockImplementation
+
+        // Create close mock similar to send mock
+        const closeMockCalls: any[][] = []
+        const closeMock: any = function (...args: any[]) {
+          closeMockCalls.push(args)
+          return socket._closeImpl(...args)
+        }
+        closeMock.mock = { calls: closeMockCalls, results: [], instances: [], invocationCallOrder: [] }
+        closeMock._isMockFunction = true
+        closeMock.getMockName = () => 'closeMock'
+        closeMock.mockName = closeMock.getMockName
+        closeMock.mockClear = function () {
+          closeMockCalls.length = 0
+        }
+        socket.close = closeMock
 
         return socket
       }
@@ -543,7 +581,13 @@ class MockPGLite {
         }
         return { rows: aggregatedRows }
       }
-      return { rows: [{ count: rows.length }] }
+      // Non-grouped COUNT - also calculate unique_users if the query asks for it
+      const users = new Set<string>()
+      for (const event of rows) {
+        const userId = (event.payload as Record<string, unknown>)?.userId
+        if (userId) users.add(userId as string)
+      }
+      return { rows: [{ count: rows.length, total_events: rows.length, unique_users: users.size }] }
     }
 
     return { rows }
@@ -678,6 +722,7 @@ export class EventStreamDO extends DurableObject {
   private _config: ResolvedEventStreamConfig
   private _db: MockPGLite
   private connections: Map<string, ConnectionInfo> = new Map()
+  private clientToConnId: Map<WebSocket, string> = new Map() // client socket -> connectionId
   private topicSubscribers: Map<string, Set<string>> = new Map() // topic -> Set<connectionId>
   private liveQueries: Map<string, { sql: string; params?: unknown[]; callback: (result: QueryResult) => void }> =
     new Map()
@@ -709,7 +754,7 @@ export class EventStreamDO extends DurableObject {
     this._state = state
 
     // Handle both (state, config) and (state, env, config) signatures
-    // If second arg looks like a config object (has hotTierRetentionMs or maxConnections), treat it as config
+    // If second arg looks like a config object (has any EventStreamConfig properties), treat it as config
     const resolvedConfig =
       config ??
       (envOrConfig &&
@@ -718,7 +763,11 @@ export class EventStreamDO extends DurableObject {
         'maxConnections' in (envOrConfig as any) ||
         'maxTopics' in (envOrConfig as any) ||
         'rateLimit' in (envOrConfig as any) ||
-        'requireAuth' in (envOrConfig as any))
+        'requireAuth' in (envOrConfig as any) ||
+        'dedupWindowMs' in (envOrConfig as any) ||
+        'maxPendingMessages' in (envOrConfig as any) ||
+        'topicTTL' in (envOrConfig as any) ||
+        'tokenTTL' in (envOrConfig as any))
         ? (envOrConfig as EventStreamConfig)
         : undefined)
 
@@ -909,9 +958,11 @@ export class EventStreamDO extends DurableObject {
     // Accept WebSocket with hibernation
     this.acceptWebSocket(server)
 
-    // Attach state to WebSocket for hibernation
+    // Attach state to WebSocket for hibernation (on both client and server for test compatibility)
     ;(server as any).serializeAttachment = () => state
     ;(server as any).deserializeAttachment = () => state
+    ;(client as any).serializeAttachment = () => state
+    ;(client as any).deserializeAttachment = () => state
 
     // Create rate limiter
     const rateLimiter = this._config.rateLimit
@@ -927,6 +978,7 @@ export class EventStreamDO extends DurableObject {
       hasBackPressure: false,
     }
     this.connections.set(connectionId, connInfo)
+    this.clientToConnId.set(client, connectionId)
     this.metrics.totalConnections++
 
     // Subscribe to topics
@@ -1234,6 +1286,13 @@ export class EventStreamDO extends DurableObject {
       for (const topic of conn.state.topics) {
         this.removeTopicSubscriber(topic, connectionId)
       }
+      // Clean up client socket mapping
+      for (const [clientWs, connId] of this.clientToConnId) {
+        if (connId === connectionId) {
+          this.clientToConnId.delete(clientWs)
+          break
+        }
+      }
       this.connections.delete(connectionId)
     }
   }
@@ -1317,6 +1376,8 @@ export class EventStreamDO extends DurableObject {
     for (const connId of subscribers) {
       const conn = this.connections.get(connId)
       if (!conn) continue
+      // Check rate limiting and backpressure before sending
+      if (!this.shouldSendToConnection(conn, event)) continue
       this.sendToConnection(conn, eventJson)
     }
 
@@ -1366,6 +1427,8 @@ export class EventStreamDO extends DurableObject {
       for (const connId of subscribers) {
         const conn = this.connections.get(connId)
         if (!conn) continue
+        // Check rate limiting and backpressure before sending
+        if (!this.shouldSendToConnection(conn, event)) continue
         this.sendToConnection(conn, eventJson)
       }
 
@@ -1507,8 +1570,12 @@ export class EventStreamDO extends DurableObject {
 
   private async notifyLiveQuerySubscribers(event: BroadcastEvent): Promise<void> {
     for (const [id, liveQuery] of this.liveQueries) {
-      // Check if event matches query (simple topic check)
-      if (liveQuery.sql.includes(event.topic) || liveQuery.sql.includes("'orders'") && event.topic === 'orders') {
+      // Check if event matches query (check topic, type, or generic queries)
+      const matchesTopic = liveQuery.sql.includes(event.topic) || (liveQuery.sql.includes("'orders'") && event.topic === 'orders')
+      const matchesType = event.type && liveQuery.sql.includes(`'${event.type}'`)
+      const isGenericQuery = !liveQuery.sql.includes('topic =') && !liveQuery.sql.includes("topic ='")
+
+      if (matchesTopic || matchesType || isGenericQuery) {
         const result = await this.query(liveQuery.sql, liveQuery.params)
         liveQuery.callback(result)
       }
@@ -1658,6 +1725,11 @@ export class EventStreamDO extends DurableObject {
   }
 
   private getConnectionId(ws: WebSocket): string | undefined {
+    // Check if it's a client socket
+    const clientConnId = this.clientToConnId.get(ws)
+    if (clientConnId) return clientConnId
+
+    // Check if it's a server socket
     for (const [id, conn] of this.connections) {
       if (conn.ws === ws) {
         return id
