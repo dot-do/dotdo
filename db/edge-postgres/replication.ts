@@ -561,25 +561,45 @@ export class ReplicatedPostgres {
     await this.ctx.storage.put(STORAGE_KEYS.REPLICAS, Array.from(this.replicas.entries()))
   }
 
-  // Batch sync scheduling
+  // Batch sync scheduling - optimized for sub-100ms typical lag
   private batchSyncScheduled = false
   private batchSyncTimeout: ReturnType<typeof setTimeout> | null = null
+  private pendingWrites = 0
+  private static readonly BATCH_SYNC_INTERVAL_MS = 50 // Target 50ms for typical lag under 100ms
+  private static readonly IMMEDIATE_SYNC_THRESHOLD = 10 // Sync immediately after N writes for low-latency scenarios
 
   private scheduleBatchSync(): void {
+    this.pendingWrites++
+
+    // Immediate sync for high-write scenarios to keep lag minimal
+    if (this.pendingWrites >= ReplicatedPostgres.IMMEDIATE_SYNC_THRESHOLD) {
+      if (this.batchSyncTimeout) {
+        clearTimeout(this.batchSyncTimeout)
+        this.batchSyncTimeout = null
+      }
+      this.batchSyncScheduled = false
+      this.ctx.waitUntil(this.performBatchSync())
+      return
+    }
+
     // Only schedule if not already scheduled
     if (this.batchSyncScheduled) return
 
     this.batchSyncScheduled = true
 
     // Use setTimeout to batch multiple writes into one sync
+    // 50ms batching window ensures typical lag stays well under 100ms
     this.batchSyncTimeout = setTimeout(async () => {
       await this.performBatchSync()
       this.batchSyncScheduled = false
       this.batchSyncTimeout = null
-    }, 100) // 100ms batching window
+    }, ReplicatedPostgres.BATCH_SYNC_INTERVAL_MS)
   }
 
   private async performBatchSync(): Promise<void> {
+    // Reset pending writes counter
+    this.pendingWrites = 0
+
     // Sync all followers - this counts as one batch
     let syncedAny = false
 
@@ -604,25 +624,61 @@ export class ReplicatedPostgres {
   // ==========================================================================
 
   /**
-   * Get the nearest available replica
+   * Health score thresholds for replica selection
+   * Lower score = better health (prioritized in selection)
+   */
+  private static readonly HEALTH_LAG_PENALTY = 5 // ms penalty per version of lag
+  private static readonly HEALTH_STALE_PENALTY = 500 // ms penalty for stale status
+  private static readonly HEALTH_INITIALIZING_PENALTY = 200 // ms penalty for initializing status
+
+  /**
+   * Calculate health-adjusted effective latency for a replica
+   * Combines network latency with lag and status penalties
+   */
+  private getEffectiveLatency(replica: ReplicaInfo): number {
+    let effective = replica.latencyMs
+
+    // Add penalty based on replication lag
+    effective += replica.lag * ReplicatedPostgres.HEALTH_LAG_PENALTY
+
+    // Add penalty based on status
+    if (replica.status === 'stale') {
+      effective += ReplicatedPostgres.HEALTH_STALE_PENALTY
+    } else if (replica.status === 'initializing') {
+      effective += ReplicatedPostgres.HEALTH_INITIALIZING_PENALTY
+    }
+
+    return effective
+  }
+
+  /**
+   * Get the nearest available replica, considering health (lag and status)
+   *
+   * Selection algorithm:
+   * 1. Filter out unavailable replicas
+   * 2. Calculate effective latency = network latency + lag penalty + status penalty
+   * 3. Select replica with lowest effective latency
+   *
+   * This ensures that a healthy far replica may be preferred over a lagging near replica.
    */
   async getNearestReplica(): Promise<ReplicaInfo> {
     const cacheTTL = this.config.replication?.nearestCacheTTLMs ?? 60000
 
-    // Check cache
+    // Check cache - but invalidate if cached replica is now unhealthy
     if (this.nearestCache && Date.now() - this.nearestCache.cachedAt < cacheTTL) {
       const cached = this.replicas.get(this.nearestCache.city)
-      if (cached && cached.status === 'active') {
+      if (cached && cached.status === 'active' && cached.lag === 0) {
         return cached
       }
+      // Cache invalidated due to health change - recalculate
     }
 
-    // Find nearest available replica
+    // Find nearest available replica considering health
     let nearest: ReplicaInfo | null = null
-    let lowestLatency = Infinity
+    let lowestEffectiveLatency = Infinity
 
     for (const replica of this.replicas.values()) {
-      if (replica.status !== 'active' && replica.status !== 'initializing') {
+      if (replica.status === 'unavailable') {
         continue
       }
 
@@ -630,8 +686,10 @@ export class ReplicatedPostgres {
         continue
       }
 
-      if (replica.latencyMs < lowestLatency) {
-        lowestLatency = replica.latencyMs
+      const effectiveLatency = this.getEffectiveLatency(replica)
+
+      if (effectiveLatency < lowestEffectiveLatency) {
+        lowestEffectiveLatency = effectiveLatency
         nearest = replica
       }
     }
@@ -657,37 +715,120 @@ export class ReplicatedPostgres {
   // ==========================================================================
 
   /**
-   * Generate a session token
+   * City codes to numeric indices for compact encoding
+   * Using deterministic ordering for consistent encode/decode
    */
-  private generateSessionToken(): string {
-    const token: SessionToken = {
-      lsn: this.currentLsn,
-      timestamp: Date.now(),
-      primaryCity: this.primaryCity ?? 'iad',
-      version: 1,
-    }
+  private static readonly CITY_INDEX: Record<City, number> = {
+    // US Cities (0-11)
+    iad: 0, ord: 1, sfo: 2, sea: 3, dfw: 4, mia: 5, lax: 6, den: 7, atl: 8, bos: 9, phx: 10, pdx: 11,
+    // EU Cities (12-26)
+    lhr: 12, fra: 13, ams: 14, cdg: 15, dub: 16, mad: 17, mxp: 18, arn: 19, hel: 20, osl: 21, cph: 22, vie: 23, zrh: 24, bru: 25, waw: 26,
+    // Asia Pacific Cities (27-34)
+    nrt: 27, sin: 28, syd: 29, hkg: 30, icn: 31, bom: 32, mel: 33, auc: 34,
+    // South America Cities (35-36)
+    gru: 35, scl: 36,
+    // Africa Cities (37-38)
+    jnb: 37, cpt: 38,
+    // Middle East Cities (39-40)
+    dxb: 39, bah: 40,
+  }
 
-    // Encode as base64
-    return btoa(JSON.stringify(token))
+  private static readonly INDEX_TO_CITY: City[] = Object.entries(ReplicatedPostgres.CITY_INDEX)
+    .sort(([, a], [, b]) => a - b)
+    .map(([city]) => city as City)
+
+  /**
+   * Base62 alphabet for compact encoding (alphanumeric only, URL-safe)
+   */
+  private static readonly BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+
+  /**
+   * Encode a BigInt to base62 string
+   */
+  private static encodeBase62(value: bigint): string {
+    if (value === 0n) return '0'
+    const chars: string[] = []
+    let v = value
+    while (v > 0n) {
+      chars.unshift(ReplicatedPostgres.BASE62[Number(v % 62n)])
+      v = v / 62n
+    }
+    return chars.join('')
   }
 
   /**
-   * Decode a session token
+   * Decode a base62 string to BigInt
+   */
+  private static decodeBase62(str: string): bigint {
+    let value = 0n
+    for (const char of str) {
+      const idx = ReplicatedPostgres.BASE62.indexOf(char)
+      if (idx === -1) throw new Error('Invalid base62 character')
+      value = value * 62n + BigInt(idx)
+    }
+    return value
+  }
+
+  /**
+   * Generate a compact session token (under 100 bytes)
+   *
+   * Format: Pack LSN (32-bit), timestamp delta (42-bit), city index (6-bit), version (4-bit)
+   * into a single bigint and encode as base62.
+   *
+   * Structure (84 bits total, fits in ~15 base62 chars):
+   * - LSN: 32 bits (supports up to 4B operations)
+   * - Timestamp delta from epoch: 42 bits (ms since 2024-01-01, lasts 139+ years)
+   * - City index: 6 bits (supports 64 cities)
+   * - Version: 4 bits (supports 16 versions)
+   */
+  private generateSessionToken(): string {
+    const lsn = BigInt(this.currentLsn)
+    // Use milliseconds since 2024-01-01 to preserve precision
+    const EPOCH_2024 = 1704067200000n // 2024-01-01T00:00:00Z
+    const timestampDelta = BigInt(Date.now()) - EPOCH_2024
+    const cityIndex = BigInt(ReplicatedPostgres.CITY_INDEX[this.primaryCity ?? 'iad'] ?? 0)
+    const version = BigInt(1)
+
+    // Pack into single bigint: version(4) | city(6) | timestamp(42) | lsn(32)
+    const packed = (version << 80n) | (cityIndex << 74n) | (timestampDelta << 32n) | lsn
+
+    return ReplicatedPostgres.encodeBase62(packed)
+  }
+
+  /**
+   * Decode a compact session token
    */
   async decodeSessionToken(encodedToken: string): Promise<DecodedSessionToken> {
     try {
-      const decoded = JSON.parse(atob(encodedToken)) as SessionToken
+      const packed = ReplicatedPostgres.decodeBase62(encodedToken)
 
-      if (typeof decoded.lsn !== 'number' || typeof decoded.timestamp !== 'number') {
+      // Unpack: version(4) | city(6) | timestamp(42) | lsn(32)
+      const lsn = Number(packed & 0xFFFFFFFFn)
+      const timestampDelta = Number((packed >> 32n) & 0x3FFFFFFFFFFn) // 42 bits
+      const cityIndex = Number((packed >> 74n) & 0x3Fn)
+      const version = Number((packed >> 80n) & 0xFn)
+
+      // Convert timestamp delta back to absolute timestamp (ms)
+      const EPOCH_2024 = 1704067200000
+      const timestamp = EPOCH_2024 + timestampDelta
+
+      // Look up city from index
+      const primaryCity = ReplicatedPostgres.INDEX_TO_CITY[cityIndex] ?? 'iad'
+
+      // Validate basic structure
+      if (typeof lsn !== 'number' || isNaN(lsn) || typeof timestamp !== 'number' || isNaN(timestamp)) {
         throw new Error('Invalid token format')
       }
 
       // Check expiration
       const ttl = this.config.replication?.sessionTokenTTLMs ?? 3600000 // 1 hour default
-      const expired = Date.now() - decoded.timestamp > ttl
+      const expired = Date.now() - timestamp > ttl
 
       return {
-        ...decoded,
+        lsn,
+        timestamp,
+        primaryCity,
+        version,
         expired,
         raw: encodedToken,
       }
@@ -704,11 +845,31 @@ export class ReplicatedPostgres {
    */
   private tryDecodeSessionToken(encodedToken: string): SessionToken | null {
     try {
-      const decoded = JSON.parse(atob(encodedToken)) as SessionToken
-      if (typeof decoded.lsn !== 'number' || typeof decoded.timestamp !== 'number') {
+      const packed = ReplicatedPostgres.decodeBase62(encodedToken)
+
+      // Unpack: version(4) | city(6) | timestamp(42) | lsn(32)
+      const lsn = Number(packed & 0xFFFFFFFFn)
+      const timestampDelta = Number((packed >> 32n) & 0x3FFFFFFFFFFn) // 42 bits
+      const cityIndex = Number((packed >> 74n) & 0x3Fn)
+      const version = Number((packed >> 80n) & 0xFn)
+
+      // Convert timestamp delta back to absolute timestamp (ms)
+      const EPOCH_2024 = 1704067200000
+      const timestamp = EPOCH_2024 + timestampDelta
+
+      // Look up city from index
+      const primaryCity = ReplicatedPostgres.INDEX_TO_CITY[cityIndex] ?? 'iad'
+
+      if (typeof lsn !== 'number' || isNaN(lsn)) {
         return null
       }
-      return decoded
+
+      return {
+        lsn,
+        timestamp,
+        primaryCity,
+        version,
+      }
     } catch {
       return null
     }
