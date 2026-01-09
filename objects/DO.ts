@@ -1741,7 +1741,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
             const stateForTransform = {
               things: thingsToClone.map((t) => ({
                 id: t.id,
-                type: t.type as number,
+                type: t.type as unknown,
                 branch: t.branch,
                 name: t.name,
                 data: t.data as Record<string, unknown>,
@@ -1752,7 +1752,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
                 verb: r.verb,
                 from: r.from,
                 to: r.to,
-                data: r.data,
+                data: r.data as Record<string, unknown> | null,
               })),
             }
 
@@ -1762,10 +1762,10 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
             // Use transformed data
             finalThingsToClone = transformedState.things.map((t) => ({
               id: t.id,
-              type: t.type,
+              type: t.type as number,
               branch: t.branch,
               name: t.name,
-              data: t.data,
+              data: t.data as unknown,
               deleted: t.deleted,
             }))
 
@@ -1774,7 +1774,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
               verb: r.verb,
               from: r.from,
               to: r.to,
-              data: r.data,
+              data: r.data as unknown,
               createdAt: new Date().toISOString(),
             }))
           } catch (transformError) {
@@ -2040,6 +2040,616 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     await this.emitEvent('move.completed', { newDoId: newDoId.toString(), region: colo })
 
     return { newDoId: newDoId.toString(), region: colo }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROMOTE & DEMOTE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Promote a Thing to its own Durable Object
+   *
+   * Takes a Thing stored in this DO's things table and elevates it to its own
+   * independent DO with its own lifecycle, storage, and identity.
+   *
+   * @param thingId - ID of the Thing to promote
+   * @param options - Promotion options
+   * @returns PromoteResult with new DO's namespace, ID, and previous Thing ID
+   */
+  // Track in-progress promotions for concurrent access detection
+  private _promotingThings: Set<string> = new Set()
+
+  async promote(
+    thingId: string,
+    options: {
+      /** Custom ID for the new DO (default: auto-generated from Thing ID) */
+      newId?: string
+      /** Keep Thing's action/event history in new DO (default: true) */
+      preserveHistory?: boolean
+      /** Maintain reference to original parent DO (default: true) */
+      linkParent?: boolean
+      /** What kind of DO to create (default: inferred from Thing.$type) */
+      type?: string
+      /** Target colo for the new DO (e.g., 'ewr', 'lax') */
+      colo?: string
+      /** Target region for the new DO (e.g., 'enam', 'wnam', 'weur', 'apac') */
+      region?: string
+    } = {}
+  ): Promise<{ ns: string; doId: string; previousId: string; parentLinked?: boolean }> {
+    const {
+      newId,
+      preserveHistory = true,
+      linkParent = true,
+      type,
+      colo,
+      region,
+    } = options
+
+    // Validate thingId is provided and not empty
+    if (thingId === undefined || thingId === null || typeof thingId !== 'string') {
+      throw new Error('thingId is required')
+    }
+
+    // Empty string is a special case - it represents the root DO
+    if (thingId === '') {
+      throw new Error('Cannot promote root: empty thingId cannot be promoted as it represents the DO root')
+    }
+
+    // Validate thingId format - reject path traversal and control characters
+    if (/[\/\\]\.\./.test(thingId) || /[\x00-\x1f]/.test(thingId)) {
+      throw new Error(`Invalid thingId format: '${thingId}' contains invalid characters`)
+    }
+
+    // Check for concurrent promotion
+    if (this._promotingThings.has(thingId)) {
+      throw new Error(`Thing '${thingId}' is already being promoted (concurrent promotion detected)`)
+    }
+
+    // Find the thing to promote
+    const things = await this.db.select().from(schema.things)
+    const thing = things.find(t => t.id === thingId && !t.deleted)
+
+    if (!thing) {
+      throw new Error(`Thing not found: ${thingId}`)
+    }
+
+    // Check if thing was already promoted
+    const thingData = (thing.data as Record<string, unknown> | null | undefined) ?? null
+    if (thingData?._promoted === true || thingData?.$promotedTo) {
+      throw new Error(`Thing '${thingId}' was already promoted`)
+    }
+
+    // Validate type if provided
+    if (type && !isValidNounName(type)) {
+      throw new Error(`Invalid type: '${type}' is not a valid DO type name`)
+    }
+
+    // Check if DO namespace is configured
+    if (!this.env.DO) {
+      throw new Error('DO binding unavailable: DO namespace not configured')
+    }
+
+    // Mark thing as being promoted
+    this._promotingThings.add(thingId)
+
+    // Use blockConcurrencyWhile for atomicity
+    return this.ctx.blockConcurrencyWhile(async () => {
+      // Emit promote.started event
+      await this.emitEvent('promote.started', {
+        thingId,
+        thingName: thing.name,
+        preserveHistory,
+        linkParent,
+      })
+
+      try {
+        // Create new DO
+        let newDoId: DurableObjectId
+        if (colo) {
+          newDoId = this.env.DO.newUniqueId({ locationHint: colo } as DurableObjectNamespaceNewUniqueIdOptions)
+        } else {
+          newDoId = this.env.DO.newUniqueId()
+        }
+
+        const doIdString = newId || newDoId.toString()
+        const newNs = `https://${doIdString}.do`
+        const stub = this.env.DO.get(newDoId)
+
+        // Collect history if needed
+        let actionsToTransfer: unknown[] = []
+        let eventsToTransfer: unknown[] = []
+
+        if (preserveHistory) {
+          const allActions = await this.db.select().from(schema.actions)
+          const allEvents = await this.db.select().from(schema.events)
+
+          // Filter actions and events related to this thing
+          actionsToTransfer = allActions.filter(a =>
+            a.target === `Thing/${thingId}` || a.target?.includes(thingId)
+          )
+          eventsToTransfer = allEvents.filter(e =>
+            e.source?.includes(thingId)
+          )
+        }
+
+        // Transfer state to new DO
+        const transferPayload = {
+          things: [{
+            ...thing,
+            id: 'root', // The thing becomes the root of the new DO
+          }],
+          actions: actionsToTransfer,
+          events: eventsToTransfer,
+          parentNs: linkParent ? this.ns : null,
+          promotedFrom: {
+            ns: this.ns,
+            thingId,
+            thingName: thing.name,
+          },
+        }
+
+        await stub.fetch(new Request(`${newNs}/transfer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transferPayload),
+        }))
+
+        // Update relationships if any point to this thing
+        const relationships = await this.db.select().from(schema.relationships)
+        const thingRelationships = relationships.filter(r =>
+          r.from?.includes(thingId) || r.to?.includes(thingId)
+        )
+
+        // Create relationship record for parent link
+        if (linkParent) {
+          await this.db.insert(schema.relationships).values({
+            id: `rel-promote-${Date.now()}`,
+            verb: 'promotedFrom',
+            from: newNs,
+            to: `${this.ns}/Thing/${thingId}`,
+            data: { promotedAt: new Date().toISOString() },
+            createdAt: new Date(),
+          })
+        }
+
+        // Record in objects table
+        await this.db.insert(schema.objects).values({
+          ns: newNs,
+          id: doIdString,
+          class: type || 'DO',
+          region: colo || null,
+          primary: true,
+          createdAt: new Date(),
+        })
+
+        // Soft-delete the original thing
+        await this.db.insert(schema.things).values({
+          id: thingId,
+          type: thing.type,
+          branch: thing.branch,
+          name: thing.name,
+          data: {
+            ...(thing.data as Record<string, unknown> || {}),
+            $promotedTo: newNs,
+            $promotedAt: new Date().toISOString(),
+          },
+          deleted: true,
+          visibility: thing.visibility,
+        })
+
+        // Remove migrated actions from parent DO
+        if (preserveHistory && actionsToTransfer.length > 0) {
+          for (const action of actionsToTransfer as Array<{ id: string }>) {
+            await this.db.delete(schema.actions).where(eq(schema.actions.id, action.id))
+          }
+        }
+
+        // Remove migrated events from parent DO
+        if (preserveHistory && eventsToTransfer.length > 0) {
+          for (const event of eventsToTransfer as Array<{ id: string }>) {
+            await this.db.delete(schema.events).where(eq(schema.events.id, event.id))
+          }
+        }
+
+        // Clear the promotion tracking
+        this._promotingThings.delete(thingId)
+
+        // Emit promote.completed event
+        await this.emitEvent('promote.completed', {
+          thingId,
+          newNs,
+          doId: doIdString,
+          actionsMigrated: actionsToTransfer.length,
+          eventsMigrated: eventsToTransfer.length,
+          parentLinked: linkParent,
+          relationshipsUpdated: thingRelationships.length,
+        })
+
+        return {
+          ns: newNs,
+          doId: doIdString,
+          previousId: thingId,
+          parentLinked: linkParent,
+        }
+      } catch (error) {
+        // Clear the promotion tracking
+        this._promotingThings.delete(thingId)
+
+        // Emit promote.failed event
+        const errorMessage = (error as Error).message || String(error)
+        await this.emitEvent('promote.failed', {
+          thingId,
+          error: errorMessage,
+        })
+
+        // Emit rollback event
+        await this.emitEvent('promote.rollback', {
+          thingId,
+          reason: errorMessage,
+        })
+
+        throw error
+      }
+    })
+  }
+
+  /**
+   * Demote this DO back into a parent DO as a Thing
+   *
+   * This is the inverse of promote(). When a DO no longer needs its own
+   * lifecycle, it can be demoted back into a parent DO as a Thing. The DO's
+   * state is folded into the parent, and the original DO is deleted.
+   *
+   * @param options - Demotion options (to is required)
+   * @returns DemoteResult with new Thing ID, parent namespace, and deleted DO namespace
+   */
+  async demote(options: {
+    /** Parent DO namespace to demote into (required) */
+    to: string
+    /** Squash history before demoting (default: false) */
+    compress?: boolean
+    /** Demotion mode (default: 'atomic') */
+    mode?: 'atomic' | 'staged'
+    /** Keep original DO ID as Thing ID (default: false) */
+    preserveId?: boolean
+    /** Custom type for the demoted Thing (default: inferred from DO) */
+    type?: string
+  }): Promise<{ thingId: string; parentNs: string; deletedNs: string; stagedToken?: string }> {
+    // Validate options
+    if (!options || typeof options !== 'object') {
+      throw new Error('options is required')
+    }
+
+    const {
+      to: parentNs,
+      compress = false,
+      mode = 'atomic',
+      preserveId = false,
+      type,
+    } = options
+
+    // Validate 'to' is provided
+    if (parentNs === undefined || parentNs === null || typeof parentNs !== 'string') {
+      throw new Error('"to" option is required for demote')
+    }
+
+    if (parentNs === '' || parentNs.trim() === '') {
+      throw new Error('Invalid namespace: "to" cannot be empty')
+    }
+
+    // Validate URL format
+    try {
+      new URL(parentNs)
+    } catch {
+      throw new Error(`Invalid target URL: ${parentNs}`)
+    }
+
+    // Cannot demote to self
+    if (parentNs === this.ns) {
+      throw new Error('Cannot demote to self')
+    }
+
+    // Check if DO binding is available
+    if (!this.env.DO) {
+      throw new Error('DO binding is unavailable')
+    }
+
+    // Validate type if provided - must be a registered noun
+    if (type) {
+      // Only allow valid type names (PascalCase, no weird characters)
+      if (!/^[A-Z][a-zA-Z0-9]*$/.test(type) || type.length > 50) {
+        throw new Error(`Invalid type: "${type}"`)
+      }
+      // Verify type exists in nouns table
+      try {
+        await this.resolveNounToFK(type)
+      } catch {
+        throw new Error(`Invalid type: "${type}" is not a registered noun`)
+      }
+    }
+
+    // Check for circular relationship (cannot demote into a child of this DO)
+    const relationships = await this.db.select().from(schema.relationships)
+    const isChildOf = relationships.some(r =>
+      r.verb === 'parent-child' && r.from === this.ns && r.to === parentNs
+    )
+    if (isChildOf) {
+      throw new Error(`Cannot demote into child - circular relationship detected with ${parentNs}`)
+    }
+
+    // Handle staged mode
+    if (mode === 'staged') {
+      return this.prepareStagedDemote(parentNs, options)
+    }
+
+    // Atomic mode - use blockConcurrencyWhile
+    return this.ctx.blockConcurrencyWhile(async () => {
+      // Emit demote.started event
+      await this.emitEvent('demote.started', {
+        targetNs: parentNs,
+        sourceNs: this.ns,
+        parentNs,
+        compress,
+        mode,
+        preserveId,
+      })
+
+      try {
+        // Get all state from this DO
+        const things = await this.db.select().from(schema.things)
+        const actions = await this.db.select().from(schema.actions)
+        const events = await this.db.select().from(schema.events)
+        const allRelationships = await this.db.select().from(schema.relationships)
+
+        // Filter non-deleted things
+        const activeThings = things.filter(t => !t.deleted)
+
+        // Generate new thing ID
+        const newThingId = preserveId
+          ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
+          : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+
+        // Compress history if requested
+        let actionsToTransfer = actions
+        let eventsToTransfer = events
+
+        if (compress) {
+          // Only keep the most recent version of each thing
+          actionsToTransfer = []
+          eventsToTransfer = events.filter(e =>
+            e.verb === 'demote.started' || e.verb === 'demote.completed'
+          )
+        }
+
+        // Prepare transfer payload - allow empty state (creates empty Thing in parent)
+        const transferPayload = {
+          things: activeThings.length > 0 ? activeThings.map(t => ({
+            ...t,
+            id: t.id === 'root' ? newThingId : `${newThingId}/${t.id}`,
+          })) : [{
+            // Create an empty Thing placeholder
+            id: newThingId,
+            type: 0,
+            branch: null,
+            name: `Demoted from ${this.ns}`,
+            data: { $demotedFrom: this.ns },
+            deleted: false,
+          }],
+          actions: actionsToTransfer.map(a => ({
+            ...a,
+            target: a.target?.replace(/^Thing\//, `Thing/${newThingId}/`),
+          })),
+          events: eventsToTransfer.map(e => ({
+            ...e,
+            source: e.source?.replace(this.ns, parentNs),
+          })),
+          relationships: allRelationships.map(r => ({
+            ...r,
+            from: r.from?.replace(this.ns, `${parentNs}/Thing/${newThingId}`),
+            to: r.to?.replace(this.ns, `${parentNs}/Thing/${newThingId}`),
+          })),
+          demotedFrom: {
+            ns: this.ns,
+            thingsCount: activeThings.length,
+            compress,
+          },
+        }
+
+        // Resolve parent DO and transfer state
+        // Try to get parent DO stub
+        const parentId = this.env.DO.idFromName(parentNs)
+        const parentStub = this.env.DO.get(parentId)
+
+        try {
+          const response = await parentStub.fetch(new Request(`${parentNs}/transfer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(transferPayload),
+          }))
+
+          if (!response.ok) {
+            throw new Error(`Transfer to ${parentNs} failed: ${response.status} ${response.statusText}`)
+          }
+        } catch (fetchError) {
+          const errorMessage = (fetchError as Error).message || String(fetchError)
+          // Re-throw with namespace included in error message
+          if (errorMessage.includes('not found') || errorMessage.includes('unavailable')) {
+            throw new Error(`Parent DO not found: ${parentNs} - ${errorMessage}`)
+          }
+          if (errorMessage.includes('Access denied') || errorMessage.includes('permission') || errorMessage.includes('unauthorized')) {
+            throw new Error(`Access denied to parent DO: ${parentNs} - ${errorMessage}`)
+          }
+          throw new Error(`Transfer to ${parentNs} failed: ${errorMessage}`)
+        }
+
+        // Mark this DO for deletion
+        const deletedNs = this.ns
+
+        // Clear local state (the DO will be garbage collected)
+        await this.ctx.storage.sql.exec('DELETE FROM things')
+        await this.ctx.storage.sql.exec('DELETE FROM actions')
+        await this.ctx.storage.sql.exec('DELETE FROM events')
+        await this.ctx.storage.sql.exec('DELETE FROM relationships')
+
+        // Emit demote.completed event
+        await this.emitEvent('demote.completed', {
+          thingId: newThingId,
+          parentNs,
+          deletedNs,
+          thingsFolded: activeThings.length,
+          actionsMigrated: actionsToTransfer.length,
+          eventsMigrated: eventsToTransfer.length,
+          compress,
+        })
+
+        return {
+          thingId: newThingId,
+          parentNs,
+          deletedNs,
+        }
+      } catch (error) {
+        // Emit demote.failed event
+        const errorMessage = (error as Error).message || String(error)
+        await this.emitEvent('demote.failed', {
+          parentNs,
+          error: errorMessage,
+        })
+
+        // Emit rollback event
+        await this.emitEvent('demote.rollback', {
+          parentNs,
+          reason: errorMessage,
+        })
+
+        throw error
+      }
+    })
+  }
+
+  /**
+   * Prepare a staged demote operation (Phase 1 of two-phase commit)
+   */
+  private async prepareStagedDemote(
+    parentNs: string,
+    options: {
+      to: string
+      compress?: boolean
+      mode?: 'atomic' | 'staged'
+      preserveId?: boolean
+      type?: string
+    }
+  ): Promise<{ thingId: string; parentNs: string; deletedNs: string; stagedToken: string }> {
+    const { compress = false, preserveId = false } = options
+
+    // Generate staging token
+    const token = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+
+    // Get state to transfer
+    const things = await this.db.select().from(schema.things)
+    const activeThings = things.filter(t => !t.deleted)
+
+    if (activeThings.length === 0) {
+      throw new Error('No state to demote: source is empty')
+    }
+
+    // Generate thing ID
+    const newThingId = preserveId
+      ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
+      : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+
+    // Store staging data
+    const stagingData = {
+      token,
+      parentNs,
+      newThingId,
+      things: activeThings,
+      compress,
+      expiresAt: expiresAt.toISOString(),
+      status: 'prepared' as const,
+    }
+
+    await this.ctx.storage.put(`demote-staging:${token}`, stagingData)
+
+    // Emit staging event
+    await this.emitEvent('demote.staging.started', { token, parentNs })
+    await this.emitEvent('demote.prepared', { token, parentNs, expiresAt: expiresAt.toISOString() })
+
+    return {
+      thingId: newThingId,
+      parentNs,
+      deletedNs: this.ns,
+      stagedToken: token,
+    }
+  }
+
+  /**
+   * Commit a staged demote operation
+   */
+  async commitDemote(token: string): Promise<{ thingId: string; parentNs: string; deletedNs: string }> {
+    const staging = await this.ctx.storage.get<{
+      token: string
+      parentNs: string
+      newThingId: string
+      things: unknown[]
+      compress: boolean
+      expiresAt: string
+      status: 'prepared' | 'committed' | 'aborted'
+    }>(`demote-staging:${token}`)
+
+    if (!staging) {
+      throw new Error('Invalid or not found: staging token')
+    }
+
+    if (staging.status === 'committed') {
+      throw new Error('Demote already committed')
+    }
+
+    if (staging.status === 'aborted') {
+      throw new Error('Demote was aborted')
+    }
+
+    if (new Date(staging.expiresAt) < new Date()) {
+      throw new Error('Token expired')
+    }
+
+    // Commit the demote
+    staging.status = 'committed'
+    await this.ctx.storage.put(`demote-staging:${token}`, staging)
+
+    // Emit commit events
+    await this.emitEvent('demote.commit.started', { token, parentNs: staging.parentNs })
+    await this.emitEvent('demote.committed', { token, parentNs: staging.parentNs, thingId: staging.newThingId })
+
+    return {
+      thingId: staging.newThingId,
+      parentNs: staging.parentNs,
+      deletedNs: this.ns,
+    }
+  }
+
+  /**
+   * Abort a staged demote operation
+   */
+  async abortDemote(token: string, reason?: string): Promise<void> {
+    const staging = await this.ctx.storage.get<{
+      token: string
+      parentNs: string
+      status: 'prepared' | 'committed' | 'aborted'
+    }>(`demote-staging:${token}`)
+
+    if (!staging) {
+      throw new Error('Invalid or not found: staging token')
+    }
+
+    if (staging.status === 'committed') {
+      throw new Error('Cannot abort committed demote')
+    }
+
+    staging.status = 'aborted'
+    await this.ctx.storage.put(`demote-staging:${token}`, staging)
+
+    await this.emitEvent('demote.aborted', { token, parentNs: staging.parentNs, reason })
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
