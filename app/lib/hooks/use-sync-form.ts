@@ -252,10 +252,11 @@ export function useSyncForm<TSchema extends ZodObject<ZodRawShape>>(
     },
   })
 
-  // Wrap the form to enhance validateField to work with form-level validators
+  // Wrap the form to enhance validateField and getFieldMeta to work with form-level validators
   // when no field instance is registered (common in tests and headless usage)
   const form = useMemo(() => {
     const originalValidateField = baseForm.validateField.bind(baseForm)
+    const originalGetFieldMeta = baseForm.getFieldMeta.bind(baseForm)
 
     const enhancedForm = {
       ...baseForm,
@@ -268,10 +269,27 @@ export function useSyncForm<TSchema extends ZodObject<ZodRawShape>>(
         if (!baseForm.fieldInfo[field]?.instance) {
           // Run form validation to populate fieldMeta
           await baseForm.validate(cause)
-          return baseForm.state.fieldMeta[field]?.errors ?? []
+          const meta = originalGetFieldMeta(field)
+          // Flatten errors since there's no field instance to do it
+          const flattenedErrors = meta?.errors?.flat(1) ?? []
+          return flattenedErrors
         }
 
         return result
+      },
+      getFieldMeta: (field: string) => {
+        const meta = originalGetFieldMeta(field)
+        if (!meta) return meta
+
+        // If no field instance, flatten errors manually
+        // (TanStack Form only flattens when field instance exists)
+        if (!baseForm.fieldInfo[field]?.instance && Array.isArray(meta.errors)) {
+          return {
+            ...meta,
+            errors: meta.errors.flat(1),
+          }
+        }
+        return meta
       },
     }
 
