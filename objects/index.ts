@@ -63,6 +63,19 @@ export { Product, type ProductVariant, type ProductConfig } from './Product'
 export { Function, type FunctionConfig, type FunctionInvocation } from './Function'
 export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './Workflow'
 
+// Factory functions
+export {
+  Workflow as WorkflowFactory,
+  type WorkflowDefinition,
+  type WorkflowStepHandler,
+  type WorkflowTriggerConfig,
+  type WorkflowEventHandler,
+  type WorkflowEntrypoint,
+  type WorkflowEntrypointClass,
+  type WorkflowBuilder,
+  WorkflowValidationError,
+} from './WorkflowFactory'
+
 // Business services
 export {
   Service,

@@ -1907,9 +1907,9 @@ describe('HumanFunction Execution', () => {
         })
 
         expect(mockChannels.slack.send).toHaveBeenCalled()
-        expect(mockChannels.slack.send).toHaveReturnedWith(
-          expect.objectContaining({ delivered: true })
-        )
+        // Note: toHaveReturnedWith doesn't work with async mocks, check the mock was called instead
+        const sendResult = await mockChannels.slack.send.mock.results[0].value
+        expect(sendResult).toMatchObject({ delivered: true })
       })
 
       it('stores message ID for tracking', async () => {
@@ -2718,7 +2718,14 @@ describe('HumanFunction Execution', () => {
   describe('Context and Callbacks', () => {
     describe('onSend callback', () => {
       it('calls onSend before sending notification', async () => {
-        const onSend = vi.fn()
+        const callOrder: string[] = []
+        const onSend = vi.fn(() => {
+          callOrder.push('onSend')
+        })
+        mockChannels.slack.send.mockImplementation(async (payload) => {
+          callOrder.push('send')
+          return { messageId: 'slack-msg-123', delivered: true }
+        })
 
         await executor.execute({
           prompt: 'Test',
@@ -2733,7 +2740,8 @@ describe('HumanFunction Execution', () => {
             message: expect.stringContaining('Test'),
           })
         )
-        expect(onSend).toHaveBeenCalledBefore(mockChannels.slack.send as jest.Mock)
+        // Note: toHaveBeenCalledBefore is not available in vitest, use call order tracking
+        expect(callOrder).toEqual(['onSend', 'send'])
       })
 
       it('can modify notification in onSend', async () => {
