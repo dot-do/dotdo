@@ -131,3 +131,16 @@ export {
   type ExecutionMode,
   type RuntimeOptions,
 } from './runtime'
+
+// Rate limit context API ($.rateLimit, $.rateLimits)
+export {
+  createMockContext as createRateLimitContext,
+  parseWindow as parseRateLimitWindow,
+  type RateLimitResult,
+  type RateLimitConfig,
+  type RateLimitOptions,
+  type RateLimitContextInstance,
+  type RateLimitsCollection,
+  type RateLimitStorage,
+  type RateLimitContext,
+} from './context/rate-limit'

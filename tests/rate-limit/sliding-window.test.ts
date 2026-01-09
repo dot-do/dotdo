@@ -597,7 +597,6 @@ describe('SlidingWindowLimiter', () => {
       // Advance 30 minutes
       advanceTime(30 * 60 * 1000)
 
-      // @ts-expect-error - cleanup with options not yet implemented
       // Cleanup with 30 minute threshold (should not clean)
       await limiter.cleanup({ maxAge: '30m' })
 
@@ -609,12 +608,12 @@ describe('SlidingWindowLimiter', () => {
       advanceTime(31 * 60 * 1000)
 
       // Cleanup with 1 hour threshold (should clean)
-      // @ts-expect-error - cleanup with options not yet implemented
       await limiter.cleanup({ maxAge: '1h' })
 
-      // Entries should be cleaned
+      // Original entries from t=0 should be cleaned, but the entry created at t=30min
+      // during the first check is still within the 1h window at t=61min
       const result2 = await limiter.check(key, opts)
-      expect(result2.remaining).toBe(9)
+      expect(result2.remaining).toBe(8) // 10 - 1 (entry at t=30min) - 1 (this check) = 8
     })
 
     it('cleanup returns count of removed entries', async () => {
@@ -629,7 +628,6 @@ describe('SlidingWindowLimiter', () => {
       advanceTime(parseWindow('1m') + 1)
 
       // Run cleanup and check return value
-      // @ts-expect-error - cleanup return value not yet implemented
       const removed = await limiter.cleanup()
       expect(removed).toBe(50)
     })

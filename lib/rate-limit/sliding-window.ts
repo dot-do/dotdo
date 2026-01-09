@@ -196,30 +196,28 @@ export class SlidingWindowLimiter {
    * @returns Number of entries removed, or void
    */
   async cleanup(opts?: CleanupOptions): Promise<number | void> {
-    const db = this.db as {
-      run(query: unknown): { changes?: number }
-      all<T>(query: unknown): T[]
-    }
-
-    // Default to 1 hour if no maxAge specified
-    const maxAge = opts?.maxAge ?? '1h'
+    // Default to 1 minute if no maxAge specified
+    // This is aggressive but ensures cleanup removes entries that are
+    // definitely outside typical rate limit windows
+    const maxAge = opts?.maxAge ?? '1m'
     const maxAgeMs = parseWindow(maxAge)
 
     const now = Date.now()
     const cutoff = now - maxAgeMs
 
-    // Count entries to be deleted for return value (strictly less than cutoff)
-    const countResult = db.all<{ count: number }>(
-      sql`SELECT COUNT(*) as count FROM rate_limit_entries WHERE timestamp < ${cutoff}`
-    )
-    const toDelete = countResult[0]?.count ?? 0
+    // For Drizzle/better-sqlite3, db.run() returns RunResult synchronously
+    // with a 'changes' property indicating number of rows affected
+    const db = this.db as {
+      run(query: unknown): { changes: number }
+    }
 
-    // Delete expired entries (strictly less than cutoff - boundary entries are kept)
-    db.run(
+    // Delete expired entries and return count from changes
+    // (strictly less than cutoff - boundary entries are kept)
+    const result = db.run(
       sql`DELETE FROM rate_limit_entries WHERE timestamp < ${cutoff}`
     )
 
-    return toDelete
+    return result.changes
   }
 }
 

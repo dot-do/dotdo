@@ -13,6 +13,7 @@ export * from './git'
 export * from './auth'
 export * from './exec'
 export * from './dlq'
+export * from './flags'
 
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
@@ -66,6 +67,7 @@ import {
 } from './auth'
 import { providers, accountTypes } from './integrations'
 import { dlq } from './dlq'
+import { flags } from './flags'
 
 export const schema = {
   // Core DO tables
@@ -132,4 +134,7 @@ export const schema = {
 
   // Dead Letter Queue - Failed events for retry
   dlq,
+
+  // Feature Flags - A/B testing and feature rollouts
+  flags,
 }

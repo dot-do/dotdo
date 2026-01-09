@@ -45,6 +45,10 @@
       {
         "name": "TEST_DO",
         "class_name": "TestDurableObject"
+      },
+      {
+        "name": "BROWSER_DO",
+        "class_name": "Browser"
       }
     ]
   },
@@ -54,6 +58,10 @@
     {
       "tag": "v1",
       "new_classes": ["DurableObject", "TestDurableObject"]
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["Browser"]
     }
   ]
 }

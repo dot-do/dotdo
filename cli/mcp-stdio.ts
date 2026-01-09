@@ -300,7 +300,10 @@ export class McpStdioTransport extends EventEmitter {
       message = parseJsonRpcMessage(raw)
     } catch (error) {
       const parseError = error as Error
-      this.emit('error', new Error(`JSON parse error: ${parseError.message}`))
+      // Only emit error if there are listeners (avoid unhandled error events)
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', new Error(`JSON parse error: ${parseError.message}`))
+      }
       // Send parse error response
       this.sendErrorResponse(null, -32700, 'Parse error')
       return
@@ -312,7 +315,10 @@ export class McpStdioTransport extends EventEmitter {
 
     if (!isRequest && !isResponse && message.id !== undefined) {
       // Has id but no method and no result/error - invalid request
-      this.emit('error', new Error('Invalid request: missing method'))
+      // Only emit error if there are listeners (avoid unhandled error events)
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', new Error('Invalid request: missing method'))
+      }
       this.sendErrorResponse(message.id as string | number | null, -32600, 'Invalid Request')
       return
     }
@@ -324,7 +330,9 @@ export class McpStdioTransport extends EventEmitter {
     if (this.messageHandler) {
       const sendFn = (response: JsonRpcMessage) => this.send(response)
       Promise.resolve(this.messageHandler(message, sendFn)).catch((err) => {
-        this.emit('error', err)
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', err)
+        }
       })
     }
   }
@@ -367,9 +375,14 @@ export class McpStdioTransport extends EventEmitter {
       return new Promise<void>((resolve) => {
         try {
           const stdout = this.options.stdout as { write: Function }
-          stdout.write(serialized, () => {
+          const result = stdout.write(serialized, () => {
             resolve()
           })
+          // If write returns false (backpressure), resolve immediately anyway
+          // The callback will still fire later, but we don't wait for it
+          if (result === false) {
+            resolve()
+          }
         } catch (error) {
           this.emit('error', error)
           resolve()
@@ -474,16 +487,53 @@ export function createStdioSession(options?: { inactivityTimeout?: number }): St
     attachTransport(t: McpStdioTransport): void {
       transport = t
 
-      // Listen for initialize messages
-      transport.on('message', (msg: JsonRpcMessage) => {
-        if (msg.method === 'initialize' && msg.params) {
+      // Listen for messages and handle MCP protocol
+      transport.on('message', async (msg: JsonRpcMessage) => {
+        this.touch()
+
+        // Handle initialize request
+        if (msg.method === 'initialize' && msg.params && msg.id !== undefined) {
           this.initialize(msg.params as {
             protocolVersion: string
             clientInfo: { name: string; version: string }
             capabilities: Record<string, unknown>
           })
+          // Send initialize response
+          await this.respond(msg.id as string | number, {
+            protocolVersion: '2024-11-05',
+            serverInfo: { name: 'dotdo', version: '1.0.0' },
+            capabilities: { tools: {}, resources: {} },
+          })
+          return
         }
-        this.touch()
+
+        // Handle tools/list request
+        if (msg.method === 'tools/list' && msg.id !== undefined) {
+          await this.respond(msg.id as string | number, {
+            tools: this.getTools(),
+          })
+          return
+        }
+
+        // Handle tools/call request - echo the tool name for now
+        if (msg.method === 'tools/call' && msg.id !== undefined && msg.params) {
+          const toolName = (msg.params as { name: string }).name
+          const args = (msg.params as { arguments?: Record<string, unknown> }).arguments ?? {}
+          const tool = tools.get(toolName)
+          if (tool) {
+            // Simple echo implementation for testing
+            await this.respond(msg.id as string | number, {
+              content: [{ type: 'text', text: `Tool ${toolName} called with: ${JSON.stringify(args)}` }],
+            })
+          } else {
+            await transport.send({
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32601, message: `Tool not found: ${toolName}` },
+            })
+          }
+          return
+        }
       })
     },
 
@@ -548,25 +598,131 @@ function generateSessionId(): string {
 }
 
 // ============================================================================
-// MCP HTTP Bridge Functions (Stubs - not tested yet)
+// Helper Functions
+// ============================================================================
+
+/**
+ * Normalize a URL by removing trailing slashes and /mcp suffix
+ */
+function normalizeTargetUrl(url: string): string {
+  let normalized = url
+  // Remove trailing slash
+  if (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1)
+  }
+  // Remove /mcp suffix if present
+  if (normalized.endsWith('/mcp')) {
+    normalized = normalized.slice(0, -4)
+  }
+  return normalized
+}
+
+/**
+ * Validate URL format
+ */
+function isValidUrl(url: string): boolean {
+  try {
+    new URL(url)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ============================================================================
+// MCP HTTP Bridge Functions
 // ============================================================================
 
 /**
  * Create a new MCP HTTP bridge that proxies stdio to DO's /mcp endpoint
  */
 export function createMcpBridge(options?: McpBridgeOptions): McpBridge {
-  const targetUrl = options?.targetUrl ?? process.env.DO_URL ?? 'http://localhost:8787'
+  const rawUrl = options?.targetUrl ?? process.env.DO_URL
+
+  // Throw if no URL configured
+  if (!rawUrl) {
+    throw new Error('DO_URL not configured: provide targetUrl option or set DO_URL environment variable')
+  }
+
+  // Validate URL format
+  if (!isValidUrl(rawUrl)) {
+    throw new Error('Invalid URL format')
+  }
+
+  const targetUrl = normalizeTargetUrl(rawUrl)
   const fetchFn = options?.fetch ?? fetch
+  const maxRetries = options?.retries ?? 0
 
   return {
     targetUrl,
     async proxy(message: JsonRpcMessage): Promise<JsonRpcResponse> {
-      const res = await fetchFn(`${targetUrl}/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(message),
-      })
-      return (await res.json()) as JsonRpcResponse
+      let lastError: Error | undefined
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await fetchFn(`${targetUrl}/mcp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(message),
+          })
+
+          // Handle HTTP errors
+          if (!res.ok) {
+            const status = res.status
+            const statusText = res.statusText || ''
+            let errorMessage: string
+
+            if (status === 401) {
+              errorMessage = `401 Unauthorized`
+            } else if (status === 404) {
+              errorMessage = `404 Not Found`
+            } else if (status >= 500) {
+              errorMessage = `${status} Internal Server Error`
+            } else {
+              errorMessage = `HTTP ${status}: ${statusText}`
+            }
+
+            return {
+              jsonrpc: '2.0',
+              id: message.id ?? null,
+              error: {
+                code: -32603,
+                message: errorMessage,
+              },
+            }
+          }
+
+          try {
+            return (await res.json()) as JsonRpcResponse
+          } catch {
+            // JSON parse error
+            return {
+              jsonrpc: '2.0',
+              id: message.id ?? null,
+              error: {
+                code: -32700,
+                message: 'Parse error: Invalid JSON response from server',
+              },
+            }
+          }
+        } catch (error) {
+          lastError = error as Error
+          // If we have more retries, continue
+          if (attempt < maxRetries) {
+            continue
+          }
+        }
+      }
+
+      // Return error response for network/connection errors
+      return {
+        jsonrpc: '2.0',
+        id: message.id ?? null,
+        error: {
+          code: -32603,
+          message: `Connection failed: ${lastError?.message ?? 'Unknown error'}`,
+        },
+      }
     },
   }
 }
@@ -575,13 +731,19 @@ export function createMcpBridge(options?: McpBridgeOptions): McpBridge {
  * Start MCP stdio server that proxies to DO
  */
 export async function startMcpServer(options: McpServerOptions): Promise<McpServer> {
+  // Validate DO_URL is configured
+  const targetUrl = options.targetUrl ?? process.env.DO_URL
+  if (!targetUrl) {
+    throw new Error('DO_URL not configured: provide targetUrl option or set DO_URL environment variable')
+  }
+
   const transport = createStdioTransport({
     stdin: options.stdin,
     stdout: options.stdout,
   })
 
   const bridge = createMcpBridge({
-    targetUrl: options.targetUrl,
+    targetUrl,
     fetch: options.fetch,
   })
 
