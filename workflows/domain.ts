@@ -3,39 +3,96 @@
  *
  * Provides a factory for creating domain objects with handlers that capture
  * source code for serialization, and a global registry for handler resolution.
+ *
+ * Type Inference:
+ * The Domain factory uses TypeScript generics to preserve type information
+ * for all handlers, enabling full type safety when calling handler functions.
  */
 
-export interface Handler {
-  fn: Function
+/**
+ * Standard handler function signature.
+ * Handlers receive: context, args, and the $ workflow API.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: Handler functions can accept any context/args
+export type HandlerFunction<TContext = any, TArgs = any, TResult = any> = (
+  context: TContext,
+  args: TArgs,
+  $: unknown,
+) => TResult | Promise<TResult>
+
+/**
+ * A wrapped handler with both the function and its source code.
+ * Generic over the handler function type to preserve type information.
+ */
+export interface Handler<T extends HandlerFunction = HandlerFunction> {
+  fn: T
   source: string
 }
 
-export interface DomainObject {
+/**
+ * Maps handler names to their handler functions.
+ */
+export type HandlerMap = Record<string, HandlerFunction>
+
+/**
+ * Converts a HandlerMap to a record of wrapped Handlers.
+ * Preserves the specific function type for each handler.
+ */
+export type WrappedHandlers<T extends HandlerMap> = {
+  [K in keyof T]: Handler<T[K]>
+}
+
+/**
+ * A domain object with type-safe handlers.
+ * Generic over the handlers map to preserve full type information.
+ */
+export interface DomainObject<T extends HandlerMap = HandlerMap> {
+  name: string
+  handlers: WrappedHandlers<T>
+}
+
+/**
+ * Base interface for domain objects in the registry (non-generic for storage).
+ */
+export interface DomainObjectBase {
   name: string
   handlers: Record<string, Handler>
 }
 
 // Global registry for domains
-const domainRegistry = new Map<string, DomainObject>()
+const domainRegistry = new Map<string, DomainObjectBase>()
 
 /**
  * Creates a domain object with named handlers.
  * Each handler is wrapped to include both the function and its source code.
  *
+ * Type inference automatically preserves the types of all handlers:
+ * - Context types are inferred from the first parameter
+ * - Args types are inferred from the second parameter
+ * - Return types are inferred from the return value
+ *
  * @param name - The domain name (e.g., 'Inventory', 'Payment')
  * @param handlers - Object mapping handler names to handler functions
- * @returns A DomainObject with name and wrapped handlers
+ * @returns A DomainObject with name and type-safe wrapped handlers
  *
  * @example
  * const Inventory = Domain('Inventory', {
- *   check: async (product, _, $) => ({ available: true })
+ *   check: async (product: Product, _, $) => ({ available: true, sku: product.sku }),
+ *   reserve: async (product: Product, { quantity }: { quantity: number }, $) => ({
+ *     reservationId: crypto.randomUUID(),
+ *     quantity,
+ *   }),
  * })
+ *
+ * // Type inference works:
+ * const checkFn = Inventory.handlers.check.fn
+ * // checkFn is typed as: (product: Product, _: any, $: unknown) => Promise<{ available: boolean; sku: string }>
  */
-export function Domain(name: string, handlers: Record<string, Function>): DomainObject {
-  const wrappedHandlers: Record<string, Handler> = {}
+export function Domain<T extends HandlerMap>(name: string, handlers: T): DomainObject<T> {
+  const wrappedHandlers = {} as WrappedHandlers<T>
 
   for (const [handlerName, fn] of Object.entries(handlers)) {
-    wrappedHandlers[handlerName] = {
+    ;(wrappedHandlers as Record<string, Handler>)[handlerName] = {
       fn,
       source: fn.toString(),
     }
@@ -53,8 +110,8 @@ export function Domain(name: string, handlers: Record<string, Function>): Domain
  *
  * @param domain - The domain object to register
  */
-export function registerDomain(domain: DomainObject): void {
-  domainRegistry.set(domain.name, domain)
+export function registerDomain<T extends HandlerMap>(domain: DomainObject<T>): void {
+  domainRegistry.set(domain.name, domain as unknown as DomainObjectBase)
 }
 
 /**
