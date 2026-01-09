@@ -31,11 +31,13 @@
  */
 
 import { defineWorkspace } from 'vitest/config'
+import { resolve } from 'path'
 import {
   sharedTestConfig,
   nodeResolveConfig,
   defaultExcludes,
   CHDB_MOCK,
+  PROJECT_ROOT,
 } from './tests/config/vitest.shared'
 
 /**
@@ -265,6 +267,26 @@ export default defineWorkspace([
       // Workers tests need sequential execution for stability
       sequence: {
         concurrent: false,
+      },
+    },
+  },
+
+  // @dotdo/duckdb-worker package Workers tests
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      ...sharedTestConfig,
+      name: 'duckdb-worker-workers',
+      include: ['packages/duckdb-worker/tests/workers/**/*.test.ts'],
+      exclude: defaultExcludes,
+      // Workers tests need sequential execution for stability
+      sequence: {
+        concurrent: false,
+      },
+    },
+    resolve: {
+      alias: {
+        '@dotdo/duckdb-worker': resolve(PROJECT_ROOT, 'packages/duckdb-worker/src/index.ts'),
       },
     },
   },
