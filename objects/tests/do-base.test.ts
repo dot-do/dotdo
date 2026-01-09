@@ -903,15 +903,21 @@ describe('DO Base Class', () => {
     })
 
     it('resolve parses URL correctly', async () => {
-      // The resolve method should throw "Not implemented" for local resolution
-      await expect(doInstance.resolve('https://test.example.com/customer/123')).rejects.toThrow('Not implemented')
+      // The resolve method now parses the path using parseNounId
+      // Invalid noun (lowercase) throws PascalCase error
+      await expect(doInstance.resolve('https://test.example.com/customer/123')).rejects.toThrow('PascalCase')
+
+      // Invalid format throws proper parsing error
+      await expect(doInstance.resolve('https://test.example.com/single')).rejects.toThrow('must have at least Noun/id format')
     })
 
     it('resolve distinguishes local vs cross-DO', async () => {
-      // Same namespace = local, different = cross-DO
-      // Both should throw "Not implemented" currently
-      await expect(doInstance.resolve('https://test.example.com/local')).rejects.toThrow('Not implemented')
-      await expect(doInstance.resolve('https://other.example.com/remote')).rejects.toThrow('Not implemented')
+      // Same namespace = local - needs valid Noun/id format (parsed before DB access)
+      await expect(doInstance.resolve('https://test.example.com/local')).rejects.toThrow('must have at least Noun/id format')
+
+      // Different namespace = cross-DO - valid format but no objects table in mock
+      // The error here indicates cross-DO path is taken (objects.get fails with mock db error)
+      await expect(doInstance.resolve('https://other.example.com/Customer/remote')).rejects.toThrow()
     })
   })
 

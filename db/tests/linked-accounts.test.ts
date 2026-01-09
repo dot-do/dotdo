@@ -7,19 +7,16 @@ import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqli
  * These tests verify the schema for storing third-party account connections
  * (OAuth, API keys, etc.) linked to identities.
  *
- * This is RED phase TDD - tests should FAIL until the linkedAccounts schema
- * is implemented in db/auth.ts.
- *
  * Key design decision:
  * - The `type` field is a DYNAMIC STRING, not an enum
  * - Types come from integrations.do (e.g., 'github', 'slack', 'linear')
  * - This allows new integration types without schema changes
  *
- * Implementation requirements:
- * - Create linkedAccounts table with dynamic type field
- * - Reference identities table via identityId
- * - Store vault reference for secure credential storage (WorkOS Vault)
- * - Track status: active, expired, revoked
+ * Implementation includes:
+ * - linkedAccounts table with dynamic type field
+ * - Reference to identities table via identityId
+ * - Vault reference for secure credential storage (WorkOS Vault)
+ * - Status tracking: active, expired, revoked
  * - Unique constraint on (identityId, provider, providerAccountId)
  */
 
@@ -41,8 +38,7 @@ interface LinkedAccount {
   updatedAt: Date
 }
 
-// Import the schema - this will fail until implemented
-// @ts-expect-error - linkedAccounts table not yet implemented
+// Import the schema
 import { linkedAccounts } from '../auth'
 
 // ============================================================================

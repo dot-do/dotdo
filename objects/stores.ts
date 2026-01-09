@@ -135,19 +135,20 @@ export function buildOrderClause(
 }
 
 /**
- * Pre-built JSON path SQL fragments for common paths.
- * For dynamic paths, we validate and use sql.raw() which is safe
- * after validation ensures the path only contains [a-zA-Z0-9_.].
+ * Builds a safe JSON path string for use with SQLite json_extract().
  *
+ * Security: The path is validated against a strict regex before building.
  * The JSON path validation regex ensures:
  * - Starts with letter or underscore
  * - Contains only alphanumeric chars, underscores, and dots
  * - No consecutive dots, no leading/trailing dots
  * - No SQL metacharacters (quotes, semicolons, parentheses, etc.)
  *
- * After validation, the path is safe for interpolation in the JSON path
- * position because SQLite's json_extract only interprets the string as
- * a JSON path selector, not as SQL.
+ * The resulting path is then used as a parameterized value (not raw SQL),
+ * which is safe because:
+ * 1. SQLite's json_extract() only interprets the value as a JSON path selector
+ * 2. The validation rejects any SQL metacharacters
+ * 3. Drizzle's sql template tag properly escapes the parameterized string
  */
 export function buildSafeJsonPath(path: string): string {
   const validated = validateJsonPath(path)

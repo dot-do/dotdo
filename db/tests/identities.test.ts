@@ -7,10 +7,7 @@ import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqli
  * These tests verify the schema extension for better-auth to support
  * multiple identity types: humans, agents, and services.
  *
- * This is RED phase TDD - tests should FAIL until the identities schema
- * is implemented in db/auth.ts.
- *
- * Implementation requirements:
+ * Implementation includes:
  * - Create identities table extending better-auth users
  * - Support three identity types: 'human', 'agent', 'service'
  * - Handle field must be unique across all identities
@@ -50,8 +47,7 @@ interface Identity {
   updatedAt: Date
 }
 
-// Import the schema - this will fail until implemented
-// @ts-expect-error - identities table not yet implemented
+// Import the schema
 import { identities } from '../auth'
 
 // ============================================================================

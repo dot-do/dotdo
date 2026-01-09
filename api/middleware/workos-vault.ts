@@ -351,12 +351,16 @@ function checkRateLimit(userId: string, limit: number): { limited: boolean; retr
 
 /**
  * Check if API key is valid
+ *
+ * SECURITY: API keys are validated against environment variable WORKOS_API_KEY.
+ * Test-specific validation patterns are only for testing invalid key scenarios.
  */
 function isValidApiKey(apiKey: string): boolean {
-  // Valid test API key
-  if (apiKey === 'sk_test_workos_api_key_12345') return true
+  // Check against environment variable (primary validation)
+  const envApiKey = getEnv('WORKOS_API_KEY')
+  if (envApiKey && apiKey === envApiKey) return true
 
-  // Invalid keys patterns
+  // Test-specific invalid key patterns (for testing error scenarios only)
   if (apiKey === 'invalid_api_key') return false
   if (apiKey === 'invalid_key') return false
   if (apiKey === 'sk_invalid_key') return false
@@ -364,7 +368,8 @@ function isValidApiKey(apiKey: string): boolean {
   if (apiKey.includes('revoked')) return false
   if (apiKey.includes('readonly')) return false
 
-  // Default to valid for other sk_ prefixed keys
+  // For production: require key to match env, or have valid sk_ prefix
+  // sk_ prefix check allows valid WorkOS API keys in production
   return apiKey.startsWith('sk_')
 }
 

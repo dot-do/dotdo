@@ -16,6 +16,9 @@ export * from './exec'
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
 
+// Integrations - Provider registry for integrations.do
+export * from './integrations'
+
 // Re-export all tables as schema object for Drizzle
 import { nouns } from './nouns'
 import { verbs } from './verbs'
@@ -60,6 +63,7 @@ import {
   // Linked accounts (third-party connections)
   linkedAccounts,
 } from './auth'
+import { providers, accountTypes } from './integrations'
 
 export const schema = {
   // Core DO tables
@@ -119,4 +123,8 @@ export const schema = {
 
   // Auth - Linked accounts (third-party connections)
   linkedAccounts,
+
+  // Integrations - Provider registry for integrations.do
+  providers,
+  accountTypes,
 }

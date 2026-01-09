@@ -171,3 +171,13 @@ export {
   type ConditionFunction,
   type ModifierFunction,
 } from './Modifier'
+
+// DOAuth - Authentication capability
+export {
+  DOAuth,
+  createDOAuth,
+  type DOAuthConfig,
+  type DOAuthContext,
+  type ProviderConfig as DOAuthProviderConfig,
+  type SessionData as DOAuthSessionData,
+} from './DOAuth'

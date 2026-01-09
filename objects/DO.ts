@@ -15,6 +15,8 @@
 import { DurableObject } from 'cloudflare:workers'
 import { drizzle } from 'drizzle-orm/d1'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import { Hono } from 'hono'
+import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import type { WorkflowContext, DomainProxy } from '../types/WorkflowContext'
 import type { Thing } from '../types/Thing'
@@ -107,6 +109,29 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * Current branch (default: 'main')
    */
   protected currentBranch: string = 'main'
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HONO APP (for subclass routing)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Optional Hono app for HTTP routing.
+   * Subclasses can create and configure this for custom routes.
+   *
+   * @example
+   * ```typescript
+   * class MyDO extends DO {
+   *   protected app = new Hono()
+   *     .use('/api/auth/*', auth())
+   *     .get('/api/things', (c) => c.json({ things: [] }))
+   *
+   *   async fetch(request: Request): Promise<Response> {
+   *     return this.handleFetch(request)
+   *   }
+   * }
+   * ```
+   */
+  protected app?: Hono
 
   // ═══════════════════════════════════════════════════════════════════════════
   // STORAGE
