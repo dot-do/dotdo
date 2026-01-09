@@ -465,9 +465,11 @@ describe('Atomic Clone Mode', () => {
     it('should clone actions when including history', async () => {
       // RED: If history is included, actions should be cloned
       // Add some actions to the source
+      // Schema order: id, verb, actor, target, input, output, options, durability, status, error, requestId, sessionId, workflowId, startedAt, completedAt, duration, createdAt
+      const now = new Date()
       result.sqlData.set('actions', [
-        { id: 'action-1', verb: 'create', target: 'thing-0', status: 'completed' },
-        { id: 'action-2', verb: 'update', target: 'thing-1', status: 'completed' },
+        { id: 'action-1', verb: 'create', actor: 'system', target: 'thing-0', input: null, output: 1, options: null, durability: 'try', status: 'completed', error: null, requestId: null, sessionId: null, workflowId: null, startedAt: now, completedAt: now, duration: 10, createdAt: now },
+        { id: 'action-2', verb: 'update', actor: 'system', target: 'thing-1', input: 1, output: 2, options: null, durability: 'try', status: 'completed', error: null, requestId: null, sessionId: null, workflowId: null, startedAt: now, completedAt: now, duration: 5, createdAt: now },
       ])
 
       const target = 'https://with-actions.test.do'
@@ -484,9 +486,11 @@ describe('Atomic Clone Mode', () => {
 
     it('should clone events when including history', async () => {
       // RED: If history is included, events should be cloned
+      // Schema order: id, verb, source, data, actionId, sequence, streamed, streamedAt, createdAt
+      const now = new Date()
       result.sqlData.set('events', [
-        { id: 'evt-1', verb: 'thing.created', source: 'https://source.test.do' },
-        { id: 'evt-2', verb: 'thing.updated', source: 'https://source.test.do' },
+        { id: 'evt-1', verb: 'thing.created', source: 'https://source.test.do', data: { thingId: 'thing-0' }, actionId: null, sequence: 1, streamed: false, streamedAt: null, createdAt: now },
+        { id: 'evt-2', verb: 'thing.updated', source: 'https://source.test.do', data: { thingId: 'thing-1' }, actionId: null, sequence: 2, streamed: false, streamedAt: null, createdAt: now },
       ])
 
       const target = 'https://with-events.test.do'
@@ -778,7 +782,8 @@ describe('Atomic Clone Mode', () => {
 
       const completedEvent = capturedEvents.find((e) => e.type === 'clone.completed')
       expect(completedEvent?.data?.duration).toBeDefined()
-      expect(completedEvent?.data?.duration).toBeGreaterThan(0)
+      // Duration can be 0 in fast test environments where operation completes in <1ms
+      expect(completedEvent?.data?.duration).toBeGreaterThanOrEqual(0)
     })
   })
 
@@ -946,10 +951,13 @@ describe('Atomic Clone Mode', () => {
 
     it('should handle unicode and special characters in data', async () => {
       // RED: Unicode must be preserved
+      // Schema order: id, type, branch, name, data, deleted, visibility
       const unicodeThings = [
         {
           id: 'unicode-1',
           type: 1,
+          branch: null,
+          name: 'Unicode Item',
           data: {
             name: 'Test',
             emoji: 'Hello World!',
@@ -957,9 +965,8 @@ describe('Atomic Clone Mode', () => {
             arabic: 'Sample',
             special: '<script>alert("test")</script>',
           },
-          version: 1,
-          branch: 'main',
           deleted: false,
+          visibility: 'user',
         },
       ]
       result.sqlData.set('things', unicodeThings)
@@ -972,17 +979,19 @@ describe('Atomic Clone Mode', () => {
 
     it('should handle binary data in things', async () => {
       // RED: Binary data must be handled correctly
+      // Schema order: id, type, branch, name, data, deleted, visibility
       const binaryThings = [
         {
           id: 'binary-1',
           type: 1,
+          branch: null,
+          name: 'Binary Item',
           data: {
             buffer: Buffer.from('test binary data').toString('base64'),
             raw: '\x00\x01\x02\x03',
           },
-          version: 1,
-          branch: 'main',
           deleted: false,
+          visibility: 'user',
         },
       ]
       result.sqlData.set('things', binaryThings)

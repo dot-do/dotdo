@@ -2142,6 +2142,655 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // STAGED CLONE OPERATIONS (TWO-PHASE COMMIT)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Storage prefixes for staged clone data
+   */
+  protected static readonly STAGING_PREFIX = 'staging:'
+  protected static readonly CHECKPOINT_PREFIX = 'checkpoint:'
+  protected static readonly DEFAULT_TOKEN_TIMEOUT = 5 * 60 * 1000 // 5 minutes
+
+  /**
+   * Prepare a staged clone (Phase 1 of two-phase commit)
+   *
+   * This method validates the target, creates a staging area, and transfers
+   * state to staging. Returns a token that can be used to commit or abort.
+   */
+  private async prepareStagedClone(
+    target: string,
+    options: {
+      mode: 'staged'
+      tokenTimeout?: number
+      validateTarget?: boolean
+      onPrepareProgress?: (progress: number) => void
+      checkpointInterval?: number
+      maxCheckpoints?: number
+      validationMode?: 'strict' | 'lenient'
+    }
+  ): Promise<StagedPrepareResult> {
+    const token = crypto.randomUUID()
+    const timeout = options.tokenTimeout ?? DO.DEFAULT_TOKEN_TIMEOUT
+    const expiresAt = new Date(Date.now() + timeout)
+    const stagingNs = `${target}-staging-${token.slice(0, 8)}`
+
+    // Report initial progress
+    options.onPrepareProgress?.(0)
+
+    // Validate target namespace URL
+    try {
+      new URL(target)
+    } catch {
+      throw new Error(`Invalid namespace URL: ${target}`)
+    }
+
+    // Check if target is occupied (if validation requested)
+    if (options.validateTarget) {
+      const existingObjects = await this.db.select().from(schema.objects)
+      const occupied = existingObjects.some(obj => obj.ns === target && obj.primary)
+      if (occupied) {
+        throw new Error(`Target namespace is occupied: ${target}`)
+      }
+    }
+
+    // Check for concurrent staging to same target
+    const existingStagings = await this.ctx.storage.list({ prefix: DO.STAGING_PREFIX })
+    for (const [, value] of existingStagings) {
+      const staging = value as StagingData
+      if (staging.targetNs === target && staging.status === 'prepared') {
+        // Check if not expired
+        if (new Date(staging.expiresAt) > new Date()) {
+          throw new Error(`Target namespace is locked by pending clone operation`)
+        }
+      }
+    }
+
+    // Emit staging started event
+    await this.emitEvent('clone.staging.started', { token, target })
+
+    // Get things to clone
+    const things = await this.db.select().from(schema.things)
+    const branchThings = things.filter(t => !t.deleted && (t.branch === null || t.branch === this.currentBranch))
+
+    // Check if there's anything to clone
+    if (branchThings.length === 0) {
+      throw new Error('No state to clone: source is empty')
+    }
+
+    // Get latest version of each thing
+    const latestVersions = new Map<string, typeof things[0]>()
+    for (const thing of branchThings) {
+      const existing = latestVersions.get(thing.id)
+      if (!existing) {
+        latestVersions.set(thing.id, thing)
+      }
+    }
+
+    const thingsToClone = Array.from(latestVersions.values())
+    const totalItems = thingsToClone.length
+
+    // Create checkpoints if interval is set
+    const checkpoints: Checkpoint[] = []
+    const checkpointInterval = options.checkpointInterval ?? 0
+    const maxCheckpoints = options.maxCheckpoints ?? 100
+
+    let itemsProcessed = 0
+    const clonedThingIds: string[] = []
+    const clonedRelationshipIds: string[] = []
+
+    for (const thing of thingsToClone) {
+      clonedThingIds.push(thing.id)
+      itemsProcessed++
+
+      // Create checkpoint at intervals
+      if (checkpointInterval > 0 && itemsProcessed % checkpointInterval === 0) {
+        const checkpoint = this.createStagedCheckpoint(
+          token,
+          checkpoints.length + 1,
+          itemsProcessed,
+          totalItems,
+          clonedThingIds.slice(),
+          clonedRelationshipIds.slice(),
+          this.currentBranch,
+          itemsProcessed,
+          options.validationMode === 'strict'
+        )
+        checkpoints.push(checkpoint)
+
+        // Enforce max checkpoints (keep most recent)
+        while (checkpoints.length > maxCheckpoints) {
+          checkpoints.shift()
+        }
+      }
+
+      // Report progress
+      const progress = Math.floor((itemsProcessed / totalItems) * 100)
+      options.onPrepareProgress?.(progress)
+    }
+
+    // Final checkpoint if using checkpoints and last item wasn't already checkpointed
+    // (avoid duplicate checkpoint when totalItems % checkpointInterval === 0)
+    if (checkpointInterval > 0 && itemsProcessed > 0 && itemsProcessed % checkpointInterval !== 0) {
+      const finalCheckpoint = this.createStagedCheckpoint(
+        token,
+        checkpoints.length + 1,
+        itemsProcessed,
+        totalItems,
+        clonedThingIds.slice(),
+        clonedRelationshipIds.slice(),
+        this.currentBranch,
+        itemsProcessed,
+        options.validationMode === 'strict'
+      )
+      checkpoints.push(finalCheckpoint)
+
+      // Enforce max checkpoints
+      while (checkpoints.length > maxCheckpoints) {
+        checkpoints.shift()
+      }
+    }
+
+    // Calculate size (approximate)
+    const sizeBytes = JSON.stringify(thingsToClone).length
+
+    // Map things to staging format
+    const mappedThings = thingsToClone.map(t => ({
+      id: t.id,
+      type: t.type,
+      branch: t.branch,
+      name: t.name,
+      data: t.data,
+      deleted: t.deleted,
+    }))
+
+    // Store staging data (compute hash on the mapped data that will be stored)
+    const stagingData: StagingData = {
+      sourceNs: this.ns,
+      targetNs: target,
+      stagingNs,
+      things: mappedThings,
+      expiresAt: expiresAt.toISOString(),
+      status: 'prepared',
+      createdAt: new Date().toISOString(),
+      integrityHash: this.computeStagingIntegrityHash(mappedThings),
+      metadata: {
+        thingsCount: thingsToClone.length,
+        sizeBytes,
+        branch: this.currentBranch,
+        version: thingsToClone.length,
+      },
+    }
+
+    await this.ctx.storage.put(`${DO.STAGING_PREFIX}${token}`, stagingData)
+
+    // Store checkpoints
+    for (const checkpoint of checkpoints) {
+      await this.ctx.storage.put(`${DO.CHECKPOINT_PREFIX}${token}:${checkpoint.id}`, checkpoint)
+    }
+
+    // Report completion
+    options.onPrepareProgress?.(100)
+
+    // Emit events
+    await this.emitEvent('clone.staging.completed', { token, target, thingsCount: thingsToClone.length })
+    await this.emitEvent('clone.prepared', { token, target, expiresAt })
+
+    return {
+      phase: 'prepared',
+      token,
+      expiresAt,
+      stagingNs,
+      metadata: {
+        thingsCount: thingsToClone.length,
+        sizeBytes,
+        branch: this.currentBranch,
+        version: thingsToClone.length,
+      },
+    }
+  }
+
+  /**
+   * Create a checkpoint for staged clone
+   */
+  private createStagedCheckpoint(
+    cloneId: string,
+    sequence: number,
+    itemsProcessed: number,
+    totalItems: number,
+    clonedThingIds: string[],
+    clonedRelationshipIds: string[],
+    branch: string,
+    lastVersion: number,
+    validated: boolean
+  ): Checkpoint {
+    const state: CheckpointState = {
+      clonedThingIds,
+      clonedRelationshipIds,
+      branch,
+      lastVersion,
+    }
+
+    const checksum = this.computeCheckpointChecksum(state)
+
+    return {
+      id: `cp-${cloneId.slice(0, 8)}-${sequence}`,
+      cloneId,
+      sequence,
+      itemsProcessed,
+      totalItems,
+      createdAt: new Date(),
+      checksum,
+      state,
+      validated,
+    }
+  }
+
+  /**
+   * Compute checksum for checkpoint validation
+   */
+  private computeCheckpointChecksum(state: CheckpointState): string {
+    const content = JSON.stringify(state)
+    let hash = 0
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(36)
+  }
+
+  /**
+   * Compute integrity hash for staging data
+   */
+  private computeStagingIntegrityHash(things: unknown[]): string {
+    const content = JSON.stringify(things)
+    let hash = 0
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(36)
+  }
+
+  /**
+   * Commit a staged clone (Phase 2 of two-phase commit)
+   *
+   * This method atomically moves the staged state to the target namespace,
+   * cleans up the staging area, and emits completion events.
+   */
+  async commitClone(token: string): Promise<StagedCommitResult> {
+    // Validate token format
+    if (!token || token.trim() === '') {
+      throw new Error('Invalid token: token is empty')
+    }
+
+    // Get staging data
+    const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${token}`) as StagingData | undefined
+
+    if (!staging) {
+      await this.emitEvent('clone.commit.failed', { token, reason: 'Invalid or not found' })
+      throw new Error('Invalid or not found: staging token')
+    }
+
+    // Check status
+    if (staging.status === 'committed') {
+      await this.emitEvent('clone.commit.failed', { token, reason: 'Already committed' })
+      throw new Error('Clone already committed')
+    }
+
+    if (staging.status === 'aborted') {
+      await this.emitEvent('clone.commit.failed', { token, reason: 'Already aborted' })
+      throw new Error('Clone was aborted')
+    }
+
+    // Check expiration
+    if (new Date(staging.expiresAt) < new Date()) {
+      await this.emitEvent('clone.commit.failed', { token, reason: 'Token expired' })
+      throw new Error('Token expired')
+    }
+
+    // Verify integrity (check for corruption)
+    const currentHash = this.computeStagingIntegrityHash(staging.things)
+    if (currentHash !== staging.integrityHash) {
+      await this.emitEvent('clone.staging.corrupted', { token, target: staging.targetNs })
+      await this.emitEvent('clone.commit.failed', { token, reason: 'Integrity check failed' })
+      throw new Error('Staging data corrupted: integrity check failed')
+    }
+
+    // Validate checkpoints in strict mode (if any exist)
+    const checkpointKeys = await this.ctx.storage.list({ prefix: `${DO.CHECKPOINT_PREFIX}${token}:` })
+    for (const [, value] of checkpointKeys) {
+      const checkpoint = value as Checkpoint
+      const expectedChecksum = this.computeCheckpointChecksum(checkpoint.state)
+      if (checkpoint.checksum !== expectedChecksum) {
+        await this.emitEvent('clone.commit.failed', { token, reason: 'Checkpoint validation failed' })
+        throw new Error('Checkpoint validation failed: checksum mismatch')
+      }
+    }
+
+    // Emit commit started event
+    await this.emitEvent('clone.commit.started', { token, target: staging.targetNs })
+
+    // Create the target DO and transfer state
+    if (!this.env.DO) {
+      throw new Error('DO namespace not configured')
+    }
+
+    const doId = this.env.DO.idFromName(staging.targetNs)
+    const stub = this.env.DO.get(doId)
+
+    // Transfer state to new DO
+    await stub.fetch(new Request(`https://${staging.targetNs}/init`, {
+      method: 'POST',
+      body: JSON.stringify({
+        things: staging.things,
+      }),
+    }))
+
+    const committedAt = new Date()
+
+    // Store a tombstone entry marking the token as committed (for status queries)
+    const tombstone: StagingData = {
+      ...staging,
+      things: [], // Clear the data
+      status: 'committed',
+    }
+    await this.ctx.storage.put(`${DO.STAGING_PREFIX}${token}`, tombstone)
+
+    // Clean up checkpoints
+    for (const [key] of checkpointKeys) {
+      await this.ctx.storage.delete(key)
+    }
+
+    // Emit committed event
+    await this.emitEvent('clone.committed', {
+      token,
+      target: staging.targetNs,
+      result: {
+        ns: staging.targetNs,
+        doId: doId.toString(),
+        mode: 'staged',
+      },
+    })
+
+    return {
+      phase: 'committed',
+      result: {
+        ns: staging.targetNs,
+        doId: doId.toString(),
+        mode: 'staged',
+        staged: {
+          prepareId: token,
+          committed: true,
+        },
+      },
+      committedAt,
+    }
+  }
+
+  /**
+   * Abort a staged clone
+   *
+   * This method cleans up the staging area and releases any locks.
+   * It is idempotent - multiple calls with the same token will succeed.
+   */
+  async abortClone(token: string, reason?: string): Promise<StagedAbortResult> {
+    // Get staging data (may not exist if already aborted - idempotent)
+    const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${token}`) as StagingData | undefined
+
+    const abortedAt = new Date()
+
+    if (staging) {
+      // Store a tombstone entry marking the token as aborted (for status queries)
+      const tombstone: StagingData = {
+        ...staging,
+        things: [], // Clear the data
+        status: 'aborted',
+      }
+      await this.ctx.storage.put(`${DO.STAGING_PREFIX}${token}`, tombstone)
+
+      // Clean up any checkpoints
+      const checkpointKeys = await this.ctx.storage.list({ prefix: `${DO.CHECKPOINT_PREFIX}${token}:` })
+      for (const [key] of checkpointKeys) {
+        await this.ctx.storage.delete(key)
+      }
+
+      // Emit aborted event
+      await this.emitEvent('clone.aborted', { token, target: staging.targetNs, reason })
+    }
+
+    return {
+      phase: 'aborted',
+      token,
+      reason,
+      abortedAt,
+    }
+  }
+
+  /**
+   * Get the status of a staging area by namespace
+   * Note: Returns null for aborted/committed staging areas since they've been cleaned up
+   */
+  async getStagingStatus(stagingNs: string): Promise<StagingStatus | null> {
+    // Search for staging data matching the stagingNs
+    const allStagings = await this.ctx.storage.list({ prefix: DO.STAGING_PREFIX })
+
+    for (const [key, value] of allStagings) {
+      const staging = value as StagingData
+      if (staging.stagingNs === stagingNs) {
+        // Skip aborted/committed entries - the staging area is effectively gone
+        if (staging.status === 'aborted' || staging.status === 'committed') {
+          return null
+        }
+        const token = key.replace(DO.STAGING_PREFIX, '')
+        return {
+          exists: true,
+          status: staging.status === 'prepared' ? 'ready' : staging.status,
+          token,
+          createdAt: new Date(staging.createdAt),
+          expiresAt: new Date(staging.expiresAt),
+          integrityHash: staging.integrityHash,
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Get clone token status
+   */
+  async getCloneTokenStatus(token: string): Promise<{ valid: boolean; status: string; expiresAt?: Date }> {
+    const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${token}`) as StagingData | undefined
+
+    if (!staging) {
+      // Check if it was committed or aborted (token history)
+      return { valid: false, status: 'not_found' }
+    }
+
+    // Check expiration
+    const expiresAt = new Date(staging.expiresAt)
+    if (expiresAt < new Date()) {
+      return { valid: false, status: 'expired', expiresAt }
+    }
+
+    return {
+      valid: staging.status === 'prepared',
+      status: staging.status,
+      expiresAt,
+    }
+  }
+
+  /**
+   * Get checkpoints for a clone operation
+   */
+  async getCloneCheckpoints(token: string): Promise<Checkpoint[]> {
+    const checkpointKeys = await this.ctx.storage.list({ prefix: `${DO.CHECKPOINT_PREFIX}${token}:` })
+    const checkpoints: Checkpoint[] = []
+
+    for (const [, value] of checkpointKeys) {
+      checkpoints.push(value as Checkpoint)
+    }
+
+    // Sort by sequence
+    checkpoints.sort((a, b) => a.sequence - b.sequence)
+    return checkpoints
+  }
+
+  /**
+   * Validate a specific checkpoint
+   */
+  async validateCheckpoint(checkpointId: string): Promise<{ valid: boolean; error?: string }> {
+    // Find checkpoint across all tokens
+    const allCheckpoints = await this.ctx.storage.list({ prefix: DO.CHECKPOINT_PREFIX })
+
+    for (const [, value] of allCheckpoints) {
+      const checkpoint = value as Checkpoint
+      if (checkpoint.id === checkpointId) {
+        const expectedChecksum = this.computeCheckpointChecksum(checkpoint.state)
+        if (checkpoint.checksum === expectedChecksum) {
+          return { valid: true }
+        } else {
+          return { valid: false, error: 'Checksum mismatch' }
+        }
+      }
+    }
+
+    return { valid: false, error: 'Checkpoint not found' }
+  }
+
+  /**
+   * Resume a clone operation from a checkpoint
+   */
+  async resumeCloneFromCheckpoint(checkpointId: string): Promise<StagedPrepareResult> {
+    // Find the checkpoint
+    const allCheckpoints = await this.ctx.storage.list({ prefix: DO.CHECKPOINT_PREFIX })
+    let foundCheckpoint: Checkpoint | null = null
+    let originalToken: string | null = null
+
+    for (const [key, value] of allCheckpoints) {
+      const checkpoint = value as Checkpoint
+      if (checkpoint.id === checkpointId) {
+        foundCheckpoint = checkpoint
+        // Extract token from key: checkpoint:token:id
+        const parts = key.split(':')
+        if (parts.length >= 2) {
+          originalToken = parts[1]
+        }
+        break
+      }
+    }
+
+    if (!foundCheckpoint || !originalToken) {
+      throw new Error(`Checkpoint not found: ${checkpointId}`)
+    }
+
+    // Get original staging data
+    const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${originalToken}`) as StagingData | undefined
+    if (!staging) {
+      throw new Error(`Original staging data not found for checkpoint`)
+    }
+
+    // Create new prepare result using checkpoint state
+    const newToken = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + DO.DEFAULT_TOKEN_TIMEOUT)
+    const stagingNs = `${staging.targetNs}-staging-${newToken.slice(0, 8)}`
+
+    // Create new staging data from checkpoint
+    const newStagingData: StagingData = {
+      ...staging,
+      stagingNs,
+      expiresAt: expiresAt.toISOString(),
+      status: 'prepared',
+      createdAt: new Date().toISOString(),
+    }
+
+    await this.ctx.storage.put(`${DO.STAGING_PREFIX}${newToken}`, newStagingData)
+
+    // Copy remaining checkpoints with updated token
+    const originalCheckpoints = await this.getCloneCheckpoints(originalToken)
+    for (const cp of originalCheckpoints) {
+      const newCheckpoint = {
+        ...cp,
+        cloneId: newToken,
+      }
+      await this.ctx.storage.put(`${DO.CHECKPOINT_PREFIX}${newToken}:${cp.id}`, newCheckpoint)
+    }
+
+    return {
+      phase: 'prepared',
+      token: newToken,
+      expiresAt,
+      stagingNs,
+      metadata: staging.metadata,
+    }
+  }
+
+  /**
+   * Corrupt a checkpoint (for testing)
+   */
+  async _corruptCheckpoint(token: string, checkpointId: string): Promise<void> {
+    const checkpointKey = `${DO.CHECKPOINT_PREFIX}${token}:${checkpointId}`
+    const checkpoint = await this.ctx.storage.get(checkpointKey) as Checkpoint | undefined
+
+    if (checkpoint) {
+      checkpoint.checksum = 'corrupted-checksum'
+      await this.ctx.storage.put(checkpointKey, checkpoint)
+    }
+  }
+
+  /**
+   * Corrupt the staging area (for testing)
+   */
+  async _corruptStagingArea(token: string): Promise<void> {
+    const staging = await this.ctx.storage.get(`${DO.STAGING_PREFIX}${token}`) as StagingData | undefined
+
+    if (staging) {
+      staging.integrityHash = 'corrupted-hash'
+      await this.ctx.storage.put(`${DO.STAGING_PREFIX}${token}`, staging)
+    }
+  }
+
+  /**
+   * Garbage collect expired staging areas
+   */
+  async gcStagingAreas(): Promise<{ cleaned: number; checkpointsCleaned: number }> {
+    let cleaned = 0
+    let checkpointsCleaned = 0
+    const now = new Date()
+
+    // Find all expired staging areas
+    const allStagings = await this.ctx.storage.list({ prefix: DO.STAGING_PREFIX })
+
+    for (const [key, value] of allStagings) {
+      const staging = value as StagingData
+      const expiresAt = new Date(staging.expiresAt)
+
+      if (expiresAt < now) {
+        const token = key.replace(DO.STAGING_PREFIX, '')
+
+        // Emit expired event
+        await this.emitEvent('clone.expired', { token, target: staging.targetNs })
+
+        // Clean up staging data
+        await this.ctx.storage.delete(key)
+        cleaned++
+
+        // Clean up checkpoints
+        const checkpointKeys = await this.ctx.storage.list({ prefix: `${DO.CHECKPOINT_PREFIX}${token}:` })
+        for (const [cpKey] of checkpointKeys) {
+          await this.ctx.storage.delete(cpKey)
+          checkpointsCleaned++
+        }
+      }
+    }
+
+    return { cleaned, checkpointsCleaned }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // EVENTUAL CLONE OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2537,6 +3186,656 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     // Set next alarm if needed
     if (nextAlarmTime) {
       await this.ctx.storage.setAlarm(nextAlarmTime)
+    }
+
+    // Process resumable clones
+    await this.processResumableClones()
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RESUMABLE CLONE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Internal state for resumable clone operations
+   */
+  private _resumableClones: Map<string, ResumableCloneState> = new Map()
+
+  /**
+   * Clone locks per target namespace
+   */
+  private _cloneLocks: Map<string, CloneLockState> = new Map()
+
+  /**
+   * Initiate a resumable clone operation
+   */
+  private async initiateResumableClone(
+    target: string,
+    options: ResumableCloneOptions
+  ): Promise<ResumableCloneHandle> {
+    const batchSize = options?.batchSize || 100
+    const checkpointInterval = options?.checkpointInterval || 1
+    const maxRetries = options?.maxRetries || 3
+    const retryDelay = options?.retryDelay || 1000
+    const lockTimeout = options?.lockTimeout || 300000 // 5 minutes
+    const checkpointRetentionMs = options?.checkpointRetentionMs || 3600000 // 1 hour
+    const compress = options?.compress || false
+    const maxBandwidth = options?.maxBandwidth
+
+    // Validate target namespace URL
+    try {
+      new URL(target)
+    } catch {
+      throw new Error(`Invalid namespace URL: ${target}`)
+    }
+
+    // Check for existing lock on target
+    const existingLock = this._cloneLocks.get(target) || await this.ctx.storage.get<CloneLockState>(`clone-lock:${target}`)
+    const now = Date.now()
+
+    if (existingLock && !existingLock.isStale && new Date(existingLock.expiresAt).getTime() > now) {
+      if (!options?.forceLock) {
+        throw new Error(`Clone operation already in progress for target: ${target}`)
+      }
+      // Force override - release old lock
+      await this.releaseCloneLock(target, existingLock.cloneId)
+    }
+
+    // Check if we're resuming from a checkpoint
+    let state: ResumableCloneState
+    let cloneId: string
+
+    if (options?.resumeFrom) {
+      // Find existing state from checkpoint
+      const existingState = await this.findResumableStateFromCheckpoint(options.resumeFrom)
+      if (!existingState) {
+        throw new Error(`Checkpoint not found: ${options.resumeFrom}`)
+      }
+      state = existingState
+      cloneId = state.id
+      state.status = 'transferring'
+      state.pauseRequested = false
+    } else {
+      // Create new clone state
+      cloneId = crypto.randomUUID()
+      state = {
+        id: cloneId,
+        targetNs: target,
+        status: 'initializing',
+        checkpoints: [],
+        position: 0,
+        batchSize,
+        checkpointInterval,
+        maxRetries,
+        retryDelay,
+        retryCount: 0,
+        compress,
+        maxBandwidth,
+        checkpointRetentionMs,
+        pauseRequested: false,
+        cancelRequested: false,
+        createdAt: new Date(),
+        bytesTransferred: 0,
+        totalBytes: 0,
+        startedAt: null,
+      }
+    }
+
+    // Acquire lock
+    const lockId = crypto.randomUUID()
+    const lock: CloneLockState = {
+      lockId,
+      cloneId,
+      target,
+      acquiredAt: new Date(),
+      expiresAt: new Date(now + lockTimeout),
+      isStale: false,
+    }
+    this._cloneLocks.set(target, lock)
+    await this.ctx.storage.put(`clone-lock:${target}`, lock)
+    await this.emitEvent('clone.lock.acquired', { lockId, target, cloneId })
+
+    // Store state
+    this._resumableClones.set(cloneId, state)
+    await this.ctx.storage.put(`resumable:${cloneId}`, state)
+
+    // Run GC for orphaned checkpoints (fire and forget)
+    this.cleanupOrphanedCheckpoints(checkpointRetentionMs).catch(() => {})
+
+    // Schedule the clone to start
+    const currentAlarm = await this.ctx.storage.getAlarm()
+    if (!currentAlarm || currentAlarm > Date.now() + 100) {
+      await this.ctx.storage.setAlarm(Date.now() + 100)
+    }
+
+    // Return handle
+    return this.createResumableCloneHandle(cloneId)
+  }
+
+  /**
+   * Create a handle for managing a resumable clone operation
+   */
+  private createResumableCloneHandle(cloneId: string): ResumableCloneHandle {
+    const self = this
+
+    // Create reactive getters that always return current state
+    const handle: ResumableCloneHandle = {
+      id: cloneId,
+
+      get status(): ResumableCloneStatus {
+        const state = self._resumableClones.get(cloneId)
+        return state?.status || 'failed'
+      },
+
+      get checkpoints(): ResumableCheckpoint[] {
+        const state = self._resumableClones.get(cloneId)
+        return state?.checkpoints || []
+      },
+
+      async getProgress(): Promise<number> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) return 0
+        return state.progress || 0
+      },
+
+      async pause(): Promise<void> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) throw new Error('Clone not found')
+
+        state.pauseRequested = true
+        state.status = 'paused'
+        await self.ctx.storage.put(`resumable:${cloneId}`, state)
+        self._resumableClones.set(cloneId, state)
+
+        const lastCheckpoint = state.checkpoints[state.checkpoints.length - 1]
+        await self.emitEvent('clone.paused', {
+          id: cloneId,
+          checkpoint: lastCheckpoint,
+          progress: state.progress,
+        })
+      },
+
+      async resume(): Promise<void> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) throw new Error('Clone not found')
+
+        state.pauseRequested = false
+        state.status = 'transferring'
+        await self.ctx.storage.put(`resumable:${cloneId}`, state)
+        self._resumableClones.set(cloneId, state)
+
+        const lastCheckpoint = state.checkpoints[state.checkpoints.length - 1]
+        await self.emitEvent('clone.resumed', {
+          id: cloneId,
+          fromCheckpoint: lastCheckpoint,
+        })
+
+        // Schedule continuation
+        const currentAlarm = await self.ctx.storage.getAlarm()
+        if (!currentAlarm || currentAlarm > Date.now() + 100) {
+          await self.ctx.storage.setAlarm(Date.now() + 100)
+        }
+      },
+
+      async cancel(): Promise<void> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) throw new Error('Clone not found')
+
+        const progress = state.progress || 0
+        const checkpointsCreated = state.checkpoints.length
+
+        state.cancelRequested = true
+        state.status = 'cancelled'
+        await self.ctx.storage.put(`resumable:${cloneId}`, state)
+        self._resumableClones.set(cloneId, state)
+
+        // Release lock
+        await self.releaseCloneLock(state.targetNs, cloneId)
+
+        // Clean up checkpoints
+        await self.cleanupCloneCheckpoints(cloneId)
+
+        await self.emitEvent('clone.cancelled', {
+          id: cloneId,
+          progress,
+          checkpointsCreated,
+        })
+      },
+
+      async waitForCheckpoint(): Promise<ResumableCheckpoint> {
+        const pollInterval = 50
+        const maxWait = 60000 // 60 seconds max
+        const startTime = Date.now()
+
+        return new Promise((resolve, reject) => {
+          const poll = async () => {
+            const state = await self.getResumableState(cloneId)
+            if (!state) {
+              reject(new Error('Clone not found'))
+              return
+            }
+
+            if (state.checkpoints.length > 0) {
+              resolve(state.checkpoints[state.checkpoints.length - 1])
+              return
+            }
+
+            if (Date.now() - startTime > maxWait) {
+              reject(new Error('Timeout waiting for checkpoint'))
+              return
+            }
+
+            setTimeout(poll, pollInterval)
+          }
+          poll()
+        })
+      },
+
+      async canResumeFrom(checkpointId: string): Promise<boolean> {
+        // Check if checkpoint exists and is valid
+        const checkpoint = await self.ctx.storage.get<ResumableCheckpoint>(`checkpoint:${checkpointId}`)
+        if (!checkpoint) return false
+
+        // Validate hash integrity
+        const isValid = await self.validateCheckpointHash(checkpoint)
+        return isValid
+      },
+
+      async getIntegrityHash(): Promise<string> {
+        const state = await self.getResumableState(cloneId)
+        if (!state || state.checkpoints.length === 0) return ''
+        return state.checkpoints[state.checkpoints.length - 1].hash
+      },
+
+      async getLockInfo(): Promise<CloneLockInfo | null> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) return null
+
+        const lock = self._cloneLocks.get(state.targetNs) || await self.ctx.storage.get<CloneLockState>(`clone-lock:${state.targetNs}`)
+        if (!lock || lock.cloneId !== cloneId) return null
+
+        return {
+          lockId: lock.lockId,
+          cloneId: lock.cloneId,
+          acquiredAt: new Date(lock.acquiredAt),
+          expiresAt: new Date(lock.expiresAt),
+          isStale: lock.isStale || new Date(lock.expiresAt).getTime() < Date.now(),
+        }
+      },
+
+      async forceOverrideLock(): Promise<void> {
+        const state = await self.getResumableState(cloneId)
+        if (!state) throw new Error('Clone not found')
+
+        await self.releaseCloneLock(state.targetNs, cloneId)
+      },
+    }
+
+    return handle
+  }
+
+  /**
+   * Process resumable clone operations in alarm handler
+   */
+  private async processResumableClones(): Promise<void> {
+    // Load any resumable clones from storage that might not be in memory
+    const storageKeys = await this.ctx.storage.list({ prefix: 'resumable:' })
+    for (const [key, value] of storageKeys) {
+      const cloneId = key.replace('resumable:', '')
+      if (!this._resumableClones.has(cloneId)) {
+        this._resumableClones.set(cloneId, value as ResumableCloneState)
+      }
+    }
+
+    // Process all active resumable clones
+    for (const [cloneId, state] of this._resumableClones) {
+      if (state.status === 'paused' || state.pauseRequested) continue
+      if (state.status === 'cancelled' || state.cancelRequested) continue
+      if (state.status === 'completed' || state.status === 'failed') continue
+
+      await this.processResumableCloneBatch(cloneId)
+    }
+  }
+
+  /**
+   * Process a single batch of a resumable clone
+   */
+  private async processResumableCloneBatch(cloneId: string): Promise<void> {
+    const state = await this.getResumableState(cloneId)
+    if (!state) return
+
+    // Check for pause/cancel requests
+    if (state.pauseRequested || state.status === 'paused') return
+    if (state.cancelRequested || state.status === 'cancelled') return
+
+    // Update status to transferring if needed
+    if (state.status === 'initializing') {
+      state.status = 'transferring'
+      state.startedAt = new Date()
+    }
+
+    try {
+      // Get all things from database
+      const allThings = await this.db.select().from(schema.things)
+      const nonDeletedThings = allThings.filter(t => !t.deleted)
+      const totalItems = nonDeletedThings.length
+
+      // Calculate total bytes (estimate based on JSON size)
+      if (state.totalBytes === 0) {
+        state.totalBytes = nonDeletedThings.reduce((acc, t) => {
+          return acc + JSON.stringify(t).length
+        }, 0)
+      }
+
+      // Get batch to process
+      const batch = nonDeletedThings.slice(state.position, state.position + state.batchSize)
+
+      if (batch.length === 0) {
+        // Clone completed
+        await this.completeResumableClone(cloneId, state)
+        return
+      }
+
+      // Apply bandwidth throttling if configured
+      if (state.maxBandwidth) {
+        const batchBytes = batch.reduce((acc, t) => acc + JSON.stringify(t).length, 0)
+        const expectedTime = (batchBytes / state.maxBandwidth) * 1000
+        if (expectedTime > 0) {
+          await this.sleep(Math.floor(expectedTime))
+          // Emit throttle event if delay was significant
+          if (expectedTime > 100) {
+            await this.emitEvent('clone.throttled', {
+              id: cloneId,
+              delayMs: expectedTime,
+              batchBytes,
+            })
+          }
+        }
+      }
+
+      // Transfer batch (simulated - in real implementation would call target DO)
+      await this.transferBatchToTarget(state.targetNs, batch, state.compress)
+
+      // Update bytes transferred
+      const batchBytes = batch.reduce((acc, t) => acc + JSON.stringify(t).length, 0)
+      state.bytesTransferred += batchBytes
+
+      // Update position
+      state.position += batch.length
+
+      // Calculate progress
+      state.progress = Math.round((state.position / totalItems) * 100)
+
+      // Emit batch completed event
+      const batchNumber = Math.ceil(state.position / state.batchSize)
+      await this.emitEvent('clone.batch.completed', {
+        id: cloneId,
+        batchNumber,
+        itemsInBatch: batch.length,
+        itemsProcessed: state.position,
+        progress: state.progress,
+      })
+
+      // Create checkpoint if at interval
+      const shouldCreateCheckpoint = batchNumber % state.checkpointInterval === 0
+
+      if (shouldCreateCheckpoint) {
+        const checkpoint = await this.createResumableCheckpoint(cloneId, state, batch, batchNumber)
+        state.checkpoints.push(checkpoint)
+
+        // Store checkpoint
+        await this.ctx.storage.put(`checkpoint:${cloneId}:${checkpoint.id}`, checkpoint)
+        await this.ctx.storage.put(`checkpoint:${checkpoint.id}`, checkpoint)
+
+        await this.emitEvent('clone.checkpoint', {
+          id: cloneId,
+          checkpoint,
+          checkpointId: checkpoint.id,
+          position: checkpoint.position,
+          hash: checkpoint.hash,
+        })
+      }
+
+      // Reset retry count on success
+      state.retryCount = 0
+
+      // Save state
+      await this.ctx.storage.put(`resumable:${cloneId}`, state)
+      this._resumableClones.set(cloneId, state)
+
+      // Schedule next batch if not done and not paused
+      if (state.position < totalItems && !state.pauseRequested && !state.cancelRequested) {
+        const currentAlarm = await this.ctx.storage.getAlarm()
+        if (!currentAlarm || currentAlarm > Date.now() + 100) {
+          await this.ctx.storage.setAlarm(Date.now() + 100)
+        }
+      } else if (state.position >= totalItems) {
+        await this.completeResumableClone(cloneId, state)
+      }
+    } catch (error) {
+      // Handle failure with retry
+      await this.handleResumableCloneError(cloneId, state, error as Error)
+    }
+  }
+
+  /**
+   * Create a checkpoint for a resumable clone
+   */
+  private async createResumableCheckpoint(
+    cloneId: string,
+    state: ResumableCloneState,
+    batch: unknown[],
+    batchNumber: number
+  ): Promise<ResumableCheckpoint> {
+    // Calculate hash of batch data
+    const batchJson = JSON.stringify(batch)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(batchJson))
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+    const checkpoint: ResumableCheckpoint = {
+      id: crypto.randomUUID(),
+      position: state.position,
+      hash,
+      timestamp: new Date(),
+      itemsProcessed: state.position,
+      batchNumber,
+      cloneId,
+      compressed: state.compress,
+    }
+
+    return checkpoint
+  }
+
+  /**
+   * Complete a resumable clone operation
+   */
+  private async completeResumableClone(cloneId: string, state: ResumableCloneState): Promise<void> {
+    const duration = state.startedAt
+      ? Date.now() - new Date(state.startedAt).getTime()
+      : 0
+
+    state.status = 'completed'
+    await this.ctx.storage.put(`resumable:${cloneId}`, state)
+    this._resumableClones.set(cloneId, state)
+
+    // Release lock
+    await this.releaseCloneLock(state.targetNs, cloneId)
+
+    // Clean up checkpoints
+    await this.cleanupCloneCheckpoints(cloneId)
+
+    await this.emitEvent('clone.completed', {
+      id: cloneId,
+      totalCheckpoints: state.checkpoints.length,
+      totalItems: state.position,
+      duration,
+    })
+  }
+
+  /**
+   * Handle error during resumable clone with retry logic
+   */
+  private async handleResumableCloneError(
+    cloneId: string,
+    state: ResumableCloneState,
+    error: Error
+  ): Promise<void> {
+    state.retryCount++
+
+    await this.emitEvent('clone.retry', {
+      id: cloneId,
+      attempt: state.retryCount,
+      error: error.message,
+    })
+
+    if (state.retryCount >= state.maxRetries) {
+      // Max retries exceeded - mark as failed
+      state.status = 'failed'
+      await this.ctx.storage.put(`resumable:${cloneId}`, state)
+      this._resumableClones.set(cloneId, state)
+
+      await this.emitEvent('clone.failed', {
+        id: cloneId,
+        error: error.message,
+        retryCount: state.retryCount,
+      })
+
+      // Release lock
+      await this.releaseCloneLock(state.targetNs, cloneId)
+      return
+    }
+
+    // Calculate exponential backoff with jitter
+    const baseDelay = state.retryDelay * Math.pow(2, state.retryCount - 1)
+    const jitter = Math.random() * baseDelay * 0.25
+    const delay = Math.floor(baseDelay + jitter)
+
+    // Save state
+    await this.ctx.storage.put(`resumable:${cloneId}`, state)
+    this._resumableClones.set(cloneId, state)
+
+    // Schedule retry
+    const currentAlarm = await this.ctx.storage.getAlarm()
+    if (!currentAlarm || currentAlarm > Date.now() + delay) {
+      await this.ctx.storage.setAlarm(Date.now() + delay)
+    }
+  }
+
+  /**
+   * Transfer a batch of things to target DO
+   */
+  private async transferBatchToTarget(
+    targetNs: string,
+    batch: unknown[],
+    compress?: boolean
+  ): Promise<void> {
+    // In real implementation, this would call the target DO
+    // For now, just validate the target is accessible
+    if (!this.env.DO) {
+      throw new Error('DO namespace not configured')
+    }
+
+    // Simulate transfer (in production this would be actual fetch to target)
+    // The batch is ready to be sent
+    await Promise.resolve()
+  }
+
+  /**
+   * Get resumable clone state from memory or storage
+   */
+  private async getResumableState(cloneId: string): Promise<ResumableCloneState | null> {
+    // Check memory first
+    let state = this._resumableClones.get(cloneId)
+    if (state) return state
+
+    // Load from storage
+    state = await this.ctx.storage.get<ResumableCloneState>(`resumable:${cloneId}`)
+    if (state) {
+      this._resumableClones.set(cloneId, state)
+    }
+    return state || null
+  }
+
+  /**
+   * Find resumable state from a checkpoint ID
+   */
+  private async findResumableStateFromCheckpoint(checkpointId: string): Promise<ResumableCloneState | null> {
+    const checkpoint = await this.ctx.storage.get<ResumableCheckpoint>(`checkpoint:${checkpointId}`)
+    if (!checkpoint || !checkpoint.cloneId) return null
+
+    return this.getResumableState(checkpoint.cloneId)
+  }
+
+  /**
+   * Validate checkpoint hash integrity
+   */
+  private async validateCheckpointHash(checkpoint: ResumableCheckpoint): Promise<boolean> {
+    // Basic validation - check if hash is well-formed SHA-256
+    if (!checkpoint.hash || !/^[a-f0-9]{64}$/.test(checkpoint.hash)) {
+      return false
+    }
+    // Position must be valid
+    if (checkpoint.position < 0) {
+      return false
+    }
+    return true
+  }
+
+  /**
+   * Release clone lock for a target
+   */
+  private async releaseCloneLock(target: string, cloneId: string): Promise<void> {
+    const lock = this._cloneLocks.get(target) || await this.ctx.storage.get<CloneLockState>(`clone-lock:${target}`)
+    if (lock && lock.cloneId === cloneId) {
+      this._cloneLocks.delete(target)
+      await this.ctx.storage.delete(`clone-lock:${target}`)
+      await this.emitEvent('clone.lock.released', { lockId: lock.lockId, target })
+    }
+  }
+
+  /**
+   * Clean up checkpoints for a specific clone
+   */
+  private async cleanupCloneCheckpoints(cloneId: string): Promise<void> {
+    const state = await this.getResumableState(cloneId)
+    if (!state) return
+
+    // Delete all checkpoints for this clone
+    for (const checkpoint of state.checkpoints) {
+      await this.ctx.storage.delete(`checkpoint:${cloneId}:${checkpoint.id}`)
+      await this.ctx.storage.delete(`checkpoint:${checkpoint.id}`)
+    }
+  }
+
+  /**
+   * Clean up orphaned checkpoints older than retention period
+   */
+  private async cleanupOrphanedCheckpoints(retentionMs: number): Promise<void> {
+    const now = Date.now()
+    const cutoff = now - retentionMs
+
+    // List all checkpoint keys
+    const checkpointKeys = await this.ctx.storage.list({ prefix: 'checkpoint:' })
+
+    for (const [key, value] of checkpointKeys) {
+      const checkpoint = value as ResumableCheckpoint
+      if (!checkpoint.timestamp) continue
+
+      const checkpointTime = new Date(checkpoint.timestamp).getTime()
+      if (checkpointTime < cutoff) {
+        // Check if the clone is still active/paused
+        if (checkpoint.cloneId) {
+          const state = await this.getResumableState(checkpoint.cloneId)
+          // Don't delete checkpoints for paused clones
+          if (state && state.status === 'paused') {
+            continue
+          }
+        }
+
+        // Delete orphaned checkpoint
+        await this.ctx.storage.delete(key)
+      }
     }
   }
 

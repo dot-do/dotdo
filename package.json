@@ -121,7 +121,6 @@
     "db:seed:integrations": "npx tsx db/seeds/run.ts integrations"
   },
   "dependencies": {
-    "bashx": "file:../bashx",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
     "@hono/zod-openapi": "^1.2.0",
@@ -131,6 +130,10 @@
     "@mdxui/themes": "^0.0.1",
     "@tanstack/react-router": "^1.144.0",
     "@tanstack/react-start": "^1.145.5",
+    "@xterm/addon-attach": "^0.12.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "bashx": "file:../bashx",
     "better-auth": "^1.4.10",
     "chdb": "^1.3.0",
     "drizzle-orm": "^0.45.1",

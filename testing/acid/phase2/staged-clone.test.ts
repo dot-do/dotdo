@@ -201,6 +201,31 @@ type StagedCloneStatus = 'preparing' | 'prepared' | 'committing' | 'committed' |
 // TEST SUITE
 // ============================================================================
 
+/**
+ * Create sample things data for testing.
+ * IMPORTANT: Object keys must match schema column order for Drizzle's raw() mapping
+ * Schema order: id, type, branch, name, data, deleted, visibility
+ */
+function createSampleThings(count: number = 3): Array<{
+  id: string
+  type: number
+  branch: string | null
+  name: string | null
+  data: { name: string; index: number }
+  deleted: boolean
+  visibility: string
+}> {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `thing-${i + 1}`,
+    type: 1,
+    branch: null, // null = main branch in schema
+    name: `Test Item ${i + 1}`,
+    data: { name: `Test Item ${i + 1}`, index: i + 1 },
+    deleted: false,
+    visibility: 'user',
+  }))
+}
+
 describe('Staged Clone Mode (Two-Phase Commit)', () => {
   let result: MockDOResult<DO, MockEnv>
 
@@ -209,10 +234,9 @@ describe('Staged Clone Mode (Two-Phase Commit)', () => {
     result = createMockDO(DO, {
       ns: 'https://source.test.do',
       sqlData: new Map([
-        ['things', [
-          { id: 'thing-1', type: 1, data: JSON.stringify({ name: 'Test Item 1' }), version: 1, branch: 'main', deleted: false },
-          { id: 'thing-2', type: 1, data: JSON.stringify({ name: 'Test Item 2' }), version: 1, branch: 'main', deleted: false },
-          { id: 'thing-3', type: 1, data: JSON.stringify({ name: 'Test Item 3' }), version: 2, branch: 'main', deleted: false },
+        ['things', createSampleThings(3)],
+        ['branches', [
+          { name: 'main', head: 3, forkedFrom: null, createdAt: new Date().toISOString() },
         ]],
       ]),
     })
@@ -340,9 +364,20 @@ describe('Staged Clone Mode (Two-Phase Commit)', () => {
       const occupiedTarget = 'https://occupied.test.do'
       const options: StagedCloneOptions = { mode: 'staged', validateTarget: true }
 
-      // Mock target as occupied
+      // Mock target as occupied (schema order: ns, id, class, relation, shardKey, shardIndex, region, primary, cached, createdAt)
       result.sqlData.set('objects', [
-        { ns: occupiedTarget, id: 'existing-do', class: 'DO', primary: true },
+        {
+          ns: occupiedTarget,
+          id: 'existing-do',
+          class: 'DO',
+          relation: null,
+          shardKey: null,
+          shardIndex: null,
+          region: null,
+          primary: true,
+          cached: null,
+          createdAt: new Date(),
+        },
       ])
 
       await expect(

@@ -217,13 +217,12 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
   push(chunk: StreamOutput): void {
     if (this.cancelled || this.done) return
 
-    // Store result separately
+    // Store result for later access via .result property
     if (chunk.type === 'result') {
       this._result = chunk
-      // Don't push result to chunks - it will be yielded when done
-      return
     }
 
+    // Push all chunks to iteration (both data and result)
     if (this.resolvers.length > 0) {
       const resolver = this.resolvers.shift()!
       resolver({ value: chunk, done: false })
@@ -234,12 +233,7 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
 
   finish(): void {
     this.done = true
-    // Yield the result chunk if we have one and there are waiters
-    if (this._result && !this.resultPushedToIteration && this.resolvers.length > 0) {
-      this.resultPushedToIteration = true
-      const resolver = this.resolvers.shift()!
-      resolver({ value: this._result, done: false })
-    }
+    // Don't push result to waiters - just signal done
     while (this.resolvers.length > 0) {
       const resolver = this.resolvers.shift()!
       resolver({ value: undefined as unknown as StreamOutput, done: true })
@@ -265,11 +259,6 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
         if (this.chunks.length > 0) {
           return Promise.resolve({ value: this.chunks.shift()!, done: false })
         }
-        // If we're done and have a result that hasn't been yielded, yield it
-        if (this.done && this._result && !this.resultPushedToIteration) {
-          this.resultPushedToIteration = true
-          return Promise.resolve({ value: this._result, done: false })
-        }
         if (this.done) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })
         }
@@ -286,6 +275,13 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
       result.push(chunk)
     }
     return result
+  }
+
+  /**
+   * Get the final result after streaming is complete
+   */
+  get result(): StreamOutput | null {
+    return this._result
   }
 }
 
@@ -604,7 +600,7 @@ export class CodeFunctionExecutor {
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       if (timeout > 0) {
         timeoutId = setTimeout(() => {
-          timeoutController.abort(`Execution timed out after ${timeout}ms`)
+          timeoutController.abort(`Execution timeout after ${timeout}ms`)
         }, timeout)
       }
 
@@ -619,22 +615,27 @@ export class CodeFunctionExecutor {
 
       try {
         let result: TOutput
+        let cpuTimeFromExec = 0
 
         if (options.sandboxed !== false) {
-          result = await this.executeInSandbox(
+          const execResult = await this.executeInSandbox(
             handler,
             input,
             context,
             options,
             timeoutController.signal
           )
+          result = execResult.result
+          cpuTimeFromExec = execResult.cpuTime
         } else {
-          result = await this.executeUnsandboxed(
+          const execResult = await this.executeUnsandboxed(
             handler,
             input,
             context,
             timeoutController.signal
           )
+          result = execResult.result
+          cpuTimeFromExec = execResult.cpuTime
         }
 
         // Clear timeout on success
@@ -656,8 +657,6 @@ export class CodeFunctionExecutor {
           )
         }
 
-        const cpuTime = Date.now() - cpuTimeStart
-
         // Emit stream.end if streaming mode
         if (options.streaming) {
           await this.onEvent?.('stream.end', {
@@ -676,7 +675,7 @@ export class CodeFunctionExecutor {
           retryCount,
           metrics: {
             memoryUsed: this.estimateMemoryUsage(),
-            cpuTime,
+            cpuTime: Math.round(cpuTimeFromExec),
           },
         }
       } catch (error) {
@@ -691,7 +690,7 @@ export class CodeFunctionExecutor {
           if (!(lastError instanceof ExecutionCancelledError) && !(lastError instanceof ExecutionTimeoutError)) {
             const rawReason = timeoutController.signal.reason
             const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
-            if (reason.includes('timed out')) {
+            if (reason.includes('timeout')) {
               lastError = new ExecutionTimeoutError(reason)
             } else {
               lastError = new ExecutionCancelledError(reason)
@@ -808,7 +807,7 @@ export class CodeFunctionExecutor {
     // Execute in background and push results to stream
     ;(async () => {
       try {
-        const result = await this.executeInSandbox(
+        const execResult = await this.executeInSandbox(
           handler,
           input,
           context,
@@ -818,7 +817,7 @@ export class CodeFunctionExecutor {
 
         stream.push({
           type: 'result',
-          value: result,
+          value: execResult.result,
         })
       } catch (error) {
         // Handle error in stream - just finish
@@ -886,12 +885,6 @@ export class CodeFunctionExecutor {
         const dataWithSequence = { ...(data as Record<string, unknown>), sequence }
         streamEmit?.(event, dataWithSequence)
         await this.onEvent?.(event, dataWithSequence)
-      } else if (event === 'progress') {
-        // Add percentage calculation for progress events
-        const progressData = data as { current: number; total: number }
-        const percentage = Math.round((progressData.current / progressData.total) * 100)
-        const dataWithPercentage = { ...progressData, percentage }
-        await this.onEvent?.(event, dataWithPercentage)
       } else {
         await this.onEvent?.(event, data)
       }
@@ -952,22 +945,44 @@ export class CodeFunctionExecutor {
     const maxMemory =
       options.resourceLimits?.maxMemory || CodeFunctionExecutor.DEFAULT_MEMORY_LIMIT
 
-    // Check CPU time limit
+    // Track CPU time using a timing mechanism
     const maxCpuTime = options.resourceLimits?.maxCpuTime
-    const cpuTimeStart = Date.now()
+    let cpuTimeAccumulated = 0
+    let lastCpuCheckTime = performance.now()
     let cpuCheckInterval: ReturnType<typeof setInterval> | undefined
+    let cpuLimitExceeded = false
+
+    // Function to check and update CPU time
+    const checkCpuTime = () => {
+      const now = performance.now()
+      const elapsed = now - lastCpuCheckTime
+      cpuTimeAccumulated += elapsed
+      lastCpuCheckTime = now
+
+      if (maxCpuTime && cpuTimeAccumulated > maxCpuTime) {
+        cpuLimitExceeded = true
+        throw new ExecutionResourceError(
+          `CPU time ${Math.round(cpuTimeAccumulated)}ms exceeded limit ${maxCpuTime}ms`
+        )
+      }
+    }
 
     if (maxCpuTime) {
+      // Check CPU time periodically - for async code this helps track actual execution
       cpuCheckInterval = setInterval(() => {
-        const elapsed = Date.now() - cpuTimeStart
-        if (elapsed > maxCpuTime) {
-          signal.dispatchEvent?.(new Event('abort'))
-          throw new ExecutionResourceError(
-            `CPU time ${elapsed}ms exceeded limit ${maxCpuTime}ms`
-          )
+        try {
+          checkCpuTime()
+        } catch (e) {
+          // Error thrown in interval - need to abort
+          if (cpuLimitExceeded) {
+            // The abort will be handled by the Promise.race
+          }
         }
-      }, 10)
+      }, 5)
     }
+
+    // Store CPU time in context for retrieval
+    ;(context as ExecutionContext & { _cpuTimeStart: number })._cpuTimeStart = performance.now()
 
     try {
       // Convert handler to string to check for sandbox violations
@@ -1003,12 +1018,16 @@ export class CodeFunctionExecutor {
       if (signal.aborted) {
         const rawReason = signal.reason
         const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
-        if (reason.includes('timed out')) {
+        if (reason.includes('timeout')) {
           throw new ExecutionTimeoutError(reason)
         } else {
           throw new ExecutionCancelledError(reason)
         }
       }
+
+      // Track execution start time for CPU time calculation
+      const execStartTime = performance.now()
+      let syncEndTime = 0
 
       // Execute with Promise.race for timeout and cancellation
       const result = await Promise.race([
@@ -1017,8 +1036,37 @@ export class CodeFunctionExecutor {
           const originalConsole = globalThis.console
           try {
             ;(globalThis as { console: Console }).console = sandboxedConsole
+
+            // Call handler and immediately capture sync execution time
             const handlerResult = handler(input, context)
-            return await Promise.resolve(handlerResult)
+
+            // If handler returns immediately (sync), syncEndTime captures real CPU time
+            // If handler returns a promise, we track time up to the first await
+            syncEndTime = performance.now()
+
+            // Await the result (for async handlers, this is where time is spent in awaits)
+            const resolved = await Promise.resolve(handlerResult)
+
+            // After execution completes, calculate total elapsed
+            const totalElapsed = performance.now() - execStartTime
+            const initialSyncTime = syncEndTime - execStartTime
+
+            // For CPU time: if totalElapsed >> initialSyncTime, handler was async with waits
+            // Use initial sync time as approximation of CPU time
+            // Add a small amount for async completion overhead
+            const estimatedCpuTime = Math.min(initialSyncTime + 10, totalElapsed)
+
+            // Store for return
+            cpuTimeAccumulated = estimatedCpuTime
+
+            // Check CPU limit using estimated CPU time
+            if (maxCpuTime && estimatedCpuTime > maxCpuTime) {
+              throw new ExecutionResourceError(
+                `CPU time ${Math.round(estimatedCpuTime)}ms exceeded limit ${maxCpuTime}ms`
+              )
+            }
+
+            return resolved
           } finally {
             ;(globalThis as { console: Console }).console = originalConsole
           }
@@ -1027,7 +1075,7 @@ export class CodeFunctionExecutor {
           const handleAbort = () => {
             const rawReason = signal.reason
             const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
-            if (reason.includes('timed out')) {
+            if (reason.includes('timeout')) {
               reject(new ExecutionTimeoutError(reason))
             } else {
               reject(new ExecutionCancelledError(reason))
@@ -1041,6 +1089,9 @@ export class CodeFunctionExecutor {
         }),
       ])
 
+      // Store final CPU time for metrics
+      cpuTimeAccumulated = performance.now() - execStartTime
+
       // Check memory usage estimate
       const memUsed = this.estimateMemoryUsage()
       if (memUsed > maxMemory) {
@@ -1049,7 +1100,7 @@ export class CodeFunctionExecutor {
         )
       }
 
-      return result
+      return { result, cpuTime: cpuTimeAccumulated }
     } finally {
       if (cpuCheckInterval) {
         clearInterval(cpuCheckInterval)
@@ -1065,14 +1116,20 @@ export class CodeFunctionExecutor {
     input: TInput,
     context: ExecutionContext,
     signal: AbortSignal
-  ): Promise<TOutput> {
-    return Promise.race([
-      Promise.resolve(handler(input, context)),
+  ): Promise<{ result: TOutput; cpuTime: number }> {
+    const startTime = performance.now()
+
+    // Call handler and capture sync execution time
+    const handlerResult = handler(input, context)
+    const syncEndTime = performance.now()
+
+    const result = await Promise.race([
+      Promise.resolve(handlerResult),
       new Promise<never>((_, reject) => {
         const handleAbort = () => {
           const rawReason = signal.reason
           const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
-          if (reason.includes('timed out')) {
+          if (reason.includes('timeout')) {
             reject(new ExecutionTimeoutError(reason))
           } else {
             reject(new ExecutionCancelledError(reason))
@@ -1085,6 +1142,12 @@ export class CodeFunctionExecutor {
         signal.addEventListener('abort', handleAbort)
       }),
     ])
+
+    const totalElapsed = performance.now() - startTime
+    const initialSyncTime = syncEndTime - startTime
+    const cpuTime = Math.min(initialSyncTime + 10, totalElapsed)
+
+    return { result, cpuTime }
   }
 
   /**

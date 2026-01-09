@@ -51,6 +51,10 @@
         "class_name": "Browser"
       },
       {
+        "name": "SANDBOX_DO",
+        "class_name": "SandboxDO"
+      },
+      {
         "name": "OBS_BROADCASTER",
         "class_name": "ObservabilityBroadcaster"
       }
@@ -74,6 +78,10 @@
     {
       "tag": "v4",
       "new_classes": ["ObservabilityBroadcaster"]
+    },
+    {
+      "tag": "v5",
+      "new_classes": ["SandboxDO"]
     }
   ]
 }

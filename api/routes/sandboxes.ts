@@ -457,7 +457,7 @@ sandboxesRoutes.get('/:id/ports', async (c) => {
       return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to get ports' } }, 500)
     }
 
-    const result = await portsRes.json()
+    const result = (await portsRes.json()) as { ports?: unknown[] } | unknown[]
     // Wrap in { ports: [...] } for consistency
     if (Array.isArray(result)) {
       return c.json({ ports: result })
