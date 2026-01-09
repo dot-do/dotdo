@@ -17,13 +17,32 @@ export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
 export { ThingsDO } from '../objects/ThingsDO'
 
-// Types for Cloudflare Workers bindings
-export interface Env {
+// Import and re-export the unified CloudflareEnv type
+import type { CloudflareEnv } from '../types/CloudflareBindings'
+export type { CloudflareEnv }
+
+/**
+ * Env - API-specific environment type extending CloudflareEnv
+ *
+ * This type ensures the API has access to all required bindings
+ * for routing and handling requests. The unified CloudflareEnv
+ * provides all optional bindings, while this interface specifies
+ * which are required for the API layer.
+ *
+ * @see CloudflareEnv in types/CloudflareBindings.ts for all available bindings
+ */
+export interface Env extends CloudflareEnv {
+  /** KV namespace - required for sessions and caching */
   KV: KVNamespace
+  /** Main Durable Object namespace - required for Things */
   DO: DurableObjectNamespace
+  /** Browser Durable Object namespace */
   BROWSER_DO: DurableObjectNamespace
+  /** Test KV namespace (dev/test only) */
   TEST_KV: KVNamespace
+  /** Test DO namespace (dev/test only) */
   TEST_DO: DurableObjectNamespace
+  /** Static assets fetcher */
   ASSETS: Fetcher
 }
 

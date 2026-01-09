@@ -266,7 +266,7 @@ export interface RateLimitBindings {
   /**
    * Rate limiter binding
    */
-  RATE_LIMIT?: RateLimiter
+  RATE_LIMIT?: RateLimit
 }
 
 /**
@@ -506,25 +506,40 @@ export type WithMessaging = WithRequiredBindings<'QUEUE' | 'PIPELINE'>
 export type WithCoreBindings = WithRequiredBindings<'DO' | 'KV' | 'AI' | 'ASSETS'>
 
 // ============================================================================
-// RE-EXPORT CLOUDFLARE TYPES
+// CLOUDFLARE TYPE ALIASES
 // ============================================================================
 
 /**
- * Re-export Cloudflare binding types for convenience
- * These are available globally via @cloudflare/workers-types
+ * Type aliases for Cloudflare binding types
+ *
+ * These provide local references to globally available types from @cloudflare/workers-types.
+ * This enables importing from a single module while maintaining compatibility with
+ * the global type declarations.
+ *
+ * Note: The actual types are declared globally by @cloudflare/workers-types
+ * and are available throughout the project without explicit imports.
  */
-export type {
-  Ai,
-  KVNamespace,
-  R2Bucket,
-  D1Database,
-  DurableObjectNamespace,
-  Queue,
-  VectorizeIndex,
-  Hyperdrive,
-  RateLimiter,
-  Fetcher,
-}
+
+/** Workers AI binding type - provides access to Cloudflare AI models */
+export type CloudflareAi = Ai
+/** KV namespace binding type - key-value storage */
+export type CloudflareKV = KVNamespace
+/** R2 bucket binding type - object storage */
+export type CloudflareR2 = R2Bucket
+/** D1 database binding type - SQLite database */
+export type CloudflareD1 = D1Database
+/** Durable Object namespace binding type */
+export type CloudflareDO = DurableObjectNamespace
+/** Queue binding type - message queues */
+export type CloudflareQueue = Queue
+/** Vectorize index binding type - vector search */
+export type CloudflareVectorize = VectorizeIndex
+/** Hyperdrive binding type - connection pooling */
+export type CloudflareHyperdrive = Hyperdrive
+/** Rate limit binding type - request rate limiting */
+export type CloudflareRateLimit = RateLimit
+/** Fetcher binding type - HTTP client for service bindings */
+export type CloudflareFetcher = Fetcher
 
 // ============================================================================
 // LEGACY COMPATIBILITY

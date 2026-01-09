@@ -67,3 +67,62 @@ export {
   type SqlOperation,
   type DurableObjectListOptions,
 } from './do'
+
+// Executor Testing Utilities
+export {
+  createTestContext,
+  mockAI,
+  mockKV,
+  mockDB,
+  mockQueue,
+  mockFetch,
+  type TestContext,
+  type TestContextOptions,
+  type MockAI as ExecutorMockAI,
+  type MockAIOptions,
+  type MockKV as ExecutorMockKV,
+  type MockDB,
+  type MockDBResponses,
+  type MockQueue,
+  type MockQueueOptions,
+  type MockFetchResponses,
+  type MockServices,
+  type CapturedEvent,
+  type CapturedLog,
+  type AICall,
+  type KVOperation,
+  type DBQuery,
+  type FetchCall,
+} from './executor-context'
+
+// Workflow Testing Utilities
+export {
+  WorkflowTestHarness,
+  type WorkflowTestHarnessOptions,
+  type StepCall,
+  type EmittedEvent,
+  type LogEntry,
+  type WorkflowRunResult,
+  type QueuedEvent,
+} from './workflow-harness'
+
+// Test Workflow Runtime (with hooks, mocks, time control)
+export {
+  // Factory function
+  createTestWorkflowRuntime,
+
+  // Storage
+  InMemoryStepStorage,
+
+  // Types
+  type TestWorkflowRuntime,
+  type TestRuntimeOptions,
+  type StepExecution,
+  type RuntimeState,
+  type SimulatedFailure,
+  type BeforeStepHook,
+  type AfterStepHook,
+  type OnStepErrorHook,
+  type MockHandler,
+  type MockHandlerMap,
+} from './runtime'

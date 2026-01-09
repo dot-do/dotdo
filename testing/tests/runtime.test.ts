@@ -58,7 +58,7 @@ describe('TestWorkflowRuntime', () => {
       expect(rt.getStorage()).toBe(storage)
     })
 
-    it('creates a runtime with auto-advance time disabled', () => {
+    it('creates a runtime with auto-advance time disabled', async () => {
       const startTime = 1000
       const rt = createTestWorkflowRuntime({ startTime, autoAdvanceTime: false })
 
@@ -76,7 +76,7 @@ describe('TestWorkflowRuntime', () => {
       }
 
       // Execute step
-      rt.executeStep('step-1', pipeline, [], 'do')
+      await rt.executeStep('step-1', pipeline, [], 'do')
 
       // Time should not advance when autoAdvanceTime is false
       expect(rt.getTime()).toBe(startTime)

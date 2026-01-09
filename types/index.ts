@@ -31,17 +31,17 @@ export type {
   WithFullAI,
   WithMessaging,
   WithCoreBindings,
-  // Re-exported Cloudflare types
-  Ai,
-  KVNamespace,
-  R2Bucket,
-  D1Database,
-  DurableObjectNamespace,
-  Queue,
-  VectorizeIndex,
-  Hyperdrive,
-  RateLimiter,
-  Fetcher,
+  // Cloudflare type aliases (original types are global from @cloudflare/workers-types)
+  CloudflareAi,
+  CloudflareKV,
+  CloudflareR2,
+  CloudflareD1,
+  CloudflareDO,
+  CloudflareQueue,
+  CloudflareVectorize,
+  CloudflareHyperdrive,
+  CloudflareRateLimit,
+  CloudflareFetcher,
   // Pipeline type
   Pipeline,
 } from './CloudflareBindings'

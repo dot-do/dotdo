@@ -62,19 +62,18 @@ export interface RelationshipRecord {
 }
 
 // ============================================================================
-// ENVIRONMENT
+// ENVIRONMENT - Re-export from unified types
 // ============================================================================
 
-export interface Env {
-  AI?: Fetcher
-  PIPELINE?: Pipeline
-  DO?: DurableObjectNamespace
-  [key: string]: unknown
-}
+// Import unified CloudflareEnv from types/CloudflareBindings
+import type { CloudflareEnv, Pipeline } from '../types/CloudflareBindings'
 
-interface Pipeline {
-  send(data: unknown): Promise<void>
-}
+/**
+ * Env - Re-export of CloudflareEnv for backward compatibility
+ *
+ * @see CloudflareEnv in types/CloudflareBindings.ts for full documentation
+ */
+export type Env = CloudflareEnv
 
 /**
  * DO stub interface for cross-DO communication
