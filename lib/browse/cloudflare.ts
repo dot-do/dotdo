@@ -26,7 +26,9 @@ export class CloudflareBrowseProvider implements BrowseProvider {
 
     // Dynamically import cloudflare puppeteer
     // @ts-ignore - Optional peer dependency
-    const puppeteer = await import('@cloudflare/puppeteer')
+    const puppeteer = await import('@cloudflare/puppeteer').catch(() => {
+      throw new Error('Package @cloudflare/puppeteer is required for Cloudflare provider. Run: npm install @cloudflare/puppeteer')
+    })
     const browser = await puppeteer.default.launch(config.env.BROWSER)
     const page = await browser.newPage()
 
@@ -37,7 +39,9 @@ export class CloudflareBrowseProvider implements BrowseProvider {
 
     // Initialize Stagehand for AI operations
     // @ts-ignore - Optional peer dependency
-    const { Stagehand } = await import('@browserbasehq/stagehand')
+    const { Stagehand } = await import('@browserbasehq/stagehand').catch(() => {
+      throw new Error('Package @browserbasehq/stagehand is required for Cloudflare provider. Run: npm install @browserbasehq/stagehand')
+    })
     const stagehand = new Stagehand({
       env: 'LOCAL',
       enableCaching: false,

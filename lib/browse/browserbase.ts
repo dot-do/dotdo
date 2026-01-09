@@ -30,7 +30,9 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
 
     // Initialize Browserbase SDK
     // @ts-ignore - Optional peer dependency
-    const { Browserbase } = await import('@browserbasehq/sdk')
+    const { Browserbase } = await import('@browserbasehq/sdk').catch(() => {
+      throw new Error('Package @browserbasehq/sdk is required for Browserbase provider. Run: npm install @browserbasehq/sdk')
+    })
     const browserbase = new Browserbase({
       apiKey: config.env.BROWSERBASE_API_KEY,
     })
@@ -48,7 +50,9 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
 
     // Connect via puppeteer-core
     // @ts-ignore - Optional peer dependency
-    const puppeteer = await import('puppeteer-core')
+    const puppeteer = await import('puppeteer-core').catch(() => {
+      throw new Error('Package puppeteer-core is required for Browserbase provider. Run: npm install puppeteer-core')
+    })
     const browser = await puppeteer.default.connect({
       browserWSEndpoint: browserSession.connectUrl,
     })
@@ -62,7 +66,9 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
 
     // Initialize Stagehand for AI operations
     // @ts-ignore - Optional peer dependency
-    const { Stagehand } = await import('@browserbasehq/stagehand')
+    const { Stagehand } = await import('@browserbasehq/stagehand').catch(() => {
+      throw new Error('Package @browserbasehq/stagehand is required for Browserbase provider. Run: npm install @browserbasehq/stagehand')
+    })
     const stagehand = new Stagehand({
       env: 'BROWSERBASE',
       enableCaching: false,
