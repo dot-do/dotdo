@@ -86,6 +86,9 @@ export default defineWorkspace([
   // Parquet writer/reader tests
   createNodeWorkspace('parquet', ['db/parquet/**/*.test.ts']),
 
+  // EdgePostgres tests (PGLite + FSX integration)
+  createNodeWorkspace('edge-postgres', ['db/edge-postgres/**/*.test.ts']),
+
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
@@ -291,6 +294,12 @@ export default defineWorkspace([
       // Workers tests need sequential execution for stability
       sequence: {
         concurrent: false,
+      },
+      // Override pool options to use package-specific wrangler config
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'packages/duckdb-worker/wrangler.jsonc') },
+        },
       },
     },
     resolve: {
