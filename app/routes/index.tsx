@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import Site from '../../Site.mdx'
+import { SiteContent } from '../components/site/SiteContent'
 import { LandingLayout } from '../components/site/LandingLayout'
 
 export const Route = createFileRoute('/')({
@@ -9,7 +9,7 @@ export const Route = createFileRoute('/')({
 function LandingPage() {
   return (
     <LandingLayout>
-      <Site />
+      <SiteContent />
     </LandingLayout>
   )
 }

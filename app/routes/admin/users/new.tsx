@@ -5,7 +5,7 @@
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/users/new')({
   component: CreateUserPage,

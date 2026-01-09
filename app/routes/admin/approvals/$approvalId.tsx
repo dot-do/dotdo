@@ -8,7 +8,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 import { ApprovalDetail } from '../../../components/approvals/approval-detail'
 import { ApprovalForm } from '../../../components/approvals/approval-form'
 

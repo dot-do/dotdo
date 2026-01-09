@@ -153,7 +153,8 @@ test.describe('Landing Page - 1-Person Unicorn', () => {
       await page.goto('/')
       const r2Row = page.locator('tr:has-text("Cloudflare R2")')
       await expect(r2Row).toBeVisible()
-      const r2Egress = r2Row.locator('td:has-text("$0")')
+      // Use exact text match to avoid matching "$0.015/GB-mo"
+      const r2Egress = r2Row.getByRole('cell', { name: '$0', exact: true })
       await expect(r2Egress).toBeVisible()
     })
 
@@ -214,7 +215,8 @@ test.describe('Landing Page - 1-Person Unicorn', () => {
   test.describe('Navigation', () => {
     test('should navigate to docs', async ({ page }) => {
       await page.goto('/')
-      const docsLink = page.locator('header a[href="/docs"]')
+      // Use exact "Docs" text to avoid matching "Get Started" which also links to /docs
+      const docsLink = page.getByRole('link', { name: 'Docs', exact: true })
       await docsLink.click()
       await expect(page).toHaveURL(/\/docs/)
     })

@@ -6,7 +6,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell, DashboardView } from '@mdxui/cockpit'
+import { Shell, DashboardView } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/')({
   component: AdminDashboard,

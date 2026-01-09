@@ -5,7 +5,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell, DataTable } from '@mdxui/cockpit'
+import { Shell, DataTable } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/workflows/')({
   component: WorkflowsPage,

@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dotdo",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
   "main": "api/index.ts",
   "compatibility_date": "2026-01-08",
   "compatibility_flags": ["nodejs_compat"],

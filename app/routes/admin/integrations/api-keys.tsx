@@ -5,7 +5,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell, DataTable, APIKeyManager } from '@mdxui/cockpit'
+import { Shell, DataTable, APIKeyManager } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/integrations/api-keys')({
   component: APIKeysPage,

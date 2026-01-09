@@ -6,7 +6,7 @@
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Shell, DataTable } from '@mdxui/cockpit'
+import { Shell, DataTable } from '~/components/ui/shell'
 import { useState, useEffect } from 'react'
 
 // ============================================================================

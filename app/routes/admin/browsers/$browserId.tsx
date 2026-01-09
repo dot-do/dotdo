@@ -16,7 +16,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BrowserScreencast } from '~/components/BrowserScreencast'
 

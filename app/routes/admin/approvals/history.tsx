@@ -8,7 +8,7 @@
  */
 
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 import { ApprovalHistory } from '../../../components/approvals/approval-history'
 
 export const Route = createFileRoute('/admin/approvals/history')({

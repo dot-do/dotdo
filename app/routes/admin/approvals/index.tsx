@@ -9,7 +9,7 @@
 
 import * as React from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 import { ApprovalQueuePage as ApprovalQueueComponent } from '../../../components/approvals/approval-queue'
 import type { ApprovalRequest, ApprovalFilters, ApprovalSort } from '../../../types/approval'
 

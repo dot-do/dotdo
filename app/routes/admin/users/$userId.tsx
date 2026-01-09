@@ -5,7 +5,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell } from '@mdxui/cockpit'
+import { Shell } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/users/$userId')({
   component: UserDetailPage,
