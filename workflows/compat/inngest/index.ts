@@ -82,6 +82,38 @@ export class StepError extends Error {
   }
 }
 
+/**
+ * Error thrown when a function is cancelled
+ */
+export class CancellationError extends Error {
+  readonly isCancellationError = true
+  readonly runId: string
+  readonly reason?: string
+
+  constructor(runId: string, reason?: string) {
+    super(reason ? `Function run ${runId} was cancelled: ${reason}` : `Function run ${runId} was cancelled`)
+    this.name = 'CancellationError'
+    this.runId = runId
+    this.reason = reason
+  }
+}
+
+/**
+ * Error thrown when step.invoke times out
+ */
+export class InvokeTimeoutError extends Error {
+  readonly isInvokeTimeoutError = true
+  readonly functionId: string
+  readonly timeout: number
+
+  constructor(functionId: string, timeout: number) {
+    super(`Invoked function ${functionId} timed out after ${timeout}ms`)
+    this.name = 'InvokeTimeoutError'
+    this.functionId = functionId
+    this.timeout = timeout
+  }
+}
+
 // ============================================================================
 // TYPES - Match Inngest SDK exactly
 // ============================================================================
@@ -320,6 +352,20 @@ export interface MiddlewareLifecycle {
 }
 
 // ============================================================================
+// RUN STATE
+// ============================================================================
+
+export interface FunctionRun {
+  runId: string
+  functionId: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  event: InngestEvent
+  startedAt: number
+  completedAt?: number
+  error?: string
+}
+
+// ============================================================================
 // UTILITIES
 // ============================================================================
 
@@ -358,11 +404,253 @@ function generateEventId(): string {
   return `evt_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
+/**
+ * Get value from object using dot notation path
+ */
+function getValueByPath(obj: unknown, path: string): unknown {
+  const parts = path.split('.')
+  let current: unknown = obj
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+/**
+ * Evaluate simple expression against event context
+ */
+function evaluateExpression(expression: string, context: { event: InngestEvent; async: InngestEvent }): boolean {
+  // Simple expression evaluation for common patterns
+  // Format: "event.data.field == async.data.field"
+  const equalMatch = expression.match(/^(.+?)\s*==\s*(.+)$/)
+  if (equalMatch) {
+    const leftPath = equalMatch[1].trim()
+    const rightPath = equalMatch[2].trim()
+
+    const leftValue = getValueByPath(context, leftPath)
+    const rightValue = getValueByPath(context, rightPath)
+
+    return leftValue === rightValue
+  }
+
+  return false
+}
+
 const defaultLogger: Logger = {
   info: console.log.bind(console),
   warn: console.warn.bind(console),
   error: console.error.bind(console),
   debug: console.debug.bind(console),
+}
+
+// ============================================================================
+// THROTTLE MANAGER
+// ============================================================================
+
+class ThrottleManager {
+  /** Map of throttle key -> array of timestamps */
+  private readonly buckets = new Map<string, number[]>()
+  /** Queue of pending executions by throttle key */
+  private readonly queues = new Map<string, Array<{
+    resolve: () => void
+    reject: (error: Error) => void
+    count: number
+    periodMs: number
+  }>>()
+
+  /**
+   * Acquire a throttle slot
+   * @returns Promise that resolves when slot is available
+   */
+  async acquire(key: string, count: number, periodMs: number): Promise<void> {
+    const now = Date.now()
+
+    // Get or create bucket
+    let bucket = this.buckets.get(key) || []
+
+    // Remove expired entries
+    bucket = bucket.filter((ts) => now - ts < periodMs)
+
+    // Check if we have capacity
+    if (bucket.length < count) {
+      bucket.push(now)
+      this.buckets.set(key, bucket)
+      return
+    }
+
+    // Queue this request
+    return new Promise((resolve, reject) => {
+      const queue = this.queues.get(key) || []
+      queue.push({ resolve, reject, count, periodMs })
+      this.queues.set(key, queue)
+
+      // Schedule retry when oldest entry expires
+      const oldestTs = bucket[0]
+      const waitTime = periodMs - (now - oldestTs) + 1
+
+      this.scheduleQueueProcess(key, waitTime)
+    })
+  }
+
+  private scheduleQueueProcess(key: string, waitTime: number): void {
+    setTimeout(() => {
+      this.processQueue(key)
+      // If there are still items in queue, schedule again
+      const queue = this.queues.get(key)
+      if (queue && queue.length > 0) {
+        const item = queue[0]
+        this.scheduleQueueProcess(key, item.periodMs)
+      }
+    }, waitTime)
+  }
+
+  private processQueue(key: string): void {
+    const queue = this.queues.get(key)
+    if (!queue || queue.length === 0) return
+
+    const item = queue[0]
+    const { count, periodMs } = item
+    const now = Date.now()
+    let bucket = this.buckets.get(key) || []
+    bucket = bucket.filter((ts) => now - ts < periodMs)
+
+    if (bucket.length < count) {
+      queue.shift()
+      bucket.push(now)
+      this.buckets.set(key, bucket)
+      this.queues.set(key, queue)
+      item.resolve()
+    }
+  }
+}
+
+// ============================================================================
+// CONCURRENCY MANAGER
+// ============================================================================
+
+class ConcurrencyManager {
+  /** Map of concurrency key -> current count */
+  private readonly active = new Map<string, number>()
+  /** Queue of pending executions by concurrency key */
+  private readonly queues = new Map<string, Array<{ resolve: () => void; reject: (error: Error) => void }>>()
+
+  /**
+   * Acquire a concurrency slot
+   * @returns Promise that resolves when slot is available
+   */
+  async acquire(key: string, limit: number): Promise<void> {
+    const current = this.active.get(key) || 0
+
+    if (current < limit) {
+      this.active.set(key, current + 1)
+      return
+    }
+
+    // Queue this request
+    return new Promise((resolve, reject) => {
+      const queue = this.queues.get(key) || []
+      queue.push({ resolve, reject })
+      this.queues.set(key, queue)
+    })
+  }
+
+  /**
+   * Release a concurrency slot
+   */
+  release(key: string): void {
+    const current = this.active.get(key) || 0
+    if (current > 0) {
+      this.active.set(key, current - 1)
+    }
+
+    // Process queue
+    const queue = this.queues.get(key)
+    if (queue && queue.length > 0) {
+      const item = queue.shift()
+      if (item) {
+        this.active.set(key, (this.active.get(key) || 0) + 1)
+        this.queues.set(key, queue)
+        item.resolve()
+      }
+    }
+  }
+
+  /**
+   * Reject all queued items (for cancellation)
+   */
+  rejectQueued(key: string, error: Error): void {
+    const queue = this.queues.get(key) || []
+    for (const item of queue) {
+      item.reject(error)
+    }
+    this.queues.set(key, [])
+  }
+}
+
+// ============================================================================
+// BATCH MANAGER
+// ============================================================================
+
+interface BatchState {
+  events: InngestEvent[]
+  timeoutId: ReturnType<typeof setTimeout> | null
+  resolve: ((events: InngestEvent[]) => void) | null
+}
+
+class BatchManager {
+  private readonly batches = new Map<string, BatchState>()
+
+  /**
+   * Add event to batch, returns promise that resolves with all batched events
+   */
+  addEvent(
+    key: string,
+    event: InngestEvent,
+    config: BatchConfig,
+    onBatchReady: (events: InngestEvent[]) => void
+  ): void {
+    let batch = this.batches.get(key)
+
+    if (!batch) {
+      batch = {
+        events: [],
+        timeoutId: null,
+        resolve: null,
+      }
+      this.batches.set(key, batch)
+    }
+
+    batch.events.push(event)
+
+    // Check if batch is full
+    if (batch.events.length >= config.maxSize) {
+      this.flushBatch(key, onBatchReady)
+      return
+    }
+
+    // Set/reset timeout if not already set
+    if (!batch.timeoutId) {
+      const timeoutMs = parseDuration(config.timeout)
+      batch.timeoutId = setTimeout(() => {
+        this.flushBatch(key, onBatchReady)
+      }, timeoutMs)
+    }
+  }
+
+  private flushBatch(key: string, onBatchReady: (events: InngestEvent[]) => void): void {
+    const batch = this.batches.get(key)
+    if (!batch || batch.events.length === 0) return
+
+    if (batch.timeoutId) {
+      clearTimeout(batch.timeoutId)
+    }
+
+    const events = batch.events
+    this.batches.delete(key)
+
+    onBatchReady(events)
+  }
 }
 
 // ============================================================================
@@ -432,6 +720,25 @@ export class Inngest {
   private readonly middleware: InngestMiddleware[]
   private readonly logger: Logger
 
+  // Run tracking
+  private readonly activeRuns = new Map<string, FunctionRun>()
+  private readonly runCancellations = new Map<string, { reject: (error: Error) => void }>()
+
+  // Throttle manager
+  private readonly throttleManager = new ThrottleManager()
+
+  // Concurrency manager
+  private readonly concurrencyManager = new ConcurrencyManager()
+
+  // Batch manager
+  private readonly batchManager = new BatchManager()
+
+  // Cancel event subscriptions: eventName -> Set of { functionId, cancelConfig }
+  private readonly cancelSubscriptions = new Map<
+    string,
+    Set<{ functionId: string; config: CancelOnConfig }>
+  >()
+
   constructor(config: InngestConfig) {
     this.id = config.id
     this.config = config
@@ -471,6 +778,19 @@ export class Inngest {
       this.eventHandlers.get(eventName)!.add(fn as InngestFunction<unknown, unknown>)
     }
 
+    // Register cancel subscriptions
+    if (config.cancelOn) {
+      for (const cancelConfig of config.cancelOn) {
+        if (!this.cancelSubscriptions.has(cancelConfig.event)) {
+          this.cancelSubscriptions.set(cancelConfig.event, new Set())
+        }
+        this.cancelSubscriptions.get(cancelConfig.event)!.add({
+          functionId: fn.id,
+          config: cancelConfig,
+        })
+      }
+    }
+
     return fn
   }
 
@@ -500,14 +820,22 @@ export class Inngest {
         ts: payload.ts ?? Date.now(),
       }
 
+      // Check for cancellation events
+      await this.processCancellationEvent(event)
+
       // Trigger handlers for this event
       const handlers = this.eventHandlers.get(event.name)
       if (handlers) {
         for (const fn of handlers) {
-          // Execute in background (fire-and-forget)
-          this.invokeFunction(fn, event).catch((error) => {
-            this.logger.error(`Function ${fn.id} failed:`, error)
-          })
+          // Check if function uses batching
+          if (fn.config.batchEvents) {
+            this.handleBatchedEvent(fn, event)
+          } else {
+            // Execute in background (fire-and-forget)
+            this.invokeFunction(fn, event).catch((error) => {
+              this.logger.error(`Function ${fn.id} failed:`, error)
+            })
+          }
         }
       }
 
@@ -521,21 +849,195 @@ export class Inngest {
   }
 
   /**
+   * Handle batched event
+   */
+  private handleBatchedEvent(fn: InngestFunction<unknown, unknown>, event: InngestEvent): void {
+    const config = fn.config.batchEvents!
+    const keyPath = config.key
+
+    // Calculate batch key
+    let batchKey = fn.id
+    if (keyPath) {
+      const keyValue = getValueByPath({ event }, keyPath)
+      batchKey = `${fn.id}:${String(keyValue)}`
+    }
+
+    this.batchManager.addEvent(batchKey, event, config, (events) => {
+      // Invoke function with all batched events
+      this.invokeFunctionWithBatch(fn, events).catch((error) => {
+        this.logger.error(`Function ${fn.id} (batched) failed:`, error)
+      })
+    })
+  }
+
+  /**
+   * Invoke function with a batch of events
+   */
+  private async invokeFunctionWithBatch(fn: InngestFunction<unknown, unknown>, events: InngestEvent[]): Promise<unknown> {
+    const runId = generateRunId()
+
+    // Build context with all events
+    let ctx: FunctionContext<unknown> = {
+      event: events[0], // First event is the primary
+      events: events,
+      step: this.createStepTools(runId, fn),
+      runId,
+      attempt: 1,
+      logger: this.logger,
+    }
+
+    // Track the run
+    const run: FunctionRun = {
+      runId,
+      functionId: fn.id,
+      status: 'running',
+      event: events[0],
+      startedAt: Date.now(),
+    }
+    this.activeRuns.set(runId, run)
+
+    try {
+      const result = await fn.handler(ctx)
+      run.status = 'completed'
+      run.completedAt = Date.now()
+      return result
+    } catch (error) {
+      run.status = 'failed'
+      run.error = (error as Error).message
+      run.completedAt = Date.now()
+      throw error
+    } finally {
+      // Cleanup after a delay
+      setTimeout(() => this.activeRuns.delete(runId), 60000)
+    }
+  }
+
+  /**
+   * Process cancellation events
+   */
+  private async processCancellationEvent(event: InngestEvent): Promise<void> {
+    const subscriptions = this.cancelSubscriptions.get(event.name)
+    if (!subscriptions) return
+
+    for (const { functionId, config } of subscriptions) {
+      // Find matching active runs
+      for (const [runId, run] of this.activeRuns.entries()) {
+        if (run.functionId !== functionId || run.status !== 'running') continue
+
+        // Check match condition
+        let shouldCancel = false
+
+        if (config.match) {
+          // Match on field path
+          const triggerValue = getValueByPath(event, config.match)
+          const runValue = getValueByPath(run.event, config.match)
+          shouldCancel = triggerValue === runValue
+        } else if (config.if) {
+          // Evaluate expression
+          shouldCancel = evaluateExpression(config.if, { event, async: run.event })
+        } else {
+          // No condition, always cancel
+          shouldCancel = true
+        }
+
+        if (shouldCancel) {
+          await this.cancel(runId, 'Cancelled by event: ' + event.name)
+        }
+      }
+    }
+  }
+
+  /**
+   * Get active runs for a function
+   */
+  async getRuns(options: { functionId?: string }): Promise<FunctionRun[]> {
+    const runs: FunctionRun[] = []
+    for (const run of this.activeRuns.values()) {
+      if (!options.functionId || run.functionId === options.functionId) {
+        runs.push(run)
+      }
+    }
+    return runs
+  }
+
+  /**
+   * Get state for a specific run
+   */
+  async getRunState(runId: string): Promise<FunctionRun | null> {
+    return this.activeRuns.get(runId) || null
+  }
+
+  /**
+   * Cancel a running function
+   */
+  async cancel(runId: string, reason?: string): Promise<void> {
+    const run = this.activeRuns.get(runId)
+    if (!run) return
+
+    run.status = 'cancelled'
+    run.completedAt = Date.now()
+
+    // Reject any waiting promises
+    const cancellation = this.runCancellations.get(runId)
+    if (cancellation) {
+      cancellation.reject(new CancellationError(runId, reason))
+      this.runCancellations.delete(runId)
+    }
+
+    // Clear step results for this run
+    for (const key of this.stepResults.keys()) {
+      if (key.startsWith(`${runId}:`)) {
+        this.stepResults.delete(key)
+      }
+    }
+
+    // Remove from active runs
+    this.activeRuns.delete(runId)
+  }
+
+  /**
    * Create step tools for a function execution
    */
-  private createStepTools(runId: string): StepTools {
+  private createStepTools(runId: string, fn: InngestFunction<unknown, unknown>): StepTools {
     const self = this
 
     return {
-      async run<T>(stepId: string, fn: () => T | Promise<T>): Promise<T> {
+      async run<T>(stepId: string, stepFn: () => T | Promise<T>): Promise<T> {
         // Check for cached result (memoization/replay)
         const cacheKey = `${runId}:${stepId}`
         if (self.stepResults.has(cacheKey)) {
           return self.stepResults.get(cacheKey) as T
         }
 
+        // Check if cancelled
+        const run = self.activeRuns.get(runId)
+        if (run?.status === 'cancelled') {
+          throw new CancellationError(runId)
+        }
+
+        // Apply throttling if configured
+        if (fn.config.throttle) {
+          const throttleConfig = fn.config.throttle
+          const keyPath = throttleConfig.key
+          let throttleKey = fn.id
+
+          if (keyPath) {
+            const run = self.activeRuns.get(runId)
+            if (run) {
+              const keyValue = getValueByPath({ event: run.event }, keyPath)
+              throttleKey = `${fn.id}:${String(keyValue)}`
+            }
+          }
+
+          await self.throttleManager.acquire(
+            throttleKey,
+            throttleConfig.count,
+            parseDuration(throttleConfig.period)
+          )
+        }
+
         try {
-          const result = await fn()
+          const result = await stepFn()
           self.stepResults.set(cacheKey, result)
           return result
         } catch (error) {
@@ -552,8 +1054,30 @@ export class Inngest {
           return
         }
 
+        // Check if cancelled
+        const run = self.activeRuns.get(runId)
+        if (run?.status === 'cancelled') {
+          throw new CancellationError(runId)
+        }
+
         const ms = parseDuration(duration)
-        await new Promise((resolve) => setTimeout(resolve, ms))
+
+        // Create cancellable sleep
+        await new Promise<void>((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            self.runCancellations.delete(runId)
+            resolve()
+          }, ms)
+
+          // Register for cancellation
+          self.runCancellations.set(runId, {
+            reject: (error) => {
+              clearTimeout(timeoutId)
+              reject(error)
+            },
+          })
+        })
+
         self.stepResults.set(cacheKey, true)
       },
 
@@ -613,6 +1137,21 @@ export class Inngest {
           id: generateEventId(),
         }
 
+        // Handle timeout
+        if (options.timeout) {
+          const timeoutMs = parseDuration(options.timeout)
+          const result = await Promise.race([
+            self.invokeFunction(options.function, event),
+            new Promise<never>((_, reject) => {
+              setTimeout(() => {
+                reject(new InvokeTimeoutError(options.function.id, timeoutMs))
+              }, timeoutMs)
+            }),
+          ])
+          self.stepResults.set(cacheKey, result)
+          return result as T
+        }
+
         const result = await self.invokeFunction(options.function, event)
         self.stepResults.set(cacheKey, result)
         return result as T
@@ -662,6 +1201,54 @@ export class Inngest {
   async invokeFunction<TEvent, TResult>(fn: InngestFunction<TEvent, TResult>, event: InngestEvent<TEvent>): Promise<TResult> {
     const runId = generateRunId()
 
+    // Track the run
+    const run: FunctionRun = {
+      runId,
+      functionId: fn.id,
+      status: 'running',
+      event: event as InngestEvent,
+      startedAt: Date.now(),
+    }
+    this.activeRuns.set(runId, run)
+
+    // Apply concurrency limits
+    if (fn.config.concurrency) {
+      const concurrencyConfig = typeof fn.config.concurrency === 'number'
+        ? { limit: fn.config.concurrency }
+        : fn.config.concurrency
+
+      let concurrencyKey = fn.id
+
+      if (concurrencyConfig.key) {
+        const keyValue = getValueByPath({ event }, concurrencyConfig.key)
+        concurrencyKey = `${fn.id}:${String(keyValue)}`
+      } else if (concurrencyConfig.scope === 'env') {
+        concurrencyKey = `env:${this.id}`
+      } else if (concurrencyConfig.scope === 'account') {
+        concurrencyKey = 'account'
+      }
+
+      await this.concurrencyManager.acquire(concurrencyKey, concurrencyConfig.limit)
+
+      try {
+        return await this.executeFunction(fn, event, runId, run)
+      } finally {
+        this.concurrencyManager.release(concurrencyKey)
+      }
+    }
+
+    return this.executeFunction(fn, event, runId, run)
+  }
+
+  /**
+   * Execute function (shared logic for invoke)
+   */
+  private async executeFunction<TEvent, TResult>(
+    fn: InngestFunction<TEvent, TResult>,
+    event: InngestEvent<TEvent>,
+    runId: string,
+    run: FunctionRun
+  ): Promise<TResult> {
     // Apply middleware
     let middlewareLifecycles: MiddlewareLifecycle[] = []
     for (const mw of this.middleware) {
@@ -679,7 +1266,7 @@ export class Inngest {
     let ctx: FunctionContext<TEvent> = {
       event,
       events: [event],
-      step: this.createStepTools(runId),
+      step: this.createStepTools(runId, fn as InngestFunction<unknown, unknown>),
       runId,
       attempt: 1,
       logger: this.logger,
@@ -713,13 +1300,27 @@ export class Inngest {
         await lifecycle.afterExecution?.()
       }
 
+      run.status = 'completed'
+      run.completedAt = Date.now()
+
       return result
     } catch (error) {
       // Error hooks
       for (const lifecycle of middlewareLifecycles) {
         await lifecycle.onError?.(error as Error)
       }
+
+      run.status = 'failed'
+      run.error = (error as Error).message
+      run.completedAt = Date.now()
+
       throw error
+    } finally {
+      // Cleanup run cancellation handler
+      this.runCancellations.delete(runId)
+
+      // Cleanup after a delay
+      setTimeout(() => this.activeRuns.delete(runId), 60000)
     }
   }
 
