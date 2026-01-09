@@ -1802,11 +1802,8 @@ describe('StaticAssetsSearchCoordinator', () => {
         dimensions: TEST_DIMENSIONS,
       })
 
-      // Act & Assert
-      const searchPromise = coordinator.search(new Float32Array(0), 10)
-      await vi.advanceTimersByTimeAsync(50)
-
-      await expect(searchPromise).rejects.toThrow(/invalid.*query|empty.*vector/i)
+      // Act & Assert - error is thrown synchronously, no timer needed
+      await expect(coordinator.search(new Float32Array(0), 10)).rejects.toThrow(/invalid.*query|empty.*vector/i)
     })
 
     it('handles zero results from coarse search', async () => {
