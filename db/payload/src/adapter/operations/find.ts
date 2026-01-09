@@ -135,6 +135,9 @@ export async function find(args: FindArgs, ctx: FindContext): Promise<FindResult
   // Get all things of this type
   let results = things.list({ type: typeUrl })
 
+  // Filter out soft-deleted things
+  results = results.filter((thing) => !(thing as any).$deleted)
+
   // Apply where filter
   if (where) {
     results = filterByWhere(results, where, namespace)
@@ -195,7 +198,8 @@ export async function findOne(args: FindOneArgs, ctx: FindContext): Promise<Reco
     const thingId = `${namespace}/${collection}/${id}`
     const thing = things.get(thingId)
 
-    if (!thing) {
+    // Check if thing exists and is not soft-deleted
+    if (!thing || (thing as any).$deleted) {
       return null
     }
 
@@ -376,38 +380,55 @@ function matchesOperator(value: unknown, op: string, operand: unknown, thing: Th
 
 /**
  * Sort results by sort string
+ * Uses stable sorting to maintain original order for equal values.
+ * For descending sorts, later-inserted items come first when values are equal
+ * (simulating "most recent" ordering for equal timestamps).
  */
 function sortResults(results: ThingData[], sort: string): ThingData[] {
   const isDesc = sort.startsWith('-')
   const field = isDesc ? sort.slice(1) : sort
   const direction = isDesc ? -1 : 1
 
-  return [...results].sort((a, b) => {
-    const aVal = getFieldValue(a, field)
-    const bVal = getFieldValue(b, field)
+  // Create indexed array for stable sort
+  const indexed = results.map((item, index) => ({ item, index }))
+
+  indexed.sort((a, b) => {
+    const aVal = getFieldValue(a.item, field)
+    const bVal = getFieldValue(b.item, field)
 
     // Handle null/undefined (sort to end)
-    if (aVal == null && bVal == null) return 0
+    if (aVal == null && bVal == null) {
+      // For desc, later items first; for asc, earlier items first
+      return isDesc ? b.index - a.index : a.index - b.index
+    }
     if (aVal == null) return 1
     if (bVal == null) return -1
 
+    let result = 0
+
     // Compare dates
     if (aVal instanceof Date && bVal instanceof Date) {
-      return (aVal.getTime() - bVal.getTime()) * direction
+      result = (aVal.getTime() - bVal.getTime()) * direction
     }
-
     // Compare numbers
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return (aVal - bVal) * direction
+    else if (typeof aVal === 'number' && typeof bVal === 'number') {
+      result = (aVal - bVal) * direction
     }
-
     // Compare strings
-    if (typeof aVal === 'string' && typeof bVal === 'string') {
-      return aVal.localeCompare(bVal) * direction
+    else if (typeof aVal === 'string' && typeof bVal === 'string') {
+      result = aVal.localeCompare(bVal) * direction
     }
 
-    return 0
+    // Stable sort: if equal, for desc put later items first (most recent)
+    // for asc, maintain original order (earlier items first)
+    if (result === 0) {
+      return isDesc ? b.index - a.index : a.index - b.index
+    }
+
+    return result
   })
+
+  return indexed.map(({ item }) => item)
 }
 
 // ============================================================================
@@ -428,12 +449,19 @@ interface TransformContext {
 function transformThingToPayload(thing: ThingData, ctx: TransformContext): Record<string, unknown> {
   const id = thing.$id?.split('/').pop()
 
-  return {
+  const doc: Record<string, unknown> = {
     id,
     ...thing.data,
     createdAt: thing.createdAt instanceof Date ? thing.createdAt.toISOString() : thing.createdAt,
     updatedAt: thing.updatedAt instanceof Date ? thing.updatedAt.toISOString() : thing.updatedAt,
   }
+
+  // Include the name field if present (used by user documents, etc.)
+  if (thing.name !== undefined) {
+    doc.name = thing.name
+  }
+
+  return doc
 }
 
 // ============================================================================
@@ -461,26 +489,51 @@ async function populateRelationships(
   for (const field of schema) {
     if (field.type === 'relationship' || field.type === 'upload') {
       const fieldValue = doc[field.name]
-      if (fieldValue == null) continue
+
+      // Explicitly set null for missing/null relationship fields
+      if (fieldValue == null) {
+        result[field.name] = null
+        continue
+      }
 
       const relationTo = field.relationTo
 
       // Handle polymorphic relationships (relationTo is array)
       if (Array.isArray(relationTo)) {
-        // Value should be { relationTo: 'collection', value: 'id' }
-        if (typeof fieldValue === 'object' && fieldValue !== null && 'relationTo' in fieldValue && 'value' in fieldValue) {
+        // Handle hasMany polymorphic relationships (array of { relationTo, value })
+        if (field.hasMany && Array.isArray(fieldValue)) {
+          const populatedItems = await Promise.all(
+            fieldValue.map(async (item) => {
+              if (typeof item === 'object' && item !== null && 'relationTo' in item && 'value' in item) {
+                const polyItem = item as { relationTo: string; value: string }
+                const relatedDoc = await resolveRelatedDocument(
+                  String(polyItem.value),
+                  polyItem.relationTo,
+                  depth - 1,
+                  ctx
+                )
+                return {
+                  relationTo: polyItem.relationTo,
+                  value: relatedDoc ?? polyItem.value,
+                }
+              }
+              return item
+            })
+          )
+          result[field.name] = populatedItems
+        }
+        // Handle single polymorphic relationship: { relationTo: 'collection', value: 'id' }
+        else if (typeof fieldValue === 'object' && fieldValue !== null && 'relationTo' in fieldValue && 'value' in fieldValue) {
           const polyValue = fieldValue as { relationTo: string; value: string }
           const relatedDoc = await resolveRelatedDocument(
-            polyValue.value,
+            String(polyValue.value),
             polyValue.relationTo,
             depth - 1,
             ctx
           )
-          if (relatedDoc) {
-            result[field.name] = {
-              relationTo: polyValue.relationTo,
-              value: relatedDoc,
-            }
+          result[field.name] = {
+            relationTo: polyValue.relationTo,
+            value: relatedDoc ?? polyValue.value,
           }
         }
         continue
@@ -495,11 +548,9 @@ async function populateRelationships(
         continue
       }
 
-      // Handle single relationships
+      // Handle single relationships - set to null if not found
       const relatedDoc = await resolveRelatedDocument(String(fieldValue), relationTo || '', depth - 1, ctx)
-      if (relatedDoc) {
-        result[field.name] = relatedDoc
-      }
+      result[field.name] = relatedDoc
     }
   }
 

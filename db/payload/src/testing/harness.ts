@@ -40,6 +40,20 @@ import {
   type DeleteVersionsArgs,
   type VersionContext,
 } from '../adapter/operations/versions'
+import {
+  updateOne as updateOneOperation,
+  updateMany as updateManyOperation,
+  type UpdateOneArgs,
+  type UpdateManyArgs,
+  type UpdateContext,
+} from '../adapter/operations/update'
+import {
+  deleteOne as deleteOneOperation,
+  deleteMany as deleteManyOperation,
+  type DeleteOneArgs,
+  type DeleteManyArgs,
+  type DeleteContext,
+} from '../adapter/operations/delete'
 
 // ============================================================================
 // TYPES
@@ -49,7 +63,7 @@ import {
  * Tracked adapter operation
  */
 export interface AdapterOperation {
-  type: 'create' | 'find' | 'findOne' | 'update' | 'delete' | 'count' | 'createVersion' | 'findVersions' | 'findVersion' | 'restoreVersion' | 'deleteVersions'
+  type: 'create' | 'find' | 'findOne' | 'update' | 'delete' | 'deleteMany' | 'updateMany' | 'count' | 'createVersion' | 'findVersions' | 'findVersion' | 'restoreVersion' | 'deleteVersions'
   collection: string
   data?: unknown
   where?: unknown
@@ -226,6 +240,17 @@ function createRelationshipsStore(): RelationshipsStore {
       return false
     },
 
+    removeAll(from, verb?) {
+      let removed = 0
+      for (let i = store.length - 1; i >= 0; i--) {
+        if (store[i].from === from && (!verb || store[i].verb === verb)) {
+          store.splice(i, 1)
+          removed++
+        }
+      }
+      return removed
+    },
+
     clear() {
       store.length = 0
     },
@@ -301,6 +326,8 @@ const postsSchema: PayloadField[] = [
   { type: 'blocks', name: 'layout' },
   // Polymorphic relationship for parent field
   { type: 'relationship', name: 'parent', relationTo: ['pages', 'posts'] },
+  // Related posts (same collection relationship)
+  { type: 'relationship', name: 'relatedPosts', relationTo: 'posts', hasMany: true },
 ]
 
 /**
@@ -319,6 +346,8 @@ const usersSchema: PayloadField[] = [
   { type: 'text', name: 'name', required: true },
   { type: 'email', name: 'email', required: true },
   { type: 'relationship', name: 'organization', relationTo: 'organizations' },
+  { type: 'relationship', name: 'manager', relationTo: 'users' },
+  { type: 'relationship', name: 'team', relationTo: 'users', hasMany: true },
 ]
 
 /**
@@ -335,14 +364,41 @@ const organizationsSchema: PayloadField[] = [
 const categoriesSchema: PayloadField[] = [
   { type: 'text', name: 'name', required: true },
   { type: 'text', name: 'slug', required: true },
+  { type: 'relationship', name: 'parent', relationTo: 'categories' },
 ]
 
 /**
- * Default schema for pages collection
+ * Default schema for pages collection (with polymorphic relationships)
  */
 const pagesSchema: PayloadField[] = [
   { type: 'text', name: 'title', required: true },
   { type: 'text', name: 'slug', required: true },
+  { type: 'relationship', name: 'content', relationTo: ['posts', 'categories', 'media'] },
+  { type: 'relationship', name: 'items', relationTo: ['posts', 'categories'], hasMany: true },
+]
+
+/**
+ * Default schema for media collection
+ */
+const mediaSchema: PayloadField[] = [
+  { type: 'text', name: 'filename', required: true },
+  { type: 'text', name: 'mimeType' },
+  { type: 'text', name: 'url' },
+  { type: 'number', name: 'filesize' },
+  { type: 'number', name: 'width' },
+  { type: 'number', name: 'height' },
+  { type: 'text', name: 'alt' },
+]
+
+/**
+ * Default schema for comments collection
+ */
+const commentsSchema: PayloadField[] = [
+  { type: 'text', name: 'body', required: true },
+  { type: 'relationship', name: 'author', relationTo: 'users' },
+  { type: 'relationship', name: 'post', relationTo: 'posts' },
+  { type: 'relationship', name: 'parent', relationTo: 'comments' },
+  { type: 'relationship', name: 'replies', relationTo: 'comments', hasMany: true },
 ]
 
 /**
@@ -355,6 +411,8 @@ const collectionSchemas: Record<string, PayloadField[]> = {
   organizations: organizationsSchema,
   categories: categoriesSchema,
   pages: pagesSchema,
+  media: mediaSchema,
+  comments: commentsSchema,
 }
 
 /**
@@ -601,13 +659,16 @@ function createMockAdapter(
       const $id = `${namespace}/${collection}/${doc.id}`
       const $type = `${namespace}/${collection}`
 
-      // Extract known fields, rest goes to data
-      const { id, createdAt, updatedAt, _status, title, name: docName, ...rest } = doc
+      // Extract system fields only, keep all data fields (including title)
+      const { id, createdAt, updatedAt, _status, ...rest } = doc
+
+      // Get name from title or name field for display purposes
+      const name = (rest.title as string) ?? (rest.name as string) ?? undefined
 
       return {
         $id,
         $type,
-        name: (title as string) ?? (docName as string) ?? undefined,
+        name,
         data: Object.keys(rest).length > 0 ? rest as Record<string, unknown> : undefined,
         visibility: _status === 'published' ? 'public' : 'user',
         createdAt: createdAt ? new Date(createdAt) : new Date(),
@@ -641,7 +702,11 @@ function createMockAdapter(
     find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string; depth?: number }) => Promise<{ docs: Record<string, unknown>[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number; limit: number }>
     findOne: (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number }) => Promise<Record<string, unknown> | null>
     update: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
+    updateOne: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
+    updateMany: (args: { collection: string; where?: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ updatedCount: number }>
     delete: (args: { collection: string; id: string }) => Promise<PayloadDocument>
+    deleteOne: (args: { collection: string; id: string }) => Promise<PayloadDocument>
+    deleteMany: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ deletedCount: number }>
     count: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ totalDocs: number }>
     createVersion: (args: CreateVersionArgs) => Promise<any>
     findVersions: (args: FindVersionsArgs) => Promise<any>
@@ -753,6 +818,133 @@ function createMockAdapter(
     trackOperation('count', args.collection, { where: args.where })
     const result = await adapter.findDocuments(args.collection, { where: args.where })
     return { totalDocs: result.totalDocs }
+  }
+
+  // Build update/delete context helper
+  const buildUpdateDeleteContext = (): UpdateContext & DeleteContext => {
+    const namespace = config.namespace ?? 'https://test.do'
+    return {
+      namespace,
+      things,
+      relationships,
+      nouns,
+      schema: undefined,
+      findDocument: async (collection: string, id: string) => {
+        const col = getCollection(collection)
+        return col.get(id) ?? null
+      },
+      findDocuments: async (collection: string, query?: { where?: Record<string, unknown> }) => {
+        const col = getCollection(collection)
+        let docs = Array.from(col.values())
+
+        // Apply where filters
+        if (query?.where) {
+          docs = docs.filter((doc) => {
+            for (const [key, value] of Object.entries(query.where!)) {
+              // Handle nested filter objects like { status: { equals: 'draft' } }
+              if (typeof value === 'object' && value !== null) {
+                const filterObj = value as Record<string, unknown>
+                if ('equals' in filterObj) {
+                  if (doc[key] !== filterObj.equals) return false
+                }
+              } else {
+                if (doc[key] !== value) return false
+              }
+            }
+            return true
+          })
+        }
+
+        return { docs }
+      },
+      deleteFromCollection: (collection: string, id: string) => {
+        const col = getCollection(collection)
+        col.delete(id)
+      },
+      hooks: adapterWithAliases.hooks,
+    }
+  }
+
+  // updateOne operation
+  adapterWithAliases.updateOne = async (args: { collection: string; id: string; data: Record<string, unknown> }) => {
+    const namespace = config.namespace ?? 'https://test.do'
+    const schema = getCollectionSchema(args.collection)
+    const ctx = buildUpdateDeleteContext()
+    ctx.schema = schema
+
+    // Track the operation
+    trackOperation('update', args.collection, { data: args.data, id: args.id })
+
+    // Call the update operation
+    const doc = await updateOneOperation({
+      collection: args.collection,
+      id: args.id,
+      data: args.data,
+    }, ctx)
+
+    // Update in collections map
+    const col = getCollection(args.collection)
+    col.set(doc.id, doc)
+
+    return doc
+  }
+
+  // updateMany operation
+  adapterWithAliases.updateMany = async (args: { collection: string; where?: Record<string, unknown>; data: Record<string, unknown> }) => {
+    const namespace = config.namespace ?? 'https://test.do'
+    const schema = getCollectionSchema(args.collection)
+    const ctx = buildUpdateDeleteContext()
+    ctx.schema = schema
+
+    // Track the operation
+    trackOperation('updateMany' as any, args.collection, { data: args.data, where: args.where })
+
+    // Call the updateMany operation
+    const result = await updateManyOperation({
+      collection: args.collection,
+      where: args.where,
+      data: args.data,
+    }, ctx)
+
+    return result
+  }
+
+  // deleteOne operation
+  adapterWithAliases.deleteOne = async (args: { collection: string; id: string }) => {
+    const namespace = config.namespace ?? 'https://test.do'
+    const schema = getCollectionSchema(args.collection)
+    const ctx = buildUpdateDeleteContext()
+    ctx.schema = schema
+
+    // Track the operation
+    trackOperation('delete', args.collection, { id: args.id })
+
+    // Call the delete operation
+    const doc = await deleteOneOperation({
+      collection: args.collection,
+      id: args.id,
+    }, ctx)
+
+    return doc
+  }
+
+  // deleteMany operation
+  adapterWithAliases.deleteMany = async (args: { collection: string; where?: Record<string, unknown> }) => {
+    const namespace = config.namespace ?? 'https://test.do'
+    const schema = getCollectionSchema(args.collection)
+    const ctx = buildUpdateDeleteContext()
+    ctx.schema = schema
+
+    // Track the operation
+    trackOperation('deleteMany' as any, args.collection, { where: args.where })
+
+    // Call the deleteMany operation
+    const result = await deleteManyOperation({
+      collection: args.collection,
+      where: args.where,
+    }, ctx)
+
+    return result
   }
 
   // Build version context for versioning operations
