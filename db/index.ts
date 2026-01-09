@@ -17,6 +17,9 @@ export * from './dlq'
 export * from './flags'
 export * from './vault'
 
+// JSON Path Indexing - Expression indexes on json_extract()
+export * from './json-indexes'
+
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
 

@@ -27,6 +27,10 @@ export interface FieldDefinition {
   targetType?: string // For relationships
   prompt?: string // AI generation prompt
   threshold?: number // Fuzzy match threshold (0-1)
+
+  // JSON path indexing - creates SQLite expression index on json_extract(data, '$.field')
+  // Use for fields frequently used in WHERE clauses to improve query performance
+  index?: boolean
 }
 
 // ============================================================================
