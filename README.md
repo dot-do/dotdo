@@ -246,9 +246,44 @@ Same API. But running on Durable Objects with automatic sharding, geo-replicatio
 
 ---
 
-## Extended Primitives
+## Why We Rebuilt Everything
 
-Cloudflare Workers don't have a filesystem, Git, or shell. We reimplemented them from scratch:
+We didn't want to reimplement Git, Bash, MongoDB, Kafka, and Supabase from scratch.
+
+But when we dispatched 10,000 parallel AI agents, everything crumbled:
+- **Databases** hit connection limits and lock contention
+- **Filesystems** couldn't handle concurrent writes
+- **Git** servers choked on parallel clone operations
+- **Message queues** backed up under sustained load
+
+The fundamental problem: traditional infrastructure was built for **thousands of human users**, not **millions of parallel AI agents**.
+
+So we rebuilt everything on a different primitive.
+
+---
+
+## The V8 Isolate: A Virtual Chrome Tab
+
+A Cloudflare Worker is a **V8 isolate**—the same JavaScript engine that runs in Chrome. Think of it as a virtual browser tab:
+
+- **0ms cold start** (no container spin-up)
+- **Instant execution** (no process overhead)
+- **Global distribution** (runs in 300+ cities)
+- **Isolated by design** (no shared memory attacks)
+
+A Durable Object adds **persistent state** to that isolate:
+- **SQLite storage** (10GB per instance)
+- **Single-threaded consistency** (no locks needed)
+- **Guaranteed delivery** (exactly-once semantics)
+- **Location pinning** (data residency compliance)
+
+This is the primitive we built on. Not VMs. Not containers. **V8 isolates with durable state, running on the edge, right next to your users.**
+
+---
+
+## Extended Primitives: What V8 Isolates Can't Do
+
+V8 isolates don't have filesystems, Git, or shells. We built them from scratch:
 
 ### fsx: Filesystem on SQLite
 
@@ -259,9 +294,13 @@ await $.fs.glob('**/*.ts')
 await $.fs.mkdir('uploads', { recursive: true })
 ```
 
-Full POSIX semantics. Tiered storage (hot SQLite → warm R2 → cold archive). Works in V8 isolates.
+Full POSIX semantics implemented on DO SQLite. Not a wrapper—a complete filesystem:
+- **Inodes** stored as rows
+- **Directory trees** as hierarchical queries
+- **Tiered storage**: hot (SQLite) → warm (R2) → cold (archive)
+- Works anywhere V8 runs
 
-### gitx: Git on fsx
+### gitx: Git on fsx + R2
 
 ```typescript
 await $.git.clone('https://github.com/org/repo')
@@ -270,7 +309,13 @@ await $.git.commit('feat: add new feature')
 await $.git.push('origin', 'main')
 ```
 
-Complete Git implementation. Object storage in R2. Diffs, merges, history. Your agents can version control.
+Complete Git internals reimplemented for edge:
+- **Blobs, trees, commits** stored in R2 (content-addressable)
+- **SHA-1 hashing** via `crypto.subtle`
+- **Refs** tracked in DO metadata
+- **Event-driven sync** when repos change
+
+Your agents can version control without shelling out to `git`.
 
 ### bashx: Shell Without VMs
 
@@ -280,9 +325,29 @@ await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
 await $.bash`python analyze.py --input ${data}`
 ```
 
-Shell execution on Workers. No VMs, no cold starts. Sandboxed per-request. Your agents can run builds.
+Shell execution without spawning VMs:
+- **AST-based safety analysis** (tree-sitter parsing)
+- **Native file ops** (cat, ls, head use fsx directly)
+- **Tiered execution**: pure JS → Workers → Containers
+- **Sandboxed per-request** with resource limits
 
-These aren't wrappers—they're complete reimplementations that run natively on edge, enabling millions of parallel AI agents to have full system capabilities.
+Commands are parsed, classified by impact (read/write/delete/network/system), and blocked if dangerous unless explicitly confirmed.
+
+---
+
+## Why the Compat Layer Exists
+
+We built 38 API-compatible SDKs because developers know these APIs—and because every one of them breaks under parallel agent load:
+
+| Original | Problem at Scale | @dotdo Solution |
+|----------|------------------|-----------------|
+| **Supabase** | Connection pooling limits | Sharded across DOs |
+| **MongoDB** | Write lock contention | Single-threaded per shard |
+| **Redis** | Memory limits per instance | Tiered to R2 |
+| **Kafka** | Partition rebalancing storms | DO-native queues |
+| **Postgres** | Connection exhaustion | Per-tenant DO isolation |
+
+Each compat package provides the **exact same API** but runs on Durable Objects with automatic sharding, replication, and tiering. Your code doesn't change. It just scales.
 
 ---
 
