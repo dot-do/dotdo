@@ -112,8 +112,14 @@ export default defineWorkspace([
   // Rate limit binding tests
   createNodeWorkspace('rate-limit', ['tests/rate-limit/**/*.test.ts']),
 
+  // Vault credential storage tests
+  createNodeWorkspace('vault', ['tests/vault/**/*.test.ts']),
+
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),
+
+  // API generators tests (MCP tools, etc.)
+  createNodeWorkspace('generators', ['api/generators/tests/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests

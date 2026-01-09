@@ -338,8 +338,9 @@ export function parallel(
       }
 
       if (settleAll) {
+        // Wrap sync functions to ensure they return promises
         const results = await Promise.allSettled(
-          functions.map((fn) => fn(input, context))
+          functions.map((fn) => Promise.resolve().then(() => fn(input, context)))
         )
 
         return results.map((result) => {

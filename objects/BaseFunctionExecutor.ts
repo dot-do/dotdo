@@ -439,23 +439,21 @@ export abstract class BaseFunctionExecutor<TOptions extends BaseExecutorOptions>
       return await Promise.race([
         fn(),
         new Promise<never>((_, reject) => {
-          if (controller.signal.aborted) {
-            const reason = controller.signal.reason as string | undefined
-            if (reason?.includes('timed out')) {
+          const handleAbort = () => {
+            const rawReason = controller.signal.reason
+            const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
+            if (reason.includes('timed out')) {
               reject(new ExecutionTimeoutError(reason))
             } else {
-              reject(new ExecutionCancelledError(reason || 'Execution cancelled'))
+              reject(new ExecutionCancelledError(reason))
             }
+          }
+
+          if (controller.signal.aborted) {
+            handleAbort()
             return
           }
-          controller.signal.addEventListener('abort', () => {
-            const reason = controller.signal.reason as string | undefined
-            if (reason?.includes('timed out')) {
-              reject(new ExecutionTimeoutError(reason))
-            } else {
-              reject(new ExecutionCancelledError(reason || 'Execution cancelled'))
-            }
-          })
+          controller.signal.addEventListener('abort', handleAbort)
         }),
       ])
     } finally {

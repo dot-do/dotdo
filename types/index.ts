@@ -110,3 +110,94 @@ export type {
   FunctionType,
   RpcPromise,
 } from './fn'
+
+// AI Function types
+export * from './AIFunction'
+export type {
+  // JSON Schema types
+  JSONSchema,
+  JSONSchemaType,
+  InferSchema,
+  InferSchemaType,
+  // Tool types
+  Tool,
+  ToolInvocation,
+  // Executor options
+  BaseExecutorOptions,
+  CodeOptions,
+  GenerativeOptions,
+  AgenticOptions,
+  HumanOptions,
+  // Configuration types
+  RetryConfig,
+  CacheConfig,
+  MemoryConfig,
+  ReminderConfig,
+  EscalationConfig,
+  // Metrics types
+  ExecutionMetrics,
+  GenerativeMetrics,
+  AgenticMetrics,
+  HumanMetrics,
+  // Result types
+  ExecutionResult,
+  CodeExecutionResult,
+  GenerativeExecutionResult,
+  AgenticExecutionResult,
+  HumanExecutionResult,
+  // Error types
+  AIFunctionErrorCode,
+  AIFunctionErrorData,
+  // Function definition types
+  AIFunctionDefinition,
+  CodeFunctionDefinition,
+  GenerativeFunctionDefinition,
+  AgenticFunctionDefinition,
+  HumanFunctionDefinition,
+  AnyFunctionDefinition,
+  // Pipeline integration
+  PipelineAIFunction,
+  StreamingAIFunction,
+  // Executor types
+  ExecutorFn,
+  CodeExecutor,
+  GenerativeExecutor,
+  AgenticExecutor,
+  HumanExecutor,
+  // Composition types
+  ComposedFunction,
+  CascadingFunction,
+  // Template types
+  ExtractTemplateParams,
+  TemplateFn,
+  AITemplateFn,
+  // Builder types
+  AIFunctionBuilder,
+  // Utility types
+  UnwrapResult,
+  OptionsForType,
+  ResultForType,
+  MetricsForType,
+  DeepRequired,
+  DeepPartial,
+} from './AIFunction'
+export {
+  // Error classes
+  AIFunctionError,
+  ValidationError,
+  TimeoutError,
+  RateLimitError,
+  ModelError,
+  ToolError,
+  ContentFilterError,
+  HumanRejectedError,
+  // Type guards
+  isAIFunctionError,
+  isErrorCode,
+  isCodeFunction,
+  isGenerativeFunction,
+  isAgenticFunction,
+  isHumanFunction,
+  isSuccess,
+  isFailure,
+} from './AIFunction'

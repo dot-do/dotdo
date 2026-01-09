@@ -19,6 +19,8 @@ import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler } from '../types/WorkflowContext'
+import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from './schedule-builder'
+import { ScheduleManager, type Schedule } from './ScheduleManager'
 import type { Thing } from '../types/Thing'
 import {
   ThingsStore,
@@ -290,6 +292,31 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // Key format: "Noun.verb" (e.g., "Customer.created")
   // Value: Array of registered handler functions
   protected _eventHandlers: Map<string, Function[]> = new Map()
+
+  // Schedule handler registry for $.every scheduling
+  // Key format: schedule name
+  // Value: Handler function
+  protected _scheduleHandlers: Map<string, ScheduleHandler> = new Map()
+
+  // Schedule manager for cron parsing and alarm registration
+  private _scheduleManager?: ScheduleManager
+
+  /**
+   * Get the schedule manager (lazy initialized)
+   */
+  protected get scheduleManager(): ScheduleManager {
+    if (!this._scheduleManager) {
+      this._scheduleManager = new ScheduleManager(this.ctx)
+      // Register the trigger handler
+      this._scheduleManager.onScheduleTrigger(async (schedule: Schedule) => {
+        const handler = this._scheduleHandlers.get(schedule.name)
+        if (handler) {
+          await handler()
+        }
+      })
+    }
+    return this._scheduleManager
+  }
 
   // Cross-DO resolution caches
   private _stubCache: Map<string, { stub: DOStub; cachedAt: number }> = new Map()
@@ -1503,26 +1530,23 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   protected createScheduleBuilder(): ScheduleBuilder {
-    // Return a proxy that builds cron expressions
-    const baseFunction = (schedule: string, handler: ScheduleHandler): void => {
-      // Natural language schedule
-    }
+    const self = this
 
-    return new Proxy(baseFunction as ScheduleBuilder, {
-      get: (_, day: string): ScheduleTimeProxy => {
-        const dayFunction = (handler: ScheduleHandler): void => {
-          // Handler called directly on day (e.g., $.every.Monday(handler))
-        }
+    // Create the schedule builder proxy that integrates with ScheduleManager
+    const config: ScheduleBuilderConfig = {
+      state: this.ctx,
+      onScheduleRegistered: (cron: string, name: string, handler: ScheduleHandler) => {
+        // Store the handler for later execution
+        self._scheduleHandlers.set(name, handler)
 
-        return new Proxy(dayFunction as ScheduleTimeProxy, {
-          get: (_, time: string): ScheduleExecutor => {
-            return (handler: ScheduleHandler): void => {
-              // Register schedule handler for specific time
-            }
-          },
+        // Register with the ScheduleManager (async, fire-and-forget)
+        self.scheduleManager.schedule(cron, name).catch((error) => {
+          console.error(`Failed to register schedule ${name}:`, error)
         })
       },
-    })
+    }
+
+    return createScheduleBuilderProxy(config) as unknown as ScheduleBuilder
   }
 
   protected createDomainProxy(noun: string, id: string): DomainProxy {
@@ -1916,6 +1940,32 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    */
   protected createDefaultApp(): Hono {
     return new Hono()
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALARM HANDLER (for scheduled tasks)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle DO alarm - executes scheduled tasks
+   *
+   * This method is called by the Cloudflare Workers runtime when a DO alarm fires.
+   * It delegates to the ScheduleManager to trigger any schedules due to run.
+   *
+   * @example
+   * ```typescript
+   * // In your DO subclass, you can extend this behavior:
+   * async alarm(): Promise<void> {
+   *   await super.alarm()
+   *   // Additional alarm handling logic
+   * }
+   * ```
+   */
+  async alarm(): Promise<void> {
+    // Delegate to schedule manager to handle scheduled tasks
+    if (this._scheduleManager) {
+      await this._scheduleManager.handleAlarm()
+    }
   }
 }
 

@@ -21,6 +21,9 @@ export * from './linked-accounts'
 // Integrations - Provider registry for integrations.do
 export * from './integrations'
 
+// ClickHouse - Analytics database client for @clickhouse/client-web
+export * from './clickhouse'
+
 // Re-export all tables as schema object for Drizzle
 import { nouns } from './nouns'
 import { verbs } from './verbs'

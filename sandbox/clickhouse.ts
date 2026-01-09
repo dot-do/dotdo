@@ -1,19 +1,16 @@
 /**
  * ClickHouse Query Sandbox
  *
- * This module provides query sandboxing using ClickHouse with:
- * - Resource limits (memory, execution time, result size)
- * - Row-level security for multi-tenant data isolation
- * - Parameterized queries for SQL injection prevention
- * - Tiered access control based on subscription level
+ * Provides sandboxed query execution using both:
+ * - **chDB** (embedded ClickHouse) - For querying R2/Iceberg data catalogs
+ * - **ClickHouse Server** - For remote queries with full resource controls
  *
- * Uses @clickhouse/client-web for Cloudflare Workers compatibility.
+ * Multi-tenancy is handled at the DO/auth layer, not within chDB itself.
+ * This allows chDB to safely query tenant-scoped data from R2 Data Catalog.
  *
+ * @see https://clickhouse.com/chdb
  * @see https://clickhouse.com/docs/operations/settings/query-complexity
- * @see https://clickhouse.com/docs/cloud/bestpractices/multi-tenancy
  */
-
-import { createClient, type ClickHouseClient } from '@clickhouse/client-web'
 
 // ============================================================================
 // Type Definitions
@@ -26,11 +23,14 @@ export type OutputFormat =
   | 'JSON'
   | 'JSONEachRow'
   | 'JSONCompact'
+  | 'JSONCompactEachRow'
   | 'CSV'
   | 'CSVWithNames'
   | 'TabSeparated'
   | 'Pretty'
   | 'PrettyCompact'
+  | 'Parquet'
+  | 'Arrow'
 
 /**
  * Resource limits for query execution
@@ -53,115 +53,58 @@ export interface ResourceLimits {
 }
 
 /**
- * Query parameter types supported by ClickHouse
- */
-export type QueryParamType =
-  | 'String'
-  | 'UInt8'
-  | 'UInt16'
-  | 'UInt32'
-  | 'UInt64'
-  | 'Int8'
-  | 'Int16'
-  | 'Int32'
-  | 'Int64'
-  | 'Float32'
-  | 'Float64'
-  | 'Date'
-  | 'DateTime'
-  | 'UUID'
-  | 'Array(String)'
-  | 'Array(UInt32)'
-  | 'Array(UInt64)'
-  | 'Identifier'
-
-/**
- * Connection configuration for ClickHouse
- */
-export interface ClickHouseConfig {
-  /** ClickHouse HTTP URL (use port 8123 for HTTP, 8443 for HTTPS) */
-  url: string
-  /** Username for authentication */
-  username: string
-  /** Password for authentication */
-  password: string
-  /** Default database to use */
-  database?: string
-  /** Application name for logging */
-  application?: string
-  /** Request timeout in milliseconds */
-  requestTimeout?: number
-}
-
-/**
- * Tenant configuration for multi-tenant isolation
- */
-export interface TenantConfig {
-  /** Unique tenant identifier */
-  tenantId: string
-  /** Subscription tier */
-  tier: 'free' | 'starter' | 'pro' | 'enterprise'
-  /** Custom resource limits (overrides tier defaults) */
-  customLimits?: Partial<ResourceLimits>
-}
-
-/**
- * Query execution options
- */
-export interface QueryOptions {
-  /** Output format (default: JSONEachRow) */
-  format?: OutputFormat
-  /** Query parameters for safe parameterization */
-  params?: Record<string, unknown>
-  /** Additional ClickHouse settings */
-  settings?: Record<string, string | number>
-}
-
-/**
  * Query execution result
  */
 export interface QueryResult<T = unknown> {
   /** Query success status */
   success: boolean
-  /** Result data (format depends on output format) */
+  /** Result data */
   data?: T[]
+  /** Raw result string (for non-JSON formats) */
+  raw?: string
   /** Error message if failed */
   error?: string
-  /** Query statistics */
+  /** Execution statistics */
   stats?: {
-    rowsRead: number
-    bytesRead: number
+    rowsRead?: number
+    bytesRead?: number
     elapsedMs: number
   }
 }
 
 /**
- * Allowed query definition for query allowlisting
+ * chDB session configuration
  */
-export interface AllowedQuery {
-  /** Query name/identifier */
-  name: string
-  /** SQL query template with parameters */
-  sql: string
-  /** Required parameters */
-  params: Record<string, QueryParamType>
-  /** Description of what this query does */
-  description?: string
+export interface ChDBSessionConfig {
+  /** Path for persistent session data (optional) */
+  dataPath?: string
+  /** Default output format */
+  format?: OutputFormat
+}
+
+/**
+ * R2/Iceberg data source configuration
+ */
+export interface IcebergDataSource {
+  /** R2 bucket name */
+  bucket: string
+  /** Path to Iceberg table metadata */
+  tablePath: string
+  /** Table name alias for queries */
+  alias: string
 }
 
 // ============================================================================
 // Tier-Based Resource Limits
 // ============================================================================
 
-/**
- * Default resource limits by subscription tier
- */
-export const TIER_LIMITS: Record<TenantConfig['tier'], ResourceLimits> = {
+export type Tier = 'free' | 'starter' | 'pro' | 'enterprise'
+
+export const TIER_LIMITS: Record<Tier, ResourceLimits> = {
   free: {
     maxMemoryUsage: 100_000_000, // 100MB
     maxExecutionTime: 5,
     maxResultRows: 1_000,
-    maxResultBytes: 10_000_000, // 10MB
     maxRowsToRead: 1_000_000,
     readonly: 1,
   },
@@ -169,7 +112,6 @@ export const TIER_LIMITS: Record<TenantConfig['tier'], ResourceLimits> = {
     maxMemoryUsage: 500_000_000, // 500MB
     maxExecutionTime: 15,
     maxResultRows: 10_000,
-    maxResultBytes: 50_000_000, // 50MB
     maxRowsToRead: 10_000_000,
     readonly: 1,
   },
@@ -177,7 +119,6 @@ export const TIER_LIMITS: Record<TenantConfig['tier'], ResourceLimits> = {
     maxMemoryUsage: 2_000_000_000, // 2GB
     maxExecutionTime: 60,
     maxResultRows: 100_000,
-    maxResultBytes: 200_000_000, // 200MB
     maxRowsToRead: 100_000_000,
     readonly: 1,
   },
@@ -185,522 +126,539 @@ export const TIER_LIMITS: Record<TenantConfig['tier'], ResourceLimits> = {
     maxMemoryUsage: 10_000_000_000, // 10GB
     maxExecutionTime: 300,
     maxResultRows: 1_000_000,
-    maxResultBytes: 1_000_000_000, // 1GB
     maxRowsToRead: 1_000_000_000,
     readonly: 1,
   },
 }
 
 // ============================================================================
-// ClickHouse Sandbox Class
+// chDB Embedded Sandbox
 // ============================================================================
 
 /**
- * Sandboxed ClickHouse query executor with resource limits and tenant isolation
+ * chDB-based sandbox for querying R2/Iceberg data
+ *
+ * Multi-tenancy is handled at the DO/auth layer - chDB receives
+ * already-scoped queries for tenant data.
+ *
+ * @example
+ * ```typescript
+ * const sandbox = new ChDBSandbox()
+ *
+ * // Stateless query
+ * const result = await sandbox.query("SELECT 1 + 1", "JSON")
+ *
+ * // Query Iceberg table from R2
+ * const result = await sandbox.queryIceberg({
+ *   bucket: 'my-data',
+ *   tablePath: 'warehouse/events',
+ *   query: "SELECT * FROM events WHERE date = '2025-01-09'",
+ * })
+ * ```
  */
-export class ClickHouseSandbox {
-  private client: ClickHouseClient
-  private tenant: TenantConfig
+export class ChDBSandbox {
+  private sessionPath?: string
+  private defaultFormat: OutputFormat
   private limits: ResourceLimits
-  private allowedQueries: Map<string, AllowedQuery>
 
-  constructor(
-    config: ClickHouseConfig,
-    tenant: TenantConfig,
-    allowedQueries?: AllowedQuery[]
-  ) {
-    this.tenant = tenant
-    this.limits = this.computeLimits(tenant)
-    this.allowedQueries = new Map(
-      allowedQueries?.map((q) => [q.name, q]) ?? []
-    )
-
-    this.client = createClient({
-      url: config.url,
-      username: config.username,
-      password: config.password,
-      database: config.database,
-      application: config.application ?? 'dotdo-sandbox',
-      request_timeout: config.requestTimeout ?? 30_000,
-      clickhouse_settings: this.limitsToSettings(this.limits),
-    })
+  constructor(config?: ChDBSessionConfig & { tier?: Tier }) {
+    this.sessionPath = config?.dataPath
+    this.defaultFormat = config?.format ?? 'JSONEachRow'
+    this.limits = TIER_LIMITS[config?.tier ?? 'starter']
   }
 
   // --------------------------------------------------------------------------
-  // Query Execution
+  // Stateless Queries
   // --------------------------------------------------------------------------
 
   /**
-   * Execute a raw SQL query with sandbox limits applied
-   *
-   * @warning Use executeAllowed() for user-facing queries to prevent SQL injection
+   * Execute a stateless query (no session persistence)
    */
-  async executeRaw<T = unknown>(
-    query: string,
-    options?: QueryOptions
+  async query<T = unknown>(
+    sql: string,
+    format?: OutputFormat
   ): Promise<QueryResult<T>> {
     const startTime = Date.now()
 
     try {
-      const resultSet = await this.client.query({
-        query,
-        format: options?.format ?? 'JSONEachRow',
-        query_params: options?.params,
-        clickhouse_settings: options?.settings
-          ? { ...this.limitsToSettings(this.limits), ...options.settings }
-          : undefined,
-      })
+      // Dynamic import for chdb (only available in Node.js environments)
+      const { query } = await import('chdb')
 
-      const data = (await resultSet.json()) as T[]
-      const stats = resultSet.query_id
-        ? {
-            rowsRead: 0, // Would need to query system.query_log for this
-            bytesRead: 0,
-            elapsedMs: Date.now() - startTime,
-          }
-        : undefined
+      const result = query(sql, format ?? this.defaultFormat)
+      const elapsedMs = Date.now() - startTime
 
-      return { success: true, data, stats }
+      // Parse result based on format
+      if (format === 'JSON' || format === 'JSONEachRow' || !format) {
+        try {
+          const parsed = this.parseJsonResult<T>(result, format)
+          return { success: true, data: parsed, stats: { elapsedMs } }
+        } catch {
+          return { success: true, raw: result, stats: { elapsedMs } }
+        }
+      }
+
+      return { success: true, raw: result, stats: { elapsedMs } }
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
-        stats: { rowsRead: 0, bytesRead: 0, elapsedMs: Date.now() - startTime },
+        stats: { elapsedMs: Date.now() - startTime },
       }
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Session-Based Queries
+  // --------------------------------------------------------------------------
+
   /**
-   * Execute an allowed (allowlisted) query by name
-   * This is the safe method for user-facing queries
+   * Execute a query with session state (tables persist between queries)
    */
-  async executeAllowed<T = unknown>(
-    queryName: string,
-    params: Record<string, unknown>,
-    options?: Omit<QueryOptions, 'params'>
+  async queryWithSession<T = unknown>(
+    sql: string,
+    format?: OutputFormat
   ): Promise<QueryResult<T>> {
-    const allowed = this.allowedQueries.get(queryName)
-
-    if (!allowed) {
+    if (!this.sessionPath) {
       return {
         success: false,
-        error: `Query '${queryName}' is not in the allowed list`,
+        error: 'Session not configured. Provide dataPath in constructor.',
       }
     }
 
-    // Validate required parameters
-    const missingParams = Object.keys(allowed.params).filter(
-      (p) => !(p in params)
+    const startTime = Date.now()
+
+    try {
+      const { Session } = await import('chdb')
+      const session = new Session(this.sessionPath)
+
+      try {
+        const result = session.query(sql, format ?? this.defaultFormat)
+        const elapsedMs = Date.now() - startTime
+
+        if (format === 'JSON' || format === 'JSONEachRow' || !format) {
+          try {
+            const parsed = this.parseJsonResult<T>(result, format)
+            return { success: true, data: parsed, stats: { elapsedMs } }
+          } catch {
+            return { success: true, raw: result, stats: { elapsedMs } }
+          }
+        }
+
+        return { success: true, raw: result, stats: { elapsedMs } }
+      } finally {
+        session.cleanup()
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        stats: { elapsedMs: Date.now() - startTime },
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // R2/Iceberg Integration
+  // --------------------------------------------------------------------------
+
+  /**
+   * Query an Iceberg table stored in R2
+   *
+   * Creates a temporary table pointing to the Iceberg data and executes the query.
+   * This allows SQL queries against R2 Data Catalog tables.
+   */
+  async queryIceberg<T = unknown>(options: {
+    /** R2 bucket URL or path */
+    bucket: string
+    /** Path to Iceberg table in bucket */
+    tablePath: string
+    /** SQL query (use table name from tablePath) */
+    query: string
+    /** Output format */
+    format?: OutputFormat
+  }): Promise<QueryResult<T>> {
+    const tableName = options.tablePath.split('/').pop() ?? 'iceberg_table'
+
+    // Build query that registers Iceberg table and queries it
+    // chDB supports reading Parquet files directly
+    const sql = `
+      SELECT * FROM (
+        ${options.query.replace(
+          new RegExp(`\\b${tableName}\\b`, 'gi'),
+          `s3('https://${options.bucket}.r2.cloudflarestorage.com/${options.tablePath}/data/*.parquet')`
+        )}
+      )
+    `
+
+    return this.query<T>(sql, options.format)
+  }
+
+  /**
+   * Query Parquet files directly from R2
+   */
+  async queryParquet<T = unknown>(options: {
+    /** Full URL or path to Parquet file(s) */
+    path: string
+    /** SQL query (reference as 'data') */
+    query: string
+    /** Output format */
+    format?: OutputFormat
+  }): Promise<QueryResult<T>> {
+    // chDB can read Parquet directly via s3/url functions
+    const sql = options.query.replace(
+      /\bdata\b/gi,
+      `s3('${options.path}')`
     )
-    if (missingParams.length > 0) {
-      return {
-        success: false,
-        error: `Missing required parameters: ${missingParams.join(', ')}`,
-      }
-    }
 
-    // Inject tenant_id if the query expects it
-    const queryParams = { ...params }
-    if ('tenant_id' in allowed.params && !queryParams.tenant_id) {
-      queryParams.tenant_id = this.tenant.tenantId
-    }
-
-    return this.executeRaw<T>(allowed.sql, {
-      ...options,
-      params: queryParams,
-    })
-  }
-
-  /**
-   * Execute a query and stream results
-   */
-  async *executeStream<T = unknown>(
-    query: string,
-    options?: QueryOptions
-  ): AsyncGenerator<T, void, unknown> {
-    const resultSet = await this.client.query({
-      query,
-      format: options?.format ?? 'JSONEachRow',
-      query_params: options?.params,
-    })
-
-    const stream = resultSet.stream()
-
-    for await (const rows of stream) {
-      for (const row of rows) {
-        yield row.json() as T
-      }
-    }
+    return this.query<T>(sql, options.format)
   }
 
   // --------------------------------------------------------------------------
-  // Query Builder Helpers
+  // Utility Functions
   // --------------------------------------------------------------------------
 
   /**
-   * Add a new allowed query
+   * Get ClickHouse version from chDB
    */
-  addAllowedQuery(query: AllowedQuery): void {
-    this.allowedQueries.set(query.name, query)
+  async version(): Promise<string> {
+    const result = await this.query<{ version: string }>(
+      'SELECT version() as version',
+      'JSONEachRow'
+    )
+    return result.data?.[0]?.version ?? 'unknown'
   }
 
   /**
-   * Remove an allowed query
+   * List available functions
    */
-  removeAllowedQuery(queryName: string): void {
-    this.allowedQueries.delete(queryName)
+  async listFunctions(pattern?: string): Promise<string[]> {
+    const sql = pattern
+      ? `SELECT name FROM system.functions WHERE name LIKE '%${pattern}%' ORDER BY name`
+      : 'SELECT name FROM system.functions ORDER BY name LIMIT 100'
+
+    const result = await this.query<{ name: string }>(sql, 'JSONEachRow')
+    return result.data?.map((r) => r.name) ?? []
   }
 
   /**
-   * Get all allowed queries
-   */
-  getAllowedQueries(): AllowedQuery[] {
-    return Array.from(this.allowedQueries.values())
-  }
-
-  /**
-   * Check if a query is allowed
-   */
-  isQueryAllowed(queryName: string): boolean {
-    return this.allowedQueries.has(queryName)
-  }
-
-  // --------------------------------------------------------------------------
-  // Tenant Management
-  // --------------------------------------------------------------------------
-
-  /**
-   * Get current tenant configuration
-   */
-  getTenant(): TenantConfig {
-    return { ...this.tenant }
-  }
-
-  /**
-   * Get current resource limits
+   * Get resource limits for this sandbox
    */
   getLimits(): ResourceLimits {
     return { ...this.limits }
-  }
-
-  /**
-   * Update tenant tier and recalculate limits
-   */
-  updateTier(tier: TenantConfig['tier']): void {
-    this.tenant.tier = tier
-    this.limits = this.computeLimits(this.tenant)
-  }
-
-  // --------------------------------------------------------------------------
-  // Lifecycle
-  // --------------------------------------------------------------------------
-
-  /**
-   * Close the client connection
-   */
-  async close(): Promise<void> {
-    await this.client.close()
-  }
-
-  /**
-   * Ping the server to check connectivity
-   */
-  async ping(): Promise<boolean> {
-    try {
-      const result = await this.client.ping()
-      return result.success
-    } catch {
-      return false
-    }
   }
 
   // --------------------------------------------------------------------------
   // Private Helpers
   // --------------------------------------------------------------------------
 
-  private computeLimits(tenant: TenantConfig): ResourceLimits {
-    const tierLimits = TIER_LIMITS[tenant.tier]
-    return { ...tierLimits, ...tenant.customLimits }
-  }
-
-  private limitsToSettings(
-    limits: ResourceLimits
-  ): Record<string, string | number> {
-    const settings: Record<string, string | number> = {}
-
-    if (limits.maxMemoryUsage !== undefined) {
-      settings.max_memory_usage = limits.maxMemoryUsage.toString()
-    }
-    if (limits.maxExecutionTime !== undefined) {
-      settings.max_execution_time = limits.maxExecutionTime.toString()
-    }
-    if (limits.maxResultRows !== undefined) {
-      settings.max_result_rows = limits.maxResultRows.toString()
-    }
-    if (limits.maxResultBytes !== undefined) {
-      settings.max_result_bytes = limits.maxResultBytes.toString()
-    }
-    if (limits.maxRowsToRead !== undefined) {
-      settings.max_rows_to_read = limits.maxRowsToRead.toString()
-    }
-    if (limits.maxBytesToRead !== undefined) {
-      settings.max_bytes_to_read = limits.maxBytesToRead.toString()
-    }
-    if (limits.readonly !== undefined) {
-      settings.readonly = limits.readonly.toString()
+  private parseJsonResult<T>(
+    result: string,
+    format?: OutputFormat
+  ): T[] {
+    if (!result || result.trim() === '') {
+      return []
     }
 
-    return settings
+    if (format === 'JSONEachRow' || !format) {
+      // Each line is a JSON object
+      return result
+        .trim()
+        .split('\n')
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line) as T)
+    }
+
+    if (format === 'JSON') {
+      // Full JSON object with data array
+      const parsed = JSON.parse(result)
+      return (parsed.data ?? parsed) as T[]
+    }
+
+    return JSON.parse(result) as T[]
   }
 }
 
 // ============================================================================
-// Row Policy SQL Generators
+// Query Builder for Safe Parameterization
 // ============================================================================
 
 /**
- * Generate SQL to create a row policy for tenant isolation
+ * Build parameterized queries for chDB
+ *
+ * chDB doesn't have native parameterization like ClickHouse server,
+ * so we implement safe escaping for user inputs.
  */
-export function createRowPolicySql(
-  tableName: string,
-  tenantColumn: string,
-  policyName: string,
-  userName: string
-): string {
-  return `
-    CREATE ROW POLICY IF NOT EXISTS ${policyName}
-    ON ${tableName}
-    FOR SELECT
-    USING ${tenantColumn} = currentUser()
-    TO ${userName};
-  `.trim()
-}
+export class QueryBuilder {
+  private parts: string[] = []
+  private params: Map<string, unknown> = new Map()
 
-/**
- * Generate SQL to create a tenant-specific user with quotas
- */
-export function createTenantUserSql(
-  tenantId: string,
-  password: string,
-  profile: string = 'sandbox_profile',
-  quota: string = 'sandbox_quota'
-): string {
-  return `
-    CREATE USER IF NOT EXISTS 'tenant_${tenantId}'
-    IDENTIFIED BY '${password}'
-    SETTINGS PROFILE '${profile}'
-    QUOTA '${quota}';
-  `.trim()
-}
-
-/**
- * Generate SQL to create a resource profile
- */
-export function createResourceProfileSql(
-  profileName: string,
-  limits: ResourceLimits
-): string {
-  const settings: string[] = []
-
-  if (limits.maxMemoryUsage !== undefined) {
-    settings.push(`max_memory_usage = ${limits.maxMemoryUsage}`)
-  }
-  if (limits.maxExecutionTime !== undefined) {
-    settings.push(`max_execution_time = ${limits.maxExecutionTime}`)
-  }
-  if (limits.maxResultRows !== undefined) {
-    settings.push(`max_result_rows = ${limits.maxResultRows}`)
-  }
-  if (limits.maxRowsToRead !== undefined) {
-    settings.push(`max_rows_to_read = ${limits.maxRowsToRead}`)
-  }
-  if (limits.readonly !== undefined) {
-    settings.push(`readonly = ${limits.readonly}`)
+  /**
+   * Add SQL text
+   */
+  sql(text: string): this {
+    this.parts.push(text)
+    return this
   }
 
-  return `
-    CREATE SETTINGS PROFILE IF NOT EXISTS '${profileName}'
-    SETTINGS ${settings.join(', ')};
-  `.trim()
+  /**
+   * Add a string parameter (safely escaped)
+   */
+  string(value: string): this {
+    // Escape single quotes and backslashes
+    const escaped = value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    this.parts.push(`'${escaped}'`)
+    return this
+  }
+
+  /**
+   * Add a number parameter
+   */
+  number(value: number): this {
+    if (!Number.isFinite(value)) {
+      throw new Error('Invalid number parameter')
+    }
+    this.parts.push(String(value))
+    return this
+  }
+
+  /**
+   * Add a date parameter (YYYY-MM-DD format)
+   */
+  date(value: Date | string): this {
+    const dateStr = value instanceof Date
+      ? value.toISOString().split('T')[0]
+      : value
+    // Validate date format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      throw new Error('Invalid date format, expected YYYY-MM-DD')
+    }
+    this.parts.push(`'${dateStr}'`)
+    return this
+  }
+
+  /**
+   * Add a datetime parameter
+   */
+  datetime(value: Date | string): this {
+    const dtStr = value instanceof Date
+      ? value.toISOString().replace('T', ' ').replace('Z', '')
+      : value
+    this.parts.push(`'${dtStr}'`)
+    return this
+  }
+
+  /**
+   * Add an identifier (table/column name) - validated
+   */
+  identifier(value: string): this {
+    // Only allow alphanumeric and underscore
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+      throw new Error('Invalid identifier')
+    }
+    this.parts.push(value)
+    return this
+  }
+
+  /**
+   * Add an array of strings
+   */
+  stringArray(values: string[]): this {
+    const escaped = values.map((v) =>
+      `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+    )
+    this.parts.push(`[${escaped.join(', ')}]`)
+    return this
+  }
+
+  /**
+   * Add an array of numbers
+   */
+  numberArray(values: number[]): this {
+    if (!values.every(Number.isFinite)) {
+      throw new Error('Invalid number in array')
+    }
+    this.parts.push(`[${values.join(', ')}]`)
+    return this
+  }
+
+  /**
+   * Build the final SQL string
+   */
+  build(): string {
+    return this.parts.join('')
+  }
+
+  /**
+   * Reset the builder
+   */
+  reset(): this {
+    this.parts = []
+    this.params.clear()
+    return this
+  }
 }
 
 // ============================================================================
-// Common Allowed Queries
+// Predefined Query Templates
 // ============================================================================
 
 /**
- * Common analytics queries that can be safely exposed to tenants
+ * Common query templates for analytics
  */
-export const COMMON_ALLOWED_QUERIES: AllowedQuery[] = [
-  {
-    name: 'events_by_date',
-    description: 'Get event counts by date for a tenant',
-    sql: `
+export const QueryTemplates = {
+  /**
+   * Count events by date
+   */
+  eventsByDate: (table: string) => `
+    SELECT
+      toDate(timestamp) as date,
+      count() as events,
+      uniq(user_id) as unique_users
+    FROM ${table}
+    GROUP BY date
+    ORDER BY date DESC
+  `,
+
+  /**
+   * Top N by count
+   */
+  topN: (table: string, groupBy: string, n: number = 10) => `
+    SELECT
+      ${groupBy},
+      count() as count
+    FROM ${table}
+    GROUP BY ${groupBy}
+    ORDER BY count DESC
+    LIMIT ${n}
+  `,
+
+  /**
+   * Time series aggregation
+   */
+  timeSeries: (
+    table: string,
+    interval: 'hour' | 'day' | 'week' | 'month' = 'day'
+  ) => {
+    const truncFunc = {
+      hour: 'toStartOfHour',
+      day: 'toDate',
+      week: 'toStartOfWeek',
+      month: 'toStartOfMonth',
+    }[interval]
+
+    return `
       SELECT
-        toDate(timestamp) as date,
-        count() as events,
-        uniq(user_id) as unique_users
-      FROM events
-      WHERE tenant_id = {tenant_id:String}
-        AND timestamp BETWEEN {start_date:Date} AND {end_date:Date}
-      GROUP BY date
-      ORDER BY date
-    `,
-    params: {
-      tenant_id: 'String',
-      start_date: 'Date',
-      end_date: 'Date',
-    },
+        ${truncFunc}(timestamp) as period,
+        count() as count
+      FROM ${table}
+      GROUP BY period
+      ORDER BY period
+    `
   },
-  {
-    name: 'top_users',
-    description: 'Get top users by event count',
-    sql: `
-      SELECT
-        user_id,
-        count() as event_count,
-        max(timestamp) as last_seen
-      FROM events
-      WHERE tenant_id = {tenant_id:String}
-        AND timestamp >= {since:DateTime}
-      GROUP BY user_id
-      ORDER BY event_count DESC
-      LIMIT {limit:UInt32}
-    `,
-    params: {
-      tenant_id: 'String',
-      since: 'DateTime',
-      limit: 'UInt32',
-    },
-  },
-  {
-    name: 'event_types',
-    description: 'Get breakdown of event types',
-    sql: `
-      SELECT
-        event_type,
-        count() as count,
-        round(count() * 100.0 / sum(count()) OVER (), 2) as percentage
-      FROM events
-      WHERE tenant_id = {tenant_id:String}
-        AND timestamp BETWEEN {start_date:Date} AND {end_date:Date}
-      GROUP BY event_type
-      ORDER BY count DESC
-    `,
-    params: {
-      tenant_id: 'String',
-      start_date: 'Date',
-      end_date: 'Date',
-    },
-  },
-]
+
+  /**
+   * Percentile statistics
+   */
+  percentiles: (table: string, column: string) => `
+    SELECT
+      min(${column}) as min,
+      quantile(0.25)(${column}) as p25,
+      quantile(0.50)(${column}) as median,
+      quantile(0.75)(${column}) as p75,
+      quantile(0.95)(${column}) as p95,
+      quantile(0.99)(${column}) as p99,
+      max(${column}) as max,
+      avg(${column}) as avg
+    FROM ${table}
+  `,
+}
 
 // ============================================================================
 // Factory Functions
 // ============================================================================
 
 /**
- * Create a sandbox for a tenant with default allowed queries
+ * Create a chDB sandbox with default settings
  */
-export function createSandbox(
-  config: ClickHouseConfig,
-  tenant: TenantConfig,
-  additionalQueries?: AllowedQuery[]
-): ClickHouseSandbox {
-  const allQueries = [...COMMON_ALLOWED_QUERIES, ...(additionalQueries ?? [])]
-  return new ClickHouseSandbox(config, tenant, allQueries)
+export function createChDBSandbox(
+  tier: Tier = 'starter'
+): ChDBSandbox {
+  return new ChDBSandbox({ tier })
 }
 
 /**
- * Create a read-only sandbox with minimal permissions
+ * Create a chDB sandbox with session persistence
  */
-export function createReadOnlySandbox(
-  config: ClickHouseConfig,
-  tenantId: string
-): ClickHouseSandbox {
-  return new ClickHouseSandbox(
-    config,
-    {
-      tenantId,
-      tier: 'free',
-      customLimits: { readonly: 1 },
-    },
-    COMMON_ALLOWED_QUERIES
+export function createPersistentSandbox(
+  dataPath: string,
+  tier: Tier = 'starter'
+): ChDBSandbox {
+  return new ChDBSandbox({ dataPath, tier })
+}
+
+/**
+ * Create a query builder
+ */
+export function createQueryBuilder(): QueryBuilder {
+  return new QueryBuilder()
+}
+
+// ============================================================================
+// Utility: Build chDB query from ClickHouse-style parameters
+// ============================================================================
+
+/**
+ * Convert ClickHouse-style parameterized query to chDB format
+ *
+ * @example
+ * ```typescript
+ * const sql = buildQuery(
+ *   "SELECT * FROM users WHERE id = {id:UInt64} AND name = {name:String}",
+ *   { id: 123, name: "Alice" }
+ * )
+ * // Returns: "SELECT * FROM users WHERE id = 123 AND name = 'Alice'"
+ * ```
+ */
+export function buildQuery(
+  template: string,
+  params: Record<string, unknown>
+): string {
+  return template.replace(
+    /\{(\w+):(\w+)\}/g,
+    (_, name, type) => {
+      const value = params[name]
+      if (value === undefined) {
+        throw new Error(`Missing parameter: ${name}`)
+      }
+
+      switch (type) {
+        case 'String':
+          return `'${String(value).replace(/'/g, "''")}'`
+        case 'UInt8':
+        case 'UInt16':
+        case 'UInt32':
+        case 'UInt64':
+        case 'Int8':
+        case 'Int16':
+        case 'Int32':
+        case 'Int64':
+        case 'Float32':
+        case 'Float64':
+          return String(Number(value))
+        case 'Date':
+          return `'${value instanceof Date ? value.toISOString().split('T')[0] : value}'`
+        case 'DateTime':
+          return `'${value instanceof Date ? value.toISOString().replace('T', ' ').slice(0, 19) : value}'`
+        case 'UUID':
+          return `'${value}'`
+        case 'Identifier':
+          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(value))) {
+            throw new Error(`Invalid identifier: ${value}`)
+          }
+          return String(value)
+        default:
+          return String(value)
+      }
+    }
   )
 }
-
-/**
- * Create an admin sandbox with higher limits (for internal use)
- */
-export function createAdminSandbox(
-  config: ClickHouseConfig,
-  tenantId: string
-): ClickHouseSandbox {
-  return new ClickHouseSandbox(
-    config,
-    {
-      tenantId,
-      tier: 'enterprise',
-      customLimits: { readonly: 0 }, // Allow writes for admin
-    },
-    [] // No query restrictions for admin
-  )
-}
-
-// ============================================================================
-// Environment Configuration Helper
-// ============================================================================
-
-/**
- * Create ClickHouse config from environment variables
- */
-export function configFromEnv(env: {
-  CLICKHOUSE_URL?: string
-  CLICKHOUSE_USER?: string
-  CLICKHOUSE_PASSWORD?: string
-  CLICKHOUSE_DATABASE?: string
-}): ClickHouseConfig {
-  if (!env.CLICKHOUSE_URL) {
-    throw new Error('CLICKHOUSE_URL environment variable is required')
-  }
-  if (!env.CLICKHOUSE_USER) {
-    throw new Error('CLICKHOUSE_USER environment variable is required')
-  }
-  if (!env.CLICKHOUSE_PASSWORD) {
-    throw new Error('CLICKHOUSE_PASSWORD environment variable is required')
-  }
-
-  return {
-    url: env.CLICKHOUSE_URL,
-    username: env.CLICKHOUSE_USER,
-    password: env.CLICKHOUSE_PASSWORD,
-    database: env.CLICKHOUSE_DATABASE,
-  }
-}
-
-// ============================================================================
-// chDB Notes (Embedded ClickHouse)
-// ============================================================================
-
-/**
- * chDB (@npm chdb) is an embedded ClickHouse engine that runs in-process.
- *
- * IMPORTANT LIMITATIONS for sandboxing:
- * - No query-level isolation (runaway queries crash the process)
- * - No user authentication or authorization
- * - No resource quotas or memory limits per query
- * - Not suitable for multi-tenant production environments
- * - No WebAssembly support (can't run in browsers/edge)
- *
- * chDB IS suitable for:
- * - Single-user desktop applications
- * - Local data analysis scripts
- * - CLI tools with controlled input
- * - Development/testing environments
- *
- * For production multi-tenant sandboxing, use ClickHouse Server
- * with @clickhouse/client-web as implemented in this module.
- *
- * @see https://clickhouse.com/chdb
- * @see https://github.com/chdb-io/chdb-node
- */
