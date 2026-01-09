@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["index", "things", "functions", "experiments", "events", "sqids", "relationships", "actions"]
+  "pages": ["index", "promise-pipelining", "things", "functions", "do-loop", "experiments", "events", "sqids", "relationships", "actions"]
 }

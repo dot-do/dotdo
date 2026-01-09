@@ -1,0 +1,429 @@
+---
+title: Approval Workflows
+description: Building approval chains for human decision-making
+---
+
+# Approval Workflows
+
+Build structured approval processes that combine AI automation with human judgment.
+
+## Simple Approval
+
+The most basic pattern: ask a human, wait for response.
+
+```typescript
+import { ceo } from 'humans.do'
+
+const approved = await ceo`approve the partnership with ${company}`
+
+if (approved) {
+  await signPartnership(company)
+} else {
+  await notifyRejection(company)
+}
+```
+
+## Confidence-Based Escalation
+
+Let AI handle high-confidence cases. Escalate uncertainty.
+
+```typescript
+import { ralph } from 'agents.do'
+import { reviewer } from 'humans.do'
+
+const review = await ralph`analyze this PR for security issues`
+
+if (review.confidence > 0.95) {
+  // AI confident, auto-merge
+  await mergePR(pr)
+} else {
+  // AI uncertain, get human eyes
+  const approved = await reviewer`
+    AI flagged potential issues (confidence: ${review.confidence}):
+    ${review.findings}
+
+    Should we merge this PR?
+  `
+
+  if (approved) {
+    await mergePR(pr)
+  }
+}
+```
+
+## Multi-Level Approval
+
+Different amounts require different approval levels.
+
+```typescript
+import { manager, director, cfo } from 'humans.do'
+
+async function approvePurchase(purchase: Purchase) {
+  const amount = purchase.amount
+
+  if (amount < 1000) {
+    // Auto-approve small purchases
+    return { approved: true, approver: 'auto' }
+  }
+
+  if (amount < 10000) {
+    // Manager approval
+    return await manager`approve ${purchase.description} for $${amount}`
+  }
+
+  if (amount < 100000) {
+    // Director approval
+    return await director`approve ${purchase.description} for $${amount}`
+  }
+
+  // CFO for large purchases
+  return await cfo`approve ${purchase.description} for $${amount}`
+}
+```
+
+## Sequential Approval Chain
+
+Require multiple approvals in sequence.
+
+```typescript
+import { legal, finance, ceo } from 'humans.do'
+
+async function approveContract(contract: Contract) {
+  // Step 1: Legal review
+  const legalApproval = await legal`
+    Review contract with ${contract.counterparty}:
+    - Value: $${contract.value}
+    - Term: ${contract.term}
+    - Key terms: ${contract.summary}
+  `
+
+  if (!legalApproval.approved) {
+    return { approved: false, stage: 'legal', reason: legalApproval.reason }
+  }
+
+  // Step 2: Finance review
+  const financeApproval = await finance`
+    Review financial terms for ${contract.counterparty} contract:
+    - Value: $${contract.value}
+    - Payment terms: ${contract.paymentTerms}
+    - Budget impact: ${contract.budgetImpact}
+
+    Legal has approved. Please review financials.
+  `
+
+  if (!financeApproval.approved) {
+    return { approved: false, stage: 'finance', reason: financeApproval.reason }
+  }
+
+  // Step 3: Final executive approval
+  const ceoApproval = await ceo`
+    Final approval for ${contract.counterparty} contract:
+    - Value: $${contract.value}
+    - Legal: Approved by ${legalApproval.approver}
+    - Finance: Approved by ${financeApproval.approver}
+  `
+
+  return {
+    approved: ceoApproval.approved,
+    stage: 'complete',
+    approvals: [legalApproval, financeApproval, ceoApproval],
+  }
+}
+```
+
+## Parallel Approval
+
+Get multiple approvals simultaneously when they're independent.
+
+```typescript
+import { legal, security, compliance } from 'humans.do'
+
+async function approveVendor(vendor: Vendor) {
+  // Request all reviews in parallel
+  const [legalReview, securityReview, complianceReview] = await Promise.all([
+    legal`review vendor agreement for ${vendor.name}`,
+    security`review security posture of ${vendor.name}`,
+    compliance`review compliance status of ${vendor.name}`,
+  ])
+
+  // All must approve
+  const allApproved =
+    legalReview.approved &&
+    securityReview.approved &&
+    complianceReview.approved
+
+  return {
+    approved: allApproved,
+    reviews: { legalReview, securityReview, complianceReview },
+  }
+}
+```
+
+## Majority Approval
+
+Require a majority of reviewers to approve.
+
+```typescript
+import { reviewer } from 'humans.do'
+
+async function approveProposal(proposal: Proposal, reviewerIds: string[]) {
+  // Request reviews from all committee members
+  const reviews = await Promise.all(
+    reviewerIds.map(id =>
+      reviewer(id)`review proposal: ${proposal.title}`
+    )
+  )
+
+  const approvals = reviews.filter(r => r.approved).length
+  const required = Math.ceil(reviewerIds.length / 2)
+
+  return {
+    approved: approvals >= required,
+    votes: { approved: approvals, rejected: reviews.length - approvals },
+    details: reviews,
+  }
+}
+```
+
+## Conditional Workflow
+
+Different paths based on context.
+
+```typescript
+import { ralph } from 'agents.do'
+import { legal, ceo } from 'humans.do'
+
+async function processPartnership(partnership: Partnership) {
+  // AI analyzes the partnership
+  const analysis = await ralph`
+    Analyze partnership proposal with ${partnership.company}:
+    - Strategic fit
+    - Risk assessment
+    - Revenue potential
+    - Competitive implications
+  `
+
+  // High risk always goes to CEO
+  if (analysis.riskScore > 0.8) {
+    return await ceo`
+      High-risk partnership requires your review:
+      ${analysis.summary}
+
+      Risk factors: ${analysis.risks}
+    `
+  }
+
+  // Legal review for all contracts
+  const legalApproval = await legal`review partnership terms: ${partnership.terms}`
+
+  if (!legalApproval.approved) {
+    return { approved: false, blocker: 'legal' }
+  }
+
+  // Large partnerships need CEO
+  if (partnership.value > 1000000) {
+    return await ceo`
+      Approve $${partnership.value} partnership with ${partnership.company}
+      Legal has approved the terms.
+    `
+  }
+
+  // Medium partnerships auto-approve after legal
+  return { approved: true, autoApproved: true }
+}
+```
+
+## Workflow with Timeout and Fallback
+
+Handle cases where approvers don't respond in time.
+
+```typescript
+import { approver } from 'humans.do'
+
+async function timeoutAwareApproval(request: Request) {
+  try {
+    const approval = await approver`
+      Please review: ${request.summary}
+    `.timeout('4 hours')
+
+    return approval
+  } catch (error) {
+    if (error.code === 'TIMEOUT') {
+      // Escalate to backup approver
+      return await backupApprover`
+        URGENT: Original approver timed out.
+        Please review: ${request.summary}
+      `.timeout('1 hour')
+    }
+    throw error
+  }
+}
+```
+
+## Approval with Required Input
+
+Sometimes approval needs additional information.
+
+```typescript
+import { finance } from 'humans.do'
+
+async function budgetApproval(request: BudgetRequest) {
+  const approval = await finance`
+    Budget request: ${request.description}
+    Amount: $${request.amount}
+    Department: ${request.department}
+  `.withActions([
+    { id: 'approve', label: 'Approve as Requested' },
+    {
+      id: 'modify',
+      label: 'Approve with Modified Amount',
+      requiresInput: { type: 'number', label: 'Approved Amount' }
+    },
+    { id: 'deny', label: 'Deny' },
+  ])
+
+  if (approval.action === 'modify') {
+    return {
+      approved: true,
+      amount: approval.input, // The modified amount
+      note: 'Approved with modifications',
+    }
+  }
+
+  return {
+    approved: approval.action === 'approve',
+    amount: request.amount,
+  }
+}
+```
+
+## Audit Trail
+
+Every approval is automatically logged for compliance.
+
+```typescript
+// Audit record created automatically
+{
+  id: 'apr_123abc',
+  workflow: 'contract_approval',
+  request: {
+    contractId: 'ctr_456',
+    value: 50000,
+    counterparty: 'Acme Corp',
+  },
+  escalations: [
+    {
+      role: 'legal',
+      assignee: 'alice@company.com',
+      requestedAt: '2024-01-15T10:00:00Z',
+      respondedAt: '2024-01-15T14:30:00Z',
+      decision: 'approved',
+      slaTarget: '4 hours',
+      slaMet: true,
+    },
+    {
+      role: 'ceo',
+      assignee: 'bob@company.com',
+      requestedAt: '2024-01-15T14:30:00Z',
+      respondedAt: '2024-01-15T15:00:00Z',
+      decision: 'approved',
+      slaTarget: '24 hours',
+      slaMet: true,
+    },
+  ],
+  finalDecision: 'approved',
+  completedAt: '2024-01-15T15:00:00Z',
+}
+```
+
+## Approval Workflow Class
+
+Encapsulate approval logic in a reusable class.
+
+```typescript
+import { DO } from 'dotdo'
+import { legal, finance, ceo } from 'humans.do'
+
+export class ContractApproval extends DO {
+  legalReview = this.HumanFunction({
+    role: 'legal',
+    sla: '24 hours',
+    context: { include: ['contract', 'counterparty', 'risk_assessment'] },
+  })
+
+  financeReview = this.HumanFunction({
+    role: 'finance',
+    sla: '24 hours',
+    context: { include: ['contract', 'budget_impact', 'payment_terms'] },
+  })
+
+  executiveApproval = this.HumanFunction({
+    role: 'ceo',
+    sla: '48 hours',
+    trigger: 'value > $100000',
+    context: { include: ['contract', 'legal_approval', 'finance_approval'] },
+  })
+
+  async approve(contract: Contract) {
+    // Sequential approval chain
+    const legal = await this.legalReview(contract)
+    if (!legal.approved) return { approved: false, stage: 'legal' }
+
+    const finance = await this.financeReview(contract)
+    if (!finance.approved) return { approved: false, stage: 'finance' }
+
+    if (contract.value > 100000) {
+      const exec = await this.executiveApproval(contract)
+      if (!exec.approved) return { approved: false, stage: 'executive' }
+    }
+
+    return { approved: true, approvals: [legal, finance] }
+  }
+}
+```
+
+## Best Practices
+
+### Keep Humans Informed
+
+Provide enough context for good decisions:
+
+```typescript
+// Good: Rich context
+await manager`
+  Approve expense for ${employee.name}:
+  - Amount: $${expense.amount}
+  - Category: ${expense.category}
+  - Business purpose: ${expense.purpose}
+  - Receipt attached: ${expense.hasReceipt}
+  - Policy compliant: ${expense.policyCheck}
+`
+
+// Bad: Insufficient context
+await manager`approve $${amount}`
+```
+
+### Set Appropriate SLAs
+
+Match SLA to urgency:
+
+| Decision Type | Suggested SLA |
+|--------------|---------------|
+| Routine approvals | 24-48 hours |
+| Financial decisions | 4-24 hours |
+| Security incidents | 15-60 minutes |
+| Customer escalations | 1-4 hours |
+
+### Don't Over-Escalate
+
+Reserve human judgment for decisions that need it:
+
+```typescript
+// Good: Escalate edge cases
+if (confidence < 0.8 || amount > threshold) {
+  await human.review(...)
+}
+
+// Bad: Escalate everything
+await human.approve(everyAction) // Defeats automation
+```

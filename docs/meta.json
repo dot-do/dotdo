@@ -1,4 +1,4 @@
 {
   "title": "do.md",
-  "pages": ["index", "getting-started", "concepts", "guides", "---", "api", "cli", "mcp", "rpc", "sdk"]
+  "pages": ["index", "getting-started", "concepts", "primitives", "agents", "humans", "guides", "deployment", "---", "api", "cli", "compat", "mcp", "rpc", "sdk", "storage"]
 }

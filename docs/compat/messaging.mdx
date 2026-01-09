@@ -1,0 +1,554 @@
+---
+title: Messaging
+description: API-compatible messaging SDKs for Kafka, Redis, NATS, SQS, and Pub/Sub.
+---
+
+# Messaging Compat SDKs
+
+Five messaging APIs, rebuilt on Durable Objects. Queues that scale with your agents.
+
+## The Problem
+
+When 10,000 AI agents start producing and consuming messages:
+
+- **Kafka** hits partition rebalancing storms during scale-up
+- **Redis** exhausts memory on high-volume streams
+- **SQS** rate limits concurrent message operations
+- **Pub/Sub** struggles with per-topic throughput limits
+
+The solution: DO-native queues. Each topic partition is a Durable Object. No external coordination. No partition rebalancing. Messages persist to SQLite with overflow to R2.
+
+## Quick Start
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  brokers: ['kafka-1.dotdo.io'],
+  clientId: 'my-agent',
+})
+
+const producer = kafka.producer()
+await producer.send({
+  topic: 'events',
+  messages: [{ value: JSON.stringify({ type: 'signup', userId: '123' }) }],
+})
+```
+
+## Available SDKs
+
+### @dotdo/kafka
+
+Kafka producer and consumer API compatible.
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  brokers: [process.env.KAFKA_BROKER],
+  clientId: 'my-service',
+})
+
+// Producer
+const producer = kafka.producer()
+await producer.connect()
+
+await producer.send({
+  topic: 'user-events',
+  messages: [
+    {
+      key: 'user-123',
+      value: JSON.stringify({ event: 'login', timestamp: Date.now() }),
+      headers: { 'correlation-id': requestId },
+    },
+  ],
+})
+
+// Consumer
+const consumer = kafka.consumer({ groupId: 'my-group' })
+await consumer.connect()
+await consumer.subscribe({ topic: 'user-events', fromBeginning: true })
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    console.log({
+      key: message.key?.toString(),
+      value: message.value?.toString(),
+      headers: message.headers,
+    })
+  },
+})
+```
+
+Under the hood:
+- Each partition is a Durable Object
+- Messages persist to SQLite, overflow to R2
+- Consumer groups coordinate via DO state
+- No ZooKeeper, no partition rebalancing
+
+### @dotdo/redis
+
+Redis commands for pub/sub, streams, and queues.
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis(process.env.REDIS_URL)
+
+// Pub/Sub
+await redis.subscribe('notifications', (message) => {
+  console.log('Received:', message)
+})
+
+await redis.publish('notifications', JSON.stringify({
+  type: 'alert',
+  message: 'Server load high',
+}))
+
+// Streams (Redis Streams API)
+await redis.xadd('events', '*', {
+  type: 'order',
+  orderId: 'ord-123',
+  amount: '99.99',
+})
+
+const messages = await redis.xread('STREAMS', 'events', '0')
+
+// Consumer groups
+await redis.xgroup('CREATE', 'events', 'processors', '$', 'MKSTREAM')
+
+const entries = await redis.xreadgroup(
+  'GROUP', 'processors', 'worker-1',
+  'COUNT', '10',
+  'STREAMS', 'events', '>'
+)
+
+// Acknowledge processed messages
+await redis.xack('events', 'processors', messageId)
+
+// Lists as queues
+await redis.lpush('tasks', JSON.stringify({ job: 'process', id: 123 }))
+const task = await redis.brpop('tasks', 0)
+```
+
+Key differences from hosted Redis:
+- No memory limits (tiered to R2)
+- No cluster mode needed (sharded by key prefix)
+- Persistence by default (SQLite in DO)
+
+### @dotdo/nats
+
+NATS pub/sub and JetStream compatible.
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect({ servers: process.env.NATS_URL })
+const sc = StringCodec()
+
+// Basic pub/sub
+const sub = nc.subscribe('orders.>')
+;(async () => {
+  for await (const msg of sub) {
+    console.log(`[${msg.subject}]: ${sc.decode(msg.data)}`)
+  }
+})()
+
+nc.publish('orders.new', sc.encode(JSON.stringify({
+  orderId: 'ord-123',
+  items: ['item-1', 'item-2'],
+})))
+
+// Request/reply
+const response = await nc.request(
+  'inventory.check',
+  sc.encode(JSON.stringify({ sku: 'SKU-123' })),
+  { timeout: 1000 }
+)
+console.log('Stock:', sc.decode(response.data))
+
+// JetStream for persistence
+const js = nc.jetstream()
+
+// Publish to stream
+await js.publish('ORDERS.new', sc.encode(JSON.stringify({
+  orderId: 'ord-456',
+})))
+
+// Consume from stream
+const consumer = await js.consumers.get('ORDERS', 'order-processor')
+const messages = await consumer.consume()
+
+for await (const msg of messages) {
+  console.log('Processing:', sc.decode(msg.data))
+  msg.ack()
+}
+```
+
+### @dotdo/sqs
+
+AWS SQS API compatible.
+
+```typescript
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand } from '@dotdo/sqs'
+
+const sqs = new SQSClient({
+  region: 'auto',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+})
+
+const queueUrl = 'https://sqs.dotdo.io/123456789/my-queue'
+
+// Send message
+await sqs.send(new SendMessageCommand({
+  QueueUrl: queueUrl,
+  MessageBody: JSON.stringify({
+    type: 'process-image',
+    imageUrl: 'https://example.com/image.jpg',
+  }),
+  MessageAttributes: {
+    Priority: { DataType: 'String', StringValue: 'high' },
+  },
+}))
+
+// Receive messages
+const response = await sqs.send(new ReceiveMessageCommand({
+  QueueUrl: queueUrl,
+  MaxNumberOfMessages: 10,
+  WaitTimeSeconds: 20, // Long polling
+  MessageAttributeNames: ['All'],
+}))
+
+for (const message of response.Messages || []) {
+  console.log('Processing:', JSON.parse(message.Body))
+
+  // Delete after processing
+  await sqs.send(new DeleteMessageCommand({
+    QueueUrl: queueUrl,
+    ReceiptHandle: message.ReceiptHandle,
+  }))
+}
+```
+
+Supports:
+- Standard and FIFO queues
+- Dead letter queues
+- Visibility timeout
+- Long polling
+- Message attributes
+
+### @dotdo/pubsub
+
+Google Cloud Pub/Sub API compatible.
+
+```typescript
+import { PubSub } from '@dotdo/pubsub'
+
+const pubsub = new PubSub({
+  projectId: 'my-project',
+})
+
+// Create topic and subscription
+const [topic] = await pubsub.createTopic('events')
+const [subscription] = await topic.createSubscription('event-processor')
+
+// Publish
+const messageId = await topic.publishMessage({
+  data: Buffer.from(JSON.stringify({
+    type: 'user.created',
+    userId: 'user-123',
+  })),
+  attributes: { source: 'signup-service' },
+})
+
+// Subscribe
+subscription.on('message', (message) => {
+  console.log('Received:', message.data.toString())
+  console.log('Attributes:', message.attributes)
+  message.ack()
+})
+
+subscription.on('error', (error) => {
+  console.error('Error:', error)
+})
+
+// Pull-based consumption
+const [messages] = await subscription.pull({ maxMessages: 10 })
+for (const message of messages) {
+  console.log('Processing:', message.data.toString())
+  message.ack()
+}
+```
+
+## Architecture
+
+### DO-Native Queues
+
+Each queue partition is a Durable Object:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Producer                                  │
+│              kafka.producer().send({ topic: 'events' })          │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Partition Router                             │
+│         Key hash → partition → DO                                │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+               ┌────────┐  ┌────────┐  ┌────────┐
+               │ Part 0 │  │ Part 1 │  │ Part 2 │
+               │  (DO)  │  │  (DO)  │  │  (DO)  │
+               └────────┘  └────────┘  └────────┘
+                    │           │           │
+                    ▼           ▼           ▼
+               ┌─────────────────────────────────┐
+               │    SQLite (hot) + R2 (cold)     │
+               └─────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Consumer Group                              │
+│         Partition assignment via DO coordination                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Message Persistence
+
+Messages tier automatically:
+
+```typescript
+// Hot: Recent messages in SQLite (< 10ms)
+// Warm: Older messages in R2 (< 100ms)
+// Cold: Archived to Iceberg Parquet
+
+const kafka = new Kafka({
+  retention: {
+    hot: '24h',      // Keep last 24h in SQLite
+    warm: '7d',      // Keep 7 days in R2
+    cold: 'forever', // Archive to Parquet
+  },
+})
+```
+
+### Consumer Groups
+
+Consumer group coordination happens in Durable Objects:
+
+```typescript
+const consumer = kafka.consumer({
+  groupId: 'processors',
+  sessionTimeout: 30000,
+  rebalanceTimeout: 60000,
+})
+
+// Partition assignment is stable
+// No rebalancing storms during scale-up
+// New consumers get new partitions, existing keep theirs
+```
+
+## Patterns
+
+### Fan-Out
+
+Broadcast a message to multiple subscribers:
+
+```typescript
+// Redis pub/sub style
+await redis.publish('events', message)
+
+// Each subscriber gets the message
+redis.subscribe('events', handler1)
+redis.subscribe('events', handler2)
+```
+
+### Work Queue
+
+Distribute work across workers:
+
+```typescript
+// Push work
+await redis.lpush('tasks', JSON.stringify(task))
+
+// Multiple workers compete for tasks
+const task = await redis.brpop('tasks', 0)
+await processTask(task)
+```
+
+### Request/Reply
+
+Synchronous communication:
+
+```typescript
+// NATS request/reply
+const response = await nc.request('services.users.get', userId)
+
+// Or implement with Redis
+const replyTo = `replies.${uuid()}`
+await redis.subscribe(replyTo, handleReply)
+await redis.publish('requests', JSON.stringify({ replyTo, data }))
+```
+
+### Delayed Messages
+
+Schedule messages for future delivery:
+
+```typescript
+// Redis sorted set
+const deliverAt = Date.now() + 60000 // 1 minute
+await redis.zadd('scheduled', deliverAt, JSON.stringify(message))
+
+// Worker polls for due messages
+const due = await redis.zrangebyscore('scheduled', 0, Date.now())
+for (const message of due) {
+  await process(message)
+  await redis.zrem('scheduled', message)
+}
+```
+
+### Dead Letter Queue
+
+Handle failed messages:
+
+```typescript
+const consumer = kafka.consumer({
+  groupId: 'processors',
+  deadLetterQueue: 'events.dlq',
+  maxRetries: 3,
+})
+
+// Messages that fail 3 times go to DLQ
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    await processOrThrow(message)
+  },
+})
+```
+
+## Performance
+
+| Operation | Latency | Throughput |
+|-----------|---------|------------|
+| Publish (single) | < 10ms | 10K/s per partition |
+| Publish (batch) | < 50ms | 100K/s per partition |
+| Consume | < 5ms | 50K/s per consumer |
+| Fan-out | < 20ms | 1K subscribers |
+
+### Scaling
+
+Throughput scales with partitions:
+
+```typescript
+// 16 partitions = 16x throughput
+const admin = kafka.admin()
+await admin.createTopics({
+  topics: [{
+    topic: 'high-volume',
+    numPartitions: 16,
+    replicationFactor: 1,
+  }],
+})
+```
+
+## Real-Time with WebSockets
+
+Combine with DO WebSockets for real-time delivery:
+
+```typescript
+// In your Durable Object
+export class ChatRoom extends DurableObject {
+  async onMessage(ws: WebSocket, message: string) {
+    // Publish to Redis for cross-room distribution
+    await this.redis.publish('chat', message)
+
+    // Broadcast to local connections
+    for (const client of this.connections) {
+      client.send(message)
+    }
+  }
+
+  async onRedisMessage(channel: string, message: string) {
+    // Forward Redis messages to WebSocket clients
+    for (const client of this.connections) {
+      client.send(message)
+    }
+  }
+}
+```
+
+## Migration Guide
+
+### From Kafka Cloud
+
+```typescript
+// Before: Confluent Cloud
+import { Kafka } from 'kafkajs'
+const kafka = new Kafka({
+  brokers: ['pkc-xxx.confluent.cloud:9092'],
+  ssl: true,
+  sasl: { mechanism: 'plain', username, password },
+})
+
+// After: dotdo
+import { Kafka } from '@dotdo/kafka'
+const kafka = new Kafka({
+  brokers: [process.env.DOTDO_KAFKA_URL],
+  clientId: 'my-service',
+})
+
+// Code stays the same
+const producer = kafka.producer()
+await producer.send({ topic: 'events', messages })
+```
+
+### From Redis Cloud
+
+```typescript
+// Before: Redis Cloud
+import Redis from 'ioredis'
+const redis = new Redis('redis://default:xxx@redis.cloud:6379')
+
+// After: dotdo
+import { Redis } from '@dotdo/redis'
+const redis = new Redis(process.env.DOTDO_REDIS_URL)
+
+// Code stays the same
+await redis.publish('channel', message)
+```
+
+### From AWS SQS
+
+```typescript
+// Before: AWS SQS
+import { SQSClient } from '@aws-sdk/client-sqs'
+const sqs = new SQSClient({ region: 'us-east-1' })
+
+// After: dotdo
+import { SQSClient } from '@dotdo/sqs'
+const sqs = new SQSClient({ region: 'auto' })
+
+// Code stays the same
+await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody }))
+```
+
+## Limitations
+
+What's different from managed services:
+
+- **No transactions across topics** - Use saga patterns instead
+- **No exactly-once delivery** - At-least-once with idempotency
+- **Limited to 256 partitions** - More than enough for most workloads
+- **No schema registry** - Validate in application code
+
+## Related
+
+- [Database SDKs](/docs/compat/databases) - Postgres, MySQL, MongoDB
+- [Search SDKs](/docs/compat/search) - Elasticsearch, Algolia, Meilisearch
+- [Vector SDKs](/docs/compat/vector) - Pinecone, Qdrant, Weaviate

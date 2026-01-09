@@ -1,0 +1,300 @@
+---
+title: Escalation
+description: Triggers, roles, and SLAs for human escalation
+---
+
+# Escalation
+
+Define when AI hands off to humans, who handles it, and how fast they need to respond.
+
+## Defining Escalations
+
+Use `HumanFunction` to create explicit escalation points in your workflow:
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000 OR audit_risk > 0.8',
+  role: 'senior-accountant',
+  sla: '4 hours',
+})
+```
+
+## Triggers
+
+Triggers define the conditions that cause escalation. Combine multiple conditions with `AND` and `OR`.
+
+### Dollar Thresholds
+
+```typescript
+// Single threshold
+trigger: 'refund > $10000'
+
+// Multiple thresholds
+trigger: 'amount > $5000 AND amount < $50000'
+
+// High-value transactions
+trigger: 'transaction_value > $100000'
+```
+
+### Confidence Scores
+
+```typescript
+// Low confidence escalation
+trigger: 'confidence < 0.8'
+
+// Very uncertain
+trigger: 'confidence < 0.5'
+
+// Confidence with amount
+trigger: 'confidence < 0.9 AND amount > $1000'
+```
+
+### Risk Scores
+
+```typescript
+// Fraud risk
+trigger: 'fraud_score > 0.7'
+
+// Audit risk
+trigger: 'audit_risk > 0.8'
+
+// Combined risk
+trigger: 'fraud_score > 0.5 OR audit_risk > 0.6'
+```
+
+### Compound Triggers
+
+```typescript
+// Complex business logic
+trigger: 'refund > $10000 OR (confidence < 0.8 AND amount > $5000)'
+
+// Multi-factor
+trigger: 'customer_tier == "enterprise" AND contract_value > $50000'
+```
+
+## Roles
+
+Roles define who handles the escalation. Map roles to actual people in your organization.
+
+### Built-in Roles
+
+```typescript
+import { legal, ceo, cfo, cto } from 'humans.do'
+
+// C-suite decisions
+const approved = await ceo`approve ${partnership}`
+const funded = await cfo`approve ${budget}`
+const architected = await cto`review ${design}`
+
+// Legal review
+const reviewed = await legal`review ${contract}`
+```
+
+### Custom Roles
+
+```typescript
+import { role } from 'humans.do'
+
+const seniorAccountant = role('senior-accountant')
+const complianceOfficer = role('compliance-officer')
+const supportManager = role('support-manager')
+
+const approved = await seniorAccountant`approve ${refund}`
+```
+
+### Role Configuration
+
+```typescript
+roles: {
+  'senior-accountant': {
+    members: ['alice@company.com', 'bob@company.com'],
+    channels: ['slack:#finance', 'email'],
+    escalateTo: 'cfo',
+  },
+  'compliance-officer': {
+    members: ['carol@company.com'],
+    channels: ['email', 'sms'],
+    escalateTo: 'legal',
+  },
+}
+```
+
+## SLAs
+
+Service Level Agreements define response time expectations.
+
+### Time Formats
+
+```typescript
+sla: '4 hours'     // 4 hours
+sla: '30 minutes'  // 30 minutes
+sla: '1 day'       // 24 hours
+sla: '2 days'      // 48 hours
+```
+
+### SLA Actions
+
+What happens when the SLA is breached:
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  onSlaBreached: 'escalate', // Options: 'escalate', 'notify', 'default', 'fail'
+})
+```
+
+| Action | Behavior |
+|--------|----------|
+| `escalate` | Escalate to the role's `escalateTo` target |
+| `notify` | Alert operations but keep waiting |
+| `default` | Apply a default decision |
+| `fail` | Fail the workflow |
+
+### Escalation Chains
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'contract_value > $100000',
+  role: 'legal',
+  sla: '24 hours',
+  escalationChain: [
+    { role: 'legal', sla: '24 hours' },
+    { role: 'general-counsel', sla: '12 hours' },
+    { role: 'ceo', sla: '4 hours' },
+  ],
+})
+```
+
+## Channels
+
+How escalations are delivered to humans.
+
+### Channel Types
+
+```typescript
+channels: ['slack', 'email', 'sms']
+```
+
+| Channel | Best For | Latency |
+|---------|----------|---------|
+| `slack` | Real-time collaboration | Seconds |
+| `email` | Non-urgent, documented | Minutes |
+| `sms` | Urgent, after-hours | Seconds |
+| `pagerduty` | Critical incidents | Seconds |
+
+### Channel Configuration
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'fraud_score > 0.9',
+  role: 'fraud-analyst',
+  sla: '15 minutes',
+  channels: {
+    slack: {
+      channel: '#fraud-alerts',
+      mention: '@fraud-team',
+    },
+    sms: {
+      enabled: true,
+      afterHours: true,
+    },
+  },
+})
+```
+
+## Context
+
+Provide humans with the information they need to decide.
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  context: {
+    include: ['customer', 'order', 'refund_reason', 'previous_refunds'],
+    format: 'summary', // 'summary', 'detailed', 'raw'
+  },
+})
+```
+
+### Context Template
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  message: `
+    **Refund Request**: $\${amount}
+    **Customer**: \${customer.name} (\${customer.tier})
+    **Reason**: \${reason}
+    **Order Date**: \${order.date}
+    **Previous Refunds**: \${customer.refund_count} totaling $\${customer.refund_total}
+  `,
+})
+```
+
+## Actions
+
+Define what actions humans can take.
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  actions: [
+    { id: 'approve', label: 'Approve Refund', style: 'primary' },
+    { id: 'deny', label: 'Deny Refund', style: 'danger' },
+    { id: 'partial', label: 'Partial Refund', style: 'secondary', requiresInput: true },
+    { id: 'escalate', label: 'Escalate to CFO', style: 'secondary' },
+  ],
+})
+```
+
+## Full Example
+
+```typescript
+import { DO } from 'dotdo'
+
+export class RefundProcessor extends DO {
+  largeRefundApproval = this.HumanFunction({
+    trigger: 'refund > $10000 OR (refund > $5000 AND customer.refund_count > 3)',
+    role: 'senior-accountant',
+    sla: '4 hours',
+    channels: {
+      slack: { channel: '#finance-approvals' },
+      email: { enabled: true },
+    },
+    context: {
+      include: ['customer', 'order', 'refund_reason', 'previous_refunds'],
+    },
+    actions: [
+      { id: 'approve', label: 'Approve', style: 'primary' },
+      { id: 'deny', label: 'Deny', style: 'danger' },
+      { id: 'partial', label: 'Partial Refund', requiresInput: true },
+    ],
+    onSlaBreached: 'escalate',
+    escalateTo: 'cfo',
+  })
+
+  async processRefund(request: RefundRequest) {
+    if (request.amount > 10000 || this.shouldEscalate(request)) {
+      const decision = await this.largeRefundApproval(request)
+
+      if (decision.action === 'approve') {
+        return this.executeRefund(request)
+      } else if (decision.action === 'partial') {
+        return this.executeRefund({ ...request, amount: decision.input })
+      } else {
+        return this.denyRefund(request, decision.reason)
+      }
+    }
+
+    return this.executeRefund(request)
+  }
+}
+```

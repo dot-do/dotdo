@@ -1,0 +1,382 @@
+---
+title: bashx - Shell Without VMs
+description: Safe shell execution with AST analysis and tiered execution
+---
+
+# bashx - Shell Without VMs
+
+Your agents need to run `npm install`, `ffmpeg`, and `python`. They can't spawn processes in V8 isolates. We built a shell.
+
+bashx provides shell execution with AST-based safety analysis. Commands are parsed with tree-sitter, classified by risk, and routed to appropriate executors. Native file operations use fsx directly. Heavy computation runs in containers.
+
+## Quick Start
+
+```typescript
+// Template literal syntax
+const result = await $.bash`npm install && npm run build`
+
+// Check result
+if (result.exitCode === 0) {
+  console.log('Build succeeded:', result.stdout)
+} else {
+  console.error('Build failed:', result.stderr)
+}
+```
+
+## Execution Methods
+
+### exec - Run and Wait
+
+```typescript
+// Basic execution
+const result = await $.bash.exec('npm', ['test'])
+console.log(`Exit code: ${result.exitCode}`)
+console.log(`Output: ${result.stdout}`)
+
+// With options
+const result = await $.bash.exec('python', ['analyze.py'], {
+  cwd: '/app/scripts',
+  env: { PYTHONPATH: '/app/lib' },
+  timeout: 30000
+})
+
+// Template literal (same as exec)
+const result = await $.bash`npm run lint`
+```
+
+### spawn - Long-running Processes
+
+```typescript
+// Start process without waiting
+const handle = await $.bash.spawn('npm', ['run', 'watch'])
+
+// Read output as it arrives
+handle.stdout.on('data', (chunk) => {
+  console.log('Output:', chunk)
+})
+
+handle.stderr.on('data', (chunk) => {
+  console.error('Error:', chunk)
+})
+
+// Wait for completion
+const exitCode = await handle.wait()
+
+// Or kill early
+handle.kill('SIGTERM')
+```
+
+## AST-Based Safety Analysis
+
+Every command is parsed and analyzed before execution:
+
+```typescript
+// Check if command is dangerous
+const analysis = $.bash.analyze('rm -rf /')
+
+console.log(analysis.dangerous)     // true
+console.log(analysis.reason)        // "Recursive delete of root directory"
+console.log(analysis.classification) // "destructive"
+console.log(analysis.tier)          // "blocked"
+```
+
+### Safety Classifications
+
+| Classification | Description | Action |
+|---------------|-------------|--------|
+| `safe` | Read-only operations | Execute immediately |
+| `write` | File modifications | Execute with logging |
+| `network` | External connections | Execute with monitoring |
+| `destructive` | Data deletion | Requires confirmation |
+| `system` | OS-level changes | Blocked by default |
+
+### Confirmation for Dangerous Commands
+
+```typescript
+// This is blocked by default
+const result = await $.bash`rm -rf temp/`
+// result.blocked === true
+// result.requiresConfirm === true
+
+// Explicitly confirm dangerous operations
+const result = await $.bash.exec('rm', ['-rf', 'temp/'], {
+  confirm: true  // "Yes, I know what I'm doing"
+})
+```
+
+## Tiered Execution
+
+Commands route to different executors based on their requirements:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Command Input                        │
+│              $.bash`cat config.json`                    │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                 AST Parser (tree-sitter)                │
+│            Parse → Classify → Route                     │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+          ┌───────────┴───────────┬───────────────────────┐
+          ▼                       ▼                       ▼
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│   Tier 1        │   │   Tier 2        │   │   Tier 3        │
+│   Native JS     │   │   Workers       │   │   Containers    │
+├─────────────────┤   ├─────────────────┤   ├─────────────────┤
+│ cat, head, tail │   │ jq, sed, awk    │   │ npm, python     │
+│ ls, find, grep  │   │ curl, wget      │   │ ffmpeg, gcc     │
+│ echo, printf    │   │ base64, sha256  │   │ docker, git     │
+├─────────────────┤   ├─────────────────┤   ├─────────────────┤
+│ Uses $.fs       │   │ WASM modules    │   │ Container exec  │
+│ Sub-ms latency  │   │ 10-50ms         │   │ 100ms+ startup  │
+└─────────────────┘   └─────────────────┘   └─────────────────┘
+```
+
+### Tier 1: Native Operations
+
+File operations use fsx directly:
+
+```typescript
+// These use $.fs internally - no subprocess!
+await $.bash`cat config.json`        // $.fs.read('config.json')
+await $.bash`ls -la src/`            // $.fs.list('src/')
+await $.bash`head -n 10 data.csv`    // $.fs.read() + slice
+await $.bash`mkdir -p uploads/2024`  // $.fs.mkdir({ recursive: true })
+```
+
+### Tier 2: WASM Modules
+
+Common tools compiled to WebAssembly:
+
+```typescript
+// These run as WASM in the isolate
+await $.bash`jq '.name' package.json`
+await $.bash`echo "hello" | base64`
+await $.bash`sha256sum file.bin`
+```
+
+### Tier 3: Container Execution
+
+Heavy workloads run in containers:
+
+```typescript
+// These spawn containers
+await $.bash`npm install`
+await $.bash`python train.py --epochs 100`
+await $.bash`ffmpeg -i input.mp4 -c:v h264 output.mp4`
+```
+
+## Piping and Composition
+
+```typescript
+// Pipes work naturally
+const result = await $.bash`cat data.json | jq '.users[]' | head -5`
+
+// Command substitution
+const version = await $.bash`node --version`
+const result = await $.bash`echo "Node ${version.stdout.trim()}"`
+
+// Conditionals
+await $.bash`test -f config.json && cat config.json || echo "no config"`
+```
+
+## Environment Variables
+
+```typescript
+// Set for single command
+const result = await $.bash.exec('node', ['app.js'], {
+  env: {
+    NODE_ENV: 'production',
+    API_KEY: env.API_KEY
+  }
+})
+
+// Template with interpolation
+const port = 3000
+await $.bash`PORT=${port} npm start`
+```
+
+## Working Directory
+
+```typescript
+// Change working directory
+const result = await $.bash.exec('npm', ['test'], {
+  cwd: '/app/packages/core'
+})
+
+// Or use cd in the command
+await $.bash`cd packages/core && npm test`
+```
+
+## Timeouts
+
+```typescript
+// Default timeout is 60 seconds
+const result = await $.bash.exec('npm', ['install'], {
+  timeout: 120000  // 2 minutes
+})
+
+// Handle timeout
+if (result.timedOut) {
+  console.error('Command timed out')
+}
+```
+
+## Real-World Examples
+
+### Build Pipeline
+
+```typescript
+async function buildAndDeploy() {
+  // Install dependencies
+  await $.bash`npm ci`
+
+  // Run tests
+  const testResult = await $.bash`npm test`
+  if (testResult.exitCode !== 0) {
+    throw new Error('Tests failed')
+  }
+
+  // Build
+  await $.bash`npm run build`
+
+  // Deploy
+  await $.bash`npm run deploy`
+}
+```
+
+### Video Processing
+
+```typescript
+async function processVideo(input: string) {
+  // Get video info
+  const probe = await $.bash`ffprobe -v quiet -print_format json -show_format ${input}`
+  const info = JSON.parse(probe.stdout)
+
+  // Transcode
+  await $.bash`ffmpeg -i ${input} -c:v libx264 -crf 23 -preset medium output.mp4`
+
+  // Generate thumbnail
+  await $.bash`ffmpeg -i ${input} -ss 00:00:01 -vframes 1 thumbnail.jpg`
+
+  return { duration: info.format.duration }
+}
+```
+
+### Python Script Execution
+
+```typescript
+async function analyzeData(dataPath: string) {
+  // Run Python analysis
+  const result = await $.bash`python analyze.py --input ${dataPath} --output results.json`
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Analysis failed: ${result.stderr}`)
+  }
+
+  // Read results
+  const results = await $.fs.read('results.json')
+  return JSON.parse(results)
+}
+```
+
+## Error Handling
+
+```typescript
+import { BashError } from 'dotdo/errors'
+
+try {
+  await $.bash`npm run build`
+} catch (error) {
+  if (error instanceof BashError) {
+    console.error(`Command failed: ${error.command}`)
+    console.error(`Exit code: ${error.exitCode}`)
+    console.error(`Stderr: ${error.stderr}`)
+  }
+}
+
+// Or check result directly
+const result = await $.bash`npm run build`
+if (result.exitCode !== 0) {
+  console.error('Build failed:', result.stderr)
+}
+```
+
+## Type Definitions
+
+```typescript
+interface BashResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+  timedOut?: boolean
+  blocked?: boolean
+  requiresConfirm?: boolean
+}
+
+interface ExecOptions {
+  cwd?: string
+  env?: Record<string, string>
+  timeout?: number
+  confirm?: boolean
+}
+
+interface SpawnHandle {
+  stdout: {
+    on(event: 'data', callback: (chunk: string) => void): void
+  }
+  stderr: {
+    on(event: 'data', callback: (chunk: string) => void): void
+  }
+  wait(): Promise<number>
+  kill(signal?: string): void
+}
+
+interface SafetyAnalysis {
+  dangerous: boolean
+  reason?: string
+  classification: 'safe' | 'write' | 'network' | 'destructive' | 'system'
+  tier: 'native' | 'wasm' | 'container' | 'blocked'
+}
+```
+
+## Configuration
+
+Configure the executor when adding bashx to your DO:
+
+```typescript
+class BuildAgent extends withBash(withFs(DO), {
+  // Executor factory - called when $.bash is first accessed
+  executor: (instance) => ({
+    execute: async (cmd, opts) => {
+      // Route to Cloudflare Containers
+      return await instance.env.CONTAINER.run(cmd, opts)
+    }
+  }),
+
+  // Optional: integrate with fsx for native file ops
+  fs: (instance) => instance.$.fs,
+
+  // Enable native operations (default: true)
+  useNativeOps: true
+}) {
+  // ...
+}
+```
+
+## Security Considerations
+
+1. **AST Analysis** - Commands are parsed and analyzed, not just string-matched
+2. **Blocklist** - Dangerous patterns are blocked by default
+3. **Confirmation** - Destructive operations require explicit opt-in
+4. **Sandboxing** - Container execution is isolated
+5. **Resource Limits** - Timeouts prevent runaway processes
+
+## Next Steps
+
+- [fsx](/docs/primitives/fsx) - Filesystem used by native operations
+- [gitx](/docs/primitives/gitx) - Run git hooks and pre-commit scripts
+- [Capabilities](/docs/sdk/capabilities) - Add bash to your DOs

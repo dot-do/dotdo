@@ -1,0 +1,138 @@
+---
+title: Agent System
+description: AI workers with real identity. Not chatbots. Workers.
+---
+
+# Agent System
+
+Named agents with real identity. When Tom reviews your PR, you see `@tom-do` commenting. Not "AI Assistant".
+
+```typescript
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class MyStartup extends Startup {
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
+  }
+}
+```
+
+## They're Not Chatbots
+
+They're workers.
+
+Each agent:
+
+| Identity | Example |
+|----------|---------|
+| GitHub account | `@tom-do` |
+| Email address | `tom@agents.do` |
+| Avatar | Consistent across all platforms |
+| Audit trail | Full history of every action |
+
+When Tom reviews your code, you get a real PR comment from `@tom-do`. When Mark sends an email, it comes from `mark@agents.do`. Every action is traceable.
+
+## Template Literals are RPC
+
+This isn't string interpolation:
+
+```typescript
+ralph`build the user dashboard`
+```
+
+It's an RPC call. The template literal syntax creates a proxy that:
+
+1. Captures your natural language instruction
+2. Sends it to the agent's execution context
+3. Returns a promise (or runs fire-and-forget)
+
+No method names. No parameters. Just say what you want.
+
+## When to Await
+
+```typescript
+// Fire-and-forget: no await
+mark`announce the launch`
+sally`start selling`
+
+// Need the result: await
+const spec = await priya`what should we build next?`
+const code = await ralph`build ${spec}`
+
+// Approval flow: await
+const approved = await tom.approve(pullRequest)
+```
+
+If you don't need the result, don't await. The agent works in the background.
+
+## Pipeline Execution
+
+Agents compose with promise pipelining. One network round trip, not N.
+
+```typescript
+// This is ONE batch operation
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+  .map(pr => tom`merge ${pr}`)
+```
+
+The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records your callback, sends it to the server, and replays it for each result. All in one network round trip.
+
+## Meet Your Team
+
+| Agent | Role | Specialty |
+|-------|------|-----------|
+| [Priya](/docs/agents/named-agents#priya) | Product | specs, roadmaps, priorities |
+| [Ralph](/docs/agents/named-agents#ralph) | Engineering | builds what you need |
+| [Tom](/docs/agents/named-agents#tom) | Tech Lead | architecture, code review |
+| [Rae](/docs/agents/named-agents#rae) | Frontend | React, UI, accessibility |
+| [Mark](/docs/agents/named-agents#mark) | Marketing | copy, content, launches |
+| [Sally](/docs/agents/named-agents#sally) | Sales | outreach, demos, closing |
+| [Quinn](/docs/agents/named-agents#quinn) | QA | testing, edge cases, quality |
+
+<Cards>
+  <Card title="Named Agents" href="/docs/agents/named-agents">
+    Meet Priya, Ralph, Tom, Rae, Mark, Sally, and Quinn.
+  </Card>
+  <Card title="Custom Agents" href="/docs/agents/custom-agents">
+    Build domain-specific agents for your industry.
+  </Card>
+</Cards>
+
+## Human Escalation
+
+AI does the work. Humans make the decisions.
+
+```typescript
+import { legal, ceo } from 'humans.do'
+
+const approved = await ceo`approve the partnership`
+
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+})
+```
+
+Messages route to Slack, email, SMS. Full audit trail. When the decision requires human judgment, the workflow pauses until a human responds.
+
+## Technical Foundation
+
+Agents run on the same infrastructure as your business:
+
+- **V8 Isolates** for 0ms cold starts
+- **Durable Objects** for persistent state
+- **Cap'n Web RPC** for promise pipelining
+- **300+ edge locations** worldwide
+
+An agent is not a chatbot wrapping an LLM. It's a durable compute primitive with identity, memory, and tools.

@@ -1,0 +1,6 @@
+{
+  "title": "Storage",
+  "description": "Tiered storage architecture - Hot, Warm, Cold",
+  "root": true,
+  "pages": ["index", "hot-tier", "warm-tier", "cold-tier"]
+}

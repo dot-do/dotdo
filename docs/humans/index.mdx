@@ -1,0 +1,86 @@
+---
+title: Human-in-the-Loop
+description: AI does the work. Humans make the decisions.
+---
+
+# Human-in-the-Loop
+
+AI handles the 95%. Humans handle the edge cases. Full audit trail. Clear accountability.
+
+## The Philosophy
+
+Autonomous doesn't mean unsupervised. The best AI systems know their limits. When confidence drops, stakes rise, or judgment is required, the system escalates to humans.
+
+```typescript
+import { legal, ceo, accountant } from 'humans.do'
+
+// Same syntax as AI agents
+const contract = await legal`review this partnership agreement`
+const approved = await ceo`approve the acquisition`
+const verified = await accountant`validate Q4 financials`
+```
+
+## Same Interface, Different Intelligence
+
+Humans and AI agents share the same calling convention. Your workflow doesn't care who handles the task - just that it gets handled correctly.
+
+```typescript
+import { ralph } from 'agents.do'
+import { ceo } from 'humans.do'
+
+// AI builds it
+const app = await ralph`build ${spec}`
+
+// Human approves it
+const approved = await ceo`approve ${app} for production`
+```
+
+## When to Escalate
+
+| Trigger | Example | Why |
+|---------|---------|-----|
+| **Dollar thresholds** | Refund > $10,000 | Financial risk |
+| **Confidence scores** | AI confidence < 80% | Uncertainty |
+| **Risk scores** | Audit risk > 0.8 | Compliance |
+| **Compliance** | Contract review | Legal exposure |
+| **Final approval** | Partnership sign-off | Accountability |
+
+## How It Works
+
+1. **Trigger** - Condition met (threshold, confidence, rule)
+2. **Route** - Message sent to Slack, email, or SMS
+3. **Wait** - Workflow pauses for human response
+4. **Resume** - Workflow continues with decision
+5. **Audit** - Full trail of who decided what
+
+```typescript
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  channels: ['slack', 'email'],
+})
+```
+
+## Core Concepts
+
+- **[Escalation](/docs/humans/escalation)** - Triggers, roles, and SLAs
+- **[Approval Workflows](/docs/humans/approval-workflows)** - Building approval chains
+
+## Design Principles
+
+### Autonomy with Guardrails
+
+AI agents operate independently within defined boundaries. When they hit an edge case, they escalate rather than guess.
+
+### Humans for Judgment, Not Toil
+
+Don't make humans approve every email. Reserve escalation for decisions that actually require judgment.
+
+### Full Audit Trail
+
+Every escalation is logged. Who was asked, when they responded, what they decided. Compliance teams love this.
+
+### Graceful Degradation
+
+If a human doesn't respond within the SLA, the system can escalate higher, fall back to a default action, or alert operations.

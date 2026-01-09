@@ -1,61 +1,202 @@
 ---
 title: Installation
-description: How to install and set up do.md
+description: Get dotdo running locally in 2 minutes
 ---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
 
 # Installation
 
-Get **do.md** installed and ready to use in your project.
+Two minutes. That's all you need.
 
-## Prerequisites
+## Install the Package
 
-Before you begin, make sure you have:
-
-- Node.js 18 or higher
-- A Cloudflare account (for deployment)
-- *Basic familiarity* with TypeScript
-
-## Quick Start
-
-Install do.md via npm:
-
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+  <Tab value="npm">
 ```bash
 npm install dotdo
 ```
-
-Or using pnpm:
-
+  </Tab>
+  <Tab value="pnpm">
 ```bash
 pnpm add dotdo
 ```
-
-## Configuration
-
-Create a `wrangler.toml` file in your project root:
-
-```json
-{
-  "name": "my-app",
-  "main": "src/index.ts"
-}
+  </Tab>
+  <Tab value="yarn">
+```bash
+yarn add dotdo
 ```
+  </Tab>
+  <Tab value="bun">
+```bash
+bun add dotdo
+```
+  </Tab>
+</Tabs>
+
+## Initialize Your Project
+
+```bash
+npx dotdo init my-startup
+cd my-startup
+```
+
+This creates:
+
+```
+my-startup/
+  src/
+    startup.ts      # Your startup class
+    index.ts        # Worker entry point
+  wrangler.toml     # Cloudflare config
+  package.json
+  tsconfig.json
+```
+
+## Configure Cloudflare
+
+The init command creates `wrangler.toml` for you:
+
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
+```
+
+<Callout type="warn">
+**First time using Wrangler?** Run `npx wrangler login` to authenticate with your Cloudflare account.
+</Callout>
 
 ## Verify Installation
 
-Run the following command to verify:
-
-```typescript
-import { DO } from 'dotdo'
-
-const app = new DO()
-console.log('do.md is ready!')
+```bash
+npm run dev
 ```
 
-> **Note**: Make sure to check the [API Reference](/docs/api) for detailed configuration options.
+You should see:
 
-## Next Steps
+```
+Ready on http://localhost:8787
+```
 
-- Read the [Concepts](/docs/concepts) to understand the architecture
-- Check out the [Guides](/docs/guides) for practical examples
+Open [http://localhost:8787](http://localhost:8787) in your browser. You'll see your startup's dashboard.
 
-Visit https://github.com/dotdo/dotdo for more information.
+## Environment Variables
+
+Create a `.dev.vars` file for local secrets:
+
+```bash title=".dev.vars"
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+<Callout type="error">
+Never commit `.dev.vars`. It's already in `.gitignore`, but double-check.
+</Callout>
+
+For production, use Wrangler secrets:
+
+```bash
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+## TypeScript Configuration
+
+The init command creates the right `tsconfig.json`, but here's what matters:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "types": ["@cloudflare/workers-types"]
+  }
+}
+```
+
+Key settings:
+
+| Option | Value | Why |
+|--------|-------|-----|
+| `target` | ES2022 | V8 isolates support modern JS |
+| `moduleResolution` | bundler | Wrangler bundles your code |
+| `types` | workers-types | Cloudflare globals like `DurableObject` |
+
+## Project Structure
+
+After init, here's what you're working with:
+
+```
+my-startup/
+  src/
+    startup.ts      # Your Startup class lives here
+    index.ts        # Routes HTTP to your DO
+  wrangler.toml     # Cloudflare deployment config
+  .dev.vars         # Local secrets (gitignored)
+  package.json
+  tsconfig.json
+```
+
+The key file is `src/startup.ts`:
+
+```typescript title="src/startup.ts"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class MyStartup extends Startup {
+  hypothesis = 'Your hypothesis here'
+
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
+  }
+}
+```
+
+## Troubleshooting
+
+### "Cannot find module 'dotdo'"
+
+Make sure you're in the project directory and ran `npm install`.
+
+### "Wrangler not authenticated"
+
+Run `npx wrangler login` and follow the browser prompts.
+
+### "Durable Object not found"
+
+Check that your `wrangler.toml` has the correct class name in the `durable_objects` binding.
+
+### Port 8787 already in use
+
+Another Wrangler instance is running. Kill it or use a different port:
+
+```bash
+npm run dev -- --port 8788
+```
+
+## Next Step
+
+You're installed. Time to build.
+
+[Quickstart: Build your first startup in 5 minutes](/docs/getting-started/quickstart)

@@ -1,0 +1,306 @@
+---
+title: Named Agents
+description: Meet Priya, Ralph, Tom, Rae, Mark, Sally, and Quinn - your AI team with real identity
+---
+
+# Named Agents
+
+Seven agents. Real identity. Full audit trail.
+
+```typescript
+import { priya, ralph, tom, rae, mark, sally, quinn } from 'agents.do'
+```
+
+Each agent has a GitHub account, email address, and consistent avatar across all platforms. When they act, their identity is preserved.
+
+---
+
+## Priya
+
+**Product Manager** | `priya@agents.do` | `@priya-do`
+
+Specs, roadmaps, priorities. Priya turns your hypothesis into actionable specs. She thinks in user stories, not features.
+
+```typescript
+// Define what to build
+const spec = await priya`define the MVP for ${hypothesis}`
+
+// Prioritize work
+await priya`prioritize the backlog for ${sprint}`
+
+// Write acceptance criteria
+await priya`write acceptance criteria for ${feature}`
+
+// Answer product questions
+await priya`what should we build next?`
+```
+
+**How she thinks:**
+
+- Starts with the problem, not the solution
+- Breaks features into user stories
+- Prioritizes by impact, not effort
+- Writes clear acceptance criteria
+
+---
+
+## Ralph
+
+**Engineer** | `ralph@agents.do` | `@ralph-do`
+
+Builds what you need. Ralph writes production code. Tests included. He prefers simple solutions.
+
+```typescript
+// Build from spec
+const code = await ralph`build ${spec}`
+
+// Fix bugs
+await ralph`fix the bug in ${component}`
+
+// Add tests
+await ralph`add tests for ${module}`
+
+// Implement features
+await ralph`implement user authentication`
+```
+
+**How he builds:**
+
+- Production-ready code, not prototypes
+- Tests alongside implementation
+- Prefers simplicity over cleverness
+- Follows existing patterns in your codebase
+
+---
+
+## Tom
+
+**Tech Lead** | `tom@agents.do` | `@tom-do`
+
+Architecture, code review. Tom reviews PRs, designs systems, and catches edge cases before they become incidents.
+
+```typescript
+// Review code
+const feedback = await tom`review ${pullRequest}`
+
+// Design systems
+await tom`design the architecture for ${system}`
+
+// Full ship flow: review + merge + deploy
+await tom`ship ${app}`
+
+// Approve changes
+const approved = await tom.approve(code)
+```
+
+**How he reviews:**
+
+- Checks for security issues first
+- Validates error handling
+- Questions complexity
+- Suggests refactors, not rewrites
+
+When Tom reviews your PR, you see `@tom-do` commenting on GitHub. Real comments, real identity.
+
+---
+
+## Rae
+
+**Frontend Engineer** | `rae@agents.do` | `@rae-do`
+
+React, UI, accessibility. Rae builds interfaces. She cares about UX, responsiveness, and a11y.
+
+```typescript
+// Build components
+await rae`build the ${component} component`
+
+// Make responsive
+await rae`make ${page} responsive`
+
+// Accessibility audit
+await rae`audit accessibility for ${app}`
+
+// UI polish
+await rae`improve the UX of ${flow}`
+```
+
+**How she builds:**
+
+- Mobile-first responsive design
+- WCAG 2.1 AA compliance
+- Semantic HTML
+- Progressive enhancement
+
+---
+
+## Mark
+
+**Marketing** | `mark@agents.do` | `@mark-do`
+
+Copy, content, launches. Mark writes landing pages, blog posts, and launch announcements.
+
+```typescript
+// Launch announcements
+mark`announce the launch`
+
+// Blog posts
+await mark`write a blog post about ${feature}`
+
+// Campaign copy
+await mark`create copy for ${campaign}`
+
+// Social content
+mark`create social posts for ${announcement}`
+```
+
+**How he writes:**
+
+- Benefits over features
+- Clear calls to action
+- Consistent brand voice
+- SEO-aware content structure
+
+---
+
+## Sally
+
+**Sales** | `sally@agents.do` | `@sally-do`
+
+Outreach, demos, closing. Sally handles cold outreach, schedules demos, and follows up.
+
+```typescript
+// Start selling
+sally`start selling`
+
+// Outreach
+await sally`reach out to ${leads}`
+
+// Follow up
+await sally`follow up with ${prospect}`
+
+// Schedule demos
+await sally`schedule a demo with ${contact}`
+```
+
+**How she sells:**
+
+- Personalized outreach, not spam
+- Timely follow-ups
+- Qualification before demo
+- CRM integration for tracking
+
+---
+
+## Quinn
+
+**QA Engineer** | `quinn@agents.do` | `@quinn-do`
+
+Testing, edge cases, quality. Quinn finds bugs before users do. She thinks like an attacker.
+
+```typescript
+// Test features
+await quinn`test ${feature}`
+
+// Find edge cases
+await quinn`find edge cases in ${spec}`
+
+// Write e2e tests
+await quinn`write e2e tests for ${flow}`
+
+// Security review
+await quinn`check ${code} for security issues`
+```
+
+**How she tests:**
+
+- Thinks like an attacker
+- Tests edge cases first
+- Validates error states
+- Catches race conditions
+
+---
+
+## Working Together
+
+Agents collaborate through pipelines:
+
+```typescript
+async function ship(hypothesis: string) {
+  // Priya specs it
+  const spec = await priya`define the MVP for ${hypothesis}`
+
+  // Ralph builds it
+  const code = await ralph`build ${spec}`
+
+  // Tom reviews it
+  const feedback = await tom`review ${code}`
+
+  // Ralph improves it
+  const improved = await ralph`improve ${code} per ${feedback}`
+
+  // Quinn tests it
+  await quinn`test ${improved}`
+
+  // Tom ships it
+  await tom`ship ${improved}`
+
+  // Mark announces it
+  mark`announce ${hypothesis}`
+
+  // Sally starts selling
+  sally`start selling ${hypothesis}`
+}
+```
+
+Or use promise pipelining for single round-trip:
+
+```typescript
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+  .map(pr => quinn`test ${pr}`)
+  .map(pr => tom`merge ${pr}`)
+```
+
+---
+
+## Identity and Audit Trail
+
+Every agent action is traceable:
+
+| Action | Identity | Audit |
+|--------|----------|-------|
+| PR comment | `@tom-do` on GitHub | Full git history |
+| Email sent | `mark@agents.do` | Email logs |
+| Code commit | `ralph@agents.do` | Git blame |
+| Slack message | `@sally-do` | Message history |
+
+When you see a comment from `@tom-do`, you know:
+- Tom (the agent) wrote it
+- It's part of your audit trail
+- You can trace it back to the original request
+
+---
+
+## Fire and Forget vs Await
+
+Not every agent call needs `await`:
+
+```typescript
+// Fire and forget - background work
+mark`announce the launch`
+sally`start selling`
+
+// Need the result - await it
+const spec = await priya`what should we build next?`
+const code = await ralph`build ${spec}`
+
+// Approval gate - await it
+if (await tom.approve(pullRequest)) {
+  await tom`merge ${pullRequest}`
+}
+```
+
+Rule of thumb:
+- **Fire and forget:** Announcements, notifications, background tasks
+- **Await:** Anything you need before the next step

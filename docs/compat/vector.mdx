@@ -1,0 +1,716 @@
+---
+title: Vector
+description: API-compatible vector database SDKs for Pinecone, Qdrant, Weaviate, and Chroma.
+---
+
+# Vector Compat SDKs
+
+Four vector database APIs, rebuilt on Durable Objects. Embeddings that scale with your agents.
+
+## The Problem
+
+When 10,000 AI agents start generating and querying embeddings:
+
+- **Pinecone** rate limits per namespace
+- **Qdrant** memory pressure on large indices
+- **Weaviate** JVM GC pauses during heavy load
+- **Chroma** single-node limitations
+
+The solution: tiered vector storage. Hot vectors in libsql (F32_BLOB), warm in Cloudflare Vectorize, cold in ClickHouse/Parquet. Automatic promotion and demotion based on access patterns.
+
+## Quick Start
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_KEY })
+const index = pinecone.index('products')
+
+// Upsert vectors
+await index.upsert([
+  {
+    id: 'doc-1',
+    values: embedding, // 1536 dimensions for text-embedding-3-small
+    metadata: { title: 'Product Guide', category: 'docs' },
+  },
+])
+
+// Query
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  filter: { category: 'docs' },
+  includeMetadata: true,
+})
+```
+
+## Available SDKs
+
+### @dotdo/pinecone
+
+Pinecone SDK compatible.
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_KEY,
+})
+
+// Get or create index
+const index = pinecone.index('knowledge-base')
+
+// Upsert vectors
+await index.upsert([
+  {
+    id: 'doc-1',
+    values: await embed('How to reset password'),
+    metadata: {
+      title: 'Password Reset Guide',
+      category: 'support',
+      lastUpdated: '2024-01-15',
+    },
+  },
+  {
+    id: 'doc-2',
+    values: await embed('Account settings overview'),
+    metadata: {
+      title: 'Account Settings',
+      category: 'settings',
+      lastUpdated: '2024-01-10',
+    },
+  },
+])
+
+// Query with metadata filter
+const results = await index.query({
+  vector: await embed('how do I change my password'),
+  topK: 5,
+  filter: {
+    category: { $eq: 'support' },
+  },
+  includeMetadata: true,
+  includeValues: false,
+})
+
+for (const match of results.matches) {
+  console.log(`${match.id}: ${match.score}`)
+  console.log(match.metadata)
+}
+
+// Namespace isolation
+const ns = index.namespace('tenant-123')
+await ns.upsert([{ id: 'doc-1', values: embedding }])
+const nsResults = await ns.query({ vector: queryEmbedding, topK: 5 })
+
+// Fetch vectors by ID
+const vectors = await index.fetch(['doc-1', 'doc-2'])
+
+// Delete vectors
+await index.deleteOne('doc-1')
+await index.deleteMany(['doc-2', 'doc-3'])
+await index.deleteAll() // Clear entire index
+
+// Describe index
+const stats = await index.describeIndexStats()
+console.log(`Total vectors: ${stats.totalRecordCount}`)
+```
+
+Filter operators:
+- `$eq`, `$ne` - Equality
+- `$gt`, `$gte`, `$lt`, `$lte` - Comparison
+- `$in`, `$nin` - Set membership
+- `$and`, `$or` - Boolean
+
+### @dotdo/qdrant
+
+Qdrant client compatible.
+
+```typescript
+import { QdrantClient } from '@dotdo/qdrant'
+
+const client = new QdrantClient({
+  url: process.env.QDRANT_URL,
+  apiKey: process.env.QDRANT_KEY,
+})
+
+// Create collection
+await client.createCollection('articles', {
+  vectors: {
+    size: 1536,
+    distance: 'Cosine',
+  },
+})
+
+// Upsert points
+await client.upsert('articles', {
+  points: [
+    {
+      id: 'article-1',
+      vector: embedding,
+      payload: {
+        title: 'Introduction to Vector Search',
+        author: 'Alice',
+        tags: ['search', 'ml', 'vectors'],
+        published: '2024-01-15',
+      },
+    },
+  ],
+})
+
+// Search with filtering
+const results = await client.search('articles', {
+  vector: queryEmbedding,
+  limit: 10,
+  filter: {
+    must: [
+      { key: 'tags', match: { value: 'ml' } },
+      { key: 'published', range: { gte: '2024-01-01' } },
+    ],
+  },
+  with_payload: true,
+  with_vectors: false,
+})
+
+// Scroll through all points
+const scrollResults = await client.scroll('articles', {
+  limit: 100,
+  with_payload: true,
+  filter: { must: [{ key: 'author', match: { value: 'Alice' } }] },
+})
+
+// Batch search
+const batchResults = await client.searchBatch('articles', {
+  searches: [
+    { vector: embedding1, limit: 5 },
+    { vector: embedding2, limit: 5 },
+  ],
+})
+
+// Recommend similar
+const recommendations = await client.recommend('articles', {
+  positive: ['article-1', 'article-2'],
+  negative: ['article-3'],
+  limit: 10,
+})
+
+// Delete points
+await client.delete('articles', {
+  filter: { must: [{ key: 'author', match: { value: 'Alice' } }] },
+})
+```
+
+### @dotdo/weaviate
+
+Weaviate client compatible.
+
+```typescript
+import weaviate from '@dotdo/weaviate'
+
+const client = weaviate.client({
+  scheme: 'https',
+  host: process.env.WEAVIATE_HOST,
+  apiKey: new weaviate.ApiKey(process.env.WEAVIATE_KEY),
+})
+
+// Create class
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'none', // Using external embeddings
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+    { name: 'author', dataType: ['text'] },
+    { name: 'wordCount', dataType: ['int'] },
+  ],
+}).do()
+
+// Add objects
+await client.data.creator()
+  .withClassName('Article')
+  .withId('article-uuid-1')
+  .withVector(embedding)
+  .withProperties({
+    title: 'Vector Databases Explained',
+    content: 'A comprehensive guide to vector search...',
+    author: 'Bob',
+    wordCount: 2500,
+  })
+  .do()
+
+// Batch import
+const batch = client.batch.objectsBatcher()
+for (const article of articles) {
+  batch.withObject({
+    class: 'Article',
+    id: article.id,
+    vector: article.embedding,
+    properties: article,
+  })
+}
+await batch.do()
+
+// Vector search with GraphQL
+const results = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content author _additional { certainty distance }')
+  .withNearVector({ vector: queryEmbedding, certainty: 0.7 })
+  .withWhere({
+    operator: 'And',
+    operands: [
+      { path: ['author'], operator: 'Equal', valueText: 'Bob' },
+      { path: ['wordCount'], operator: 'GreaterThan', valueInt: 1000 },
+    ],
+  })
+  .withLimit(10)
+  .do()
+
+// Hybrid search (vector + BM25)
+const hybrid = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content')
+  .withHybrid({
+    query: 'vector database tutorial',
+    vector: queryEmbedding,
+    alpha: 0.5, // Balance between vector and keyword
+  })
+  .withLimit(10)
+  .do()
+```
+
+### @dotdo/chroma
+
+ChromaDB client compatible.
+
+```typescript
+import { ChromaClient } from '@dotdo/chroma'
+
+const client = new ChromaClient({
+  path: process.env.CHROMA_URL,
+})
+
+// Create collection
+const collection = await client.createCollection({
+  name: 'documents',
+  metadata: { 'hnsw:space': 'cosine' },
+})
+
+// Add documents with embeddings
+await collection.add({
+  ids: ['doc-1', 'doc-2', 'doc-3'],
+  embeddings: [embedding1, embedding2, embedding3],
+  metadatas: [
+    { source: 'wiki', topic: 'science' },
+    { source: 'blog', topic: 'tech' },
+    { source: 'wiki', topic: 'tech' },
+  ],
+  documents: [
+    'The theory of relativity...',
+    'Modern web development...',
+    'Quantum computing basics...',
+  ],
+})
+
+// Query
+const results = await collection.query({
+  queryEmbeddings: [queryEmbedding],
+  nResults: 5,
+  where: { topic: 'tech' },
+  whereDocument: { $contains: 'development' },
+  include: ['embeddings', 'documents', 'metadatas', 'distances'],
+})
+
+// Get by ID
+const docs = await collection.get({
+  ids: ['doc-1', 'doc-2'],
+  include: ['embeddings', 'metadatas'],
+})
+
+// Update
+await collection.update({
+  ids: ['doc-1'],
+  metadatas: [{ source: 'wiki', topic: 'physics', updated: true }],
+})
+
+// Delete
+await collection.delete({
+  ids: ['doc-3'],
+})
+
+// With auto-embedding (text-embedding-3-small)
+const autoCollection = await client.createCollection({
+  name: 'auto-embed',
+  embeddingFunction: 'openai', // Auto-embed documents
+})
+
+await autoCollection.add({
+  ids: ['doc-1'],
+  documents: ['This will be automatically embedded'],
+})
+
+const autoResults = await autoCollection.query({
+  queryTexts: ['search query'], // Auto-embedded
+  nResults: 5,
+})
+```
+
+## Architecture
+
+### Tiered Vector Storage
+
+Vectors tier automatically based on access patterns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Query                                    │
+│              index.query({ vector, topK: 10 })                   │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      VectorRouter                                │
+│         Strategy: cascade | parallel | smart                     │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+               ┌────────┐  ┌────────┐  ┌────────┐
+               │  Hot   │  │  Warm  │  │  Cold  │
+               │ libsql │  │Vectorize│ │Parquet │
+               │ < 10ms │  │ < 50ms │  │< 200ms │
+               └────────┘  └────────┘  └────────┘
+```
+
+### Storage Tiers
+
+```typescript
+const router = new VectorRouter(env, {
+  tiers: {
+    hot: {
+      engine: 'libsql',
+      dimensions: 1536,
+      metric: 'cosine',
+    },
+    warm: {
+      engine: 'vectorize',
+      dimensions: 1536,
+      metric: 'cosine',
+    },
+    cold: {
+      engine: 'parquet',
+      dimensions: 1536,
+      metric: 'cosine',
+    },
+  },
+  routing: {
+    strategy: 'cascade', // Try hot first, fall back to colder
+    fallback: true,
+  },
+})
+```
+
+### Routing Strategies
+
+**Cascade** (default): Try hot tier first, fall back if results insufficient.
+
+```typescript
+const router = new VectorRouter(env, {
+  routing: { strategy: 'cascade', fallback: true },
+})
+```
+
+**Parallel**: Query all tiers simultaneously, merge results.
+
+```typescript
+const router = new VectorRouter(env, {
+  routing: { strategy: 'parallel' },
+})
+```
+
+**Smart**: Use query characteristics to pick best tier.
+
+```typescript
+const router = new VectorRouter(env, {
+  routing: {
+    strategy: 'smart',
+    // Hot for real-time queries
+    // Cold for batch analytics
+  },
+})
+```
+
+## Distance Metrics
+
+All compat SDKs support three distance metrics:
+
+### Cosine Similarity
+
+Best for normalized embeddings (OpenAI, Cohere).
+
+```typescript
+// Range: -1 to 1 (higher = more similar)
+const similarity = cosineSimilarity(a, b)
+```
+
+### Euclidean Distance
+
+Best for unnormalized vectors or spatial data.
+
+```typescript
+// Range: 0 to infinity (lower = more similar)
+const distance = euclideanDistance(a, b)
+```
+
+### Dot Product
+
+Best for maximum inner product search (MIPS).
+
+```typescript
+// Range: -infinity to infinity (higher = more similar)
+const product = dotProduct(a, b)
+```
+
+## Embedding Models
+
+Common embedding dimensions:
+
+| Model | Provider | Dimensions | Use Case |
+|-------|----------|------------|----------|
+| text-embedding-3-small | OpenAI | 1536 | General purpose |
+| text-embedding-3-large | OpenAI | 3072 | High accuracy |
+| embed-english-v3.0 | Cohere | 1024 | English text |
+| embed-multilingual-v3.0 | Cohere | 1024 | Multilingual |
+| all-MiniLM-L6-v2 | HuggingFace | 384 | Fast, lightweight |
+| bge-large-en-v1.5 | BAAI | 1024 | High quality |
+
+### Generate Embeddings
+
+```typescript
+import { embed } from 'dotdo/ai'
+
+// Using OpenAI
+const embedding = await embed('Your text here', {
+  model: 'text-embedding-3-small',
+})
+
+// Using Workers AI
+const embedding = await embed('Your text here', {
+  model: '@cf/baai/bge-large-en-v1.5',
+})
+
+// Batch embedding
+const embeddings = await embedBatch([
+  'First document',
+  'Second document',
+  'Third document',
+])
+```
+
+## Patterns
+
+### RAG (Retrieval-Augmented Generation)
+
+```typescript
+async function rag(question: string) {
+  // 1. Embed the question
+  const questionEmbedding = await embed(question)
+
+  // 2. Find relevant documents
+  const results = await index.query({
+    vector: questionEmbedding,
+    topK: 5,
+    includeMetadata: true,
+  })
+
+  // 3. Build context
+  const context = results.matches
+    .map((m) => m.metadata.content)
+    .join('\n\n')
+
+  // 4. Generate answer
+  const answer = await complete({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `Answer based on this context:\n\n${context}`,
+      },
+      { role: 'user', content: question },
+    ],
+  })
+
+  return answer
+}
+```
+
+### Semantic Cache
+
+Cache LLM responses by semantic similarity:
+
+```typescript
+async function cachedComplete(prompt: string) {
+  const embedding = await embed(prompt)
+
+  // Check cache
+  const cached = await index.query({
+    vector: embedding,
+    topK: 1,
+    filter: { type: 'cache' },
+    includeMetadata: true,
+  })
+
+  if (cached.matches[0]?.score > 0.95) {
+    return cached.matches[0].metadata.response
+  }
+
+  // Generate new response
+  const response = await complete({ messages: [{ role: 'user', content: prompt }] })
+
+  // Cache it
+  await index.upsert([{
+    id: `cache-${Date.now()}`,
+    values: embedding,
+    metadata: { type: 'cache', prompt, response },
+  }])
+
+  return response
+}
+```
+
+### Hybrid Search
+
+Combine vector similarity with keyword search:
+
+```typescript
+async function hybridSearch(query: string) {
+  const embedding = await embed(query)
+
+  // Vector search
+  const vectorResults = await vectorIndex.query({
+    vector: embedding,
+    topK: 20,
+  })
+
+  // Keyword search
+  const keywordResults = await searchIndex.search({
+    query: { match: { content: query } },
+    size: 20,
+  })
+
+  // Reciprocal rank fusion
+  const scores = new Map<string, number>()
+  const k = 60 // RRF constant
+
+  vectorResults.matches.forEach((match, i) => {
+    const score = 1 / (k + i + 1)
+    scores.set(match.id, (scores.get(match.id) || 0) + score)
+  })
+
+  keywordResults.hits.forEach((hit, i) => {
+    const score = 1 / (k + i + 1)
+    scores.set(hit._id, (scores.get(hit._id) || 0) + score)
+  })
+
+  return Array.from(scores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+}
+```
+
+### Multi-Tenant Isolation
+
+Use namespaces for tenant isolation:
+
+```typescript
+// Each tenant gets their own namespace
+const tenantIndex = index.namespace(`tenant-${tenantId}`)
+
+// Vectors are isolated
+await tenantIndex.upsert([{ id: 'doc-1', values: embedding }])
+
+// Queries only see tenant's vectors
+const results = await tenantIndex.query({
+  vector: queryEmbedding,
+  topK: 10,
+})
+```
+
+## Performance
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Insert (single) | < 20ms | Hot tier |
+| Insert (batch) | < 100ms | 100 vectors |
+| Query (hot) | < 10ms | libsql F32_BLOB |
+| Query (warm) | < 50ms | Vectorize |
+| Query (cold) | < 200ms | ClickHouse ANN |
+
+### Optimization Tips
+
+1. **Batch inserts** - Group inserts for better throughput
+2. **Use namespaces** - Isolate tenants for faster queries
+3. **Filter early** - Metadata filters reduce search space
+4. **Right-size topK** - Don't over-fetch results
+
+## Migration Guide
+
+### From Pinecone
+
+```typescript
+// Before: Pinecone
+import { Pinecone } from '@pinecone-database/pinecone'
+const pinecone = new Pinecone({ apiKey: 'xxx' })
+
+// After: dotdo
+import { Pinecone } from '@dotdo/pinecone'
+const pinecone = new Pinecone({ apiKey: process.env.DOTDO_KEY })
+
+// Code stays the same
+const index = pinecone.index('my-index')
+await index.upsert([{ id: 'doc-1', values: embedding }])
+```
+
+### From Qdrant Cloud
+
+```typescript
+// Before: Qdrant Cloud
+import { QdrantClient } from '@qdrant/js-client-rest'
+const client = new QdrantClient({ url: 'https://xxx.qdrant.io' })
+
+// After: dotdo
+import { QdrantClient } from '@dotdo/qdrant'
+const client = new QdrantClient({ url: process.env.DOTDO_QDRANT_URL })
+
+// Code stays the same
+await client.upsert('collection', { points })
+```
+
+### From Weaviate Cloud
+
+```typescript
+// Before: Weaviate Cloud
+import weaviate from 'weaviate-ts-client'
+const client = weaviate.client({ host: 'xxx.weaviate.network' })
+
+// After: dotdo
+import weaviate from '@dotdo/weaviate'
+const client = weaviate.client({ host: process.env.DOTDO_WEAVIATE_HOST })
+
+// Code stays the same
+await client.data.creator().withClassName('Article').do()
+```
+
+## Limitations
+
+What's different from managed services:
+
+- **No sparse vectors** - Dense embeddings only
+- **Max 16K dimensions** - Sufficient for all common models
+- **No reranking** - Implement in application code
+- **Limited to 100M vectors per namespace** - Shard if needed
+
+## Related
+
+- [Database SDKs](/docs/compat/databases) - Postgres, MySQL, MongoDB
+- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS
+- [Search SDKs](/docs/compat/search) - Elasticsearch, Algolia, Meilisearch

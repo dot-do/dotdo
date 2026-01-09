@@ -1,38 +1,120 @@
 ---
 title: Getting Started
-description: Introduction to getting up and running with do.md
+description: Build your first AI-powered startup in minutes
 ---
 
-# Introduction to Getting Started
+import { Callout, Cards, Card } from 'fumadocs-ui/components/callout'
 
-Learn how to build stateful applications with do.md. This is an **introduction** to building your first application.
+# Getting Started
 
-## Prerequisites
+It's Tuesday. You're one person. By Friday, you'll have a product, engineering, marketing, and sales team shipping code.
 
-Before you begin, make sure you have:
+## What You'll Build
 
-- Node.js 18 or later
-- A Cloudflare account
-- Basic knowledge of TypeScript
+A startup that runs itself. AI agents do the work. You make the decisions.
 
-## Installation
+```typescript title="my-startup.ts"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
 
-Install do.md using npm:
+export class MyStartup extends Startup {
+  hypothesis = 'Developers want AI teammates, not AI tools'
 
-```bash
-npm install dotdo
-```
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
 
-## Quick Start
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
 
-Create a new Durable Object:
-
-```typescript
-import { DO } from 'dotdo'
-
-export class MyDO extends DO {
-  // Your code here
+    mark`announce the launch`
+    sally`start selling`
+  }
 }
 ```
 
-Deploy to Cloudflare Workers for production use.
+Notice what's missing: `await` on most lines. That's not a typo. It's the core idea.
+
+## The Key Insight
+
+**Don't await intermediate results.** Promises batch together automatically.
+
+When you write `priya\`define...\`` without `await`, you get a proxy object. Pass that proxy to `ralph\`build ${spec}\``, and the system knows: "these two calls are related." They execute in a single network round trip.
+
+Only `await` where you need the actual value:
+
+```typescript
+// This loops until Tom approves
+do {
+  app = ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))  // <-- await here controls the loop
+```
+
+The `await tom.approve(app)` is necessary because you need the boolean result to decide whether to continue the loop.
+
+## Prerequisites
+
+| Requirement | Version | Why |
+|------------|---------|-----|
+| Node.js | 18+ | V8 isolate compatibility |
+| Cloudflare account | Free tier works | Durable Objects hosting |
+| TypeScript | 5+ | Template literal types |
+
+<Callout type="info">
+New to Cloudflare? Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com). You get 100,000 Durable Object requests/day for free.
+</Callout>
+
+## Your AI Team
+
+Six agents, each with a real role:
+
+| Agent | Role | What They Do |
+|-------|------|--------------|
+| **Priya** | Product | Writes specs, prioritizes features, manages roadmaps |
+| **Ralph** | Engineering | Builds features, fixes bugs, writes tests |
+| **Tom** | Tech Lead | Reviews code, designs architecture, approves merges |
+| **Mark** | Marketing | Writes copy, creates content, announces launches |
+| **Sally** | Sales | Handles outreach, runs demos, closes deals |
+| **Quinn** | QA | Tests everything, finds edge cases, verifies quality |
+
+These aren't chatbots. When Tom reviews your PR, you see `@tom-do` commenting on GitHub. When Sally closes a deal, it's in your CRM.
+
+## Why Promise Pipelining Matters
+
+Traditional AI orchestration:
+
+```typescript
+// 6 network round trips, 6 cold starts
+const spec = await priya`define the MVP`
+const app = await ralph`build ${spec}`
+const reviewed = await tom`review ${app}`
+const fixed = await ralph`fix ${reviewed}`
+const announcement = await mark`write about ${fixed}`
+await sally`start selling ${announcement}`
+```
+
+With Cap'n Web pipelining:
+
+```typescript
+// 1 network round trip (unless you need to branch)
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const reviewed = tom`review ${app}`
+const fixed = ralph`fix ${reviewed}`
+const announcement = mark`write about ${fixed}`
+await sally`start selling ${announcement}`
+```
+
+The difference: milliseconds vs seconds. Cents vs dollars. One person vs needing a DevOps team.
+
+## Next Steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation">
+    Get dotdo running locally in 2 minutes.
+  </Card>
+  <Card title="Quickstart" href="/docs/getting-started/quickstart">
+    Build and deploy your first startup in 5 minutes.
+  </Card>
+</Cards>

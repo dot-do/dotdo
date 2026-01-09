@@ -1,0 +1,14 @@
+{
+  "title": "Deployment",
+  "description": "Scaling, sharding, and geo-distribution",
+  "root": true,
+  "pages": [
+    "index",
+    "---Horizontal Scaling---",
+    "sharding",
+    "---Multi-Region---",
+    "geo-replication",
+    "---Dynamic Scaling---",
+    "promote-demote"
+  ]
+}

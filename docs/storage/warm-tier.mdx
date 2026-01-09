@@ -1,0 +1,178 @@
+---
+title: Warm Tier - R2 + Iceberg
+description: Cross-DO queries with Parquet files at 100-150ms latency
+---
+
+# Warm Tier: R2 + Iceberg/Parquet
+
+The warm tier stores historical data in Apache Iceberg tables backed by Parquet files on R2. Query across all your DOs with SQL.
+
+## Performance Characteristics
+
+| Metric | Value |
+|--------|-------|
+| Read latency | 100-150ms |
+| Storage | Unlimited (R2) |
+| Query engine | R2 SQL / ClickHouse |
+| Format | Apache Parquet |
+| Catalog | Apache Iceberg |
+
+## How Data Flows In
+
+Data streams from the hot tier automatically via Cloudflare Pipelines:
+
+```
+DO SQLite → Cloudflare Pipeline → Parquet files → R2 bucket
+                                       ↓
+                               Iceberg catalog
+```
+
+Every write to a DO generates an event:
+
+```json
+{
+  "ns": "acme",
+  "type": "Customer",
+  "id": "cust_abc",
+  "key": "profile",
+  "value": { "name": "Alice", "plan": "pro" },
+  "version": 42,
+  "timestamp": 1704067200000
+}
+```
+
+Pipelines batch these events into Parquet files and update the Iceberg catalog.
+
+## Partitioning Strategy
+
+Tables are partitioned by three dimensions:
+
+```
+namespace / type / visibility
+    ↓        ↓        ↓
+  acme   Customer   public
+```
+
+This enables efficient queries:
+
+```sql
+-- Fast: scans only the Customer partition
+SELECT * FROM things
+WHERE ns = 'acme' AND type = 'Customer'
+
+-- Slow: full table scan
+SELECT * FROM things
+WHERE value->>'email' LIKE '%@gmail.com'
+```
+
+## Querying the Warm Tier
+
+Use `$.query()` for cross-DO queries:
+
+```typescript
+// Find all customers who signed up last month
+const newCustomers = await $.query(`
+  SELECT
+    id,
+    value->>'name' as name,
+    value->>'email' as email,
+    timestamp
+  FROM things
+  WHERE ns = $1
+    AND type = 'Customer'
+    AND timestamp > NOW() - INTERVAL '30 days'
+  ORDER BY timestamp DESC
+`, [$.namespace])
+
+// Join across types
+const ordersWithCustomers = await $.query(`
+  SELECT
+    o.id as order_id,
+    o.value->>'total' as total,
+    c.value->>'name' as customer_name
+  FROM things o
+  JOIN things c ON o.value->>'customer_id' = c.id
+  WHERE o.type = 'Order' AND c.type = 'Customer'
+    AND o.timestamp > NOW() - INTERVAL '7 days'
+`)
+```
+
+## Iceberg Features
+
+Apache Iceberg provides:
+
+### Time Travel
+
+Query data as it existed at a point in time:
+
+```typescript
+const lastWeek = await $.query(`
+  SELECT * FROM things
+  FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01 00:00:00'
+  WHERE type = 'Inventory'
+`)
+```
+
+### Schema Evolution
+
+Add columns without rewriting data:
+
+```sql
+ALTER TABLE things ADD COLUMN region STRING;
+```
+
+### Hidden Partitioning
+
+Query without knowing partition structure:
+
+```sql
+-- Iceberg automatically prunes partitions
+SELECT * FROM things WHERE timestamp > '2024-01-01'
+```
+
+## Storage Format
+
+Parquet files are columnar and compressed:
+
+```
+Original JSON:  1 GB
+Parquet:        ~200 MB (80% compression typical)
+```
+
+This reduces storage costs and query time. R2 charges only for stored bytes.
+
+## Cost Analysis
+
+The warm tier runs on R2 with $0 egress:
+
+| Operation | Cost |
+|-----------|------|
+| Storage | $0.015/GB-mo |
+| Egress | **$0** |
+| Class A ops | $4.50/million |
+| Class B ops | $0.36/million |
+
+Compare to AWS S3:
+
+| Operation | AWS S3 | R2 | Savings |
+|-----------|--------|-----|---------|
+| Store 1 TB | $23/mo | $15/mo | 35% |
+| Query 1 TB out | $90 | $0 | 100% |
+| **Total** | $113/mo | $15/mo | **87%** |
+
+A data warehouse querying 10 TB/month saves over $1,000/month on egress alone.
+
+## When to Use Warm Tier
+
+Use the warm tier for:
+
+- **Cross-DO queries** - Find all customers matching criteria
+- **Historical lookups** - What was this record 30 days ago?
+- **Batch processing** - Nightly reports, data exports
+- **Search** - Full-text search across all records
+
+Don't use it for:
+
+- **Real-time reads** - Use hot tier (50ms vs 150ms)
+- **High-frequency analytics** - Use cold tier (pre-aggregated)
+- **Single-record lookups** - Use hot tier

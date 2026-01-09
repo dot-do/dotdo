@@ -1,0 +1,135 @@
+---
+title: Extended Primitives
+description: Filesystem, Git, and Shell rebuilt for V8 isolates
+---
+
+# Extended Primitives
+
+V8 isolates are fast, secure, and scale infinitely. They also have no filesystem, no Git, and no shell.
+
+We rebuilt them from scratch.
+
+## The Problem
+
+When you deploy code to traditional servers, you take basic capabilities for granted:
+
+- **Files** - Read and write to disk
+- **Git** - Clone repos, commit changes, push to origin
+- **Shell** - Run `npm install`, `ffmpeg`, `python`
+
+V8 isolates strip all of this away. They're sandboxed JavaScript environments with no access to the underlying system. That's what makes them fast (0ms cold starts) and secure (complete isolation).
+
+But AI agents need these capabilities. They write code. They version control their work. They run build tools.
+
+## Our Solution
+
+We rebuilt each primitive from first principles, optimized for edge computing:
+
+<Cards>
+  <Card title="fsx" href="/docs/primitives/fsx">
+    Filesystem on SQLite. Full POSIX semantics with tiered storage.
+  </Card>
+  <Card title="gitx" href="/docs/primitives/gitx">
+    Git on R2. Content-addressable blobs, trees, commits in object storage.
+  </Card>
+  <Card title="bashx" href="/docs/primitives/bashx">
+    Shell without VMs. AST-based safety analysis with tiered execution.
+  </Card>
+</Cards>
+
+## Unified Access via $
+
+All three primitives are available through the `$` workflow context:
+
+```typescript
+// Filesystem
+await $.fs.write('data/report.json', JSON.stringify(data))
+const content = await $.fs.read('config/settings.yaml')
+
+// Git
+await $.git.add('src/index.ts')
+await $.git.commit('feat: implement feature')
+await $.git.push()
+
+// Shell
+const result = await $.bash`npm run build`
+if (result.exitCode === 0) {
+  await $.bash`npm run deploy`
+}
+```
+
+## Why This Matters
+
+Traditional infrastructure crumbles under 10,000 parallel AI agents:
+
+| Resource | Traditional | dotdo |
+|----------|-------------|-------|
+| File connections | Limited by OS handles | Unlimited (per-isolate SQLite) |
+| Git operations | Shared server, locks | Per-agent R2 namespace |
+| Shell execution | Container overhead | Tiered (native to container) |
+
+Each agent gets its own virtual environment. No contention. No locks. No limits.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    WorkflowContext ($)                      │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│      $.fs       │      $.git      │        $.bash           │
+│   FsCapability  │  GitCapability  │     BashCapability      │
+├─────────────────┼─────────────────┼─────────────────────────┤
+│                 │                 │                         │
+│    SQLite DO    │   R2 Objects    │    Safety Analyzer      │
+│   (hot tier)    │  (blob store)   │    (tree-sitter)        │
+│                 │                 │                         │
+│    R2 Bucket    │   DO Metadata   │   Tiered Executors      │
+│  (warm tier)    │    (refs)       │  (native/worker/vm)     │
+│                 │                 │                         │
+└─────────────────┴─────────────────┴─────────────────────────┘
+```
+
+## Capability Mixins
+
+Add capabilities to your Durable Objects using mixins:
+
+```typescript
+import { DO } from 'dotdo'
+import { withFs, withGit, withBash } from 'dotdo/mixins'
+
+// Add filesystem capability
+class FileProcessor extends withFs(DO) {
+  async processFile(path: string) {
+    const content = await this.$.fs.read(path)
+    // ... process content
+  }
+}
+
+// Stack capabilities (Git requires Fs)
+class CodeRepository extends withGit(withFs(DO)) {
+  async commitChanges() {
+    await this.$.git.add('.')
+    await this.$.git.commit('Auto-commit')
+    await this.$.git.push()
+  }
+}
+
+// Full stack with shell
+class BuildAgent extends withBash(withGit(withFs(DO)), {
+  executor: (instance) => instance.env.CONTAINER
+}) {
+  async build() {
+    await this.$.bash`npm install`
+    await this.$.bash`npm run build`
+    await this.$.git.commit('build: production bundle')
+  }
+}
+```
+
+## Next Steps
+
+Dive into each primitive:
+
+- [fsx](/docs/primitives/fsx) - POSIX filesystem on SQLite with tiered storage
+- [gitx](/docs/primitives/gitx) - Git protocol on R2 with SHA-1 via crypto.subtle
+- [bashx](/docs/primitives/bashx) - Safe shell execution with AST analysis

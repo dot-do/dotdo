@@ -1,0 +1,281 @@
+---
+title: fsx - Filesystem on SQLite
+description: Full POSIX filesystem semantics built on SQLite with tiered storage
+---
+
+# fsx - Filesystem on SQLite
+
+V8 isolates have no filesystem. We built one.
+
+fsx provides full POSIX filesystem semantics using SQLite as the storage engine. Files and directories are stored as rows, with automatic tiering to R2 for large objects.
+
+## Quick Start
+
+```typescript
+// Write files
+await $.fs.write('data/report.json', JSON.stringify(report))
+await $.fs.write('uploads/image.png', imageBuffer)
+
+// Read files
+const config = await $.fs.read('config/settings.yaml')
+const data = JSON.parse(await $.fs.read('data/users.json'))
+
+// Check existence
+if (await $.fs.exists('cache/compiled.js')) {
+  return $.fs.read('cache/compiled.js')
+}
+
+// Directory operations
+await $.fs.mkdir('uploads/2024', { recursive: true })
+const files = await $.fs.list('uploads')
+
+// File metadata
+const stat = await $.fs.stat('data/large-file.csv')
+console.log(`Size: ${stat.size}, Modified: ${stat.modifiedAt}`)
+```
+
+## Full API
+
+| Method | Description |
+|--------|-------------|
+| `read(path, options?)` | Read file contents |
+| `write(path, content, options?)` | Write content to file |
+| `exists(path)` | Check if path exists |
+| `delete(path)` | Remove file |
+| `list(path, options?)` | List directory contents |
+| `mkdir(path, options?)` | Create directory |
+| `stat(path)` | Get file metadata |
+| `copy(src, dest)` | Copy file |
+| `move(src, dest)` | Move/rename file |
+
+## How It Works
+
+### Inode-Based Storage
+
+Every file and directory is an inode stored as a SQLite row:
+
+```sql
+CREATE TABLE inodes (
+  id INTEGER PRIMARY KEY,
+  parent_id INTEGER REFERENCES inodes(id),
+  name TEXT NOT NULL,
+  type TEXT CHECK(type IN ('file', 'directory')),
+  content BLOB,           -- For small files (< 64KB)
+  r2_key TEXT,            -- For large files
+  size INTEGER DEFAULT 0,
+  mode INTEGER DEFAULT 420,
+  created_at INTEGER,
+  modified_at INTEGER,
+  UNIQUE(parent_id, name)
+);
+```
+
+This gives us:
+- **ACID transactions** - Atomic renames, consistent directory listings
+- **Path resolution** - Standard `/path/to/file` semantics
+- **Metadata** - Size, timestamps, permissions
+- **Efficient queries** - Index on (parent_id, name)
+
+### Tiered Storage
+
+Files automatically tier based on size and access patterns:
+
+```
+┌─────────────────┐
+│   Hot Tier      │  SQLite in DO storage (< 64KB)
+│   (immediate)   │  Sub-millisecond access
+├─────────────────┤
+│   Warm Tier     │  R2 object storage (64KB - 5GB)
+│   (fast)        │  Single-digit ms latency
+├─────────────────┤
+│   Cold Tier     │  R2 with infrequent access class
+│   (archived)    │  Lowest cost, retrieval delay
+└─────────────────┘
+```
+
+**Hot to warm promotion:**
+```typescript
+// Small config stays in SQLite
+await $.fs.write('config.json', '{"port": 3000}')  // Hot tier
+
+// Large dataset moves to R2
+await $.fs.write('data/dump.csv', largeCsvData)    // Warm tier (R2)
+```
+
+## Glob Patterns
+
+Search for files using glob patterns:
+
+```typescript
+// Find all TypeScript files
+const tsFiles = await $.fs.glob('**/*.ts')
+
+// Find test files in specific directory
+const tests = await $.fs.glob('src/**/*.test.ts')
+
+// Multiple extensions
+const sources = await $.fs.glob('src/**/*.{ts,tsx,js,jsx}')
+
+// Exclude patterns
+const nonTests = await $.fs.glob('src/**/*.ts', {
+  ignore: ['**/*.test.ts', '**/*.spec.ts']
+})
+```
+
+## Streaming Large Files
+
+For files larger than memory, use streams:
+
+```typescript
+// Stream read
+const stream = $.fs.createReadStream('data/large-file.csv')
+for await (const chunk of stream) {
+  processChunk(chunk)
+}
+
+// Stream write
+const writeStream = $.fs.createWriteStream('output/results.json')
+for (const record of records) {
+  await writeStream.write(JSON.stringify(record) + '\n')
+}
+await writeStream.close()
+```
+
+## Watch for Changes
+
+React to filesystem changes:
+
+```typescript
+// Watch a file
+$.fs.watch('config.json', (event) => {
+  console.log(`Config ${event.type}: reloading...`)
+  reloadConfig()
+})
+
+// Watch a directory
+$.fs.watch('uploads/', (event) => {
+  if (event.type === 'create') {
+    processNewUpload(event.path)
+  }
+})
+```
+
+## Atomic Operations
+
+Complex operations are atomic:
+
+```typescript
+// Atomic write (write to temp, then rename)
+await $.fs.write('config.json', newConfig, { atomic: true })
+
+// Transaction across multiple files
+await $.fs.transaction(async (tx) => {
+  await tx.write('data/a.json', dataA)
+  await tx.write('data/b.json', dataB)
+  await tx.delete('data/old.json')
+})  // All or nothing
+```
+
+## Integration with Other Primitives
+
+fsx integrates seamlessly with gitx and bashx:
+
+```typescript
+// Write code, then commit
+await $.fs.write('src/feature.ts', generatedCode)
+await $.git.add('src/feature.ts')
+await $.git.commit('feat: add generated feature')
+
+// Build artifacts are files
+await $.bash`npm run build`
+const bundle = await $.fs.read('dist/bundle.js')
+await $.fs.write('deploy/bundle.js', bundle)
+```
+
+## Performance Characteristics
+
+| Operation | Hot Tier | Warm Tier |
+|-----------|----------|-----------|
+| Read | < 1ms | 5-15ms |
+| Write | < 1ms | 10-50ms |
+| Exists | < 0.5ms | 5-10ms |
+| List (100 items) | < 2ms | 2-5ms |
+| Glob (1000 files) | < 50ms | 50-100ms |
+
+## Error Handling
+
+```typescript
+import { FsError } from 'dotdo/errors'
+
+try {
+  await $.fs.read('nonexistent.txt')
+} catch (error) {
+  if (error instanceof FsError) {
+    switch (error.code) {
+      case 'ENOENT':
+        console.log('File not found')
+        break
+      case 'EACCES':
+        console.log('Permission denied')
+        break
+      case 'EISDIR':
+        console.log('Path is a directory')
+        break
+    }
+  }
+}
+```
+
+## Type-Safe Options
+
+```typescript
+interface FsReadOptions {
+  encoding?: 'utf8' | 'base64' | 'binary'
+}
+
+interface FsWriteOptions {
+  encoding?: 'utf8' | 'base64' | 'binary'
+  atomic?: boolean
+  mode?: number
+}
+
+interface FsMkdirOptions {
+  recursive?: boolean
+  mode?: number
+}
+
+interface FsListOptions {
+  filter?: (entry: FsEntry) => boolean
+}
+
+interface FsEntry {
+  name: string
+  isDirectory: boolean
+}
+
+interface FsStat {
+  size: number
+  isFile: boolean
+  isDirectory: boolean
+  createdAt: Date
+  modifiedAt: Date
+}
+```
+
+## Comparison to Node.js fs
+
+| Feature | Node.js fs | fsx |
+|---------|-----------|-----|
+| Storage | Local disk | SQLite + R2 |
+| Transactions | No | Yes |
+| Tiered storage | No | Yes |
+| Edge deployment | No | Yes |
+| Watch (cross-DO) | No | Yes |
+| Max file size | Disk limit | 5GB (R2) |
+| Concurrent access | File locks | Per-DO isolation |
+
+## Next Steps
+
+- [gitx](/docs/primitives/gitx) - Version control built on fsx
+- [bashx](/docs/primitives/bashx) - Shell commands that use fsx for native file ops
+- [Capabilities](/docs/sdk/capabilities) - How to add fsx to your DOs

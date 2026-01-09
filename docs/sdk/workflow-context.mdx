@@ -1,156 +1,737 @@
 ---
 title: WorkflowContext
-description: The unified interface for all DO operations
+description: The $ proxy - unified interface for all DO operations
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
 import { AutoTypeTable } from 'fumadocs-typescript/ui'
 
-# WorkflowContext
+# WorkflowContext ($)
 
-The `WorkflowContext` interface (commonly accessed as `$`) is the unified interface for all Durable Object operations. It provides execution modes, event subscriptions, scheduling, and domain resolution.
+The `$` proxy is THE primary API in dotdo. One interface for durability, events, scheduling, AI, and cross-DO communication.
 
-## Overview
+```typescript
+// Three durability levels
+$.send(event)   // Fire-and-forget
+$.try(action)   // Single attempt
+$.do(action)    // Durable with retries
 
-WorkflowContext is the primary interface for interacting with the dotdo system within workflows and functions.
+// Infinite event combinations
+$.on.Customer.signup(handler)
+$.on.Payment.failed(handler)
+
+// Human-readable scheduling
+$.every.monday.at('9am')(handler)
+
+// Cross-DO RPC
+await $.Customer(id).notify()
+
+// AI as primitives
+await $.write`blog post about ${topic}`
+```
 
 <AutoTypeTable type="WorkflowContext" />
 
-## Execution Modes
+## Durability Levels
 
-Different durability levels for executing operations:
+Three execution modes for different reliability requirements. Choose based on what happens if it fails.
 
-### send(event, data)
+### $.send() - Fire-and-Forget
 
-Fire-and-forget event emission. Non-blocking, non-durable, best-effort.
+Best-effort, non-blocking. Use when you want to emit an event but don't care about confirmation.
 
 ```typescript
-$.send('notification', { message: 'Hello' })
+// Emit notification - don't wait, don't retry
+$.send('notification', { userId: 'abc', message: 'Welcome!' })
+
+// Analytics event - best effort is fine
+$.send('pageview', { path: '/dashboard', userId })
+
+// Fire multiple events without blocking
+$.send('user.activity', { action: 'login' })
+$.send('metrics.counter', { name: 'logins', value: 1 })
 ```
 
-### try(action, data)
+| Property | Value |
+|----------|-------|
+| Blocking | No |
+| Durable | No |
+| Retries | No |
+| Returns | `void` |
+| Use case | Analytics, notifications, logging |
 
-Quick attempt without durability. Blocking but non-durable.
+<Callout type="info">
+Uses `queueMicrotask` for async execution. Errors are swallowed silently - that's the point.
+</Callout>
 
-```typescript
-const result = await $.try<Response>('fetch', { url: 'https://api.example.com' })
-```
+### $.try() - Single Attempt
 
-### do(action, data)
-
-Durable execution with retries. Blocking, durable, guaranteed event emission.
-
-```typescript
-const result = await $.do<PaymentResult>('processPayment', { amount: 100 })
-```
-
-## Event Subscriptions
-
-Subscribe to domain events using the fluent `$.on` proxy:
+Blocking but not durable. Use for operations that should fail fast without retries.
 
 ```typescript
-// Subscribe to Customer created events
-$.on.Customer.created(async (event) => {
-  console.log('New customer:', event.data)
+// Try to fetch - fail immediately if it doesn't work
+const data = await $.try<ApiResponse>('fetch', {
+  url: 'https://api.example.com/data'
 })
 
-// Subscribe to Invoice paid events
+// Quick validation check
+const valid = await $.try<boolean>('validate', { schema, input })
+
+// With timeout
+const result = await $.try<Result>('externalApi', data, {
+  timeout: 5000
+})
+```
+
+| Property | Value |
+|----------|-------|
+| Blocking | Yes |
+| Durable | No |
+| Retries | No |
+| Returns | `Promise<T>` |
+| Use case | Validations, cache lookups, non-critical fetches |
+
+#### TryOptions
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeout` | `number` | 30000 | Timeout in milliseconds |
+
+### $.do() - Durable Execution
+
+Blocking with retries and persistence. Use for anything that must succeed.
+
+```typescript
+// Process payment - must succeed
+const result = await $.do<PaymentResult>('processPayment', {
+  amount: 100,
+  currency: 'USD',
+  customerId: 'cus_123'
+})
+
+// Create user - retry on failure
+const user = await $.do<User>('createUser', {
+  email: 'alice@example.com',
+  name: 'Alice'
+})
+
+// With custom retry policy
+const order = await $.do<Order>('fulfillOrder', orderData, {
+  retry: {
+    maxAttempts: 5,
+    initialDelayMs: 500,
+    backoffMultiplier: 3
+  },
+  timeout: 60000,
+  stepId: 'order-fulfillment'
+})
+```
+
+| Property | Value |
+|----------|-------|
+| Blocking | Yes |
+| Durable | Yes |
+| Retries | Exponential backoff |
+| Returns | `Promise<T>` |
+| Use case | Payments, order processing, user creation |
+
+#### DoOptions
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `retry` | `Partial<RetryPolicy>` | see below | Retry configuration |
+| `timeout` | `number` | - | Timeout per attempt (ms) |
+| `stepId` | `string` | auto | Explicit ID for replay |
+
+#### RetryPolicy
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `maxAttempts` | `number` | 3 | Maximum retry attempts |
+| `initialDelayMs` | `number` | 100 | Initial delay before first retry |
+| `maxDelayMs` | `number` | 30000 | Maximum delay between retries |
+| `backoffMultiplier` | `number` | 2 | Exponential backoff multiplier |
+| `jitter` | `boolean` | true | Add random jitter to delays |
+
+<Callout type="warn">
+When `$.do()` fails all retries, it emits a failure event. Connect a dead-letter handler to catch unrecoverable failures.
+</Callout>
+
+## Event Handlers
+
+Subscribe to domain events using `$.on`. No class definitions needed - any Noun.verb combination works.
+
+```typescript
+// Customer events
+$.on.Customer.signup(async (event) => {
+  await sendWelcomeEmail(event.data.email)
+})
+
+$.on.Customer.upgraded(async (event) => {
+  await enablePremiumFeatures(event.data.customerId)
+})
+
+// Order events
+$.on.Order.placed(async (event) => {
+  await notifyWarehouse(event.data)
+})
+
+$.on.Order.shipped(async (event) => {
+  await sendTrackingEmail(event.data.email, event.data.trackingNumber)
+})
+
+// Invoice events
 $.on.Invoice.paid(async (event) => {
-  await sendReceipt(event.data)
+  await recordRevenue(event.data.amount)
+})
+
+$.on.Invoice.overdue(async (event) => {
+  await sendReminderEmail(event.data)
+})
+```
+
+<Callout type="info">
+Infinite combinations. `Customer.signup`, `Payment.failed`, `Inventory.low`, `Report.generated` - any noun, any verb.
+</Callout>
+
+### Wildcards
+
+Match patterns across nouns or verbs:
+
+```typescript
+// All 'created' events across all nouns
+$.on['*'].created(async (event) => {
+  await logCreation(event.source, event.data)
+})
+
+// All events for Customer noun
+$.on.Customer['*'](async (event) => {
+  await trackCustomerActivity(event.verb, event.data)
+})
+
+// Global handler - ALL events
+$.on['*']['*'](async (event) => {
+  await auditLog(event)
+})
+```
+
+### Handler Options
+
+Enhanced control over event handling:
+
+```typescript
+$.on.Order.placed(
+  async (event) => {
+    await processHighValueOrder(event.data)
+  },
+  {
+    priority: 10,                    // Higher = runs first
+    filter: (e) => e.data.total > 1000,  // Conditional handling
+    name: 'high-value-orders',       // For debugging
+    maxRetries: 5                    // DLQ retries
+  }
+)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `priority` | `number` | 0 | Execution order (higher first) |
+| `filter` | `(event) => boolean` | - | Skip if returns false |
+| `name` | `string` | auto | Handler identifier |
+| `maxRetries` | `number` | 3 | Max DLQ retry attempts |
+
+### Event Payload
+
+Every event includes full context:
+
+```typescript
+interface DomainEvent<TData> {
+  id: string          // Unique event ID
+  verb: string        // Action taken ('signup', 'paid')
+  source: string      // Source DO namespace
+  data: TData         // Event payload
+  actionId?: string   // Related action ID
+  timestamp: Date     // When it happened
+}
+```
+
+### Typed Events
+
+Extend `EventPayloadMap` for compile-time type safety:
+
+```typescript
+// In your domain types:
+declare module '@dotdo/types' {
+  interface EventPayloadMap {
+    'Customer.created': { id: string; email: string; name: string }
+    'Order.paid': { orderId: string; amount: number; currency: string }
+    'Invoice.sent': { invoiceId: string; recipientEmail: string }
+  }
+}
+
+// Now handlers are typed:
+$.on.Customer.created(async (event) => {
+  // event.data is { id: string; email: string; name: string }
+  console.log(event.data.email)
 })
 ```
 
 ## Scheduling
 
-Schedule recurring tasks using the `$.every` builder:
+Human-readable schedules that compile to CRON. No cryptic syntax.
+
+### Fluent API
 
 ```typescript
-// Run every Monday at 9am
+// Weekly - specific day and time
 $.every.Monday.at9am(async () => {
   await generateWeeklyReport()
 })
 
-// Run every day at noon
+$.every.Friday.at5pm(async () => {
+  await sendWeeklySummary()
+})
+
+// Daily
+$.every.day.at6am(async () => {
+  await runDailyBackup()
+})
+
 $.every.day.atnoon(async () => {
   await sendDailyDigest()
 })
 
-// Natural language scheduling
-$.every('daily at 6am', async () => {
-  await runBackup()
+$.every.day.atmidnight(async () => {
+  await rotateKeys()
+})
+
+// Weekday/Weekend
+$.every.weekday.at9am(async () => {
+  await checkInTeam()
+})
+
+$.every.weekend.at10am(async () => {
+  await generateWeekendMetrics()
+})
+
+// Fixed intervals
+$.every.hour(async () => {
+  await collectMetrics()
+})
+
+$.every.minute(async () => {
+  await checkHealth()
 })
 ```
 
-## Domain Resolution
+### Days Available
 
-Resolve and call methods on other DOs:
+| Property | Maps to |
+|----------|---------|
+| `Monday` | 1 |
+| `Tuesday` | 2 |
+| `Wednesday` | 3 |
+| `Thursday` | 4 |
+| `Friday` | 5 |
+| `Saturday` | 6 |
+| `Sunday` | 0 |
+| `day` | Every day |
+| `weekday` | Mon-Fri |
+| `weekend` | Sat-Sun |
+
+### Times Available
+
+| Property | CRON |
+|----------|------|
+| `at6am` | 0 6 * * * |
+| `at7am` | 0 7 * * * |
+| `at8am` | 0 8 * * * |
+| `at9am` | 0 9 * * * |
+| `at10am` | 0 10 * * * |
+| `at11am` | 0 11 * * * |
+| `at12pm` | 0 12 * * * |
+| `at1pm` | 0 13 * * * |
+| `at2pm` | 0 14 * * * |
+| `at3pm` | 0 15 * * * |
+| `at4pm` | 0 16 * * * |
+| `at5pm` | 0 17 * * * |
+| `at6pm` | 0 18 * * * |
+| `atnoon` | 0 12 * * * |
+| `atmidnight` | 0 0 * * * |
+
+### Natural Language
+
+For schedules that don't fit the fluent API:
 
 ```typescript
-// Call methods on a Startup entity
-const startup = $.Startup('acme')
-await startup.prioritize()
+// String-based scheduling
+$.every('daily at 6am', async () => {
+  await runBackup()
+})
 
-// Call methods on an Invoice
-await $.Invoice('inv-123').send()
+$.every('first monday of month', async () => {
+  await generateMonthlyReport()
+})
+
+$.every('15 minutes', async () => {
+  await syncData()
+})
+
+$.every('every 2 hours', async () => {
+  await cleanupCache()
+})
+```
+
+<Callout type="info">
+Natural language schedules are parsed at registration time. Invalid schedules throw immediately.
+</Callout>
+
+## Cross-DO RPC
+
+Call methods on other Durable Objects using `$.Noun(id)`. Returns a proxy for any method.
+
+```typescript
+// Call methods on Customer DO
+const customer = $.Customer('cus_123')
+await customer.notify({ message: 'Welcome!' })
+await customer.updateProfile({ name: 'Alice' })
+
+// Call methods on Order DO
+await $.Order('ord_456').fulfill()
+await $.Order('ord_456').addItem({ sku: 'WIDGET', qty: 2 })
+
+// Call methods on Invoice DO
+await $.Invoice('inv_789').send()
+await $.Invoice('inv_789').markPaid({ amount: 100 })
+
+// Chain calls (single round-trip with Cap'n Web RPC)
+const summary = await $.Startup('acme')
+  .getSales()
+  .thisMonth()
+  .summarize()
+```
+
+### Stub Caching
+
+Domain proxies are cached with LRU eviction. Same ID returns same stub:
+
+```typescript
+// These return the same cached stub
+const c1 = $.Customer('123')
+const c2 = $.Customer('123')
+
+// Methods can be called on the proxy
+await c1.notify()  // First call
+await c2.update()  // Same stub, different method
+```
+
+### RPC Returns
+
+All RPC calls return `RpcPromise<T>` - a promise that supports proxy chaining:
+
+```typescript
+// Property access on unresolved values
+const email = await $.Customer(id).profile.email
+
+// Method chaining without awaiting
+const posts = await $.Blog(id).posts.recent(10)
+
+// Deep property access
+const city = await $.Order(id).shipping.address.city
+```
+
+## AI Functions
+
+AI operations as template literals. No configuration - just describe what you want.
+
+### $.ai - General Completion
+
+```typescript
+// Simple completion
+const answer = await $.ai`What is the capital of France?`
+
+// With context
+const explanation = await $.ai`Explain ${concept} in simple terms`
+
+// Complex prompts
+const analysis = await $.ai`
+  Analyze this customer feedback:
+  ${feedback}
+
+  Focus on sentiment and actionable items.
+`
+```
+
+### $.write - Structured Writing
+
+Returns an object with `title`, `body`, `summary`, and more:
+
+```typescript
+// Generate blog post
+const { title, body } = await $.write`Write a blog post about ${topic}`
+
+// Generate email
+const { subject, body } = await $.write`
+  Write a follow-up email for ${customerName}
+  regarding their ${orderType} order
+`
+
+// Generate documentation
+const { title, summary, content } = await $.write`
+  Document the ${featureName} feature for developers
+`
+```
+
+### $.summarize - Condensation
+
+```typescript
+// Summarize long content
+const summary = await $.summarize`${longArticle}`
+
+// Summarize with focus
+const tldr = await $.summarize`
+  Summarize the key points from:
+  ${meetingNotes}
+
+  Focus on action items and decisions.
+`
+```
+
+### $.list - Array Generation
+
+```typescript
+// Generate lists
+const languages = await $.list`List 5 programming languages for beginners`
+// ['Python', 'JavaScript', 'Ruby', 'Go', 'Scratch']
+
+const features = await $.list`
+  List the key features we should build for ${product}
+`
+```
+
+### $.extract - Entity Extraction
+
+```typescript
+// Extract structured data
+const { entities } = await $.extract`
+  Extract company names and their industries from:
+  ${newsArticle}
+`
+// { entities: [{ name: 'Acme Corp', industry: 'Technology' }, ...] }
+
+// Extract with schema (type inference)
+const { entities } = await $.extract<{
+  name: string
+  email: string
+  company?: string
+}>`Extract contacts from: ${emailThread}`
+```
+
+### $.is - Binary Classification
+
+```typescript
+// Yes/no questions
+const isSpam = await $.is`Is this message spam? ${message}`
+// true or false
+
+const needsReview = await $.is`
+  Does this code change need security review?
+  ${diff}
+`
+
+const isUrgent = await $.is`Is this support ticket urgent? ${ticket}`
+```
+
+### $.decide - Multi-Option Classification
+
+Factory function that creates a classifier:
+
+```typescript
+// Create a sentiment classifier
+const sentiment = $.decide(['positive', 'negative', 'neutral'])
+const result = await sentiment`What is the sentiment of: ${review}`
+// 'positive' | 'negative' | 'neutral'
+
+// Create a priority classifier
+const priority = $.decide(['critical', 'high', 'medium', 'low'])
+const level = await priority`Classify the priority of: ${issue}`
+
+// Create a category classifier
+const category = $.decide(['bug', 'feature', 'question', 'docs'])
+const type = await category`What type of issue is this? ${title}`
+```
+
+### Pipeline Chaining
+
+AI functions return `AIPipelinePromise` with chainable methods:
+
+```typescript
+// Map results
+const titles = await $.list`Generate 5 article titles for ${topic}`
+  .map(title => title.toUpperCase())
+
+// Access properties
+const firstParagraph = await $.write`Write about ${topic}`
+  .get('body')
+  .map(body => body.split('\n')[0])
+
+// Error handling
+const result = await $.summarize`${content}`
+  .catch(err => 'Summary unavailable')
 ```
 
 ## Branching and Version Control
 
-### branch(name)
+Built-in version control for DO state.
+
+### branch()
 
 Create a new branch at current HEAD:
 
 ```typescript
+// Create experiment branch
 await $.branch('experiment-a')
+
+// Create feature branch
+await $.branch('feature-dark-mode')
 ```
 
-### checkout(ref)
+### checkout()
 
-Switch to a branch or version:
+Switch to a branch or specific version:
 
 ```typescript
+// Switch to branch
 await $.checkout('experiment-a')
-await $.checkout('@v1234') // Version reference
+
+// Switch to specific version
+await $.checkout('@v1234')
+
+// Switch back to main
+await $.checkout('main')
 ```
 
-### merge(branch)
+### merge()
 
 Merge a branch into current:
 
 ```typescript
+// Merge experiment into main
+await $.checkout('main')
 await $.merge('experiment-a')
 ```
 
 ## Utilities
 
-### log(message, data?)
+### log()
 
 Structured logging with automatic history tracking:
 
 ```typescript
-$.log('Processing order', { orderId: 'ord-123' })
+$.log('Processing order', { orderId: 'ord-123', items: 5 })
+$.log('Payment received', { amount: 99.99, method: 'card' })
+$.log('Order shipped', { trackingNumber: 'TRK-456' })
 ```
 
 ### state
 
-Access current workflow state:
+Access and modify workflow state:
 
 ```typescript
+// Read state
 console.log($.state.currentStep)
+console.log($.state.progress)
+
+// Update state
 $.state.progress = 0.5
+$.state.lastCheckpoint = new Date()
+$.state.metadata = { attempts: 3 }
 ```
 
-## Type Helpers
+## Capabilities
 
-Composed context types for capability requirements:
+WorkflowContext can be extended with capabilities:
 
-<AutoTypeTable type="WithFs" />
+### Filesystem (fs)
 
-<AutoTypeTable type="WithGit" />
+```typescript
+const $: WithFs = context
 
-<AutoTypeTable type="WithBash" />
+await $.fs.readFile('/data/config.json')
+await $.fs.writeFile('/output/report.txt', content)
+await $.fs.readDir('/uploads')
+await $.fs.exists('/cache/key')
+await $.fs.mkdir('/exports', { recursive: true })
+await $.fs.rm('/temp', { recursive: true })
+```
 
-## Related Types
+### Git (git)
+
+```typescript
+const $: WithGit = context
+
+await $.git.status()
+await $.git.add(['src/index.ts', 'package.json'])
+await $.git.commit('feat: add new feature')
+await $.git.push()
+await $.git.log({ limit: 10 })
+await $.git.diff('HEAD~1')
+```
+
+### Bash (bash)
+
+```typescript
+const $: WithBash = context
+
+const { stdout, stderr, exitCode } = await $.bash.exec('ls -la', {
+  cwd: '/app',
+  timeout: 5000
+})
+```
+
+### Rate Limiting (rateLimit)
+
+```typescript
+const $: WithRateLimit = context
+
+// Check without consuming
+const { success, remaining } = await $.rateLimit.check('user:123', {
+  limit: 100,
+  windowMs: 60000
+})
+
+// Consume quota
+await $.rateLimit.consume('user:123', 1)
+
+// Get status
+const status = await $.rateLimit.status('user:123')
+
+// Reset
+await $.rateLimit.reset('user:123')
+```
+
+### Type Guards
+
+Check for capabilities at runtime:
+
+```typescript
+import { hasFs, hasGit, hasBash, hasRateLimit } from '@dotdo/types'
+
+if (hasFs($)) {
+  // $ is typed as WithFs
+  await $.fs.readFile('/data.json')
+}
+
+if (hasGit($)) {
+  // $ is typed as WithGit
+  await $.git.status()
+}
+```
+
+## Related
 
 - [Thing](/docs/sdk/thing) - Base entity type
-- [Capabilities](/docs/sdk/capabilities) - Capability modules
+- [Events](/docs/concepts/events) - 5W+H event model
 - [Functions](/docs/sdk/functions) - DOFunction type
+- [Capabilities](/docs/sdk/capabilities) - Capability modules
+- [Proxy Chaining](/docs/rpc/proxy-chaining) - RPC proxy patterns

@@ -1,0 +1,223 @@
+---
+title: Promise Pipelining
+description: The core optimization that makes agent orchestration fast - batch multiple calls into single network round trips
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Promise Pipelining
+
+Promise pipelining is the foundational performance optimization in dotdo. It lets you pass unawaited promises directly as parameters to other calls, batching everything into a single network round trip.
+
+This is the "aha moment" - the reason agent orchestration can be fast.
+
+## The Problem with Traditional Async
+
+In typical async code, every `await` forces a network round trip:
+
+```typescript title="The Wrong Way - 2 Round Trips"
+const spec = await priya`define the MVP`     // Round trip 1: wait for Priya
+const app = await ralph`build ${spec}`        // Round trip 2: wait for Ralph
+```
+
+Each `await` blocks execution until the promise resolves. The client sends a request, waits for the response, then sends the next request. Two operations = two round trips.
+
+<Callout type="warn" title="Every await is a network boundary">
+When you `await`, you're telling the runtime: "Stop here. Wait for this to come back over the network before continuing." That's often unnecessary.
+</Callout>
+
+## The Solution: Don't Await
+
+Promise pipelining lets you skip the intermediate awaits:
+
+```typescript title="The Right Way - 1 Round Trip"
+const spec = priya`define the MVP`           // Returns RpcPromise (not awaited!)
+const app = ralph`build ${spec}`              // spec is passed as unawaited promise
+// ONE round trip when we finally await
+```
+
+When `spec` is passed to Ralph without being awaited, the system doesn't need to send it back to the client. Instead:
+
+1. Client sends both calls as a **pipeline** in a single request
+2. Server executes Priya, gets the spec
+3. Server immediately passes the spec to Ralph (no network hop!)
+4. Server returns Ralph's result to the client
+
+## How Cap'n Web RPC Works
+
+Under the hood, dotdo uses Cap'n Web - a promise pipelining RPC protocol. When you write:
+
+```typescript title="Building a Pipeline"
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const deployed = tom`ship ${app}`
+```
+
+The client builds a **pipeline graph**:
+
+```
+priya() -> ralph(result[0]) -> tom(result[1])
+```
+
+This entire graph is sent in one request. The server executes it in sequence, and only the final result comes back.
+
+<Callout type="info" title="RpcPromise vs Promise">
+Agent calls return `RpcPromise`, not regular `Promise`. An RpcPromise can be passed as a parameter without awaiting. When you do await it, all pending pipelines flush to the server.
+</Callout>
+
+## When to Await
+
+Await when you need the value for **local decisions**:
+
+```typescript title="Await for Control Flow"
+const analysis = await priya`analyze the market`
+
+// We need the value to branch
+if (analysis.opportunity === 'high') {
+  const spec = priya`define aggressive MVP`
+  const app = ralph`build ${spec}`
+  return app
+} else {
+  const spec = priya`define lean experiment`
+  const app = ralph`build ${spec}`
+  return app
+}
+```
+
+Await when you need the value in a **loop**:
+
+```typescript title="Await in Loops"
+const tasks = await priya`break down ${spec} into tasks`
+
+// We need to iterate over the array
+for (const task of tasks) {
+  const impl = ralph`implement ${task}`
+  await tom`review ${impl}`
+}
+```
+
+Await for **final results**:
+
+```typescript title="Await at the End"
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const url = tom`ship ${app}`
+
+// Await only when we need the actual value
+return await url
+```
+
+<Callout type="error" title="Don't await just to be 'safe'">
+Awaiting "just in case" destroys pipelining. If you don't need the value for control flow, don't await it.
+</Callout>
+
+## Magic Map
+
+What about transforming collections? Normally you'd need to await to call `.map()`:
+
+```typescript title="Breaking the Pipeline"
+const users = await sally`find prospects in ${segment}`  // Forces round trip!
+const emails = users.map(u => u.email)
+await mark`send campaign to ${emails}`
+```
+
+With Magic Map, the `.map()` is recorded and replayed on the server:
+
+```typescript title="Magic Map - Stays Pipelined"
+const users = sally`find prospects in ${segment}`
+const emails = users.map(u => u.email)   // Records the callback, doesn't execute
+await mark`send campaign to ${emails}`   // ONE round trip
+```
+
+The `.map()` callback is serialized and sent to the server. The server executes it where the data lives.
+
+### Supported Operations
+
+Magic Map supports common array operations:
+
+```typescript
+const pipeline = sally`find users`
+  .filter(u => u.active)
+  .map(u => u.email)
+  .slice(0, 100)
+```
+
+All of these are recorded, not executed, until the pipeline flushes.
+
+<Callout type="warn" title="Keep callbacks simple">
+Magic Map callbacks must be serializable. Stick to property access, simple comparisons, and basic operations. Don't reference external variables or call other functions.
+</Callout>
+
+## Batch Semantics
+
+Unawaited promises batch at the next `await`:
+
+```typescript title="Understanding Batching"
+const a = priya`task A`
+const b = ralph`task B`
+const c = tom`task C`
+
+// All three batch together here
+const results = await Promise.all([a, b, c])
+```
+
+Even without `Promise.all`, they'd batch at the first await:
+
+```typescript
+const a = priya`task A`
+const b = ralph`task B`
+
+const resultA = await a  // Both a and b flush here!
+const resultB = await b  // Already resolved
+```
+
+## Real World Example
+
+Here's the canonical dotdo startup launch:
+
+```typescript title="One Round Trip Startup Launch"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class MyStartup extends Startup {
+  async launch() {
+    // Build the pipeline (no awaits)
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    const app = ralph`build ${spec}`
+    const deployed = tom`ship ${app}`
+    const announced = mark`announce ${deployed}`
+    const selling = sally`start selling ${announced}`
+
+    // ONE round trip executes the entire pipeline
+    return await selling
+  }
+}
+```
+
+Five agent calls. One network round trip. The entire pipeline executes on the server in sequence.
+
+## Debugging Pipelines
+
+When things go wrong, add strategic awaits to isolate issues:
+
+```typescript title="Debugging with Awaits"
+const spec = await priya`define the MVP`  // Check spec here
+console.log('Spec:', spec)
+
+const app = await ralph`build ${spec}`    // Check app here
+console.log('App:', app)
+```
+
+Once debugged, remove the intermediate awaits to restore pipelining.
+
+## Summary
+
+| Pattern | Round Trips | Use When |
+|---------|-------------|----------|
+| `await a; await b` | 2 | Never (breaks pipelining) |
+| `a; await b(a)` | 1 | b depends on a |
+| `a; b; await Promise.all([a,b])` | 1 | Independent operations |
+| `await a; if (a.x) ...` | 1+ | Control flow needs value |
+| `a.map(fn)` | 0 (recorded) | Transform without awaiting |
+
+The rule is simple: **don't await until you need the value locally**. Let the pipeline do the work.

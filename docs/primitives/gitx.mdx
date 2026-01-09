@@ -1,0 +1,363 @@
+---
+title: gitx - Git on R2
+description: Git protocol implementation using R2 for blob storage and Durable Objects for refs
+---
+
+# gitx - Git on R2
+
+Your agents need version control. They can't shell out to `git`. We built Git from scratch.
+
+gitx implements the Git object model on Cloudflare R2. Blobs, trees, and commits are content-addressable objects in R2. Refs live in Durable Object metadata. SHA-1 hashing uses `crypto.subtle`.
+
+## Quick Start
+
+```typescript
+// Clone a repository
+await $.git.clone('https://github.com/org/repo')
+
+// Make changes
+await $.fs.write('src/feature.ts', newCode)
+
+// Stage and commit
+await $.git.add('src/feature.ts')
+await $.git.commit('feat: add new feature')
+
+// Push to origin
+await $.git.push('origin', 'main')
+```
+
+## Configuration
+
+Configure the git binding for your Durable Object:
+
+```typescript
+// In your DO initialization
+$.git.configure({
+  repo: 'org/repo',
+  branch: 'main',
+  r2: env.R2_BUCKET,
+  path: 'packages/core'  // Optional: subdirectory
+})
+
+// Check binding
+const binding = $.git.binding
+console.log(`Tracking ${binding.repo}@${binding.branch}`)
+console.log(`Current commit: ${binding.commit}`)
+```
+
+## Core Operations
+
+### Status
+
+```typescript
+const status = await $.git.status()
+
+console.log(`Branch: ${status.branch}`)
+console.log(`HEAD: ${status.head}`)
+console.log(`Clean: ${status.clean}`)
+
+// Staged files ready to commit
+for (const file of status.staged) {
+  console.log(`Staged: ${file}`)
+}
+
+// Modified but not staged
+for (const file of status.unstaged) {
+  console.log(`Modified: ${file}`)
+}
+```
+
+### Staging Files
+
+```typescript
+// Stage single file
+await $.git.add('src/index.ts')
+
+// Stage multiple files
+await $.git.add(['src/a.ts', 'src/b.ts', 'tests/a.test.ts'])
+
+// Stage all changes
+await $.git.add('.')
+
+// Stage by pattern
+await $.git.add('src/**/*.ts')
+```
+
+### Committing
+
+```typescript
+// Simple commit
+const result = await $.git.commit('feat: implement feature')
+console.log(`Created commit: ${result.hash}`)
+
+// Commit with options
+await $.git.commit('fix: resolve bug', {
+  author: 'Agent Ralph <ralph@agents.do>',
+  allowEmpty: false
+})
+```
+
+### Sync and Push
+
+```typescript
+// Pull latest changes from R2
+const syncResult = await $.git.sync()
+console.log(`Fetched ${syncResult.objectsFetched} objects`)
+console.log(`Wrote ${syncResult.filesWritten} files`)
+console.log(`Now at: ${syncResult.commit}`)
+
+// Push local changes to R2
+const pushResult = await $.git.push()
+console.log(`Pushed ${pushResult.objectsPushed} objects`)
+```
+
+## How It Works
+
+### Git Object Model
+
+Git stores everything as content-addressable objects:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    R2 Object Store                       │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  git/objects/ab/cdef1234...  (blob - file content)       │
+│  git/objects/12/345678ab...  (tree - directory listing)  │
+│  git/objects/fe/dcba9876...  (commit - snapshot + meta)  │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│                  DO Metadata (Refs)                      │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  refs/heads/main -> fedcba9876...                        │
+│  refs/heads/feature-branch -> 1234567890...              │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+### SHA-1 via crypto.subtle
+
+Every object is hashed to compute its address:
+
+```typescript
+// How gitx computes SHA-1
+async function hashObject(type: string, data: Uint8Array): Promise<string> {
+  const header = new TextEncoder().encode(`${type} ${data.length}\0`)
+  const full = new Uint8Array([...header, ...data])
+
+  const hash = await crypto.subtle.digest('SHA-1', full)
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+```
+
+### R2 Object Layout
+
+Objects are stored with a two-character prefix for efficient listing:
+
+```
+git/objects/
+  ab/
+    cdef1234567890abcdef1234567890abcdef12  (blob)
+  12/
+    34567890abcdef1234567890abcdef12345678  (tree)
+  fe/
+    dcba9876543210fedcba9876543210fedcba98  (commit)
+```
+
+## Branch Operations
+
+```typescript
+// List branches
+const branches = await $.git.branches()
+// ['main', 'feature-auth', 'fix-bug-123']
+
+// Switch branch
+await $.git.checkout('feature-auth')
+
+// Create and switch
+await $.git.checkout('new-feature', { create: true })
+
+// Delete branch
+await $.git.branch('old-feature', { delete: true })
+```
+
+## Diff and Log
+
+```typescript
+// View diff of working changes
+const diff = await $.git.diff()
+console.log(diff)
+
+// Diff between refs
+const diff2 = await $.git.diff('main', 'feature-branch')
+
+// Commit history
+const commits = await $.git.log({ limit: 10 })
+for (const commit of commits) {
+  console.log(`${commit.hash.slice(0, 7)} ${commit.message}`)
+  console.log(`  by ${commit.author} at ${commit.date}`)
+}
+```
+
+## Merge and Rebase
+
+```typescript
+// Merge branch into current
+const mergeResult = await $.git.merge('feature-branch')
+if (mergeResult.conflicts.length > 0) {
+  // Handle conflicts
+  for (const conflict of mergeResult.conflicts) {
+    console.log(`Conflict in: ${conflict.path}`)
+  }
+}
+
+// Rebase current onto target
+await $.git.rebase('main')
+```
+
+## Working with Remotes
+
+gitx uses R2 as its "remote", but can sync with GitHub:
+
+```typescript
+// Configure GitHub remote
+$.git.configure({
+  repo: 'org/repo',
+  branch: 'main',
+  r2: env.R2_BUCKET,
+  github: {
+    token: env.GITHUB_TOKEN,
+    syncOnPush: true  // Auto-sync to GitHub
+  }
+})
+
+// Push syncs to both R2 and GitHub
+await $.git.push()
+```
+
+## Multi-Agent Collaboration
+
+Multiple agents can work on the same repository:
+
+```typescript
+// Agent 1: Working on feature A
+await agent1.$.git.checkout('feature-a', { create: true })
+await agent1.$.fs.write('src/a.ts', codeA)
+await agent1.$.git.commit('feat: add A')
+await agent1.$.git.push()
+
+// Agent 2: Working on feature B (parallel)
+await agent2.$.git.checkout('feature-b', { create: true })
+await agent2.$.fs.write('src/b.ts', codeB)
+await agent2.$.git.commit('feat: add B')
+await agent2.$.git.push()
+
+// Agent 3: Merge both features
+await agent3.$.git.checkout('main')
+await agent3.$.git.merge('feature-a')
+await agent3.$.git.merge('feature-b')
+await agent3.$.git.push()
+```
+
+R2's consistency model ensures all agents see the same objects once written.
+
+## Error Handling
+
+```typescript
+import { GitError } from 'dotdo/errors'
+
+try {
+  await $.git.push()
+} catch (error) {
+  if (error instanceof GitError) {
+    switch (error.code) {
+      case 'NOT_CONFIGURED':
+        console.log('Git not configured for this DO')
+        break
+      case 'NOTHING_TO_COMMIT':
+        console.log('No staged changes')
+        break
+      case 'PUSH_REJECTED':
+        console.log('Push failed - sync first')
+        await $.git.sync()
+        await $.git.push()
+        break
+      case 'MERGE_CONFLICT':
+        console.log('Resolve conflicts first')
+        break
+    }
+  }
+}
+```
+
+## Type Definitions
+
+```typescript
+interface GitBinding {
+  repo: string
+  branch: string
+  path?: string
+  commit?: string
+  lastSync?: Date
+}
+
+interface GitStatus {
+  branch: string
+  head?: string
+  staged: string[]
+  unstaged: string[]
+  untracked?: string[]
+  clean: boolean
+}
+
+interface GitCommitResult {
+  hash: string
+}
+
+interface SyncResult {
+  success: boolean
+  objectsFetched: number
+  filesWritten: number
+  commit?: string
+  error?: string
+}
+
+interface PushResult {
+  success: boolean
+  objectsPushed: number
+  commit?: string
+  error?: string
+}
+```
+
+## Performance
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| status | < 5ms | Local DO state |
+| add (single file) | < 2ms | Local staging |
+| commit | 10-50ms | Create objects, hash |
+| sync (100 objects) | 200-500ms | R2 parallel fetch |
+| push (10 objects) | 100-300ms | R2 parallel put |
+
+## Comparison to Git CLI
+
+| Feature | Git CLI | gitx |
+|---------|---------|------|
+| Object storage | Local `.git/` | R2 bucket |
+| Ref storage | Local files | DO metadata |
+| Network protocol | SSH/HTTPS | R2 API |
+| Hashing | libgit2 | crypto.subtle |
+| Edge deployment | No | Yes |
+| Multi-agent | Needs coordination | Native R2 consistency |
+
+## Next Steps
+
+- [fsx](/docs/primitives/fsx) - The filesystem that gitx tracks
+- [bashx](/docs/primitives/bashx) - Run git hooks and build scripts
+- [Capabilities](/docs/sdk/capabilities) - Add git to your DOs

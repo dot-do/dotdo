@@ -1,0 +1,12 @@
+{
+  "title": "Extended Primitives",
+  "description": "Filesystem, Git, and Shell rebuilt for V8 isolates",
+  "root": true,
+  "pages": [
+    "index",
+    "---Primitives---",
+    "fsx",
+    "gitx",
+    "bashx"
+  ]
+}

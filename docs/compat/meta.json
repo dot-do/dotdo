@@ -1,0 +1,15 @@
+{
+  "title": "Compat SDKs",
+  "description": "38 API-compatible SDKs for databases, messaging, search, and vector stores",
+  "root": true,
+  "pages": [
+    "index",
+    "---Storage---",
+    "databases",
+    "---Communication---",
+    "messaging",
+    "---Discovery---",
+    "search",
+    "vector"
+  ]
+}

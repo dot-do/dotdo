@@ -1,0 +1,285 @@
+---
+title: Quickstart
+description: Build and deploy your first AI-powered startup in 5 minutes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+
+# Quickstart
+
+Five minutes. One startup. Let's go.
+
+<Steps>
+
+<Step>
+
+## Create Your Startup
+
+```bash
+npx dotdo init saas-idea
+cd saas-idea
+npm install
+```
+
+</Step>
+
+<Step>
+
+## Define Your Hypothesis
+
+Open `src/startup.ts` and set your hypothesis:
+
+```typescript title="src/startup.ts"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+export class SaasIdea extends Startup {
+  hypothesis = 'Small teams need a simple way to track customer feedback'
+
+  async launch() {
+    // Priya defines what to build
+    const spec = priya`define the MVP for ${this.hypothesis}`
+
+    // Ralph builds it
+    let app = ralph`build ${spec}`
+
+    // Tom reviews, Ralph improves, loop until approved
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    // Quinn runs the test suite
+    const tests = quinn`test ${app}`
+
+    // Ship it
+    mark`announce the launch of ${app}`
+    sally`start selling ${app}`
+  }
+}
+```
+
+</Step>
+
+<Step>
+
+## Start Development
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:8787](http://localhost:8787). You'll see:
+
+- Your startup's dashboard
+- Agent activity feed
+- Current state of `app`
+
+</Step>
+
+<Step>
+
+## Trigger the Launch
+
+Click "Launch" in the dashboard, or call the API:
+
+```bash
+curl -X POST http://localhost:8787/launch
+```
+
+Watch the agents work. Priya writes the spec. Ralph builds. Tom reviews. The loop continues until Tom approves. Then Mark announces and Sally starts selling.
+
+</Step>
+
+<Step>
+
+## Deploy to Production
+
+```bash
+npm run deploy
+```
+
+Your startup is now live on Cloudflare's edge network. 300+ cities. 0ms cold starts.
+
+</Step>
+
+</Steps>
+
+## Understanding the Code
+
+Let's break down what's happening.
+
+### The Signature Pattern
+
+This is the core pattern you'll use everywhere:
+
+```typescript
+const spec = priya`define the MVP for ${this.hypothesis}`
+let app = ralph`build ${spec}`
+
+do {
+  app = ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))
+```
+
+Three key observations:
+
+1. **No `await` on `priya` or `ralph`** - They return proxies, not resolved values
+2. **Proxies pass to other agents** - `ralph\`build ${spec}\`` receives the proxy
+3. **`await` only where needed** - The `tom.approve(app)` needs the boolean result
+
+### Promise Pipelining in Action
+
+Without pipelining:
+
+```typescript
+// This makes 4 separate network calls
+const spec = await priya`define the MVP`     // Call 1
+const app = await ralph`build ${spec}`       // Call 2
+const review = await tom`review ${app}`      // Call 3
+const fixed = await ralph`fix ${review}`     // Call 4
+```
+
+With pipelining:
+
+```typescript
+// This makes 1 network call (batched)
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const review = tom`review ${app}`
+await ralph`fix ${review}`  // Await at the end triggers the batch
+```
+
+The server receives all four operations at once. It knows `ralph` depends on `priya`, so it executes them in order, but without network round trips between each step.
+
+### When to Await
+
+| Scenario | Await? | Why |
+|----------|--------|-----|
+| Passing result to another agent | No | Let the pipeline batch |
+| Branching on result | Yes | Need the value to branch |
+| Looping until condition | Yes | Need the boolean |
+| Returning from function | Yes | Caller needs resolved value |
+| Logging the result | Yes | Need the actual value |
+
+<Callout type="info">
+**Rule of thumb:** Don't await unless you need to inspect the value or use it in JavaScript control flow.
+</Callout>
+
+## Adding Human Escalation
+
+AI does the work. Humans make the hard decisions.
+
+```typescript title="src/startup.ts"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+import { ceo, legal } from 'humans.do'
+
+export class SaasIdea extends Startup {
+  hypothesis = 'Small teams need a simple way to track customer feedback'
+
+  async launch() {
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    // Human approval for launch
+    const approved = await ceo`approve launching ${app}`
+
+    if (approved) {
+      mark`announce the launch`
+      sally`start selling`
+    }
+  }
+
+  // Define escalation rules
+  escalation = this.HumanFunction({
+    trigger: 'refund > $1000',
+    role: 'founder',
+    sla: '4 hours',
+  })
+}
+```
+
+The `ceo` import comes from `humans.do`. When called, it:
+
+1. Routes to Slack, email, or SMS based on your config
+2. Waits for a response (with timeout handling)
+3. Returns the human's decision
+
+## Event-Driven Workflows
+
+Your startup can react to events:
+
+```typescript title="src/startup.ts"
+import { Startup } from 'dotdo'
+import { priya, ralph, sally } from 'agents.do'
+
+export class SaasIdea extends Startup {
+  hypothesis = 'Small teams need a simple way to track customer feedback'
+
+  async init() {
+    // When a customer signs up
+    $.on.Customer.signup(async (event) => {
+      sally`welcome ${event.customer}`
+    })
+
+    // When payment fails
+    $.on.Payment.failed(async (event) => {
+      sally`follow up on failed payment for ${event.customer}`
+    })
+
+    // Weekly product review
+    $.every.monday.at('9am')(async () => {
+      const feedback = await $.Customer.all().getFeedback()
+      priya`analyze ${feedback} and update the roadmap`
+    })
+  }
+}
+```
+
+The `$.on` and `$.every` patterns use proxies to build event handlers fluently. No await needed when registering - they just set up the handlers.
+
+## Inspecting State
+
+Your startup has persistent state:
+
+```typescript
+// In your startup class
+async getStatus() {
+  return {
+    hypothesis: this.hypothesis,
+    launchCount: this.state.launchCount ?? 0,
+    lastLaunch: this.state.lastLaunch,
+    agents: {
+      priya: await priya.status(),
+      ralph: await ralph.status(),
+      tom: await tom.status(),
+    }
+  }
+}
+```
+
+Access via API:
+
+```bash
+curl http://localhost:8787/status
+```
+
+## Next Steps
+
+You've built a startup. Here's what to explore next:
+
+- [RPC & Pipelines](/docs/rpc) - Deep dive into Cap'n Web
+- [The $ Context](/docs/sdk/workflow-context) - Event handling, scheduling, durability
+- [Things](/docs/sdk/thing) - Define custom entities
+- [Deployment](/docs/guides/deployment) - Production configuration
+
+---
+
+**You're one person. You just shipped a team.**
+
+Questions? [Discord](https://discord.gg/dotdo) or [GitHub Issues](https://github.com/dotdo/dotdo/issues).

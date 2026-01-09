@@ -1,0 +1,85 @@
+---
+title: Storage Architecture
+description: Tiered storage with automatic data flow - $0 egress, pennies per TB
+---
+
+# Storage Architecture
+
+dotdo uses a three-tier storage architecture that automatically moves data based on access patterns. Your data flows from hot working sets to cold analytics without manual intervention.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HOT: DO SQLite                                   │
+│  Active working set. 50ms reads. 10GB per shard.                   │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ Cloudflare Pipelines (streaming)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  WARM: R2 + Iceberg/Parquet                         │
+│  Cross-DO queries. 100-150ms. Partitioned by (ns, type, visibility) │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ R2 SQL / ClickHouse
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  COLD: ClickHouse + R2 Archive                      │
+│  Analytics, aggregations, time-series. Pennies per TB.              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## The Tiers
+
+| Tier | Storage | Latency | Use Case |
+|------|---------|---------|----------|
+| **[Hot](/docs/storage/hot-tier)** | DO SQLite | ~50ms | Active working set, real-time state |
+| **[Warm](/docs/storage/warm-tier)** | R2 + Iceberg/Parquet | 100-150ms | Cross-DO queries, historical data |
+| **[Cold](/docs/storage/cold-tier)** | ClickHouse + R2 Archive | Variable | Analytics, aggregations, time-series |
+
+## Automatic Data Flow
+
+Data moves through tiers automatically:
+
+1. **Active data** lives in DO SQLite for sub-100ms access
+2. **Old versions** archive to R2 via Cloudflare Pipelines
+3. **Analytics** stream to Iceberg tables for SQL queries
+4. **Time-series** aggregate in ClickHouse for dashboards
+
+You don't manage this. It just works.
+
+## Zero Egress, Massive Savings
+
+The entire architecture runs on Cloudflare R2, which has **$0 egress fees**.
+
+| Service | Egress | Storage |
+|---------|--------|---------|
+| **Cloudflare R2** | **$0** | $0.015/GB-mo |
+| AWS S3 | $0.09/GB | $0.023/GB-mo |
+| Snowflake | $0.05-0.12/GB | Credit-based |
+
+A typical data warehouse that costs $10,000/month on AWS runs for under $1,000 on this stack. Your analytics queries don't cost per-byte. Your agents don't pay to read their own data.
+
+## Quick Example
+
+```typescript
+// Hot tier: Real-time state in DO SQLite
+const customer = await $.Customer('cust_abc').get()
+
+// Warm tier: Cross-DO query via Iceberg
+const orders = await $.query(`
+  SELECT * FROM orders
+  WHERE customer_id = 'cust_abc'
+  AND created_at > NOW() - INTERVAL '30 days'
+`)
+
+// Cold tier: Analytics aggregation
+const metrics = await $.analytics(`
+  SELECT
+    date_trunc('day', created_at) as day,
+    count(*) as orders,
+    sum(total) as revenue
+  FROM orders
+  WHERE created_at > NOW() - INTERVAL '1 year'
+  GROUP BY 1
+`)
+```
+
+Same data, different access patterns, automatic tier selection.

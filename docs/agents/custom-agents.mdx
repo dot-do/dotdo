@@ -1,0 +1,509 @@
+---
+title: Custom Agents
+description: Build domain-specific AI agents for your industry
+---
+
+# Custom Agents
+
+Build domain-specific agents for your industry. Legal reviewers. Healthcare coordinators. Financial analysts. Your domain, your agents.
+
+## Basic Agent
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class LegalReviewer extends Agent {
+  name = 'Lexi'
+  role = 'Legal'
+
+  instructions = `You review contracts and legal documents.
+    Flag risks. Suggest revisions. Never give legal advice.`
+}
+
+// Use it
+const lexi = new LegalReviewer()
+const reviewed = await lexi`review ${contract}`
+```
+
+That's it. A custom agent is a class with a name, role, and instructions.
+
+## Agent Configuration
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class FinancialAnalyst extends Agent {
+  name = 'Finn'
+  role = 'Financial Analyst'
+
+  instructions = `You analyze financial data and reports.
+    Focus on trends, anomalies, and actionable insights.
+    Present numbers in context, not isolation.`
+
+  // Model selection
+  model = 'claude-opus-4-5-20251101'
+
+  // Tool access
+  tools = [
+    this.spreadsheetAnalysis,
+    this.marketDataLookup,
+    this.chartGeneration,
+  ]
+
+  // Stop conditions
+  stopWhen = stepCountIs(10)
+
+  // Memory configuration
+  memory = {
+    type: 'persistent',
+    maxTokens: 100000,
+  }
+}
+```
+
+## Agent with Tools
+
+Agents become powerful when they have tools:
+
+```typescript
+import { Agent, tool } from 'dotdo'
+import { z } from 'zod'
+
+const searchDatabase = tool({
+  name: 'searchDatabase',
+  description: 'Search the customer database',
+  inputSchema: z.object({
+    query: z.string(),
+    limit: z.number().optional().default(10),
+  }),
+  execute: async ({ query, limit }) => {
+    const results = await db.customers.search(query, limit)
+    return results
+  },
+})
+
+const sendEmail = tool({
+  name: 'sendEmail',
+  description: 'Send an email to a customer',
+  inputSchema: z.object({
+    to: z.string().email(),
+    subject: z.string(),
+    body: z.string(),
+  }),
+  execute: async ({ to, subject, body }) => {
+    await email.send({ to, subject, body })
+    return { sent: true }
+  },
+  permission: 'confirm', // Require human approval
+})
+
+export class CustomerSuccess extends Agent {
+  name = 'Casey'
+  role = 'Customer Success'
+
+  instructions = `You help customers succeed with our product.
+    Search for customer context before responding.
+    Be helpful, never pushy.`
+
+  tools = [searchDatabase, sendEmail]
+}
+```
+
+## Permission Levels
+
+Control what agents can do autonomously:
+
+```typescript
+const riskyTool = tool({
+  name: 'deleteAccount',
+  description: 'Delete a customer account',
+  inputSchema: z.object({
+    accountId: z.string(),
+    reason: z.string(),
+  }),
+  execute: async ({ accountId, reason }) => {
+    await accounts.delete(accountId, reason)
+    return { deleted: true }
+  },
+  permission: 'deny', // Never allow automatically
+})
+
+const safeTool = tool({
+  name: 'lookupAccount',
+  description: 'Look up account details',
+  inputSchema: z.object({
+    accountId: z.string(),
+  }),
+  execute: async ({ accountId }) => {
+    return accounts.get(accountId)
+  },
+  permission: 'auto', // Always allow
+})
+
+const sensitiveTool = tool({
+  name: 'updateBilling',
+  description: 'Update billing information',
+  inputSchema: z.object({
+    accountId: z.string(),
+    billingInfo: z.object({
+      address: z.string(),
+      paymentMethod: z.string(),
+    }),
+  }),
+  execute: async ({ accountId, billingInfo }) => {
+    await billing.update(accountId, billingInfo)
+    return { updated: true }
+  },
+  permission: 'confirm', // Ask human first
+})
+```
+
+Permission levels:
+
+| Level | Behavior |
+|-------|----------|
+| `auto` | Execute without confirmation |
+| `confirm` | Ask human before executing |
+| `deny` | Never execute, even if requested |
+
+## Agent Hooks
+
+Customize agent behavior at runtime:
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class AuditedAgent extends Agent {
+  name = 'Audrey'
+  role = 'Compliance'
+
+  instructions = `You ensure compliance with regulations.`
+
+  hooks = {
+    onPreToolUse: async (toolCall) => {
+      // Log every tool use
+      await audit.log('tool_use', {
+        tool: toolCall.name,
+        arguments: toolCall.arguments,
+        timestamp: new Date(),
+      })
+
+      // Block sensitive tools after hours
+      if (isAfterHours() && toolCall.name === 'updateRecords') {
+        return {
+          action: 'deny',
+          reason: 'Record updates not allowed after business hours',
+        }
+      }
+
+      return { action: 'allow' }
+    },
+
+    onPostToolUse: async (toolCall, result) => {
+      // Log results
+      await audit.log('tool_result', {
+        tool: toolCall.name,
+        result,
+        timestamp: new Date(),
+      })
+    },
+
+    onStepFinish: async (step, stepNumber) => {
+      // Monitor for concerning patterns
+      if (step.text?.includes('delete') && step.text?.includes('all')) {
+        await alerts.send('Potentially dangerous operation detected')
+      }
+    },
+  }
+}
+```
+
+## Multi-Agent Handoffs
+
+Agents can hand off to specialists:
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class Receptionist extends Agent {
+  name = 'Riley'
+  role = 'Receptionist'
+
+  instructions = `You're the first point of contact.
+    Route requests to the right specialist.`
+
+  handoffs = [technicalSupport, billing, sales]
+}
+
+export class TechnicalSupport extends Agent {
+  name = 'Terry'
+  role = 'Technical Support'
+
+  instructions = `You solve technical problems.
+    Escalate to engineering if you can't resolve.`
+
+  handoffs = [engineering]
+}
+
+// Usage: Riley routes to Terry, Terry might escalate to engineering
+const result = await riley`I can't log in and my billing is wrong`
+```
+
+## Spawning Subagents
+
+Complex tasks can spawn specialized subagents:
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class ProjectManager extends Agent {
+  name = 'Pat'
+  role = 'Project Manager'
+
+  instructions = `You coordinate complex projects.
+    Break work into tasks and delegate.`
+
+  canSpawnSubagents = true
+
+  async planAndExecute(project: string) {
+    // Plan the work
+    const tasks = await this`break ${project} into tasks`
+
+    // Spawn subagents for parallel work
+    const results = await Promise.all(
+      tasks.map(task =>
+        this.spawnSubagent({
+          prompt: `Complete: ${task}`,
+          timeout: 300000, // 5 minutes
+        })
+      )
+    )
+
+    // Summarize results
+    return this`summarize the results: ${results}`
+  }
+}
+```
+
+## Agent with Memory
+
+Persistent memory across conversations:
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class PersonalAssistant extends Agent {
+  name = 'Alex'
+  role = 'Personal Assistant'
+
+  instructions = `You're a personal assistant.
+    Remember user preferences and past interactions.`
+
+  memory = {
+    type: 'persistent',
+    connection: process.env.DATABASE_URL,
+    maxTokens: 100000,
+  }
+}
+
+// Alex remembers previous conversations
+const alex = new PersonalAssistant({ userId: 'user_123' })
+
+await alex`I prefer morning meetings`
+// ... days later ...
+await alex`schedule a meeting with the team`
+// Alex schedules it in the morning because it remembers
+```
+
+## Voice Agents
+
+Build voice-enabled agents:
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class PhoneSupport extends Agent {
+  name = 'Phoebe'
+  role = 'Phone Support'
+
+  instructions = `You handle phone support calls.
+    Be conversational and helpful.
+    Keep responses brief for voice.`
+
+  voice = {
+    transcriber: {
+      provider: 'deepgram',
+      model: 'nova-2',
+      language: 'en-US',
+    },
+    voice: {
+      provider: 'elevenlabs',
+      voiceId: 'rachel',
+      speed: 1.0,
+    },
+    bargeIn: true, // Allow interruptions
+    silenceTimeoutMs: 2000,
+  }
+}
+```
+
+## Registering Custom Agents
+
+Make your agents available like named agents:
+
+```typescript
+import { registerAgent } from 'dotdo'
+
+// Register your custom agents
+registerAgent('lexi', new LegalReviewer())
+registerAgent('finn', new FinancialAnalyst())
+registerAgent('casey', new CustomerSuccess())
+
+// Now use them with template literal syntax
+import { lexi, finn, casey } from 'your-agents'
+
+await lexi`review ${contract}`
+await finn`analyze ${quarterlyReport}`
+await casey`help ${customer} with ${issue}`
+```
+
+## Industry Examples
+
+### Healthcare
+
+```typescript
+export class CareCoordinator extends Agent {
+  name = 'Clara'
+  role = 'Care Coordinator'
+
+  instructions = `You coordinate patient care.
+    Never provide medical advice.
+    Always recommend consulting healthcare providers.
+    HIPAA compliance is mandatory.`
+
+  tools = [
+    scheduleAppointment,
+    sendReminder,
+    lookupProvider,
+  ]
+}
+```
+
+### Legal
+
+```typescript
+export class ContractReviewer extends Agent {
+  name = 'Lexi'
+  role = 'Contract Reviewer'
+
+  instructions = `You review contracts for risks.
+    Flag unusual clauses.
+    Never provide legal advice.
+    Always recommend consulting an attorney.`
+
+  tools = [
+    searchPrecedents,
+    flagClause,
+    suggestRevision,
+  ]
+}
+```
+
+### Finance
+
+```typescript
+export class FraudDetector extends Agent {
+  name = 'Frank'
+  role = 'Fraud Analyst'
+
+  instructions = `You analyze transactions for fraud patterns.
+    Flag suspicious activity.
+    Document your reasoning.
+    Escalate high-risk cases immediately.`
+
+  tools = [
+    analyzeTransaction,
+    flagForReview,
+    escalateToSecurity,
+  ]
+
+  hooks = {
+    onPreToolUse: async (toolCall) => {
+      if (toolCall.name === 'escalateToSecurity') {
+        // Always require human approval for escalation
+        return {
+          action: 'confirm',
+          message: 'Confirm escalation to security team?',
+        }
+      }
+      return { action: 'allow' }
+    },
+  }
+}
+```
+
+## Best Practices
+
+### Clear Instructions
+
+```typescript
+// Bad: vague
+instructions = `Help users with stuff.`
+
+// Good: specific
+instructions = `You help users troubleshoot login issues.
+  First, verify their email address.
+  Then, check account status.
+  If locked, explain the unlock process.
+  If technical issue, gather error details and escalate.`
+```
+
+### Appropriate Tool Access
+
+```typescript
+// Bad: too many permissions
+tools = [readDatabase, writeDatabase, deleteDatabase, sendEmail, makePayment]
+
+// Good: minimal necessary permissions
+tools = [readDatabase, sendNotification]
+```
+
+### Guardrails
+
+```typescript
+// Always add guardrails for sensitive operations
+hooks = {
+  onPreToolUse: async (toolCall) => {
+    // Rate limit
+    if (await rateLimiter.isExceeded(toolCall.name)) {
+      return { action: 'deny', reason: 'Rate limit exceeded' }
+    }
+
+    // Audit
+    await audit.log(toolCall)
+
+    return { action: 'allow' }
+  },
+}
+```
+
+### Testing Agents
+
+```typescript
+import { createMockProvider, mockResponses } from 'dotdo/testing'
+
+describe('LegalReviewer', () => {
+  it('flags risky clauses', async () => {
+    const provider = createMockProvider()
+    const lexi = new LegalReviewer({ provider })
+
+    mockResponses(provider, [
+      'Found 3 risky clauses: unlimited liability, auto-renewal, non-compete...'
+    ])
+
+    const result = await lexi`review ${testContract}`
+
+    expect(result.text).toContain('risky clauses')
+  })
+})
+```
