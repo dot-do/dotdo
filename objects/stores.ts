@@ -447,10 +447,22 @@ export class ThingsStore {
     return id
   }
 
+  // Reverse cache: typeId -> typeName (for efficient lookup by ID)
+  private typeCacheById: Map<number, string> = new Map()
+
   private async getTypeName(typeId: number): Promise<string> {
-    // Check cache first
+    // Check reverse cache first (O(1) lookup)
+    if (this.typeCacheById.has(typeId)) {
+      return this.typeCacheById.get(typeId)!
+    }
+
+    // Fall back to forward cache scan (for backwards compatibility)
     for (const [name, id] of Array.from(this.ctx.typeCache.entries())) {
-      if (id === typeId) return name
+      if (id === typeId) {
+        // Populate reverse cache for future lookups
+        this.typeCacheById.set(typeId, name)
+        return name
+      }
     }
 
     // Query the database
@@ -459,8 +471,82 @@ export class ThingsStore {
     )
     const row = (result as unknown[])[0] as { noun: string } | undefined
     const name = row?.noun ?? 'Unknown'
+
+    // Populate both caches
     this.ctx.typeCache.set(name, typeId)
+    this.typeCacheById.set(typeId, name)
+
     return name
+  }
+
+  /**
+   * Batch lookup type names for multiple type IDs.
+   * This is the key optimization to avoid N+1 queries.
+   *
+   * @param typeIds - Array of type IDs to look up
+   * @returns Map of typeId -> typeName
+   */
+  private async batchGetTypeNames(typeIds: number[]): Promise<Map<number, string>> {
+    const result = new Map<number, string>()
+
+    if (typeIds.length === 0) {
+      return result
+    }
+
+    // Deduplicate type IDs
+    const uniqueTypeIds = [...new Set(typeIds)]
+
+    // Check cache first for each ID
+    const uncachedIds: number[] = []
+    for (const typeId of uniqueTypeIds) {
+      if (this.typeCacheById.has(typeId)) {
+        result.set(typeId, this.typeCacheById.get(typeId)!)
+      } else {
+        // Check forward cache
+        let found = false
+        for (const [name, id] of Array.from(this.ctx.typeCache.entries())) {
+          if (id === typeId) {
+            result.set(typeId, name)
+            this.typeCacheById.set(typeId, name)
+            found = true
+            break
+          }
+        }
+        if (!found) {
+          uncachedIds.push(typeId)
+        }
+      }
+    }
+
+    // Batch query for uncached IDs
+    if (uncachedIds.length > 0) {
+      // Build query: SELECT rowid, noun FROM nouns WHERE rowid IN (?, ?, ...)
+      const placeholders = uncachedIds.map(() => '?').join(', ')
+      const queryResult = await this.ctx.db.all(
+        sql`SELECT rowid, noun FROM nouns WHERE rowid IN (${sql.join(uncachedIds.map(id => sql`${id}`), sql`, `)})`
+      )
+
+      // Process results
+      for (const row of queryResult as Array<{ rowid: number; noun: string }>) {
+        const typeId = row.rowid
+        const typeName = row.noun
+
+        // Populate both caches
+        this.ctx.typeCache.set(typeName, typeId)
+        this.typeCacheById.set(typeId, typeName)
+        result.set(typeId, typeName)
+      }
+
+      // Handle any IDs that weren't found (set to 'Unknown')
+      for (const typeId of uncachedIds) {
+        if (!result.has(typeId)) {
+          result.set(typeId, 'Unknown')
+          this.typeCacheById.set(typeId, 'Unknown')
+        }
+      }
+    }
+
+    return result
   }
 
   async get(id: string, options: ThingsGetOptions = {}): Promise<ThingEntity | null> {
@@ -525,40 +611,44 @@ export class ThingsStore {
     const limit = options.limit ?? 100
     const offset = options.offset ?? 0
 
-    // Build base query
-    let query = sql`SELECT rowid as version, * FROM things WHERE 1=1`
+    // Get type ID if filtering by type (do this early to use in subquery)
+    let typeId: number | undefined
+    if (options.type) {
+      typeId = await this.getTypeId(options.type)
+    }
+
+    // Build subquery conditions - all filters must be in the subquery
+    // to correctly filter which things to return the latest version of
+    let subqueryConditions = sql`WHERE 1=1`
 
     // Add branch condition
     if (branch === 'main') {
-      query = sql`${query} AND branch IS NULL`
+      subqueryConditions = sql`${subqueryConditions} AND branch IS NULL`
     } else {
-      query = sql`${query} AND branch = ${branch}`
+      subqueryConditions = sql`${subqueryConditions} AND branch = ${branch}`
     }
 
-    // Add type filter if specified
-    if (options.type) {
-      const typeId = await this.getTypeId(options.type)
-      query = sql`${query} AND type = ${typeId}`
+    // Add type filter if specified (MUST be in subquery for correct SQL filtering)
+    if (typeId !== undefined) {
+      subqueryConditions = sql`${subqueryConditions} AND type = ${typeId}`
     }
 
     // Exclude soft-deleted by default
     if (!options.includeDeleted) {
-      query = sql`${query} AND (deleted = 0 OR deleted IS NULL)`
+      subqueryConditions = sql`${subqueryConditions} AND (deleted = 0 OR deleted IS NULL)`
     }
 
-    // Handle cursor-based pagination
+    // Handle cursor-based pagination (MUST be in subquery for correct SQL filtering)
     if (options.after) {
-      query = sql`${query} AND id > ${options.after}`
+      subqueryConditions = sql`${subqueryConditions} AND id > ${options.after}`
     }
 
     // Group by id to get latest versions only
-    // Use a subquery to get the max rowid per id
+    // Use a subquery to get the max rowid per id with ALL filters applied
     const subquery = sql`
       SELECT id, MAX(rowid) as max_rowid
       FROM things
-      WHERE 1=1
-        AND (${branch === 'main' ? sql`branch IS NULL` : sql`branch = ${branch}`})
-        ${!options.includeDeleted ? sql`AND (deleted = 0 OR deleted IS NULL)` : sql``}
+      ${subqueryConditions}
       GROUP BY id
     `
 
@@ -597,11 +687,16 @@ export class ThingsStore {
     finalQuery = sql`${finalQuery} LIMIT ${limit} OFFSET ${offset}`
 
     const results = await this.ctx.db.all(finalQuery)
+    const rows = results as any[]
 
-    // Map to ThingEntity
+    // Batch lookup all type names to avoid N+1 queries
+    const typeIds = rows.map((row) => row.type as number)
+    const typeNameMap = await this.batchGetTypeNames(typeIds)
+
+    // Map to ThingEntity using the pre-fetched type names
     const entities: ThingEntity[] = []
-    for (const row of results as any[]) {
-      const typeName = await this.getTypeName(row.type)
+    for (const row of rows) {
+      const typeName = typeNameMap.get(row.type) ?? 'Unknown'
       entities.push({
         $id: row.id,
         $type: typeName,

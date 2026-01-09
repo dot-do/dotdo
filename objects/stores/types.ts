@@ -324,3 +324,69 @@ export interface ObjectsStore {
   delete(ns: string): Promise<void>
   resolve(ns: string): Promise<unknown> // Returns DurableObjectStub
 }
+
+// ============================================================================
+// DLQ TYPES
+// ============================================================================
+
+/** DLQ entry entity returned from DLQStore operations */
+export interface DLQEntity {
+  id: string
+  eventId: string | null
+  verb: string
+  source: string
+  data: Record<string, unknown>
+  error: string
+  errorStack?: string | null
+  retryCount: number
+  maxRetries: number
+  lastAttemptAt?: Date | null
+  createdAt: Date
+}
+
+/** Options for DLQStore add operation */
+export interface DLQAddOptions {
+  eventId?: string
+  verb: string
+  source: string
+  data: Record<string, unknown>
+  error: string
+  errorStack?: string
+  maxRetries?: number
+}
+
+/** Options for DLQStore list operation */
+export interface DLQListOptions {
+  verb?: string
+  source?: string
+  minRetries?: number
+  maxRetries?: number
+  limit?: number
+  offset?: number
+}
+
+/** Result of DLQ replay operation */
+export interface DLQReplayResult {
+  success: boolean
+  result?: unknown
+  error?: string
+}
+
+/** Result of DLQ replayAll operation */
+export interface DLQReplayAllResult {
+  replayed: number
+  failed: number
+}
+
+/** DLQStore interface - Dead Letter Queue operations */
+export interface DLQStore {
+  add(options: DLQAddOptions): Promise<DLQEntity>
+  get(id: string): Promise<DLQEntity | null>
+  list(options?: DLQListOptions): Promise<DLQEntity[]>
+  count(): Promise<number>
+  incrementRetry(id: string): Promise<DLQEntity>
+  replay(id: string): Promise<DLQReplayResult>
+  replayAll(options?: { verb?: string; source?: string }): Promise<DLQReplayAllResult>
+  remove(id: string): Promise<boolean>
+  purgeExhausted(): Promise<number>
+}

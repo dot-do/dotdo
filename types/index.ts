@@ -7,6 +7,7 @@ export * from './DO'
 export * from './WorkflowContext'
 export * from './Experiment'
 export * from './capabilities'
+export * from './ids'
 
 // Re-export key types for convenience
 export type { Thing, ThingData } from './Thing'
@@ -49,3 +50,24 @@ export type {
   WithAllCapabilities,
 } from './capabilities'
 export { CapabilityError, hasFs, hasGit, hasBash, hasAllCapabilities } from './capabilities'
+
+// Branded ID types
+export type {
+  ThingId,
+  ActionId,
+  EventId,
+  NounId,
+  AnyId,
+  UnbrandedId,
+  IsBrandedId,
+} from './ids'
+export {
+  createThingId,
+  createActionId,
+  createEventId,
+  createNounId,
+  isThingId,
+  isActionId,
+  isEventId,
+  isNounId,
+} from './ids'

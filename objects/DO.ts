@@ -18,7 +18,7 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
-import type { WorkflowContext, DomainProxy } from '../types/WorkflowContext'
+import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler } from '../types/WorkflowContext'
 import type { Thing } from '../types/Thing'
 import {
   ThingsStore,
@@ -29,6 +29,7 @@ import {
   ObjectsStore,
   type StoreContext,
 } from './stores'
+import { DLQStore } from './stores/DLQStore'
 import { parseNounId, formatNounId } from '../lib/noun-id'
 
 // ============================================================================
@@ -199,7 +200,13 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   private _events?: EventsStore
   private _search?: SearchStore
   private _objects?: ObjectsStore
+  private _dlq?: DLQStore
   private _typeCache: Map<string, number> = new Map()
+
+  // Event handler registry for $.on.Noun.verb() registration
+  // Key format: "Noun.verb" (e.g., "Customer.created")
+  // Value: Array of registered handler functions
+  protected _eventHandlers: Map<string, Function[]> = new Map()
 
   // Cross-DO resolution caches
   private _stubCache: Map<string, { stub: DOStub; cachedAt: number }> = new Map()
@@ -263,6 +270,16 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       this._objects = new ObjectsStore(this.getStoreContext())
     }
     return this._objects
+  }
+
+  /**
+   * DLQStore - Dead Letter Queue for failed events
+   */
+  get dlq(): DLQStore {
+    if (!this._dlq) {
+      this._dlq = new DLQStore(this.getStoreContext(), this._eventHandlers)
+    }
+    return this._dlq
   }
 
   /**
@@ -1366,41 +1383,51 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // PROXY FACTORIES
   // ═══════════════════════════════════════════════════════════════════════════
 
-  protected createOnProxy(): Record<string, Record<string, (handler: Function) => void>> {
-    return new Proxy(
-      {},
-      {
-        get: (_, noun: string) => {
-          return new Proxy(
-            {},
-            {
-              get: (_, verb: string) => {
-                return (handler: Function) => {
-                  // Register event handler
-                  // Store in event handlers registry
-                }
-              },
-            },
-          )
-        },
-      },
-    )
-  }
+  protected createOnProxy(): OnProxy {
+    const self = this
 
-  protected createScheduleBuilder(): unknown {
-    // Return a proxy that builds cron expressions
-    return new Proxy(() => {}, {
-      get: (_, day: string) => {
-        return new Proxy(() => {}, {
-          get: (_, time: string) => {
-            return (handler: Function) => {
-              // Register schedule handler
+    return new Proxy({} as OnProxy, {
+      get: (_, noun: string): OnNounProxy => {
+        return new Proxy({} as OnNounProxy, {
+          get: (_, verb: string): (handler: EventHandler) => void => {
+            return (handler: EventHandler): void => {
+              // Build the event key in format "Noun.verb"
+              const eventKey = `${noun}.${verb}`
+
+              // Get or create the handlers array for this event
+              const handlers = self._eventHandlers.get(eventKey) ?? []
+
+              // Add the handler to the array
+              handlers.push(handler)
+
+              // Store back in the registry
+              self._eventHandlers.set(eventKey, handlers)
             }
           },
         })
       },
-      apply: (_, __, [schedule, handler]: [string, Function]) => {
-        // Natural language schedule
+    })
+  }
+
+  protected createScheduleBuilder(): ScheduleBuilder {
+    // Return a proxy that builds cron expressions
+    const baseFunction = (schedule: string, handler: ScheduleHandler): void => {
+      // Natural language schedule
+    }
+
+    return new Proxy(baseFunction as ScheduleBuilder, {
+      get: (_, day: string): ScheduleTimeProxy => {
+        const dayFunction = (handler: ScheduleHandler): void => {
+          // Handler called directly on day (e.g., $.every.Monday(handler))
+        }
+
+        return new Proxy(dayFunction as ScheduleTimeProxy, {
+          get: (_, time: string): ScheduleExecutor => {
+            return (handler: ScheduleHandler): void => {
+              // Register schedule handler for specific time
+            }
+          },
+        })
       },
     })
   }
@@ -1520,6 +1547,105 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   protected sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EVENT HANDLER MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get registered event handlers for a specific event key
+   *
+   * @param eventKey - The event key in format "Noun.verb" (e.g., "Customer.created")
+   * @returns Array of registered handler functions, or empty array if none
+   *
+   * @example
+   * ```typescript
+   * const handlers = this.getEventHandlers('Customer.created')
+   * ```
+   */
+  getEventHandlers(eventKey: string): Function[] {
+    return this._eventHandlers.get(eventKey) ?? []
+  }
+
+  /**
+   * Dispatch an event to all registered handlers
+   *
+   * Handlers are executed sequentially. Errors in one handler do not prevent
+   * other handlers from executing. All errors are collected and returned.
+   *
+   * @param event - The domain event to dispatch
+   * @returns Object with count of successful handlers and array of errors
+   *
+   * @example
+   * ```typescript
+   * const event: DomainEvent = {
+   *   id: 'evt-123',
+   *   verb: 'created',
+   *   source: 'https://example.do/Customer/cust-456',
+   *   data: { email: 'user@example.com' },
+   *   timestamp: new Date()
+   * }
+   * const result = await this.dispatchEventToHandlers(event)
+   * console.log(`${result.handled} handlers executed, ${result.errors.length} errors`)
+   * ```
+   */
+  async dispatchEventToHandlers(event: DomainEvent): Promise<{ handled: number; errors: Error[] }> {
+    // Extract noun from source URL (format: "https://ns/Noun/id")
+    const sourceParts = event.source.split('/')
+    const noun = sourceParts[sourceParts.length - 2] || ''
+
+    // Build event key
+    const eventKey = `${noun}.${event.verb}`
+
+    // Get registered handlers
+    const handlers = this._eventHandlers.get(eventKey) ?? []
+
+    let handled = 0
+    const errors: Error[] = []
+
+    // Execute each handler, catching errors
+    for (const handler of handlers) {
+      try {
+        await handler(event)
+        handled++
+      } catch (e) {
+        errors.push(e instanceof Error ? e : new Error(String(e)))
+      }
+    }
+
+    return { handled, errors }
+  }
+
+  /**
+   * Unregister an event handler
+   *
+   * @param eventKey - The event key in format "Noun.verb"
+   * @param handler - The handler function to remove
+   * @returns true if the handler was found and removed, false otherwise
+   *
+   * @example
+   * ```typescript
+   * const handler = async (event) => { ... }
+   * this.$.on.Customer.created(handler)
+   * // Later:
+   * this.unregisterEventHandler('Customer.created', handler)
+   * ```
+   */
+  unregisterEventHandler(eventKey: string, handler: Function): boolean {
+    const handlers = this._eventHandlers.get(eventKey)
+
+    if (!handlers) {
+      return false
+    }
+
+    const index = handlers.indexOf(handler)
+    if (index > -1) {
+      handlers.splice(index, 1)
+      return true
+    }
+
+    return false
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
