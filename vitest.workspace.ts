@@ -77,6 +77,9 @@ export default defineWorkspace([
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
 
+  // EdgeVec vector index persistence tests
+  createNodeWorkspace('edgevec', ['db/edgevec/**/*.test.ts']),
+
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
@@ -169,6 +172,9 @@ export default defineWorkspace([
   // Tail worker and other worker processing tests (non-runtime)
   createNodeWorkspace('tests-workers', ['tests/workers/**/*.test.ts']),
 
+  // Observability tail worker tests (pipeline integration)
+  createNodeWorkspace('observability-tail', ['workers/observability-tail/tests/**/*.test.ts']),
+
   // Tests for objects in tests/objects directory (mocked Durable Objects)
   createNodeWorkspace('tests-objects', ['tests/objects/**/*.test.ts']),
 
@@ -183,6 +189,12 @@ export default defineWorkspace([
 
   // Compat layer tests (API-compatible SDKs backed by DO)
   createNodeWorkspace('compat', ['compat/**/*.test.ts']),
+
+  // @dotdo/turso package tests
+  createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
+
+  // AI template literal API tests
+  createNodeWorkspace('ai', ['ai/tests/**/*.test.ts', 'ai/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
