@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hashContext, hashPipeline, hashArgs } from './hash'
+import { hashContext, hashPipeline, hashArgs, hashToInt } from './hash'
 
 describe('Hashing System', () => {
   /**
@@ -242,6 +242,89 @@ describe('Hashing System', () => {
     it('handles negative numbers', () => {
       const hash = hashArgs(-42)
       expect(hash).toMatch(/^[a-f0-9]{64}$/)
+    })
+  })
+
+  /**
+   * Tests for hashToInt - numeric hash for bucketing/traffic allocation
+   *
+   * The hashToInt function should:
+   * - Produce a deterministic non-negative integer
+   * - Same input always produces same output
+   * - Different inputs produce different outputs (with high probability)
+   * - Be in the range [0, 4294967295] (32-bit unsigned)
+   */
+  describe('hashToInt', () => {
+    it('produces deterministic integer for same input', () => {
+      const hash1 = hashToInt('user:123:experiment:test')
+      const hash2 = hashToInt('user:123:experiment:test')
+      expect(hash1).toBe(hash2)
+    })
+
+    it('produces different integers for different inputs', () => {
+      const hash1 = hashToInt('user:123:experiment:test')
+      const hash2 = hashToInt('user:456:experiment:test')
+      expect(hash1).not.toBe(hash2)
+    })
+
+    it('returns a non-negative integer', () => {
+      const hash = hashToInt('any-string')
+      expect(hash).toBeGreaterThanOrEqual(0)
+      expect(Number.isInteger(hash)).toBe(true)
+    })
+
+    it('returns value within 32-bit unsigned range', () => {
+      const inputs = ['a', 'b', 'test', 'user:1', 'experiment:99']
+      for (const input of inputs) {
+        const hash = hashToInt(input)
+        expect(hash).toBeGreaterThanOrEqual(0)
+        expect(hash).toBeLessThanOrEqual(0xffffffff)
+      }
+    })
+
+    it('handles empty string', () => {
+      const hash = hashToInt('')
+      expect(hash).toBeGreaterThanOrEqual(0)
+      expect(Number.isInteger(hash)).toBe(true)
+    })
+
+    it('handles unicode strings', () => {
+      const hash1 = hashToInt('user:johndoe:experiment:pricing')
+      const hash2 = hashToInt('user:johndoe:experiment:pricing')
+      expect(hash1).toBe(hash2)
+    })
+
+    it('handles long strings', () => {
+      const longString = 'x'.repeat(10000)
+      const hash = hashToInt(longString)
+      expect(hash).toBeGreaterThanOrEqual(0)
+      expect(hash).toBeLessThanOrEqual(0xffffffff)
+    })
+
+    it('produces good distribution for bucket assignment', () => {
+      // Generate many hashes and check they spread across buckets
+      const buckets = new Map<number, number>()
+      const numBuckets = 100
+      const numSamples = 1000
+
+      for (let i = 0; i < numSamples; i++) {
+        const hash = hashToInt(`sample:${i}`)
+        const bucket = hash % numBuckets
+        buckets.set(bucket, (buckets.get(bucket) || 0) + 1)
+      }
+
+      // All buckets should have at least some entries
+      // With 1000 samples and 100 buckets, expect ~10 per bucket on average
+      // Allow for some variance but ensure no bucket is severely underrepresented
+      const minExpected = 2 // Very lenient minimum
+      let underrepresentedBuckets = 0
+      for (let i = 0; i < numBuckets; i++) {
+        if ((buckets.get(i) || 0) < minExpected) {
+          underrepresentedBuckets++
+        }
+      }
+      // Allow up to 10% of buckets to be underrepresented due to randomness
+      expect(underrepresentedBuckets).toBeLessThan(numBuckets * 0.1)
     })
   })
 })

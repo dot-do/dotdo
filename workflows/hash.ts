@@ -204,3 +204,24 @@ export function hashArgs(args: unknown): string {
   const serialized = serialize(args)
   return sha256(serialized)
 }
+
+/**
+ * Hash a string to produce a deterministic non-negative integer.
+ * Useful for traffic allocation and bucket assignment in experiments.
+ *
+ * Uses SHA-256 internally and extracts the first 8 hex characters
+ * to produce a 32-bit unsigned integer.
+ *
+ * @param input - The string to hash
+ * @returns A non-negative integer (0 to 4294967295)
+ *
+ * @example
+ * hashToInt('user:123:experiment:test')
+ * // => 2847593815
+ */
+export function hashToInt(input: string): number {
+  const hash = sha256(input)
+  // Use first 8 hex chars (32 bits) for a consistent integer
+  const hexSubset = hash.slice(0, 8)
+  return parseInt(hexSubset, 16)
+}

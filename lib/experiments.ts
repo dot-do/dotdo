@@ -4,6 +4,8 @@
  * Deterministically assigns users to experiment branches via hash.
  */
 
+import { hashToInt } from '../workflows/hash'
+
 export interface Experiment {
   id: string
   thing: string
@@ -19,15 +21,12 @@ const experiments: Map<string, Experiment> = new Map()
 
 /**
  * Hash function that returns a numeric value for deterministic assignment.
- * Uses a simple DJB2 hash algorithm to produce a consistent non-negative integer.
+ * Uses SHA-256 internally via the centralized hashing system.
+ *
+ * @deprecated Use hashToInt from workflows/hash directly for new code
  */
 export function hash(input: string): number {
-  let h = 5381
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) + h) ^ input.charCodeAt(i)
-  }
-  // Ensure non-negative by using unsigned right shift
-  return h >>> 0
+  return hashToInt(input)
 }
 
 /**

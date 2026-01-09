@@ -9,6 +9,8 @@
  * a pipeline that executes steps through the runtime.
  */
 
+import { hashContext, hashPipeline } from './hash'
+
 export interface WorkflowRuntime {
   executeStep<T>(stepId: string, pipeline: Pipeline, args: unknown[]): Promise<T>
 }
@@ -31,57 +33,10 @@ export type WorkflowAPI = {
 }
 
 /**
- * Simple hash function for context and step ID generation.
- * Uses a deterministic JSON serialization with sorted keys.
- */
-function hashContext(context: unknown): string {
-  const normalized = sortKeysDeep(context)
-  const json = JSON.stringify(normalized)
-  return simpleHash(json)
-}
-
-/**
- * Recursively sort object keys for deterministic hashing
- */
-function sortKeysDeep(obj: unknown): unknown {
-  if (obj === null || obj === undefined) {
-    return obj
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sortKeysDeep)
-  }
-  if (typeof obj === 'object') {
-    const sorted: Record<string, unknown> = {}
-    const keys = Object.keys(obj as Record<string, unknown>).sort()
-    for (const key of keys) {
-      sorted[key] = sortKeysDeep((obj as Record<string, unknown>)[key])
-    }
-    return sorted
-  }
-  return obj
-}
-
-/**
- * Simple hash implementation (djb2-based with hex output).
- * For production, this would use crypto.subtle.digest('SHA-256', ...)
- */
-function simpleHash(str: string): string {
-  let hash = 5381
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) ^ str.charCodeAt(i)
-  }
-  // Convert to hex and pad to look like a hash
-  const hex = (hash >>> 0).toString(16).padStart(8, '0')
-  // Repeat to make it look more like a proper hash
-  return hex.repeat(8)
-}
-
-/**
- * Generate a step ID from path and context hash
+ * Generate a step ID from path and context hash using the centralized hashing system
  */
 function generateStepId(path: string[], contextHash: string): string {
-  const combined = JSON.stringify({ path, contextHash })
-  return simpleHash(combined)
+  return hashPipeline(path, contextHash)
 }
 
 /**
