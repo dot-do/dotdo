@@ -303,9 +303,10 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       }
 
       // Parse simple queries for table operations
-      const selectMatch = query.match(/SELECT.*FROM\s+(\w+)/i)
-      const insertMatch = query.match(/INSERT\s+INTO\s+(\w+)/i)
-      const deleteMatch = query.match(/DELETE\s+FROM\s+(\w+)/i)
+      // Handle both quoted and unquoted table names (e.g., `things` or "things" or things)
+      const selectMatch = query.match(/SELECT.*FROM\s+["`]?(\w+)["`]?/i)
+      const insertMatch = query.match(/INSERT\s+INTO\s+["`]?(\w+)["`]?/i)
+      const deleteMatch = query.match(/DELETE\s+FROM\s+["`]?(\w+)["`]?/i)
 
       if (selectMatch) {
         const tableName = selectMatch[1]
@@ -342,7 +343,18 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
  * Create a mock SQL cursor
  */
 function createMockCursor<T>(data: T[]): MockSqlStorageCursor<T> {
-  const rawData = data.map((row) => Object.values(row as Record<string, unknown>))
+  // For raw(), we need to serialize JSON columns as strings because Drizzle will parse them
+  const rawData = data.map((row) => {
+    const obj = row as Record<string, unknown>
+    return Object.values(obj).map((val) => {
+      // If value is an object (not null), serialize it as JSON string for Drizzle to parse
+      if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+        return JSON.stringify(val)
+      }
+      return val
+    })
+  })
+
   return {
     toArray: () => [...data],
     one: () => data[0],

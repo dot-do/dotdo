@@ -189,3 +189,67 @@ export {
   type SagaDefinition,
   type CompensationContext,
 } from './workflows'
+
+// ============================================================================
+// R2 - Object Storage
+// ============================================================================
+
+export {
+  // Factory function
+  createR2Store,
+
+  // Class
+  R2Store,
+
+  // Path utilities
+  buildPath,
+  parsePath,
+
+  // Types
+  type R2Bucket,
+  type R2StoreConfig,
+  type R2Object,
+  type R2ObjectMetadata,
+  type R2HTTPMetadata,
+  type PutOptions as R2PutOptions,
+  type GetOptions as R2GetOptions,
+  type R2ListOptions,
+  type R2ListResult,
+  type PresignedUrlOptions,
+  type StreamOptions,
+  type PathComponents,
+  type TenantPutOptions,
+  type TenantGetOptions,
+  type TenantListOptions,
+  type TenantSignedUrlOptions,
+} from './r2'
+
+// ============================================================================
+// VECTORIZE - Vector Search & Semantic Search
+// ============================================================================
+
+export {
+  // Main class
+  VectorizeClient,
+
+  // Factory functions
+  createVectorizeClient,
+  createNamespacedVectorizeClient,
+  createSemanticSearchClient,
+
+  // Types
+  type VectorizeEnv,
+  type VectorizeConfig,
+  type Vector,
+  type VectorMetadata,
+  type VectorMetadataValue,
+  type QueryOptions,
+  type MetadataFilter,
+  type QueryResult,
+  type VectorMatch,
+  type MutationResult,
+  type IndexInfo,
+  type IndexConfig,
+  type SemanticSearchOptions,
+  type SemanticSearchResult,
+} from './vectorize'

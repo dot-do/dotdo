@@ -159,9 +159,9 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         ['things', Array.from({ length: 100 }, (_, i) => ({
           id: `thing-${i}`,
           type: 1,
-          data: JSON.stringify({ index: i, name: `Item ${i}` }),
+          data: { index: i, name: `Item ${i}` },
           version: 1,
-          branch: 'main',
+          branch: null,  // null = main branch
           deleted: false,
         }))],
       ]),

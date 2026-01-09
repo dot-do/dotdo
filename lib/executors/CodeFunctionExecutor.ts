@@ -248,13 +248,25 @@ class ExecutionStream implements AsyncIterable<StreamOutput> {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<StreamOutput> {
+    let index = 0
     return {
       next: (): Promise<IteratorResult<StreamOutput>> => {
+        // Helper to get next valid chunk (skip chunks without data except result type)
+        const getNextChunk = (): StreamOutput | null => {
+          while (index < this.chunks.length) {
+            const chunk = this.chunks[index++]
+            // Return all chunks - let consumer filter by type
+            return chunk
+          }
+          return null
+        }
+
         if (this.cancelled) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })
         }
-        if (this.chunks.length > 0) {
-          return Promise.resolve({ value: this.chunks.shift()!, done: false })
+        const chunk = getNextChunk()
+        if (chunk) {
+          return Promise.resolve({ value: chunk, done: false })
         }
         if (this.done) {
           return Promise.resolve({ value: undefined as unknown as StreamOutput, done: true })
@@ -545,33 +557,7 @@ export class CodeFunctionExecutor {
       }
     }
 
-    // Create abort controller for timeout
-    const timeoutController = new AbortController()
     const timeout = options.timeout ?? CodeFunctionExecutor.DEFAULT_TIMEOUT
-
-    // Link external signal to our controller
-    if (options.signal) {
-      options.signal.addEventListener('abort', () => {
-        timeoutController.abort(options.signal!.reason || 'Execution cancelled')
-      })
-    }
-
-    // Set up timeout (if not 0)
-    let timeoutId: ReturnType<typeof setTimeout> | undefined
-    if (timeout > 0) {
-      timeoutId = setTimeout(() => {
-        timeoutController.abort(`Execution timed out after ${timeout}ms`)
-      }, timeout)
-    }
-
-    // Build context
-    const context = this.createContext(
-      functionId,
-      invocationId,
-      options,
-      timeoutController.signal,
-      () => streamSequence++
-    )
 
     // Emit stream.start if streaming mode
     if (options.streaming) {
@@ -582,11 +568,52 @@ export class CodeFunctionExecutor {
     let lastError: Error | null = null
     let cpuTimeStart = Date.now()
     let attemptNumber = 0
+    let currentTimeoutController: AbortController | null = null
 
     while (attemptNumber < maxAttempts) {
       attemptNumber++
       const attemptStart = Date.now()
       cpuTimeStart = attemptStart
+
+      // Create fresh abort controller for each attempt
+      const timeoutController = new AbortController()
+      currentTimeoutController = timeoutController
+
+      // Link external signal to our controller
+      if (options.signal) {
+        if (options.signal.aborted) {
+          // External signal was aborted between retries
+          return {
+            success: false,
+            error: new ExecutionCancelledError(
+              options.signal.reason ? String(options.signal.reason) : 'Execution cancelled'
+            ),
+            duration: Date.now() - startTime,
+            retryCount: attemptNumber - 1,
+            metrics: {},
+          }
+        }
+        options.signal.addEventListener('abort', () => {
+          timeoutController.abort(options.signal!.reason || 'Execution cancelled')
+        }, { once: true })
+      }
+
+      // Set up timeout (if not 0)
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      if (timeout > 0) {
+        timeoutId = setTimeout(() => {
+          timeoutController.abort(`Execution timed out after ${timeout}ms`)
+        }, timeout)
+      }
+
+      // Build context with fresh signal
+      const context = this.createContext(
+        functionId,
+        invocationId,
+        options,
+        timeoutController.signal,
+        () => streamSequence++
+      )
 
       try {
         let result: TOutput
@@ -608,6 +635,9 @@ export class CodeFunctionExecutor {
           )
         }
 
+        // Clear timeout on success
+        if (timeoutId) clearTimeout(timeoutId)
+
         // Validate output if schema provided
         if (options.outputSchema && !validateJsonSchema(result, options.outputSchema)) {
           throw new ExecutionValidationError('Invalid output: validation failed')
@@ -623,8 +653,6 @@ export class CodeFunctionExecutor {
             `Output size ${outputSize} exceeded limit ${maxOutputSize}`
           )
         }
-
-        if (timeoutId) clearTimeout(timeoutId)
 
         const cpuTime = Date.now() - cpuTimeStart
 
@@ -650,7 +678,24 @@ export class CodeFunctionExecutor {
           },
         }
       } catch (error) {
+        // Clear timeout on error before processing
+        if (timeoutId) clearTimeout(timeoutId)
+
         lastError = this.normalizeError(error)
+
+        // If signal was aborted and error is not already ExecutionCancelledError/ExecutionTimeoutError,
+        // convert it to appropriate error type
+        if (timeoutController.signal.aborted) {
+          if (!(lastError instanceof ExecutionCancelledError) && !(lastError instanceof ExecutionTimeoutError)) {
+            const rawReason = timeoutController.signal.reason
+            const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
+            if (reason.includes('timed out')) {
+              lastError = new ExecutionTimeoutError(reason)
+            } else {
+              lastError = new ExecutionCancelledError(reason)
+            }
+          }
+        }
 
         // Check if we should retry (attemptNumber is 1-indexed, so compare with maxAttempts)
         const shouldRetry = this.shouldRetry(lastError, attemptNumber - 1, maxAttempts, options)
@@ -682,8 +727,6 @@ export class CodeFunctionExecutor {
         break
       }
     }
-
-    if (timeoutId) clearTimeout(timeoutId)
 
     // Set retryCount: 0 if no retry config, otherwise total attempts - 1 (since first isn't a retry)
     // But if we failed on first attempt with retries configured, retryCount = attempts made
@@ -841,6 +884,12 @@ export class CodeFunctionExecutor {
         const dataWithSequence = { ...(data as Record<string, unknown>), sequence }
         streamEmit?.(event, dataWithSequence)
         await this.onEvent?.(event, dataWithSequence)
+      } else if (event === 'progress') {
+        // Add percentage calculation for progress events
+        const progressData = data as { current: number; total: number }
+        const percentage = Math.round((progressData.current / progressData.total) * 100)
+        const dataWithPercentage = { ...progressData, percentage }
+        await this.onEvent?.(event, dataWithPercentage)
       } else {
         await this.onEvent?.(event, data)
       }
@@ -950,11 +999,12 @@ export class CodeFunctionExecutor {
 
       // Check if signal is already aborted before execution
       if (signal.aborted) {
-        const reason = signal.reason as string | undefined
-        if (reason?.includes('timed out')) {
+        const rawReason = signal.reason
+        const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
+        if (reason.includes('timed out')) {
           throw new ExecutionTimeoutError(reason)
         } else {
-          throw new ExecutionCancelledError(reason || 'Execution cancelled')
+          throw new ExecutionCancelledError(reason)
         }
       }
 
@@ -972,23 +1022,20 @@ export class CodeFunctionExecutor {
           }
         })(),
         new Promise<never>((_, reject) => {
-          if (signal.aborted) {
-            const reason = signal.reason as string | undefined
-            if (reason?.includes('timed out')) {
+          const handleAbort = () => {
+            const rawReason = signal.reason
+            const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
+            if (reason.includes('timed out')) {
               reject(new ExecutionTimeoutError(reason))
             } else {
-              reject(new ExecutionCancelledError(reason || 'Execution cancelled'))
+              reject(new ExecutionCancelledError(reason))
             }
+          }
+          if (signal.aborted) {
+            handleAbort()
             return
           }
-          signal.addEventListener('abort', () => {
-            const reason = signal.reason as string | undefined
-            if (reason?.includes('timed out')) {
-              reject(new ExecutionTimeoutError(reason))
-            } else {
-              reject(new ExecutionCancelledError(reason || 'Execution cancelled'))
-            }
-          })
+          signal.addEventListener('abort', handleAbort)
         }),
       ])
 
@@ -1020,14 +1067,20 @@ export class CodeFunctionExecutor {
     return Promise.race([
       Promise.resolve(handler(input, context)),
       new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => {
-          const reason = signal.reason as string | undefined
-          if (reason?.includes('timed out')) {
+        const handleAbort = () => {
+          const rawReason = signal.reason
+          const reason = typeof rawReason === 'string' ? rawReason : String(rawReason || 'Execution cancelled')
+          if (reason.includes('timed out')) {
             reject(new ExecutionTimeoutError(reason))
           } else {
-            reject(new ExecutionCancelledError(reason || 'Execution cancelled'))
+            reject(new ExecutionCancelledError(reason))
           }
-        })
+        }
+        if (signal.aborted) {
+          handleAbort()
+          return
+        }
+        signal.addEventListener('abort', handleAbort)
       }),
     ])
   }

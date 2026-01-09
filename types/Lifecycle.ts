@@ -236,6 +236,329 @@ export interface EventualCloneState {
 }
 
 // ============================================================================
+// Staged Clone Types
+// ============================================================================
+
+/**
+ * Result of a staged clone prepare operation
+ */
+export interface StagedPrepareResult {
+  /** Phase indicator - should be 'prepared' after successful prepare */
+  phase: 'prepared'
+  /** Unique staging token for this operation */
+  token: string
+  /** When this staging token expires */
+  expiresAt: Date
+  /** Staging area namespace */
+  stagingNs: string
+  /** Metadata about the prepared state */
+  metadata: {
+    /** Number of things staged */
+    thingsCount: number
+    /** Size of staged data in bytes */
+    sizeBytes: number
+    /** Source branch */
+    branch: string
+    /** Source version */
+    version: number
+  }
+}
+
+/**
+ * Result of a staged clone commit operation
+ */
+export interface StagedCommitResult {
+  /** Phase indicator - should be 'committed' after successful commit */
+  phase: 'committed'
+  /** The clone result */
+  result: CloneResult
+  /** Commit timestamp */
+  committedAt: Date
+}
+
+/**
+ * Result of a staged clone abort operation
+ */
+export interface StagedAbortResult {
+  /** Phase indicator - should be 'aborted' after successful abort */
+  phase: 'aborted'
+  /** The token that was aborted */
+  token: string
+  /** Reason for abort (optional) */
+  reason?: string
+  /** Abort timestamp */
+  abortedAt: Date
+}
+
+/**
+ * Staging area status
+ */
+export interface StagingStatus {
+  /** Whether the staging area exists */
+  exists: boolean
+  /** Status of the staging area */
+  status: 'staging' | 'ready' | 'committed' | 'aborted' | 'expired' | 'corrupted'
+  /** Token associated with this staging area */
+  token: string
+  /** When the staging area was created */
+  createdAt: Date
+  /** When the token expires */
+  expiresAt: Date
+  /** Integrity hash of staged data */
+  integrityHash?: string
+}
+
+/**
+ * Internal staging data structure
+ */
+export interface StagingData {
+  /** Source namespace */
+  sourceNs: string
+  /** Target namespace */
+  targetNs: string
+  /** Staging area namespace */
+  stagingNs: string
+  /** Staged things */
+  things: Array<{
+    id: string
+    type: unknown
+    branch: string | null
+    name: string | null
+    data: unknown
+    deleted: boolean
+  }>
+  /** When the token expires */
+  expiresAt: string
+  /** Current status */
+  status: 'prepared' | 'committed' | 'aborted'
+  /** When staging was created */
+  createdAt: string
+  /** Integrity hash */
+  integrityHash: string
+  /** Metadata */
+  metadata: {
+    thingsCount: number
+    sizeBytes: number
+    branch: string
+    version: number
+  }
+}
+
+/**
+ * Checkpoint representing a point in the staged clone process
+ */
+export interface Checkpoint {
+  /** Unique identifier for this checkpoint */
+  id: string
+  /** Clone operation ID this checkpoint belongs to */
+  cloneId: string
+  /** Sequence number for ordering checkpoints */
+  sequence: number
+  /** Number of items processed at this checkpoint */
+  itemsProcessed: number
+  /** Total items to process */
+  totalItems: number
+  /** Timestamp when checkpoint was created */
+  createdAt: Date
+  /** Hash/checksum for validation */
+  checksum: string
+  /** State snapshot at this checkpoint */
+  state: CheckpointState
+  /** Whether this checkpoint has been validated */
+  validated: boolean
+}
+
+/**
+ * State stored in a checkpoint
+ */
+export interface CheckpointState {
+  /** IDs of things already cloned */
+  clonedThingIds: string[]
+  /** IDs of relationships already cloned */
+  clonedRelationshipIds: string[]
+  /** Current branch being cloned */
+  branch: string
+  /** Last processed version */
+  lastVersion: number
+}
+
+// ============================================================================
+// Resumable Clone Types
+// ============================================================================
+
+/**
+ * Status for a resumable clone operation
+ */
+export type ResumableCloneStatus =
+  | 'initializing'
+  | 'transferring'
+  | 'paused'
+  | 'resuming'
+  | 'validating'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+/**
+ * Checkpoint data for resumable clone
+ */
+export interface ResumableCheckpoint {
+  /** Unique checkpoint identifier */
+  id: string
+  /** Position in the data stream (items processed) */
+  position: number
+  /** SHA-256 integrity hash of data at this checkpoint */
+  hash: string
+  /** Timestamp when checkpoint was created */
+  timestamp: Date
+  /** Total items processed up to this checkpoint */
+  itemsProcessed: number
+  /** Batch number this checkpoint represents */
+  batchNumber: number
+  /** Clone operation ID this checkpoint belongs to */
+  cloneId?: string
+  /** Whether compression was used */
+  compressed?: boolean
+}
+
+/**
+ * Clone lock information for concurrency control
+ */
+export interface CloneLockInfo {
+  /** Lock ID */
+  lockId: string
+  /** Clone operation that holds the lock */
+  cloneId: string
+  /** When the lock was acquired */
+  acquiredAt: Date
+  /** When the lock expires */
+  expiresAt: Date
+  /** Whether the lock is stale */
+  isStale: boolean
+}
+
+/**
+ * Clone handle returned from resumable clone initiation
+ */
+export interface ResumableCloneHandle {
+  /** Unique identifier for this clone operation */
+  id: string
+  /** Current status of the clone */
+  status: ResumableCloneStatus
+  /** Array of created checkpoints */
+  checkpoints: ResumableCheckpoint[]
+  /** Get current progress (0-100) */
+  getProgress(): Promise<number>
+  /** Pause the clone at the next checkpoint */
+  pause(): Promise<void>
+  /** Resume from the last checkpoint */
+  resume(): Promise<void>
+  /** Cancel the clone operation */
+  cancel(): Promise<void>
+  /** Wait for the next checkpoint to be created */
+  waitForCheckpoint(): Promise<ResumableCheckpoint>
+  /** Check if clone can be resumed from a specific checkpoint */
+  canResumeFrom(checkpointId: string): Promise<boolean>
+  /** Get integrity hash for the clone */
+  getIntegrityHash(): Promise<string>
+  /** Get the clone lock info */
+  getLockInfo(): Promise<CloneLockInfo | null>
+  /** Force override a stale lock */
+  forceOverrideLock(): Promise<void>
+}
+
+/**
+ * Options specific to resumable clone mode
+ */
+export interface ResumableCloneOptions extends CloneOptions {
+  mode: 'resumable'
+  /** Batch size for streaming transfer (default: 100 items) */
+  batchSize?: number
+  /** Checkpoint interval (create checkpoint every N batches, default: 1) */
+  checkpointInterval?: number
+  /** Maximum retry attempts on failure (default: 3) */
+  maxRetries?: number
+  /** Delay between retries in ms (default: 1000) */
+  retryDelay?: number
+  /** Lock timeout in ms (default: 300000 = 5 minutes) */
+  lockTimeout?: number
+  /** Checkpoint retention period in ms (default: 3600000 = 1 hour) */
+  checkpointRetentionMs?: number
+  /** Resume from specific checkpoint ID */
+  resumeFrom?: string
+  /** Enable compression for transfer */
+  compress?: boolean
+  /** Force override existing clone lock */
+  forceLock?: boolean
+  /** Maximum bandwidth in bytes per second (default: unlimited) */
+  maxBandwidth?: number
+}
+
+/**
+ * Internal state for a resumable clone operation
+ */
+export interface ResumableCloneState {
+  /** Clone operation ID */
+  id: string
+  /** Target namespace */
+  targetNs: string
+  /** Current status */
+  status: ResumableCloneStatus
+  /** Array of checkpoints */
+  checkpoints: ResumableCheckpoint[]
+  /** Current position (items processed) */
+  position: number
+  /** Current progress (0-100) */
+  progress?: number
+  /** Batch size */
+  batchSize: number
+  /** Checkpoint interval */
+  checkpointInterval: number
+  /** Maximum retries */
+  maxRetries: number
+  /** Retry delay in ms */
+  retryDelay: number
+  /** Current retry count */
+  retryCount: number
+  /** Enable compression */
+  compress: boolean
+  /** Maximum bandwidth */
+  maxBandwidth?: number
+  /** Checkpoint retention period */
+  checkpointRetentionMs: number
+  /** Whether pause is requested */
+  pauseRequested: boolean
+  /** Whether cancel is requested */
+  cancelRequested: boolean
+  /** Created timestamp */
+  createdAt: Date
+  /** Started timestamp (when first batch began) */
+  startedAt: Date | null
+  /** Bytes transferred */
+  bytesTransferred: number
+  /** Total bytes to transfer */
+  totalBytes: number
+}
+
+/**
+ * Internal clone lock state
+ */
+export interface CloneLockState {
+  /** Lock ID */
+  lockId: string
+  /** Clone operation ID */
+  cloneId: string
+  /** Target namespace */
+  target: string
+  /** When acquired */
+  acquiredAt: Date
+  /** When expires */
+  expiresAt: Date
+  /** Whether stale */
+  isStale: boolean
+}
+
+// ============================================================================
 // Shard Types
 // ============================================================================
 

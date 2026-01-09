@@ -99,13 +99,17 @@ interface AtomicCloneEvent {
  */
 function createSampleThings(count: number): ThingWithMetadata[] {
   const now = new Date().toISOString()
+  // IMPORTANT: Object keys must match schema column order for Drizzle's raw() mapping
+  // Schema order: id, type, branch, name, data, deleted, visibility
   return Array.from({ length: count }, (_, i) => ({
     id: `thing-${i}`,
     type: 1,
+    branch: null, // null = main branch in schema
+    name: `Item ${i}`,
     data: { name: `Item ${i}`, index: i, nested: { value: i * 10 } },
-    version: 1,
-    branch: 'main',
     deleted: false,
+    visibility: 'user',
+    // Extra fields for test metadata (not in schema but expected by tests)
     createdAt: now,
     updatedAt: now,
   }))
@@ -347,9 +351,10 @@ describe('Atomic Clone Mode', () => {
 
       mockNamespace.stubFactory = () => ({
         id: { toString: () => 'network-error-id', equals: () => false },
-        fetch: vi.fn().mockImplementation(async () => {
+        fetch: vi.fn().mockImplementation(async (req: Request) => {
           transferCount++
-          if (transferCount > 2) {
+          // Throw on transfer (2nd fetch, after health check)
+          if (req.url.includes('/init')) {
             throw new Error('Network connection lost')
           }
           return new Response('OK')
@@ -361,8 +366,8 @@ describe('Atomic Clone Mode', () => {
         result.instance.clone(target, { mode: 'atomic' })
       ).rejects.toThrow('Network connection lost')
 
-      // Partial transfer happened but should be rolled back atomically
-      expect(transferCount).toBeGreaterThan(0)
+      // Health check passed but transfer failed
+      expect(transferCount).toBeGreaterThanOrEqual(1)
     })
 
     it('should timeout and rollback if clone takes too long', async () => {

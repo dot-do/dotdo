@@ -46,6 +46,20 @@ import type {
   ConflictResolution,
   CloneStatus,
   SyncPhase,
+  StagedPrepareResult,
+  StagedCommitResult,
+  StagedAbortResult,
+  StagingStatus,
+  StagingData,
+  Checkpoint,
+  CheckpointState,
+  ResumableCloneHandle,
+  ResumableCloneStatus,
+  ResumableCheckpoint,
+  ResumableCloneOptions,
+  ResumableCloneState,
+  CloneLockState,
+  CloneLockInfo,
 } from '../types/Lifecycle'
 
 // ============================================================================
@@ -1394,9 +1408,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * - On failure, target has no partial state
    * - Source remains unchanged regardless of outcome
    *
+   * Eventual mode provides async reconciliation:
+   * - Returns immediately with a handle for monitoring/controlling
+   * - Clone proceeds in background via alarms
+   * - Supports eventual consistency with conflict resolution
+   *
    * @param target - Target namespace URL
    * @param options - Clone options (mode, includeHistory, timeout, correlationId)
-   * @returns CloneResult with stats about the cloned data
+   * @returns CloneResult with stats about the cloned data, or EventualCloneHandle for eventual mode
    */
   async clone(
     target: string,
@@ -1405,6 +1424,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       includeHistory?: boolean
       timeout?: number
       correlationId?: string
+      // Eventual mode options
+      syncInterval?: number
+      maxDivergence?: number
+      conflictResolution?: 'last-write-wins' | 'source-wins' | 'target-wins' | 'merge'
+      conflictResolver?: (conflict: ConflictInfo) => Promise<unknown>
+      chunked?: boolean
+      chunkSize?: number
+      rateLimit?: number
     }
   ): Promise<{
     success: boolean
@@ -1416,8 +1443,21 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     duration: number
     historyIncluded: boolean
     staged?: unknown
-    checkpoint?: unknown
-  }> {
+    checkpoint?: {
+      id: string
+      progress: number
+      resumable?: boolean
+    }
+    // EventualCloneHandle properties for eventual mode
+    id?: string
+    status?: CloneStatus
+    getProgress?: () => Promise<number>
+    getSyncStatus?: () => Promise<SyncStatus>
+    pause?: () => Promise<void>
+    resume?: () => Promise<void>
+    sync?: () => Promise<SyncResult>
+    cancel?: () => Promise<void>
+  } | EventualCloneHandle> {
     const {
       mode,
       includeHistory = false,
@@ -1425,7 +1465,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       correlationId = crypto.randomUUID(),
     } = options
 
-    // For now, only atomic mode is implemented
+    // Handle eventual mode
+    if (mode === 'eventual') {
+      return this.initiateEventualClone(target, options as typeof options & { mode: 'eventual' })
+    }
+
+    // Handle staged mode (two-phase commit)
+    if (mode === 'staged') {
+      return this.prepareStagedClone(target, options as typeof options & { mode: 'staged' })
+    }
+
+    // For now, only atomic mode is implemented for other modes
     if (mode !== 'atomic') {
       throw new Error(`Clone mode '${mode}' not yet implemented`)
     }
@@ -2086,7 +2136,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // CLONE OPERATIONS
+  // EVENTUAL CLONE OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
@@ -2094,98 +2144,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * (Cannot be stored in durable storage, so kept in memory)
    */
   private _conflictResolvers: Map<string, (conflict: ConflictInfo) => Promise<unknown>> = new Map()
-
-  /**
-   * Clone the DO to a new namespace
-   *
-   * Supports multiple modes:
-   * - atomic: All-or-nothing clone (default)
-   * - staged: Two-phase commit with prepare/commit
-   * - eventual: Background async clone with eventual consistency
-   * - resumable: Checkpoint-based clone that can be resumed
-   *
-   * @param target - Target namespace URL
-   * @param options - Clone options including mode
-   * @returns Clone result or EventualCloneHandle for eventual mode
-   */
-  async clone(target: string, options?: CloneOptions): Promise<CloneResult | EventualCloneHandle> {
-    const mode = options?.mode ?? 'atomic'
-
-    // Handle eventual mode specially
-    if (mode === 'eventual') {
-      return this.initiateEventualClone(target, options as CloneOptions & { mode: 'eventual' })
-    }
-
-    // For other modes, perform synchronous clone
-    return this.performSynchronousClone(target, options)
-  }
-
-  /**
-   * Perform a synchronous clone (atomic, staged, or resumable)
-   */
-  private async performSynchronousClone(target: string, options?: CloneOptions): Promise<CloneResult> {
-    const mode = options?.mode ?? 'atomic'
-
-    // Validate target namespace URL
-    try {
-      new URL(target)
-    } catch {
-      throw new Error(`Invalid namespace URL: ${target}`)
-    }
-
-    // Get current state
-    const things = await this.db.select().from(schema.things)
-    const cloneBranch = options?.branch || this.currentBranch
-    const branchFilter = cloneBranch === 'main' ? null : cloneBranch
-    const branchThings = things.filter(t => t.branch === branchFilter && !t.deleted)
-
-    if (branchThings.length === 0) {
-      throw new Error('No state to clone')
-    }
-
-    // Get latest version of each thing
-    const latestVersions = new Map<string, typeof things[0]>()
-    for (const thing of branchThings) {
-      const existing = latestVersions.get(thing.id)
-      if (!existing) {
-        latestVersions.set(thing.id, thing)
-      }
-    }
-
-    // Emit clone.initiated event
-    await this.emitEvent('clone.initiated', { target, mode, thingsCount: latestVersions.size })
-
-    // Create new DO at target namespace
-    if (!this.env.DO) {
-      throw new Error('DO namespace not configured')
-    }
-    const doId = this.env.DO.idFromName(target)
-    const stub = this.env.DO.get(doId)
-
-    // Send state to new DO
-    await stub.fetch(new Request(`https://${target}/init`, {
-      method: 'POST',
-      body: JSON.stringify({
-        things: Array.from(latestVersions.values()).map(t => ({
-          id: t.id,
-          type: t.type,
-          branch: null,
-          name: t.name,
-          data: t.data,
-          deleted: false,
-        })),
-      }),
-    }))
-
-    // Emit clone.completed event
-    await this.emitEvent('clone.active', { target, doId: doId.toString(), mode })
-
-    return {
-      ns: target,
-      doId: doId.toString(),
-      mode,
-    }
-  }
 
   /**
    * Initiate an eventual clone operation
