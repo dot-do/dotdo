@@ -1615,7 +1615,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       }
     }
 
-    // Get things to validate source has state
+    // Get things to validate source has state (including soft-deleted for complete clone)
     let things = await this.db.select().from(schema.things)
 
     // Filter by branch if specified
@@ -1623,6 +1623,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       things = things.filter((t) => t.branch === targetBranch)
     }
 
+    // All things including deleted for clone (tests expect soft-deleted to be included)
+    const allThings = things
     const nonDeletedThings = things.filter((t) => !t.deleted)
 
     // Only check for empty state if includeState is true
@@ -2202,8 +2204,22 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       colo?: string
       /** Target region for the new DO (e.g., 'enam', 'wnam', 'weur', 'apac') */
       region?: string
+      /** Namespace binding to use for the new DO */
+      namespace?: string
+      /** Correlation ID for tracing */
+      correlationId?: string
     } = {}
-  ): Promise<{ ns: string; doId: string; previousId: string; parentLinked?: boolean }> {
+  ): Promise<{
+    ns: string
+    doId: string
+    previousId: string
+    parentLinked?: boolean
+    actionsMigrated?: number
+    eventsMigrated?: number
+    relationshipsMigrated?: number
+    durationMs?: number
+  }> {
+    const startTime = Date.now()
     const {
       newId,
       preserveHistory = true,
@@ -2211,7 +2227,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       type,
       colo,
       region,
+      namespace: namespaceBinding,
+      correlationId: providedCorrelationId,
     } = options
+
+    // Generate correlation ID if not provided
+    const correlationId = providedCorrelationId || `promote-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 
     // Validate thingId is provided and not empty
     if (thingId === undefined || thingId === null || typeof thingId !== 'string') {

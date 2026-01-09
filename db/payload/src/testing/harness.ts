@@ -115,6 +115,7 @@ export interface RelationshipsStore {
     data?: Record<string, unknown>
   }>
   remove(from: string, to: string, verb: string): boolean
+  removeAll(from: string, verb?: string): number
   clear(): void
 }
 

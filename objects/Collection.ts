@@ -23,7 +23,7 @@ export interface CollectionConfig {
 }
 
 export class Collection extends Entity {
-  static override readonly $type: string = 'Collection'
+  static override readonly $type = 'Collection'
 
   private collectionConfig: CollectionConfig | null = null
 

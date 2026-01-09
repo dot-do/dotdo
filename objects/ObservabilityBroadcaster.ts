@@ -70,8 +70,7 @@ export class ObservabilityBroadcaster extends DurableObject {
 
     // Create WebSocket pair
     const pair = new WebSocketPair()
-    const client = pair[0]
-    const server = pair[1]
+    const [client, server] = Object.values(pair)
 
     // Build tags for the WebSocket (used for efficient lookups)
     const tags: string[] = ['obs']
