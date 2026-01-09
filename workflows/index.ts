@@ -105,6 +105,18 @@ export {
   type CreateFlagOptions,
 } from './flag'
 
+// Feature flag context API ($.flag, $.flags)
+export {
+  createMockContext as createFlagContext,
+  evaluateFlag as evaluateFlagContext,
+  type Flag as FlagWithBranches,
+  type FlagEvaluation,
+  type FlagContextInstance,
+  type FlagsCollection,
+  type FlagContext,
+  type MockStorage as FlagStorage,
+} from './context/flag'
+
 // Workflow Runtime (Epic 4)
 export {
   createWorkflowRuntime,

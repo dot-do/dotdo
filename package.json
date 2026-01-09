@@ -58,7 +58,9 @@
       "types": "./api/index.ts",
       "default": "./api/index.ts"
     },
-    "./api/*": "./api/*.ts"
+    "./api/*": "./api/*.ts",
+    "./dist": "./dist",
+    "./dist/*": "./dist/*"
   },
   "files": [
     "index.ts",
@@ -73,7 +75,8 @@
     "streams",
     "lib",
     "workflows",
-    "api"
+    "api",
+    "dist"
   ],
   "scripts": {
     "types": "wrangler types worker.d.ts -c wrangler.jsonc",

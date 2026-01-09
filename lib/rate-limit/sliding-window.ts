@@ -22,7 +22,7 @@
  */
 
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
-import { sql, and, gt, eq, lt, count } from 'drizzle-orm'
+import { sql, gt, lt } from 'drizzle-orm'
 
 // ============================================================================
 // RATE LIMIT SCHEMA
@@ -208,15 +208,15 @@ export class SlidingWindowLimiter {
     const now = Date.now()
     const cutoff = now - maxAgeMs
 
-    // Count entries to be deleted for return value
+    // Count entries to be deleted for return value (strictly less than cutoff)
     const countResult = db.all<{ count: number }>(
-      sql`SELECT COUNT(*) as count FROM rate_limit_entries WHERE timestamp <= ${cutoff}`
+      sql`SELECT COUNT(*) as count FROM rate_limit_entries WHERE timestamp < ${cutoff}`
     )
     const toDelete = countResult[0]?.count ?? 0
 
-    // Delete expired entries
+    // Delete expired entries (strictly less than cutoff - boundary entries are kept)
     db.run(
-      sql`DELETE FROM rate_limit_entries WHERE timestamp <= ${cutoff}`
+      sql`DELETE FROM rate_limit_entries WHERE timestamp < ${cutoff}`
     )
 
     return toDelete
