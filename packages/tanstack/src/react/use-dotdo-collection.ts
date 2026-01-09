@@ -31,6 +31,7 @@ export function useDotdoCollection<T extends { $id: string }>(
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [txid, setTxid] = useState(0)
+  const [pendingMutations, setPendingMutations] = useState(0)
 
   // Refs for optimistic updates
   const optimisticUpdatesRef = useRef<Map<string, { original: T | null; type: 'insert' | 'update' | 'delete' }>>(new Map())
@@ -153,6 +154,7 @@ export function useDotdoCollection<T extends { $id: string }>(
 
     // Optimistic insert
     setData(prev => [...prev, item])
+    setPendingMutations(prev => prev + 1)
     optimisticUpdatesRef.current.set(item.$id, { original: null, type: 'insert' })
 
     try {
@@ -172,6 +174,7 @@ export function useDotdoCollection<T extends { $id: string }>(
       optimisticUpdatesRef.current.delete(item.$id)
       throw e
     } finally {
+      setPendingMutations(prev => prev - 1)
       optimisticUpdatesRef.current.delete(item.$id)
     }
   }, [enabled, baseUrl, collection, schema])
@@ -190,13 +193,14 @@ export function useDotdoCollection<T extends { $id: string }>(
     setData(prev =>
       prev.map(item => (item.$id === id ? { ...item, ...updates } : item))
     )
+    setPendingMutations(prev => prev + 1)
     optimisticUpdatesRef.current.set(id, { original, type: 'update' })
 
     try {
       const response = await fetch(`${baseUrl}/rpc/${collection}.update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ $id: id, ...updates }),
+        body: JSON.stringify({ id, ...updates }),
       })
 
       if (!response.ok) {
@@ -211,6 +215,7 @@ export function useDotdoCollection<T extends { $id: string }>(
       optimisticUpdatesRef.current.delete(id)
       throw e
     } finally {
+      setPendingMutations(prev => prev - 1)
       optimisticUpdatesRef.current.delete(id)
     }
   }, [enabled, baseUrl, collection, data])
@@ -227,13 +232,14 @@ export function useDotdoCollection<T extends { $id: string }>(
 
     // Optimistic delete
     setData(prev => prev.filter(item => item.$id !== id))
+    setPendingMutations(prev => prev + 1)
     optimisticUpdatesRef.current.set(id, { original, type: 'delete' })
 
     try {
       const response = await fetch(`${baseUrl}/rpc/${collection}.delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ $id: id }),
+        body: JSON.stringify({ id }),
       })
 
       if (!response.ok) {
@@ -246,12 +252,13 @@ export function useDotdoCollection<T extends { $id: string }>(
       optimisticUpdatesRef.current.delete(id)
       throw e
     } finally {
+      setPendingMutations(prev => prev - 1)
       optimisticUpdatesRef.current.delete(id)
     }
   }, [enabled, baseUrl, collection, data])
 
-  // Find one by ID
-  const findOne = useCallback((id: string): T | undefined => {
+  // Find by ID
+  const findById = useCallback((id: string): T | undefined => {
     return filteredData.find(item => item.$id === id)
   }, [filteredData])
 
@@ -259,6 +266,11 @@ export function useDotdoCollection<T extends { $id: string }>(
   const findByIds = useCallback((ids: string[]): T[] => {
     const idSet = new Set(ids)
     return filteredData.filter(item => idSet.has(item.$id))
+  }, [filteredData])
+
+  // Filter by predicate
+  const filterItems = useCallback((predicate: (item: T) => boolean): T[] => {
+    return filteredData.filter(predicate)
   }, [filteredData])
 
   // Refetch
@@ -274,11 +286,13 @@ export function useDotdoCollection<T extends { $id: string }>(
     isLoading,
     error,
     txid,
+    pendingMutations,
     insert,
     update,
     delete: deleteItem,
-    findOne,
+    findById,
     findByIds,
+    filter: filterItems,
     refetch,
   }
 }

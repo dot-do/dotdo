@@ -56,6 +56,8 @@ export interface UseDotdoCollectionResult<T extends { $id: string }> {
   error: Error | null
   /** Current transaction ID */
   txid: number
+  /** Number of pending mutations */
+  pendingMutations: number
   /** Insert a new item (optimistic) */
   insert: (item: T) => Promise<void>
   /** Update an existing item (optimistic) */
@@ -63,9 +65,11 @@ export interface UseDotdoCollectionResult<T extends { $id: string }> {
   /** Delete an item (optimistic) */
   delete: (id: string) => Promise<void>
   /** Find a single item by ID */
-  findOne: (id: string) => T | undefined
+  findById: (id: string) => T | undefined
   /** Find multiple items by IDs */
   findByIds: (ids: string[]) => T[]
+  /** Filter items by predicate */
+  filter: (predicate: (item: T) => boolean) => T[]
   /** Trigger a refetch */
   refetch: () => void
 }
