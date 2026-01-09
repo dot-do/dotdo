@@ -12,11 +12,15 @@ import { priya, ralph, tom, mark, sally } from 'agents.do'
 
 export class MyStartup extends Startup {
   async launch() {
-    const spec = await priya`define the MVP for ${this.hypothesis}`
-    const app = await ralph`build ${spec}`
-    await tom`ship ${app}`
-    await mark`announce the launch`
-    await sally`start selling`
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
+
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
   }
 }
 ```

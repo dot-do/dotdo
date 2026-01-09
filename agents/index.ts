@@ -252,3 +252,19 @@ export function createProvider(name: string, options?: unknown): unknown {
       throw new Error(`Unknown provider: ${name}`)
   }
 }
+
+// ============================================================================
+// Testing Utilities
+// ============================================================================
+
+export {
+  createMockProvider,
+  createIsolatedMockProvider,
+  createMockTool,
+  createTrackedTool,
+  mockResponses,
+  fixtures,
+  expectAgentResult,
+  collectStreamEvents,
+  type MockProviderOptions,
+} from './testing'

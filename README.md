@@ -72,14 +72,14 @@ Each agent has real identity—email, GitHub account, avatar. When Tom reviews y
 ```typescript
 import { priya, ralph, tom, mark, quinn } from 'agents.do'
 
-await priya`what should we build next?`
-await ralph`implement the user dashboard`
-await tom`review the pull request`
-await mark`write a blog post about our launch`
-await quinn`test ${feature} thoroughly`
+priya`what should we build next?`
+ralph`implement the user dashboard`
+tom`review the pull request`
+mark`write a blog post about our launch`
+quinn`test ${feature} thoroughly`
 ```
 
-No method names. No parameters. Just say what you want.
+No method names. No parameters. No awaits. Just say what you want.
 
 ---
 
@@ -422,23 +422,23 @@ await $.experiment('pricing-test', {
 When you find PMF, scale. Agents operate. You set policy.
 
 ```typescript
-$.on.Customer.signup(async (customer) => {
-  await agents.onboarding.welcome(customer)
-  await agents.support.scheduleCheckin(customer, '24h')
+$.on.Customer.signup((customer) => {
+  agents.onboarding.welcome(customer)
+  agents.support.scheduleCheckin(customer, '24h')
 })
 
 $.on.Return.completed(async (return_) => {
   const review = await agents.qa.review(return_)
   if (review.confidence > 0.95) {
-    await agents.filing.submit(return_)
+    agents.filing.submit(return_)
   } else {
-    await humans.cpa.review(return_)
+    humans.cpa.review(return_)
   }
 })
 
-$.every.month.on(1).at('9am')(async () => {
-  await agents.billing.processSubscriptions()
-  await agents.reporting.generateMRR()
+$.every.month.on(1).at('9am')(() => {
+  agents.billing.processSubscriptions()
+  agents.reporting.generateMRR()
 })
 ```
 
