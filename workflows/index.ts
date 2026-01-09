@@ -104,3 +104,18 @@ export {
   type FlagProxy,
   type CreateFlagOptions,
 } from './flag'
+
+// Workflow Runtime (Epic 4)
+export {
+  createWorkflowRuntime,
+  createTestRuntime,
+  DurableWorkflowRuntime,
+  InMemoryStepStorage,
+  HandlerNotFoundError,
+  WorkflowStepError,
+  type RetryPolicy,
+  type StepResult,
+  type StepStorage,
+  type ExecutionMode,
+  type RuntimeOptions,
+} from './runtime'
