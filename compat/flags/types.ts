@@ -1,7 +1,45 @@
 /**
  * Feature Flags Types
  *
- * OpenFeature-compatible type definitions for feature flags.
+ * OpenFeature-compatible type definitions for feature flags with full
+ * LaunchDarkly data model compatibility.
+ *
+ * @example Basic boolean flag
+ * ```ts
+ * const flag: FlagDefinition<boolean> = {
+ *   key: 'dark-mode',
+ *   defaultValue: false,
+ *   description: 'Enable dark mode for users',
+ * }
+ * ```
+ *
+ * @example Flag with targeting rules
+ * ```ts
+ * const flag: FlagDefinition<boolean> = {
+ *   key: 'beta-feature',
+ *   defaultValue: false,
+ *   targeting: [{
+ *     id: 'beta-users',
+ *     clauses: [{
+ *       attribute: 'email',
+ *       operator: 'endsWith',
+ *       values: ['@company.com'],
+ *     }],
+ *     variation: true,
+ *   }],
+ * }
+ * ```
+ *
+ * @example Using FlagBuilder
+ * ```ts
+ * const flag = FlagBuilder.boolean('new-feature')
+ *   .description('A new feature')
+ *   .targeting('internal-users', clause => clause
+ *     .attribute('email')
+ *     .endsWith('@company.com'))
+ *   .enable()
+ *   .build()
+ * ```
  *
  * @module @dotdo/compat/flags/types
  */
@@ -11,28 +49,72 @@
 // ============================================================================
 
 /**
- * Supported targeting operators for flag evaluation
+ * Supported targeting operators for flag evaluation.
+ *
+ * These operators are compatible with LaunchDarkly's targeting rules and
+ * OpenFeature's evaluation model.
+ *
+ * @example Membership check
+ * ```ts
+ * const clause: TargetingClause = {
+ *   attribute: 'country',
+ *   operator: 'in',
+ *   values: ['US', 'CA', 'UK'],
+ * }
+ * ```
+ *
+ * @example Semantic versioning
+ * ```ts
+ * const clause: TargetingClause = {
+ *   attribute: 'appVersion',
+ *   operator: 'semVerGreaterThan',
+ *   values: ['2.0.0'],
+ * }
+ * ```
  */
 export type TargetingOperator =
+  // Membership operators
   | 'in'
+  | 'notIn'
+  // String operators
   | 'startsWith'
   | 'endsWith'
   | 'matches'
   | 'contains'
+  // Numeric operators
   | 'lessThan'
   | 'lessThanOrEqual'
   | 'greaterThan'
   | 'greaterThanOrEqual'
+  // Date operators
+  | 'before'
+  | 'after'
+  // Semantic version operators
   | 'semVerEqual'
   | 'semVerLessThan'
   | 'semVerGreaterThan'
+  // Segment operator
+  | 'segmentMatch'
 
 // ============================================================================
 // EVALUATION TYPES
 // ============================================================================
 
 /**
- * Reasons for flag evaluation result
+ * Reasons for flag evaluation result.
+ *
+ * These reasons help explain why a particular flag value was returned,
+ * useful for debugging and analytics.
+ *
+ * @example
+ * ```ts
+ * const details: EvaluationDetails<boolean> = {
+ *   value: true,
+ *   reason: 'TARGETING_MATCH',
+ *   variant: 1,
+ * }
+ * console.log(`Flag returned ${details.value} due to ${details.reason}`)
+ * ```
  */
 export type EvaluationReason =
   | 'STATIC'
@@ -44,7 +126,24 @@ export type EvaluationReason =
   | 'ERROR'
 
 /**
- * Error codes for flag evaluation failures
+ * Error codes for flag evaluation failures.
+ *
+ * These codes follow OpenFeature error code conventions.
+ *
+ * @example Error handling
+ * ```ts
+ * const result = await provider.resolveBooleanEvaluation('my-flag', false, context)
+ * if (result.errorCode) {
+ *   switch (result.errorCode) {
+ *     case 'FLAG_NOT_FOUND':
+ *       console.error(`Flag ${flagKey} does not exist`)
+ *       break
+ *     case 'TYPE_MISMATCH':
+ *       console.error(`Flag ${flagKey} is not a boolean`)
+ *       break
+ *   }
+ * }
+ * ```
  */
 export type ErrorCode =
   | 'PROVIDER_NOT_READY'
@@ -55,7 +154,32 @@ export type ErrorCode =
   | 'GENERAL'
 
 /**
- * Context for flag evaluation
+ * Context for flag evaluation.
+ *
+ * The evaluation context provides attributes about the user, device, or
+ * environment that can be used in targeting rules.
+ *
+ * @example User context
+ * ```ts
+ * const context: EvaluationContext = {
+ *   targetingKey: 'user-123',
+ *   email: 'user@example.com',
+ *   plan: 'premium',
+ *   country: 'US',
+ * }
+ * ```
+ *
+ * @example Organization context
+ * ```ts
+ * const context: EvaluationContext = {
+ *   targetingKey: 'org-456',
+ *   company: {
+ *     name: 'Acme Inc',
+ *     employees: 500,
+ *     plan: 'enterprise',
+ *   },
+ * }
+ * ```
  */
 export interface EvaluationContext {
   /** Primary targeting key (usually user ID) */
@@ -65,7 +189,30 @@ export interface EvaluationContext {
 }
 
 /**
- * Details of a flag evaluation result
+ * Details of a flag evaluation result.
+ *
+ * Contains the evaluated value along with metadata about how the
+ * evaluation was performed.
+ *
+ * @example Successful evaluation
+ * ```ts
+ * const details: EvaluationDetails<boolean> = {
+ *   value: true,
+ *   reason: 'TARGETING_MATCH',
+ *   variant: 1,
+ *   flagMetadata: { version: 5 },
+ * }
+ * ```
+ *
+ * @example Error case
+ * ```ts
+ * const details: EvaluationDetails<boolean> = {
+ *   value: false, // default value
+ *   reason: 'ERROR',
+ *   errorCode: 'FLAG_NOT_FOUND',
+ *   errorMessage: 'Flag "unknown-flag" not found',
+ * }
+ * ```
  */
 export interface EvaluationDetails<T> {
   /** The evaluated flag value */
@@ -87,7 +234,28 @@ export interface EvaluationDetails<T> {
 // ============================================================================
 
 /**
- * A single variation of a flag value
+ * A single variation of a flag value.
+ *
+ * Variations represent the possible values a flag can have. In simple cases,
+ * a boolean flag has two variations (true/false). For more complex flags,
+ * you can define multiple variations with labels and weights.
+ *
+ * @example Boolean variations
+ * ```ts
+ * const variations: FlagVariation<boolean>[] = [
+ *   { value: false, label: 'Disabled' },
+ *   { value: true, label: 'Enabled' },
+ * ]
+ * ```
+ *
+ * @example A/B test variations with weights
+ * ```ts
+ * const variations: FlagVariation<string>[] = [
+ *   { value: 'control', label: 'Control', weight: 50 },
+ *   { value: 'treatment-a', label: 'Treatment A', weight: 25 },
+ *   { value: 'treatment-b', label: 'Treatment B', weight: 25 },
+ * ]
+ * ```
  */
 export interface FlagVariation<T> {
   /** The variation value */
@@ -103,7 +271,29 @@ export interface FlagVariation<T> {
 // ============================================================================
 
 /**
- * A single targeting clause (condition)
+ * A single targeting clause (condition).
+ *
+ * Targeting clauses define conditions that must be met for a targeting
+ * rule to match. Multiple clauses in a rule are combined with AND logic.
+ *
+ * @example Email domain check
+ * ```ts
+ * const clause: TargetingClause = {
+ *   attribute: 'email',
+ *   operator: 'endsWith',
+ *   values: ['@company.com', '@partner.com'],
+ * }
+ * ```
+ *
+ * @example Country exclusion
+ * ```ts
+ * const clause: TargetingClause = {
+ *   attribute: 'country',
+ *   operator: 'in',
+ *   values: ['US', 'CA'],
+ *   negate: true, // NOT in US or CA
+ * }
+ * ```
  */
 export interface TargetingClause {
   /** Context kind to evaluate against (default: 'user') */
@@ -119,7 +309,33 @@ export interface TargetingClause {
 }
 
 /**
- * Rollout configuration for percentage-based feature distribution
+ * Rollout configuration for percentage-based feature distribution.
+ *
+ * Rollouts allow you to gradually release features to a percentage of users
+ * while maintaining consistent bucketing (the same user always gets the
+ * same variation).
+ *
+ * @example 50/50 A/B test
+ * ```ts
+ * const rollout: Rollout<string> = {
+ *   variations: [
+ *     { value: 'control', weight: 50 },
+ *     { value: 'treatment', weight: 50 },
+ *   ],
+ *   bucketBy: 'userId',
+ * }
+ * ```
+ *
+ * @example Gradual rollout
+ * ```ts
+ * const rollout: Rollout<boolean> = {
+ *   variations: [
+ *     { value: false, weight: 90 },
+ *     { value: true, weight: 10 },  // 10% rollout
+ *   ],
+ *   seed: 12345, // deterministic bucketing
+ * }
+ * ```
  */
 export interface Rollout<T> {
   /** Variations with their weights */
@@ -131,7 +347,42 @@ export interface Rollout<T> {
 }
 
 /**
- * A targeting rule that determines flag value based on context
+ * A targeting rule that determines flag value based on context.
+ *
+ * Targeting rules are evaluated in order. When all clauses in a rule match,
+ * the rule's variation (or rollout) is returned.
+ *
+ * @example Enable for beta users
+ * ```ts
+ * const rule: TargetingRule<boolean> = {
+ *   id: 'beta-users',
+ *   description: 'Enable for beta testers',
+ *   clauses: [{
+ *     attribute: 'tags',
+ *     operator: 'contains',
+ *     values: ['beta'],
+ *   }],
+ *   variation: true,
+ * }
+ * ```
+ *
+ * @example A/B test for enterprise users
+ * ```ts
+ * const rule: TargetingRule<string> = {
+ *   id: 'enterprise-ab-test',
+ *   clauses: [{
+ *     attribute: 'plan',
+ *     operator: 'in',
+ *     values: ['enterprise'],
+ *   }],
+ *   rollout: {
+ *     variations: [
+ *       { value: 'control', weight: 50 },
+ *       { value: 'treatment', weight: 50 },
+ *     ],
+ *   },
+ * }
+ * ```
  */
 export interface TargetingRule<T> {
   /** Unique identifier for the rule */
