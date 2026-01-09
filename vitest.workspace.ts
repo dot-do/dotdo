@@ -112,6 +112,9 @@ export default defineWorkspace([
   // Rate limit binding tests
   createNodeWorkspace('rate-limit', ['tests/rate-limit/**/*.test.ts']),
 
+  // CLI tests (device auth, config management)
+  createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),
+
   // ============================================
   // Workers Environment Tests
   // ============================================

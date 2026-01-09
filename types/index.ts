@@ -6,6 +6,7 @@ export * from './Verb'
 export * from './DO'
 export * from './WorkflowContext'
 export * from './Experiment'
+export * from './Flag'
 export * from './capabilities'
 export * from './ids'
 
@@ -24,6 +25,9 @@ export type { WorkflowContext, OnProxy, ScheduleBuilder, DomainProxy, DomainEven
 
 export type { Experiment, ExperimentStatus, ExperimentInput } from './Experiment'
 export { ExperimentSchema } from './Experiment'
+
+export type { Flag, Branch, Filter, Stickiness, FlagStatus, FlagInput, BranchInput, FilterInput } from './Flag'
+export { FlagSchema, BranchSchema, FilterSchema, validateFlag } from './Flag'
 
 // Capability module types
 export type {

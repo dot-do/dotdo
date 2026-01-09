@@ -44,6 +44,10 @@ export default defineConfig({
       'types/tests/**/*.test.ts',
       'evals/tests/**/*.test.ts',
       'workflows/**/*.test.ts',
+      'tests/utils/**/*.test.ts',
+      'tests/mocks/**/*.test.ts',
+      'tests/flags/**/*.test.ts',
+      'tests/rate-limit/**/*.test.ts',
     ],
 
     // Exclude workers tests - they require the workers pool

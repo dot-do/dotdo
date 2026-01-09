@@ -225,3 +225,12 @@ export function hashToInt(input: string): number {
   const hexSubset = hash.slice(0, 8)
   return parseInt(hexSubset, 16)
 }
+
+/**
+ * Alias for hashToInt - used for feature flag traffic allocation
+ * and experiment bucket assignment.
+ *
+ * @param input - The string to hash
+ * @returns A non-negative integer (0 to 4294967295)
+ */
+export const deterministicHash = hashToInt
