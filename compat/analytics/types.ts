@@ -8,49 +8,231 @@
  */
 
 // ============================================================================
-// STUB TYPES - TDD RED PHASE
-// These are intentionally incomplete to make tests fail
+// ANALYTICS EVENT TYPE
 // ============================================================================
 
 /**
  * Analytics event types (Segment-compatible)
- * TODO: Implement full type union
  */
-export type AnalyticsEventType = 'track' // Missing: 'identify' | 'page' | 'screen' | 'group' | 'alias'
+export type AnalyticsEventType = 'track' | 'identify' | 'page' | 'screen' | 'group' | 'alias'
+
+// ============================================================================
+// NESTED TYPES
+// ============================================================================
 
 /**
- * Base analytics event
- * TODO: Add all required fields
+ * Address structure for UserTraits
  */
-export interface AnalyticsEvent {
-  type: AnalyticsEventType
-  // Missing: anonymousId, userId, timestamp, messageId, context, etc.
+export interface Address {
+  street?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
 }
+
+/**
+ * Company structure for UserTraits
+ */
+export interface Company {
+  id?: string
+  name?: string
+  industry?: string
+  employee_count?: number
+  plan?: string
+}
+
+/**
+ * App context
+ */
+export interface AppContext {
+  name?: string
+  version?: string
+  build?: string
+  namespace?: string
+}
+
+/**
+ * Campaign context (UTM params)
+ */
+export interface CampaignContext {
+  name?: string
+  source?: string
+  medium?: string
+  term?: string
+  content?: string
+}
+
+/**
+ * Device context
+ */
+export interface DeviceContext {
+  id?: string
+  advertisingId?: string
+  adTrackingEnabled?: boolean
+  manufacturer?: string
+  model?: string
+  name?: string
+  type?: string
+  token?: string
+}
+
+/**
+ * Library context
+ */
+export interface LibraryContext {
+  name?: string
+  version?: string
+}
+
+/**
+ * Location context
+ */
+export interface LocationContext {
+  city?: string
+  country?: string
+  latitude?: number
+  longitude?: number
+  region?: string
+  speed?: number
+}
+
+/**
+ * Network context
+ */
+export interface NetworkContext {
+  bluetooth?: boolean
+  carrier?: string
+  cellular?: boolean
+  wifi?: boolean
+}
+
+/**
+ * OS context
+ */
+export interface OSContext {
+  name?: string
+  version?: string
+}
+
+/**
+ * Page context
+ */
+export interface PageContext {
+  path?: string
+  referrer?: string
+  search?: string
+  title?: string
+  url?: string
+}
+
+/**
+ * Screen context
+ */
+export interface ScreenContext {
+  width?: number
+  height?: number
+  density?: number
+}
+
+// ============================================================================
+// USER TRAITS
+// ============================================================================
 
 /**
  * User traits interface (Segment reserved traits)
- * TODO: Add all reserved traits
  */
 export interface UserTraits {
-  // Missing all reserved traits: email, name, firstName, lastName, etc.
+  // Reserved string traits
+  email?: string
+  name?: string
+  firstName?: string
+  lastName?: string
+  phone?: string
+  username?: string
+  avatar?: string
+  title?: string
+  description?: string
+  gender?: string
+  website?: string
+
+  // Reserved number traits
+  age?: number
+
+  // Reserved date traits
+  birthday?: string | Date
+  createdAt?: string | Date
+
+  // Nested object traits
+  address?: Address
+  company?: Company
+
+  // Allow custom traits
   [key: string]: unknown
 }
 
+// ============================================================================
+// EVENT CONTEXT
+// ============================================================================
+
 /**
  * Event context (Segment context fields)
- * TODO: Add all context fields
  */
 export interface EventContext {
-  // Missing: app, campaign, device, ip, library, locale, location, etc.
+  app?: AppContext
+  campaign?: CampaignContext
+  device?: DeviceContext
+  ip?: string
+  library?: LibraryContext
+  locale?: string
+  location?: LocationContext
+  network?: NetworkContext
+  os?: OSContext
+  page?: PageContext
+  screen?: ScreenContext
+  timezone?: string
+  userAgent?: string
+  groupId?: string
+  traits?: UserTraits
 }
+
+// ============================================================================
+// PROPERTY OPERATIONS
+// ============================================================================
 
 /**
  * Property operations for user profiles
- * TODO: Add all operations
  */
 export interface PropertyOperations {
-  // Missing: $set, $setOnce, $add, $append, $prepend, $unset, $remove
+  $set?: Record<string, unknown>
+  $setOnce?: Record<string, unknown>
+  $add?: Record<string, number>
+  $append?: Record<string, unknown>
+  $prepend?: Record<string, unknown>
+  $unset?: string[]
+  $remove?: Record<string, unknown>
 }
+
+// ============================================================================
+// BASE ANALYTICS EVENT
+// ============================================================================
+
+/**
+ * Base analytics event
+ */
+export interface AnalyticsEvent {
+  type: AnalyticsEventType
+  anonymousId?: string
+  userId?: string
+  timestamp?: string
+  messageId?: string
+  context?: EventContext
+  integrations?: Record<string, boolean>
+}
+
+// ============================================================================
+// EVENT-SPECIFIC INTERFACES
+// ============================================================================
 
 /**
  * Track event specific interface
@@ -63,59 +245,96 @@ export interface TrackEvent extends AnalyticsEvent {
 
 /**
  * Identify event specific interface
- * TODO: Implement
  */
 export interface IdentifyEvent extends AnalyticsEvent {
-  type: 'identify' // This will fail - 'identify' not in AnalyticsEventType
+  type: 'identify'
+  userId: string
+  traits?: UserTraits
 }
 
 /**
  * Page event specific interface
- * TODO: Implement
  */
 export interface PageEvent extends AnalyticsEvent {
-  type: 'page' // This will fail - 'page' not in AnalyticsEventType
+  type: 'page'
+  category?: string
+  name?: string
+  properties?: Record<string, unknown>
 }
 
 /**
  * Screen event specific interface (mobile)
- * TODO: Implement
  */
 export interface ScreenEvent extends AnalyticsEvent {
-  type: 'screen' // This will fail - 'screen' not in AnalyticsEventType
+  type: 'screen'
+  name?: string
+  properties?: Record<string, unknown>
 }
 
 /**
  * Group event specific interface
- * TODO: Implement
  */
 export interface GroupEvent extends AnalyticsEvent {
-  type: 'group' // This will fail - 'group' not in AnalyticsEventType
+  type: 'group'
+  groupId: string
+  traits?: Record<string, unknown>
 }
 
 /**
  * Alias event specific interface
- * TODO: Implement
  */
 export interface AliasEvent extends AnalyticsEvent {
-  type: 'alias' // This will fail - 'alias' not in AnalyticsEventType
+  type: 'alias'
+  userId: string
+  previousId: string
 }
 
 // ============================================================================
-// VALIDATORS - STUBS
+// VALIDATORS
 // ============================================================================
 
-export function isValidAnalyticsEvent(_event: unknown): _event is AnalyticsEvent {
-  // TODO: Implement validation
-  return false
+const VALID_EVENT_TYPES: AnalyticsEventType[] = ['track', 'identify', 'page', 'screen', 'group', 'alias']
+
+export function isValidAnalyticsEvent(event: unknown): event is AnalyticsEvent {
+  if (event === null || event === undefined || typeof event !== 'object') {
+    return false
+  }
+
+  const e = event as Record<string, unknown>
+
+  // Check type is valid
+  if (typeof e.type !== 'string' || !VALID_EVENT_TYPES.includes(e.type as AnalyticsEventType)) {
+    return false
+  }
+
+  // Must have anonymousId or userId
+  if (typeof e.anonymousId !== 'string' && typeof e.userId !== 'string') {
+    return false
+  }
+
+  return true
 }
 
-export function isValidUserTraits(_traits: unknown): _traits is UserTraits {
-  // TODO: Implement validation
-  return false
+export function isValidUserTraits(traits: unknown): traits is UserTraits {
+  if (traits === null || traits === undefined) {
+    return false
+  }
+
+  if (typeof traits !== 'object' || Array.isArray(traits)) {
+    return false
+  }
+
+  return true
 }
 
-export function isValidEventContext(_context: unknown): _context is EventContext {
-  // TODO: Implement validation
-  return false
+export function isValidEventContext(context: unknown): context is EventContext {
+  if (context === null || context === undefined) {
+    return false
+  }
+
+  if (typeof context !== 'object' || Array.isArray(context)) {
+    return false
+  }
+
+  return true
 }
