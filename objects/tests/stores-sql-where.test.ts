@@ -147,7 +147,7 @@ function createMockStoreContext(mockDb: ReturnType<typeof createMockDb>) {
 }
 
 // Import the actual ThingsStore class and related utilities
-import { ThingsStore, validateOrderColumn, validateJsonPath } from '../stores'
+import { ThingsStore, validateOrderColumn, validateJsonPath } from '../../db/stores'
 
 // ============================================================================
 // TEST SUITE: SQL WHERE Clause Verification

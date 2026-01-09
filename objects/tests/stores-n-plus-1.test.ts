@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 
 // Import the actual store implementation
-import { ThingsStore, type StoreContext } from '../stores'
+import { ThingsStore, type StoreContext } from '../../db/stores'
 import * as schema from '../../db'
 
 // ============================================================================

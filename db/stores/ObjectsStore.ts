@@ -7,7 +7,7 @@
  * - Resolve to DO stubs
  */
 
-import * as schema from '../../db'
+import * as schema from '..'
 import type {
   StoreContext,
   ObjectsStore as IObjectsStore,

@@ -8,7 +8,7 @@
  * - Cleanup and purge operations
  */
 
-import * as schema from '../../db'
+import * as schema from '..'
 import type {
   StoreContext,
   DLQStore as IDLQStore,

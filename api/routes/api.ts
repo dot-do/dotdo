@@ -10,10 +10,10 @@ import type { Env } from '../index'
  * - GET /api/things/:id - Get a specific thing
  * - PUT /api/things/:id - Update a thing
  * - DELETE /api/things/:id - Delete a thing (returns 204)
+ *
+ * Storage is handled by the ThingsDO Durable Object via env.DO binding.
+ * This ensures data persistence across requests and worker instances.
  */
-
-// In-memory storage (should use DO in production)
-const things = new Map<string, Thing>()
 
 export interface Thing {
   id: string
@@ -21,8 +21,18 @@ export interface Thing {
   $type: string
   name: string
   data?: Record<string, unknown>
+  relationships?: Array<{ type: string; targetId: string }>
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * Get the ThingsDO stub for storage operations.
+ * All API instances use the same DO instance named 'things'.
+ */
+function getThingsStub(env: Env) {
+  const id = env.DO.idFromName('things')
+  return env.DO.get(id)
 }
 
 export const apiRoutes = new Hono<{ Bindings: Env }>()

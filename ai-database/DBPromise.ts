@@ -5,7 +5,7 @@
  * Supports filtering, mapping, sorting, pagination, and batch processing.
  */
 
-import type { ThingEntity } from '../objects/stores/types'
+import type { ThingEntity } from '../db/stores/types'
 import type {
   DBPromise as IDBPromise,
   ForEachOptions,

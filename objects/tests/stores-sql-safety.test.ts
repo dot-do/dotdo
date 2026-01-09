@@ -24,7 +24,7 @@ import {
   buildOrderClause,
   ALLOWED_ORDER_COLUMNS,
   type AllowedOrderColumn,
-} from '../stores'
+} from '../../db/stores'
 
 // ============================================================================
 // TEST SUITE: Column Whitelist Validation

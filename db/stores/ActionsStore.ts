@@ -7,7 +7,7 @@
  * - Retry support for durable actions
  */
 
-import * as schema from '../../db'
+import * as schema from '..'
 import type {
   StoreContext,
   ActionsStore as IActionsStore,

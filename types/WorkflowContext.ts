@@ -2,6 +2,60 @@ import type { RpcPromise } from 'capnweb'
 import type { Thing } from './Thing'
 
 // ============================================================================
+// EXECUTION MODE TYPES
+// ============================================================================
+
+/**
+ * Retry policy configuration for durable execution ($.do())
+ */
+export interface RetryPolicy {
+  /** Maximum number of retry attempts (default: 3) */
+  maxAttempts: number
+  /** Initial delay in milliseconds before first retry (default: 100) */
+  initialDelayMs: number
+  /** Maximum delay in milliseconds between retries (default: 30000) */
+  maxDelayMs: number
+  /** Backoff multiplier for exponential backoff (default: 2) */
+  backoffMultiplier: number
+  /** Whether to add random jitter to delays (default: true) */
+  jitter: boolean
+}
+
+/**
+ * Options for $.try() execution
+ */
+export interface TryOptions {
+  /** Timeout in milliseconds (default: 30000) */
+  timeout?: number
+}
+
+/**
+ * Options for $.do() durable execution
+ */
+export interface DoOptions {
+  /** Custom retry policy (merged with defaults) */
+  retry?: Partial<RetryPolicy>
+  /** Timeout per attempt in milliseconds */
+  timeout?: number
+  /** Explicit step ID for workflow integration and replay */
+  stepId?: string
+}
+
+/**
+ * Action status values for lifecycle tracking
+ */
+export type ActionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'retrying'
+
+/**
+ * Error details stored in action records
+ */
+export interface ActionError {
+  message: string
+  name: string
+  stack?: string
+}
+
+// ============================================================================
 // WORKFLOW CONTEXT ($) - The unified interface for all DO operations
 // ============================================================================
 
@@ -13,20 +67,37 @@ export interface WorkflowContext {
   /**
    * Fire-and-forget event emission
    * Non-blocking, non-durable, best-effort
+   *
+   * Uses queueMicrotask/setImmediate for async execution.
+   * Does not await logging or event emission.
+   * Swallows all errors silently (best effort).
    */
   send(event: string, data: unknown): void
 
   /**
    * Quick attempt without durability
-   * Blocking, non-durable
+   * Blocking, non-durable, single attempt
+   *
+   * @param action - The action to execute
+   * @param data - The data to pass to the action
+   * @param options - Optional execution options (timeout)
    */
-  try<T>(action: string, data: unknown): Promise<T>
+  try<T>(action: string, data: unknown, options?: TryOptions): Promise<T>
 
   /**
    * Durable execution with retries
    * Blocking, durable, guaranteed event emission
+   *
+   * Features:
+   * - Configurable retry policy with exponential backoff
+   * - Step persistence for replay
+   * - Complete action lifecycle tracking
+   *
+   * @param action - The action to execute
+   * @param data - The data to pass to the action
+   * @param options - Optional execution options (retry, timeout, stepId)
    */
-  do<T>(action: string, data: unknown): Promise<T>
+  do<T>(action: string, data: unknown, options?: DoOptions): Promise<T>
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EVENT SUBSCRIPTIONS

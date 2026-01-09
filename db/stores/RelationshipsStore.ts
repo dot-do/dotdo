@@ -7,7 +7,7 @@
  * - Bulk delete by criteria
  */
 
-import * as schema from '../../db'
+import * as schema from '..'
 import type {
   StoreContext,
   RelationshipsStore as IRelationshipsStore,

@@ -20,7 +20,7 @@ import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
-import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler } from '../types/WorkflowContext'
+import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError } from '../types/WorkflowContext'
 import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from './schedule-builder'
 import { ScheduleManager, type Schedule } from './ScheduleManager'
 import type { Thing } from '../types/Thing'
@@ -32,8 +32,8 @@ import {
   SearchStore,
   ObjectsStore,
   type StoreContext,
-} from './stores'
-import { DLQStore } from './stores/DLQStore'
+} from '../db/stores'
+import { DLQStore } from '../db/stores/DLQStore'
 import { parseNounId, formatNounId } from '../lib/noun-id'
 
 // ============================================================================
@@ -84,6 +84,30 @@ interface DOStub {
 }
 
 /**
+ * Circuit breaker state
+ */
+type CircuitBreakerState = 'closed' | 'open' | 'half-open'
+
+/**
+ * Circuit breaker entry with state tracking
+ */
+interface CircuitBreakerEntry {
+  failures: number
+  openUntil: number
+  state: CircuitBreakerState
+  halfOpenTestInProgress?: boolean
+}
+
+/**
+ * Stub cache entry with LRU tracking
+ */
+interface StubCacheEntry {
+  stub: DOStub
+  cachedAt: number
+  lastUsed: number
+}
+
+/**
  * Cross-DO resolution configuration
  */
 const CROSS_DO_CONFIG = {
@@ -93,6 +117,8 @@ const CROSS_DO_CONFIG = {
   CIRCUIT_BREAKER_THRESHOLD: 3,
   /** How long circuit stays open (30 seconds) */
   CIRCUIT_BREAKER_TIMEOUT: 30 * 1000,
+  /** Maximum number of stubs to cache (LRU eviction) */
+  STUB_CACHE_MAX_SIZE: 100,
 }
 
 // ============================================================================

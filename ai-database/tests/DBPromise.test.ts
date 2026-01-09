@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DBPromise, type DBPromiseDataSource } from '../DBPromise'
-import type { ThingEntity } from '../../objects/stores/types'
+import type { ThingEntity } from '../../db/stores/types'
 
 // ============================================================================
 // TEST DATA

@@ -29,7 +29,7 @@ function registerHandler(eventKey: string, handler: Function): void {
 // on.Entity.event(handler) - Event subscription
 // ============================================================================
 
-import type { DomainEvent, EventPayload, EventHandler } from '../types/WorkflowContext'
+import type { TypedEventHandler, TypedDomainEvent, EventPayload } from '../types/EventHandler'
 
 /**
  * OnEntityProxy - Typed proxy for accessing event verbs on an entity
@@ -37,7 +37,7 @@ import type { DomainEvent, EventPayload, EventHandler } from '../types/WorkflowC
  * @typeParam Entity - The entity (noun) name for type inference
  */
 type OnEntityProxy<Entity extends string = string> = {
-  [Verb in string]: (handler: EventHandler<EventPayload<Entity, Verb>>) => void
+  [Verb in string]: (handler: TypedEventHandler<EventPayload<Entity, Verb>>) => void
 }
 
 /**
@@ -51,7 +51,7 @@ export const on: OnProxy = new Proxy({} as OnProxy, {
   get(_, entity: string) {
     return new Proxy({} as OnEntityProxy<typeof entity>, {
       get(_, event: string) {
-        return (handler: EventHandler<unknown>) => {
+        return (handler: TypedEventHandler<unknown>) => {
           registerHandler(`${entity}.${event}`, handler)
         }
       },

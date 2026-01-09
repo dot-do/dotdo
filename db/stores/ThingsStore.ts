@@ -7,7 +7,7 @@
  * - Soft delete by default
  */
 
-import * as schema from '../../db'
+import * as schema from '..'
 import type {
   StoreContext,
   ThingsStore as IThingsStore,
