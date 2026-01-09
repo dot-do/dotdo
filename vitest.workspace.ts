@@ -127,6 +127,9 @@ export default defineWorkspace([
   // Visibility tests
   createNodeWorkspace('visibility', ['tests/visibility/**/*.test.ts']),
 
+  // Tests for types in tests/types directory
+  createNodeWorkspace('tests-types', ['tests/types/**/*.test.ts']),
+
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),
 

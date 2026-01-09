@@ -139,66 +139,56 @@ function useBrowserEvents(browserId: string) {
 interface BrowserLiveViewProps {
   liveViewUrl?: string
   provider?: 'cloudflare' | 'browserbase'
+  browserId: string
 }
 
-function BrowserLiveView({ liveViewUrl, provider }: BrowserLiveViewProps) {
+function BrowserLiveView({ liveViewUrl, provider, browserId }: BrowserLiveViewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev)
   }, [])
 
-  // Cloudflare doesn't support live view
+  // Browserbase with liveViewUrl - use iframe
+  if (provider === 'browserbase' && liveViewUrl) {
+    return (
+      <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-black' : ''}`}>
+        <div className="absolute top-2 right-2 z-10">
+          <button
+            onClick={toggleFullscreen}
+            className="bg-white/90 hover:bg-white px-3 py-1 rounded shadow text-sm"
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
+        </div>
+        <iframe
+          src={liveViewUrl}
+          title="Browser Live View"
+          className={`w-full border rounded bg-white ${isFullscreen ? 'h-full' : 'h-[600px]'}`}
+          sandbox="allow-scripts allow-same-origin"
+        />
+      </div>
+    )
+  }
+
+  // Cloudflare - use BrowserScreencast for CDP-based live preview
   if (provider === 'cloudflare') {
-    return (
-      <div className="bg-gray-100 rounded-lg border p-8 flex flex-col items-center justify-center h-[600px]">
-        <svg className="w-16 h-16 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-        </svg>
-        <p className="text-gray-600 text-center">
-          Live view not available for Cloudflare provider
-        </p>
-        <p className="text-gray-500 text-sm mt-2">
-          Use Browserbase for real-time session viewing
-        </p>
-      </div>
-    )
+    return <BrowserScreencast browserId={browserId} className="h-[600px]" />
   }
 
-  // No live view URL available
-  if (!liveViewUrl) {
-    return (
-      <div className="bg-gray-100 rounded-lg border p-8 flex flex-col items-center justify-center h-[600px]">
-        <svg className="w-16 h-16 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-        </svg>
-        <p className="text-gray-600 text-center">
-          Live view not enabled
-        </p>
-        <p className="text-gray-500 text-sm mt-2">
-          Start a session with liveView enabled to see the browser
-        </p>
-      </div>
-    )
-  }
-
+  // Fallback - no live view available
   return (
-    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-black' : ''}`}>
-      <div className="absolute top-2 right-2 z-10">
-        <button
-          onClick={toggleFullscreen}
-          className="bg-white/90 hover:bg-white px-3 py-1 rounded shadow text-sm"
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-        </button>
-      </div>
-      <iframe
-        src={liveViewUrl}
-        title="Browser Live View"
-        className={`w-full border rounded bg-white ${isFullscreen ? 'h-full' : 'h-[600px]'}`}
-        sandbox="allow-scripts allow-same-origin"
-      />
+    <div className="bg-gray-100 rounded-lg border p-8 flex flex-col items-center justify-center h-[600px]">
+      <svg className="w-16 h-16 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+      </svg>
+      <p className="text-gray-600 text-center">
+        Live view not available for this session
+      </p>
+      <p className="text-gray-500 text-sm mt-2">
+        Start a session with liveView enabled to see the browser
+      </p>
     </div>
   )
 }
@@ -695,6 +685,7 @@ function BrowserDetailPage() {
             <BrowserLiveView
               liveViewUrl={state?.liveViewUrl}
               provider={state?.provider}
+              browserId={browserId}
             />
           </div>
 

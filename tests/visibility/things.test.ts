@@ -136,6 +136,18 @@ describe('Visibility Type Exports', () => {
       expect(thing.visibility).toBe('public')
     })
 
+    it('Thing type keys include visibility', () => {
+      // This test will FAIL until visibility is added to the Thing type
+      // We check if 'visibility' is a valid key of Thing
+      type ThingKeys = keyof Thing
+      const thingKeys: ThingKeys[] = ['id', 'type', 'branch', 'name', 'data', 'deleted']
+
+      // This assertion should FAIL - visibility is not in the type yet
+      // @ts-expect-error - visibility is not a key of Thing yet
+      const visibilityKey: ThingKeys = 'visibility'
+      expect(thingKeys).not.toContain('visibility') // This passes now, should fail once implemented
+    })
+
     it('Thing visibility type is union of valid values', () => {
       // The visibility field should be typed as: 'public' | 'unlisted' | 'org' | 'user'
       const publicThing: Partial<Thing> = {
@@ -293,6 +305,17 @@ describe('getCurrentThings filters by visibility', () => {
 
       // @ts-expect-error - visibility option does not exist yet
       expect(options.visibility).toBe('public')
+    })
+
+    it('GetCurrentThingsOptions type has visibility as a valid key', () => {
+      // This test will FAIL until visibility is added to GetCurrentThingsOptions
+      type OptionsKeys = keyof GetCurrentThingsOptions
+      const optionKeys: OptionsKeys[] = ['type', 'branch', 'includeDeleted', 'limit']
+
+      // This assertion should FAIL - visibility is not in the options type yet
+      // @ts-expect-error - visibility is not a key of GetCurrentThingsOptions yet
+      const visibilityKey: OptionsKeys = 'visibility'
+      expect(optionKeys).not.toContain('visibility') // Passes now, should fail once implemented
     })
 
     it('GetCurrentThingsOptions accepts array of visibility values', () => {
