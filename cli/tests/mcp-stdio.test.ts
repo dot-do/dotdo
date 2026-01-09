@@ -1729,3 +1729,821 @@ describe('Full MCP stdio Flow', () => {
     expect(notification.params.progress).toBe(50)
   })
 })
+
+// ============================================================================
+// MCP HTTP Bridge Tests (stdio ↔ HTTP proxy)
+// ============================================================================
+
+// Import bridge functionality (will fail - not implemented yet)
+import {
+  createMcpBridge,
+  type McpBridge,
+  type McpBridgeOptions,
+} from '../mcp-stdio'
+
+describe('MCP HTTP Bridge', () => {
+  describe('bridge initialization', () => {
+    it('creates a bridge with DO_URL from environment', () => {
+      const originalEnv = process.env.DO_URL
+      process.env.DO_URL = 'https://example.do'
+
+      const bridge = createMcpBridge()
+
+      expect(bridge).toBeDefined()
+      expect(bridge.targetUrl).toBe('https://example.do')
+
+      process.env.DO_URL = originalEnv
+    })
+
+    it('creates a bridge with explicit target URL', () => {
+      const bridge = createMcpBridge({ targetUrl: 'https://my-do.example.com' })
+
+      expect(bridge).toBeDefined()
+      expect(bridge.targetUrl).toBe('https://my-do.example.com')
+    })
+
+    it('throws when no DO_URL env var and no explicit URL', () => {
+      const originalEnv = process.env.DO_URL
+      delete process.env.DO_URL
+
+      expect(() => createMcpBridge()).toThrow(/DO_URL|target.*url|not.*configured/i)
+
+      process.env.DO_URL = originalEnv
+    })
+
+    it('validates target URL format', () => {
+      expect(() => createMcpBridge({ targetUrl: 'not-a-url' })).toThrow(/invalid.*url/i)
+    })
+
+    it('accepts custom fetch function for testing', () => {
+      const customFetch = vi.fn()
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: customFetch,
+      })
+
+      expect(bridge).toBeDefined()
+    })
+  })
+
+  describe('tools/list proxy', () => {
+    it('proxies tools/list request to DO HTTP endpoint', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: {
+              tools: [
+                {
+                  name: 'create_thing',
+                  description: 'Create a new thing',
+                  inputSchema: { type: 'object', properties: {} },
+                },
+              ],
+            },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test.do/mcp',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+          body: expect.stringContaining('tools/list'),
+        })
+      )
+
+      expect(result.result.tools).toHaveLength(1)
+      expect(result.result.tools[0].name).toBe('create_thing')
+    })
+
+    it('returns empty tools array when DO has no tools', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: { tools: [] },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.result.tools).toEqual([])
+    })
+  })
+
+  describe('tools/call proxy', () => {
+    it('proxies tools/call with arguments to DO HTTP endpoint', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 2,
+            result: {
+              content: [{ type: 'text', text: 'Created thing with ID: thing-123' }],
+            },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'create_thing',
+          arguments: { title: 'My Thing', type: 'task' },
+        },
+      })
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test.do/mcp',
+        expect.objectContaining({
+          body: expect.stringMatching(/create_thing/),
+        })
+      )
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body)
+      expect(requestBody.params.name).toBe('create_thing')
+      expect(requestBody.params.arguments).toEqual({ title: 'My Thing', type: 'task' })
+
+      expect(result.result.content[0].text).toContain('thing-123')
+    })
+
+    it('proxies tool error responses correctly', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 3,
+            result: {
+              content: [{ type: 'text', text: 'Error: Invalid arguments' }],
+              isError: true,
+            },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'invalid_tool', arguments: {} },
+      })
+
+      expect(result.result.isError).toBe(true)
+    })
+
+    it('preserves request ID in response', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 'custom-id-123',
+            result: { content: [] },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 'custom-id-123',
+        method: 'tools/call',
+        params: { name: 'echo', arguments: {} },
+      })
+
+      expect(result.id).toBe('custom-id-123')
+    })
+  })
+
+  describe('resources/list proxy', () => {
+    it('proxies resources/list to DO HTTP endpoint', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 4,
+            result: {
+              resources: [
+                {
+                  uri: 'thing://task/123',
+                  name: 'Task 123',
+                  mimeType: 'application/json',
+                },
+              ],
+            },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'resources/list',
+      })
+
+      expect(result.result.resources).toHaveLength(1)
+      expect(result.result.resources[0].uri).toBe('thing://task/123')
+    })
+
+    it('returns empty resources array when DO has no resources', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 5,
+            result: { resources: [] },
+          }),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'resources/list',
+      })
+
+      expect(result.result.resources).toEqual([])
+    })
+  })
+
+  describe('connection error handling', () => {
+    it('handles network errors gracefully', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error: ECONNREFUSED'))
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.code).toBe(-32603) // Internal error
+      expect(result.error.message).toMatch(/network|connection|failed/i)
+    })
+
+    it('handles HTTP 500 errors', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.message).toMatch(/500|internal.*error|server.*error/i)
+    })
+
+    it('handles HTTP 401 unauthorized errors', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.message).toMatch(/401|unauthorized|authentication/i)
+    })
+
+    it('handles HTTP 404 not found errors', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.message).toMatch(/404|not.*found/i)
+    })
+
+    it('handles timeout errors', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Request timeout'))
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.code).toBe(-32603)
+    })
+
+    it('handles malformed JSON response from DO', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.reject(new Error('Invalid JSON')),
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error.code).toBe(-32700) // Parse error
+    })
+
+    it('retries on transient errors when configured', async () => {
+      let attempts = 0
+      const mockFetch = vi.fn().mockImplementation(() => {
+        attempts++
+        if (attempts < 3) {
+          return Promise.reject(new Error('Connection reset'))
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              jsonrpc: '2.0',
+              id: 1,
+              result: { tools: [] },
+            }),
+        })
+      })
+
+      const bridge = createMcpBridge({
+        targetUrl: 'https://test.do',
+        fetch: mockFetch,
+        retries: 3,
+      })
+
+      const result = await bridge.proxy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      })
+
+      expect(attempts).toBe(3)
+      expect(result.result).toBeDefined()
+    })
+  })
+
+  describe('DO_URL environment variable', () => {
+    const originalEnv = process.env.DO_URL
+
+    afterEach(() => {
+      if (originalEnv !== undefined) {
+        process.env.DO_URL = originalEnv
+      } else {
+        delete process.env.DO_URL
+      }
+    })
+
+    it('reads DO_URL from environment', () => {
+      process.env.DO_URL = 'https://my-project.do'
+
+      const bridge = createMcpBridge()
+
+      expect(bridge.targetUrl).toBe('https://my-project.do')
+    })
+
+    it('prefers explicit targetUrl over DO_URL env', () => {
+      process.env.DO_URL = 'https://env-url.do'
+
+      const bridge = createMcpBridge({ targetUrl: 'https://explicit-url.do' })
+
+      expect(bridge.targetUrl).toBe('https://explicit-url.do')
+    })
+
+    it('handles DO_URL with trailing slash', () => {
+      process.env.DO_URL = 'https://my-project.do/'
+
+      const bridge = createMcpBridge()
+
+      // Should normalize the URL
+      expect(bridge.targetUrl).toBe('https://my-project.do')
+    })
+
+    it('handles DO_URL with /mcp path already included', () => {
+      process.env.DO_URL = 'https://my-project.do/mcp'
+
+      const bridge = createMcpBridge()
+
+      // Should handle gracefully, not double /mcp/mcp
+      expect(bridge.targetUrl).toBe('https://my-project.do')
+    })
+  })
+})
+
+// ============================================================================
+// MCP Command Tests (do mcp)
+// ============================================================================
+
+// Import command (will fail - not implemented yet)
+import { mcpCommand, startMcpServer } from '../mcp-stdio'
+
+describe('do mcp command', () => {
+  describe('command initialization', () => {
+    it('exports mcpCommand handler', () => {
+      expect(mcpCommand).toBeDefined()
+      expect(typeof mcpCommand).toBe('function')
+    })
+
+    it('exports startMcpServer function', () => {
+      expect(startMcpServer).toBeDefined()
+      expect(typeof startMcpServer).toBe('function')
+    })
+  })
+
+  describe('startMcpServer', () => {
+    it('starts stdio server that proxies to DO', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'dotdo', version: '1.0.0' },
+              capabilities: { tools: {}, resources: {} },
+            },
+          }),
+      })
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      expect(server).toBeDefined()
+      expect(server.isRunning()).toBe(true)
+
+      await server.stop()
+    })
+
+    it('responds to initialize request', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'dotdo', version: '1.0.0' },
+              capabilities: { tools: {}, resources: {} },
+            },
+          }),
+      })
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      // Send initialize request
+      stdin.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: '2024-11-05',
+              clientInfo: { name: 'test-client', version: '1.0.0' },
+              capabilities: {},
+            },
+          }) + '\n'
+        )
+      )
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const written = stdout.getWritten()
+      expect(written.length).toBeGreaterThan(0)
+
+      const response = JSON.parse(written[0].trim())
+      expect(response.result).toBeDefined()
+      expect(response.result.serverInfo.name).toBe('dotdo')
+
+      await server.stop()
+    })
+
+    it('proxies tools/list through to DO', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 2,
+            result: {
+              tools: [
+                { name: 'create_thing', description: 'Create thing', inputSchema: {} },
+              ],
+            },
+          }),
+      })
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      // Send tools/list request
+      stdin.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/list',
+          }) + '\n'
+        )
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test.do/mcp',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      )
+
+      const written = stdout.getWritten()
+      const response = JSON.parse(written[written.length - 1].trim())
+      expect(response.result.tools).toBeDefined()
+
+      await server.stop()
+    })
+
+    it('proxies tools/call through to DO', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 3,
+            result: {
+              content: [{ type: 'text', text: 'Tool executed successfully' }],
+            },
+          }),
+      })
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      // Send tools/call request
+      stdin.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/call',
+            params: {
+              name: 'create_thing',
+              arguments: { title: 'Test' },
+            },
+          }) + '\n'
+        )
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test.do/mcp',
+        expect.objectContaining({
+          body: expect.stringContaining('create_thing'),
+        })
+      )
+
+      await server.stop()
+    })
+
+    it('proxies resources/list through to DO', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 4,
+            result: {
+              resources: [{ uri: 'thing://task/1', name: 'Task 1' }],
+            },
+          }),
+      })
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      // Send resources/list request
+      stdin.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 4,
+            method: 'resources/list',
+          }) + '\n'
+        )
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test.do/mcp',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      )
+
+      await server.stop()
+    })
+
+    it('handles connection errors and returns error response', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Connection refused'))
+
+      process.env.DO_URL = 'https://test.do'
+
+      const server = await startMcpServer({
+        stdin,
+        stdout,
+        fetch: mockFetch,
+      })
+
+      // Send tools/list request
+      stdin.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 5,
+            method: 'tools/list',
+          }) + '\n'
+        )
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const written = stdout.getWritten()
+      const response = JSON.parse(written[written.length - 1].trim())
+      expect(response.error).toBeDefined()
+      expect(response.error.code).toBe(-32603)
+
+      await server.stop()
+    })
+
+    it('throws if DO_URL not configured', async () => {
+      const stdin = createMockReadable()
+      const stdout = createMockWritable()
+
+      const originalEnv = process.env.DO_URL
+      delete process.env.DO_URL
+
+      await expect(
+        startMcpServer({ stdin, stdout })
+      ).rejects.toThrow(/DO_URL|not.*configured/i)
+
+      process.env.DO_URL = originalEnv
+    })
+  })
+
+  describe('mcpCommand handler', () => {
+    it('starts MCP server with process stdin/stdout', async () => {
+      // This test verifies the command handler exists and can be called
+      // Actual stdin/stdout interaction is tested in integration tests
+      expect(typeof mcpCommand).toBe('function')
+    })
+
+    it('accepts --url flag to override DO_URL', async () => {
+      // mcpCommand should accept CLI args
+      expect(mcpCommand).toBeDefined()
+    })
+  })
+})

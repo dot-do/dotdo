@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "./index.ts",
+  "bin": {
+    "do": "./cli/bin.ts"
+  },
   "types": "./types/index.ts",
   "exports": {
     ".": {

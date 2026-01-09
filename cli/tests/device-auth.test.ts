@@ -61,26 +61,30 @@ interface TokenResponseExpected {
 // Mock Setup
 // ============================================================================
 
-// Mock the oauth.do API calls
-const mockFetch = vi.fn()
-global.fetch = mockFetch
+// Use vi.hoisted to define mocks before vi.mock is hoisted
+const { mockFs, mockOs } = vi.hoisted(() => ({
+  mockFs: {
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    unlink: vi.fn(),
+    mkdir: vi.fn(),
+    access: vi.fn(),
+  },
+  mockOs: {
+    homedir: () => '/home/testuser',
+    platform: () => 'darwin',
+  },
+}))
 
 // Mock filesystem operations for token storage
-const mockFs = {
-  readFile: vi.fn(),
-  writeFile: vi.fn(),
-  unlink: vi.fn(),
-  mkdir: vi.fn(),
-  access: vi.fn(),
-}
-
 vi.mock('fs/promises', () => mockFs)
 
 // Mock os for config directory
-vi.mock('os', () => ({
-  homedir: () => '/home/testuser',
-  platform: () => 'darwin',
-}))
+vi.mock('os', () => mockOs)
+
+// Mock the oauth.do API calls
+const mockFetch = vi.fn()
+global.fetch = mockFetch
 
 // ============================================================================
 // Device Code Request Tests
@@ -450,6 +454,10 @@ describe('storeToken', () => {
     mockFs.writeFile.mockResolvedValue(undefined)
     mockFs.mkdir.mockResolvedValue(undefined)
     mockFs.access.mockRejectedValue({ code: 'ENOENT' })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('writes token to config file', async () => {
