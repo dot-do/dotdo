@@ -3840,6 +3840,25 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   private _conflictResolvers: Map<string, (conflict: ConflictInfo) => Promise<unknown>> = new Map()
 
   /**
+   * Completion callbacks keyed by clone ID
+   * (Cannot be stored in durable storage, so kept in memory)
+   */
+  private _completionCallbacks: Map<string, (result: {
+    success: boolean
+    cloneId: string
+    targetNs: string
+    totalItems: number
+    duration: number
+    conflicts?: ConflictInfo[]
+  }) => void | Promise<void>> = new Map()
+
+  /**
+   * Error callbacks keyed by clone ID
+   * (Cannot be stored in durable storage, so kept in memory)
+   */
+  private _errorCallbacks: Map<string, (error: Error, cloneId: string) => void | Promise<void>> = new Map()
+
+  /**
    * Initiate an eventual clone operation
    * Returns immediately with a handle for monitoring/controlling the clone
    */
@@ -4141,6 +4160,15 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       state.errorCount = 0 // Reset error count on success
       state.lastError = null
       state.updatedAt = new Date().toISOString()
+
+      // Emit progress event with detailed metadata
+      await this.emitEvent('clone.progress', {
+        id,
+        progress: state.progress,
+        itemsSynced: state.itemsSynced,
+        totalItems: state.totalItems,
+        phase: state.phase,
+      })
 
       // Transition phases
       if (state.progress >= 100) {

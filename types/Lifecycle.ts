@@ -183,6 +183,17 @@ export interface EventualCloneOptions extends CloneOptions {
   chunkSize?: number
   /** Rate limit for sync operations (ops/second) */
   rateLimit?: number
+  /** Callback invoked when clone completes successfully */
+  onComplete?: (result: {
+    success: boolean
+    cloneId: string
+    targetNs: string
+    totalItems: number
+    duration: number
+    conflicts?: ConflictInfo[]
+  }) => void | Promise<void>
+  /** Callback invoked when clone encounters errors */
+  onError?: (error: Error, cloneId: string) => void | Promise<void>
 }
 
 /**
@@ -233,6 +244,14 @@ export interface EventualCloneState {
   updatedAt: string
   /** Last synced version (for delta sync) */
   lastSyncedVersion: number
+  /** Has completion callback */
+  hasOnComplete?: boolean
+  /** Has error callback */
+  hasOnError?: boolean
+  /** Start time for duration calculation */
+  startTime?: number
+  /** Accumulated conflicts during clone */
+  conflicts?: ConflictInfo[]
 }
 
 // ============================================================================
