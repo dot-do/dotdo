@@ -2463,11 +2463,16 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           relationshipsUpdated: thingRelationships.length,
         })
 
+        const durationMs = Date.now() - startTime
         return {
           ns: newNs,
           doId: doIdString,
           previousId: thingId,
           parentLinked: linkParent,
+          actionsMigrated: actionsToTransfer.length,
+          eventsMigrated: eventsToTransfer.length,
+          relationshipsMigrated: thingRelationships.length,
+          durationMs,
         }
       } catch (error) {
         // Clear the promotion tracking
@@ -2498,42 +2503,45 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * lifecycle, it can be demoted back into a parent DO as a Thing. The DO's
    * state is folded into the parent, and the original DO is deleted.
    *
-   * @param options - Demotion options (to is required)
+   * @param targetNs - Parent DO namespace to demote into (required)
+   * @param options - Optional demotion options
    * @returns DemoteResult with new Thing ID, parent namespace, and deleted DO namespace
    */
-  async demote(options: {
-    /** Parent DO namespace to demote into (required) */
-    to: string
+  async demote(targetNs: string, options?: {
+    /** Custom Thing ID in the parent (default: auto-generated from DO ID) */
+    thingId?: string
+    /** Preserve action/event history in parent (default: true) */
+    preserveHistory?: boolean
+    /** Type/noun for the Thing in the parent (default: inferred from DO type) */
+    type?: string
+    /** Force demote even if constraints would normally prevent it */
+    force?: boolean
     /** Squash history before demoting (default: false) */
     compress?: boolean
     /** Demotion mode (default: 'atomic') */
     mode?: 'atomic' | 'staged'
     /** Keep original DO ID as Thing ID (default: false) */
     preserveId?: boolean
-    /** Custom type for the demoted Thing (default: inferred from DO) */
-    type?: string
   }): Promise<{ thingId: string; parentNs: string; deletedNs: string; stagedToken?: string }> {
-    // Validate options
-    if (!options || typeof options !== 'object') {
-      throw new Error('options is required')
+    // Validate targetNs
+    if (targetNs === undefined || targetNs === null || typeof targetNs !== 'string') {
+      throw new Error('targetNs is required for demote')
     }
 
+    if (targetNs === '' || targetNs.trim() === '') {
+      throw new Error('Invalid namespace: targetNs cannot be empty')
+    }
+
+    const parentNs = targetNs
     const {
-      to: parentNs,
+      thingId: customThingId,
+      preserveHistory = true,
+      type,
+      force = false,
       compress = false,
       mode = 'atomic',
       preserveId = false,
-      type,
-    } = options
-
-    // Validate 'to' is provided
-    if (parentNs === undefined || parentNs === null || typeof parentNs !== 'string') {
-      throw new Error('"to" option is required for demote')
-    }
-
-    if (parentNs === '' || parentNs.trim() === '') {
-      throw new Error('Invalid namespace: "to" cannot be empty')
-    }
+    } = options ?? {}
 
     // Validate URL format
     try {
@@ -2572,7 +2580,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     // Handle staged mode
     if (mode === 'staged') {
-      return this.prepareStagedDemote(parentNs, options)
+      return this.prepareStagedDemote(parentNs, { customThingId, compress, preserveId })
     }
 
     // Atomic mode - use blockConcurrencyWhile
@@ -2598,9 +2606,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         const activeThings = things.filter(t => !t.deleted)
 
         // Generate new thing ID
-        const newThingId = preserveId
-          ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
-          : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+        const newThingId = customThingId
+          ? customThingId
+          : preserveId
+            ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
+            : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
 
         // Compress history if requested
         let actionsToTransfer = actions
@@ -2757,14 +2767,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   private async prepareStagedDemote(
     parentNs: string,
     options: {
-      to: string
+      customThingId?: string
       compress?: boolean
-      mode?: 'atomic' | 'staged'
       preserveId?: boolean
-      type?: string
     }
   ): Promise<{ thingId: string; parentNs: string; deletedNs: string; stagedToken: string }> {
-    const { compress = false, preserveId = false } = options
+    const { customThingId, compress = false, preserveId = false } = options
 
     // Generate staging token
     const token = crypto.randomUUID()
@@ -2779,9 +2787,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     }
 
     // Generate thing ID
-    const newThingId = preserveId
-      ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
-      : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+    const newThingId = customThingId
+      ? customThingId
+      : preserveId
+        ? this.ns.replace(/^https?:\/\//, '').replace(/\.do$/, '')
+        : `demoted-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
 
     // Store staging data
     const stagingData = {
