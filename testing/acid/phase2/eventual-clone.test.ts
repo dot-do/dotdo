@@ -442,7 +442,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         type: 1,
         data: JSON.stringify({ index: 100, name: 'New Item' }),
         version: 1,
-        branch: 'main',
+        branch: null,
         deleted: false,
       })
 
@@ -463,7 +463,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
           type: 1,
           data: JSON.stringify({ index: i }),
           version: 1,
-          branch: 'main',
+          branch: null,
           deleted: false,
         })
       }
@@ -518,7 +518,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
           type: 1,
           data: JSON.stringify({ index: i }),
           version: 1,
-          branch: 'main',
+          branch: null,
           deleted: false,
         })
       }
@@ -736,7 +736,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         type: 1,
         data: JSON.stringify({ index: i, payload: 'x'.repeat(100) }),
         version: 1,
-        branch: 'main',
+        branch: null,
         deleted: false,
       }))
       result.sqlData.set('things', largeData)
@@ -783,7 +783,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         type: 1,
         data: JSON.stringify({ index: i }),
         version: 1,
-        branch: 'main',
+        branch: null,
         deleted: false,
       }))
       result.sqlData.set('things', largeData)
