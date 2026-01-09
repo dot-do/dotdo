@@ -17,6 +17,9 @@ export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudf
 /** chdb mock path for environments without native module */
 export const CHDB_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/chdb.ts')
 
+/** drizzle-orm/durable-sqlite mock path */
+export const DRIZZLE_DURABLE_SQLITE_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/drizzle-durable-sqlite.ts')
+
 /**
  * Shared test configuration settings applied to all test workspaces
  */
@@ -54,11 +57,12 @@ export const sharedTestConfig: Partial<UserConfig['test']> = {
 
 /**
  * Shared resolve configuration for Node.js test environments
- * Provides mock for cloudflare:workers module
+ * Provides mock for cloudflare:workers module and drizzle-orm/durable-sqlite
  */
 export const nodeResolveConfig: UserConfig['resolve'] = {
   alias: {
     'cloudflare:workers': CLOUDFLARE_WORKERS_MOCK,
+    'drizzle-orm/durable-sqlite': DRIZZLE_DURABLE_SQLITE_MOCK,
   },
 }
 

@@ -1,0 +1,844 @@
+/**
+ * MCP Server Integration for Durable Objects
+ *
+ * Provides MCP (Model Context Protocol) support for DO classes.
+ * Allows DO methods to be exposed as MCP tools and DO data as MCP resources.
+ *
+ * Features:
+ * - Static $mcp configuration for tool/resource definitions
+ * - JSON-RPC 2.0 protocol compliance
+ * - Session management with Mcp-Session-Id header
+ * - Auto-generated JSON schemas from tool configurations
+ * - SSE stream support for server notifications
+ *
+ * @example
+ * ```typescript
+ * class MyDO extends DO {
+ *   static $mcp = {
+ *     tools: {
+ *       search: {
+ *         description: 'Search items',
+ *         inputSchema: {
+ *           query: { type: 'string', description: 'Search query' },
+ *         },
+ *         required: ['query'],
+ *       },
+ *     },
+ *     resources: ['items', 'users'],
+ *   }
+ *
+ *   search(query: string) {
+ *     // Implementation
+ *   }
+ * }
+ * ```
+ */
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+/**
+ * Tool configuration in $mcp.tools
+ */
+export interface ToolConfig {
+  description: string
+  inputSchema: Record<string, { type: string; description?: string }>
+  required?: string[]
+}
+
+/**
+ * Static $mcp configuration on DO classes
+ */
+export interface McpConfig {
+  tools?: Record<string, ToolConfig>
+  resources?: string[]
+}
+
+/**
+ * MCP Tool definition (as returned by tools/list)
+ */
+export interface McpTool {
+  name: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, { type: string; description?: string }>
+    required?: string[]
+  }
+}
+
+/**
+ * MCP Resource definition (as returned by resources/list)
+ */
+export interface McpResource {
+  uri: string
+  name: string
+  description?: string
+  mimeType?: string
+}
+
+/**
+ * JSON-RPC 2.0 Request
+ */
+export interface JsonRpcRequest {
+  jsonrpc: '2.0'
+  id?: string | number
+  method: string
+  params?: unknown
+}
+
+/**
+ * JSON-RPC 2.0 Response
+ */
+export interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: string | number | null
+  result?: unknown
+  error?: {
+    code: number
+    message: string
+    data?: unknown
+  }
+}
+
+/**
+ * MCP Session state
+ */
+export interface McpSession {
+  id: string
+  createdAt: Date
+  lastAccessedAt: Date
+  clientInfo?: { name: string; version: string }
+  protocolVersion: string
+}
+
+/**
+ * DO instance type for MCP handler
+ */
+interface DOInstance {
+  ns: string
+  [key: string]: unknown
+}
+
+/**
+ * DO class type with static $mcp config
+ */
+interface DOClass {
+  new (...args: unknown[]): DOInstance
+  $mcp?: McpConfig
+  prototype: Record<string, unknown>
+}
+
+// ============================================================================
+// JSON-RPC ERROR CODES
+// ============================================================================
+
+export const JSON_RPC_ERRORS = {
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+}
+
+// ============================================================================
+// MCP PROTOCOL CONSTANTS
+// ============================================================================
+
+const MCP_PROTOCOL_VERSION = '2024-11-05'
+const MCP_SERVER_NAME = 'dotdo-do-mcp-server'
+const MCP_SERVER_VERSION = '0.1.0'
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Create a JSON-RPC error response
+ */
+function jsonRpcError(
+  id: string | number | null,
+  code: number,
+  message: string,
+  data?: unknown
+): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: { code, message, data },
+  }
+}
+
+/**
+ * Create a JSON-RPC success response
+ */
+function jsonRpcSuccess(id: string | number | null, result: unknown): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    result,
+  }
+}
+
+// ============================================================================
+// SCHEMA GENERATION
+// ============================================================================
+
+/**
+ * Generate a JSON Schema from a tool configuration
+ */
+export function generateToolSchema(toolConfig: ToolConfig): McpTool['inputSchema'] {
+  const properties: Record<string, { type: string; description?: string }> = {}
+
+  for (const [name, config] of Object.entries(toolConfig.inputSchema)) {
+    properties[name] = {
+      type: config.type,
+      ...(config.description && { description: config.description }),
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    ...(toolConfig.required && toolConfig.required.length > 0 && { required: toolConfig.required }),
+  }
+}
+
+// ============================================================================
+// TOOL AND RESOURCE DISCOVERY
+// ============================================================================
+
+/**
+ * Get MCP tools from a DO class's $mcp configuration
+ */
+export function getMcpTools(DOClass: DOClass): McpTool[] {
+  const config = DOClass.$mcp
+  if (!config?.tools) {
+    return []
+  }
+
+  const tools: McpTool[] = []
+
+  for (const [name, toolConfig] of Object.entries(config.tools)) {
+    tools.push({
+      name,
+      description: toolConfig.description,
+      inputSchema: generateToolSchema(toolConfig),
+    })
+  }
+
+  return tools
+}
+
+/**
+ * Get MCP resources from a DO class's $mcp configuration
+ */
+export function getMcpResources(DOClass: DOClass, ns: string): McpResource[] {
+  const config = DOClass.$mcp
+  if (!config?.resources) {
+    return []
+  }
+
+  // Parse the namespace URL to extract host
+  let host = 'do'
+  try {
+    const url = new URL(ns)
+    host = url.host
+  } catch {
+    // Use default host
+  }
+
+  return config.resources.map((resourceName) => ({
+    uri: `do://${host}/${resourceName}`,
+    name: resourceName,
+    mimeType: 'application/json',
+  }))
+}
+
+// ============================================================================
+// MCP HANDLER FACTORY
+// ============================================================================
+
+/**
+ * Create an MCP request handler for a DO class
+ *
+ * @param DOClass - The DO class with $mcp configuration
+ * @returns A function that handles MCP requests
+ */
+export function createMcpHandler(DOClass: DOClass): (
+  instance: DOInstance,
+  request: Request,
+  sessions: Map<string, McpSession>
+) => Promise<Response> {
+  const tools = getMcpTools(DOClass)
+  const toolsByName = new Map(tools.map((t) => [t.name, t]))
+  const toolConfigByName = new Map(
+    Object.entries(DOClass.$mcp?.tools ?? {}).map(([name, config]) => [name, config])
+  )
+
+  return async function handleMcp(
+    instance: DOInstance,
+    request: Request,
+    sessions: Map<string, McpSession>
+  ): Promise<Response> {
+    const method = request.method
+
+    // GET: SSE stream for notifications
+    if (method === 'GET') {
+      const sessionId = request.headers.get('mcp-session-id') || request.headers.get('Mcp-Session-Id')
+      if (!sessionId) {
+        return new Response(
+          JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Missing Mcp-Session-Id header')),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      const session = sessions.get(sessionId)
+      if (!session) {
+        return new Response(
+          JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Session not found')),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      // Return SSE stream
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(': keep-alive\n\n'))
+        },
+      })
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Mcp-Session-Id': sessionId,
+        },
+      })
+    }
+
+    // DELETE: Terminate session
+    if (method === 'DELETE') {
+      const sessionId = request.headers.get('mcp-session-id') || request.headers.get('Mcp-Session-Id')
+      if (!sessionId) {
+        return new Response(
+          JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Missing Mcp-Session-Id header')),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      const deleted = sessions.delete(sessionId)
+      if (!deleted) {
+        return new Response(
+          JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Session not found')),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      return new Response(null, { status: 204 })
+    }
+
+    // Only POST allowed for JSON-RPC
+    if (method !== 'POST') {
+      return new Response(
+        JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Method not allowed')),
+        {
+          status: 405,
+          headers: {
+            'Content-Type': 'application/json',
+            'Allow': 'GET, POST, DELETE',
+          },
+        }
+      )
+    }
+
+    // Parse request body
+    let body: JsonRpcRequest | JsonRpcRequest[]
+    try {
+      body = (await request.json()) as JsonRpcRequest | JsonRpcRequest[]
+    } catch {
+      return new Response(JSON.stringify(jsonRpcError(null, JSON_RPC_ERRORS.PARSE_ERROR, 'Parse error')), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Get or validate session
+    let sessionId = request.headers.get('mcp-session-id') || request.headers.get('Mcp-Session-Id')
+    let currentSession: McpSession | undefined = sessionId ? sessions.get(sessionId) : undefined
+
+    // Check if we need to validate session before processing
+    // If session ID was provided but session not found, and request is not initialize/ping, return 404
+    const requests = Array.isArray(body) ? body : [body]
+    const firstRequest = requests[0]
+    const firstMethod = firstRequest?.method
+
+    // Define known MCP methods
+    const knownMethods = new Set([
+      'initialize',
+      'ping',
+      'tools/list',
+      'tools/call',
+      'resources/list',
+      'resources/read',
+      'prompts/list',
+    ])
+
+    // For non-notification requests (has id), check if the request is valid JSON-RPC
+    // and if the method is known
+    if (firstRequest?.id !== undefined) {
+      // Check JSON-RPC version first
+      if (firstRequest?.jsonrpc !== '2.0') {
+        return new Response(
+          JSON.stringify(jsonRpcError(firstRequest?.id ?? null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Invalid JSON-RPC version')),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      // Check for unknown method (before session check)
+      if (firstMethod && !knownMethods.has(firstMethod)) {
+        return new Response(
+          JSON.stringify(jsonRpcError(firstRequest?.id ?? null, JSON_RPC_ERRORS.METHOD_NOT_FOUND, `Method not found: ${firstMethod}`)),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+    }
+
+    const requiresSession = firstMethod && firstMethod !== 'initialize' && firstMethod !== 'ping'
+
+    // Only validate session for non-notification requests
+    if (sessionId && !currentSession && requiresSession && firstRequest?.id !== undefined) {
+      return new Response(
+        JSON.stringify(jsonRpcError(firstRequest?.id ?? null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Session not found')),
+        {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Handle batch requests
+    const responses: JsonRpcResponse[] = []
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Track if all requests are notifications
+    let allNotifications = true
+
+    for (const req of requests) {
+      // Validate JSON-RPC format
+      if (req.jsonrpc !== '2.0') {
+        responses.push(
+          jsonRpcError(req.id ?? null, JSON_RPC_ERRORS.INVALID_REQUEST, 'Invalid JSON-RPC version')
+        )
+        allNotifications = false
+        continue
+      }
+
+      // Notifications have no id - no response expected
+      if (req.id === undefined) {
+        // Process notification but don't add to responses
+        continue
+      }
+
+      allNotifications = false
+
+      // Handle MCP methods
+      const response = await handleMcpMethod(
+        req,
+        instance,
+        DOClass,
+        sessions,
+        sessionId,
+        currentSession,
+        tools,
+        toolsByName,
+        toolConfigByName
+      )
+
+      // Update session reference if created
+      if (response.session) {
+        currentSession = response.session
+        sessionId = response.session.id
+      }
+
+      responses.push(response.response)
+    }
+
+    // If all requests were notifications, return 204
+    if (allNotifications && responses.length === 0) {
+      return new Response(null, { status: 204 })
+    }
+
+    // If session was created/used, include it in response headers
+    if (currentSession) {
+      responseHeaders['Mcp-Session-Id'] = currentSession.id
+    }
+
+    // Return single response or batch
+    const responseBody = Array.isArray(body) ? responses : responses[0]
+    return new Response(JSON.stringify(responseBody), {
+      status: 200,
+      headers: responseHeaders,
+    })
+  }
+}
+
+/**
+ * Handle a single MCP method call
+ */
+async function handleMcpMethod(
+  req: JsonRpcRequest,
+  instance: DOInstance,
+  DOClass: DOClass,
+  sessions: Map<string, McpSession>,
+  sessionId: string | null,
+  currentSession: McpSession | undefined,
+  tools: McpTool[],
+  toolsByName: Map<string, McpTool>,
+  toolConfigByName: Map<string, ToolConfig>
+): Promise<{ response: JsonRpcResponse; session?: McpSession }> {
+  // Methods that don't require session
+  if (req.method === 'ping') {
+    return { response: jsonRpcSuccess(req.id!, {}) }
+  }
+
+  if (req.method === 'initialize') {
+    // Create new session if not exists
+    if (!currentSession) {
+      const newSession: McpSession = {
+        id: crypto.randomUUID(),
+        createdAt: new Date(),
+        lastAccessedAt: new Date(),
+        protocolVersion: MCP_PROTOCOL_VERSION,
+      }
+
+      const params = req.params as { clientInfo?: { name: string; version: string } } | undefined
+      if (params?.clientInfo) {
+        newSession.clientInfo = params.clientInfo
+      }
+
+      sessions.set(newSession.id, newSession)
+      currentSession = newSession
+    }
+
+    return {
+      response: jsonRpcSuccess(req.id!, {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: {
+          tools: { listChanged: true },
+          resources: { subscribe: true, listChanged: true },
+          prompts: { listChanged: true },
+        },
+        serverInfo: {
+          name: MCP_SERVER_NAME,
+          version: MCP_SERVER_VERSION,
+        },
+      }),
+      session: currentSession,
+    }
+  }
+
+  // Methods that require session
+  if (req.method !== 'initialize' && req.method !== 'ping') {
+    // Check if session ID was provided but session not found
+    if (sessionId && !currentSession) {
+      return {
+        response: jsonRpcError(
+          req.id!,
+          JSON_RPC_ERRORS.INVALID_REQUEST,
+          'Session not found'
+        ),
+      }
+    }
+
+    // Check if session is required but not provided
+    if (!currentSession) {
+      return {
+        response: jsonRpcError(
+          req.id!,
+          JSON_RPC_ERRORS.INVALID_REQUEST,
+          'Session not initialized'
+        ),
+      }
+    }
+  }
+
+  switch (req.method) {
+    case 'tools/list': {
+      return {
+        response: jsonRpcSuccess(req.id!, { tools }),
+        session: currentSession,
+      }
+    }
+
+    case 'tools/call': {
+      const params = req.params as { name: string; arguments?: Record<string, unknown> } | undefined
+      if (!params?.name) {
+        return {
+          response: jsonRpcError(req.id!, JSON_RPC_ERRORS.INVALID_PARAMS, 'Missing tool name'),
+          session: currentSession,
+        }
+      }
+
+      const tool = toolsByName.get(params.name)
+      if (!tool) {
+        return {
+          response: jsonRpcError(
+            req.id!,
+            JSON_RPC_ERRORS.METHOD_NOT_FOUND,
+            `Tool not found: ${params.name}`
+          ),
+          session: currentSession,
+        }
+      }
+
+      // Validate required arguments
+      const toolConfig = toolConfigByName.get(params.name)
+      const toolArgs = params.arguments || {}
+      const requiredFields = toolConfig?.required || []
+
+      for (const field of requiredFields) {
+        if (!(field in toolArgs)) {
+          return {
+            response: jsonRpcError(
+              req.id!,
+              JSON_RPC_ERRORS.INVALID_PARAMS,
+              `Missing required argument: ${field}`
+            ),
+            session: currentSession,
+          }
+        }
+      }
+
+      // Invoke the method on the DO instance
+      try {
+        const methodFn = instance[params.name]
+        if (typeof methodFn !== 'function') {
+          return {
+            response: jsonRpcError(
+              req.id!,
+              JSON_RPC_ERRORS.METHOD_NOT_FOUND,
+              `Method not found: ${params.name}`
+            ),
+            session: currentSession,
+          }
+        }
+
+        // Build arguments array from schema order
+        const argNames = Object.keys(toolConfig?.inputSchema || {})
+        const args = argNames.map((name) => toolArgs[name])
+
+        const result = await (methodFn as Function).apply(instance, args)
+        const resultText = typeof result === 'string' ? result : JSON.stringify(result)
+
+        return {
+          response: jsonRpcSuccess(req.id!, {
+            content: [{ type: 'text', text: resultText }],
+          }),
+          session: currentSession,
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return {
+          response: jsonRpcSuccess(req.id!, {
+            content: [{ type: 'text', text: errorMessage }],
+            isError: true,
+          }),
+          session: currentSession,
+        }
+      }
+    }
+
+    case 'resources/list': {
+      const resources = getMcpResources(DOClass, instance.ns)
+      return {
+        response: jsonRpcSuccess(req.id!, { resources }),
+        session: currentSession,
+      }
+    }
+
+    case 'resources/read': {
+      const params = req.params as { uri: string } | undefined
+      if (!params?.uri) {
+        return {
+          response: jsonRpcError(req.id!, JSON_RPC_ERRORS.INVALID_PARAMS, 'Missing resource URI'),
+          session: currentSession,
+        }
+      }
+
+      // Parse URI: do://host/resourceName or do://host/resourceName/id
+      const uriMatch = params.uri.match(/^do:\/\/([^/]+)\/([^/]+)(?:\/(.+))?$/)
+      if (!uriMatch) {
+        return {
+          response: jsonRpcError(
+            req.id!,
+            JSON_RPC_ERRORS.INVALID_PARAMS,
+            `Invalid resource URI: ${params.uri}`
+          ),
+          session: currentSession,
+        }
+      }
+
+      const [, , resourceName, resourceId] = uriMatch
+
+      // Check if resource is defined in $mcp.resources
+      const configResources = DOClass.$mcp?.resources || []
+      if (!configResources.includes(resourceName)) {
+        return {
+          response: jsonRpcError(
+            req.id!,
+            JSON_RPC_ERRORS.INVALID_PARAMS,
+            `Resource not found: ${resourceName}`
+          ),
+          session: currentSession,
+        }
+      }
+
+      // Try to get the resource data from the DO instance
+      // First, check for a getter method like getItems(), getUsers(), etc.
+      const getterName = `get${resourceName.charAt(0).toUpperCase()}${resourceName.slice(1)}`
+      const getter = instance[getterName]
+
+      let data: unknown
+
+      if (typeof getter === 'function') {
+        const allData = await (getter as Function).call(instance)
+
+        if (resourceId) {
+          // Filter to specific item
+          if (Array.isArray(allData)) {
+            data = allData.find((item: { id?: string }) => item.id === resourceId)
+            if (!data) {
+              return {
+                response: jsonRpcError(
+                  req.id!,
+                  JSON_RPC_ERRORS.INVALID_PARAMS,
+                  `Resource item not found: ${resourceName}/${resourceId}`
+                ),
+                session: currentSession,
+              }
+            }
+          } else {
+            data = allData
+          }
+        } else {
+          data = allData
+        }
+      } else {
+        // Try direct property access
+        const prop = instance[resourceName]
+        if (prop !== undefined) {
+          data = prop
+        } else {
+          return {
+            response: jsonRpcError(
+              req.id!,
+              JSON_RPC_ERRORS.INVALID_PARAMS,
+              `Resource accessor not found: ${resourceName}`
+            ),
+            session: currentSession,
+          }
+        }
+      }
+
+      return {
+        response: jsonRpcSuccess(req.id!, {
+          contents: [
+            {
+              uri: params.uri,
+              mimeType: 'application/json',
+              text: JSON.stringify(data),
+            },
+          ],
+        }),
+        session: currentSession,
+      }
+    }
+
+    case 'prompts/list': {
+      return {
+        response: jsonRpcSuccess(req.id!, { prompts: [] }),
+        session: currentSession,
+      }
+    }
+
+    default:
+      return {
+        response: jsonRpcError(
+          req.id!,
+          JSON_RPC_ERRORS.METHOD_NOT_FOUND,
+          `Method not found: ${req.method}`
+        ),
+        session: currentSession,
+      }
+  }
+}
+
+// ============================================================================
+// MCP MIXIN FOR DO CLASSES
+// ============================================================================
+
+/**
+ * MCP session storage per DO instance
+ */
+const mcpSessions = new WeakMap<object, Map<string, McpSession>>()
+
+/**
+ * Get or create session storage for a DO instance
+ */
+function getSessionStorage(instance: object): Map<string, McpSession> {
+  let sessions = mcpSessions.get(instance)
+  if (!sessions) {
+    sessions = new Map()
+    mcpSessions.set(instance, sessions)
+  }
+  return sessions
+}
+
+/**
+ * Add handleMcp method to a DO instance
+ * This is called internally to attach MCP support to DO classes
+ */
+export function attachMcpHandler(instance: DOInstance, DOClass: DOClass): void {
+  const handler = createMcpHandler(DOClass)
+  const sessions = getSessionStorage(instance)
+
+  // Attach handleMcp method to instance
+  ;(instance as unknown as { handleMcp: (request: Request) => Promise<Response> }).handleMcp =
+    async function (request: Request): Promise<Response> {
+      return handler(instance, request, sessions)
+    }
+}
+
+/**
+ * Type guard to check if a DO class has $mcp configuration
+ */
+export function hasMcpConfig(DOClass: DOClass): boolean {
+  return DOClass.$mcp !== undefined && (
+    (DOClass.$mcp.tools !== undefined && Object.keys(DOClass.$mcp.tools).length > 0) ||
+    (DOClass.$mcp.resources !== undefined && DOClass.$mcp.resources.length > 0)
+  )
+}

@@ -58,14 +58,23 @@ class MockDO {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // Handle WebSocket upgrade like a real DO would
+    if (request.headers.get('Upgrade') === 'websocket') {
+      return this.handleWebSocket(request)
+    }
     return new Response(JSON.stringify({ status: 'ok', type: 'MockDO' }), {
       headers: { 'Content-Type': 'application/json' },
     })
   }
 
   async handleWebSocket(request: Request): Promise<Response> {
-    // Mock WebSocket upgrade
-    return new Response(null, { status: 101 })
+    // Mock WebSocket upgrade - use custom response since we can't use status 101
+    // In real Cloudflare Workers, this would be a proper WebSocket upgrade
+    // We simulate it by creating a response that indicates WebSocket was handled
+    const response = new Response(null, { status: 200 })
+    // Use Object.defineProperty to override status for testing purposes
+    Object.defineProperty(response, 'status', { value: 101, writable: false })
+    return response
   }
 
   async rpc(method: string, args: unknown[]): Promise<unknown> {
@@ -235,65 +244,25 @@ function createMockExecutionContext(): ExecutionContext {
 }
 
 // ============================================================================
-// PLACEHOLDER: These will be the actual imports once implemented
-// For now, we create placeholder functions that throw to make tests RED
+// Import the actual implementation
 // ============================================================================
 
-function createWorker(_DO: unknown, _options?: unknown): { fetch: (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> } {
-  throw new Error('createWorker is not implemented')
-}
-
-function createHandler(_DO: unknown, _middleware?: unknown[]): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('createHandler is not implemented')
-}
-
-function createFetchHandler(_DO: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('createFetchHandler is not implemented')
-}
-
-function createWebSocketHandler(_DO: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('createWebSocketHandler is not implemented')
-}
-
-function createRPCHandler(_DO: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('createRPCHandler is not implemented')
-}
-
-function createMultiDOWorker(_config: Record<string, unknown>): { fetch: (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> } {
-  throw new Error('createMultiDOWorker is not implemented')
-}
-
-function bindDO<T>(_env: MockEnv, _DOClass: new (...args: unknown[]) => T): DurableObjectNamespace<T> {
-  throw new Error('bindDO is not implemented')
-}
-
-function resolveDO<T>(_env: MockEnv, _bindingName: string): DurableObjectNamespace<T> {
-  throw new Error('resolveDO is not implemented')
-}
-
-function withMiddleware(_handler: unknown, ..._middleware: unknown[]): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('withMiddleware is not implemented')
-}
-
-function withErrorHandler(_handler: unknown, _errorHandler?: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('withErrorHandler is not implemented')
-}
-
-function withCORS(_handler: unknown, _options?: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('withCORS is not implemented')
-}
-
-function withAuth(_handler: unknown, _authConfig: unknown): (request: Request, env: MockEnv, ctx: ExecutionContext) => Promise<Response> {
-  throw new Error('withAuth is not implemented')
-}
-
-function getDOBinding(_env: MockEnv, _DOClass: unknown): DurableObjectNamespace | undefined {
-  throw new Error('getDOBinding is not implemented')
-}
-
-function inferBindingName(_DOClass: { $type?: string; name?: string }): string {
-  throw new Error('inferBindingName is not implemented')
-}
+import {
+  createWorker,
+  createHandler,
+  createFetchHandler,
+  createWebSocketHandler,
+  createRPCHandler,
+  createMultiDOWorker,
+  bindDO,
+  resolveDO,
+  withMiddleware,
+  withErrorHandler,
+  withCORS,
+  withAuth,
+  getDOBinding,
+  inferBindingName,
+} from '../src/index'
 
 // ============================================================================
 // TESTS: createWorker - Simple Default Export

@@ -40,6 +40,13 @@ import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
+import {
+  createMcpHandler,
+  hasMcpConfig,
+  type McpSession,
+  type McpConfig,
+} from './transport/mcp-server'
+import { RPCServer, type RPCServerConfig } from './transport/rpc-server'
 import type {
   WorkflowContext,
   DomainProxy,
@@ -117,6 +124,30 @@ export interface RelationshipRecord {
 
 export class DO<E extends Env = Env> extends DOTiny<E> {
   // ═══════════════════════════════════════════════════════════════════════════
+  // STATIC MCP CONFIGURATION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Static MCP configuration for exposing methods as MCP tools and data as resources.
+   * Override in subclasses to expose tools and resources.
+   *
+   * @example
+   * ```typescript
+   * static $mcp = {
+   *   tools: {
+   *     search: {
+   *       description: 'Search items',
+   *       inputSchema: { query: { type: 'string' } },
+   *       required: ['query'],
+   *     },
+   *   },
+   *   resources: ['items', 'users'],
+   * }
+   * ```
+   */
+  static $mcp?: McpConfig
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HONO APP (for HTTP routing)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -125,6 +156,53 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    * Subclasses can create and configure this for custom routes.
    */
   protected app?: Hono
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MCP SESSION STORAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * MCP session storage for this DO instance.
+   */
+  private _mcpSessions: Map<string, McpSession> = new Map()
+
+  /**
+   * Cached MCP handler for this class.
+   */
+  private _mcpHandler?: (
+    instance: { ns: string; [key: string]: unknown },
+    request: Request,
+    sessions: Map<string, McpSession>
+  ) => Promise<Response>
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RPC SERVER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * RPC Server instance for Cap'n Web RPC protocol support.
+   * Lazy-initialized on first access.
+   */
+  private _rpcServer?: RPCServer
+
+  /**
+   * Get the RPC server instance.
+   * Creates the server on first access.
+   */
+  get rpcServer(): RPCServer {
+    if (!this._rpcServer) {
+      this._rpcServer = new RPCServer(this)
+    }
+    return this._rpcServer
+  }
+
+  /**
+   * Check if a method is exposed via RPC.
+   * Note: This method is bound in the constructor to ensure `this` is always correct.
+   */
+  isRpcExposed = (method: string): boolean => {
+    return this.rpcServer.isRpcExposed(method)
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTOR CONTEXT
@@ -1491,6 +1569,32 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // MCP HANDLER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle MCP (Model Context Protocol) requests.
+   * This method is exposed for direct MCP access and is also routed from /mcp path.
+   *
+   * @param request - The incoming HTTP request
+   * @returns Response with JSON-RPC 2.0 formatted result
+   */
+  async handleMcp(request: Request): Promise<Response> {
+    const DOClass = this.constructor as typeof DO
+
+    // Initialize MCP handler if not already done
+    if (!this._mcpHandler) {
+      this._mcpHandler = createMcpHandler(DOClass as unknown as {
+        new (...args: unknown[]): { ns: string; [key: string]: unknown }
+        $mcp?: McpConfig
+        prototype: Record<string, unknown>
+      })
+    }
+
+    return this._mcpHandler(this as unknown as { ns: string; [key: string]: unknown }, request, this._mcpSessions)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HTTP HANDLER (Extended from DOTiny)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1500,6 +1604,34 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     // Built-in routes
     if (url.pathname === '/health') {
       return Response.json({ status: 'ok', ns: this.ns })
+    }
+
+    // Handle /mcp endpoint for MCP transport
+    if (url.pathname === '/mcp') {
+      return this.handleMcp(request)
+    }
+
+    // Handle /rpc endpoint for RPC protocol (JSON-RPC 2.0 + Cap'n Web)
+    if (url.pathname === '/rpc') {
+      // Check for WebSocket upgrade
+      const upgradeHeader = request.headers.get('upgrade')
+      const connectionHeader = request.headers.get('connection')?.toLowerCase() || ''
+      const hasConnectionUpgrade = connectionHeader.includes('upgrade')
+
+      if (upgradeHeader?.toLowerCase() === 'websocket' && hasConnectionUpgrade) {
+        return this.rpcServer.handleWebSocketRpc()
+      }
+
+      // HTTP RPC request
+      if (request.method === 'POST') {
+        return this.rpcServer.handleRpcRequest(request)
+      }
+
+      // GET request - return RPC info
+      return Response.json({
+        message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
+        methods: this.rpcServer.methods,
+      }, { headers: { 'Content-Type': 'application/json' } })
     }
 
     // Handle /resolve endpoint for cross-DO resolution
