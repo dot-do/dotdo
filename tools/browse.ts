@@ -16,7 +16,7 @@
 import type {
   ToolDefinition,
   AgentContext,
-} from '../objects/AgenticFunctionExecutor'
+} from '../lib/executors/AgenticFunctionExecutor'
 
 // ============================================================================
 // CONSTANTS

@@ -16,7 +16,7 @@ import type {
   GenerativeFunctionConfig,
   AgenticFunctionConfig,
   HumanFunctionConfig,
-} from './BaseFunctionExecutor'
+} from '../executors/BaseFunctionExecutor'
 
 // ============================================================================
 // TYPES

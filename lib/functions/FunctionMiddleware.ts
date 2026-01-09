@@ -10,7 +10,7 @@
  * - Caching middleware
  */
 
-import type { ExecutionMiddleware, MiddlewareContext, MiddlewareNext } from './BaseFunctionExecutor'
+import type { ExecutionMiddleware, MiddlewareContext, MiddlewareNext } from '../executors/BaseFunctionExecutor'
 
 // ============================================================================
 // TYPES

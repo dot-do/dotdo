@@ -177,7 +177,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-1',
         data: task,
         txid: 101,
       })
@@ -239,7 +239,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-1',
         data: newTask,
         txid: 200, // Same as rowid from mutation
       })
@@ -318,7 +318,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-other',
         data: otherTask,
         txid: 101,
       })
@@ -329,7 +329,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-our',
         data: ourTask,
         txid: 102,
       })
@@ -427,7 +427,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-2',
         data: {
           $id: 'task-2',
           $type: 'Task',
@@ -440,7 +440,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-1',
         data: {
           $id: 'task-1',
           $type: 'Task',
@@ -488,7 +488,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-later',
         data: {
           $id: 'task-later',
           $type: 'Task',
@@ -501,7 +501,7 @@ describe('client/transaction-matching', () => {
       ws.simulateMessage({
         type: 'insert',
         collection: 'Task',
-        key: 'task-x',
+        key: 'task-earlier',
         data: {
           $id: 'task-earlier',
           $type: 'Task',

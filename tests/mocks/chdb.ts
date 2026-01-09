@@ -6,9 +6,20 @@
  */
 
 /**
- * Mock query function that returns empty results
+ * Mock query function that returns appropriate results based on the query
  */
-export function query(_sql: string, format?: string): string {
+export function query(sql: string, format?: string): string {
+  // Check for count queries and return 0
+  const lowerSql = sql.toLowerCase()
+  if (lowerSql.includes('count(') || lowerSql.includes('count ()')) {
+    if (format === 'JSONEachRow' || !format) {
+      return JSON.stringify({ count: 0 })
+    }
+    if (format === 'JSON') {
+      return JSON.stringify({ data: [{ count: 0 }], rows: 1 })
+    }
+  }
+
   // Return empty results based on format
   if (format === 'JSONEachRow' || !format) {
     return ''

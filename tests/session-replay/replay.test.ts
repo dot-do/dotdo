@@ -1011,8 +1011,13 @@ try {
 describe('HTTP route handlers', () => {
   const app = createSessionsRouter?.()
 
+  // Auth header for admin access
+  const authHeaders = { 'Authorization': 'Bearer valid-admin-token' }
+
   it('GET /admin/sessions returns JSON', async () => {
-    const request = new Request('http://localhost/admin/sessions')
+    const request = new Request('http://localhost/admin/sessions', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1020,7 +1025,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('GET /admin/sessions/:id returns session details', async () => {
-    const request = new Request('http://localhost/admin/sessions/test-session-id')
+    const request = new Request('http://localhost/admin/sessions/test-session-id', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1029,7 +1036,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('GET /admin/sessions/:id/replay returns timeline', async () => {
-    const request = new Request('http://localhost/admin/sessions/test-session-id/replay')
+    const request = new Request('http://localhost/admin/sessions/test-session-id/replay', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1037,7 +1046,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('returns 404 for non-existent session', async () => {
-    const request = new Request('http://localhost/admin/sessions/non-existent-id')
+    const request = new Request('http://localhost/admin/sessions/non-existent-id', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1045,7 +1056,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('accepts query parameters for filtering', async () => {
-    const request = new Request('http://localhost/admin/sessions?userId=user-123&hasErrors=true')
+    const request = new Request('http://localhost/admin/sessions?userId=user-123&hasErrors=true', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1055,7 +1068,8 @@ describe('HTTP route handlers', () => {
   it('accepts time range query parameters', async () => {
     const now = Date.now()
     const request = new Request(
-      `http://localhost/admin/sessions?start=${now - 86400000}&end=${now}`
+      `http://localhost/admin/sessions?start=${now - 86400000}&end=${now}`,
+      { headers: authHeaders }
     )
 
     const response = await app!.fetch(request)
@@ -1064,7 +1078,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('accepts pagination query parameters', async () => {
-    const request = new Request('http://localhost/admin/sessions?page=2&pageSize=20')
+    const request = new Request('http://localhost/admin/sessions?page=2&pageSize=20', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 
@@ -1072,7 +1088,9 @@ describe('HTTP route handlers', () => {
   })
 
   it('returns proper error response for invalid parameters', async () => {
-    const request = new Request('http://localhost/admin/sessions?page=invalid')
+    const request = new Request('http://localhost/admin/sessions?page=invalid', {
+      headers: authHeaders,
+    })
 
     const response = await app!.fetch(request)
 

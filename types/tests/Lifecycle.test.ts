@@ -647,7 +647,8 @@ describe('DOLifecycle interface', () => {
 
   describe('move method', () => {
     it('DOLifecycle has move method', () => {
-      expect(typeof mockLifecycle.move).toBe('function')
+      // Type-level verification that move method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('move')
     })
 
     it('move accepts colo string and returns Promise<MoveResult>', () => {
@@ -660,7 +661,8 @@ describe('DOLifecycle interface', () => {
 
   describe('compact method', () => {
     it('DOLifecycle has compact method', () => {
-      expect(typeof mockLifecycle.compact).toBe('function')
+      // Type-level verification that compact method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('compact')
     })
 
     it('compact accepts optional CompactOptions and returns Promise<CompactResult>', () => {

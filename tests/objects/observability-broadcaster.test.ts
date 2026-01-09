@@ -60,6 +60,72 @@ function createMockWebSocketPair(): [MockWebSocket, MockWebSocket] {
 }
 
 /**
+ * Mock WebSocketPair class for Cloudflare Workers runtime API
+ * This simulates the global WebSocketPair constructor
+ */
+class MockWebSocketPair {
+  0: MockWebSocket
+  1: MockWebSocket
+
+  constructor() {
+    const [client, server] = createMockWebSocketPair()
+    this[0] = client
+    this[1] = server
+  }
+
+  // Support array destructuring
+  *[Symbol.iterator]() {
+    yield this[0]
+    yield this[1]
+  }
+}
+
+// Install global WebSocketPair mock for Cloudflare Workers runtime simulation
+// @ts-expect-error - WebSocketPair is a Cloudflare Workers runtime global
+globalThis.WebSocketPair = MockWebSocketPair
+
+/**
+ * Mock Response class that supports WebSocket upgrade (status 101)
+ * Extends the native Response to add webSocket property support
+ */
+class MockWebSocketResponse {
+  readonly status: number
+  readonly webSocket: MockWebSocket | null
+
+  constructor(body: BodyInit | null, init?: ResponseInit & { webSocket?: MockWebSocket }) {
+    this.status = init?.status ?? 200
+    this.webSocket = init?.webSocket ?? null
+  }
+
+  get ok(): boolean {
+    return this.status >= 200 && this.status < 300
+  }
+}
+
+// Store original Response for non-WebSocket responses
+const OriginalResponse = globalThis.Response
+
+// Override Response to handle WebSocket upgrades
+// @ts-expect-error - Extending Response for Cloudflare Workers runtime simulation
+globalThis.Response = class extends OriginalResponse {
+  webSocket: MockWebSocket | null = null
+
+  constructor(body?: BodyInit | null, init?: ResponseInit & { webSocket?: MockWebSocket }) {
+    // If this is a WebSocket upgrade response, create a mock
+    if (init?.status === 101) {
+      // Can't call super with 101, so we create a minimal mock response
+      super(null, { status: 200 }) // Workaround: create with valid status
+      // Override status via Object.defineProperty since it's readonly
+      Object.defineProperty(this, 'status', { value: 101, writable: false })
+      this.webSocket = init.webSocket ?? null
+    } else {
+      super(body, init)
+      this.webSocket = init?.webSocket ?? null
+    }
+  }
+}
+
+/**
  * Mock DurableObjectState with hibernation API
  */
 interface MockDOState {

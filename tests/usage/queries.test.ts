@@ -386,8 +386,8 @@ describe('Query timeline data', () => {
       bucketSize: 'day',
     })
 
-    // Should have ~7 daily buckets
-    expect(timeline.length).toBeLessThanOrEqual(7)
+    // Should have ~7-8 daily buckets (can span 8 calendar days at boundaries)
+    expect(timeline.length).toBeLessThanOrEqual(8)
   })
 
   it('returns minute buckets for short range', async () => {

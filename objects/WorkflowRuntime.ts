@@ -13,13 +13,13 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import { WaitForEventManager, type WaitForEventOptions } from './WaitForEventManager'
+import { WaitForEventManager, type WaitForEventOptions } from '../workflows/WaitForEventManager'
 import {
   type Modifier,
   type ModifierContext,
   applyInputModifiers,
   applyOutputModifiers,
-} from './Modifier'
+} from '../lib/Modifier'
 import {
   ParallelStepExecutor,
   ParallelExecutionError,
@@ -27,10 +27,10 @@ import {
   type ParallelStepResult,
   type ParallelOptions,
   type ParallelMode,
-} from './ParallelStepExecutor'
+} from '../lib/executors/ParallelStepExecutor'
 
 // Re-export for convenience
-export { ParallelExecutionError } from './ParallelStepExecutor'
+export { ParallelExecutionError } from '../lib/executors/ParallelStepExecutor'
 
 // ============================================================================
 // TYPES

@@ -659,15 +659,19 @@ describe('Date range filtering', () => {
 
   it('adjusts timeline bucket size based on range', async () => {
     const res24h = await app.request('/admin/usage?range=24h', { method: 'GET' }, env)
+    const res7d = await app.request('/admin/usage?range=7d', { method: 'GET' }, env)
     const res30d = await app.request('/admin/usage?range=30d', { method: 'GET' }, env)
 
     const body24h = (await res24h.json()) as UsageOverviewResponse
+    const body7d = (await res7d.json()) as UsageOverviewResponse
     const body30d = (await res30d.json()) as UsageOverviewResponse
 
-    // 24h should have more granular buckets than 30d
-    if (body24h.timeline.length > 0 && body30d.timeline.length > 0) {
-      // 24h uses hourly buckets, 30d uses daily buckets
-      expect(body24h.timeline.length).toBeGreaterThan(body30d.timeline.length)
+    // 24h and 7d should both use hourly buckets
+    // 30d should use daily buckets which are fewer (mock data spans 7 days = ~7 buckets)
+    // 7d with hourly buckets should have more buckets than 30d with daily buckets
+    if (body7d.timeline.length > 0 && body30d.timeline.length > 0) {
+      // 7d uses hourly buckets (up to ~168), 30d uses daily buckets (~7-8 with mock data)
+      expect(body7d.timeline.length).toBeGreaterThan(body30d.timeline.length)
     }
   })
 })

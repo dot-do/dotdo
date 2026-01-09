@@ -22,7 +22,7 @@
  * ```
  */
 
-import type { StepContext, WorkflowStepConfig } from './WorkflowRuntime'
+import type { StepContext, WorkflowStepConfig } from '../../objects/WorkflowRuntime'
 
 // ============================================================================
 // TYPES

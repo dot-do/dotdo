@@ -295,10 +295,13 @@ function handleTimelineQuery(sql: string, params: unknown[] = [], events: UsageE
   const filtered = filterEvents(events, filters)
 
   // Determine bucket size from SQL
+  // Order matters: check more specific patterns first
   let bucketMs = 60 * 60 * 1000 // default: hour
   if (sql.includes('minute') || sql.includes('%Y-%m-%d %H:%M')) {
     bucketMs = 60 * 1000
-  } else if (sql.includes('day') || sql.includes('%Y-%m-%d')) {
+  } else if (sql.includes('%Y-%m-%d %H:00') || sql.includes('%H:00')) {
+    bucketMs = 60 * 60 * 1000 // hourly
+  } else if (sql.includes('day') || (sql.includes('%Y-%m-%d') && !sql.includes('%H'))) {
     bucketMs = 24 * 60 * 60 * 1000
   }
 

@@ -29,6 +29,8 @@ import {
   QueryTemplates,
   buildQuery,
   createChDBSandbox,
+  createCacheKey,
+  ClickHouseCache,
   type OutputFormat,
   type QueryResult,
 } from '../../sandbox/clickhouse'

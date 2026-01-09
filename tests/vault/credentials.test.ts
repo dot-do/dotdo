@@ -749,10 +749,18 @@ describe('OAuth flow', () => {
       const initResult = await $.oauth.initiate(testConfig)
       await $.oauth.callback('auth-code-12345', initResult.state)
 
+      const stateData = $._storage.oauthStates.get(initResult.state)
+      const tokenKey = `${stateData?.userId}:google`
+
+      // Remove the refresh token to simulate "no refresh token configured"
+      const storedTokens = $._storage.oauthTokens.get(tokenKey)
+      if (storedTokens) {
+        delete storedTokens.refreshToken
+      }
+
       // Advance past expiration
       vi.advanceTimersByTime(2 * 60 * 60 * 1000) // 2 hours
 
-      const stateData = $._storage.oauthStates.get(initResult.state)
       // With no refresh token configured, should throw
       await expect($.oauth.getAccessToken(stateData?.userId ?? '', 'google')).rejects.toThrow()
     })
@@ -984,7 +992,10 @@ describe('Token refresh', () => {
       const { userId, provider } = await setupTokens()
 
       // Simulate provider revocation by marking token as revoked
-      // Implementation will handle this via provider API response
+      const storedTokens = $._storage.oauthTokens.get(`${userId}:${provider}`)
+      if (storedTokens) {
+        storedTokens.refreshToken = 'revoked-token'
+      }
 
       vi.advanceTimersByTime(2 * 60 * 60 * 1000)
 
