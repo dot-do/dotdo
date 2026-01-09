@@ -14,6 +14,10 @@ import { Hono } from 'hono'
  * - EPCIS 2.0 query parameter support (eventType, bizStep, MATCH_epc, etc.)
  * - Standardized response format
  * - Authentication required
+ * - Index hints for query optimization
+ * - Query plan caching for repeated queries
+ * - Cursor-based pagination support
+ * - Search analytics hooks
  *
  * EPCIS 2.0 Query Parameters (5W+H model):
  * | 5W+H  | EPCIS Field               | Query Parameter           |
@@ -34,10 +38,84 @@ export interface ProviderTypeConfig {
   scopes: string[]
 }
 
+/**
+ * Index hints for query optimization.
+ * Maps field names to recommended indexes for common query patterns.
+ */
+export interface IndexHint {
+  /** Primary index field for this query pattern */
+  indexField: string
+  /** Optional secondary fields for composite indexes */
+  compositeFields?: string[]
+  /** Whether full-text search index should be used */
+  useFTS?: boolean
+  /** Suggested index type (btree, hash, gin, etc.) */
+  indexType?: 'btree' | 'hash' | 'gin' | 'gist'
+}
+
+/**
+ * Analytics event for search operations
+ */
+export interface SearchAnalyticsEvent {
+  /** Type being searched */
+  type: string
+  /** Search query string */
+  query: string
+  /** Filters applied */
+  filters: Record<string, string>
+  /** Number of results returned */
+  resultCount: number
+  /** Total matching records */
+  totalCount: number
+  /** Time taken in milliseconds */
+  durationMs: number
+  /** User ID performing search */
+  userId: string
+  /** Timestamp of search */
+  timestamp: number
+  /** Whether query plan cache was hit */
+  cacheHit: boolean
+  /** Index hints that were suggested */
+  indexHints?: IndexHint[]
+}
+
+/**
+ * Search analytics hook function type
+ */
+export type SearchAnalyticsHook = (event: SearchAnalyticsEvent) => void | Promise<void>
+
+/**
+ * Cached query plan entry
+ */
+interface QueryPlanCacheEntry {
+  /** Hash of the query parameters */
+  hash: string
+  /** Computed where clause */
+  where: Record<string, unknown>
+  /** Index hints for this query */
+  indexHints: IndexHint[]
+  /** Timestamp when cached */
+  cachedAt: number
+  /** Number of times this cache entry was hit */
+  hitCount: number
+}
+
 export interface SearchConfig {
   localTypes?: string[]
   providerTypes?: Record<string, ProviderTypeConfig>
   requirePermission?: boolean
+  /** Custom index hints per type */
+  indexHints?: Record<string, IndexHint[]>
+  /** Enable query plan caching (default: true) */
+  enableQueryPlanCache?: boolean
+  /** Query plan cache TTL in milliseconds (default: 5 minutes) */
+  queryPlanCacheTTL?: number
+  /** Maximum cache entries (default: 1000) */
+  maxCacheEntries?: number
+  /** Analytics hook for search events */
+  analyticsHook?: SearchAnalyticsHook
+  /** Enable cursor-based pagination (default: false for backward compat) */
+  enableCursorPagination?: boolean
 }
 
 export interface SearchResponse {
@@ -48,6 +126,10 @@ export interface SearchResponse {
   total: number
   limit: number
   offset: number
+  /** Next cursor for cursor-based pagination (when enabled) */
+  nextCursor?: string
+  /** Previous cursor for cursor-based pagination (when enabled) */
+  prevCursor?: string
 }
 
 interface User {
@@ -136,6 +218,314 @@ const EPCIS_TIME_PARAMS = [
  * EPCIS pattern matching parameters (these need special handling)
  */
 const EPCIS_PATTERN_PARAMS = ['MATCH_epc'] as const
+
+// ============================================================================
+// Query Plan Cache
+// ============================================================================
+
+/**
+ * Default index hints for common query patterns.
+ * These suggest optimal indexes based on the fields being queried.
+ */
+const DEFAULT_INDEX_HINTS: Record<string, IndexHint[]> = {
+  // Time-based queries should use btree index on eventTime
+  eventTime: [
+    { indexField: 'eventTime', indexType: 'btree' },
+  ],
+  // Text search queries should use FTS
+  q: [
+    { indexField: 'title', useFTS: true },
+    { indexField: 'description', useFTS: true },
+  ],
+  // Status queries benefit from hash index
+  status: [
+    { indexField: 'status', indexType: 'hash' },
+  ],
+  // Combined time + status queries
+  'eventTime+status': [
+    { indexField: 'eventTime', compositeFields: ['status'], indexType: 'btree' },
+  ],
+  // EPCIS bizStep queries
+  bizStep: [
+    { indexField: 'bizStep', indexType: 'hash' },
+  ],
+  // EPCIS bizLocation queries
+  bizLocation: [
+    { indexField: 'bizLocation', indexType: 'btree' },
+  ],
+}
+
+/**
+ * LRU-style query plan cache with TTL support.
+ * Caches computed where clauses and index hints to avoid recomputation.
+ */
+class QueryPlanCache {
+  private cache: Map<string, QueryPlanCacheEntry> = new Map()
+  private readonly maxEntries: number
+  private readonly ttlMs: number
+
+  constructor(maxEntries = 1000, ttlMs = 5 * 60 * 1000) {
+    this.maxEntries = maxEntries
+    this.ttlMs = ttlMs
+  }
+
+  /**
+   * Generate a hash key from query parameters
+   */
+  private generateHash(
+    type: string,
+    q: string,
+    filters: Record<string, string>
+  ): string {
+    // Simple hash combining type, query, and sorted filter keys/values
+    const filterStr = Object.entries(filters)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('&')
+    return `${type}:${q}:${filterStr}`
+  }
+
+  /**
+   * Get a cached query plan if available and not expired
+   */
+  get(
+    type: string,
+    q: string,
+    filters: Record<string, string>
+  ): QueryPlanCacheEntry | null {
+    const hash = this.generateHash(type, q, filters)
+    const entry = this.cache.get(hash)
+
+    if (!entry) {
+      return null
+    }
+
+    // Check TTL
+    if (Date.now() - entry.cachedAt > this.ttlMs) {
+      this.cache.delete(hash)
+      return null
+    }
+
+    // Update hit count
+    entry.hitCount++
+    return entry
+  }
+
+  /**
+   * Cache a query plan
+   */
+  set(
+    type: string,
+    q: string,
+    filters: Record<string, string>,
+    where: Record<string, unknown>,
+    indexHints: IndexHint[]
+  ): void {
+    const hash = this.generateHash(type, q, filters)
+
+    // Evict oldest entries if at capacity
+    if (this.cache.size >= this.maxEntries) {
+      // Remove the oldest entry (first in map)
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) {
+        this.cache.delete(firstKey)
+      }
+    }
+
+    this.cache.set(hash, {
+      hash,
+      where,
+      indexHints,
+      cachedAt: Date.now(),
+      hitCount: 0,
+    })
+  }
+
+  /**
+   * Clear the entire cache
+   */
+  clear(): void {
+    this.cache.clear()
+  }
+
+  /**
+   * Get cache statistics
+   */
+  stats(): { size: number; maxEntries: number; ttlMs: number } {
+    return {
+      size: this.cache.size,
+      maxEntries: this.maxEntries,
+      ttlMs: this.ttlMs,
+    }
+  }
+}
+
+// Global query plan cache instance
+let globalQueryPlanCache: QueryPlanCache | null = null
+
+/**
+ * Get or create the global query plan cache
+ */
+function getQueryPlanCache(maxEntries?: number, ttlMs?: number): QueryPlanCache {
+  if (!globalQueryPlanCache) {
+    globalQueryPlanCache = new QueryPlanCache(maxEntries, ttlMs)
+  }
+  return globalQueryPlanCache
+}
+
+// ============================================================================
+// Index Hint Generation
+// ============================================================================
+
+/**
+ * Compute index hints based on query parameters.
+ * Analyzes the query and filters to suggest optimal indexes.
+ */
+function computeIndexHints(
+  type: string,
+  q: string,
+  filters: Record<string, string>,
+  customHints?: Record<string, IndexHint[]>
+): IndexHint[] {
+  const hints: IndexHint[] = []
+  const usedFields = new Set<string>()
+
+  // Check for full-text search query
+  if (q && q.trim().length > 0) {
+    const ftsHints = customHints?.q || DEFAULT_INDEX_HINTS.q
+    if (ftsHints) {
+      hints.push(...ftsHints)
+      usedFields.add('q')
+    }
+  }
+
+  // Check for time range filters (these benefit most from indexes)
+  const hasTimeFilter = Object.keys(filters).some(k =>
+    k.startsWith('GE_') || k.startsWith('LT_')
+  )
+  if (hasTimeFilter) {
+    const timeHints = customHints?.eventTime || DEFAULT_INDEX_HINTS.eventTime
+    if (timeHints) {
+      hints.push(...timeHints)
+      usedFields.add('eventTime')
+    }
+  }
+
+  // Check for status filter
+  if (filters.status) {
+    const statusHints = customHints?.status || DEFAULT_INDEX_HINTS.status
+    if (statusHints) {
+      hints.push(...statusHints)
+      usedFields.add('status')
+    }
+  }
+
+  // Check for bizStep filter (EPCIS)
+  if (filters.bizStep || filters.EQ_bizStep) {
+    const bizStepHints = customHints?.bizStep || DEFAULT_INDEX_HINTS.bizStep
+    if (bizStepHints) {
+      hints.push(...bizStepHints)
+      usedFields.add('bizStep')
+    }
+  }
+
+  // Check for bizLocation filter (EPCIS)
+  if (filters.EQ_bizLocation) {
+    const bizLocHints = customHints?.bizLocation || DEFAULT_INDEX_HINTS.bizLocation
+    if (bizLocHints) {
+      hints.push(...bizLocHints)
+      usedFields.add('bizLocation')
+    }
+  }
+
+  // Composite index hint for time + status queries
+  if (usedFields.has('eventTime') && usedFields.has('status')) {
+    const compositeHints = customHints?.['eventTime+status'] || DEFAULT_INDEX_HINTS['eventTime+status']
+    if (compositeHints) {
+      // Replace individual hints with composite
+      hints.push(...compositeHints)
+    }
+  }
+
+  // Add type-specific custom hints
+  if (customHints?.[type]) {
+    hints.push(...customHints[type])
+  }
+
+  return hints
+}
+
+// ============================================================================
+// Pagination Optimization
+// ============================================================================
+
+/**
+ * Encode cursor for cursor-based pagination
+ */
+function encodeCursor(offset: number, sortField?: string, sortValue?: unknown): string {
+  const cursorData = { o: offset, sf: sortField, sv: sortValue }
+  return Buffer.from(JSON.stringify(cursorData)).toString('base64url')
+}
+
+/**
+ * Decode cursor for cursor-based pagination
+ */
+function decodeCursor(cursor: string): { offset: number; sortField?: string; sortValue?: unknown } | null {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    return {
+      offset: decoded.o || 0,
+      sortField: decoded.sf,
+      sortValue: decoded.sv,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Compute pagination cursors for the response
+ */
+function computePaginationCursors(
+  offset: number,
+  limit: number,
+  total: number,
+  results: unknown[]
+): { nextCursor?: string; prevCursor?: string } {
+  const cursors: { nextCursor?: string; prevCursor?: string } = {}
+
+  // Next cursor if more results exist
+  if (offset + results.length < total) {
+    cursors.nextCursor = encodeCursor(offset + limit)
+  }
+
+  // Previous cursor if not at beginning
+  if (offset > 0) {
+    cursors.prevCursor = encodeCursor(Math.max(0, offset - limit))
+  }
+
+  return cursors
+}
+
+// ============================================================================
+// Analytics
+// ============================================================================
+
+/**
+ * Emit a search analytics event
+ */
+async function emitSearchAnalytics(
+  hook: SearchAnalyticsHook | undefined,
+  event: SearchAnalyticsEvent
+): Promise<void> {
+  if (!hook) return
+
+  try {
+    await hook(event)
+  } catch {
+    // Silently ignore analytics errors to not affect search functionality
+  }
+}
 
 // ============================================================================
 // Helper Functions
@@ -403,6 +793,353 @@ function applyEPCISFilters(
 // ============================================================================
 
 /**
+ * Reserved query parameters that are not treated as filters
+ */
+const RESERVED_PARAMS = new Set(['q', 'limit', 'offset', 'cursor'])
+
+/**
+ * Parse limit parameter with defaults and constraints
+ */
+function parseLimit(limitParam: string | undefined): number {
+  if (limitParam === undefined || limitParam === '') {
+    return 20 // Default
+  }
+  const parsed = parseInt(limitParam, 10)
+  if (isNaN(parsed) || parsed < 0) {
+    return 20 // Use default for invalid/negative
+  }
+  return Math.min(parsed, 100) // Cap at 100
+}
+
+/**
+ * Parse offset parameter with defaults and constraints
+ */
+function parseOffset(offsetParam: string | undefined, cursorParam: string | undefined): number {
+  // If cursor is provided, decode and use its offset
+  if (cursorParam) {
+    const decoded = decodeCursor(cursorParam)
+    if (decoded) {
+      return decoded.offset
+    }
+  }
+
+  if (offsetParam === undefined || offsetParam === '') {
+    return 0 // Default
+  }
+  const parsed = parseInt(offsetParam, 10)
+  if (isNaN(parsed) || parsed < 0) {
+    return 0 // Use default for invalid/negative
+  }
+  return parsed
+}
+
+/**
+ * Extract filter parameters from query string
+ */
+function extractFilters(allQueries: Record<string, string>): Record<string, string> {
+  const filters: Record<string, string> = {}
+  for (const [key, value] of Object.entries(allQueries)) {
+    if (!RESERVED_PARAMS.has(key) && typeof value === 'string') {
+      filters[key] = value
+    }
+  }
+  return filters
+}
+
+/**
+ * Search execution context with all dependencies
+ */
+interface SearchExecutionContext {
+  type: string
+  q: string
+  limit: number
+  offset: number
+  filters: Record<string, string>
+  user: User
+  db?: { query: Record<string, DbQuery> }
+  linkedAccounts?: { get: (provider: string) => Promise<LinkedAccount | null> }
+  integrations?: { get: (provider: string) => Promise<Integration | null> }
+}
+
+/**
+ * Search execution result
+ */
+interface SearchExecutionResult {
+  results: unknown[]
+  total: number
+  indexHints: IndexHint[]
+  cacheHit: boolean
+  error?: { message: string; status: number }
+}
+
+/**
+ * Execute a local search with query plan caching and index hints
+ */
+async function executeLocalSearch(
+  ctx: SearchExecutionContext,
+  localTypes: Set<string>,
+  requirePermission: boolean,
+  queryPlanCache: QueryPlanCache | null,
+  customIndexHints?: Record<string, IndexHint[]>
+): Promise<SearchExecutionResult> {
+  const { type, q, limit, offset, filters, user, db } = ctx
+
+  // Check if type is configured
+  if (!localTypes.has(type)) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Unknown type', status: 404 },
+    }
+  }
+
+  // Check permissions if required
+  if (requirePermission) {
+    const isAdmin = user.role === 'admin'
+    const hasPermission = user.permissions?.includes(`search:${type}`)
+    if (!isAdmin && !hasPermission) {
+      return {
+        results: [],
+        total: 0,
+        indexHints: [],
+        cacheHit: false,
+        error: { message: 'Permission denied. Access to this type is not allowed.', status: 403 },
+      }
+    }
+  }
+
+  // Parse and validate EPCIS query parameters
+  const epcisResult = parseEPCISParams(filters)
+  if (epcisResult.error) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: epcisResult.error, status: 400 },
+    }
+  }
+
+  // Check database availability
+  if (!db) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Database not available', status: 500 },
+    }
+  }
+
+  const queryHandler = db.query[type]
+
+  // Check query plan cache
+  let cacheHit = false
+  let indexHints: IndexHint[] = []
+  let where: Record<string, unknown>
+
+  const cachedPlan = queryPlanCache?.get(type, q, filters)
+  if (cachedPlan) {
+    // Cache hit - reuse computed where clause and index hints
+    cacheHit = true
+    where = cachedPlan.where
+    indexHints = cachedPlan.indexHints
+  } else {
+    // Cache miss - compute where clause and index hints
+    where = { ...epcisResult.dbWhere }
+    if (q) {
+      where.q = q
+    }
+
+    // Compute index hints for this query pattern
+    indexHints = computeIndexHints(type, q, filters, customIndexHints)
+
+    // Add FTS hint if full-text query is present
+    if (q && q.trim().length > 0) {
+      // Add hint for using FTS index
+      const hasFTSHint = indexHints.some(h => h.useFTS)
+      if (!hasFTSHint) {
+        indexHints.push({ indexField: 'content', useFTS: true })
+      }
+    }
+
+    // Cache the query plan
+    queryPlanCache?.set(type, q, filters, where, indexHints)
+  }
+
+  // Execute the search
+  try {
+    if (queryHandler) {
+      const rawResults = await queryHandler.findMany({
+        where,
+        limit,
+        offset,
+      })
+      // Apply EPCIS filters client-side (for mock data compatibility)
+      const results = applyEPCISFilters(rawResults, epcisResult.epcisFilters, filters)
+      return {
+        results,
+        total: results.length,
+        indexHints,
+        cacheHit,
+      }
+    } else {
+      // Type is configured but no query handler - return empty results
+      return {
+        results: [],
+        total: 0,
+        indexHints,
+        cacheHit,
+      }
+    }
+  } catch {
+    return {
+      results: [],
+      total: 0,
+      indexHints,
+      cacheHit,
+      error: { message: 'Search failed', status: 500 },
+    }
+  }
+}
+
+/**
+ * Execute a provider search
+ */
+async function executeProviderSearch(
+  ctx: SearchExecutionContext,
+  providerTypes: Record<string, ProviderTypeConfig>
+): Promise<SearchExecutionResult> {
+  const { type, q, limit, offset, filters, linkedAccounts, integrations } = ctx
+
+  // Check if type is configured
+  if (!(type in providerTypes)) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Unknown type', status: 404 },
+    }
+  }
+
+  const [provider, resource] = type.split(':')
+  const providerConfig = providerTypes[type]
+
+  // Check linked accounts availability
+  if (!linkedAccounts) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Account not linked. Please connect your account.', status: 403 },
+    }
+  }
+
+  const account = await linkedAccounts.get(provider)
+  if (!account) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Account not linked. Please connect your account.', status: 403 },
+    }
+  }
+
+  // Check token expiration
+  if (isTokenExpired(account.expiresAt)) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Account token expired. Please reconnect your account.', status: 403 },
+    }
+  }
+
+  // Check required scopes
+  if (!hasRequiredScopes(account.scopes, providerConfig.scopes)) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Insufficient scope permissions. Please reconnect with required permissions.', status: 403 },
+    }
+  }
+
+  // Check integrations availability
+  if (!integrations) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Integration not available', status: 502 },
+    }
+  }
+
+  const integration = await integrations.get(provider)
+  if (!integration) {
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Integration not available', status: 502 },
+    }
+  }
+
+  // Execute the provider search
+  try {
+    const searchResult = await integration.search(resource, {
+      accessToken: account.accessToken,
+      q,
+      limit,
+      offset,
+      filters,
+    })
+    return {
+      results: searchResult.results,
+      total: searchResult.total,
+      indexHints: [],
+      cacheHit: false,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    if (message.includes('rate limit')) {
+      return {
+        results: [],
+        total: 0,
+        indexHints: [],
+        cacheHit: false,
+        error: { message: 'Provider rate limit exceeded', status: 429 },
+      }
+    }
+    if (message.includes('Timeout') || message.includes('timeout')) {
+      return {
+        results: [],
+        total: 0,
+        indexHints: [],
+        cacheHit: false,
+        error: { message: 'Provider request timeout', status: 504 },
+      }
+    }
+    return {
+      results: [],
+      total: 0,
+      indexHints: [],
+      cacheHit: false,
+      error: { message: 'Provider request failed', status: 502 },
+    }
+  }
+}
+
+/**
  * Creates a search middleware for handling search requests.
  *
  * @param config - Search configuration
@@ -416,6 +1153,17 @@ function applyEPCISFilters(
  *     'github:issues': { scopes: ['repo'] },
  *     'github:repos': { scopes: ['repo'] },
  *   },
+ *   // Optional: Enable query plan caching
+ *   enableQueryPlanCache: true,
+ *   queryPlanCacheTTL: 300000, // 5 minutes
+ *   // Optional: Custom index hints
+ *   indexHints: {
+ *     tasks: [{ indexField: 'dueDate', indexType: 'btree' }],
+ *   },
+ *   // Optional: Analytics hook
+ *   analyticsHook: (event) => console.log('Search:', event),
+ *   // Optional: Enable cursor-based pagination
+ *   enableCursorPagination: true,
  * }))
  * ```
  */
@@ -423,204 +1171,17 @@ export function search(config?: SearchConfig): MiddlewareHandler {
   const localTypes = new Set(config?.localTypes || [])
   const providerTypes = config?.providerTypes || {}
   const requirePermission = config?.requirePermission || false
+  const enableQueryPlanCache = config?.enableQueryPlanCache ?? true
+  const queryPlanCacheTTL = config?.queryPlanCacheTTL ?? 5 * 60 * 1000
+  const maxCacheEntries = config?.maxCacheEntries ?? 1000
+  const analyticsHook = config?.analyticsHook
+  const customIndexHints = config?.indexHints
+  const enableCursorPagination = config?.enableCursorPagination ?? false
 
-  const app = new Hono()
-
-  // Handle non-GET methods with 405
-  app.all('/:type', async (c) => {
-    if (c.req.method !== 'GET') {
-      return c.json({ error: 'Method not allowed' }, 405)
-    }
-
-    // Check authentication
-    const user = c.get('user') as User | undefined
-    if (!user) {
-      c.header('WWW-Authenticate', 'Bearer')
-      return c.json({ error: 'Unauthorized' }, 401)
-    }
-
-    const type = c.req.param('type')
-
-    // Validate type name (security check)
-    if (!isValidTypeName(type)) {
-      return c.json({ error: 'Unknown type' }, 404)
-    }
-
-    // Parse query parameters
-    const q = c.req.query('q') || ''
-    const limitParam = c.req.query('limit')
-    const offsetParam = c.req.query('offset')
-
-    // Handle non-numeric limit/offset
-    let limit = 20
-    if (limitParam !== undefined && limitParam !== '') {
-      const parsed = parseInt(limitParam, 10)
-      if (isNaN(parsed)) {
-        limit = 20 // Use default for invalid
-      } else if (parsed < 0) {
-        limit = 20 // Use default for negative
-      } else {
-        limit = Math.min(parsed, 100) // Cap at 100
-      }
-    }
-
-    let offset = 0
-    if (offsetParam !== undefined && offsetParam !== '') {
-      const parsed = parseInt(offsetParam, 10)
-      if (isNaN(parsed)) {
-        offset = 0 // Use default for invalid
-      } else if (parsed < 0) {
-        offset = 0 // Use default for negative
-      } else {
-        offset = parsed
-      }
-    }
-
-    // Extract filters (exclude reserved params)
-    const filters: Record<string, string> = {}
-    const allQueries = c.req.query()
-    for (const [key, value] of Object.entries(allQueries)) {
-      if (!['q', 'limit', 'offset'].includes(key) && typeof value === 'string') {
-        filters[key] = value
-      }
-    }
-
-    let results: unknown[] = []
-    let total = 0
-
-    // Check if it's a provider type (contains colon)
-    if (type.includes(':')) {
-      // Provider search (github:issues, github:repos, etc.)
-      if (!(type in providerTypes)) {
-        return c.json({ error: 'Unknown type' }, 404)
-      }
-
-      const [provider, resource] = type.split(':')
-      const providerConfig = providerTypes[type]
-
-      // Get linked account
-      const linkedAccounts = c.get('linkedAccounts') as { get: (provider: string) => Promise<LinkedAccount | null> } | undefined
-      if (!linkedAccounts) {
-        return c.json({ error: 'Account not linked. Please connect your account.' }, 403)
-      }
-
-      const account = await linkedAccounts.get(provider)
-      if (!account) {
-        return c.json({ error: 'Account not linked. Please connect your account.' }, 403)
-      }
-
-      // Check token expiration
-      if (isTokenExpired(account.expiresAt)) {
-        return c.json({ error: 'Account token expired. Please reconnect your account.' }, 403)
-      }
-
-      // Check required scopes
-      if (!hasRequiredScopes(account.scopes, providerConfig.scopes)) {
-        return c.json({ error: 'Insufficient scope permissions. Please reconnect with required permissions.' }, 403)
-      }
-
-      // Get integration and perform search
-      const integrations = c.get('integrations') as { get: (provider: string) => Promise<Integration | null> } | undefined
-      if (!integrations) {
-        return c.json({ error: 'Integration not available' }, 502)
-      }
-
-      const integration = await integrations.get(provider)
-      if (!integration) {
-        return c.json({ error: 'Integration not available' }, 502)
-      }
-
-      try {
-        const searchResult = await integration.search(resource, {
-          accessToken: account.accessToken,
-          q,
-          limit,
-          offset,
-          filters,
-        })
-        results = searchResult.results
-        total = searchResult.total
-      } catch (error) {
-        // Handle provider errors
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        if (message.includes('rate limit')) {
-          return c.json({ error: 'Provider rate limit exceeded' }, 429)
-        }
-        if (message.includes('Timeout') || message.includes('timeout')) {
-          return c.json({ error: 'Provider request timeout' }, 504)
-        }
-        return c.json({ error: 'Provider request failed' }, 502)
-      }
-
-    } else {
-      // Local search (SQLite)
-      if (!localTypes.has(type)) {
-        return c.json({ error: 'Unknown type' }, 404)
-      }
-
-      // Check permissions if required
-      if (requirePermission) {
-        const isAdmin = user.role === 'admin'
-        const hasPermission = user.permissions?.includes(`search:${type}`)
-
-        if (!isAdmin && !hasPermission) {
-          return c.json({ error: 'Permission denied. Access to this type is not allowed.' }, 403)
-        }
-      }
-
-      // Parse and validate EPCIS query parameters
-      const epcisResult = parseEPCISParams(filters)
-      if (epcisResult.error) {
-        return c.json({ error: epcisResult.error }, 400)
-      }
-
-      // Get database and perform search
-      const db = c.get('db') as { query: Record<string, DbQuery> } | undefined
-      if (!db) {
-        return c.json({ error: 'Database not available' }, 500)
-      }
-
-      const queryHandler = db.query[type]
-
-      try {
-        // Build where clause with query and EPCIS-mapped filters
-        const where: Record<string, unknown> = { ...epcisResult.dbWhere }
-        if (q) {
-          where.q = q
-        }
-
-        if (queryHandler) {
-          const rawResults = await queryHandler.findMany({
-            where,
-            limit,
-            offset,
-          })
-          // Apply EPCIS filters client-side (for mock data compatibility)
-          results = applyEPCISFilters(rawResults, epcisResult.epcisFilters, filters)
-          total = results.length
-        } else {
-          // Type is configured but no query handler - return empty results
-          results = []
-          total = 0
-        }
-      } catch (error) {
-        // Handle database errors - don't expose internal error messages
-        return c.json({ error: 'Search failed' }, 500)
-      }
-    }
-
-    const response: SearchResponse = {
-      type,
-      query: q,
-      filters,
-      results,
-      total,
-      limit,
-      offset,
-    }
-
-    return c.json(response)
-  })
+  // Initialize query plan cache if enabled
+  const queryPlanCache = enableQueryPlanCache
+    ? getQueryPlanCache(maxCacheEntries, queryPlanCacheTTL)
+    : null
 
   // Return middleware that routes to our app
   return async (c, next) => {
@@ -658,175 +1219,90 @@ export function search(config?: SearchConfig): MiddlewareHandler {
           return ctx.json({ error: 'Unknown type' }, 404)
         }
 
-        // Parse query parameters
+        // Parse query parameters with optimized helpers
         const q = ctx.req.query('q') || ''
-        const limitParam = ctx.req.query('limit')
-        const offsetParam = ctx.req.query('offset')
-
-        // Handle non-numeric limit/offset
-        let limit = 20
-        if (limitParam !== undefined && limitParam !== '') {
-          const parsed = parseInt(limitParam, 10)
-          if (isNaN(parsed)) {
-            limit = 20
-          } else if (parsed < 0) {
-            limit = 20
-          } else {
-            limit = Math.min(parsed, 100)
-          }
-        }
-
-        let offset = 0
-        if (offsetParam !== undefined && offsetParam !== '') {
-          const parsed = parseInt(offsetParam, 10)
-          if (isNaN(parsed)) {
-            offset = 0
-          } else if (parsed < 0) {
-            offset = 0
-          } else {
-            offset = parsed
-          }
-        }
-
-        // Extract filters (exclude reserved params)
-        const filters: Record<string, string> = {}
         const allQueries = ctx.req.query()
-        for (const [key, value] of Object.entries(allQueries)) {
-          if (!['q', 'limit', 'offset'].includes(key) && typeof value === 'string') {
-            filters[key] = value
-          }
+        const limit = parseLimit(ctx.req.query('limit'))
+        const offset = parseOffset(ctx.req.query('offset'), ctx.req.query('cursor'))
+        const filters = extractFilters(allQueries)
+
+        // Track search start time for analytics
+        const startTime = Date.now()
+
+        // Build execution context
+        const execCtx: SearchExecutionContext = {
+          type,
+          q,
+          limit,
+          offset,
+          filters,
+          user,
+          db: c.get('db') as { query: Record<string, DbQuery> } | undefined,
+          linkedAccounts: c.get('linkedAccounts') as { get: (provider: string) => Promise<LinkedAccount | null> } | undefined,
+          integrations: c.get('integrations') as { get: (provider: string) => Promise<Integration | null> } | undefined,
         }
 
-        let results: unknown[] = []
-        let total = 0
+        // Execute search based on type
+        let result: SearchExecutionResult
 
-        // Check if it's a provider type (contains colon)
         if (type.includes(':')) {
           // Provider search
-          if (!(type in providerTypes)) {
-            return ctx.json({ error: 'Unknown type' }, 404)
-          }
-
-          const [provider, resource] = type.split(':')
-          const providerConfig = providerTypes[type]
-
-          // Get linked account
-          const linkedAccounts = c.get('linkedAccounts') as { get: (provider: string) => Promise<LinkedAccount | null> } | undefined
-          if (!linkedAccounts) {
-            return ctx.json({ error: 'Account not linked. Please connect your account.' }, 403)
-          }
-
-          const account = await linkedAccounts.get(provider)
-          if (!account) {
-            return ctx.json({ error: 'Account not linked. Please connect your account.' }, 403)
-          }
-
-          // Check token expiration
-          if (isTokenExpired(account.expiresAt)) {
-            return ctx.json({ error: 'Account token expired. Please reconnect your account.' }, 403)
-          }
-
-          // Check required scopes
-          if (!hasRequiredScopes(account.scopes, providerConfig.scopes)) {
-            return ctx.json({ error: 'Insufficient scope permissions. Please reconnect with required permissions.' }, 403)
-          }
-
-          // Get integration and perform search
-          const integrations = c.get('integrations') as { get: (provider: string) => Promise<Integration | null> } | undefined
-          if (!integrations) {
-            return ctx.json({ error: 'Integration not available' }, 502)
-          }
-
-          const integration = await integrations.get(provider)
-          if (!integration) {
-            return ctx.json({ error: 'Integration not available' }, 502)
-          }
-
-          try {
-            const searchResult = await integration.search(resource, {
-              accessToken: account.accessToken,
-              q,
-              limit,
-              offset,
-              filters,
-            })
-            results = searchResult.results
-            total = searchResult.total
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error'
-            if (message.includes('rate limit')) {
-              return ctx.json({ error: 'Provider rate limit exceeded' }, 429)
-            }
-            if (message.includes('Timeout') || message.includes('timeout')) {
-              return ctx.json({ error: 'Provider request timeout' }, 504)
-            }
-            return ctx.json({ error: 'Provider request failed' }, 502)
-          }
-
+          result = await executeProviderSearch(execCtx, providerTypes)
         } else {
-          // Local search (SQLite)
-          if (!localTypes.has(type)) {
-            return ctx.json({ error: 'Unknown type' }, 404)
-          }
-
-          // Check permissions if required
-          if (requirePermission) {
-            const isAdmin = user.role === 'admin'
-            const hasPermission = user.permissions?.includes(`search:${type}`)
-
-            if (!isAdmin && !hasPermission) {
-              return ctx.json({ error: 'Permission denied. Access to this type is not allowed.' }, 403)
-            }
-          }
-
-          // Parse and validate EPCIS query parameters
-          const epcisResult = parseEPCISParams(filters)
-          if (epcisResult.error) {
-            return ctx.json({ error: epcisResult.error }, 400)
-          }
-
-          // Get database and perform search
-          const db = c.get('db') as { query: Record<string, DbQuery> } | undefined
-          if (!db) {
-            return ctx.json({ error: 'Database not available' }, 500)
-          }
-
-          const queryHandler = db.query[type]
-
-          try {
-            // Build where clause with query and EPCIS-mapped filters
-            const where: Record<string, unknown> = { ...epcisResult.dbWhere }
-            if (q) {
-              where.q = q
-            }
-
-            if (queryHandler) {
-              const rawResults = await queryHandler.findMany({
-                where,
-                limit,
-                offset,
-              })
-              // Apply EPCIS filters client-side (for mock data compatibility)
-              results = applyEPCISFilters(rawResults, epcisResult.epcisFilters, filters)
-              total = results.length
-            } else {
-              // Type is configured but no query handler - return empty results
-              results = []
-              total = 0
-            }
-          } catch {
-            return ctx.json({ error: 'Search failed' }, 500)
-          }
+          // Local search with caching and index hints
+          result = await executeLocalSearch(
+            execCtx,
+            localTypes,
+            requirePermission,
+            queryPlanCache,
+            customIndexHints
+          )
         }
 
+        // Handle errors
+        if (result.error) {
+          return ctx.json({ error: result.error.message }, result.error.status as 400 | 403 | 404 | 429 | 500 | 502 | 504)
+        }
+
+        // Calculate search duration
+        const durationMs = Date.now() - startTime
+
+        // Build response
         const response: SearchResponse = {
           type,
           query: q,
           filters,
-          results,
-          total,
+          results: result.results,
+          total: result.total,
           limit,
           offset,
+        }
+
+        // Add pagination cursors if enabled
+        if (enableCursorPagination) {
+          const cursors = computePaginationCursors(offset, limit, result.total, result.results)
+          if (cursors.nextCursor) {
+            response.nextCursor = cursors.nextCursor
+          }
+          if (cursors.prevCursor) {
+            response.prevCursor = cursors.prevCursor
+          }
+        }
+
+        // Emit analytics event (non-blocking)
+        if (analyticsHook) {
+          emitSearchAnalytics(analyticsHook, {
+            type,
+            query: q,
+            filters,
+            resultCount: result.results.length,
+            totalCount: result.total,
+            durationMs,
+            userId: user.id,
+            timestamp: Date.now(),
+            cacheHit: result.cacheHit,
+            indexHints: result.indexHints,
+          })
         }
 
         return ctx.json(response)
@@ -854,5 +1330,10 @@ export function search(config?: SearchConfig): MiddlewareHandler {
     await next()
   }
 }
+
+/**
+ * Export the QueryPlanCache class for testing and advanced usage
+ */
+export { QueryPlanCache, getQueryPlanCache, computeIndexHints, decodeCursor, encodeCursor }
 
 export default search

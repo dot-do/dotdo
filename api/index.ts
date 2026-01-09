@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
 import { rpcRoutes } from './routes/rpc'
+import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
 import { landingPageHtml, docsPageHtml, adminDashboardHtml, adminLoginHtml, adminUsersHtml, adminUserNewHtml, adminWorkflowsHtml, adminIntegrationsHtml, adminApiKeysHtml, adminSettingsHtml, adminSettingsAccountHtml, adminSettingsSecurityHtml, adminActivityHtml, notFoundHtml } from './pages'
@@ -121,6 +122,14 @@ app.get('/api/', (c) => {
     name: 'dotdo',
     version: '0.0.1',
     endpoints: ['/api/health', '/api/things'],
+  })
+})
+
+// OpenAPI spec endpoint
+app.get('/api/openapi.json', (c) => {
+  const spec = getOpenAPIDocument()
+  return c.json(spec, 200, {
+    'Access-Control-Allow-Origin': '*',
   })
 })
 

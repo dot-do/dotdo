@@ -1775,3 +1775,784 @@ describe('Webhooks Middleware - Response Format', () => {
     expect(body.eventType).toBe('github:push')
   })
 })
+
+// ============================================================================
+// 7. Provider Registry Tests
+// ============================================================================
+
+import { providerRegistry, registerProvider, type WebhookProvider } from '../../middleware/webhooks'
+
+describe('Webhooks Middleware - Provider Registry', () => {
+  describe('Built-in providers', () => {
+    it('has github provider registered', () => {
+      expect(providerRegistry.has('github')).toBe(true)
+    })
+
+    it('has stripe provider registered', () => {
+      expect(providerRegistry.has('stripe')).toBe(true)
+    })
+
+    it('returns provider names', () => {
+      const names = providerRegistry.names()
+      expect(names).toContain('github')
+      expect(names).toContain('stripe')
+    })
+
+    it('returns env secret key for github', () => {
+      expect(providerRegistry.getEnvSecretKey('github')).toBe('GITHUB_WEBHOOK_SECRET')
+    })
+
+    it('returns env secret key for stripe', () => {
+      expect(providerRegistry.getEnvSecretKey('stripe')).toBe('STRIPE_WEBHOOK_SECRET')
+    })
+  })
+
+  describe('Custom provider registration', () => {
+    it('can register a custom provider', () => {
+      const customProvider: WebhookProvider = {
+        name: 'custom-test-provider',
+        envSecretKey: 'CUSTOM_WEBHOOK_SECRET',
+        signatureHeader: 'X-Custom-Signature',
+        verifySignature: () => true,
+        extractEventType: () => 'custom-event',
+      }
+
+      registerProvider(customProvider)
+      expect(providerRegistry.has('custom-test-provider')).toBe(true)
+      expect(providerRegistry.get('custom-test-provider')).toBe(customProvider)
+    })
+  })
+})
+
+// ============================================================================
+// 8. Secret Rotation Tests
+// ============================================================================
+
+describe('Webhooks Middleware - Secret Rotation', () => {
+  describe('GitHub with rotated secrets', () => {
+    it('accepts webhook signed with primary secret', async () => {
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, 'new-secret')
+
+      const app = createTestApp({
+        providers: {
+          github: {
+            secret: 'new-secret',
+            rotatedSecrets: ['old-secret-1', 'old-secret-2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('accepts webhook signed with first rotated secret', async () => {
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, 'old-secret-1')
+
+      const app = createTestApp({
+        providers: {
+          github: {
+            secret: 'new-secret',
+            rotatedSecrets: ['old-secret-1', 'old-secret-2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('accepts webhook signed with second rotated secret', async () => {
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, 'old-secret-2')
+
+      const app = createTestApp({
+        providers: {
+          github: {
+            secret: 'new-secret',
+            rotatedSecrets: ['old-secret-1', 'old-secret-2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('rejects webhook signed with unknown secret', async () => {
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, 'completely-wrong-secret')
+
+      const app = createTestApp({
+        providers: {
+          github: {
+            secret: 'new-secret',
+            rotatedSecrets: ['old-secret-1', 'old-secret-2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(res.status).toBe(401)
+    })
+  })
+
+  describe('Stripe with rotated secrets', () => {
+    it('accepts webhook signed with primary secret', async () => {
+      const payload = JSON.stringify(STRIPE_INVOICE_PAID_PAYLOAD)
+      const signature = generateStripeSignature(payload, 'whsec_new')
+
+      const app = createTestApp({
+        providers: {
+          stripe: {
+            secret: 'whsec_new',
+            rotatedSecrets: ['whsec_old1', 'whsec_old2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'stripe', {
+        body: STRIPE_INVOICE_PAID_PAYLOAD,
+        headers: {
+          'Stripe-Signature': signature,
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('accepts webhook signed with rotated secret', async () => {
+      const payload = JSON.stringify(STRIPE_INVOICE_PAID_PAYLOAD)
+      const signature = generateStripeSignature(payload, 'whsec_old1')
+
+      const app = createTestApp({
+        providers: {
+          stripe: {
+            secret: 'whsec_new',
+            rotatedSecrets: ['whsec_old1', 'whsec_old2'],
+          },
+        },
+        handlers: {},
+      })
+
+      const res = await webhookRequest(app, 'stripe', {
+        body: STRIPE_INVOICE_PAID_PAYLOAD,
+        headers: {
+          'Stripe-Signature': signature,
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+  })
+})
+
+// ============================================================================
+// 9. Telemetry/Metrics Tests
+// ============================================================================
+
+import type { TelemetryEvent, TelemetryHook } from '../../middleware/webhooks'
+
+describe('Webhooks Middleware - Telemetry', () => {
+  describe('Telemetry hook invocation', () => {
+    it('calls telemetry hook on webhook received', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.received')).toBe(true)
+    })
+
+    it('calls telemetry hook on signature verified', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.signature_verified')).toBe(true)
+    })
+
+    it('calls telemetry hook on signature failed', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': 'sha256=invalid',
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.signature_failed')).toBe(true)
+    })
+
+    it('calls telemetry hook on handler called', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => ({ handled: true }),
+        },
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.handler_called')).toBe(true)
+      expect(telemetryEvents.some((e) => e.type === 'webhook.handler_succeeded')).toBe(true)
+    })
+
+    it('calls telemetry hook on handler failed', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => {
+            throw new Error('Handler error')
+          },
+        },
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.handler_failed')).toBe(true)
+    })
+
+    it('calls telemetry hook on webhook completed', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.completed')).toBe(true)
+    })
+
+    it('supports multiple telemetry hooks', async () => {
+      const events1: TelemetryEvent[] = []
+      const events2: TelemetryEvent[] = []
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: [
+          (event) => events1.push(event),
+          (event) => events2.push(event),
+        ],
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(events1.length).toBeGreaterThan(0)
+      expect(events2.length).toBeGreaterThan(0)
+      expect(events1.length).toBe(events2.length)
+    })
+
+    it('includes duration in telemetry events', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const telemetryHook: TelemetryHook = (event) => {
+        telemetryEvents.push(event)
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        telemetry: telemetryHook,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      const completedEvent = telemetryEvents.find((e) => e.type === 'webhook.completed')
+      expect(completedEvent?.duration).toBeDefined()
+      expect(typeof completedEvent?.duration).toBe('number')
+    })
+  })
+})
+
+// ============================================================================
+// 10. Payload Validation Tests
+// ============================================================================
+
+import type { PayloadValidator } from '../../middleware/webhooks'
+
+describe('Webhooks Middleware - Payload Validation', () => {
+  describe('Custom validators', () => {
+    it('passes validation when validator returns true', async () => {
+      const validator: PayloadValidator = () => true
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        validators: {
+          'github:push': validator,
+        },
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('returns 400 when validator returns error message', async () => {
+      const validator: PayloadValidator = () => 'Missing required field: commits'
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        validators: {
+          'github:push': validator,
+        },
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as WebhookResponse
+      expect(body.error).toContain('Missing required field: commits')
+    })
+
+    it('only validates matching event types', async () => {
+      const pushValidator: PayloadValidator = () => 'Should not be called'
+      const prValidator: PayloadValidator = () => true
+
+      // Send a pull_request event - push validator should not run
+      const prPayload = JSON.stringify(GITHUB_PR_PAYLOAD)
+      const signature = generateGitHubSignature(prPayload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        validators: {
+          'github:push': pushValidator,
+          'github:pull_request': prValidator,
+        },
+      })
+
+      const res = await webhookRequest(app, 'github', {
+        body: GITHUB_PR_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'pull_request',
+        },
+      })
+
+      expect([200, 202]).toContain(res.status)
+    })
+
+    it('emits telemetry on validation failure', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const validator: PayloadValidator = () => 'Validation failed'
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        validators: {
+          'github:push': validator,
+        },
+        telemetry: (event) => telemetryEvents.push(event),
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.payload_invalid')).toBe(true)
+    })
+
+    it('emits telemetry on validation success', async () => {
+      const telemetryEvents: TelemetryEvent[] = []
+      const validator: PayloadValidator = () => true
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {},
+        validators: {
+          'github:push': validator,
+        },
+        telemetry: (event) => telemetryEvents.push(event),
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(telemetryEvents.some((e) => e.type === 'webhook.payload_validated')).toBe(true)
+    })
+  })
+})
+
+// ============================================================================
+// 11. Replay Storage Tests
+// ============================================================================
+
+import type { WebhookReplayStorage, FailedWebhook } from '../../middleware/webhooks'
+
+describe('Webhooks Middleware - Replay Storage', () => {
+  describe('Failed webhook storage', () => {
+    it('stores failed webhook when handler throws', async () => {
+      const storedWebhooks: FailedWebhook[] = []
+
+      const replayStorage: WebhookReplayStorage = {
+        store: async (webhook) => {
+          storedWebhooks.push(webhook)
+        },
+        retrieve: async () => [],
+        markProcessed: async () => {},
+        markFailed: async () => {},
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => {
+            throw new Error('Handler failure')
+          },
+        },
+        replayStorage,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(storedWebhooks.length).toBe(1)
+      expect(storedWebhooks[0].provider).toBe('github')
+      expect(storedWebhooks[0].eventType).toBe('github:push')
+      expect(storedWebhooks[0].error).toBe('Handler failure')
+      expect(storedWebhooks[0].retryCount).toBe(0)
+    })
+
+    it('does not store webhook when handler succeeds', async () => {
+      const storedWebhooks: FailedWebhook[] = []
+
+      const replayStorage: WebhookReplayStorage = {
+        store: async (webhook) => {
+          storedWebhooks.push(webhook)
+        },
+        retrieve: async () => [],
+        markProcessed: async () => {},
+        markFailed: async () => {},
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => ({ success: true }),
+        },
+        replayStorage,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(storedWebhooks.length).toBe(0)
+    })
+
+    it('includes raw body and headers in stored webhook', async () => {
+      const storedWebhooks: FailedWebhook[] = []
+
+      const replayStorage: WebhookReplayStorage = {
+        store: async (webhook) => {
+          storedWebhooks.push(webhook)
+        },
+        retrieve: async () => [],
+        markProcessed: async () => {},
+        markFailed: async () => {},
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => {
+            throw new Error('Failure')
+          },
+        },
+        replayStorage,
+      })
+
+      await webhookRequest(app, 'github', {
+        body: GITHUB_PUSH_PAYLOAD,
+        headers: {
+          'X-Hub-Signature-256': signature,
+          'X-GitHub-Event': 'push',
+        },
+      })
+
+      expect(storedWebhooks[0].rawBody).toBe(payload)
+      expect(storedWebhooks[0].headers).toBeDefined()
+      expect(storedWebhooks[0].payload).toEqual(GITHUB_PUSH_PAYLOAD)
+    })
+
+    it('generates unique webhook IDs', async () => {
+      const storedWebhooks: FailedWebhook[] = []
+
+      const replayStorage: WebhookReplayStorage = {
+        store: async (webhook) => {
+          storedWebhooks.push(webhook)
+        },
+        retrieve: async () => [],
+        markProcessed: async () => {},
+        markFailed: async () => {},
+      }
+
+      const payload = JSON.stringify(GITHUB_PUSH_PAYLOAD)
+      const signature = generateGitHubSignature(payload, TEST_GITHUB_SECRET)
+
+      const app = createTestApp({
+        providers: {
+          github: { secret: TEST_GITHUB_SECRET },
+        },
+        handlers: {
+          'github:push': async () => {
+            throw new Error('Failure')
+          },
+        },
+        replayStorage,
+      })
+
+      // Send multiple failing webhooks
+      await Promise.all([
+        webhookRequest(app, 'github', {
+          body: GITHUB_PUSH_PAYLOAD,
+          headers: {
+            'X-Hub-Signature-256': signature,
+            'X-GitHub-Event': 'push',
+          },
+        }),
+        webhookRequest(app, 'github', {
+          body: GITHUB_PUSH_PAYLOAD,
+          headers: {
+            'X-Hub-Signature-256': signature,
+            'X-GitHub-Event': 'push',
+          },
+        }),
+      ])
+
+      expect(storedWebhooks.length).toBe(2)
+      expect(storedWebhooks[0].id).not.toBe(storedWebhooks[1].id)
+      expect(storedWebhooks[0].id).toMatch(/^wh_\d+_[a-z0-9]+$/)
+    })
+  })
+})

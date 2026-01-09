@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 
 /**
  * OpenAPI Spec Generation Tests
@@ -13,8 +15,28 @@ import { describe, it, expect, beforeAll } from 'vitest'
  * - Security schemes are defined
  */
 
-// Import the actual app
-import { app } from '../../index'
+// Import routes directly to avoid cloudflare:workers dependency from index.ts
+import { getOpenAPIDocument } from '../../routes/openapi'
+import { apiRoutes } from '../../routes/api'
+import { mcpRoutes } from '../../routes/mcp'
+import { rpcRoutes } from '../../routes/rpc'
+
+// Create test app with just the routes needed (no cloudflare:workers re-export)
+const app = new Hono()
+app.use('*', cors())
+
+// OpenAPI spec endpoint
+app.get('/api/openapi.json', (c) => {
+  const spec = getOpenAPIDocument()
+  return c.json(spec, 200, {
+    'Access-Control-Allow-Origin': '*',
+  })
+})
+
+// Mount routes
+app.route('/api', apiRoutes)
+app.route('/mcp', mcpRoutes)
+app.route('/rpc', rpcRoutes)
 
 // ============================================================================
 // Types
@@ -288,8 +310,17 @@ describe('OpenAPI Paths - Things API', () => {
     it('POST request body documents required fields', () => {
       const post = spec.paths['/api/things'].post!
       const schema = post.requestBody!.content['application/json'].schema as Record<string, unknown>
-      expect(schema.required).toBeDefined()
-      expect(Array.isArray(schema.required)).toBe(true)
+      // Schema may be inline or a $ref - handle both cases
+      if (schema.$ref) {
+        // Resolve the $ref to get the actual schema
+        const refPath = (schema.$ref as string).replace('#/components/schemas/', '')
+        const resolvedSchema = spec.components!.schemas![refPath] as Record<string, unknown>
+        expect(resolvedSchema.required).toBeDefined()
+        expect(Array.isArray(resolvedSchema.required)).toBe(true)
+      } else {
+        expect(schema.required).toBeDefined()
+        expect(Array.isArray(schema.required)).toBe(true)
+      }
     })
 
     it('GET has 200 response documented', () => {

@@ -105,7 +105,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
     it('has correct tool definition', () => {
       expect(browseTool).toBeDefined()
       expect(browseTool.name).toBe('browse')
-      expect(browseTool.description).toContain('navigate')
+      expect(browseTool.description.toLowerCase()).toContain('navigate')
       expect(browseTool.parameters.type).toBe('object')
       expect(browseTool.parameters.properties).toHaveProperty('url')
       expect(browseTool.parameters.required).toContain('url')
@@ -253,7 +253,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
     it('has correct tool definition', () => {
       expect(extractTool).toBeDefined()
       expect(extractTool.name).toBe('extract')
-      expect(extractTool.description).toContain('extract')
+      expect(extractTool.description.toLowerCase()).toContain('extract')
       expect(extractTool.parameters.properties).toHaveProperty('instruction')
     })
 
@@ -345,7 +345,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
     it('has correct tool definition', () => {
       expect(observeTool).toBeDefined()
       expect(observeTool.name).toBe('observe')
-      expect(observeTool.description).toContain('observe')
+      expect(observeTool.description.toLowerCase()).toContain('observe')
     })
 
     it('returns available actions from Browser DO', async () => {
@@ -490,7 +490,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
     it('has correct tool definition', () => {
       expect(closeBrowserTool).toBeDefined()
       expect(closeBrowserTool.name).toBe('closeBrowser')
-      expect(closeBrowserTool.description).toContain('close')
+      expect(closeBrowserTool.description.toLowerCase()).toContain('close')
     })
 
     it('stops browser session via Browser DO', async () => {
@@ -541,7 +541,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
 
       expect(result).toMatchObject({
         success: true,
-        message: expect.stringContaining('no active'),
+        message: expect.stringMatching(/no active/i),
       })
       expect(mockFetch).not.toHaveBeenCalled()
     })

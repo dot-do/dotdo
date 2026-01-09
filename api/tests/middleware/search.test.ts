@@ -1211,3 +1211,506 @@ describe('Search Middleware - Configuration', () => {
     })
   })
 })
+
+// ============================================================================
+// 8. Query Plan Caching Tests
+// ============================================================================
+
+import {
+  QueryPlanCache,
+  getQueryPlanCache,
+  computeIndexHints,
+  encodeCursor,
+  decodeCursor,
+  type IndexHint,
+  type SearchAnalyticsEvent,
+} from '../../middleware/search'
+
+describe('Search Middleware - Query Plan Caching', () => {
+  describe('QueryPlanCache class', () => {
+    it('caches query plans', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      const where = { status: 'open' }
+      const hints: IndexHint[] = [{ indexField: 'status', indexType: 'hash' }]
+
+      cache.set('tasks', 'test', { status: 'open' }, where, hints)
+
+      const result = cache.get('tasks', 'test', { status: 'open' })
+      expect(result).not.toBeNull()
+      expect(result?.where).toEqual(where)
+      expect(result?.indexHints).toEqual(hints)
+    })
+
+    it('returns null for cache miss', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      const result = cache.get('tasks', 'unknown', {})
+      expect(result).toBeNull()
+    })
+
+    it('expires entries based on TTL', async () => {
+      const cache = new QueryPlanCache(100, 50) // 50ms TTL
+      cache.set('tasks', 'test', {}, {}, [])
+
+      // Entry should exist immediately
+      expect(cache.get('tasks', 'test', {})).not.toBeNull()
+
+      // Wait for TTL to expire
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      // Entry should be expired
+      expect(cache.get('tasks', 'test', {})).toBeNull()
+    })
+
+    it('evicts old entries when at capacity', () => {
+      const cache = new QueryPlanCache(2, 60000) // Max 2 entries
+
+      cache.set('type1', 'q1', {}, {}, [])
+      cache.set('type2', 'q2', {}, {}, [])
+      cache.set('type3', 'q3', {}, {}, []) // Should evict type1
+
+      // First entry should be evicted
+      expect(cache.get('type1', 'q1', {})).toBeNull()
+      // Later entries should still exist
+      expect(cache.get('type2', 'q2', {})).not.toBeNull()
+      expect(cache.get('type3', 'q3', {})).not.toBeNull()
+    })
+
+    it('tracks hit count', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      cache.set('tasks', 'test', {}, {}, [])
+
+      const result1 = cache.get('tasks', 'test', {})
+      expect(result1?.hitCount).toBe(1)
+
+      const result2 = cache.get('tasks', 'test', {})
+      expect(result2?.hitCount).toBe(2)
+    })
+
+    it('clears all entries', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      cache.set('type1', 'q1', {}, {}, [])
+      cache.set('type2', 'q2', {}, {}, [])
+
+      cache.clear()
+
+      expect(cache.get('type1', 'q1', {})).toBeNull()
+      expect(cache.get('type2', 'q2', {})).toBeNull()
+    })
+
+    it('provides cache statistics', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      cache.set('type1', 'q1', {}, {}, [])
+      cache.set('type2', 'q2', {}, {}, [])
+
+      const stats = cache.stats()
+      expect(stats.size).toBe(2)
+      expect(stats.maxEntries).toBe(100)
+      expect(stats.ttlMs).toBe(60000)
+    })
+
+    it('generates consistent hash for same parameters', () => {
+      const cache = new QueryPlanCache(100, 60000)
+      cache.set('tasks', 'query', { a: '1', b: '2' }, {}, [])
+
+      // Same params in different order should hit cache
+      const result = cache.get('tasks', 'query', { b: '2', a: '1' })
+      expect(result).not.toBeNull()
+    })
+  })
+
+  describe('getQueryPlanCache singleton', () => {
+    it('returns the same instance', () => {
+      const cache1 = getQueryPlanCache()
+      const cache2 = getQueryPlanCache()
+      expect(cache1).toBe(cache2)
+    })
+  })
+})
+
+// ============================================================================
+// 9. Index Hints Tests
+// ============================================================================
+
+describe('Search Middleware - Index Hints', () => {
+  describe('computeIndexHints', () => {
+    it('returns FTS hints for text queries', () => {
+      const hints = computeIndexHints('tasks', 'search term', {})
+      expect(hints.some((h) => h.useFTS)).toBe(true)
+    })
+
+    it('returns btree hints for time filters', () => {
+      const hints = computeIndexHints('events', '', {
+        GE_eventTime: '2024-01-01',
+      })
+      expect(hints.some((h) => h.indexType === 'btree')).toBe(true)
+    })
+
+    it('returns hash hints for status filters', () => {
+      const hints = computeIndexHints('tasks', '', {
+        status: 'open',
+      })
+      expect(hints.some((h) => h.indexType === 'hash')).toBe(true)
+    })
+
+    it('returns hints for EPCIS bizStep', () => {
+      const hints = computeIndexHints('events', '', {
+        EQ_bizStep: 'shipping',
+      })
+      expect(hints.some((h) => h.indexField === 'bizStep')).toBe(true)
+    })
+
+    it('returns hints for EPCIS bizLocation', () => {
+      const hints = computeIndexHints('events', '', {
+        EQ_bizLocation: 'warehouse-1',
+      })
+      expect(hints.some((h) => h.indexField === 'bizLocation')).toBe(true)
+    })
+
+    it('returns composite hints for time + status queries', () => {
+      const hints = computeIndexHints('events', '', {
+        GE_eventTime: '2024-01-01',
+        status: 'active',
+      })
+      expect(hints.some((h) => h.compositeFields?.includes('status'))).toBe(true)
+    })
+
+    it('uses custom hints when provided', () => {
+      const customHints = {
+        tasks: [{ indexField: 'dueDate', indexType: 'btree' as const }],
+      }
+      const hints = computeIndexHints('tasks', '', {}, customHints)
+      expect(hints.some((h) => h.indexField === 'dueDate')).toBe(true)
+    })
+
+    it('returns empty array for queries with no hint-worthy patterns', () => {
+      const hints = computeIndexHints('tasks', '', {})
+      // May still have some hints based on type, but shouldn't error
+      expect(Array.isArray(hints)).toBe(true)
+    })
+  })
+})
+
+// ============================================================================
+// 10. Pagination Optimization Tests
+// ============================================================================
+
+describe('Search Middleware - Pagination Optimization', () => {
+  describe('cursor encoding/decoding', () => {
+    it('encodes and decodes offset correctly', () => {
+      const cursor = encodeCursor(100)
+      const decoded = decodeCursor(cursor)
+      expect(decoded?.offset).toBe(100)
+    })
+
+    it('encodes and decodes with sort field', () => {
+      const cursor = encodeCursor(50, 'createdAt', '2024-01-01')
+      const decoded = decodeCursor(cursor)
+      expect(decoded?.offset).toBe(50)
+      expect(decoded?.sortField).toBe('createdAt')
+      expect(decoded?.sortValue).toBe('2024-01-01')
+    })
+
+    it('returns null for invalid cursor', () => {
+      const decoded = decodeCursor('invalid-cursor')
+      expect(decoded).toBeNull()
+    })
+
+    it('returns null for malformed base64', () => {
+      const decoded = decodeCursor('!!!not-base64!!!')
+      expect(decoded).toBeNull()
+    })
+  })
+
+  describe('cursor-based pagination in middleware', () => {
+    let app: Hono
+
+    beforeEach(() => {
+      vi.clearAllMocks()
+      mockDb.query.tasks.findMany.mockResolvedValue([
+        { id: '1', title: 'Task 1' },
+        { id: '2', title: 'Task 2' },
+      ])
+    })
+
+    it('supports cursor parameter', async () => {
+      app = new Hono()
+      app.use('*', async (c, next) => {
+        c.set('user', { id: 'user-123', role: 'user' })
+        c.set('db', mockDb)
+        await next()
+      })
+      app.use(
+        '/api/search/*',
+        search({
+          localTypes: ['tasks'],
+          enableCursorPagination: true,
+        })
+      )
+
+      const cursor = encodeCursor(10)
+      const res = await app.request(`/api/search/tasks?cursor=${cursor}`, {
+        method: 'GET',
+      })
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as SearchResult
+      expect(body.offset).toBe(10)
+    })
+
+    it('returns next/prev cursors when enabled', async () => {
+      mockDb.query.tasks.findMany.mockResolvedValue(
+        Array.from({ length: 20 }, (_, i) => ({ id: String(i), title: `Task ${i}` }))
+      )
+
+      app = new Hono()
+      app.use('*', async (c, next) => {
+        c.set('user', { id: 'user-123', role: 'user' })
+        c.set('db', mockDb)
+        await next()
+      })
+      app.use(
+        '/api/search/*',
+        search({
+          localTypes: ['tasks'],
+          enableCursorPagination: true,
+        })
+      )
+
+      const res = await app.request('/api/search/tasks?offset=10&limit=10', {
+        method: 'GET',
+      })
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as SearchResult & {
+        nextCursor?: string
+        prevCursor?: string
+      }
+      expect(body.prevCursor).toBeDefined()
+    })
+
+    it('does not include cursors when disabled', async () => {
+      app = new Hono()
+      app.use('*', async (c, next) => {
+        c.set('user', { id: 'user-123', role: 'user' })
+        c.set('db', mockDb)
+        await next()
+      })
+      app.use(
+        '/api/search/*',
+        search({
+          localTypes: ['tasks'],
+          enableCursorPagination: false,
+        })
+      )
+
+      const res = await app.request('/api/search/tasks?offset=10', {
+        method: 'GET',
+      })
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as SearchResult & {
+        nextCursor?: string
+        prevCursor?: string
+      }
+      expect(body.nextCursor).toBeUndefined()
+      expect(body.prevCursor).toBeUndefined()
+    })
+  })
+})
+
+// ============================================================================
+// 11. Search Analytics Tests
+// ============================================================================
+
+describe('Search Middleware - Analytics Hooks', () => {
+  let app: Hono
+  let analyticsEvents: SearchAnalyticsEvent[]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    analyticsEvents = []
+    mockDb.query.tasks.findMany.mockResolvedValue([
+      { id: '1', title: 'Task 1' },
+    ])
+
+    app = new Hono()
+    app.use('*', async (c, next) => {
+      c.set('user', { id: 'user-456', role: 'user' })
+      c.set('db', mockDb)
+      await next()
+    })
+    app.use(
+      '/api/search/*',
+      search({
+        localTypes: ['tasks'],
+        analyticsHook: (event) => {
+          analyticsEvents.push(event)
+        },
+      })
+    )
+  })
+
+  it('calls analytics hook on successful search', async () => {
+    const res = await app.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+    expect(res.status).toBe(200)
+
+    // Wait a tick for async analytics
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents.length).toBe(1)
+    expect(analyticsEvents[0].type).toBe('tasks')
+    expect(analyticsEvents[0].query).toBe('test')
+  })
+
+  it('includes search duration in analytics', async () => {
+    await app.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('includes user ID in analytics', async () => {
+    await app.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].userId).toBe('user-456')
+  })
+
+  it('includes result counts in analytics', async () => {
+    await app.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].resultCount).toBe(1)
+    expect(analyticsEvents[0].totalCount).toBe(1)
+  })
+
+  it('includes filters in analytics', async () => {
+    await app.request('/api/search/tasks?q=test&status=open', {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].filters).toEqual({ status: 'open' })
+  })
+
+  it('includes cache hit status in analytics', async () => {
+    // Use a unique query to avoid hitting global cache from other tests
+    const uniqueQuery = `unique-${Date.now()}`
+
+    // First request - cache miss
+    await app.request(`/api/search/tasks?q=${uniqueQuery}&status=uniquestatus`, {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const firstEventIndex = analyticsEvents.length - 1
+
+    // First request should be cache miss
+    expect(analyticsEvents[firstEventIndex].cacheHit).toBe(false)
+
+    // Second identical request - cache hit
+    await app.request(`/api/search/tasks?q=${uniqueQuery}&status=uniquestatus`, {
+      method: 'GET',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Second request should be cache hit
+    expect(analyticsEvents[analyticsEvents.length - 1].cacheHit).toBe(true)
+  })
+
+  it('includes timestamp in analytics', async () => {
+    const before = Date.now()
+
+    await app.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+
+    const after = Date.now()
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].timestamp).toBeGreaterThanOrEqual(before)
+    expect(analyticsEvents[0].timestamp).toBeLessThanOrEqual(after)
+  })
+
+  it('gracefully handles analytics hook errors', async () => {
+    const errorApp = new Hono()
+    errorApp.use('*', async (c, next) => {
+      c.set('user', { id: 'user-123', role: 'user' })
+      c.set('db', mockDb)
+      await next()
+    })
+    errorApp.use(
+      '/api/search/*',
+      search({
+        localTypes: ['tasks'],
+        analyticsHook: () => {
+          throw new Error('Analytics failed')
+        },
+      })
+    )
+
+    // Should not throw, search should still work
+    const res = await errorApp.request('/api/search/tasks?q=test', {
+      method: 'GET',
+    })
+    expect(res.status).toBe(200)
+  })
+})
+
+// ============================================================================
+// 12. Custom Index Hints Configuration Tests
+// ============================================================================
+
+describe('Search Middleware - Custom Index Hints', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDb.query.tasks.findMany.mockResolvedValue([])
+  })
+
+  it('uses custom index hints from config', async () => {
+    const analyticsEvents: SearchAnalyticsEvent[] = []
+
+    const app = new Hono()
+    app.use('*', async (c, next) => {
+      c.set('user', { id: 'user-123', role: 'user' })
+      c.set('db', mockDb)
+      await next()
+    })
+    app.use(
+      '/api/search/*',
+      search({
+        localTypes: ['tasks'],
+        indexHints: {
+          tasks: [{ indexField: 'customField', indexType: 'gin' }],
+        },
+        analyticsHook: (event) => {
+          analyticsEvents.push(event)
+        },
+        // Disable cache to ensure we compute fresh index hints
+        enableQueryPlanCache: false,
+      })
+    )
+
+    await app.request('/api/search/tasks', { method: 'GET' })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(analyticsEvents[0].indexHints).toBeDefined()
+    expect(analyticsEvents[0].indexHints?.some((h) => h.indexField === 'customField')).toBe(true)
+  })
+})

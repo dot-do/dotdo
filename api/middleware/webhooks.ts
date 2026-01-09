@@ -6,13 +6,17 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
  * Webhooks Middleware
  *
  * Handles incoming webhooks from third-party services.
- * Supports GitHub, Stripe, and other providers.
+ * Supports GitHub, Stripe, and other providers via extensible registry.
  *
  * Features:
- * - Signature verification per provider
+ * - Signature verification per provider (extensible via registry)
  * - Event routing by type (github:push, stripe:invoice.paid)
  * - Handler dispatch with parsed payload and Hono context
  * - Provider configuration from integrations.do or env vars
+ * - Payload validation per provider
+ * - Metrics/telemetry hooks
+ * - Secret rotation support (multiple secrets per provider)
+ * - Webhook replay/retry mechanism
  */
 
 // ============================================================================
@@ -21,41 +25,193 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 
 export interface ProviderConfig {
   secret: string
+  /** Additional secrets for rotation - webhook will verify against all */
+  rotatedSecrets?: string[]
   timestampTolerance?: number
 }
 
 export type WebhookHandler<T = unknown> = (payload: T, c: Context) => Promise<unknown> | unknown
 
+/** Payload validator function - returns true if valid, error message if invalid */
+export type PayloadValidator<T = unknown> = (payload: T) => true | string
+
+/** Telemetry/metrics event types */
+export type TelemetryEventType =
+  | 'webhook.received'
+  | 'webhook.signature_verified'
+  | 'webhook.signature_failed'
+  | 'webhook.payload_validated'
+  | 'webhook.payload_invalid'
+  | 'webhook.handler_called'
+  | 'webhook.handler_succeeded'
+  | 'webhook.handler_failed'
+  | 'webhook.completed'
+
+/** Telemetry event data */
+export interface TelemetryEvent {
+  type: TelemetryEventType
+  provider: string
+  eventType: string
+  timestamp: number
+  duration?: number
+  error?: string
+  metadata?: Record<string, unknown>
+}
+
+/** Telemetry hook function */
+export type TelemetryHook = (event: TelemetryEvent) => void | Promise<void>
+
+/** Retry configuration for failed webhooks */
+export interface RetryConfig {
+  maxRetries: number
+  backoffMs: number
+  backoffMultiplier: number
+}
+
+/** Webhook replay/retry storage interface */
+export interface WebhookReplayStorage {
+  /** Store a failed webhook for later retry */
+  store(webhook: FailedWebhook): Promise<void>
+  /** Retrieve failed webhooks for retry */
+  retrieve(provider: string, limit?: number): Promise<FailedWebhook[]>
+  /** Mark a webhook as successfully processed */
+  markProcessed(id: string): Promise<void>
+  /** Mark a webhook as permanently failed */
+  markFailed(id: string, reason: string): Promise<void>
+}
+
+/** Failed webhook data */
+export interface FailedWebhook {
+  id: string
+  provider: string
+  eventType: string
+  payload: unknown
+  rawBody: string
+  headers: Record<string, string>
+  error: string
+  retryCount: number
+  createdAt: number
+  lastRetryAt?: number
+}
+
 export interface WebhooksConfig {
   providers?: Record<string, ProviderConfig>
   handlers?: Record<string, WebhookHandler>
+  /** Payload validators per event type (e.g., 'github:push', 'stripe:invoice.paid') */
+  validators?: Record<string, PayloadValidator>
+  /** Telemetry hooks for metrics/observability */
+  telemetry?: TelemetryHook | TelemetryHook[]
+  /** Retry configuration for failed handler executions */
+  retry?: RetryConfig
+  /** Storage for webhook replay/retry mechanism */
+  replayStorage?: WebhookReplayStorage
   configSource?: 'integrations.do' | 'static'
   fetch?: typeof globalThis.fetch
 }
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-const DEFAULT_STRIPE_TIMESTAMP_TOLERANCE = 300 // 5 minutes in seconds
-
-// Known webhook providers (these are the supported providers)
-const KNOWN_PROVIDERS = new Set(['github', 'stripe'])
-
-// Environment variable mapping for provider secrets
-const ENV_SECRET_MAPPING: Record<string, string> = {
-  github: 'GITHUB_WEBHOOK_SECRET',
-  stripe: 'STRIPE_WEBHOOK_SECRET',
-}
-
-// ============================================================================
-// Helper Functions
+// Provider Registry
 // ============================================================================
 
 /**
- * Verify GitHub webhook signature using SHA256
+ * Provider handler interface for signature verification and event extraction.
+ * Implement this interface to add support for new webhook providers.
  */
-function verifyGitHubSignature(rawBody: string, signature: string, secret: string): boolean {
+export interface WebhookProvider {
+  /** Provider name (e.g., 'github', 'stripe') */
+  name: string
+  /** Environment variable name for the webhook secret */
+  envSecretKey: string
+  /** Header name containing the signature */
+  signatureHeader: string
+  /** Verify the webhook signature */
+  verifySignature(rawBody: string, signature: string, secret: string, config?: ProviderConfig): boolean
+  /** Extract the event type from the request */
+  extractEventType(c: Context, payload: unknown): string
+  /** Optional: Validate the payload structure */
+  validatePayload?(payload: unknown): true | string
+}
+
+/**
+ * Provider registry for managing webhook provider handlers.
+ * Allows extending the middleware with new providers.
+ */
+class ProviderRegistry {
+  private providers = new Map<string, WebhookProvider>()
+
+  /** Register a new provider handler */
+  register(provider: WebhookProvider): void {
+    this.providers.set(provider.name, provider)
+  }
+
+  /** Get a provider handler by name */
+  get(name: string): WebhookProvider | undefined {
+    return this.providers.get(name)
+  }
+
+  /** Check if a provider is registered */
+  has(name: string): boolean {
+    return this.providers.has(name)
+  }
+
+  /** Get all registered provider names */
+  names(): string[] {
+    return Array.from(this.providers.keys())
+  }
+
+  /** Get the env var key for a provider's secret */
+  getEnvSecretKey(name: string): string | undefined {
+    return this.providers.get(name)?.envSecretKey
+  }
+}
+
+// ============================================================================
+// Built-in Provider Implementations
+// ============================================================================
+
+/**
+ * GitHub webhook provider implementation.
+ * Verifies signatures using SHA256 HMAC.
+ */
+const githubProvider: WebhookProvider = {
+  name: 'github',
+  envSecretKey: 'GITHUB_WEBHOOK_SECRET',
+  signatureHeader: 'X-Hub-Signature-256',
+
+  verifySignature(rawBody: string, signature: string, secret: string, config?: ProviderConfig): boolean {
+    // Try primary secret first
+    if (verifyGitHubSignatureInternal(rawBody, signature, secret)) {
+      return true
+    }
+
+    // Try rotated secrets if available
+    if (config?.rotatedSecrets) {
+      for (const rotatedSecret of config.rotatedSecrets) {
+        if (verifyGitHubSignatureInternal(rawBody, signature, rotatedSecret)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  },
+
+  extractEventType(c: Context): string {
+    return c.req.header('X-GitHub-Event') || 'unknown'
+  },
+
+  validatePayload(payload: unknown): true | string {
+    if (!payload || typeof payload !== 'object') {
+      return 'Payload must be an object'
+    }
+    return true
+  },
+}
+
+/**
+ * Internal GitHub signature verification.
+ */
+function verifyGitHubSignatureInternal(rawBody: string, signature: string, secret: string): boolean {
   if (!signature || !signature.startsWith('sha256=')) {
     return false
   }
@@ -80,14 +236,61 @@ function verifyGitHubSignature(rawBody: string, signature: string, secret: strin
 }
 
 /**
- * Verify Stripe webhook signature
- * Format: t=timestamp,v1=signature
+ * Stripe webhook provider implementation.
+ * Verifies signatures with timestamp-based replay protection.
  */
-function verifyStripeSignature(
+const stripeProvider: WebhookProvider = {
+  name: 'stripe',
+  envSecretKey: 'STRIPE_WEBHOOK_SECRET',
+  signatureHeader: 'Stripe-Signature',
+
+  verifySignature(rawBody: string, signature: string, secret: string, config?: ProviderConfig): boolean {
+    const tolerance = config?.timestampTolerance ?? DEFAULT_STRIPE_TIMESTAMP_TOLERANCE
+
+    // Try primary secret first
+    if (verifyStripeSignatureInternal(rawBody, signature, secret, tolerance)) {
+      return true
+    }
+
+    // Try rotated secrets if available
+    if (config?.rotatedSecrets) {
+      for (const rotatedSecret of config.rotatedSecrets) {
+        if (verifyStripeSignatureInternal(rawBody, signature, rotatedSecret, tolerance)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  },
+
+  extractEventType(_c: Context, payload: unknown): string {
+    return (payload as { type?: string })?.type || 'unknown'
+  },
+
+  validatePayload(payload: unknown): true | string {
+    if (!payload || typeof payload !== 'object') {
+      return 'Payload must be an object'
+    }
+    const p = payload as Record<string, unknown>
+    if (typeof p.type !== 'string') {
+      return 'Payload must have a type field'
+    }
+    if (!p.data || typeof p.data !== 'object') {
+      return 'Payload must have a data object'
+    }
+    return true
+  },
+}
+
+/**
+ * Internal Stripe signature verification.
+ */
+function verifyStripeSignatureInternal(
   rawBody: string,
   signatureHeader: string,
   secret: string,
-  timestampTolerance: number = DEFAULT_STRIPE_TIMESTAMP_TOLERANCE
+  timestampTolerance: number
 ): boolean {
   if (!signatureHeader) {
     return false
@@ -136,19 +339,45 @@ function verifyStripeSignature(
   }
 }
 
+// ============================================================================
+// Global Provider Registry
+// ============================================================================
+
+/** Global provider registry with built-in providers */
+export const providerRegistry = new ProviderRegistry()
+
+// Register built-in providers
+providerRegistry.register(githubProvider)
+providerRegistry.register(stripeProvider)
+
 /**
- * Extract event type based on provider
+ * Register a custom webhook provider.
+ * Use this to add support for additional webhook sources.
+ *
+ * @example
+ * ```typescript
+ * registerProvider({
+ *   name: 'slack',
+ *   envSecretKey: 'SLACK_SIGNING_SECRET',
+ *   signatureHeader: 'X-Slack-Signature',
+ *   verifySignature(rawBody, signature, secret) { ... },
+ *   extractEventType(c, payload) { ... },
+ * })
+ * ```
  */
-function extractEventType(source: string, c: Context, payload: unknown): string {
-  switch (source) {
-    case 'github':
-      return c.req.header('X-GitHub-Event') || 'unknown'
-    case 'stripe':
-      return (payload as { type?: string })?.type || 'unknown'
-    default:
-      return 'unknown'
-  }
+export function registerProvider(provider: WebhookProvider): void {
+  providerRegistry.register(provider)
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const DEFAULT_STRIPE_TIMESTAMP_TOLERANCE = 300 // 5 minutes in seconds
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 /**
  * Get env var value, checking multiple sources for Workers compatibility
@@ -176,17 +405,14 @@ function getEnvVar(name: string): string | undefined {
 /**
  * Get secret for a provider from config or environment
  */
-function getProviderSecret(
-  source: string,
-  providers?: Record<string, ProviderConfig>
-): string | undefined {
+function getProviderSecret(source: string, providers?: Record<string, ProviderConfig>): string | undefined {
   // First check explicit config
   if (providers?.[source]?.secret) {
     return providers[source].secret
   }
 
-  // Fall back to environment variable
-  const envVar = ENV_SECRET_MAPPING[source]
+  // Fall back to environment variable using registry
+  const envVar = providerRegistry.getEnvSecretKey(source)
   if (envVar) {
     const envValue = getEnvVar(envVar)
     if (envValue) {
@@ -198,16 +424,23 @@ function getProviderSecret(
 }
 
 /**
- * Get timestamp tolerance for Stripe
+ * Emit telemetry events to configured hooks
  */
-function getTimestampTolerance(
-  source: string,
-  providers?: Record<string, ProviderConfig>
-): number {
-  if (source === 'stripe' && providers?.[source]?.timestampTolerance !== undefined) {
-    return providers[source].timestampTolerance
-  }
-  return DEFAULT_STRIPE_TIMESTAMP_TOLERANCE
+async function emitTelemetry(
+  hooks: TelemetryHook | TelemetryHook[] | undefined,
+  event: TelemetryEvent
+): Promise<void> {
+  if (!hooks) return
+
+  const hookArray = Array.isArray(hooks) ? hooks : [hooks]
+  await Promise.all(hookArray.map((hook) => hook(event)))
+}
+
+/**
+ * Generate a unique webhook ID for replay tracking
+ */
+function generateWebhookId(): string {
+  return `wh_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 }
 
 // ============================================================================
@@ -227,6 +460,29 @@ function getTimestampTolerance(
  *     'github:push': async (payload, c) => { ... },
  *     'stripe:invoice.paid': async (payload, c) => { ... },
  *   },
+ * }))
+ * ```
+ *
+ * @example With telemetry
+ * ```typescript
+ * app.use('/api/webhooks/*', webhooks({
+ *   handlers: { ... },
+ *   telemetry: (event) => {
+ *     console.log(`[${event.type}] ${event.provider}:${event.eventType}`)
+ *   },
+ * }))
+ * ```
+ *
+ * @example With secret rotation
+ * ```typescript
+ * app.use('/api/webhooks/*', webhooks({
+ *   providers: {
+ *     github: {
+ *       secret: 'new-secret',
+ *       rotatedSecrets: ['old-secret-1', 'old-secret-2'],
+ *     },
+ *   },
+ *   handlers: { ... },
  * }))
  * ```
  */
@@ -281,26 +537,39 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
   // Handle non-POST methods
   app.all('/:source', async (c) => {
     const method = c.req.method
+    const startTime = Date.now()
+    const source = c.req.param('source')
 
     if (method !== 'POST') {
       return c.json({ error: 'Method not allowed' }, 405)
     }
-
-    const source = c.req.param('source')
 
     // Validate source name (security check)
     if (!source || !/^[a-z0-9_-]+$/i.test(source)) {
       return c.json({ error: 'Unknown provider' }, 404)
     }
 
-    // Check if this is a known/configured provider
-    const isKnownProvider = KNOWN_PROVIDERS.has(source)
+    // Check if this is a known/configured provider using registry
+    const provider = providerRegistry.get(source)
     const hasExplicitConfig = config?.providers?.[source] !== undefined
 
-    // If provider is not known and not configured, return 404
-    if (!isKnownProvider && !hasExplicitConfig) {
+    // If provider is not registered and not configured, return 404
+    if (!provider && !hasExplicitConfig) {
       return c.json({ error: 'Unknown provider' }, 404)
     }
+
+    // For configured but unregistered providers, we can't verify - return 404
+    if (!provider) {
+      return c.json({ error: 'Unknown provider' }, 404)
+    }
+
+    // Emit telemetry: webhook received
+    await emitTelemetry(config?.telemetry, {
+      type: 'webhook.received',
+      provider: source,
+      eventType: 'pending',
+      timestamp: startTime,
+    })
 
     // Fetch integrations.do config if configured
     await fetchIntegrationsConfig()
@@ -321,28 +590,31 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
       return c.json({ error: 'Empty body' }, 400)
     }
 
-    // Verify signature based on provider
-    let isValid = false
+    // Get signature from provider-specific header
+    const signature = c.req.header(provider.signatureHeader) || ''
 
-    switch (source) {
-      case 'github': {
-        const signature = c.req.header('X-Hub-Signature-256') || ''
-        isValid = verifyGitHubSignature(rawBody, signature, secret)
-        break
-      }
-      case 'stripe': {
-        const signature = c.req.header('Stripe-Signature') || ''
-        const tolerance = getTimestampTolerance(source, config?.providers)
-        isValid = verifyStripeSignature(rawBody, signature, secret, tolerance)
-        break
-      }
-      default:
-        return c.json({ error: 'Unknown provider' }, 404)
-    }
+    // Get provider config for rotation support
+    const providerConfig = config?.providers?.[source]
+
+    // Verify signature using provider's implementation
+    const isValid = provider.verifySignature(rawBody, signature, secret, providerConfig)
 
     if (!isValid) {
+      await emitTelemetry(config?.telemetry, {
+        type: 'webhook.signature_failed',
+        provider: source,
+        eventType: 'unknown',
+        timestamp: Date.now(),
+      })
       return c.json({ error: 'Invalid signature' }, 401)
     }
+
+    await emitTelemetry(config?.telemetry, {
+      type: 'webhook.signature_verified',
+      provider: source,
+      eventType: 'pending',
+      timestamp: Date.now(),
+    })
 
     // Parse payload
     let payload: unknown
@@ -352,16 +624,54 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
       return c.json({ error: 'Invalid JSON' }, 400)
     }
 
-    // Extract event type
-    const eventType = extractEventType(source, c, payload)
+    // Extract event type using provider's implementation
+    const eventType = provider.extractEventType(c, payload)
     const fullEventType = `${source}:${eventType}`
+
+    // Run payload validation if configured
+    const validator = config?.validators?.[fullEventType]
+    if (validator) {
+      const validationResult = validator(payload)
+      if (validationResult !== true) {
+        await emitTelemetry(config?.telemetry, {
+          type: 'webhook.payload_invalid',
+          provider: source,
+          eventType: fullEventType,
+          timestamp: Date.now(),
+          error: validationResult,
+        })
+        return c.json({ error: `Payload validation failed: ${validationResult}` }, 400)
+      }
+      await emitTelemetry(config?.telemetry, {
+        type: 'webhook.payload_validated',
+        provider: source,
+        eventType: fullEventType,
+        timestamp: Date.now(),
+      })
+    }
 
     // Find and call handler
     const handler = config?.handlers?.[fullEventType]
 
     if (handler) {
+      await emitTelemetry(config?.telemetry, {
+        type: 'webhook.handler_called',
+        provider: source,
+        eventType: fullEventType,
+        timestamp: Date.now(),
+      })
+
       try {
         const result = await handler(payload, c)
+
+        await emitTelemetry(config?.telemetry, {
+          type: 'webhook.handler_succeeded',
+          provider: source,
+          eventType: fullEventType,
+          timestamp: Date.now(),
+          duration: Date.now() - startTime,
+        })
+
         // If handler returns a Response, use it
         if (result instanceof Response) {
           return result
@@ -370,10 +680,48 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
         if (result && typeof result === 'object' && 'status' in result) {
           return c.json(result as object, (result as { status?: number }).status || 200)
         }
-      } catch {
+      } catch (error) {
+        await emitTelemetry(config?.telemetry, {
+          type: 'webhook.handler_failed',
+          provider: source,
+          eventType: fullEventType,
+          timestamp: Date.now(),
+          duration: Date.now() - startTime,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+
+        // Store for retry if replay storage is configured
+        if (config?.replayStorage) {
+          const headers: Record<string, string> = {}
+          c.req.raw.headers.forEach((value, key) => {
+            headers[key] = value
+          })
+
+          await config.replayStorage.store({
+            id: generateWebhookId(),
+            provider: source,
+            eventType: fullEventType,
+            payload,
+            rawBody,
+            headers,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            retryCount: 0,
+            createdAt: Date.now(),
+          })
+        }
+
         return c.json({ error: 'Internal server error' }, 500)
       }
     }
+
+    // Emit completion telemetry
+    await emitTelemetry(config?.telemetry, {
+      type: 'webhook.completed',
+      provider: source,
+      eventType: fullEventType,
+      timestamp: Date.now(),
+      duration: Date.now() - startTime,
+    })
 
     // Default response
     return c.json({ received: true, eventType: fullEventType })

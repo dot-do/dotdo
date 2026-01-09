@@ -1449,4 +1449,170 @@ describe('Session Validation with better-auth', () => {
       expect(mockKV.delete).toHaveBeenCalledWith('session:expired-cached-token')
     })
   })
+
+  describe('In-Memory LRU Cache', () => {
+    // Import MemoryCache and clearSessionMemoryCache for testing
+    let MemoryCache: typeof import('../../middleware/auth').MemoryCache
+    let clearSessionMemoryCache: typeof import('../../middleware/auth').clearSessionMemoryCache
+
+    beforeEach(async () => {
+      const authModule = await import('../../middleware/auth')
+      MemoryCache = authModule.MemoryCache
+      clearSessionMemoryCache = authModule.clearSessionMemoryCache
+      // Clear the global memory cache before each test
+      clearSessionMemoryCache()
+    })
+
+    it('stores and retrieves values', () => {
+      const cache = new MemoryCache<string>(100, 300)
+      cache.set('key1', 'value1')
+      expect(cache.get('key1')).toBe('value1')
+    })
+
+    it('returns null for missing keys', () => {
+      const cache = new MemoryCache<string>(100, 300)
+      expect(cache.get('nonexistent')).toBeNull()
+    })
+
+    it('expires entries after TTL', async () => {
+      const cache = new MemoryCache<string>(100, 1) // 1 second TTL
+      cache.set('key1', 'value1')
+      expect(cache.get('key1')).toBe('value1')
+      // Wait for expiration
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      expect(cache.get('key1')).toBeNull()
+    })
+
+    it('evicts oldest entries when at capacity', () => {
+      const cache = new MemoryCache<string>(3, 300)
+      cache.set('key1', 'value1')
+      cache.set('key2', 'value2')
+      cache.set('key3', 'value3')
+      expect(cache.size).toBe(3)
+      // Add a 4th entry, should evict key1 (oldest, first in)
+      cache.set('key4', 'value4')
+      expect(cache.get('key1')).toBeNull() // Evicted
+      expect(cache.get('key2')).toBe('value2')
+      expect(cache.get('key3')).toBe('value3')
+      expect(cache.get('key4')).toBe('value4')
+    })
+
+    it('moves accessed entries to end (LRU)', () => {
+      const cache = new MemoryCache<string>(3, 300)
+      cache.set('key1', 'value1')
+      cache.set('key2', 'value2')
+      cache.set('key3', 'value3')
+      // Access key1, making it most recently used
+      cache.get('key1')
+      // Add key4, should evict key2 (now oldest)
+      cache.set('key4', 'value4')
+      expect(cache.get('key1')).toBe('value1')
+      expect(cache.get('key2')).toBeNull()
+    })
+
+    it('prunes expired entries', async () => {
+      const cache = new MemoryCache<string>(100, 1) // 1 second TTL
+      cache.set('key1', 'value1')
+      cache.set('key2', 'value2')
+      expect(cache.size).toBe(2)
+      // Wait for expiration
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      const removed = cache.prune()
+      expect(removed).toBe(2)
+      expect(cache.size).toBe(0)
+    })
+
+    it('integrates with session authentication as L1 cache', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      let validatorCallCount = 0
+      const mockValidator: SessionValidator = vi.fn().mockImplementation(() => {
+        validatorCallCount++
+        return Promise.resolve({
+          userId: 'memory-cached-user',
+          email: 'memory@example.com',
+          role: 'user' as const,
+          expiresAt: futureDate,
+        })
+      })
+      const mockKV = createMockKV()
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+          sessionCache: mockKV,
+          enableMemoryCache: true,
+          sessionCacheTtl: 300,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      // First request - should call validator
+      await sessionApp.request('/protected', {
+        headers: { Cookie: 'session=memory-test-token' },
+      })
+      expect(validatorCallCount).toBe(1)
+
+      // Second request - should use memory cache (L1), not call validator
+      await sessionApp.request('/protected', {
+        headers: { Cookie: 'session=memory-test-token' },
+      })
+      expect(validatorCallCount).toBe(1) // Still 1, memory cache was used
+
+      // Third request - same token, still uses memory cache
+      await sessionApp.request('/protected', {
+        headers: { Cookie: 'session=memory-test-token' },
+      })
+      expect(validatorCallCount).toBe(1) // Still 1
+    })
+
+    it('populates memory cache from KV cache hit', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      let validatorCallCount = 0
+      const mockValidator: SessionValidator = vi.fn().mockImplementation(() => {
+        validatorCallCount++
+        return Promise.resolve({
+          userId: 'kv-user',
+          role: 'user' as const,
+          expiresAt: futureDate,
+        })
+      })
+      const mockKV = createMockKV()
+
+      // Pre-populate KV cache
+      await mockKV.put(
+        'session:kv-to-memory-token',
+        JSON.stringify({
+          userId: 'kv-user',
+          role: 'user',
+          expiresAt: futureDate.toISOString(),
+        }),
+      )
+
+      // Clear memory cache to ensure we start fresh
+      clearSessionMemoryCache()
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+          sessionCache: mockKV,
+          enableMemoryCache: true,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      // First request - should hit KV, populate memory cache
+      const res1 = await sessionApp.request('/protected', {
+        headers: { Cookie: 'session=kv-to-memory-token' },
+      })
+      expect(res1.status).toBe(200)
+      expect(validatorCallCount).toBe(0) // KV cache hit, no validator call
+      expect(mockKV.get).toHaveBeenCalled()
+    })
+  })
 })

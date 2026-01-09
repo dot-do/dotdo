@@ -84,6 +84,17 @@ export interface AuthConfig {
    * Session cache TTL in seconds (default: 300 = 5 minutes)
    */
   sessionCacheTtl?: number
+  /**
+   * Enable in-memory cache as L1 cache before KV.
+   * This reduces KV calls for frequently accessed sessions.
+   * Default: true when sessionCache is provided
+   */
+  enableMemoryCache?: boolean
+  /**
+   * Maximum number of sessions to keep in memory cache.
+   * Default: 1000
+   */
+  memoryCacheMaxSize?: number
 }
 
 export interface ApiKeyConfig {
@@ -100,6 +111,130 @@ export interface ApiKeyConfig {
 const defaultConfig: AuthConfig = {
   cookieName: 'session',
   publicPaths: ['/health', '/public'],
+}
+
+// ============================================================================
+// In-Memory LRU Cache for Session Optimization
+// ============================================================================
+
+interface MemoryCacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
+/**
+ * Simple LRU (Least Recently Used) cache for in-memory session storage.
+ * Provides O(1) get/set operations with automatic expiration.
+ */
+export class MemoryCache<T> {
+  private cache = new Map<string, MemoryCacheEntry<T>>()
+  private readonly maxSize: number
+  private readonly defaultTtlMs: number
+
+  constructor(maxSize: number = 1000, defaultTtlSeconds: number = 300) {
+    this.maxSize = maxSize
+    this.defaultTtlMs = defaultTtlSeconds * 1000
+  }
+
+  get(key: string): T | null {
+    const entry = this.cache.get(key)
+    if (!entry) {
+      return null
+    }
+
+    // Check expiration
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key)
+      return null
+    }
+
+    // LRU: Move to end (most recently used)
+    this.cache.delete(key)
+    this.cache.set(key, entry)
+
+    return entry.value
+  }
+
+  set(key: string, value: T, ttlSeconds?: number): void {
+    // If at capacity, remove oldest entry (first in map)
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value
+      if (oldestKey) {
+        this.cache.delete(oldestKey)
+      }
+    }
+
+    const ttlMs = ttlSeconds ? ttlSeconds * 1000 : this.defaultTtlMs
+    this.cache.set(key, {
+      value,
+      expiresAt: Date.now() + ttlMs,
+    })
+  }
+
+  delete(key: string): void {
+    this.cache.delete(key)
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+
+  get size(): number {
+    return this.cache.size
+  }
+
+  /**
+   * Remove expired entries. Call periodically for cleanup.
+   */
+  prune(): number {
+    const now = Date.now()
+    let removed = 0
+    for (const [key, entry] of this.cache) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key)
+        removed++
+      }
+    }
+    return removed
+  }
+}
+
+/**
+ * Cached session data structure
+ */
+interface CachedSession {
+  userId: string
+  email?: string
+  role: 'admin' | 'user'
+  expiresAt?: string
+}
+
+// Global session memory cache instance (L1 cache before KV)
+let sessionMemoryCache: MemoryCache<CachedSession> | null = null
+
+function getSessionMemoryCache(config: AuthConfig): MemoryCache<CachedSession> | null {
+  if (config.enableMemoryCache === false) {
+    return null
+  }
+  // Only use memory cache if KV is also configured (L1 before L2)
+  if (!config.sessionCache && config.enableMemoryCache !== true) {
+    return null
+  }
+  if (!sessionMemoryCache) {
+    sessionMemoryCache = new MemoryCache<CachedSession>(
+      config.memoryCacheMaxSize ?? 1000,
+      config.sessionCacheTtl ?? 300,
+    )
+  }
+  return sessionMemoryCache
+}
+
+/**
+ * Clear the in-memory session cache.
+ * Useful for testing or when sessions are invalidated.
+ */
+export function clearSessionMemoryCache(): void {
+  sessionMemoryCache?.clear()
 }
 
 // ============================================================================
@@ -302,13 +437,25 @@ function getSessionCacheKey(token: string): string {
 }
 
 /**
- * Cached session data structure
+ * Check if a cached session is expired
  */
-interface CachedSession {
-  userId: string
-  email?: string
-  role: 'admin' | 'user'
-  expiresAt?: string
+function isCachedSessionExpired(cached: CachedSession): boolean {
+  if (!cached.expiresAt) {
+    return false
+  }
+  return new Date(cached.expiresAt) <= new Date()
+}
+
+/**
+ * Convert cached session to auth context
+ */
+function cachedSessionToAuthContext(cached: CachedSession): AuthContext {
+  return {
+    userId: cached.userId,
+    email: cached.email,
+    role: cached.role,
+    method: 'session',
+  }
 }
 
 async function authenticateSession(sessionToken: string, config: AuthConfig): Promise<AuthContext> {
@@ -317,34 +464,35 @@ async function authenticateSession(sessionToken: string, config: AuthConfig): Pr
     throw new HTTPException(401, { message: 'Session validation not configured' })
   }
 
-  // Try to get from cache first (if KV is configured)
+  const cacheKey = getSessionCacheKey(sessionToken)
+  const memoryCache = getSessionMemoryCache(config)
+  const ttl = config.sessionCacheTtl ?? 300 // Default 5 minutes
+
+  // L1: Try memory cache first (fastest)
+  if (memoryCache) {
+    const memoryCached = memoryCache.get(cacheKey)
+    if (memoryCached) {
+      if (isCachedSessionExpired(memoryCached)) {
+        memoryCache.delete(cacheKey)
+      } else {
+        return cachedSessionToAuthContext(memoryCached)
+      }
+    }
+  }
+
+  // L2: Try KV cache (if configured)
   if (config.sessionCache) {
     try {
-      const cached = await config.sessionCache.get<CachedSession>(getSessionCacheKey(sessionToken), 'json')
+      const cached = await config.sessionCache.get<CachedSession>(cacheKey, 'json')
       if (cached) {
-        // Check if cached session is still valid (not expired)
-        if (cached.expiresAt) {
-          const expiresAt = new Date(cached.expiresAt)
-          if (expiresAt <= new Date()) {
-            // Session expired, delete from cache and continue to validate
-            await config.sessionCache.delete(getSessionCacheKey(sessionToken))
-          } else {
-            // Return cached session
-            return {
-              userId: cached.userId,
-              email: cached.email,
-              role: cached.role,
-              method: 'session',
-            }
-          }
+        if (isCachedSessionExpired(cached)) {
+          // Session expired, delete from cache and continue to validate
+          await config.sessionCache.delete(cacheKey)
+          memoryCache?.delete(cacheKey)
         } else {
-          // No expiration, return cached session
-          return {
-            userId: cached.userId,
-            email: cached.email,
-            role: cached.role,
-            method: 'session',
-          }
+          // Populate L1 cache from L2
+          memoryCache?.set(cacheKey, cached, ttl)
+          return cachedSessionToAuthContext(cached)
         }
       }
     } catch {
@@ -352,7 +500,7 @@ async function authenticateSession(sessionToken: string, config: AuthConfig): Pr
     }
   }
 
-  // Validate session using the configured validator
+  // L3: Validate session using the configured validator (slowest)
   const session = await config.validateSession(sessionToken)
 
   if (!session) {
@@ -364,24 +512,21 @@ async function authenticateSession(sessionToken: string, config: AuthConfig): Pr
     throw new HTTPException(401, { message: 'Session expired' })
   }
 
-  const authContext: AuthContext = {
+  const cacheData: CachedSession = {
     userId: session.userId,
     email: session.email,
     role: session.role || 'user',
-    method: 'session',
+    expiresAt: session.expiresAt?.toISOString(),
   }
 
-  // Cache the validated session (if KV is configured)
+  // Write to both caches
+  // L1: Memory cache
+  memoryCache?.set(cacheKey, cacheData, ttl)
+
+  // L2: KV cache
   if (config.sessionCache) {
     try {
-      const cacheData: CachedSession = {
-        userId: session.userId,
-        email: session.email,
-        role: session.role || 'user',
-        expiresAt: session.expiresAt?.toISOString(),
-      }
-      const ttl = config.sessionCacheTtl ?? 300 // Default 5 minutes
-      await config.sessionCache.put(getSessionCacheKey(sessionToken), JSON.stringify(cacheData), {
+      await config.sessionCache.put(cacheKey, JSON.stringify(cacheData), {
         expirationTtl: ttl,
       })
     } catch {
@@ -389,7 +534,7 @@ async function authenticateSession(sessionToken: string, config: AuthConfig): Pr
     }
   }
 
-  return authContext
+  return cachedSessionToAuthContext(cacheData)
 }
 
 // ============================================================================
