@@ -852,10 +852,9 @@ export class SagaBuilder<TParams extends WorkflowParams = WorkflowParams> {
     itemsSelector: (ctx: WorkflowContext<TParams>) => TItem[],
     name: string,
     handler: (ctx: WorkflowContext<TParams>, item: TItem) => Promise<unknown>
-  ): SagaStepBuilder<TParams> {
-    const stepBuilder = new SagaStepBuilder<TParams>(this, name)
-    // Mark as forEach step
-    stepBuilder.action(async (ctx) => {
+  ): SagaStepBuilderWithAction<TParams> {
+    // Create the forEach action
+    const forEachAction = async (ctx: WorkflowContext<TParams>) => {
       const items = itemsSelector(ctx)
       const results: unknown[] = []
       for (const item of items) {
@@ -863,17 +862,10 @@ export class SagaBuilder<TParams extends WorkflowParams = WorkflowParams> {
         results.push(result)
       }
       return results
-    })
-
-    // Set isForEach flag when added
-    const originalAddStep = this._addStep.bind(this)
-    this._addStep = (step) => {
-      step.isForEach = true
-      originalAddStep(step)
-      this._addStep = originalAddStep
     }
 
-    return stepBuilder
+    // Return a SagaStepBuilderWithAction with isForEach flag
+    return new SagaStepBuilderWithAction<TParams>(this, name, forEachAction, true)
   }
 
   /**

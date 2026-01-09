@@ -121,6 +121,7 @@
     "db:seed:integrations": "npx tsx db/seeds/run.ts integrations"
   },
   "dependencies": {
+    "bashx": "file:../bashx",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
     "@hono/zod-openapi": "^1.2.0",

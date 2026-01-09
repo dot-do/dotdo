@@ -13,6 +13,12 @@
  * @module lib/cloudflare/ai
  */
 
+// Type casting helper for Cloudflare AI - ai.run() has strict model typing
+// We use 'unknown' casts to allow dynamic model selection while maintaining type safety
+type AiRunParams = Parameters<Ai['run']>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const runAi = (ai: Ai, model: string, params: unknown) => ai.run(model as any, params as any)
+
 // ============================================================================
 // Model Configuration
 // ============================================================================
@@ -441,8 +447,9 @@ export class WorkersAI {
     }
 
     try {
+      // Use helper to bypass strict model typing
       const response = await this.runWithTimeout(
-        this.ai.run(model, params) as Promise<WorkersAITextResponse>
+        runAi(this.ai, model, params) as Promise<WorkersAITextResponse>
       )
 
       // Track usage
@@ -503,7 +510,7 @@ export class WorkersAI {
       params.max_tokens = options.maxTokens
     }
 
-    const response = await this.ai.run(model, params) as ReadableStream
+    const response = await runAi(this.ai, model, params) as ReadableStream
 
     // Track usage
     this.trackUsage('text')
@@ -699,7 +706,7 @@ export class WorkersAI {
     const model = options.model ?? AI_MODELS.embedding
 
     const response = await this.runWithTimeout(
-      this.ai.run(model, { text }) as Promise<WorkersAIEmbeddingResponse>
+      runAi(this.ai, model, { text }) as Promise<WorkersAIEmbeddingResponse>
     )
 
     this.trackUsage('embedding')
@@ -736,7 +743,7 @@ export class WorkersAI {
       const batch = texts.slice(i, i + batchSize)
 
       const response = await this.runWithTimeout(
-        this.ai.run(model, { text: batch }) as Promise<WorkersAIEmbeddingResponse>
+        runAi(this.ai, model, { text: batch }) as Promise<WorkersAIEmbeddingResponse>
       )
 
       allEmbeddings.push(...response.data)
@@ -786,7 +793,7 @@ export class WorkersAI {
     }
 
     const response = await this.runWithTimeout(
-      this.ai.run(model, params) as Promise<Uint8Array>
+      runAi(this.ai, model, params) as Promise<Uint8Array>
     )
 
     this.trackUsage('image')
@@ -836,7 +843,7 @@ export class WorkersAI {
     }
 
     const response = await this.runWithTimeout(
-      this.ai.run(model, params) as Promise<WorkersAISpeechResponse>
+      runAi(this.ai, model, params) as Promise<WorkersAISpeechResponse>
     )
 
     this.trackUsage('speech')
@@ -976,4 +983,88 @@ export class WorkersAI {
     // Rough estimate: ~4 characters per token for English
     return Math.ceil(text.length / 4)
   }
+}
+
+// ============================================================================
+// Factory Functions
+// ============================================================================
+
+/**
+ * Create a WorkersAI client from environment bindings
+ *
+ * @param env - Environment bindings with AI
+ * @param config - Optional configuration
+ * @returns WorkersAI instance
+ *
+ * @example
+ * ```typescript
+ * // In a Worker
+ * export default {
+ *   async fetch(request: Request, env: Env) {
+ *     const ai = createWorkersAI(env)
+ *     const response = await ai.generateText('Hello!')
+ *     return new Response(response.text)
+ *   }
+ * }
+ * ```
+ */
+export function createWorkersAI(env: WorkersAIEnv, config?: WorkersAIConfig): WorkersAI {
+  return new WorkersAI(env, config)
+}
+
+/**
+ * Create a WorkersAI client configured for fast responses
+ *
+ * Uses the smaller Llama 3.1 8B model for lower latency.
+ *
+ * @param env - Environment bindings with AI
+ * @param config - Optional configuration (defaultModel is set automatically)
+ * @returns WorkersAI instance with fast model
+ */
+export function createFastAI(env: WorkersAIEnv, config?: Omit<WorkersAIConfig, 'defaultModel'>): WorkersAI {
+  return new WorkersAI(env, {
+    ...config,
+    defaultModel: AI_MODELS.chat,
+  })
+}
+
+/**
+ * Create a WorkersAI client configured for quality responses
+ *
+ * Uses the larger Llama 3.1 70B model for better quality.
+ *
+ * @param env - Environment bindings with AI
+ * @param config - Optional configuration (defaultModel is set automatically)
+ * @returns WorkersAI instance with quality model
+ */
+export function createQualityAI(env: WorkersAIEnv, config?: Omit<WorkersAIConfig, 'defaultModel'>): WorkersAI {
+  return new WorkersAI(env, {
+    ...config,
+    defaultModel: AI_MODELS.chatLarge,
+  })
+}
+
+/**
+ * Create a WorkersAI client with OpenAI fallback enabled
+ *
+ * Falls back to OpenAI via AI Gateway if Workers AI fails.
+ *
+ * @param env - Environment bindings with AI and OPENAI_API_KEY
+ * @param fallbackModel - OpenAI model to use for fallback (default: 'gpt-4o-mini')
+ * @param config - Optional configuration (fallback is set automatically)
+ * @returns WorkersAI instance with fallback enabled
+ */
+export function createAIWithFallback(
+  env: WorkersAIEnv,
+  fallbackModel = 'gpt-4o-mini',
+  config?: Omit<WorkersAIConfig, 'fallback'>
+): WorkersAI {
+  return new WorkersAI(env, {
+    ...config,
+    fallback: {
+      enabled: true,
+      provider: 'openai',
+      model: fallbackModel,
+    },
+  })
 }

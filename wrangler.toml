@@ -267,20 +267,49 @@ binding = "DB"
 database_name = "dotdo-production"
 database_id = "placeholder-production-d1-id"
 
+# Production Queues
 [[env.production.queues.producers]]
-binding = "QUEUE"
+binding = "EVENTS_QUEUE"
 queue = "dotdo-events-production"
 
 [[env.production.queues.consumers]]
 queue = "dotdo-events-production"
-max_batch_size = 10
+max_batch_size = 50
 max_batch_timeout = 30
 max_retries = 3
-dead_letter_queue = "dotdo-events-production-dlq"
+dead_letter_queue = "dotdo-dlq-production"
 
 [[env.production.queues.producers]]
-binding = "DLQ"
-queue = "dotdo-events-production-dlq"
+binding = "JOBS_QUEUE"
+queue = "dotdo-jobs-production"
+
+[[env.production.queues.consumers]]
+queue = "dotdo-jobs-production"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq-production"
+
+[[env.production.queues.producers]]
+binding = "WEBHOOKS_QUEUE"
+queue = "dotdo-webhooks-production"
+
+[[env.production.queues.consumers]]
+queue = "dotdo-webhooks-production"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq-production"
+
+[[env.production.queues.producers]]
+binding = "DLQ_QUEUE"
+queue = "dotdo-dlq-production"
+
+[[env.production.queues.consumers]]
+queue = "dotdo-dlq-production"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 0
 
 [[env.production.vectorize]]
 binding = "VECTORS"

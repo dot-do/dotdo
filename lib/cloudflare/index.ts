@@ -3,10 +3,11 @@
  *
  * Provides typed wrappers for Cloudflare bindings:
  * - KV Store with namespacing, TTL management, and specialized methods
+ * - Workflows with durable execution, step management, and saga patterns
  *
  * @example
  * ```typescript
- * import { createKVStore } from 'lib/cloudflare'
+ * import { createKVStore, createWorkflowDefinition, SagaBuilder } from 'lib/cloudflare'
  *
  * const store = createKVStore(env.KV, { namespace: 'tenant-123' })
  *
@@ -109,3 +110,82 @@ export {
   createEventHandler,
   processMessageBatch,
 } from './queues'
+
+// ============================================================================
+// WORKERS AI - AI Inference Layer
+// ============================================================================
+
+export {
+  // Main class
+  WorkersAI,
+
+  // Model configuration
+  AI_MODELS,
+
+  // Factory functions
+  createWorkersAI,
+  createFastAI,
+  createQualityAI,
+  createAIWithFallback,
+
+  // Types
+  type WorkersAIConfig,
+  type WorkersAIEnv,
+  type CostLimits,
+  type FallbackConfig,
+  type ChatMessage,
+  type TextGenerationOptions,
+  type TextGenerationResponse,
+  type TokenUsage,
+  type EmbeddingOptions,
+  type EmbeddingResponse,
+  type EmbeddingsResponse,
+  type ImageGenerationOptions,
+  type ImageGenerationResponse,
+  type SpeechToTextOptions,
+  type SpeechToTextResponse,
+  type UsageMetrics,
+  type StreamingTextResponse,
+} from './ai'
+
+// ============================================================================
+// WORKFLOWS - Durable Multi-Step Execution
+// ============================================================================
+
+export {
+  // Builder pattern
+  createWorkflowDefinition,
+  WorkflowBuilder,
+
+  // Step execution
+  StepContext,
+
+  // Instance management
+  WorkflowInstanceManager,
+
+  // Storage
+  WorkflowStepStorage,
+
+  // Saga pattern
+  SagaBuilder,
+  SagaExecutor,
+
+  // Base class
+  DotdoWorkflowEntrypoint,
+
+  // Types
+  type WorkflowParams,
+  type WorkflowEvent,
+  type WorkflowStep,
+  type WorkflowInstanceStatus,
+  type WorkflowDefinition,
+  type CreateInstanceOptions,
+  type WorkflowInstanceEvent,
+  type StepDoOptions,
+  type StepStorageOptions,
+  type WaitForEventOptions,
+  type RetryOptions,
+  type SagaStep,
+  type SagaDefinition,
+  type CompensationContext,
+} from './workflows'

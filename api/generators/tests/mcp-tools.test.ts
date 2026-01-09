@@ -21,7 +21,7 @@ import { generateMCPTools, generateJSONSchema, type McpTool } from '../mcp-tools
 import {
   getExposedMethods,
   type ParameterInfo,
-} from '../../../objects/auto-wiring'
+} from '../../../lib/auto-wiring'
 
 // ============================================================================
 // Test Mock Classes

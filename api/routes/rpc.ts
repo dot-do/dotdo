@@ -873,9 +873,212 @@ rpcRoutes.post('/', async (c) => {
   return c.json(response)
 })
 
-// Helper to create WebSocket handler
+// ============================================================================
+// Observability RPC Method Handlers
+// ============================================================================
+
+/**
+ * Handle obs.subscribe method - creates a new observability subscription
+ */
+async function handleObsSubscribe(
+  params: { filter?: ObsFilter } | undefined,
+  obsManager: ObsSubscriptionManager,
+  env: Env,
+  sendToClient: (msg: unknown) => void,
+): Promise<JSONRPCResponse & { result?: { subscriptionId: string; filter: ObsFilter } }> {
+  const filter = params?.filter || {}
+
+  // Validate filter
+  const validation = validateObsFilter(filter)
+  if (!validation.success) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: `Invalid filter: ${validation.errors.map(e => e.message).join(', ')}`,
+        data: validation.errors,
+      },
+      id: null,
+    }
+  }
+
+  // Create subscription in manager
+  const result = obsManager.subscribe(filter)
+
+  // Connect to ObservabilityBroadcaster DO if available
+  if (env.OBS_BROADCASTER) {
+    try {
+      const broadcasterStub = env.OBS_BROADCASTER.get(
+        env.OBS_BROADCASTER.idFromName('global')
+      )
+
+      // Build URL with filter params
+      const url = new URL('http://broadcaster/ws')
+      if (filter.level) url.searchParams.set('level', filter.level)
+      if (filter.script) url.searchParams.set('script', filter.script)
+      if (filter.type) url.searchParams.set('type', filter.type)
+      if (filter.requestId) url.searchParams.set('requestId', filter.requestId)
+      if (filter.doName) url.searchParams.set('doName', filter.doName)
+
+      // Fetch with WebSocket upgrade to connect to broadcaster
+      const broadcasterResponse = await broadcasterStub.fetch(url.toString(), {
+        headers: { Upgrade: 'websocket' },
+      })
+
+      if (broadcasterResponse.webSocket) {
+        const broadcasterWs = broadcasterResponse.webSocket
+        broadcasterWs.accept()
+
+        // Forward events from broadcaster to client
+        broadcasterWs.addEventListener('message', (event) => {
+          try {
+            const message = JSON.parse(event.data as string)
+            // Forward events messages to client
+            if (message.type === 'events') {
+              // Apply filter before forwarding (in case broadcaster filter changes)
+              const sub = obsManager.get(result.subscriptionId)
+              if (sub) {
+                const matchingEvents = (message.data as ObservabilityEvent[]).filter(
+                  (e) => matchesFilter(e, sub.filter)
+                )
+                if (matchingEvents.length > 0) {
+                  sendToClient({
+                    type: 'events',
+                    data: matchingEvents,
+                  })
+                }
+              }
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        })
+
+        // Store broadcaster WebSocket in subscription
+        const sub = obsManager.get(result.subscriptionId)
+        if (sub) {
+          sub.broadcasterWs = broadcasterWs
+        }
+      }
+    } catch {
+      // Failed to connect to broadcaster - subscription still works but no events
+      // Log this in production but don't fail the subscription
+    }
+  }
+
+  return {
+    jsonrpc: '2.0',
+    result,
+    id: null,
+  }
+}
+
+/**
+ * Handle obs.unsubscribe method - removes a subscription
+ */
+function handleObsUnsubscribe(
+  params: { subscriptionId: string } | undefined,
+  obsManager: ObsSubscriptionManager,
+): JSONRPCResponse {
+  if (!params?.subscriptionId) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: 'Missing subscriptionId parameter',
+      },
+      id: null,
+    }
+  }
+
+  const success = obsManager.unsubscribe(params.subscriptionId)
+  if (!success) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: `Subscription ${params.subscriptionId} not found`,
+      },
+      id: null,
+    }
+  }
+
+  return {
+    jsonrpc: '2.0',
+    result: { success: true },
+    id: null,
+  }
+}
+
+/**
+ * Handle obs.updateFilter method - updates filter for existing subscription
+ */
+function handleObsUpdateFilter(
+  params: { subscriptionId: string; filter: ObsFilter } | undefined,
+  obsManager: ObsSubscriptionManager,
+): JSONRPCResponse {
+  if (!params?.subscriptionId) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: 'Missing subscriptionId parameter',
+      },
+      id: null,
+    }
+  }
+
+  if (!params.filter) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: 'Missing filter parameter',
+      },
+      id: null,
+    }
+  }
+
+  // Validate new filter
+  const validation = validateObsFilter(params.filter)
+  if (!validation.success) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: `Invalid filter: ${validation.errors.map(e => e.message).join(', ')}`,
+        data: validation.errors,
+      },
+      id: null,
+    }
+  }
+
+  const success = obsManager.updateFilter(params.subscriptionId, params.filter)
+  if (!success) {
+    return {
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
+        message: `Subscription ${params.subscriptionId} not found`,
+      },
+      id: null,
+    }
+  }
+
+  return {
+    jsonrpc: '2.0',
+    result: { success: true, filter: params.filter },
+    id: null,
+  }
+}
+
+// ============================================================================
+// WebSocket Handler
+// ============================================================================
+
+// Helper to create WebSocket handler with env access
 function createWebSocketHandler(_path: string) {
-  return (c: { req: { header: (name: string) => string | undefined } }) => {
+  return (c: { req: { header: (name: string) => string | undefined }; env: Env }) => {
     const upgradeHeader = c.req.header('upgrade')
     // Check Connection header to determine if this is a full WebSocket upgrade
     const connectionHeader = c.req.header('connection')?.toLowerCase() || ''
@@ -916,6 +1119,9 @@ function createWebSocketHandler(_path: string) {
       )
     }
 
+    // Get environment bindings
+    const env = c.env
+
     // WebSocket upgrade
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
@@ -924,19 +1130,25 @@ function createWebSocketHandler(_path: string) {
     const promiseStore = new PromiseStore()
     const subscriptions = new SubscriptionManager()
 
-    // Create context with send notification capability
-    const sendNotification = (method: string, params: unknown) => {
+    // Helper to send messages to client
+    const sendToClient = (message: unknown) => {
       try {
-        server.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            method,
-            params,
-          }),
-        )
+        server.send(JSON.stringify(message))
       } catch {
         // Ignore send errors on closed socket
       }
+    }
+
+    // Create obs subscription manager
+    const obsManager = new ObsSubscriptionManager(sendToClient)
+
+    // Create context with send notification capability
+    const sendNotification = (method: string, params: unknown) => {
+      sendToClient({
+        jsonrpc: '2.0',
+        method,
+        params,
+      })
     }
 
     const ctx: RPCContext = {
@@ -1032,9 +1244,17 @@ function createWebSocketHandler(_path: string) {
       if (isJSONRPCBatch(data)) {
         const responses: JSONRPCResponse[] = []
         for (const req of data) {
-          const response = await handleJSONRPCRequest(req, ctx)
-          if (response) {
-            responses.push(response)
+          // Check for obs methods in batch
+          if (req.method?.startsWith('obs.')) {
+            const obsResponse = await handleObsMethod(req, obsManager, env, sendToClient)
+            if (obsResponse && req.id !== undefined) {
+              responses.push({ ...obsResponse, id: req.id })
+            }
+          } else {
+            const response = await handleJSONRPCRequest(req, ctx)
+            if (response) {
+              responses.push(response)
+            }
           }
         }
         if (responses.length > 0) {
@@ -1045,6 +1265,15 @@ function createWebSocketHandler(_path: string) {
 
       // Handle single JSON-RPC 2.0 request
       if (isJSONRPCRequest(data)) {
+        // Check for obs methods
+        if (data.method?.startsWith('obs.')) {
+          const response = await handleObsMethod(data, obsManager, env, sendToClient)
+          if (response) {
+            server.send(JSON.stringify({ ...response, id: data.id ?? null }))
+          }
+          return
+        }
+
         const response = await handleJSONRPCRequest(data, ctx)
         if (response) {
           server.send(JSON.stringify(response))
@@ -1073,6 +1302,7 @@ function createWebSocketHandler(_path: string) {
       // Clean up resources
       promiseStore.clear()
       subscriptions.clear()
+      obsManager.clear()
     })
 
     server.addEventListener('error', () => {
@@ -1083,6 +1313,64 @@ function createWebSocketHandler(_path: string) {
       status: 101,
       webSocket: client,
     })
+  }
+}
+
+/**
+ * Route obs.* methods to appropriate handlers
+ */
+async function handleObsMethod(
+  request: JSONRPCRequest,
+  obsManager: ObsSubscriptionManager,
+  env: Env,
+  sendToClient: (msg: unknown) => void,
+): Promise<JSONRPCResponse | null> {
+  const { method, params, id } = request
+
+  // Notifications (no id) don't get a response for subscribe but do for unsubscribe
+  const isNotification = id === undefined
+
+  switch (method) {
+    case 'obs.subscribe': {
+      const response = await handleObsSubscribe(
+        params as { filter?: ObsFilter } | undefined,
+        obsManager,
+        env,
+        sendToClient,
+      )
+      if (isNotification) return null
+      return response
+    }
+
+    case 'obs.unsubscribe': {
+      const response = handleObsUnsubscribe(
+        params as { subscriptionId: string } | undefined,
+        obsManager,
+      )
+      if (isNotification) return null
+      return response
+    }
+
+    case 'obs.updateFilter': {
+      const response = handleObsUpdateFilter(
+        params as { subscriptionId: string; filter: ObsFilter } | undefined,
+        obsManager,
+      )
+      if (isNotification) return null
+      return response
+    }
+
+    default:
+      // Unknown obs method
+      if (isNotification) return null
+      return {
+        jsonrpc: '2.0',
+        error: {
+          code: JSON_RPC_ERRORS.METHOD_NOT_FOUND.code,
+          message: `Method '${method}' not found`,
+        },
+        id: id ?? null,
+      }
   }
 }
 

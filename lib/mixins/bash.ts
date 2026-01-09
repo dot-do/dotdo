@@ -3,36 +3,100 @@
  *
  * Adds $.bash to the WorkflowContext with shell operations:
  * - exec, run, spawn
- * - which, env, cd
- * - pipe
+ * - parse, analyze, isDangerous
  *
- * Requires: withFs (depends on filesystem access for cwd management)
+ * Integrates bashx/do BashModule for AST-based safety analysis
+ * and executor injection for actual command execution.
  *
- * This is a stub file - implementation pending.
- * Tests are written to drive implementation (RED TDD).
+ * @example
+ * ```typescript
+ * import { withBash } from 'dotdo/mixins'
+ * import { withFs } from 'dotdo/mixins'
+ * import { DO } from 'dotdo'
+ *
+ * // Basic usage with executor
+ * class MyDO extends withBash(DO, {
+ *   executor: (instance) => ({
+ *     execute: async (cmd, opts) => {
+ *       // Execute via Containers, RPC, etc.
+ *       return await containerExecutor.run(cmd, opts)
+ *     }
+ *   })
+ * }) {
+ *   async deploy() {
+ *     const result = await this.$.bash.exec('npm', ['run', 'build'])
+ *     return result.exitCode === 0
+ *   }
+ * }
+ *
+ * // With FsCapability integration for native file ops
+ * class MyDO extends withBash(withFs(DO), {
+ *   executor: (instance) => containerExecutor,
+ *   fs: (instance) => instance.$.fs  // 'cat' uses $.fs.read() natively
+ * }) {
+ *   async readConfig() {
+ *     // 'cat config.json' uses $.fs.read() - Tier 1, fast!
+ *     const result = await this.$.bash.exec('cat', ['config.json'])
+ *     return result.stdout
+ *   }
+ * }
+ * ```
+ *
+ * @module dotdo/mixins/bash
  */
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
 import type { DO, Env } from '../../objects/DO'
-import type { FsCapability, WithFsContext } from './fs'
+import type { WithFsContext, FsCapability } from './fs'
 
 // ============================================================================
-// CAPABILITY TYPES
+// RE-EXPORT TYPES FROM BASHX
 // ============================================================================
 
+// Import BashModule and types from bashx/do
+// Note: These are imported at runtime - ensure bashx is a dependency
+import {
+  BashModule as BashModuleClass,
+  type BashExecutor,
+  type BashResult,
+  type BashCapability,
+  type ExecOptions,
+  type SpawnOptions,
+  type SpawnHandle,
+  type Program,
+  type SafetyClassification,
+  type Intent,
+} from 'bashx/do'
+
+// Re-export for consumers
+export { BashModuleClass as BashModule }
+export type {
+  BashExecutor,
+  BashResult,
+  BashCapability,
+  ExecOptions,
+  SpawnOptions,
+  SpawnHandle,
+  Program,
+  SafetyClassification,
+  Intent,
+}
+
+// ============================================================================
+// LEGACY TYPE ALIASES (for backward compatibility)
+// ============================================================================
+
+/** @deprecated Use ExecOptions instead */
+export interface BashExecOptions extends ExecOptions {}
+
+/** @deprecated Use BashResult instead */
 export interface BashExecResult {
   stdout: string
   stderr: string
   exitCode: number
 }
 
-export interface BashExecOptions {
-  cwd?: string
-  env?: Record<string, string>
-  timeout?: number
-  shell?: string
-}
-
+/** @deprecated Use SpawnHandle instead */
 export interface BashSpawnProcess {
   stdout: {
     on(event: 'data', callback: (chunk: string) => void): void
@@ -44,51 +108,37 @@ export interface BashSpawnProcess {
   kill(signal?: string): void
 }
 
-export interface BashCapability {
+// ============================================================================
+// MODULE OPTIONS
+// ============================================================================
+
+/**
+ * Options for configuring withBash mixin behavior.
+ */
+export interface BashModuleOptions {
   /**
-   * Execute a shell command and return full result
-   * Does not throw on non-zero exit code
+   * Optional FsCapability for native file operations.
+   * When provided, commands like `cat`, `head`, `tail`, `ls` can be
+   * executed natively using $.fs instead of spawning a subprocess.
    */
-  exec(command: string, options?: BashExecOptions): Promise<BashExecResult>
+  fs?: FsCapability
 
   /**
-   * Execute a shell command and return stdout
-   * Throws on non-zero exit code
+   * Whether to use native operations when available.
+   * @default true
    */
-  run(command: string, options?: BashExecOptions): Promise<string>
-
-  /**
-   * Spawn a process with streaming output
-   */
-  spawn(command: string, args?: string[], options?: BashExecOptions): Promise<BashSpawnProcess>
-
-  /**
-   * Find the path to an executable
-   */
-  which(command: string): Promise<string | null>
-
-  /**
-   * Get environment variable(s)
-   */
-  env(): Promise<Record<string, string>>
-  env(name: string): Promise<string | undefined>
-
-  /**
-   * Change working directory for subsequent commands
-   */
-  cd(path: string): Promise<void>
-
-  /**
-   * Execute piped commands
-   */
-  pipe(commands: string[]): Promise<BashExecResult>
+  useNativeOps?: boolean
 }
 
 // ============================================================================
 // EXTENDED CONTEXT TYPES
 // ============================================================================
 
-export interface WithBashContext extends WithFsContext {
+export interface WithBashContext extends WorkflowContext {
+  bash: BashCapability
+}
+
+export interface WithFsBashContext extends WithFsContext {
   bash: BashCapability
 }
 
@@ -100,73 +150,89 @@ export interface WithBashContext extends WithFsContext {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Constructor<T = {}> = new (...args: any[]) => T
 
-// Type that requires $.fs to exist on the base class
-type DOWithFsConstructor<E extends Env = Env> = Constructor<DO<E> & { $: WithFsContext }> & typeof DO<E>
-
 export interface WithBashDO<E extends Env = Env> extends DO<E> {
   $: WithBashContext
 }
 
 // ============================================================================
-// CAPABILITY IMPLEMENTATION
+// WITHBASH CONFIG
 // ============================================================================
 
 /**
- * Creates a BashCapability instance
- * This is a stub implementation - actual bash operations would be
- * implemented using a sandboxed execution environment
+ * Configuration for the withBash mixin.
  */
-function createBashCapability(): BashCapability {
-  // Current working directory state
-  let cwd = '/'
+export interface WithBashConfig<TBase> {
+  /**
+   * Factory function to create the executor.
+   * Receives the instance as its argument, allowing access to instance
+   * properties like `env` for configuring the executor.
+   *
+   * @example
+   * ```typescript
+   * const DOWithBash = withBash(DO, {
+   *   executor: (instance) => ({
+   *     execute: async (cmd, opts) => {
+   *       return await instance.env.CONTAINER.run(cmd, opts)
+   *     }
+   *   })
+   * })
+   * ```
+   */
+  executor: (instance: InstanceType<TBase extends Constructor ? TBase : never>) => BashExecutor
 
-  return {
-    async exec(command: string, options?: BashExecOptions): Promise<BashExecResult> {
-      // Stub implementation
-      throw new Error('bash.exec not implemented')
-    },
-    async run(command: string, options?: BashExecOptions): Promise<string> {
-      // Stub implementation
-      throw new Error('bash.run not implemented')
-    },
-    async spawn(command: string, args?: string[], options?: BashExecOptions): Promise<BashSpawnProcess> {
-      // Stub implementation
-      throw new Error('bash.spawn not implemented')
-    },
-    async which(command: string): Promise<string | null> {
-      // Stub implementation
-      throw new Error('bash.which not implemented')
-    },
-    env(name?: string): Promise<Record<string, string>> | Promise<string | undefined> {
-      // Stub implementation - overloaded function
-      throw new Error('bash.env not implemented')
-    },
-    async cd(path: string): Promise<void> {
-      // Stub implementation - would validate path exists via fs
-      cwd = path
-    },
-    async pipe(commands: string[]): Promise<BashExecResult> {
-      // Stub implementation
-      throw new Error('bash.pipe not implemented')
-    },
-  } as BashCapability
+  /**
+   * Optional factory function to get FsCapability from the instance.
+   * When provided, native file operations will use FsCapability.
+   *
+   * @example
+   * ```typescript
+   * const DOWithBash = withBash(withFs(DO), {
+   *   executor: (instance) => containerExecutor,
+   *   fs: (instance) => instance.$.fs  // Use $.fs from withFs mixin
+   * })
+   * ```
+   */
+  fs?: (instance: InstanceType<TBase extends Constructor ? TBase : never>) => FsCapability | undefined
+
+  /**
+   * Whether to use native operations when FsCapability is available.
+   * @default true
+   */
+  useNativeOps?: boolean
 }
 
 // ============================================================================
 // MIXIN IMPLEMENTATION
 // ============================================================================
 
-// Symbol for caching the bash capability instance
-const BASH_CAPABILITY_CACHE = Symbol('bashCapabilityCache')
+// Symbol for caching the bash module instance
+const BASH_MODULE_CACHE = Symbol('bashModuleCache')
 
 /**
- * Adds bash/shell capability to a DO class that already has filesystem capability
+ * Adds bash/shell capability to a DO class using bashx BashModule.
  *
- * @example
+ * The mixin provides lazy initialization - the BashModule and executor
+ * are only created when $.bash is first accessed.
+ *
+ * @param Base - The base DO class to extend
+ * @param config - Configuration with executor factory and optional FsCapability
+ * @returns Extended class with bash capability
+ *
+ * @example Basic usage
  * ```typescript
- * class MyDO extends withBash(withFs(DO)) {
+ * import { withBash } from 'dotdo/mixins'
+ * import { DO } from 'dotdo'
+ *
+ * class MyDO extends withBash(DO, {
+ *   executor: (instance) => ({
+ *     execute: async (cmd, opts) => {
+ *       // Execute via Cloudflare Containers, RPC, etc.
+ *       return await containerService.run(cmd, opts)
+ *     }
+ *   })
+ * }) {
  *   async runTests() {
- *     const result = await this.$.bash.exec('npm test')
+ *     const result = await this.$.bash.exec('npm', ['test'])
  *     if (result.exitCode !== 0) {
  *       throw new Error(`Tests failed: ${result.stderr}`)
  *     }
@@ -174,8 +240,48 @@ const BASH_CAPABILITY_CACHE = Symbol('bashCapabilityCache')
  *   }
  * }
  * ```
+ *
+ * @example With FsCapability integration
+ * ```typescript
+ * import { withBash, withFs } from 'dotdo/mixins'
+ * import { DO } from 'dotdo'
+ *
+ * // First add fs capability, then bash with fs integration
+ * class MyDO extends withBash(withFs(DO), {
+ *   executor: (instance) => containerExecutor,
+ *   fs: (instance) => instance.$.fs  // Native file ops use $.fs
+ * }) {
+ *   async readConfig() {
+ *     // 'cat config.json' uses $.fs.read() natively (Tier 1, fast!)
+ *     const result = await this.$.bash.exec('cat', ['config.json'])
+ *     return result.stdout
+ *   }
+ * }
+ * ```
+ *
+ * @example Safety analysis
+ * ```typescript
+ * const MyDO = withBash(DO, { executor: () => containerExecutor })
+ * const instance = new MyDO(state, env)
+ *
+ * // Check if command is dangerous
+ * const check = instance.$.bash.isDangerous('rm -rf /')
+ * if (check.dangerous) {
+ *   console.warn(check.reason)
+ * }
+ *
+ * // Dangerous commands are blocked by default
+ * const result = await instance.$.bash.exec('rm', ['-rf', '/'])
+ * // result.blocked === true, result.requiresConfirm === true
+ *
+ * // Use confirm: true to execute dangerous commands
+ * const result = await instance.$.bash.exec('rm', ['-rf', 'temp/'], { confirm: true })
+ * ```
  */
-export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase) {
+export function withBash<TBase extends Constructor<{ $: WorkflowContext }>>(
+  Base: TBase,
+  config: WithBashConfig<TBase>
+) {
   return class WithBash extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'bash']
@@ -185,7 +291,7 @@ export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: 
      */
     hasCapability(name: string): boolean {
       if (name === 'bash') return true
-      // Check if parent class has the hasCapability method (WithFs class)
+      // Check if parent class has the hasCapability method
       const baseProto = Base.prototype
       if (baseProto && typeof baseProto.hasCapability === 'function') {
         return baseProto.hasCapability.call(this, name)
@@ -193,17 +299,27 @@ export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: 
       return false
     }
 
-    // Cache for the bash capability instance
-    private [BASH_CAPABILITY_CACHE]?: BashCapability
+    // Cache for the bash module instance
+    private [BASH_MODULE_CACHE]?: BashModuleClass
 
     /**
-     * Lazy-loaded bash capability
+     * Lazy-loaded BashModule
      */
-    private get bashCapability(): BashCapability {
-      if (!this[BASH_CAPABILITY_CACHE]) {
-        this[BASH_CAPABILITY_CACHE] = createBashCapability()
+    private get bashModule(): BashModuleClass {
+      if (!this[BASH_MODULE_CACHE]) {
+        // Create executor using the factory
+        const executor = config.executor(this as unknown as InstanceType<TBase>)
+
+        // Get optional FsCapability
+        const fs = config.fs?.(this as unknown as InstanceType<TBase>)
+
+        // Create BashModule with executor and optional fs
+        this[BASH_MODULE_CACHE] = new BashModuleClass(executor, {
+          fs,
+          useNativeOps: config.useNativeOps ?? true,
+        })
       }
-      return this[BASH_CAPABILITY_CACHE]
+      return this[BASH_MODULE_CACHE]
     }
 
     // TypeScript requires any[] for mixin constructors (TS2545)
@@ -211,7 +327,7 @@ export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: 
     constructor(...args: any[]) {
       super(...args)
 
-      // Extend $ to include bash capability (preserving fs from parent)
+      // Extend $ to include bash capability
       const originalContext = this.$
       const self = this
 
@@ -219,9 +335,9 @@ export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: 
       this.$ = new Proxy(originalContext as WithBashContext, {
         get(target, prop: string | symbol) {
           if (prop === 'bash') {
-            return self.bashCapability
+            return self.bashModule
           }
-          // Forward to original context (which includes fs)
+          // Forward to original context
           const value = (target as any)[prop]
           if (typeof value === 'function') {
             return value.bind(target)
