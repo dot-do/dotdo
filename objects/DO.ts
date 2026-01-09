@@ -111,6 +111,56 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   protected currentBranch: string = 'main'
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // ACTOR CONTEXT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Current actor for action logging.
+   * Set per-request to track who performed actions.
+   *
+   * Format: 'Type/id' where Type is one of:
+   * - Human: Human user (e.g., 'Human/nathan', 'Human/user@example.com')
+   * - Agent: AI agent (e.g., 'Agent/support', 'Agent/claude-assistant')
+   * - Service: Service account (e.g., 'Service/billing', 'Service/scheduler')
+   * - API: API key identity (e.g., 'API/key-abc123')
+   */
+  private _currentActor: string = ''
+
+  /**
+   * Set the current actor for subsequent action logging.
+   * Call this at the start of each request to establish the actor context.
+   *
+   * @param actor - Actor identifier in 'Type/id' format
+   *
+   * @example
+   * ```typescript
+   * // In your fetch handler after authentication
+   * this.setActor(`Human/${authContext.userId}`)
+   * ```
+   */
+  protected setActor(actor: string): void {
+    this._currentActor = actor
+  }
+
+  /**
+   * Clear the current actor.
+   * Call this at the end of each request to prevent actor leakage.
+   */
+  protected clearActor(): void {
+    this._currentActor = ''
+  }
+
+  /**
+   * Get the current actor for action logging.
+   * Used internally by logAction.
+   *
+   * @returns The current actor or empty string if not set
+   */
+  protected getCurrentActor(): string {
+    return this._currentActor
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HONO APP (for subclass routing)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -482,7 +532,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         id: crypto.randomUUID(),
         verb,
         target: this.ns,
-        actor: '', // TODO: Get from context
+        actor: this._currentActor, // Get from actor context
         input: input as Record<string, unknown>,
         status: 'pending',
         createdAt: new Date(),
@@ -1572,15 +1622,81 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // HTTP HANDLER
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * Handle incoming HTTP requests.
+   *
+   * If a Hono app is configured, it delegates to the app first.
+   * Falls back to built-in routes (/health, /resolve) if not handled by app.
+   *
+   * Subclasses can either:
+   * 1. Override this method for custom routing
+   * 2. Configure the `app` property with a Hono app
+   * 3. Call `handleFetch` which uses the Hono app if configured
+   */
   async fetch(request: Request): Promise<Response> {
+    return this.handleFetch(request)
+  }
+
+  /**
+   * Core fetch handler that integrates with Hono.
+   *
+   * Order of handling:
+   * 1. Built-in routes (/health, /resolve)
+   * 2. Hono app routes (if configured)
+   * 3. 404 Not Found
+   */
+  protected async handleFetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
+    // Built-in routes always handled first
     if (url.pathname === '/health') {
       return Response.json({ status: 'ok', ns: this.ns })
     }
 
-    // Override in subclasses for custom routing
+    // Handle /resolve endpoint for cross-DO resolution
+    if (url.pathname === '/resolve') {
+      const path = url.searchParams.get('path')
+      const ref = url.searchParams.get('ref') || 'main'
+
+      if (!path) {
+        return Response.json({ error: 'Missing path parameter' }, { status: 400 })
+      }
+
+      try {
+        const thing = await this.resolveLocal(path, ref)
+        return Response.json(thing)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Resolution failed'
+        return Response.json({ error: message }, { status: 404 })
+      }
+    }
+
+    // Delegate to Hono app if configured
+    if (this.app) {
+      const response = await this.app.fetch(request, this.env)
+      // If Hono handled the route, return its response
+      // (Hono returns 404 for unmatched routes, so we let that through)
+      return response
+    }
+
+    // Default: 404 Not Found
     return new Response('Not Found', { status: 404 })
+  }
+
+  /**
+   * Create a default Hono app with common middleware.
+   * Subclasses can call this and extend with their own routes.
+   *
+   * @example
+   * ```typescript
+   * class MyDO extends DO {
+   *   protected app = this.createDefaultApp()
+   *     .get('/api/things', (c) => c.json({ things: [] }))
+   * }
+   * ```
+   */
+  protected createDefaultApp(): Hono {
+    return new Hono()
   }
 }
 
