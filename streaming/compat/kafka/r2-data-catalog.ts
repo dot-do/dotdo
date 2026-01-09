@@ -23,6 +23,12 @@ export interface R2DataCatalogConfig {
   apiToken: string
   endpoint?: string
   warehouse?: string
+  /** Cache configuration for reducing R2 reads */
+  cache?: CacheConfig
+  /** Manifest compaction configuration */
+  compaction?: ManifestCompactionConfig
+  /** Snapshot cleanup configuration */
+  cleanup?: SnapshotCleanupConfig
 }
 
 export interface CatalogConfig {
@@ -241,6 +247,46 @@ export interface ListNamespacesOptions {
   pageToken?: string
 }
 
+// ============================================================================
+// CACHING TYPES
+// ============================================================================
+
+export interface CacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
+export interface CacheConfig {
+  /** TTL for namespace metadata in milliseconds (default: 5 minutes) */
+  namespaceTtlMs?: number
+  /** TTL for table metadata in milliseconds (default: 1 minute) */
+  tableTtlMs?: number
+  /** TTL for catalog config in milliseconds (default: 10 minutes) */
+  configTtlMs?: number
+  /** Maximum cache entries before LRU eviction (default: 1000) */
+  maxEntries?: number
+}
+
+export interface ManifestCompactionConfig {
+  /** Threshold of manifest files before automatic compaction (default: 10) */
+  manifestThreshold?: number
+  /** Target number of manifest files after compaction (default: 1) */
+  targetManifestCount?: number
+  /** Enable automatic compaction on commit (default: true) */
+  autoCompact?: boolean
+}
+
+export interface SnapshotCleanupConfig {
+  /** Maximum age of snapshots to keep in milliseconds (default: 7 days) */
+  maxSnapshotAgeMs?: number
+  /** Minimum number of snapshots to always keep (default: 3) */
+  minSnapshotsToKeep?: number
+  /** Enable automatic cleanup on commit (default: true) */
+  autoCleanup?: boolean
+  /** Maximum number of snapshots to keep regardless of age (default: 100) */
+  maxSnapshots?: number
+}
+
 export interface PaginatedNamespaces extends Array<string[]> {
   nextPageToken?: string
 }
@@ -453,6 +499,109 @@ class SchemaBuilder {
 }
 
 // ============================================================================
+// METADATA CACHE (Optimization #1: Reduce R2 reads)
+// ============================================================================
+
+/**
+ * LRU cache with TTL for catalog metadata.
+ * Reduces R2 reads by caching namespace and table metadata.
+ */
+export class MetadataCache<T> {
+  private cache: Map<string, CacheEntry<T>> = new Map()
+  private accessOrder: string[] = []
+  private maxEntries: number
+
+  constructor(maxEntries: number = 1000) {
+    this.maxEntries = maxEntries
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.cache.get(key)
+    if (!entry) return undefined
+
+    // Check if expired
+    if (Date.now() > entry.expiresAt) {
+      this.delete(key)
+      return undefined
+    }
+
+    // Update access order for LRU
+    this.updateAccessOrder(key)
+    return entry.value
+  }
+
+  set(key: string, value: T, ttlMs: number): void {
+    // Evict if at capacity
+    if (this.cache.size >= this.maxEntries && !this.cache.has(key)) {
+      this.evictLRU()
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: Date.now() + ttlMs,
+    })
+    this.updateAccessOrder(key)
+  }
+
+  delete(key: string): boolean {
+    const deleted = this.cache.delete(key)
+    if (deleted) {
+      const index = this.accessOrder.indexOf(key)
+      if (index > -1) {
+        this.accessOrder.splice(index, 1)
+      }
+    }
+    return deleted
+  }
+
+  /** Invalidate all entries matching a prefix */
+  invalidatePrefix(prefix: string): number {
+    let count = 0
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.delete(key)
+        count++
+      }
+    }
+    return count
+  }
+
+  clear(): void {
+    this.cache.clear()
+    this.accessOrder = []
+  }
+
+  get size(): number {
+    return this.cache.size
+  }
+
+  /** Get cache statistics */
+  getStats(): { size: number; maxEntries: number; hitRate?: number } {
+    return {
+      size: this.cache.size,
+      maxEntries: this.maxEntries,
+    }
+  }
+
+  private updateAccessOrder(key: string): void {
+    const index = this.accessOrder.indexOf(key)
+    if (index > -1) {
+      this.accessOrder.splice(index, 1)
+    }
+    this.accessOrder.push(key)
+  }
+
+  private evictLRU(): void {
+    if (this.accessOrder.length > 0) {
+      const oldest = this.accessOrder.shift()
+      if (oldest) {
+        this.cache.delete(oldest)
+      }
+    }
+  }
+}
+
+// ============================================================================
 // R2 DATA CATALOG CLIENT
 // ============================================================================
 
@@ -465,6 +614,27 @@ export class R2DataCatalog {
   private tables: Map<string, TableMetadata> = new Map()
   private tableCounter = 0
 
+  // Metadata caches (Optimization #1)
+  private namespaceCache: MetadataCache<Namespace>
+  private tableCache: MetadataCache<TableMetadata>
+  private configCache: MetadataCache<CatalogConfig>
+
+  // Cache TTL defaults
+  private readonly namespaceTtlMs: number
+  private readonly tableTtlMs: number
+  private readonly configTtlMs: number
+
+  // Compaction config (Optimization #2)
+  private readonly manifestThreshold: number
+  private readonly targetManifestCount: number
+  private readonly autoCompact: boolean
+
+  // Cleanup config (Optimization #3)
+  private readonly maxSnapshotAgeMs: number
+  private readonly minSnapshotsToKeep: number
+  private readonly autoCleanup: boolean
+  private readonly maxSnapshots: number
+
   constructor(config: R2DataCatalogConfig) {
     // Validate required fields
     if (!config.accountId || !config.bucketName || !config.catalogName || !config.apiToken) {
@@ -473,6 +643,31 @@ export class R2DataCatalog {
 
     this.config = config
     this.baseUrl = config.endpoint ?? `https://${config.accountId}.r2.cloudflarestorage.com`
+
+    // Initialize caches (Optimization #1: Reduce R2 reads)
+    const cacheConfig = config.cache ?? {}
+    const maxEntries = cacheConfig.maxEntries ?? 1000
+    this.namespaceCache = new MetadataCache<Namespace>(maxEntries)
+    this.tableCache = new MetadataCache<TableMetadata>(maxEntries)
+    this.configCache = new MetadataCache<CatalogConfig>(maxEntries)
+
+    // Cache TTLs
+    this.namespaceTtlMs = cacheConfig.namespaceTtlMs ?? 5 * 60 * 1000  // 5 minutes
+    this.tableTtlMs = cacheConfig.tableTtlMs ?? 60 * 1000              // 1 minute
+    this.configTtlMs = cacheConfig.configTtlMs ?? 10 * 60 * 1000       // 10 minutes
+
+    // Manifest compaction config (Optimization #2)
+    const compactionConfig = config.compaction ?? {}
+    this.manifestThreshold = compactionConfig.manifestThreshold ?? 10
+    this.targetManifestCount = compactionConfig.targetManifestCount ?? 1
+    this.autoCompact = compactionConfig.autoCompact ?? true
+
+    // Snapshot cleanup config (Optimization #3)
+    const cleanupConfig = config.cleanup ?? {}
+    this.maxSnapshotAgeMs = cleanupConfig.maxSnapshotAgeMs ?? 7 * 24 * 60 * 60 * 1000  // 7 days
+    this.minSnapshotsToKeep = cleanupConfig.minSnapshotsToKeep ?? 3
+    this.autoCleanup = cleanupConfig.autoCleanup ?? true
+    this.maxSnapshots = cleanupConfig.maxSnapshots ?? 100
   }
 
   get name(): string {
@@ -500,7 +695,14 @@ export class R2DataCatalog {
   // ============================================================================
 
   async getCatalogConfig(): Promise<CatalogConfig> {
-    return {
+    // Check cache first (Optimization #1)
+    const cacheKey = 'catalog-config'
+    const cached = this.configCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const config: CatalogConfig = {
       defaults: {
         'clients.assume-role.external-id': this.config.accountId,
         'clients.assume-role.region': 'auto',
@@ -510,6 +712,11 @@ export class R2DataCatalog {
         credentials: true,
       },
     }
+
+    // Cache the result
+    this.configCache.set(cacheKey, config, this.configTtlMs)
+
+    return config
   }
 
   // ============================================================================
@@ -587,10 +794,19 @@ export class R2DataCatalog {
     const normalizedNamespace = this.normalizeNamespace(namespace)
     const key = this.namespaceKey(normalizedNamespace)
 
+    // Check cache first (Optimization #1)
+    const cached = this.namespaceCache.get(key)
+    if (cached) {
+      return cached
+    }
+
     const ns = this.namespaces.get(key)
     if (!ns) {
       throw new NamespaceNotFoundError(normalizedNamespace, requestId)
     }
+
+    // Cache the result
+    this.namespaceCache.set(key, ns, this.namespaceTtlMs)
 
     return ns
   }
@@ -628,6 +844,9 @@ export class R2DataCatalog {
     }
 
     this.namespaces.delete(key)
+
+    // Invalidate cache (Optimization #1)
+    this.namespaceCache.delete(key)
   }
 
   async updateNamespaceProperties(
@@ -665,6 +884,10 @@ export class R2DataCatalog {
     }
 
     this.namespaces.set(key, updatedNs)
+
+    // Invalidate cache (Optimization #1)
+    this.namespaceCache.delete(key)
+
     return updatedNs
   }
 
@@ -750,6 +973,15 @@ export class R2DataCatalog {
     }
 
     const tableKey = this.tableKey(normalizedNamespace, name)
+
+    // Check cache first (Optimization #1) - but not for snapshot-specific loads
+    if (!options?.snapshotId) {
+      const cached = this.tableCache.get(tableKey)
+      if (cached) {
+        return cached
+      }
+    }
+
     const table = this.tables.get(tableKey)
 
     if (!table) {
@@ -763,6 +995,9 @@ export class R2DataCatalog {
         return { ...table, currentSnapshotId: options.snapshotId }
       }
     }
+
+    // Cache the result (Optimization #1)
+    this.tableCache.set(tableKey, table, this.tableTtlMs)
 
     return table
   }
@@ -812,6 +1047,9 @@ export class R2DataCatalog {
     // In production, this would delete files from R2
 
     this.tables.delete(tableKey)
+
+    // Invalidate cache (Optimization #1)
+    this.tableCache.delete(tableKey)
   }
 
   async renameTable(source: TableIdentifier, target: TableIdentifier): Promise<void> {
@@ -843,6 +1081,10 @@ export class R2DataCatalog {
 
     this.tables.delete(sourceKey)
     this.tables.set(targetKey, updatedTable)
+
+    // Invalidate cache for both source and target (Optimization #1)
+    this.tableCache.delete(sourceKey)
+    this.tableCache.delete(targetKey)
   }
 
   // ============================================================================
@@ -1010,8 +1252,326 @@ export class R2DataCatalog {
       }
     }
 
+    // Apply automatic optimizations
+    if (this.autoCompact) {
+      updatedTable = this.compactManifestsIfNeeded(updatedTable)
+    }
+    if (this.autoCleanup) {
+      updatedTable = this.cleanupOldSnapshots(updatedTable)
+    }
+
     this.tables.set(tableKey, updatedTable)
+
+    // Invalidate cache on mutation (Optimization #1)
+    this.tableCache.delete(tableKey)
+
     return updatedTable
+  }
+
+  // ============================================================================
+  // MANIFEST COMPACTION (Optimization #2)
+  // ============================================================================
+
+  /**
+   * Compact manifest files when they exceed the threshold.
+   * This reduces the number of manifest files that need to be read during queries.
+   */
+  private compactManifestsIfNeeded(table: TableMetadata): TableMetadata {
+    // Count manifests across snapshots
+    const manifestCount = this.countManifests(table)
+
+    if (manifestCount < this.manifestThreshold) {
+      return table
+    }
+
+    // Perform compaction by consolidating manifest references
+    // In a real implementation, this would rewrite manifest files in R2
+    const compactedSnapshots = this.compactSnapshots(table.snapshots)
+
+    return {
+      ...table,
+      snapshots: compactedSnapshots,
+      properties: {
+        ...table.properties,
+        'last-compaction-time': String(Date.now()),
+        'manifest-count': String(this.targetManifestCount),
+      },
+    }
+  }
+
+  /**
+   * Count total manifest files across all snapshots.
+   */
+  private countManifests(table: TableMetadata): number {
+    // Each snapshot has a manifestList that points to manifest files
+    // In a real implementation, we'd read the manifest list to count files
+    // For simulation, we estimate based on snapshot count
+    return table.snapshots.length
+  }
+
+  /**
+   * Compact snapshots by consolidating manifest lists.
+   * Keeps only the most recent manifest references.
+   */
+  private compactSnapshots(snapshots: Snapshot[]): Snapshot[] {
+    if (snapshots.length <= this.targetManifestCount) {
+      return snapshots
+    }
+
+    // Keep the most recent snapshots with compacted manifests
+    const recentSnapshots = snapshots.slice(-this.targetManifestCount)
+
+    // Update manifest lists to point to consolidated manifests
+    return recentSnapshots.map((snapshot, index) => ({
+      ...snapshot,
+      manifestList: `s3://compacted/manifest-${index}.avro`,
+      summary: {
+        ...snapshot.summary,
+        'compacted': 'true',
+        'compaction-time': String(Date.now()),
+      },
+    }))
+  }
+
+  /**
+   * Manually trigger manifest compaction for a table.
+   */
+  async compactManifests(namespace: NamespaceName, tableName: string): Promise<TableMetadata> {
+    const normalizedNamespace = this.normalizeNamespace(namespace)
+    const tableKey = this.tableKey(normalizedNamespace, tableName)
+
+    const table = this.tables.get(tableKey)
+    if (!table) {
+      throw new TableNotFoundError({ namespace: normalizedNamespace, name: tableName })
+    }
+
+    // Force compaction regardless of threshold
+    const compactedTable = {
+      ...table,
+      snapshots: this.compactSnapshots(table.snapshots),
+      properties: {
+        ...table.properties,
+        'last-compaction-time': String(Date.now()),
+        'manual-compaction': 'true',
+      },
+    }
+
+    this.tables.set(tableKey, compactedTable)
+    this.tableCache.delete(tableKey)
+
+    return compactedTable
+  }
+
+  // ============================================================================
+  // SNAPSHOT CLEANUP (Optimization #3)
+  // ============================================================================
+
+  /**
+   * Clean up old snapshots based on age and count policies.
+   * This frees up storage by removing snapshots that are no longer needed.
+   */
+  private cleanupOldSnapshots(table: TableMetadata): TableMetadata {
+    const now = Date.now()
+    const snapshots = [...table.snapshots]
+
+    // Don't cleanup if we have fewer than minimum
+    if (snapshots.length <= this.minSnapshotsToKeep) {
+      return table
+    }
+
+    // Sort by timestamp (newest first)
+    snapshots.sort((a, b) => b.timestampMs - a.timestampMs)
+
+    // Keep snapshots that are:
+    // 1. Within the minimum count
+    // 2. Within the max age
+    // 3. Referenced by branches/tags
+    const referencedSnapshotIds = new Set(
+      Object.values(table.refs ?? {}).map((ref) => ref.snapshotId)
+    )
+
+    const keptSnapshots: Snapshot[] = []
+    const removedSnapshotIds: number[] = []
+
+    for (let i = 0; i < snapshots.length; i++) {
+      const snapshot = snapshots[i]
+      const isWithinMinCount = i < this.minSnapshotsToKeep
+      const isWithinMaxAge = (now - snapshot.timestampMs) < this.maxSnapshotAgeMs
+      const isWithinMaxCount = i < this.maxSnapshots
+      const isReferenced = referencedSnapshotIds.has(snapshot.snapshotId)
+
+      if (isWithinMinCount || (isWithinMaxAge && isWithinMaxCount) || isReferenced) {
+        keptSnapshots.push(snapshot)
+      } else {
+        removedSnapshotIds.push(snapshot.snapshotId)
+      }
+    }
+
+    // If nothing was removed, return unchanged
+    if (removedSnapshotIds.length === 0) {
+      return table
+    }
+
+    // Update snapshot log
+    const snapshotLog = table.snapshotLog.filter(
+      (entry) => !removedSnapshotIds.includes(entry.snapshotId)
+    )
+
+    return {
+      ...table,
+      snapshots: keptSnapshots,
+      snapshotLog,
+      properties: {
+        ...table.properties,
+        'last-cleanup-time': String(now),
+        'snapshots-removed': String(removedSnapshotIds.length),
+      },
+    }
+  }
+
+  /**
+   * Manually trigger snapshot cleanup for a table.
+   */
+  async cleanupSnapshots(
+    namespace: NamespaceName,
+    tableName: string,
+    options?: {
+      maxAgeMs?: number
+      minToKeep?: number
+      maxSnapshots?: number
+    }
+  ): Promise<{ table: TableMetadata; removedCount: number }> {
+    const normalizedNamespace = this.normalizeNamespace(namespace)
+    const tableKey = this.tableKey(normalizedNamespace, tableName)
+
+    const table = this.tables.get(tableKey)
+    if (!table) {
+      throw new TableNotFoundError({ namespace: normalizedNamespace, name: tableName })
+    }
+
+    const originalCount = table.snapshots.length
+
+    // Temporarily override cleanup settings for this operation
+    const savedMaxAge = this.maxSnapshotAgeMs
+    const savedMinKeep = this.minSnapshotsToKeep
+    const savedMaxSnapshots = this.maxSnapshots
+
+    ;(this as any).maxSnapshotAgeMs = options?.maxAgeMs ?? this.maxSnapshotAgeMs
+    ;(this as any).minSnapshotsToKeep = options?.minToKeep ?? this.minSnapshotsToKeep
+    ;(this as any).maxSnapshots = options?.maxSnapshots ?? this.maxSnapshots
+
+    const cleanedTable = this.cleanupOldSnapshots(table)
+
+    // Restore original settings
+    ;(this as any).maxSnapshotAgeMs = savedMaxAge
+    ;(this as any).minSnapshotsToKeep = savedMinKeep
+    ;(this as any).maxSnapshots = savedMaxSnapshots
+
+    this.tables.set(tableKey, cleanedTable)
+    this.tableCache.delete(tableKey)
+
+    return {
+      table: cleanedTable,
+      removedCount: originalCount - cleanedTable.snapshots.length,
+    }
+  }
+
+  /**
+   * Expire specific snapshots by their IDs.
+   */
+  async expireSnapshots(
+    namespace: NamespaceName,
+    tableName: string,
+    snapshotIds: number[]
+  ): Promise<TableMetadata> {
+    const normalizedNamespace = this.normalizeNamespace(namespace)
+    const tableKey = this.tableKey(normalizedNamespace, tableName)
+
+    const table = this.tables.get(tableKey)
+    if (!table) {
+      throw new TableNotFoundError({ namespace: normalizedNamespace, name: tableName })
+    }
+
+    // Check that we're not expiring referenced snapshots
+    const referencedSnapshotIds = new Set(
+      Object.values(table.refs ?? {}).map((ref) => ref.snapshotId)
+    )
+
+    const snapshotsToExpire = snapshotIds.filter(
+      (id) => !referencedSnapshotIds.has(id)
+    )
+
+    const snapshots = table.snapshots.filter(
+      (s) => !snapshotsToExpire.includes(s.snapshotId)
+    )
+
+    const snapshotLog = table.snapshotLog.filter(
+      (entry) => !snapshotsToExpire.includes(entry.snapshotId)
+    )
+
+    const expiredTable: TableMetadata = {
+      ...table,
+      snapshots,
+      snapshotLog,
+      properties: {
+        ...table.properties,
+        'last-expire-time': String(Date.now()),
+        'expired-snapshots': snapshotsToExpire.join(','),
+      },
+    }
+
+    this.tables.set(tableKey, expiredTable)
+    this.tableCache.delete(tableKey)
+
+    return expiredTable
+  }
+
+  // ============================================================================
+  // CACHE MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Get cache statistics for monitoring.
+   */
+  getCacheStats(): {
+    namespaces: { size: number; maxEntries: number }
+    tables: { size: number; maxEntries: number }
+    config: { size: number; maxEntries: number }
+  } {
+    return {
+      namespaces: this.namespaceCache.getStats(),
+      tables: this.tableCache.getStats(),
+      config: this.configCache.getStats(),
+    }
+  }
+
+  /**
+   * Clear all caches. Useful for testing or when cache becomes stale.
+   */
+  clearCaches(): void {
+    this.namespaceCache.clear()
+    this.tableCache.clear()
+    this.configCache.clear()
+  }
+
+  /**
+   * Invalidate cache for a specific namespace and its tables.
+   */
+  invalidateNamespace(namespace: NamespaceName): number {
+    const normalizedNamespace = this.normalizeNamespace(namespace)
+    const key = this.namespaceKey(normalizedNamespace)
+
+    this.namespaceCache.delete(key)
+    return this.tableCache.invalidatePrefix(key)
+  }
+
+  /**
+   * Invalidate cache for a specific table.
+   */
+  invalidateTable(namespace: NamespaceName, tableName: string): boolean {
+    const normalizedNamespace = this.normalizeNamespace(namespace)
+    const key = this.tableKey(normalizedNamespace, tableName)
+    return this.tableCache.delete(key)
   }
 
   // ============================================================================
