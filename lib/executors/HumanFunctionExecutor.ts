@@ -582,7 +582,7 @@ export class HumanFunctionExecutor {
       // Update message if configured
       if (task.updateOnResponse && channel.updateMessage) {
         await channel.updateMessage(messageId!, {
-          text: `Request ${processedResponse.action}d by ${processedResponse.userId}`,
+          message: `Request ${processedResponse.action}d by ${processedResponse.userId}`,
         })
       }
 

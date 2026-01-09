@@ -33,7 +33,7 @@ export interface EntityRecord {
 }
 
 export class Entity extends DO {
-  static override readonly $type = 'Entity'
+  static override readonly $type: string = 'Entity'
 
   private schema: EntitySchema | null = null
 

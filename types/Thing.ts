@@ -26,6 +26,9 @@ export interface ThingData {
   meta?: Record<string, unknown>
   visibility?: Visibility
 
+  // Version for append-only/CRDTs
+  $version?: number
+
   // Git provenance (when synced from git)
   $source?: {
     repo: string // 'https://github.com/drivly/startups.studio'

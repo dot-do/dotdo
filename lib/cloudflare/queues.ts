@@ -739,8 +739,10 @@ export type MessageHandler<T extends QueueMessage = QueueMessage> = (message: T)
  */
 export function createJobHandler(handler: JobHandler): MessageHandler<JobMessage> {
   return async (message: JobMessage) => {
-    if (!isJobMessage(message)) {
-      throw new Error(`Expected JobMessage but got ${message.type}`)
+    // Runtime validation that message type is correct
+    const queueMsg = message as unknown as QueueMessage
+    if (!isJobMessage(queueMsg)) {
+      throw new Error(`Expected JobMessage but got ${queueMsg.type}`)
     }
     await handler(message)
   }
@@ -754,8 +756,10 @@ export function createJobHandler(handler: JobHandler): MessageHandler<JobMessage
  */
 export function createEventHandler(handler: EventHandler): MessageHandler<EventMessage> {
   return async (message: EventMessage) => {
-    if (!isEventMessage(message)) {
-      throw new Error(`Expected EventMessage but got ${message.type}`)
+    // Runtime validation that message type is correct
+    const queueMsg = message as unknown as QueueMessage
+    if (!isEventMessage(queueMsg)) {
+      throw new Error(`Expected EventMessage but got ${queueMsg.type}`)
     }
     await handler(message)
   }

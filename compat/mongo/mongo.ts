@@ -302,7 +302,15 @@ function matchesCondition(value: unknown, condition: unknown): boolean {
           break
         case '$elemMatch':
           if (!Array.isArray(value)) return false
-          if (!value.some(v => matchesFilter(v as Document, opValue as Filter<Document>))) return false
+          // For primitive arrays, the elemMatch condition applies to each element directly
+          // For document arrays, matchesFilter is used
+          if (!value.some(v => {
+            if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+              return matchesFilter(v as Document, opValue as Filter<Document>)
+            }
+            // For primitives, treat the condition as operators on the value itself
+            return matchesCondition(v, opValue)
+          })) return false
           break
         case '$not':
           if (matchesCondition(value, opValue)) return false
@@ -1374,15 +1382,22 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
   async insertMany(docs: OptionalId<T>[], options?: InsertManyOptions): Promise<InsertManyResult> {
     const insertedIds: { [key: number]: ObjectId } = {}
     const ordered = options?.ordered !== false
+    let lastError: Error | undefined
 
     for (let i = 0; i < docs.length; i++) {
       try {
         const result = await this.insertOne(docs[i])
         insertedIds[i] = result.insertedId
       } catch (e) {
+        lastError = e as Error
         if (ordered) throw e
-        // Continue for unordered
+        // Continue for unordered, but track the error to throw at the end
       }
+    }
+
+    // For unordered inserts, throw the error after processing all documents
+    if (lastError) {
+      throw lastError
     }
 
     return {

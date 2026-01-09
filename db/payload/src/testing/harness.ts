@@ -18,6 +18,28 @@ import { slugToNounName, fieldNameToVerb } from '../adapter/types'
 import type { NounData } from '../../../../types/Noun'
 import type { ThingData } from '../../../../types/Thing'
 import { create as createOperation } from '../adapter/operations/create'
+import {
+  find as findOperation,
+  findOne as findOneOperation,
+  type FindArgs,
+  type FindOneArgs,
+  type FindContext,
+} from '../adapter/operations/find'
+import {
+  createVersion as createVersionOp,
+  findVersions as findVersionsOp,
+  findVersion as findVersionOp,
+  restoreVersion as restoreVersionOp,
+  deleteVersions as deleteVersionsOp,
+  deleteAllVersions,
+  updateVersion as updateVersionOp,
+  type CreateVersionArgs,
+  type FindVersionsArgs,
+  type FindVersionArgs,
+  type RestoreVersionArgs,
+  type DeleteVersionsArgs,
+  type VersionContext,
+} from '../adapter/operations/versions'
 
 // ============================================================================
 // TYPES
@@ -27,7 +49,7 @@ import { create as createOperation } from '../adapter/operations/create'
  * Tracked adapter operation
  */
 export interface AdapterOperation {
-  type: 'create' | 'find' | 'findOne' | 'update' | 'delete' | 'count'
+  type: 'create' | 'find' | 'findOne' | 'update' | 'delete' | 'count' | 'createVersion' | 'findVersions' | 'findVersion' | 'restoreVersion' | 'deleteVersions'
   collection: string
   data?: unknown
   where?: unknown
@@ -291,11 +313,48 @@ const articlesSchema: PayloadField[] = [
 ]
 
 /**
+ * Default schema for users collection
+ */
+const usersSchema: PayloadField[] = [
+  { type: 'text', name: 'name', required: true },
+  { type: 'email', name: 'email', required: true },
+  { type: 'relationship', name: 'organization', relationTo: 'organizations' },
+]
+
+/**
+ * Default schema for organizations collection
+ */
+const organizationsSchema: PayloadField[] = [
+  { type: 'text', name: 'name', required: true },
+  { type: 'text', name: 'slug', required: true },
+]
+
+/**
+ * Default schema for categories collection
+ */
+const categoriesSchema: PayloadField[] = [
+  { type: 'text', name: 'name', required: true },
+  { type: 'text', name: 'slug', required: true },
+]
+
+/**
+ * Default schema for pages collection
+ */
+const pagesSchema: PayloadField[] = [
+  { type: 'text', name: 'title', required: true },
+  { type: 'text', name: 'slug', required: true },
+]
+
+/**
  * Schema registry for collections
  */
 const collectionSchemas: Record<string, PayloadField[]> = {
   posts: postsSchema,
   articles: articlesSchema,
+  users: usersSchema,
+  organizations: organizationsSchema,
+  categories: categoriesSchema,
+  pages: pagesSchema,
 }
 
 /**
@@ -579,11 +638,17 @@ function createMockAdapter(
   // Alias methods to match Payload Local API style
   const adapterWithAliases = adapter as MockPayloadAdapter & {
     create: (args: { collection: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
-    find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string }) => Promise<{ docs: PayloadDocument[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number }>
-    findOne: (args: { collection: string; id: string }) => Promise<PayloadDocument | null>
+    find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string; depth?: number }) => Promise<{ docs: Record<string, unknown>[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number; limit: number }>
+    findOne: (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number }) => Promise<Record<string, unknown> | null>
     update: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
     delete: (args: { collection: string; id: string }) => Promise<PayloadDocument>
     count: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ totalDocs: number }>
+    createVersion: (args: CreateVersionArgs) => Promise<any>
+    findVersions: (args: FindVersionsArgs) => Promise<any>
+    findVersion: (args: FindVersionArgs) => Promise<any>
+    restoreVersion: (args: RestoreVersionArgs) => Promise<any>
+    deleteVersions: (args: DeleteVersionsArgs) => Promise<void>
+    updateVersion: (args: any) => Promise<never>
     hooks?: any
   }
 
@@ -618,18 +683,62 @@ function createMockAdapter(
     return doc
   }
 
+  // Build find context for find operations
+  const buildFindContext = (): FindContext => {
+    const namespace = config.namespace ?? 'https://test.do'
+    // Build schemas map
+    const schemas = new Map<string, PayloadField[]>()
+    for (const [collection, schema] of Object.entries(collectionSchemas)) {
+      schemas.set(collection, schema)
+    }
+    return {
+      namespace,
+      things,
+      relationships,
+      schema: undefined,
+      schemas,
+    }
+  }
+
   adapterWithAliases.find = async (args: {
     collection: string
     where?: Record<string, unknown>
     limit?: number
     page?: number
     sort?: string
+    depth?: number
   }) => {
-    return adapter.findDocuments(args.collection, args)
+    trackOperation('find', args.collection, { where: args.where })
+
+    const ctx = buildFindContext()
+    ctx.schema = getCollectionSchema(args.collection)
+
+    const result = await findOperation({
+      collection: args.collection,
+      where: args.where as any,
+      limit: args.limit,
+      page: args.page,
+      sort: args.sort,
+      depth: args.depth,
+    }, ctx)
+
+    return result
   }
 
-  adapterWithAliases.findOne = async (args: { collection: string; id: string }) => {
-    return adapter.findDocument(args.collection, args.id)
+  adapterWithAliases.findOne = async (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number }) => {
+    trackOperation('findOne', args.collection, { id: args.id, where: args.where })
+
+    const ctx = buildFindContext()
+    ctx.schema = getCollectionSchema(args.collection)
+
+    const result = await findOneOperation({
+      collection: args.collection,
+      id: args.id,
+      where: args.where as any,
+      depth: args.depth,
+    }, ctx)
+
+    return result
   }
 
   adapterWithAliases.update = async (args: { collection: string; id: string; data: Record<string, unknown> }) => {
@@ -644,6 +753,70 @@ function createMockAdapter(
     trackOperation('count', args.collection, { where: args.where })
     const result = await adapter.findDocuments(args.collection, { where: args.where })
     return { totalDocs: result.totalDocs }
+  }
+
+  // Build version context for versioning operations
+  const buildVersionContext = (): VersionContext => {
+    const namespace = config.namespace ?? 'https://test.do'
+    return {
+      namespace,
+      things,
+      getDocument: async (collection: string, id: string) => {
+        const col = getCollection(collection)
+        return col.get(id) ?? null
+      },
+      updateDocument: async (collection: string, id: string, data: Record<string, unknown>) => {
+        return adapter.updateDocument(collection, id, data)
+      },
+      deleteDocument: async (collection: string, id: string) => {
+        return adapter.deleteDocument(collection, id)
+      },
+    }
+  }
+
+  // Versioning operations
+  adapterWithAliases.createVersion = async (args: CreateVersionArgs) => {
+    trackOperation('createVersion' as any, args.collection, { id: args.id, data: args })
+    const ctx = buildVersionContext()
+    return createVersionOp(args, ctx)
+  }
+
+  adapterWithAliases.findVersions = async (args: FindVersionsArgs) => {
+    trackOperation('findVersions' as any, args.collection, { id: args.id, where: args.where })
+    const ctx = buildVersionContext()
+    return findVersionsOp(args, ctx)
+  }
+
+  adapterWithAliases.findVersion = async (args: FindVersionArgs) => {
+    trackOperation('findVersion' as any, args.collection, { id: args.id })
+    const ctx = buildVersionContext()
+    return findVersionOp(args, ctx)
+  }
+
+  adapterWithAliases.restoreVersion = async (args: RestoreVersionArgs) => {
+    trackOperation('restoreVersion' as any, args.collection, { id: args.id })
+    const ctx = buildVersionContext()
+    return restoreVersionOp(args, ctx)
+  }
+
+  adapterWithAliases.deleteVersions = async (args: DeleteVersionsArgs) => {
+    trackOperation('deleteVersions' as any, args.collection, { id: args.id })
+    const ctx = buildVersionContext()
+    return deleteVersionsOp(args, ctx)
+  }
+
+  adapterWithAliases.updateVersion = async () => {
+    return updateVersionOp()
+  }
+
+  // Override delete to also delete versions
+  const originalDelete = adapterWithAliases.delete
+  adapterWithAliases.delete = async (args: { collection: string; id: string }) => {
+    const ctx = buildVersionContext()
+    // Delete all versions first
+    await deleteAllVersions(args.collection, args.id, ctx)
+    // Then delete the document
+    return originalDelete(args)
   }
 
   return adapterWithAliases as MockPayloadAdapter

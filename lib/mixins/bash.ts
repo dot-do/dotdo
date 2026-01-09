@@ -63,10 +63,13 @@ import {
   type ExecOptions,
   type SpawnOptions,
   type SpawnHandle,
-  type Program,
-  type SafetyClassification,
-  type Intent,
 } from 'bashx/do'
+
+// Types that are not exported from bashx/do but are used internally
+// We define them locally as 'any' to avoid import errors
+type Program = any
+type SafetyClassification = any
+type Intent = any
 
 // Re-export for consumers
 export { BashModuleClass as BashModule }
@@ -77,9 +80,6 @@ export type {
   ExecOptions,
   SpawnOptions,
   SpawnHandle,
-  Program,
-  SafetyClassification,
-  Intent,
 }
 
 // ============================================================================

@@ -1020,7 +1020,8 @@ export class IntegrationsDO {
       return null
     }
 
-    const stub = vaultDO.get(vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId)
+    const doId = vaultDO.idFromName(linkedAccountId)
+    const stub = vaultDO.get(doId)
     const response = await stub.fetch(new Request(`http://vault/token/${linkedAccountId}`))
 
     if (!response.ok) {
@@ -1047,7 +1048,8 @@ export class IntegrationsDO {
       return null
     }
 
-    const stub = vaultDO.get(vaultDO.idFromName ? vaultDO.idFromName(linkedAccountId) : linkedAccountId)
+    const doId = vaultDO.idFromName(linkedAccountId)
+    const stub = vaultDO.get(doId)
     const response = await stub.fetch(
       new Request(`http://vault/token/${linkedAccountId}/refresh`, { method: 'POST' }),
     )

@@ -1,13 +1,20 @@
 /**
- * Better Auth Strategy Module (Stub)
+ * Better Auth Strategy Module
  *
- * This is a stub file for the Payload-compatible authenticate() strategy.
- * The actual implementation will be done in the GREEN phase.
+ * Payload-compatible authenticate() strategy that bridges Better Auth
+ * sessions and API keys to Payload CMS's auth interface.
  *
  * @module @dotdo/payload/auth/strategy
  */
 
-import type { BetterAuthUser, PayloadUser, AuthBridgeConfig } from './types'
+import { extractCredentials } from './extraction'
+import type {
+  BetterAuthUser,
+  PayloadUser,
+  AuthBridgeConfig,
+  SessionValidationResult,
+  ApiKeyValidationResult,
+} from './types'
 
 // ============================================================================
 // Types
@@ -29,38 +36,6 @@ export interface AuthenticateArgs {
 export interface AuthenticateResult {
   /** The authenticated user, or null if not authenticated */
   user: PayloadUser | null
-}
-
-/**
- * Session validation result (reusing existing type).
- */
-export interface SessionValidationResult {
-  valid: boolean
-  user?: BetterAuthUser
-  session?: {
-    id: string
-    token: string
-    expiresAt: Date
-    userId: string
-  }
-  error?: string
-}
-
-/**
- * API key validation result (reusing existing type).
- */
-export interface ApiKeyValidationResult {
-  valid: boolean
-  user?: BetterAuthUser
-  apiKey?: {
-    id: string
-    name: string
-    userId: string
-    permissions: string[]
-    expiresAt: Date | null
-  }
-  error?: string
-  retryAfter?: number
 }
 
 /**
@@ -120,7 +95,38 @@ export interface BetterAuthStrategy {
 }
 
 // ============================================================================
-// Stub Implementation (to be completed in GREEN phase)
+// Default Config
+// ============================================================================
+
+const DEFAULT_CONFIG: AuthBridgeConfig = {
+  usersCollection: 'users',
+  sessionCookieName: 'better-auth.session_token',
+  apiKeyHeader: 'x-api-key',
+  autoCreateUsers: true,
+}
+
+// ============================================================================
+// User Mapping
+// ============================================================================
+
+/**
+ * Map a Better Auth user to Payload user format.
+ */
+function mapToPayloadUser(user: BetterAuthUser, config: AuthBridgeConfig): PayloadUser {
+  // Use custom mapper if provided
+  if (config.userMapper) {
+    return config.userMapper(user, config)
+  }
+
+  return {
+    id: user.id,
+    email: user.email,
+    collection: config.usersCollection,
+  }
+}
+
+// ============================================================================
+// Implementation
 // ============================================================================
 
 /**
@@ -131,11 +137,100 @@ export interface BetterAuthStrategy {
  * @returns Authentication result with user or null
  */
 export async function authenticate(
-  _args: AuthenticateArgs,
-  _options: StrategyConfig
+  args: AuthenticateArgs,
+  options: StrategyConfig
 ): Promise<AuthenticateResult> {
-  // TODO: Implement in GREEN phase
-  throw new Error('Not implemented')
+  const { headers } = args
+  const config = { ...DEFAULT_CONFIG, ...options.config }
+
+  // Handle missing headers
+  if (!headers) {
+    return { user: null }
+  }
+
+  try {
+    // Extract credentials from headers
+    const credentials = extractCredentials(headers)
+
+    // No credentials found
+    if (!credentials) {
+      return { user: null }
+    }
+
+    let betterAuthUser: BetterAuthUser | undefined
+
+    // Validate based on credential type
+    switch (credentials.type) {
+      case 'session': {
+        // Session cookie - validate with session validator
+        if (!options.sessionValidator) {
+          return { user: null }
+        }
+        const result = await options.sessionValidator.validate(credentials.token)
+        if (!result.valid) {
+          options.logger?.warn('Session validation failed', { error: result.error })
+          return { user: null }
+        }
+        betterAuthUser = result.user
+        break
+      }
+
+      case 'bearer': {
+        // Bearer token - try as session first, then as API key
+        if (options.sessionValidator) {
+          const sessionResult = await options.sessionValidator.validate(credentials.token)
+          if (sessionResult.valid) {
+            betterAuthUser = sessionResult.user
+            break
+          }
+        }
+        // Fall through to API key validation
+        if (options.apiKeyValidator) {
+          const apiKeyResult = await options.apiKeyValidator.validate(credentials.token)
+          if (apiKeyResult.valid) {
+            betterAuthUser = apiKeyResult.user
+            break
+          }
+        }
+        options.logger?.warn('Bearer token validation failed')
+        return { user: null }
+      }
+
+      case 'apiKey': {
+        // API key header - validate with API key validator
+        if (!options.apiKeyValidator) {
+          return { user: null }
+        }
+        const result = await options.apiKeyValidator.validate(credentials.token)
+        if (!result.valid) {
+          options.logger?.warn('API key validation failed', { error: result.error })
+          return { user: null }
+        }
+        betterAuthUser = result.user
+        break
+      }
+    }
+
+    // No user found
+    if (!betterAuthUser) {
+      return { user: null }
+    }
+
+    // Provision user if needed (auto-create in Payload)
+    let payloadUser: PayloadUser
+
+    if (config.autoCreateUsers !== false && options.userProvisioner) {
+      payloadUser = await options.userProvisioner.provision(betterAuthUser, config)
+    } else {
+      // Map directly without provisioning
+      payloadUser = mapToPayloadUser(betterAuthUser, config)
+    }
+
+    return { user: payloadUser }
+  } catch (error) {
+    options.logger?.warn(`Auth error: ${error}`)
+    return { user: null }
+  }
 }
 
 /**
@@ -144,7 +239,9 @@ export async function authenticate(
  * @param options - Strategy configuration options
  * @returns A Payload-compatible strategy object
  */
-export function createBetterAuthStrategy(_options: StrategyConfig): BetterAuthStrategy {
-  // TODO: Implement in GREEN phase
-  throw new Error('Not implemented')
+export function createBetterAuthStrategy(options: StrategyConfig = {}): BetterAuthStrategy {
+  return {
+    name: 'better-auth',
+    authenticate: (args: AuthenticateArgs) => authenticate(args, options),
+  }
 }

@@ -173,7 +173,7 @@ export interface FunctionInstance {
   getInvocationHistory: () => Promise<InvocationRecord[]>
 
   // Composition methods
-  then: (next: FunctionInstance) => ComposedFunction
+  chain: (next: FunctionInstance) => ComposedFunction
   if: (predicate: (input: unknown) => boolean) => ConditionalFunction
   map: <T, R>(transform: (output: T) => R) => FunctionInstance
   contramap: <T, R>(transform: (input: T) => R) => FunctionInstance
@@ -517,7 +517,7 @@ function createFunctionInstance(
     toJSON: null as unknown as () => Record<string, unknown>,
     getMetadata: null as unknown as () => FunctionMetadata,
     getInvocationHistory: null as unknown as () => Promise<InvocationRecord[]>,
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
     if: null as unknown as (predicate: (input: unknown) => boolean) => ConditionalFunction,
     map: null as unknown as <T, R>(transform: (output: T) => R) => FunctionInstance,
     contramap: null as unknown as <T, R>(transform: (input: T) => R) => FunctionInstance,
@@ -718,7 +718,7 @@ function createFunctionInstance(
   }
 
   // Composition: then
-  instance.then = createThenMethod(instance, (next) => createComposedFunction([instance, next], options))
+  instance.chain = createChainMethod(instance, (next) => createComposedFunction([instance, next], options))
 
   // Composition: if
   instance.if = (predicate: (input: unknown) => boolean): ConditionalFunction => {
@@ -938,44 +938,17 @@ async function executeHumanFunction(
 // ============================================================================
 
 /**
- * Creates a 'then' method that handles both Promise thenable calls and composition chaining.
- * When async/await awaits an object with .then(), it calls then(resolve, reject).
- * We need to detect this and resolve with the instance, while still allowing composition.
- *
- * CRITICAL: When resolving for Promise mechanism, we must NOT return an object with .then()
- * or JavaScript will infinitely recurse trying to resolve it. We wrap the instance in an
- * object without .then before resolving, then unwrap after.
- *
- * Actually, the better approach is to temporarily remove .then before returning, then restore it.
- * But that's complex. Instead, we'll use a workaround: queueMicrotask to defer the resolve.
+ * Creates a 'chain' method for composition chaining.
+ * This was renamed from 'then' to avoid conflicts with Promise's thenable interface.
+ * Use chain() to compose functions together.
  */
-function createThenMethod(
+function createChainMethod(
   instance: FunctionInstance,
   composeWith: (next: FunctionInstance) => ComposedFunction,
 ): (next: FunctionInstance) => ComposedFunction {
-  const thenMethod = ((
-    nextOrResolve: FunctionInstance | ((value: unknown) => void),
-    _reject?: (reason: unknown) => void
-  ): ComposedFunction | void => {
-    if (typeof nextOrResolve === 'function') {
-      // Promise mechanism calling us - we need to resolve without triggering another .then check
-      // Temporarily hide .then so the Promise resolution doesn't recurse
-      const originalThen = instance.then
-      ;(instance as { then?: unknown }).then = undefined
-
-      // Use queueMicrotask to schedule the resolve after we've hidden .then
-      queueMicrotask(() => {
-        nextOrResolve(instance)
-        // Restore .then for composition use
-        instance.then = originalThen
-      })
-      return
-    }
-    // Composition chaining
-    return composeWith(nextOrResolve)
-  }) as (next: FunctionInstance) => ComposedFunction
-
-  return thenMethod
+  return (next: FunctionInstance): ComposedFunction => {
+    return composeWith(next)
+  }
 }
 
 // ============================================================================
@@ -1028,7 +1001,7 @@ function createComposedFunction(
 
     getInvocationHistory: async () => [],
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (predicate: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(composed, predicate, options)
@@ -1057,7 +1030,7 @@ function createComposedFunction(
   }
 
   // Set up the thenable-safe then method
-  composed.then = createThenMethod(composed, (next) => createComposedFunction([...functions, next], options))
+  composed.chain = createChainMethod(composed, (next) => createComposedFunction([...functions, next], options))
 
   return composed
 }
@@ -1097,7 +1070,7 @@ function createConditionalFunction(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(conditional, pred, options)
@@ -1126,7 +1099,7 @@ function createConditionalFunction(
   }
 
   // Set up thenable-safe then method
-  conditional.then = createThenMethod(conditional, (next) => createComposedFunction([conditional, next], options))
+  conditional.chain = createChainMethod(conditional, (next) => createComposedFunction([conditional, next], options))
 
   return conditional
 }
@@ -1159,7 +1132,7 @@ function createMappedFunction<T, R>(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(mapped, pred, options)
@@ -1182,7 +1155,7 @@ function createMappedFunction<T, R>(
     },
   }
 
-  mapped.then = createThenMethod(mapped, (next) => createComposedFunction([mapped, next], options))
+  mapped.chain = createChainMethod(mapped, (next) => createComposedFunction([mapped, next], options))
 
   return mapped
 }
@@ -1215,7 +1188,7 @@ function createContramappedFunction<T, R>(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(contramapped, pred, options)
@@ -1238,7 +1211,7 @@ function createContramappedFunction<T, R>(
     },
   }
 
-  contramapped.then = createThenMethod(contramapped, (next) => createComposedFunction([contramapped, next], options))
+  contramapped.chain = createChainMethod(contramapped, (next) => createComposedFunction([contramapped, next], options))
 
   return contramapped
 }
@@ -1274,7 +1247,7 @@ function createCatchFunction(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(catchFn, pred, options)
@@ -1297,7 +1270,7 @@ function createCatchFunction(
     },
   }
 
-  catchFn.then = createThenMethod(catchFn, (next) => createComposedFunction([catchFn, next], options))
+  catchFn.chain = createChainMethod(catchFn, (next) => createComposedFunction([catchFn, next], options))
 
   return catchFn
 }
@@ -1333,7 +1306,7 @@ function createFinallyFunction(
 
     getInvocationHistory: async () => fn.getInvocationHistory(),
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(finallyFn, pred, options)
@@ -1356,7 +1329,7 @@ function createFinallyFunction(
     },
   }
 
-  finallyFn.then = createThenMethod(finallyFn, (next) => createComposedFunction([finallyFn, next], options))
+  finallyFn.chain = createChainMethod(finallyFn, (next) => createComposedFunction([finallyFn, next], options))
 
   return finallyFn
 }
@@ -1410,7 +1383,7 @@ function createParallelFunction(
 
     getInvocationHistory: async () => [],
 
-    then: null as unknown as (next: FunctionInstance) => ComposedFunction,
+    chain: null as unknown as (next: FunctionInstance) => ComposedFunction,
 
     if: (pred: (input: unknown) => boolean): ConditionalFunction => {
       return createConditionalFunction(parallel, pred, { env: {} })
@@ -1433,7 +1406,7 @@ function createParallelFunction(
     },
   }
 
-  parallel.then = createThenMethod(parallel, (next) => createComposedFunction([parallel, next], { env: {} }))
+  parallel.chain = createChainMethod(parallel, (next) => createComposedFunction([parallel, next], { env: {} }))
 
   return parallel
 }
@@ -1442,11 +1415,11 @@ function createParallelFunction(
 // MAIN FACTORY FUNCTION
 // ============================================================================
 
-export function createFunction(
+export async function createFunction(
   definition: FunctionDefinition,
   options: CreateFunctionOptions,
 ): Promise<FunctionInstance> {
-  return (async () => {
+  // Direct implementation instead of IIFE to avoid thenable issues with FunctionInstance
     // Validate the definition
     validateFunctionDefinition(definition)
 
@@ -1491,8 +1464,7 @@ export function createFunction(
       })
     }
 
-    return instance
-  })()
+  return instance
 }
 
 // Static methods on createFunction

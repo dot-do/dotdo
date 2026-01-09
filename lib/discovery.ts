@@ -80,14 +80,14 @@ function isDOClass(value: unknown): boolean {
   if (typeof value !== 'function') return false
 
   // Check if it has a static $type property
-  const maybeClass = value as Record<string, unknown>
+  const maybeClass = value as unknown as Record<string, unknown>
   if (!maybeClass.$type || typeof maybeClass.$type !== 'string') return false
 
   // Check if it extends DO (walk prototype chain)
-  let current = value
+  let current = value as Function | null
   while (current) {
     if (current === DO) return true
-    current = Object.getPrototypeOf(current)
+    current = Object.getPrototypeOf(current) as Function | null
   }
 
   return false

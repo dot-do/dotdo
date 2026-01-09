@@ -25,6 +25,7 @@ export class CloudflareBrowseProvider implements BrowseProvider {
     }
 
     // Dynamically import cloudflare puppeteer
+    // @ts-ignore - Optional peer dependency
     const puppeteer = await import('@cloudflare/puppeteer')
     const browser = await puppeteer.default.launch(config.env.BROWSER)
     const page = await browser.newPage()
@@ -35,6 +36,7 @@ export class CloudflareBrowseProvider implements BrowseProvider {
     }
 
     // Initialize Stagehand for AI operations
+    // @ts-ignore - Optional peer dependency
     const { Stagehand } = await import('@browserbasehq/stagehand')
     const stagehand = new Stagehand({
       env: 'LOCAL',

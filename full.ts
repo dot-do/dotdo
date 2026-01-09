@@ -26,17 +26,17 @@
  */
 
 import { DO as BaseDO } from './objects/DO'
-import { withFs, withGit, withBash, type BashExecutor } from './lib/mixins'
+import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from './lib/mixins'
 
 /**
  * Stub executor that throws when used.
  * Users should configure a real executor via environment bindings.
  */
 const stubExecutor: BashExecutor = {
-  async execute(command: string, args?: string[]) {
+  async execute(command: string, options?: ExecOptions): Promise<BashResult> {
     throw new Error(
       `Bash execution not configured. ` +
-      `Attempted to run: ${command} ${args?.join(' ') ?? ''}\n` +
+      `Attempted to run: ${command}\n` +
       `Configure a real executor (e.g., Cloudflare Container, RPC) in your DO class.`
     )
   }

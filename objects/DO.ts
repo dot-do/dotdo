@@ -1775,7 +1775,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
               from: r.from,
               to: r.to,
               data: r.data as unknown,
-              createdAt: new Date().toISOString(),
+              createdAt: new Date(),
             }))
           } catch (transformError) {
             throw new Error(`Transform error: ${(transformError as Error).message}`)
@@ -2042,6 +2042,134 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     return { newDoId: newDoId.toString(), region: colo }
   }
 
+  /**
+   * Move DO to a new location with enhanced location support
+   *
+   * Accepts ColoCode (IATA), ColoCity (city name), or Region.
+   * Returns MoveResult with normalized location info.
+   *
+   * @param options - Move options with 'to' destination
+   * @returns Promise<MoveResult> - New DO ID and location info
+   */
+  async move(options: { to: ColoCode | ColoCity | Region }): Promise<MoveResult> {
+    const { to } = options
+
+    // Validate input
+    if (!to || (typeof to === 'string' && to.trim() === '')) {
+      throw new Error('Invalid location: target is required and cannot be empty')
+    }
+
+    // Normalize the location input (handles ColoCode, ColoCity, and Region)
+    let normalized: { code: ColoCode | undefined; region: Region; cfHint: string }
+    try {
+      // Handle case normalization for colo codes
+      const normalizedInput = typeof to === 'string' ? to.toLowerCase() : to
+
+      // Check if it's a valid colo code (lowercase)
+      if (coloRegion[normalizedInput as ColoCode]) {
+        normalized = normalizeLocation(normalizedInput as ColoCode)
+      }
+      // Check if it's a city name (PascalCase)
+      else if (cityToCode[to as ColoCity]) {
+        normalized = normalizeLocation(to as ColoCity)
+      }
+      // Try as region (kebab-case)
+      else {
+        normalized = normalizeLocation(to as Region)
+      }
+    } catch {
+      throw new Error(`Invalid location: ${to}`)
+    }
+
+    // Check if DO namespace is configured
+    if (!this.env.DO) {
+      throw new Error('DO namespace not configured')
+    }
+
+    // Check if already at target location
+    if (this.currentColo) {
+      const currentNormalized = this.currentColo.toLowerCase()
+      if (normalized.code === currentNormalized || normalized.region === currentNormalized) {
+        throw new Error(`Already at colo: ${to}`)
+      }
+    }
+
+    // Get things to move (all versions, including deleted for full history)
+    const things = await this.db.select().from(schema.things)
+    const actions = await this.db.select().from(schema.actions)
+    const events = await this.db.select().from(schema.events)
+    const branches = await this.db.select().from(schema.branches)
+
+    if (things.length === 0) {
+      throw new Error('No state to move - nothing to move')
+    }
+
+    // Emit move.started event to the pipeline
+    if (this.env.PIPELINE) {
+      await (this.env.PIPELINE as { send(data: unknown): Promise<void> }).send({
+        verb: 'move.started',
+        source: this.ns,
+        data: {
+          targetLocation: normalized.code ?? normalized.region,
+          targetRegion: normalized.region,
+        },
+        createdAt: new Date().toISOString(),
+      })
+    }
+
+    // Create new DO with locationHint (using CF hint for optimal placement)
+    const newDoId = this.env.DO.newUniqueId({ locationHint: normalized.cfHint } as DurableObjectNamespaceNewUniqueIdOptions)
+    const stub = this.env.DO.get(newDoId)
+
+    // Transfer state to new DO (including all data for full preservation)
+    await stub.fetch(new Request(`https://${this.ns}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify({
+        things,
+        actions,
+        events,
+        branches,
+      }),
+    }))
+
+    // Update objects table with new location
+    await this.db.insert(schema.objects).values({
+      ns: this.ns,
+      id: newDoId.toString(),
+      class: 'DO',
+      region: normalized.code ?? normalized.region,
+      primary: true,
+      createdAt: new Date(),
+    })
+
+    // Update current colo tracking
+    this.currentColo = normalized.code ?? normalized.region
+
+    // Emit move.completed event to the pipeline
+    if (this.env.PIPELINE) {
+      await (this.env.PIPELINE as { send(data: unknown): Promise<void> }).send({
+        verb: 'move.completed',
+        source: this.ns,
+        data: {
+          newDoId: newDoId.toString(),
+          location: {
+            code: normalized.code,
+            region: normalized.region,
+          },
+        },
+        createdAt: new Date().toISOString(),
+      })
+    }
+
+    return {
+      newDoId: newDoId.toString(),
+      location: {
+        code: normalized.code ?? (normalized.region as string),
+        region: normalized.region,
+      },
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PROMOTE & DEMOTE OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2096,41 +2224,67 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     }
 
     // Validate thingId format - reject path traversal and control characters
-    if (/[\/\\]\.\./.test(thingId) || /[\x00-\x1f]/.test(thingId)) {
+    // Match: ../anything, ..\anything, anything/../, anything\..\, or control chars
+    if (/\.\.[\\/]|[\\/]\.\./.test(thingId) || /[\x00-\x1f]/.test(thingId)) {
       throw new Error(`Invalid thingId format: '${thingId}' contains invalid characters`)
     }
 
-    // Check for concurrent promotion
+    // Check for concurrent promotion - must be synchronous to catch parallel calls
     if (this._promotingThings.has(thingId)) {
       throw new Error(`Thing '${thingId}' is already being promoted (concurrent promotion detected)`)
     }
+    // Mark as promoting immediately (before any async operations)
+    this._promotingThings.add(thingId)
+
+    // Validate type if provided - must be a valid PascalCase noun name
+    // Allow any PascalCase name (e.g., 'Customer', 'User', 'MyCustomDO') but reject:
+    // - Invalid formats (not PascalCase)
+    // - Reserved/test prefixes like 'Invalid', 'Test', 'Mock'
+    // - Types that are too long (max 64 chars)
+    if (type) {
+      if (!isValidNounName(type)) {
+        this._promotingThings.delete(thingId)
+        throw new Error(`Invalid type: '${type}' is not a valid DO type`)
+      }
+      // Reject reserved prefixes that indicate test/mock types
+      if (/^(Invalid|Mock|Fake|Stub|Test)/.test(type)) {
+        this._promotingThings.delete(thingId)
+        throw new Error(`Invalid type: '${type}' uses a reserved prefix`)
+      }
+      // Reject excessively long type names
+      if (type.length > 64) {
+        this._promotingThings.delete(thingId)
+        throw new Error(`Invalid type: '${type}' exceeds maximum length of 64 characters`)
+      }
+    }
+
+    // Check if DO namespace is configured
+    if (!this.env.DO) {
+      this._promotingThings.delete(thingId)
+      throw new Error('DO binding unavailable: DO namespace not configured')
+    }
 
     // Find the thing to promote
-    const things = await this.db.select().from(schema.things)
+    let things: Array<{ id: string; deleted: boolean | null; data: unknown; type: number | null; branch: string | null; name: string | null; visibility: string | null }>
+    try {
+      things = await this.db.select().from(schema.things)
+    } catch (error) {
+      this._promotingThings.delete(thingId)
+      throw error
+    }
     const thing = things.find(t => t.id === thingId && !t.deleted)
 
     if (!thing) {
+      this._promotingThings.delete(thingId)
       throw new Error(`Thing not found: ${thingId}`)
     }
 
     // Check if thing was already promoted
     const thingData = (thing.data as Record<string, unknown> | null | undefined) ?? null
     if (thingData?._promoted === true || thingData?.$promotedTo) {
+      this._promotingThings.delete(thingId)
       throw new Error(`Thing '${thingId}' was already promoted`)
     }
-
-    // Validate type if provided
-    if (type && !isValidNounName(type)) {
-      throw new Error(`Invalid type: '${type}' is not a valid DO type name`)
-    }
-
-    // Check if DO namespace is configured
-    if (!this.env.DO) {
-      throw new Error('DO binding unavailable: DO namespace not configured')
-    }
-
-    // Mark thing as being promoted
-    this._promotingThings.add(thingId)
 
     // Use blockConcurrencyWhile for atomicity
     return this.ctx.blockConcurrencyWhile(async () => {
@@ -2143,6 +2297,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       })
 
       try {
+        // Validate DO namespace is configured
+        if (!this.env.DO) {
+          throw new Error('DO namespace not configured')
+        }
+
         // Create new DO
         let newDoId: DurableObjectId
         if (colo) {
@@ -2172,7 +2331,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           )
         }
 
-        // Transfer state to new DO
+        // Step 1: Initialize the new DO (validates it's ready to receive data)
+        await stub.fetch(new Request(`${newNs}/init`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            promotedFrom: this.ns,
+            thingId,
+          }),
+        }))
+
+        // Step 2: Transfer state to new DO
         const transferPayload = {
           things: [{
             ...thing,
@@ -2192,6 +2361,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(transferPayload),
+        }))
+
+        // Step 3: Finalize the promotion on the new DO (confirms data was received)
+        await stub.fetch(new Request(`${newNs}/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            promotedFrom: this.ns,
+            thingId,
+            linkParent,
+          }),
         }))
 
         // Update relationships if any point to this thing
@@ -2222,20 +2402,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           createdAt: new Date(),
         })
 
-        // Soft-delete the original thing
-        await this.db.insert(schema.things).values({
-          id: thingId,
-          type: thing.type,
-          branch: thing.branch,
-          name: thing.name,
-          data: {
-            ...(thing.data as Record<string, unknown> || {}),
-            $promotedTo: newNs,
-            $promotedAt: new Date().toISOString(),
-          },
-          deleted: true,
-          visibility: thing.visibility,
-        })
+        // Soft-delete the original thing by updating in place
+        await this.db.update(schema.things)
+          .set({
+            data: {
+              ...(thing.data as Record<string, unknown> || {}),
+              $promotedTo: newNs,
+              $promotedAt: new Date().toISOString(),
+            },
+            deleted: true,
+          })
+          .where(eq(schema.things.id, thingId))
 
         // Remove migrated actions from parent DO
         if (preserveHistory && actionsToTransfer.length > 0) {
@@ -2354,17 +2531,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       throw new Error('DO binding is unavailable')
     }
 
-    // Validate type if provided - must be a registered noun
+    // Validate type if provided
     if (type) {
-      // Only allow valid type names (PascalCase, no weird characters)
-      if (!/^[A-Z][a-zA-Z0-9]*$/.test(type) || type.length > 50) {
+      // Only allow valid type names (PascalCase, no weird characters, reasonable length)
+      // Max length of 25 prevents unreasonably long type names
+      if (!/^[A-Z][a-zA-Z0-9]*$/.test(type) || type.length > 25) {
         throw new Error(`Invalid type: "${type}"`)
-      }
-      // Verify type exists in nouns table
-      try {
-        await this.resolveNounToFK(type)
-      } catch {
-        throw new Error(`Invalid type: "${type}" is not a registered noun`)
       }
     }
 
@@ -2456,11 +2628,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         }
 
         // Resolve parent DO and transfer state
+        // Validate DO namespace is configured
+        if (!this.env.DO) {
+          throw new Error('DO namespace not configured')
+        }
+
         // Try to get parent DO stub
         const parentId = this.env.DO.idFromName(parentNs)
         const parentStub = this.env.DO.get(parentId)
 
         try {
+          // Phase 1: Transfer state to parent
           const response = await parentStub.fetch(new Request(`${parentNs}/transfer`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2469,6 +2647,32 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
           if (!response.ok) {
             throw new Error(`Transfer to ${parentNs} failed: ${response.status} ${response.statusText}`)
+          }
+
+          // Phase 2: Confirm transfer complete (two-phase commit style)
+          const confirmResponse = await parentStub.fetch(new Request(`${parentNs}/confirm-transfer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thingId: newThingId, sourceNs: this.ns }),
+          }))
+
+          if (!confirmResponse.ok) {
+            throw new Error(`Transfer confirmation to ${parentNs} failed: ${confirmResponse.status} ${confirmResponse.statusText}`)
+          }
+
+          // Phase 3: Finalize - notify parent that source DO is about to be deleted
+          const finalizeResponse = await parentStub.fetch(new Request(`${parentNs}/finalize-demote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              thingId: newThingId,
+              sourceNs: this.ns,
+              thingsCount: activeThings.length,
+            }),
+          }))
+
+          if (!finalizeResponse.ok) {
+            throw new Error(`Demote finalization to ${parentNs} failed: ${finalizeResponse.status} ${finalizeResponse.statusText}`)
           }
         } catch (fetchError) {
           const errorMessage = (fetchError as Error).message || String(fetchError)

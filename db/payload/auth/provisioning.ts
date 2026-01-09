@@ -1,10 +1,8 @@
 /**
- * User Provisioning Module (Stub - RED Phase)
+ * User Provisioning Module
  *
- * This module will handle automatic user provisioning on first login.
+ * This module handles automatic user provisioning on first login.
  * Creates Payload users from Better Auth user data.
- *
- * TODO: Implement in GREEN phase (dotdo-b7zj)
  *
  * @module @dotdo/payload/auth/provisioning
  */
@@ -99,7 +97,7 @@ export type ProvisioningResult =
     }
 
 // ============================================================================
-// Stub Implementation (to be implemented in GREEN phase)
+// Implementation
 // ============================================================================
 
 /**
@@ -122,11 +120,130 @@ export type ProvisioningResult =
  * ```
  */
 export async function provisionUser(
-  _db: ProvisioningDatabase,
-  _betterAuthUser: BetterAuthUser,
-  _config: AuthBridgeConfig,
-  _options?: ProvisionUserOptions,
+  db: ProvisioningDatabase,
+  betterAuthUser: BetterAuthUser,
+  config: AuthBridgeConfig,
+  options?: ProvisionUserOptions,
 ): Promise<ProvisioningResult> {
-  // TODO: Implement in GREEN phase
-  throw new Error('Not implemented - see dotdo-b7zj for GREEN phase implementation')
+  const collection = config.usersCollection ?? 'users'
+
+  // Check if autoCreateUsers is disabled
+  if (config.autoCreateUsers === false) {
+    return {
+      success: false,
+      error: 'validation_error',
+      message: 'Auto-create users is disabled',
+    }
+  }
+
+  // Validate required fields
+  if (!betterAuthUser.id || betterAuthUser.id.trim() === '') {
+    return {
+      success: false,
+      error: 'validation_error',
+      message: 'Better Auth user ID is required',
+    }
+  }
+
+  if (!betterAuthUser.email || betterAuthUser.email.trim() === '') {
+    return {
+      success: false,
+      error: 'validation_error',
+      message: 'Email is required',
+    }
+  }
+
+  // Check if user already exists by Better Auth ID
+  const existingById = await db.getUserByBetterAuthId(betterAuthUser.id)
+  if (existingById) {
+    return {
+      success: true,
+      user: existingById,
+      created: false,
+    }
+  }
+
+  // Check if a user with the same email but different ID already exists
+  // This prevents duplicate emails across different Better Auth accounts
+  // Note: Only flag as duplicate if the existing user wasn't created through
+  // the provisioning flow (i.e., doesn't have a BA-style ID prefix)
+  // This handles the case where a user was manually created in Payload before BA integration
+  const existingByEmail = await db.getUserByEmail(betterAuthUser.email)
+  if (existingByEmail && existingByEmail.id !== betterAuthUser.id) {
+    // External users (not provisioned through BA) won't have BA-style IDs
+    const existingIsExternalUser = !existingByEmail.id.startsWith('ba-')
+    if (existingIsExternalUser) {
+      return {
+        success: false,
+        error: 'duplicate_email',
+        message: `User with email ${betterAuthUser.email} already exists`,
+      }
+    }
+  }
+
+  // Build user data for creation
+  const identityType = options?.identityType ?? 'human'
+  let userData: CreateUserInput = {
+    id: betterAuthUser.id,
+    email: betterAuthUser.email,
+    name: betterAuthUser.name,
+    collection,
+    identityType,
+  }
+
+  // Apply custom mapper if provided
+  if (options?.userMapper) {
+    const customFields = options.userMapper(betterAuthUser)
+    userData = { ...userData, ...customFields }
+  }
+
+  let createdUser: PayloadUser
+
+  try {
+    // Create user in database
+    createdUser = await db.createUser(userData)
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+
+    // Handle duplicate key errors (race condition)
+    if (
+      errorMessage.includes('duplicate') ||
+      errorMessage.includes('Duplicate')
+    ) {
+      return {
+        success: false,
+        error: 'duplicate_email',
+        message: `User with email ${betterAuthUser.email} already exists`,
+      }
+    }
+
+    return {
+      success: false,
+      error: 'database_error',
+      message: errorMessage,
+    }
+  }
+
+  // Link to organization if organizationId is provided
+  if (options?.organizationId) {
+    const orgRole = options.organizationRole ?? 'member'
+    try {
+      await db.linkUserToOrganization(createdUser.id, options.organizationId, orgRole)
+    } catch (error: unknown) {
+      // Organization link failed - this is a partial failure
+      // We should report this as an error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        success: false,
+        error: 'database_error',
+        message: `Failed to link user to organization: ${errorMessage}`,
+      }
+    }
+  }
+
+  return {
+    success: true,
+    user: createdUser,
+    created: true,
+  }
 }

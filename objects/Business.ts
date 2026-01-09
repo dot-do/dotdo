@@ -15,7 +15,7 @@ export interface BusinessConfig {
 }
 
 export class Business extends DO {
-  static override readonly $type = 'Business'
+  static override readonly $type: string = 'Business'
 
   private config: BusinessConfig | null = null
 

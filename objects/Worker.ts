@@ -74,7 +74,7 @@ export interface Channel {
  * Worker - Common interface for AI and Human workers
  */
 export class Worker extends DO {
-  static override readonly $type = 'Worker'
+  static override readonly $type: string = 'Worker'
 
   protected mode: WorkerMode = 'supervised'
 

@@ -728,7 +728,9 @@ export class GitModule {
    * Hash raw bytes using SHA-1.
    */
   private async hashBytes(data: Uint8Array): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest('SHA-1', data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
+    // Create a proper ArrayBuffer from the Uint8Array to avoid SharedArrayBuffer issues
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+    const hashBuffer = await crypto.subtle.digest('SHA-1', arrayBuffer)
     return this.bytesToHex(new Uint8Array(hashBuffer))
   }
 
@@ -934,7 +936,8 @@ const GIT_CAPABILITY_CACHE = Symbol('gitCapabilityCache')
  * }
  * ```
  */
-export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase) {
+export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase): TBase & Constructor<{ $: WithGitContext }> {
+  // @ts-expect-error - Mixin class augments $ type which TypeScript can't verify statically
   return class WithGit extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'git']

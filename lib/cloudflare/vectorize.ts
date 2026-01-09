@@ -532,7 +532,8 @@ export class VectorizeClient {
     const model = options.model ?? '@cf/baai/bge-base-en-v1.5'
 
     // Generate embedding for the query text
-    const embeddingResponse = await this.ai.run(model as BaseAiTextEmbeddingsModels, {
+    // Cast to the expected model type for text embeddings
+    const embeddingResponse = await this.ai.run(model as Parameters<Ai['run']>[0], {
       text: text,
     })
 

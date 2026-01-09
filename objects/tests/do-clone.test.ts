@@ -773,17 +773,19 @@ describe('clone() Basic API Tests', () => {
     it('should handle partial failures gracefully', async () => {
       // RED: Partial failures should rollback
       const mockNamespace = createMockDONamespace()
-      let initializationStarted = false
+      let healthCheckPassed = false
 
       mockNamespace.stubFactory = () => ({
         id: { toString: () => 'partial-fail-id', equals: () => false },
         fetch: vi.fn().mockImplementation(async (req: Request) => {
           const url = new URL(req.url)
-          if (url.pathname.includes('init')) {
-            initializationStarted = true
+          // Health check passes first
+          if (url.pathname.includes('health')) {
+            healthCheckPassed = true
             return new Response('OK')
           }
-          if (url.pathname.includes('transfer')) {
+          // But the actual data transfer fails mid-operation
+          if (url.pathname.includes('init')) {
             throw new Error('Transfer failed mid-operation')
           }
           return new Response('OK')
@@ -795,10 +797,10 @@ describe('clone() Basic API Tests', () => {
 
       await expect(
         result.instance.clone(target, { mode: 'atomic' })
-      ).rejects.toThrow()
+      ).rejects.toThrow(/transfer failed/i)
 
-      // Initialization might have started, but atomic mode should rollback
-      // (implementation detail - test verifies error is thrown)
+      // Health check should have passed before failure
+      expect(healthCheckPassed).toBe(true)
     })
   })
 

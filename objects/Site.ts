@@ -17,7 +17,7 @@ export interface SiteConfig {
 }
 
 export class Site extends DO {
-  static override readonly $type = 'Site'
+  static override readonly $type: string = 'Site'
 
   private config: SiteConfig | null = null
 

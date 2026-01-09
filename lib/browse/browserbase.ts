@@ -29,6 +29,7 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
     }
 
     // Initialize Browserbase SDK
+    // @ts-ignore - Optional peer dependency
     const { Browserbase } = await import('@browserbasehq/sdk')
     const browserbase = new Browserbase({
       apiKey: config.env.BROWSERBASE_API_KEY,
@@ -46,6 +47,7 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
     const browserSession = await browserbase.sessions.create(sessionOptions)
 
     // Connect via puppeteer-core
+    // @ts-ignore - Optional peer dependency
     const puppeteer = await import('puppeteer-core')
     const browser = await puppeteer.default.connect({
       browserWSEndpoint: browserSession.connectUrl,
@@ -59,6 +61,7 @@ export class BrowserbaseBrowseProvider implements BrowseProvider {
     }
 
     // Initialize Stagehand for AI operations
+    // @ts-ignore - Optional peer dependency
     const { Stagehand } = await import('@browserbasehq/stagehand')
     const stagehand = new Stagehand({
       env: 'BROWSERBASE',

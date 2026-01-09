@@ -43,6 +43,9 @@ export {
   type BashCapability,
   type BashExecutor,
   type BashResult,
+  type ExecOptions,
+  type SpawnOptions,
+  type SpawnHandle,
   type WithBashContext,
   type WithBashConfig,
 } from './bash'

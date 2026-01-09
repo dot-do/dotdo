@@ -314,6 +314,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       const selectMatch = query.match(/SELECT.*FROM\s+["`]?(\w+)["`]?/i)
       const insertMatch = query.match(/INSERT\s+INTO\s+["`]?(\w+)["`]?/i)
       const deleteMatch = query.match(/DELETE\s+FROM\s+["`]?(\w+)["`]?/i)
+      const updateMatch = query.match(/UPDATE\s+["`]?(\w+)["`]?\s+SET/i)
 
       if (selectMatch) {
         const tableName = selectMatch[1]
@@ -329,6 +330,50 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       if (deleteMatch) {
         const tableName = deleteMatch[1]
         sqlData.set(tableName, [])
+        return createMockCursor<T>([])
+      }
+
+      if (updateMatch) {
+        const tableName = updateMatch[1]
+        const tableData = sqlData.get(tableName) || []
+        // Parse SET clause and WHERE clause for basic update support
+        // Example: UPDATE things SET "deleted" = ?, "data" = ? WHERE "things"."id" = ?
+        const setMatch = query.match(/SET\s+(.*?)\s+WHERE/i)
+        const whereMatch = query.match(/WHERE\s+["`]?\w+["`]?\.["`]?(\w+)["`]?\s*=\s*\?/i)
+
+        if (setMatch && whereMatch && params.length > 0) {
+          const whereField = whereMatch[1]
+          const whereValue = params[params.length - 1] // Last param is typically the WHERE value
+
+          // Find and update the matching record
+          const updatedData = tableData.map((record: unknown) => {
+            const rec = record as Record<string, unknown>
+            if (rec[whereField] === whereValue) {
+              // Parse SET fields from the query
+              // Match patterns like "deleted" = ? or `data` = ?
+              const setFields = setMatch[1].match(/["`]?(\w+)["`]?\s*=\s*\?/g) || []
+              const updatedRecord = { ...rec }
+              setFields.forEach((field: string, idx: number) => {
+                const fieldName = field.match(/["`]?(\w+)["`]?\s*=\s*\?/)?.[1]
+                if (fieldName && idx < params.length - 1) {
+                  // Parse JSON strings back to objects
+                  let value = params[idx]
+                  if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+                    try {
+                      value = JSON.parse(value)
+                    } catch {
+                      // Keep as string
+                    }
+                  }
+                  updatedRecord[fieldName] = value
+                }
+              })
+              return updatedRecord
+            }
+            return rec
+          })
+          sqlData.set(tableName, updatedData)
+        }
         return createMockCursor<T>([])
       }
 

@@ -82,9 +82,19 @@ function createTestDO(options?: {
   if (options?.initialActions) {
     sqlData.set('actions', options.initialActions.map((a, i) => ({
       ...a,
-      input: {},
+      input: null,
+      output: null,
+      options: null,
+      durability: 'try',
       status: 'completed',
-      createdAt: new Date(),
+      error: null,
+      requestId: null,
+      sessionId: null,
+      workflowId: null,
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+      duration: 0,
+      createdAt: Date.now(),
       rowid: i + 1,
     })))
   } else {

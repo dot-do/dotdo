@@ -449,7 +449,8 @@ const FS_CAPABILITY_CACHE = Symbol('fsCapabilityCache')
  * }
  * ```
  */
-export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: TBase) {
+export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: TBase): TBase & Constructor<{ $: WithFsContext }> {
+  // @ts-expect-error - Mixin class augments $ type which TypeScript can't verify statically
   return class WithFs extends Base {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'fs']

@@ -104,7 +104,7 @@ export class Directory extends Entity {
   /**
    * Move entry to new path
    */
-  async move(id: string, newPath: string): Promise<DirectoryEntry | null> {
+  async moveEntry(id: string, newPath: string): Promise<DirectoryEntry | null> {
     const entry = await this.getEntry(id)
     if (!entry) return null
 
@@ -150,7 +150,7 @@ export class Directory extends Entity {
     const newPath = pathParts.join('/')
 
     entry.name = newName
-    return this.move(id, newPath)
+    return this.moveEntry(id, newPath)
   }
 
   /**
