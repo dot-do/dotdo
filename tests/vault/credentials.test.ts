@@ -750,7 +750,7 @@ describe('OAuth flow', () => {
       const initResult = await $.oauth.initiate(testConfig)
       await $.oauth.callback('auth-code-12345', initResult.state)
 
-      const stateData = $._storage.oauthStates.get(initResult.state)
+      const stateData = $._storage._consumedStates.get(initResult.state)
       const tokenKey = `${stateData?.userId}:google`
 
       // Remove the refresh token to simulate "no refresh token configured"
