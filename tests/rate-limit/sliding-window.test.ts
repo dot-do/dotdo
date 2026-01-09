@@ -98,34 +98,12 @@ interface RateLimitOptions {
   window: string // '1m', '1h', '1d', etc.
 }
 
-/**
- * SlidingWindowLimiter - Expected interface for the rate limiter.
- *
- * RED TDD: This class doesn't exist yet. We define the expected interface here
- * and the tests will fail with "SlidingWindowLimiter is not a constructor" until
- * the actual implementation is created at lib/rate-limit/sliding-window.ts
- */
-let SlidingWindowLimiter: {
-  new (db: BetterSQLite3Database<RateLimitSchema>): SlidingWindowLimiterInstance
-}
+// Import the actual implementation
+import { SlidingWindowLimiter } from '../../lib/rate-limit/sliding-window'
 
 interface SlidingWindowLimiterInstance {
   check(key: string, opts: RateLimitOptions): Promise<RateLimitResult>
   cleanup(opts?: { maxAge?: string }): Promise<number | void>
-}
-
-// Attempt to import the actual implementation
-// This will fail until the implementation exists
-try {
-  // Dynamic import wrapped in a try-catch doesn't work at module level
-  // Instead, we leave SlidingWindowLimiter undefined and tests will fail
-  // when trying to instantiate it
-  //
-  // When the implementation is created at lib/rate-limit/sliding-window.ts,
-  // update this file to: import { SlidingWindowLimiter } from '../../lib/rate-limit/sliding-window'
-  SlidingWindowLimiter = undefined as any
-} catch {
-  SlidingWindowLimiter = undefined as any
 }
 
 // ============================================================================

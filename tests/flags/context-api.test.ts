@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  createMockContext,
+  type Flag,
+  type FlagEvaluation,
+  type FlagContextInstance,
+  type FlagsCollection,
+} from '../../workflows/context/flag'
 
 /**
- * RED Phase Tests for $.flag() Workflow Context API
+ * Tests for $.flag() Workflow Context API
  *
- * These tests define the expected behavior of the $.flag() context API
+ * These tests verify the behavior of the $.flag() context API
  * that integrates feature flags into the workflow context ($).
- *
- * Tests will FAIL until the implementation is created.
  *
  * Related issues:
  * - dotdo-ppas: [Red] $.flag() context API tests
@@ -22,73 +27,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
  * - branches: Array<{ key: string; weight: number; payload?: unknown }>
  * - stickiness: 'user_id' | 'session_id' | 'random'
  */
-
-/**
- * Flag definition with variant support and status
- */
-export interface Flag {
-  id: string
-  traffic: number
-  status: 'active' | 'disabled' | 'archived'
-  branches: Array<{
-    key: string
-    weight: number
-    payload?: unknown
-  }>
-  stickiness: 'user_id' | 'session_id' | 'random'
-  createdAt: Date
-  updatedAt: Date
-}
-
-/**
- * Result from evaluating a flag for a user
- */
-export interface FlagEvaluation {
-  enabled: boolean
-  variant: string | null
-  payload?: unknown
-}
-
-/**
- * Flag instance returned by $.flag('id')
- */
-export interface FlagContextInstance {
-  isEnabled(userId: string): Promise<boolean>
-  get(userId: string): Promise<FlagEvaluation>
-  setTraffic(traffic: number): Promise<void>
-  enable(): Promise<void>
-  disable(): Promise<void>
-}
-
-/**
- * Flags collection API at $.flags
- */
-export interface FlagsCollection {
-  fetch(): Promise<Record<string, Flag>>
-  evaluate(flagId: string, userId: string, flags: Record<string, Flag>): FlagEvaluation
-}
-
-/**
- * Mock storage for flags
- */
-interface MockStorage {
-  flags: Map<string, Flag>
-}
-
-/**
- * Creates a mock workflow context ($) with flag support for testing
- *
- * This is the factory function that will need to be implemented.
- */
-function createMockContext(): {
-  flag: (id: string) => FlagContextInstance
-  flags: FlagsCollection
-  _storage: MockStorage
-} {
-  // This implementation will fail tests until the real implementation exists
-  // For now, we throw to indicate the API doesn't exist
-  throw new Error('createMockContext is not implemented - this is expected in RED phase')
-}
 
 // ============================================================================
 // $.flag('id').isEnabled(userId) returns boolean
