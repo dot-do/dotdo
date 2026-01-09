@@ -26,6 +26,7 @@ import type {
   FailureExecutionResult,
   FailureEffect,
   AssertionResult,
+  ChaosAssertion,
   RecoveryStatus,
   RecoveryError,
 } from '../../types/Chaos'
