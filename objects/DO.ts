@@ -20,7 +20,7 @@ import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
-import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError, HandlerOptions, HandlerRegistration, EnhancedDispatchResult, EventFilter } from '../types/WorkflowContext'
+import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError, HandlerOptions, HandlerRegistration, EnhancedDispatchResult, EventFilter, AIPipelinePromise, WriteResult, ExtractResult, AITemplateLiteralFn, DecideFn } from '../types/WorkflowContext'
 import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from '../workflows/schedule-builder'
 import { ScheduleManager, type Schedule } from '../workflows/ScheduleManager'
 import type { Thing } from '../types/Thing'
@@ -35,6 +35,15 @@ import {
   type StoreContext,
 } from '../db/stores'
 import { parseNounId, formatNounId } from '../lib/noun-id'
+import {
+  ai as aiFunc,
+  write as writeFunc,
+  summarize as summarizeFunc,
+  list as listFunc,
+  extract as extractFunc,
+  is as isFunc,
+  decide as decideFunc,
+} from '../ai'
 import type {
   CloneOptions,
   CloneResult,
@@ -808,26 +817,52 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     return new Proxy({} as WorkflowContext, {
       get(_, prop: string) {
         switch (prop) {
+          // Execution modes
           case 'send':
             return self.send.bind(self)
           case 'try':
             return self.try.bind(self)
           case 'do':
             return self.do.bind(self)
+
+          // Event subscriptions and scheduling
           case 'on':
             return self.createOnProxy()
           case 'every':
             return self.createScheduleBuilder()
+
+          // Branching
           case 'branch':
             return self.branch.bind(self)
           case 'checkout':
             return self.checkout.bind(self)
           case 'merge':
             return self.merge.bind(self)
+
+          // Utilities
           case 'log':
             return self.log.bind(self)
           case 'state':
             return {}
+
+          // AI Functions - Generation
+          case 'ai':
+            return aiFunc
+          case 'write':
+            return writeFunc
+          case 'summarize':
+            return summarizeFunc
+          case 'list':
+            return listFunc
+          case 'extract':
+            return extractFunc
+
+          // AI Functions - Classification
+          case 'is':
+            return isFunc
+          case 'decide':
+            return decideFunc
+
           default:
             // Domain resolution: $.Noun(id)
             return (id: string) => self.createDomainProxy(prop, id)

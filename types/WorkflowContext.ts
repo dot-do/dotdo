@@ -2,6 +2,56 @@ import type { RpcPromise } from 'capnweb'
 import type { Thing } from './Thing'
 
 // ============================================================================
+// AI FUNCTION TYPES
+// ============================================================================
+
+/**
+ * PipelinePromise - Promise with chainable methods for no-await operations
+ */
+export interface AIPipelinePromise<T> extends Promise<T> {
+  /** Transform the result */
+  map<R>(fn: (value: T) => R | Promise<R>): AIPipelinePromise<R>
+  /** Access a property on the resolved value */
+  get<K extends keyof T>(key: K): AIPipelinePromise<T[K]>
+  /** Handle errors */
+  catch<R = T>(fn: (error: Error) => R | Promise<R>): AIPipelinePromise<R>
+}
+
+/**
+ * Write result with destructurable properties
+ */
+export interface WriteResult {
+  title?: string
+  body?: string
+  summary?: string
+  content?: string
+  [key: string]: string | undefined
+}
+
+/**
+ * Extract result with typed entities
+ */
+export interface ExtractResult<T = Record<string, unknown>> {
+  entities: T[]
+  raw: string
+}
+
+/**
+ * Template literal function type for AI functions
+ */
+export type AITemplateLiteralFn<T> = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => AIPipelinePromise<T>
+
+/**
+ * Decide factory function - creates a template literal classifier
+ */
+export type DecideFn = <T extends string>(
+  options: T[]
+) => AITemplateLiteralFn<T>
+
+// ============================================================================
 // EXECUTION MODE TYPES
 // ============================================================================
 
@@ -120,6 +170,54 @@ export interface WorkflowContext {
    * $.every('daily at 6am', handler)
    */
   every: ScheduleBuilder
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AI FUNCTIONS - Template literal AI operations
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * General AI completion as template literal
+   * $.ai`What is the capital of France?`
+   * $.ai`Explain ${topic} in simple terms`
+   */
+  ai: AITemplateLiteralFn<string>
+
+  /**
+   * Text generation with structured output
+   * const { title, body } = await $.write`Write a blog post about ${topic}`
+   */
+  write: AITemplateLiteralFn<WriteResult>
+
+  /**
+   * Summarization
+   * const summary = await $.summarize`${longArticle}`
+   */
+  summarize: AITemplateLiteralFn<string>
+
+  /**
+   * List generation
+   * const items = await $.list`List 5 programming languages`
+   */
+  list: AITemplateLiteralFn<string[]>
+
+  /**
+   * Data extraction
+   * const { entities } = await $.extract`Extract companies from: ${article}`
+   */
+  extract: <T = Record<string, unknown>>(strings: TemplateStringsArray, ...values: unknown[]) => AIPipelinePromise<ExtractResult<T>>
+
+  /**
+   * Binary classification
+   * const isSpam = await $.is`Is this message spam? ${message}`
+   */
+  is: AITemplateLiteralFn<boolean>
+
+  /**
+   * Multi-option classification factory
+   * const sentiment = $.decide(['positive', 'negative', 'neutral'])
+   * const result = await sentiment`What is the sentiment? ${text}`
+   */
+  decide: DecideFn
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DOMAIN RESOLUTION (cross-DO)

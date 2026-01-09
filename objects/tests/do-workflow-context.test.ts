@@ -16,6 +16,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { WorkflowContext, EventHandler, DomainEvent, ScheduleHandler } from '../../types/WorkflowContext'
+import {
+  ai as aiFunc,
+  write as writeFunc,
+  summarize as summarizeFunc,
+  list as listFunc,
+  extract as extractFunc,
+  is as isFunc,
+  decide as decideFunc,
+} from '../../ai'
 
 // ============================================================================
 // MOCK INFRASTRUCTURE
@@ -207,28 +216,54 @@ function createMockWorkflowContext(options: {
   return new Proxy({} as WorkflowContext, {
     get(_, prop: string) {
       switch (prop) {
+        // Execution modes
         case 'send':
           return options.send ?? defaultSend
         case 'try':
           return options.try ?? defaultTry
         case 'do':
           return options.do ?? defaultDo
+
+        // Event subscriptions and scheduling
         case 'on':
           return createOnProxy()
         case 'every':
           return createScheduleBuilder()
+
+        // Branching
         case 'branch':
           return options.branch ?? (async (name: string) => { throw new Error('Not implemented') })
         case 'checkout':
           return options.checkout ?? (async (ref: string) => { throw new Error('Not implemented') })
         case 'merge':
           return options.merge ?? (async (branch: string) => { throw new Error('Not implemented') })
+
+        // Utilities
         case 'log':
           return options.log ?? ((message: string, data?: unknown) => {
             console.log(`[${ns}] ${message}`, data)
           })
         case 'state':
           return options.state ?? {}
+
+        // AI Functions - Generation
+        case 'ai':
+          return aiFunc
+        case 'write':
+          return writeFunc
+        case 'summarize':
+          return summarizeFunc
+        case 'list':
+          return listFunc
+        case 'extract':
+          return extractFunc
+
+        // AI Functions - Classification
+        case 'is':
+          return isFunc
+        case 'decide':
+          return decideFunc
+
         default:
           // Domain resolution: $.Noun(id)
           return (id: string) => createDomainProxy(prop, id)
@@ -987,6 +1022,112 @@ describe('DO Workflow Context ($)', () => {
         // No return value
       }
       ctx.$.every.Monday.at9am(handler)
+    })
+  })
+
+  // ==========================================================================
+  // AI FUNCTIONS
+  // ==========================================================================
+
+  describe('AI Functions', () => {
+    describe('Generation Functions', () => {
+      it('$.ai is defined as a function', () => {
+        expect(ctx.$.ai).toBeDefined()
+        expect(typeof ctx.$.ai).toBe('function')
+      })
+
+      it('$.write is defined as a function', () => {
+        expect(ctx.$.write).toBeDefined()
+        expect(typeof ctx.$.write).toBe('function')
+      })
+
+      it('$.summarize is defined as a function', () => {
+        expect(ctx.$.summarize).toBeDefined()
+        expect(typeof ctx.$.summarize).toBe('function')
+      })
+
+      it('$.list is defined as a function', () => {
+        expect(ctx.$.list).toBeDefined()
+        expect(typeof ctx.$.list).toBe('function')
+      })
+
+      it('$.extract is defined as a function', () => {
+        expect(ctx.$.extract).toBeDefined()
+        expect(typeof ctx.$.extract).toBe('function')
+      })
+    })
+
+    describe('Classification Functions', () => {
+      it('$.is is defined as a function', () => {
+        expect(ctx.$.is).toBeDefined()
+        expect(typeof ctx.$.is).toBe('function')
+      })
+
+      it('$.decide is defined as a function', () => {
+        expect(ctx.$.decide).toBeDefined()
+        expect(typeof ctx.$.decide).toBe('function')
+      })
+
+      it('$.decide returns a function (factory pattern)', () => {
+        const classifier = ctx.$.decide(['option1', 'option2'])
+        expect(typeof classifier).toBe('function')
+      })
+    })
+
+    describe('Template Literal Usage', () => {
+      it('$.ai can be used as template literal', () => {
+        // Should return a promise-like object when called as template literal
+        const result = ctx.$.ai`Test prompt`
+        expect(result).toBeDefined()
+        expect(typeof result.then).toBe('function')
+      })
+
+      it('$.write can be used as template literal', () => {
+        const result = ctx.$.write`Test prompt`
+        expect(result).toBeDefined()
+        expect(typeof result.then).toBe('function')
+      })
+
+      it('$.summarize can be used as template literal', () => {
+        const result = ctx.$.summarize`Test text`
+        expect(result).toBeDefined()
+        expect(typeof result.then).toBe('function')
+      })
+
+      it('$.list can be used as template literal', () => {
+        const result = ctx.$.list`List items`
+        expect(result).toBeDefined()
+        expect(typeof result.then).toBe('function')
+      })
+
+      it('$.is can be used as template literal', () => {
+        const result = ctx.$.is`Is this true?`
+        expect(result).toBeDefined()
+        expect(typeof result.then).toBe('function')
+      })
+    })
+
+    describe('Backward Compatibility', () => {
+      it('AI functions do not interfere with domain resolution', () => {
+        // Domain resolution should still work for capitalized nouns
+        const domainProxy = ctx.$.Customer('123')
+        expect(domainProxy).toBeDefined()
+        // Should be a proxy object, not a function
+        expect(typeof domainProxy).toBe('object')
+      })
+
+      it('AI functions coexist with existing $ methods', () => {
+        // All existing methods should still work
+        expect(typeof ctx.$.send).toBe('function')
+        expect(typeof ctx.$.try).toBe('function')
+        expect(typeof ctx.$.do).toBe('function')
+        expect(typeof ctx.$.branch).toBe('function')
+        expect(typeof ctx.$.log).toBe('function')
+
+        // And AI functions should also work
+        expect(typeof ctx.$.ai).toBe('function')
+        expect(typeof ctx.$.is).toBe('function')
+      })
     })
   })
 })

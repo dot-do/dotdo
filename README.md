@@ -1,167 +1,250 @@
-# .do
+# dotdo
 
-> Build AI-native applications with Durable Objects, SQLite, and built-in integrations.
+> A batteries-included framework for vibe coders to do a Foundation Sprint and build an Experimentation Machine where the result is a Profitable Autonomous Business.
 
-## Overview
+## The Idea
 
-The **.do platform** provides everything you need to build distributed, AI-native applications on Cloudflare Workers:
-
-- **Durable Objects with SQLite** - Persistent state, transactions, and full-text search in every DO
-- **Integrations baked in** - Connect to any service without Zapier or middleware
-- **AI-native primitives** - Agents, humans, and workflows with a unified interface
-
-## Core Primitives
-
-### Triggers, Searches, Actions
-
-Every integration exposes three primitives:
-
-| Primitive   | Description                 | Example                                         |
-| ----------- | --------------------------- | ----------------------------------------------- |
-| **Trigger** | Events that start workflows | `on.github.push`, `on.stripe.payment`           |
-| **Search**  | Query external data         | `search.slack.messages`, `search.github.issues` |
-| **Action**  | Perform operations          | `actions.email.send`, `actions.slack.post`      |
-
-### Function Types
-
-Functions can be implemented in four ways:
-
-| Type           | Description              | Use Case                             |
-| -------------- | ------------------------ | ------------------------------------ |
-| **Code**       | Deterministic TypeScript | Validation, transforms, calculations |
-| **Generative** | AI-generated output      | Content, summaries, analysis         |
-| **Agentic**    | Multi-step AI reasoning  | Complex tasks, research, planning    |
-| **Human**      | Human-in-the-loop        | Approvals, reviews, decisions        |
-
-## Quick Example
+Infrastructure-as-Code unlocked SaaS. **Business-as-Code** unlocks something bigger: AI-delivered Services-as-Software and profitable autonomous businesses managed entirely by AI agents.
 
 ```typescript
-import { DO } from 'dotdo'
-import { auth, webhooks, search, actions, resources } from 'dotdo/middleware'
+import { Startup } from 'dotdo'
 
-class MyApp extends DO {
-  app = new Hono()
-    .use('/api/auth/*', auth())
-    .use('/api/webhooks/*', webhooks())
-    .use('/api/search/*', search())
-    .use('/api/actions/*', actions())
-    .use('/api/:type/*', resources())
+export class AcmeTax extends Startup {
+  // The service your business delivers
+  service = this.Service('tax-preparation', {
+    inputs: ['w2', 'receipts', 'prior_returns'],
+    outputs: ['completed_return', 'filing_confirmation'],
+    sla: '48 hours',
+  })
+
+  // AI agents that operate your business
+  agents = [
+    this.Agent('tax-preparer', {
+      tools: [this.analyzeDocs, this.calculateTax, this.fileReturn],
+    }),
+    this.Agent('support', {
+      tools: [this.answerQuestions, this.scheduleCall],
+    }),
+  ]
+
+  // Humans only escalate for sensitive decisions
+  escalation = this.HumanFunction({
+    trigger: 'refund > $10000 OR audit_risk > 0.8',
+    role: 'senior-accountant',
+    sla: '4 hours',
+  })
 }
 ```
 
-## Auth
+That's not just an app. That's a business.
 
-Authentication federates to [id.org.ai](https://id.org.ai) by default, or configure your own providers.
+## The Journey
+
+Building with dotdo follows three phases:
+
+### 1. Foundation Sprint
+
+Before you build, get clarity. Define your customer, problem, and differentiation. Formulate your Founding Hypothesis.
 
 ```typescript
-import { auth } from 'dotdo/middleware'
+const hypothesis = await $.foundation({
+  customer: 'Freelance developers who hate tax season',
+  problem: 'Spending 20+ hours on taxes instead of shipping code',
+  differentiation: 'AI does 95% of the work, human CPA reviews edge cases',
+})
 
-// Default: federates to id.org.ai
-app.use('/api/auth/*', auth())
-
-// Custom providers
-app.use(
-  '/api/auth/*',
-  auth({
-    providers: ['github', 'google', 'custom-oidc'],
-  }),
-)
+// Output: "If we help freelance developers automate tax preparation
+// with AI-powered analysis and human CPA oversight, they will pay
+// $299/year because it saves them 20+ hours of frustration."
 ```
 
-### Identity Types
+### 2. Experimentation Machine
 
-| Type        | Description                |
-| ----------- | -------------------------- |
-| **Human**   | End users with OAuth/OIDC  |
-| **Agent**   | AI agents with API keys    |
-| **Service** | Backend services with mTLS |
-
-## Integrations
-
-Link accounts once at the org level, use everywhere across your apps.
-
-### Supported Integrations
-
-- **Code**: GitHub, GitLab, Bitbucket
-- **Communication**: Slack, Discord, Teams, Email
-- **Data**: Postgres, MySQL, MongoDB, Airtable
-- **Payments**: Stripe, PayPal
-- **CRM**: Salesforce, HubSpot
-- **And more**: 100+ integrations
-
-### Human-in-the-Loop Channels
-
-When workflows need human input, reach them where they are:
+Test your hypothesis. Run experiments. Measure what matters.
 
 ```typescript
-await $.human.ask('Approve this expense?', {
-  channels: ['slack', 'email'],
-  timeout: '24h',
-  escalate: 'manager',
+// Built-in HUNCH metrics for product-market fit
+const pmf = await $.measure({
+  hairOnFire: metrics.urgency,        // Is this a must-have?
+  usage: metrics.weeklyActive,         // Are they using it?
+  nps: metrics.netPromoterScore,       // Would they recommend?
+  churn: metrics.monthlyChurn,         // Are they staying?
+  ltv_cac: metrics.lifetimeValue / metrics.acquisitionCost,
+})
+
+// Run A/B experiments on value prop, pricing, messaging
+await $.experiment('pricing-test', {
+  variants: ['$199/year', '$299/year', '$29/month'],
+  metric: 'conversion_rate',
+  confidence: 0.95,
 })
 ```
 
-## Capability Modules
+### 3. Autonomous Business
 
-The `$` WorkflowContext provides lazy-loaded capabilities:
+When you find PMF, scale with AI agents. They operate the business. You set policy.
 
 ```typescript
-class MySite extends DO {
-  async build() {
-    // Filesystem (fsx)
-    const content = await this.$.fs.read('content/index.mdx')
+// Agents handle the day-to-day
+$.on.Customer.signup(async (customer) => {
+  await agents.onboarding.welcome(customer)
+  await agents.support.scheduleCheckin(customer, '24h')
+})
 
-    // Git operations (gitx)
-    await this.$.git.pull('origin', 'main')
-
-    // Shell execution (bashx) - runs natively in Workers!
-    await this.$.bash`npm install && npm run build`
-
-    // JSON query - uses RPC binding if available
-    const users = await this.$.jq(data, '.users[].name')
+$.on.Return.completed(async (return_) => {
+  const review = await agents.qa.review(return_)
+  if (review.confidence > 0.95) {
+    await agents.filing.submit(return_)
+  } else {
+    await humans.cpa.review(return_) // HumanFunction escalation
   }
+})
+
+// Revenue flows, profit compounds
+$.every.month.on(1).at('9am')(async () => {
+  await agents.billing.processSubscriptions()
+  await agents.reporting.generateMRR()
+})
+```
+
+## What You Get
+
+dotdo is batteries-included. Everything you need, nothing you don't.
+
+### Domain Classes
+
+Build with primitives that match how businesses actually work:
+
+```
+DO (Base)
+├── Startup ─────────► Your business container
+│   ├── Product      ► Physical or digital products
+│   ├── Service      ► AI-delivered services
+│   ├── SaaS         ► Subscription software
+│   ├── Marketplace  ► Multi-sided platforms
+│   └── Directory    ► Listings and discovery
+│
+├── Worker ──────────► Who does the work
+│   ├── Agent        ► AI workers with tools
+│   └── Human        ► People for escalation
+│
+├── App ─────────────► User-facing applications
+├── Site ────────────► Marketing, docs, blog
+├── API ─────────────► Programmatic access
+└── Workflow ────────► Multi-step processes
+```
+
+### The $ Context
+
+Every DO has a workflow context that handles execution, events, and scheduling:
+
+```typescript
+// Execution modes
+$.send(event)              // Fire-and-forget
+$.try(action)              // Quick attempt, non-durable
+$.do(action)               // Durable with retries
+
+// Event handlers
+$.on.Customer.created(handler)
+$.on.Payment.failed(handler)
+
+// Scheduling
+$.every.monday.at('9am')(handler)
+$.every.hour(handler)
+
+// Cross-DO resolution
+await $.Customer(id).notify()
+await $.Order(id).fulfill()
+```
+
+### Surfaces (UI)
+
+Your business needs interfaces. Sites for customers, apps for operators:
+
+```typescript
+// Marketing site
+<Site type="marketing" theme="stripe">
+  <Hero title="AI-Powered Tax Prep" cta="Get Started" />
+  <Features items={features} />
+  <Pricing plans={plans} />
+</Site>
+
+// Customer portal
+<App type="dashboard">
+  <Returns collection="returns" />
+  <Documents collection="documents" />
+  <Support agent={agents.support} />
+</App>
+
+// Admin dashboard
+<App type="admin">
+  <Metrics hunch={pmfMetrics} />
+  <Queue agent={agents.qa} />
+  <Escalations humans={humans} />
+</App>
+```
+
+### Platform Services
+
+Everything else you need, built in:
+
+- **Auth** - Users, orgs, API keys, federated identity
+- **Billing** - Subscriptions, usage-based, invoicing
+- **Analytics** - HUNCH metrics, funnels, cohorts
+- **Observability** - Traces, logs, alerts
+- **Real-time** - WebSocket sync, presence
+- **Search** - Full-text, vector, semantic
+
+## Quick Start
+
+```bash
+# Install
+npm install dotdo
+
+# Create your startup
+npx dotdo init my-startup
+
+# Start building
+npx dotdo dev
+```
+
+```typescript
+// my-startup/index.ts
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  // Define your hypothesis
+  hypothesis = {
+    customer: 'Who you serve',
+    problem: 'What pain you solve',
+    solution: 'How you solve it',
+  }
+
+  // Build from here
 }
 ```
 
-### Execution Tiers
+## Philosophy
 
-| Tier | Latency | Examples |
-|------|---------|----------|
-| **Native** | <1ms | fetch/curl, JSON, Node.js APIs, crypto |
-| **RPC Binding** | <5ms | jq, npm resolution, heavy git ops |
-| **worker_loaders** | <10ms | Dynamic npm packages, user code |
-| **Sandbox SDK** | 2-3s | Python/native binaries (rare) |
+### For Vibe Coders
 
-**Most operations run natively** in Workers with `nodejs_compat_v2`. Heavy tools like jq can be optional RPC bindings - separate Workers that don't bloat your bundle:
+dotdo is built for the way you actually work. Describe what you want, iterate fast, ship. The platform handles the complexity—you focus on the business.
 
-```toml
-# wrangler.toml - only add what you need
-[[services]]
-binding = "JQ"
-service = "jq-do"
-```
+### TDD Under the Hood
 
-## CLI
+Vibe on top, rigor underneath. The framework enforces deterministic verification so your autonomous business actually works. Prototype fast, graduate to production.
 
-```bash
-# Authenticate with org.ai
-npx org.ai login
+### Business-as-Code
 
-# Link integrations
-npx org.ai link github
-npx org.ai link slack
-npx org.ai link stripe
-
-# Deploy your app
-npx org.ai deploy
-```
+Just as IaC made infrastructure programmable, BaC makes businesses programmable. Define your business in code, deploy it, let AI agents run it.
 
 ## Learn More
 
-- [Architecture](./docs/architecture.md) - DO hierarchy and data model
-- [Integrations](./docs/integrations.md) - Available services and setup
-- [Workflows](./docs/workflows.md) - Event-driven automation
-- [API Reference](./docs/api.md) - Full API documentation
+- [Architecture](./docs/architecture.md) - How it all fits together
+- [Foundation Sprint](./docs/foundation-sprint.md) - Finding what to build
+- [Experimentation](./docs/experimentation.md) - Testing hypotheses
+- [Autonomous Ops](./docs/autonomous-ops.md) - AI agents in production
+- [API Reference](./docs/api.md) - Full documentation
 
 ## License
 

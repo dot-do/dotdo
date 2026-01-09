@@ -14,14 +14,27 @@ export {
   summarize,
   list,
   extract,
+  is,
+  decide,
+  // Human-in-loop functions
+  ask,
+  approve,
+  review,
+  // Configuration
   configure,
   getConfig,
+  setHumanTaskExecutor,
+  getHumanTaskExecutor,
+  // Types
   type TemplateLiteralConfig,
   type TemplateLiteralOptions,
   type WriteResult,
   type ExtractResult,
   type PipelinePromise,
   type JSONSchema,
+  type HumanOptions,
+  type ReviewResult,
+  type HumanTaskExecutor,
 } from './template-literals'
 
 // Re-export default as convenience object

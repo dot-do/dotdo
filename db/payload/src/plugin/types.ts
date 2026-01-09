@@ -56,6 +56,19 @@ export interface DotdoPluginConfig {
    * Callback invoked when workflow events occur
    */
   onWorkflow?: OnWorkflowCallback
+
+  /**
+   * Collection slugs to exclude from dotdo processing
+   * These collections will not have metadata fields or hooks added
+   */
+  excludeCollections?: string[]
+
+  /**
+   * Collection slugs to include for dotdo processing
+   * If specified, only these collections will be modified
+   * (mutually exclusive with excludeCollections)
+   */
+  includeCollections?: string[]
 }
 
 /**

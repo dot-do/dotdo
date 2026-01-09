@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
  * - summarize`text` - summarization
  * - list`items` - list generation
  * - extract`data` - data extraction
+ * - is`prompt` - binary classification (returns boolean)
+ * - decide(options)`prompt` - multi-option classification
  */
 
 import {
@@ -17,6 +19,8 @@ import {
   summarize,
   list,
   extract,
+  is,
+  decide,
   configure,
   getConfig,
   type WriteResult,
@@ -446,6 +450,259 @@ describe('extract`data` - Data Extraction', () => {
 
     expect(result.entities[0]).toHaveProperty('name')
     expect(result.entities[0]).toHaveProperty('industry')
+  })
+})
+
+// ============================================================================
+// is`prompt` Tests - Binary Classification
+// ============================================================================
+
+describe('is`prompt` - Binary Classification', () => {
+  it('returns true for affirmative classification', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'true' })
+
+    const message = 'Buy now! Limited time offer! Click here!'
+    const result = await is`Is this message spam? ${message}`
+
+    expect(result).toBe(true)
+    expect(mockChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns false for negative classification', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'false' })
+
+    const message = 'Hi, can we schedule a meeting for tomorrow?'
+    const result = await is`Is this message spam? ${message}`
+
+    expect(result).toBe(false)
+  })
+
+  it('parses JSON boolean response', async () => {
+    mockChat.mockResolvedValueOnce({ content: JSON.stringify({ result: true }) })
+
+    const result = await is`Is the sky blue?`
+
+    expect(result).toBe(true)
+  })
+
+  it('handles yes/no text responses', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'Yes, this is definitely spam.' })
+
+    const result = await is`Is this spam?`
+
+    expect(result).toBe(true)
+  })
+
+  it('handles no text responses', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'No, this is a legitimate message.' })
+
+    const result = await is`Is this spam?`
+
+    expect(result).toBe(false)
+  })
+
+  it('returns PipelinePromise', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'true' })
+
+    const promise = is`Is this valid?`
+
+    expect(promise).toBeInstanceOf(Promise)
+    expect(typeof promise.map).toBe('function')
+    expect(typeof promise.catch).toBe('function')
+  })
+
+  it('supports .map() transformation', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'true' })
+
+    const result = await is`Is this valid?`.map((val) => (val ? 'VALID' : 'INVALID'))
+
+    expect(result).toBe('VALID')
+  })
+
+  it('supports .catch() error handling', async () => {
+    mockChat.mockRejectedValueOnce(new Error('API Error'))
+
+    const result = await is`Is this valid?`.catch(() => false)
+
+    expect(result).toBe(false)
+  })
+
+  it('can be configured with options', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'true' })
+
+    const configuredIs = is.configure({
+      temperature: 0,
+      model: 'gpt-4o',
+    })
+
+    const result = await configuredIs`Is this accurate?`
+
+    expect(result).toBe(true)
+  })
+
+  it('interpolates multiple values', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'true' })
+
+    const text = 'Hello world'
+    const language = 'English'
+    const result = await is`Is "${text}" written in ${language}?`
+
+    expect(result).toBe(true)
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ content: expect.stringContaining('Hello world') }),
+      ])
+    )
+  })
+
+  it('defaults to false for unclear responses', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'Maybe, I am not sure.' })
+
+    const result = await is`Is this certain?`
+
+    expect(result).toBe(false)
+  })
+})
+
+// ============================================================================
+// decide`prompt` Tests - Multi-Option Classification
+// ============================================================================
+
+describe('decide`prompt` - Multi-Option Classification', () => {
+  it('returns selected option from choices', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'positive' })
+
+    const text = 'I love this product!'
+    const result = await decide(['positive', 'negative', 'neutral'])`What is the sentiment? ${text}`
+
+    expect(result).toBe('positive')
+  })
+
+  it('returns exact option match', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'B' })
+
+    const result = await decide(['A', 'B', 'C'])`Which category?`
+
+    expect(result).toBe('B')
+  })
+
+  it('handles JSON response with selection', async () => {
+    mockChat.mockResolvedValueOnce({ content: JSON.stringify({ choice: 'urgent' }) })
+
+    const result = await decide(['urgent', 'normal', 'low'])`Classify priority`
+
+    expect(result).toBe('urgent')
+  })
+
+  it('finds option within longer response text', async () => {
+    mockChat.mockResolvedValueOnce({
+      content: 'Based on the analysis, I classify this as: negative sentiment.',
+    })
+
+    const result = await decide(['positive', 'negative', 'neutral'])`Sentiment?`
+
+    expect(result).toBe('negative')
+  })
+
+  it('returns PipelinePromise', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'option1' })
+
+    const promise = decide(['option1', 'option2'])`Choose`
+
+    expect(promise).toBeInstanceOf(Promise)
+    expect(typeof promise.map).toBe('function')
+    expect(typeof promise.catch).toBe('function')
+  })
+
+  it('supports .map() transformation', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'high' })
+
+    const result = await decide(['low', 'medium', 'high'])`Priority level`.map((p) =>
+      p.toUpperCase()
+    )
+
+    expect(result).toBe('HIGH')
+  })
+
+  it('supports .catch() error handling', async () => {
+    mockChat.mockRejectedValueOnce(new Error('API Error'))
+
+    const result = await decide(['a', 'b'])`Choose`.catch(() => 'a' as const)
+
+    expect(result).toBe('a')
+  })
+
+  it('can be configured with options', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'bug' })
+
+    const configuredDecide = decide.configure({
+      temperature: 0,
+      model: 'gpt-4o',
+    })
+
+    const result = await configuredDecide(['feature', 'bug', 'task'])`Classify this issue`
+
+    expect(result).toBe('bug')
+  })
+
+  it('supports typed options with literal types', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'approved' })
+
+    type Status = 'pending' | 'approved' | 'rejected'
+    const options: Status[] = ['pending', 'approved', 'rejected']
+
+    const result = await decide(options)`What status?`
+
+    // TypeScript should infer result as Status
+    const status: Status = result
+    expect(status).toBe('approved')
+  })
+
+  it('returns first option when no match found', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'something completely different' })
+
+    const result = await decide(['first', 'second', 'third'])`Choose`
+
+    expect(result).toBe('first')
+  })
+
+  it('handles case-insensitive matching', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'POSITIVE' })
+
+    const result = await decide(['positive', 'negative', 'neutral'])`Sentiment`
+
+    expect(result).toBe('positive')
+  })
+
+  it('interpolates values in prompt', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'tech' })
+
+    const article = 'New iPhone released'
+    const result = await decide(['tech', 'sports', 'politics'])`Category for: ${article}`
+
+    expect(result).toBe('tech')
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ content: expect.stringContaining('New iPhone released') }),
+      ])
+    )
+  })
+
+  it('works with number options', async () => {
+    mockChat.mockResolvedValueOnce({ content: '2' })
+
+    const result = await decide([1, 2, 3, 4, 5])`Rate from 1-5`
+
+    expect(result).toBe(2)
+  })
+
+  it('preserves option order for priority matching', async () => {
+    // When multiple options could match, prefer earlier ones
+    mockChat.mockResolvedValueOnce({ content: 'both positive and very positive' })
+
+    const result = await decide(['positive', 'very positive', 'negative'])`Sentiment`
+
+    expect(result).toBe('positive')
   })
 })
 

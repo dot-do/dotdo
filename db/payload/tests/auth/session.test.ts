@@ -16,6 +16,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { SessionValidationResult, BetterAuthUser, SessionData } from '../../auth/types'
+import { validateSession } from '../../auth/session'
 
 // ============================================================================
 // Type definitions for the session validator module (to be implemented)
@@ -176,13 +177,6 @@ function createSessionWithUser(
 // ============================================================================
 
 describe('Session Validation', () => {
-  // Placeholder for the validateSession function to be implemented
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const validateSession: ValidateSession = async (db, token, options) => {
-    // TODO: Import from ../../auth/session when implemented
-    throw new Error('validateSession not implemented')
-  }
-
   describe('validateSession', () => {
     it('should return valid result for unexpired session', async () => {
       const sessionData = createSessionWithUser()
@@ -360,10 +354,12 @@ describe('Session Validation', () => {
     })
 
     it('should return session data with all required fields', async () => {
+      // Use a date 7 days in the future to ensure session is valid
+      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       const sessionData = createSessionWithUser({
         id: 'session-xyz',
         token: 'valid-token-abc123',
-        expiresAt: new Date('2025-12-31T23:59:59Z'),
+        expiresAt: futureDate,
         userId: 'user-001',
       })
       const db = createMockDb({ sessions: [sessionData] })
@@ -374,7 +370,7 @@ describe('Session Validation', () => {
       if (result.valid) {
         expect(result.session.id).toBe('session-xyz')
         expect(result.session.token).toBe('valid-token-abc123')
-        expect(result.session.expiresAt).toEqual(new Date('2025-12-31T23:59:59Z'))
+        expect(result.session.expiresAt).toEqual(futureDate)
         expect(result.session.userId).toBe('user-001')
       }
     })

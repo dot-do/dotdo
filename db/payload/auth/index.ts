@@ -42,3 +42,15 @@ export {
 } from './extraction'
 
 export type { ExtractedCredentials } from './extraction'
+
+// ============================================================================
+// Session Validation
+// ============================================================================
+
+export { validateSession } from './session'
+
+export type {
+  SessionDatabase,
+  SessionWithUser,
+  ValidateSessionOptions,
+} from './session'
