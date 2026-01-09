@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { Hono } from 'hono'
 
 /**
  * llms.txt Route Tests
@@ -18,11 +17,8 @@ import { Hono } from 'hono'
  * - Generate content from documentation source files
  */
 
-// TODO: Import the actual app once routes are implemented
-// import { app } from '../../src/app'
-
-// Placeholder app - tests will fail because routes don't exist
-const app = new Hono()
+// Import the actual app with llms routes
+import { app } from '../src/app'
 
 // ============================================================================
 // Helper Functions

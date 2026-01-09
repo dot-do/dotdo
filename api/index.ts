@@ -7,6 +7,10 @@ import { rpcRoutes } from './routes/rpc'
 import { errorHandler, notFoundHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
 
+// Re-export Durable Object classes for wrangler
+export { TestDurableObject } from './test-do'
+export { DurableObject } from 'cloudflare:workers'
+
 // Types for Cloudflare Workers bindings
 export interface Env {
   KV: KVNamespace

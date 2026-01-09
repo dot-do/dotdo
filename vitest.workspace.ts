@@ -1,100 +1,119 @@
+/**
+ * Vitest Workspace Configuration
+ *
+ * Organizes tests into separate workspaces by environment and purpose:
+ *
+ * Node Environment:
+ * - node: File system / config verification tests
+ * - schema: Database schema tests
+ * - iceberg: Direct table navigation tests
+ * - objects: Durable Objects tests (mocked runtime)
+ * - lib: Library utility tests
+ * - snippets: Event normalizer tests
+ * - workflows: Workflow proxy tests
+ * - types: Type definition tests
+ * - evals: Evaluation storage tests
+ * - app: TanStack Start / Fumadocs build tests
+ *
+ * Workers Environment:
+ * - workers: Runtime integration tests (uses @cloudflare/vitest-pool-workers)
+ *
+ * Run specific workspace: npx vitest --project=workers
+ * Run all workspaces: npx vitest --workspace
+ *
+ * @see vitest.shared.ts for shared configuration
+ * @see vitest.workers.config.ts for Workers pool configuration
+ */
+
 import { defineWorkspace } from 'vitest/config'
-import { resolve } from 'path'
+import {
+  sharedTestConfig,
+  nodeResolveConfig,
+  defaultExcludes,
+} from './vitest.shared'
+
+/**
+ * Creates a Node.js test workspace configuration
+ * Reduces boilerplate for node-based test workspaces
+ */
+function createNodeWorkspace(
+  name: string,
+  include: string[],
+  options: { setupFiles?: string[] } = {}
+) {
+  return {
+    test: {
+      ...sharedTestConfig,
+      name,
+      include,
+      exclude: defaultExcludes,
+      environment: 'node' as const,
+      ...(options.setupFiles && { setupFiles: options.setupFiles }),
+    },
+    resolve: nodeResolveConfig,
+  }
+}
 
 export default defineWorkspace([
-  // Node tests for file system / config verification
-  {
-    test: {
-      name: 'node',
-      include: ['api/tests/setup.test.ts', 'api/tests/static-assets.test.ts', 'api/tests/entry-points.test.ts'],
-      environment: 'node',
-    },
-    resolve: {
-      alias: {
-        // Mock cloudflare:workers for Node.js tests
-        'cloudflare:workers': resolve(__dirname, 'test-mocks/cloudflare-workers.ts'),
-      },
-    },
-  },
-  // Schema tests for database/auth
-  {
-    test: {
-      name: 'schema',
-      include: ['db/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Iceberg tests for direct table navigation
-  {
-    test: {
-      name: 'iceberg',
-      include: ['db/iceberg/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Workers tests for runtime integration
+  // ============================================
+  // Node Environment Tests
+  // ============================================
+
+  // File system / config verification tests
+  createNodeWorkspace('node', [
+    'api/tests/setup.test.ts',
+    'api/tests/static-assets.test.ts',
+    'api/tests/entry-points.test.ts',
+  ]),
+
+  // Database schema tests
+  createNodeWorkspace('schema', ['db/tests/**/*.test.ts']),
+
+  // Iceberg table navigation tests
+  createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
+
+  // Durable Objects tests (mocked runtime)
+  createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
+
+  // Library utility tests (sqids, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts']),
+
+  // Event normalizer tests
+  createNodeWorkspace('snippets', ['snippets/tests/**/*.test.ts']),
+
+  // Workflow proxy tests ($ proxy, domain, hash, flag)
+  createNodeWorkspace('workflows', ['workflows/**/*.test.ts']),
+
+  // Type definition tests
+  createNodeWorkspace('types', ['types/tests/**/*.test.ts']),
+
+  // Evaluation storage tests
+  createNodeWorkspace('evals', ['evals/tests/**/*.test.ts']),
+
+  // TanStack Start / Fumadocs build tests
+  createNodeWorkspace('app', ['app/tests/**/*.test.ts']),
+
+  // ============================================
+  // Workers Environment Tests
+  // ============================================
+
+  // Runtime integration tests using Cloudflare Workers pool
   {
     extends: './vitest.workers.config.ts',
     test: {
+      ...sharedTestConfig,
       name: 'workers',
-      include: ['api/tests/infrastructure/**/*.test.ts', 'api/tests/routes/**/*.test.ts', 'api/tests/middleware/**/*.test.ts'],
+      include: [
+        'api/tests/infrastructure/**/*.test.ts',
+        'api/tests/routes/**/*.test.ts',
+        'api/tests/middleware/**/*.test.ts',
+      ],
+      exclude: defaultExcludes,
       setupFiles: ['./api/tests/middleware/setup.ts'],
-    },
-  },
-  // App tests for TanStack Start / Fumadocs build
-  {
-    test: {
-      name: 'app',
-      include: ['app/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Durable Objects tests
-  {
-    test: {
-      name: 'objects',
-      include: ['objects/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Library tests (sqids, utilities)
-  {
-    test: {
-      name: 'lib',
-      include: ['lib/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Snippets tests (events normalizer, etc.)
-  {
-    test: {
-      name: 'snippets',
-      include: ['snippets/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Workflow tests for $ proxy, domain, hash, flag, etc.
-  {
-    test: {
-      name: 'workflows',
-      include: ['workflows/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Types tests for type definitions
-  {
-    test: {
-      name: 'types',
-      include: ['types/tests/**/*.test.ts'],
-      environment: 'node',
-    },
-  },
-  // Evals tests for evalite storage adapter
-  {
-    test: {
-      name: 'evals',
-      include: ['evals/tests/**/*.test.ts'],
-      environment: 'node',
+      // Workers tests need sequential execution for stability
+      sequence: {
+        concurrent: false,
+      },
     },
   },
 ])

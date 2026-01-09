@@ -11,7 +11,18 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./dist"
 binding = "ASSETS"
+
+# HTML handling: auto-trailing-slash (default)
+# - Individual files (e.g. foo.html) served without trailing slash
+# - Folder index files (e.g. foo/index.html) served with trailing slash
+# - Helps SEO by avoiding duplicate content issues
+html_handling = "auto-trailing-slash"
+
+# SPA mode: unknown paths return index.html for client-side routing
 not_found_handling = "single-page-application"
+
+# Dynamic routes that bypass static assets and invoke the Worker
+# Static routes (/, /docs/*, /admin/*) are served directly from ./dist
 run_worker_first = ["/api/*", "/mcp", "/rpc/*"]
 
 # KV namespaces

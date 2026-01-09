@@ -25,8 +25,8 @@ interface WranglerConfig {
   assets?: {
     directory?: string
     binding?: string
-    html_handling?: string
-    not_found_handling?: string
+    html_handling?: 'auto-trailing-slash' | 'force-trailing-slash' | 'drop-trailing-slash' | 'none'
+    not_found_handling?: 'single-page-application' | '404-page' | 'none'
     run_worker_first?: string[]
   }
   raw: string
@@ -221,6 +221,104 @@ describe('Workers Static Assets Configuration', () => {
 
       // ASSETS binding allows worker code to fetch static files
       expect(config.assets?.binding).toBe('ASSETS')
+    })
+  })
+
+  describe('HTML handling', () => {
+    /**
+     * HTML handling controls trailing slash behavior for SEO.
+     * auto-trailing-slash: Individual files without slash, folders with slash
+     * This helps avoid duplicate content issues in search engines.
+     */
+
+    it('has html_handling configured for SEO-friendly URLs', () => {
+      const config = parseWranglerToml()
+      expect(config.assets?.html_handling).toBeDefined()
+    })
+
+    it('uses auto-trailing-slash for canonical URL handling', () => {
+      const config = parseWranglerToml()
+      // auto-trailing-slash: files served without slash, folders with slash
+      expect(config.assets?.html_handling).toBe('auto-trailing-slash')
+    })
+  })
+})
+
+describe('Static Assets Support Files', () => {
+  const PUBLIC_DIR = join(PROJECT_ROOT, 'public')
+  const HEADERS_PATH = join(PUBLIC_DIR, '_headers')
+  const ASSETSIGNORE_PATH = join(PUBLIC_DIR, '.assetsignore')
+
+  describe('_headers file', () => {
+    /**
+     * The _headers file configures cache control and security headers
+     * for static assets served by Cloudflare Workers.
+     */
+
+    it('_headers file exists in public directory', () => {
+      expect(existsSync(HEADERS_PATH)).toBe(true)
+    })
+
+    it('_headers has cache rules for fingerprinted assets', () => {
+      const content = readFileSync(HEADERS_PATH, 'utf-8')
+      // Fingerprinted assets should have immutable cache
+      expect(content).toContain('/assets/*')
+      expect(content).toContain('immutable')
+    })
+
+    it('_headers has security headers', () => {
+      const content = readFileSync(HEADERS_PATH, 'utf-8')
+      expect(content).toContain('X-Content-Type-Options')
+      expect(content).toContain('X-Frame-Options')
+    })
+
+    it('_headers has cache rules for HTML pages', () => {
+      const content = readFileSync(HEADERS_PATH, 'utf-8')
+      // HTML should use short cache with revalidation for SPA
+      expect(content).toContain('/*.html')
+      expect(content).toContain('must-revalidate')
+    })
+
+    it('_headers has cache rules for documentation', () => {
+      const content = readFileSync(HEADERS_PATH, 'utf-8')
+      expect(content).toContain('/docs/*')
+    })
+
+    it('_headers has no-cache rules for admin pages', () => {
+      const content = readFileSync(HEADERS_PATH, 'utf-8')
+      expect(content).toContain('/admin/*')
+      expect(content).toContain('no-cache')
+    })
+  })
+
+  describe('.assetsignore file', () => {
+    /**
+     * The .assetsignore file excludes files from being uploaded
+     * as static assets to Cloudflare.
+     */
+
+    it('.assetsignore file exists in public directory', () => {
+      expect(existsSync(ASSETSIGNORE_PATH)).toBe(true)
+    })
+
+    it('.assetsignore excludes source maps', () => {
+      const content = readFileSync(ASSETSIGNORE_PATH, 'utf-8')
+      expect(content).toContain('*.map')
+    })
+
+    it('.assetsignore excludes TypeScript files', () => {
+      const content = readFileSync(ASSETSIGNORE_PATH, 'utf-8')
+      expect(content).toContain('*.ts')
+    })
+
+    it('.assetsignore excludes test files', () => {
+      const content = readFileSync(ASSETSIGNORE_PATH, 'utf-8')
+      expect(content).toContain('*.test.*')
+    })
+
+    it('.assetsignore excludes node_modules', () => {
+      const content = readFileSync(ASSETSIGNORE_PATH, 'utf-8')
+      expect(content).toContain('node_modules/')
     })
   })
 })
