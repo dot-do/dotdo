@@ -119,12 +119,46 @@ export interface AgentResult {
 }
 
 /**
- * Extended session with optional agent capability
+ * Options for CDP screencast streaming
+ */
+export interface ScreencastStreamOptions {
+  /** Image format (jpeg or png) */
+  format?: 'jpeg' | 'png'
+  /** Image quality for jpeg (0-100) */
+  quality?: number
+  /** Maximum width of the screencast frames */
+  maxWidth?: number
+  /** Maximum height of the screencast frames */
+  maxHeight?: number
+  /** Send every Nth frame */
+  everyNthFrame?: number
+}
+
+/**
+ * CDP Session interface for screencast
+ */
+interface CDPSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>
+  on(event: string, handler: (data: unknown) => void): void
+  off(event: string, handler: (data: unknown) => void): void
+}
+
+/**
+ * Page interface with CDP session support
+ */
+interface PageWithCDP {
+  createCDPSession(): Promise<CDPSession>
+}
+
+/**
+ * Extended session with optional agent capability and CDP page access
  */
 interface BrowseSessionWithAgent extends BrowseSession {
   agent?: {
     execute(goal: string): Promise<AgentResult>
   }
+  /** Page object with CDP session capability (for Cloudflare Browser Rendering) */
+  page?: PageWithCDP
 }
 
 // ============================================================================
@@ -345,6 +379,45 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
     })
 
     // ─────────────────────────────────────────────────────────────────────────
+    // GET /screencast - WebSocket info (upgrade handled in fetch)
+    // ─────────────────────────────────────────────────────────────────────────
+    app.get('/screencast', (c) => {
+      // WebSocket upgrades are handled directly in fetch()
+      // This route is reached when no Upgrade header is present
+      return c.text('Use WebSocket upgrade', 400)
+    })
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /screencast/start - Start screencast streaming
+    // ─────────────────────────────────────────────────────────────────────────
+    app.post('/screencast/start', async (c) => {
+      try {
+        const body = await c.req.json().catch(() => ({}))
+        await this.startScreencast(body as ScreencastStreamOptions)
+        return c.json({ success: true })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message.includes('Browser session not started')) {
+          return c.json({ error: message }, 400)
+        }
+        return c.json({ error: message }, 500)
+      }
+    })
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /screencast/stop - Stop screencast streaming
+    // ─────────────────────────────────────────────────────────────────────────
+    app.post('/screencast/stop', async (c) => {
+      try {
+        await this.stopScreencast()
+        return c.json({ success: true })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        return c.json({ error: message }, 500)
+      }
+    })
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Method not allowed handler
     // ─────────────────────────────────────────────────────────────────────────
     app.on(['GET'], ['/start', '/goto', '/act', '/extract', '/observe', '/agent', '/stop'], (c) => {
@@ -367,8 +440,17 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
 
   /**
    * Handle incoming HTTP requests via Hono
+   *
+   * Checks for WebSocket upgrade on /screencast path before
+   * delegating to Hono router.
    */
   async fetch(request: Request): Promise<Response> {
+    // Check for WebSocket upgrade on /screencast path
+    const url = new URL(request.url)
+    if (url.pathname === '/screencast' && request.headers.get('Upgrade') === 'websocket') {
+      return this.handleScreencastWebSocket(request)
+    }
+
     return this.handleFetch(request)
   }
 
@@ -406,6 +488,20 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
    * @deprecated Use SESSION_TIMEOUT instead
    */
   protected keepAliveTimeout: number = 5 * 60 * 1000
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SCREENCAST STATE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * CDP session for screencast streaming
+   */
+  private cdpSession: CDPSession | null = null
+
+  /**
+   * Set of connected WebSocket clients for screencast
+   */
+  private screencastClients: Set<WebSocket> = new Set()
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SESSION VALIDATION
@@ -649,6 +745,148 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SCREENCAST OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Start CDP screencast streaming
+   *
+   * Creates a CDP session and begins streaming screencast frames.
+   * Frames are broadcast to all connected WebSocket clients.
+   *
+   * @param options - Screencast options (format, quality, dimensions)
+   * @throws Error if browser session not started
+   *
+   * @example
+   * ```typescript
+   * await browser.startScreencast({
+   *   format: 'jpeg',
+   *   quality: 60,
+   *   maxWidth: 1280,
+   *   maxHeight: 720,
+   * })
+   * ```
+   */
+  async startScreencast(options: ScreencastStreamOptions = {}): Promise<void> {
+    if (!this.session?.page) {
+      throw new Error('Browser session not started')
+    }
+
+    // Create CDP session if not exists
+    if (!this.cdpSession) {
+      this.cdpSession = await this.session.page.createCDPSession()
+
+      // Listen for frames
+      this.cdpSession.on('Page.screencastFrame', async (event: unknown) => {
+        const { data, metadata, sessionId } = event as {
+          data: string
+          metadata?: unknown
+          sessionId: number
+        }
+
+        // Broadcast to all connected clients
+        this.broadcastFrame(data, metadata)
+
+        // Acknowledge frame receipt
+        await this.cdpSession?.send('Page.screencastFrameAck', { sessionId })
+      })
+    }
+
+    // Start screencast with options
+    await this.cdpSession.send('Page.startScreencast', {
+      format: options.format || 'jpeg',
+      quality: options.quality ?? 60,
+      maxWidth: options.maxWidth ?? 1280,
+      maxHeight: options.maxHeight ?? 720,
+      everyNthFrame: options.everyNthFrame ?? 2,
+    })
+  }
+
+  /**
+   * Stop CDP screencast streaming
+   *
+   * Sends stop command to CDP session if active.
+   *
+   * @example
+   * ```typescript
+   * await browser.stopScreencast()
+   * ```
+   */
+  async stopScreencast(): Promise<void> {
+    if (this.cdpSession) {
+      await this.cdpSession.send('Page.stopScreencast')
+    }
+  }
+
+  /**
+   * Broadcast a screencast frame to all connected WebSocket clients
+   *
+   * @param data - Base64-encoded frame data
+   * @param metadata - Frame metadata from CDP
+   */
+  private broadcastFrame(data: string, metadata?: unknown): void {
+    const message = JSON.stringify({
+      type: 'frame',
+      data,
+      metadata,
+      timestamp: Date.now(),
+    })
+
+    for (const client of this.screencastClients) {
+      try {
+        client.send(message)
+      } catch {
+        // Client disconnected, remove from set
+        this.screencastClients.delete(client)
+      }
+    }
+  }
+
+  /**
+   * Handle WebSocket upgrade for screencast streaming
+   *
+   * Creates a WebSocket pair and manages the screencast connection.
+   * Clients can send 'start' and 'stop' actions via messages.
+   *
+   * @param request - The incoming WebSocket upgrade request
+   * @returns Response with WebSocket upgrade (status 101)
+   */
+  private handleScreencastWebSocket(request: Request): Response {
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair)
+
+    server.accept()
+    this.screencastClients.add(server)
+
+    server.addEventListener('message', async (event) => {
+      try {
+        const msg = JSON.parse(event.data as string)
+        if (msg.action === 'start') {
+          await this.startScreencast(msg.options)
+        } else if (msg.action === 'stop') {
+          await this.stopScreencast()
+        }
+      } catch (e) {
+        server.send(JSON.stringify({ type: 'error', message: (e as Error).message }))
+      }
+    })
+
+    server.addEventListener('close', () => {
+      this.screencastClients.delete(server)
+      // Stop screencast if no more clients
+      if (this.screencastClients.size === 0) {
+        this.stopScreencast().catch(() => {})
+      }
+    })
+
+    return new Response(null, {
+      status: 101,
+      // @ts-expect-error - webSocket is a Cloudflare-specific Response property
+      webSocket: client,
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // STATE OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -815,6 +1053,22 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
 
     // Get session ID before clearing
     const sessionId = this.storedConfig?.sessionId
+
+    // Stop screencast and cleanup CDP session
+    if (this.cdpSession) {
+      await this.stopScreencast().catch(() => {})
+      this.cdpSession = null
+    }
+
+    // Close all screencast WebSocket clients
+    for (const client of this.screencastClients) {
+      try {
+        client.close()
+      } catch {
+        // Ignore close errors
+      }
+    }
+    this.screencastClients.clear()
 
     // Close session
     await this.session.close()

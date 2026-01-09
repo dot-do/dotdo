@@ -29,19 +29,29 @@ function registerHandler(eventKey: string, handler: Function): void {
 // on.Entity.event(handler) - Event subscription
 // ============================================================================
 
-type OnEntityProxy = {
-  [event: string]: (handler: (payload: any) => void) => void
+import type { DomainEvent, EventPayload, EventHandler } from '../types/WorkflowContext'
+
+/**
+ * OnEntityProxy - Typed proxy for accessing event verbs on an entity
+ *
+ * @typeParam Entity - The entity (noun) name for type inference
+ */
+type OnEntityProxy<Entity extends string = string> = {
+  [Verb in string]: (handler: EventHandler<EventPayload<Entity, Verb>>) => void
 }
 
+/**
+ * OnProxy - Typed proxy for accessing entities in the event system
+ */
 type OnProxy = {
-  [entity: string]: OnEntityProxy
+  [Entity in string]: OnEntityProxy<Entity>
 }
 
 export const on: OnProxy = new Proxy({} as OnProxy, {
   get(_, entity: string) {
-    return new Proxy({} as OnEntityProxy, {
+    return new Proxy({} as OnEntityProxy<typeof entity>, {
       get(_, event: string) {
-        return (handler: Function) => {
+        return (handler: EventHandler<unknown>) => {
           registerHandler(`${entity}.${event}`, handler)
         }
       },
@@ -152,51 +162,62 @@ type EveryFunction = {
   (schedule: string, handler: () => void): void
 } & EveryDayProxy
 
+/** Schedule handler type for recurring tasks */
+type ScheduleHandlerFn = () => void | Promise<void>
+
 // Create the every proxy with both function and property access
-const everyHandler = {
-  get(_: any, day: string) {
+const everyHandler: ProxyHandler<EveryFunction> = {
+  get(_target: EveryFunction, day: string) {
     if (day === 'hour' || day === 'minute') {
       // every.hour(handler) - direct call
-      return (handler: Function) => {
+      return (handler: ScheduleHandlerFn) => {
         const cron = toCron(day)
         registerHandler(`schedule:${cron}`, handler)
       }
     }
 
     // every.Monday.at9am(handler)
-    return new Proxy((() => {}) as EveryTimeProxy, {
-      get(_, time: string) {
-        return (handler: Function) => {
+    return new Proxy((() => {}) as unknown as EveryTimeProxy, {
+      get(_timeTarget, time: string) {
+        return (handler: ScheduleHandlerFn) => {
           const cron = toCron(day, time)
           registerHandler(`schedule:${cron}`, handler)
         }
       },
-      apply(_, __, [handler]: [Function]) {
+      apply(_timeTarget, _thisArg, [handler]: [ScheduleHandlerFn]) {
         // every.day(handler) without time
         const cron = toCron(day)
         registerHandler(`schedule:${cron}`, handler)
       },
     })
   },
-  apply(_: any, __: any, [schedule, handler]: [string, Function]) {
+  apply(_target: EveryFunction, _thisArg: unknown, [schedule, handler]: [string, ScheduleHandlerFn]) {
     // every('Monday at 9am', handler)
     const cron = parseNaturalSchedule(schedule)
     registerHandler(`schedule:${cron}`, handler)
   },
 }
 
-export const every: EveryFunction = new Proxy((() => {}) as EveryFunction, everyHandler)
+export const every: EveryFunction = new Proxy((() => {}) as unknown as EveryFunction, everyHandler)
 
 // ============================================================================
 // send.Entity.event(payload) - Fire-and-forget event emission
 // ============================================================================
 
-type SendEventProxy = {
-  [event: string]: (payload: any) => any
+/**
+ * SendEventProxy - Typed proxy for sending events with payloads
+ *
+ * @typeParam Entity - The entity (noun) name for type inference
+ */
+type SendEventProxy<Entity extends string = string> = {
+  [Verb in string]: (payload: EventPayload<Entity, Verb>) => ReturnType<typeof createPipelinePromise>
 }
 
+/**
+ * SendProxy - Typed proxy for accessing entities when sending events
+ */
 type SendProxy = {
-  [entity: string]: SendEventProxy
+  [Entity in string]: SendEventProxy<Entity>
 }
 
 export const send: SendProxy = new Proxy({} as SendProxy, {
@@ -221,7 +242,10 @@ export const send: SendProxy = new Proxy({} as SendProxy, {
 // when(condition, { then, else }) - Declarative conditional
 // ============================================================================
 
-export function when(condition: any, branches: { then: () => any; else?: () => any }): any {
+export function when<TThen, TElse = never>(
+  condition: unknown,
+  branches: { then: () => TThen; else?: () => TElse }
+): ReturnType<typeof createPipelinePromise> {
   const conditionExpr = isPipelinePromise(condition) ? condition.__expr : { type: 'literal', value: condition }
 
   const thenResult = branches.then()
@@ -247,12 +271,15 @@ export function when(condition: any, branches: { then: () => any; else?: () => a
 // waitFor(eventName, options) - Human-in-the-loop
 // ============================================================================
 
-export function waitFor(eventName: string, options: { timeout?: string; type?: string } = {}): any {
+export function waitFor(
+  eventName: string,
+  options: { timeout?: string; type?: string } = {}
+): ReturnType<typeof createPipelinePromise> {
   const expr: PipelineExpression = {
     type: 'waitFor',
     eventName,
     options,
-  } as any
+  } as PipelineExpression & { type: 'waitFor'; eventName: string; options: { timeout?: string; type?: string } }
 
   return createPipelinePromise(expr, {})
 }

@@ -297,19 +297,15 @@ describe('DO.collection() Type FK Resolution', () => {
     })
 
     it('collection().create() should not accept invalid noun names', async () => {
-      // RED: Should validate noun names before attempting resolution
+      // Should validate noun names before attempting resolution
       const collection = (doInstance as unknown as {
         collection: <T>(noun: string) => {
           create: (data: Partial<T>) => Promise<T>
         }
       }).collection
 
-      // Invalid noun (not PascalCase)
-      const invalidCollection = collection.call(doInstance, 'startup')
-
-      await expect(
-        invalidCollection.create({ name: 'Test' } as Record<string, unknown>)
-      ).rejects.toThrow(/PascalCase|invalid noun/i)
+      // Invalid noun (not PascalCase) - should throw synchronously
+      expect(() => collection.call(doInstance, 'startup')).toThrow(/PascalCase|invalid noun/i)
     })
   })
 

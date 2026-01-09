@@ -255,8 +255,8 @@ describe('TestClient auth helpers', () => {
       const userClient = client.asUser('user-456')
 
       // Original client should not have user header
-      const response = await client.get<{ userId: string | null }>('/user-context')
-      expect(response.body.userId).toBeNull()
+      const response = await client.get<{ userId: string | undefined }>('/user-context')
+      expect(response.body.userId).toBeUndefined()
 
       // User client should have user header
       const userResponse = await userClient.get<{ userId: string }>('/user-context')

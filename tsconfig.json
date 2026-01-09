@@ -49,6 +49,7 @@
     "dist",
     "app",
     "examples",
+    "packages",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**/*.ts",

@@ -2,6 +2,9 @@
   "name": "dotdo",
   "version": "0.0.1",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "./index.ts",
   "bin": {
     "do": "./cli/bin.ts"
@@ -62,6 +65,11 @@
       "default": "./api/index.ts"
     },
     "./api/*": "./api/*.ts",
+    "./testing": {
+      "types": "./testing/index.ts",
+      "default": "./testing/index.ts"
+    },
+    "./testing/*": "./testing/*.ts",
     "./dist": "./dist",
     "./dist/*": "./dist/*"
   },
@@ -79,6 +87,7 @@
     "lib",
     "workflows",
     "api",
+    "testing",
     "dist"
   ],
   "scripts": {

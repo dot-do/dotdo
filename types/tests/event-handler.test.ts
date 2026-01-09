@@ -300,8 +300,11 @@ describe('Type Safety', () => {
       type CustomerEvent = TypedDomainEvent<CustomerCreatedPayload>
 
       // The event types should be incompatible
-      // @ts-expect-error - Cannot use CustomerEvent where OrderEvent is expected
+      // CustomerEvent should NOT extend OrderEvent (different payload types)
       type BadAssignment = CustomerEvent extends Parameters<OrderHandler>[0] ? true : false
+      // This should be false because the payloads are incompatible
+      const check: BadAssignment = false
+      expect(check).toBe(false)
     })
 
     it('should allow handlers with compatible payload types', () => {

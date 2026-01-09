@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
 import { rpcRoutes } from './routes/rpc'
+import { doRoutes } from './routes/do'
 import { browsersRoutes } from './routes/browsers'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
@@ -147,6 +148,12 @@ app.route('/mcp', mcpRoutes)
 
 // Mount RPC routes
 app.route('/rpc', rpcRoutes)
+
+// Mount DO routes for direct DO instance access
+// Pattern: /:doClass/:id/* (e.g., /DO/user-123/profile)
+// Must be mounted AFTER specific routes (/api, /mcp, /rpc, /docs, /admin)
+// but BEFORE the catch-all
+app.route('/', doRoutes)
 
 // Catch-all for unknown routes - return 404 HTML page
 app.all('*', (c) => {

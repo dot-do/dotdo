@@ -32,6 +32,22 @@ export type { DO, DOConfig, Relationship, ObjectRef, Action, Event, SearchResult
 
 export type { WorkflowContext, OnProxy, ScheduleBuilder, DomainProxy, DomainEvent, EventHandler, ScheduleHandler, DOFunction } from './WorkflowContext'
 
+// Typed Event Handler types
+export * from './EventHandler'
+export type {
+  TypedEventHandler,
+  TypedDomainEvent,
+  EventPayload,
+  EventPayloadRegistry,
+  InferEventPayload,
+  TypedOnNounProxy,
+  TypedOnProxy,
+  ExtractNoun,
+  ExtractVerb,
+  EventKey,
+} from './EventHandler'
+export { isTypedEvent, assertEventPayload } from './EventHandler'
+
 export type { Experiment, ExperimentStatus, ExperimentInput } from './Experiment'
 export { ExperimentSchema } from './Experiment'
 

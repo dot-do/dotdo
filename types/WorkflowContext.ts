@@ -101,23 +101,90 @@ export interface WorkflowContext {
 // ON PROXY - Event subscription via $.on.Noun.verb(handler)
 // ============================================================================
 
-export interface OnProxy {
-  [Noun: string]: OnNounProxy
+/**
+ * Event payload map for typed event handling
+ *
+ * This interface defines the mapping from Noun.verb to payload type.
+ * Extend this interface in your domain code to add typed event payloads.
+ *
+ * @example
+ * ```typescript
+ * // In your domain types:
+ * declare module '../types/WorkflowContext' {
+ *   interface EventPayloadMap {
+ *     'Customer.created': { id: string; email: string; name: string }
+ *     'Order.paid': { orderId: string; amount: number; currency: string }
+ *     'Invoice.sent': { invoiceId: string; recipientEmail: string }
+ *   }
+ * }
+ * ```
+ */
+export interface EventPayloadMap {
+  // Default: unknown payload (allows any Noun.verb combination)
+  [event: string]: unknown
 }
 
-export interface OnNounProxy {
-  [verb: string]: (handler: EventHandler) => void
-}
+/**
+ * Extract the payload type for a given Noun.verb combination
+ */
+export type EventPayload<
+  Noun extends string,
+  Verb extends string
+> = `${Noun}.${Verb}` extends keyof EventPayloadMap
+  ? EventPayloadMap[`${Noun}.${Verb}`]
+  : unknown
 
-export type EventHandler = (event: DomainEvent) => Promise<void>
-
-export interface DomainEvent {
+/**
+ * DomainEvent with typed data payload
+ *
+ * @typeParam TData - The type of the event data payload
+ */
+export interface DomainEvent<TData = unknown> {
   id: string
-  verb: string // 'created', 'updated', 'paid'
-  source: string // URL of source entity
-  data: unknown
+  verb: string
+  source: string
+  data: TData
   actionId?: string
   timestamp: Date
+}
+
+/**
+ * Typed event handler function
+ *
+ * @typeParam TPayload - The expected payload type for this event
+ */
+export type EventHandler<TPayload = unknown> = (
+  event: DomainEvent<TPayload>
+) => Promise<void>
+
+/**
+ * OnNounProxy - Provides typed verb access for a specific noun
+ *
+ * When EventPayloadMap is extended with typed events, the handler
+ * will receive properly typed event payloads.
+ */
+export interface OnNounProxy<Noun extends string = string> {
+  [verb: string]: <V extends string>(
+    this: { [K in V]: unknown },
+    handler: EventHandler<EventPayload<Noun, V>>
+  ) => void
+}
+
+/**
+ * Typed OnNounProxy factory that creates verb handlers for a noun
+ *
+ * This enables type inference: $.on.Customer.created(handler)
+ * will infer the handler parameter type from EventPayloadMap['Customer.created']
+ */
+export type TypedOnNounProxy<Noun extends string> = {
+  [Verb in string]: (handler: EventHandler<EventPayload<Noun, Verb>>) => void
+}
+
+/**
+ * OnProxy - Provides typed noun access for event subscriptions
+ */
+export interface OnProxy {
+  [Noun: string]: TypedOnNounProxy<typeof Noun>
 }
 
 // ============================================================================

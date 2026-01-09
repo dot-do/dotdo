@@ -15,9 +15,11 @@
 import { DurableObject } from 'cloudflare:workers'
 import { drizzle } from 'drizzle-orm/durable-sqlite'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
+import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
+import { isValidNounName } from '../db/nouns'
 import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler } from '../types/WorkflowContext'
 import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from './schedule-builder'
 import { ScheduleManager, type Schedule } from './ScheduleManager'
@@ -406,38 +408,200 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // NOUN FK RESOLUTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Resolve a noun name to its FK (rowid) in the nouns table.
+   * Results are cached in _typeCache for performance.
+   *
+   * @param noun - The noun name to resolve (must be PascalCase)
+   * @returns The FK (rowid) of the noun in the nouns table
+   * @throws Error if noun is not found in the nouns table
+   *
+   * @example
+   * ```typescript
+   * const fk = await this.resolveNounToFK('Startup')
+   * // fk is the rowid of 'Startup' in the nouns table
+   * ```
+   */
+  protected async resolveNounToFK(noun: string): Promise<number> {
+    // Validate noun name
+    if (!noun || noun.trim() === '') {
+      throw new Error('Noun name cannot be empty')
+    }
+
+    if (!isValidNounName(noun)) {
+      throw new Error(`Invalid noun '${noun}': must be PascalCase`)
+    }
+
+    // Check cache first
+    const cached = this._typeCache.get(noun)
+    if (cached !== undefined) {
+      return cached
+    }
+
+    // Query the nouns table to get the rowid
+    // SQLite tables have an implicit rowid column
+    const results = await this.db
+      .select({
+        noun: schema.nouns.noun,
+        rowid: sql<number>`rowid`,
+      })
+      .from(schema.nouns)
+      .where(eq(schema.nouns.noun, noun))
+
+    if (results.length === 0) {
+      throw new Error(`Noun '${noun}' not found in nouns table. Register it first with registerNoun().`)
+    }
+
+    const fk = results[0].rowid
+
+    // Cache the result
+    this._typeCache.set(noun, fk)
+
+    return fk
+  }
+
+  /**
+   * Register a noun in the nouns table and return its FK (rowid).
+   * If the noun already exists, returns its existing FK.
+   *
+   * @param noun - The noun name to register (must be PascalCase)
+   * @param config - Optional configuration for the noun
+   * @returns The FK (rowid) of the noun in the nouns table
+   *
+   * @example
+   * ```typescript
+   * const fk = await this.registerNoun('Startup', { plural: 'Startups' })
+   * ```
+   */
+  protected async registerNoun(
+    noun: string,
+    config?: { plural?: string; description?: string; schema?: unknown; doClass?: string }
+  ): Promise<number> {
+    // Validate noun name
+    if (!noun || noun.trim() === '') {
+      throw new Error('Noun name cannot be empty')
+    }
+
+    if (!isValidNounName(noun)) {
+      throw new Error(`Invalid noun '${noun}': must be PascalCase`)
+    }
+
+    // Check if already exists (and cached)
+    const cached = this._typeCache.get(noun)
+    if (cached !== undefined) {
+      return cached
+    }
+
+    // Check if exists in database
+    const existing = await this.db
+      .select({
+        noun: schema.nouns.noun,
+        rowid: sql<number>`rowid`,
+      })
+      .from(schema.nouns)
+      .where(eq(schema.nouns.noun, noun))
+
+    if (existing.length > 0) {
+      const fk = existing[0].rowid
+      this._typeCache.set(noun, fk)
+      return fk
+    }
+
+    // Insert the new noun
+    await this.db.insert(schema.nouns).values({
+      noun,
+      plural: config?.plural ?? `${noun}s`,
+      description: config?.description ?? null,
+      schema: config?.schema ? JSON.stringify(config.schema) : null,
+      doClass: config?.doClass ?? null,
+    })
+
+    // Get the rowid of the inserted noun
+    const inserted = await this.db
+      .select({
+        noun: schema.nouns.noun,
+        rowid: sql<number>`rowid`,
+      })
+      .from(schema.nouns)
+      .where(eq(schema.nouns.noun, noun))
+
+    if (inserted.length === 0) {
+      throw new Error(`Failed to register noun '${noun}'`)
+    }
+
+    const fk = inserted[0].rowid
+    this._typeCache.set(noun, fk)
+
+    return fk
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // TYPED COLLECTION ACCESSORS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Get a typed collection accessor for a noun
-   * Note: Uses simplified queries - in production would use proper noun FK resolution
+   * Get a typed collection accessor for a noun.
+   * The noun must be registered in the nouns table before use.
+   *
+   * @param noun - The noun name (must be PascalCase)
+   * @returns A collection accessor with get, list, find, create methods
+   * @throws Error if noun name is invalid (not PascalCase or empty)
+   *
+   * @example
+   * ```typescript
+   * const startups = this.collection<Startup>('Startup')
+   * const list = await startups.list()
+   * const item = await startups.create({ name: 'Acme' })
+   * ```
    */
   protected collection<T extends Thing = Thing>(noun: string): ThingsCollection<T> {
+    // Validate noun name synchronously
+    if (!noun || noun.trim() === '') {
+      throw new Error('Noun name cannot be empty')
+    }
+
+    if (!isValidNounName(noun)) {
+      throw new Error(`Invalid noun '${noun}': must be PascalCase`)
+    }
+
     const self = this
     return {
       get: async (id: string): Promise<T | null> => {
-        // Note: In full implementation, would resolve noun to type FK
+        // Resolve noun to FK (uses cache)
+        const typeFK = await self.resolveNounToFK(noun)
+
+        // Query things filtered by type FK
         const results = await self.db.select().from(schema.things)
-        const result = results.find((r) => r.id === id && !r.deleted)
+        const result = results.find((r) => r.id === id && r.type === typeFK && !r.deleted)
         if (!result) return null
         const data = result.data as Record<string, unknown> | null
         return { $id: result.id, $type: noun, ...data } as T
       },
       list: async (): Promise<T[]> => {
+        // Resolve noun to FK (uses cache)
+        const typeFK = await self.resolveNounToFK(noun)
+
+        // Query things filtered by type FK
         const results = await self.db.select().from(schema.things)
         return results
-          .filter((r) => !r.deleted)
+          .filter((r) => r.type === typeFK && !r.deleted)
           .map((r) => {
             const data = r.data as Record<string, unknown> | null
             return { $id: r.id, $type: noun, ...data } as T
           })
       },
       find: async (query: Record<string, unknown>): Promise<T[]> => {
+        // Resolve noun to FK (uses cache)
+        const typeFK = await self.resolveNounToFK(noun)
+
+        // Query things filtered by type FK and additional query
         const results = await self.db.select().from(schema.things)
         return results
           .filter((r) => {
-            if (r.deleted) return false
+            if (r.type !== typeFK || r.deleted) return false
             const data = r.data as Record<string, unknown> | null
             if (!data) return false
             return Object.entries(query).every(([key, value]) => data[key] === value)
@@ -448,14 +612,21 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           })
       },
       create: async (data: Partial<T>): Promise<T> => {
+        // Resolve noun to FK (uses cache)
+        const typeFK = await self.resolveNounToFK(noun)
+
         const id = (data as Record<string, unknown>).$id as string || crypto.randomUUID()
         await self.db.insert(schema.things).values({
           id,
-          type: 0, // Would resolve noun to FK in full implementation
+          type: typeFK, // Use resolved FK instead of hardcoded 0
           branch: self.currentBranch,
           data: data as Record<string, unknown>,
           deleted: false,
         })
+
+        // Update cache to ensure noun is cached after create
+        self._typeCache.set(noun, typeFK)
+
         return { ...data, $id: id, $type: noun } as T
       },
     }
