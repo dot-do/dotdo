@@ -344,8 +344,8 @@ export async function listJsonIndexes(
  */
 function shouldIndex(definition: string | { type: string; index?: boolean; [key: string]: unknown }): boolean {
   if (typeof definition === 'string') {
-    // Support shorthand: 'string:index'
-    return definition.includes(':index')
+    // Support shorthand: '#string' (hash prefix = indexed)
+    return definition.startsWith('#')
   }
   return definition.index === true
 }

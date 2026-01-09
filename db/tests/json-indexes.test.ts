@@ -392,10 +392,10 @@ describe('JSON Path Indexing', () => {
       expect(indexes[0].path).toBe('status')
     })
 
-    it('should handle shorthand string definitions with index', async () => {
-      // Support: { status: 'string:index' } syntax
+    it('should handle shorthand string definitions with # prefix', async () => {
+      // Support: { status: '#string' } syntax (hash = indexed)
       const nounSchema = {
-        status: 'string:index',
+        status: '#string',
         title: 'string',
       }
 
