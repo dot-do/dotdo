@@ -157,7 +157,7 @@ export default defineWorkspace([
     },
     resolve: {
       alias: {
-        ...nodeResolveConfig.alias,
+        ...(nodeResolveConfig?.alias || {}),
         chdb: CHDB_MOCK,
       },
     },
@@ -195,6 +195,9 @@ export default defineWorkspace([
 
   // AI template literal API tests
   createNodeWorkspace('ai', ['ai/tests/**/*.test.ts', 'ai/**/*.test.ts']),
+
+  // TypeScript compilation tests (RED TDD - verify type safety)
+  createNodeWorkspace('typescript', ['tests/typescript/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
