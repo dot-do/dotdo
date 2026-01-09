@@ -51,12 +51,39 @@ export interface JWTPayload {
   exp?: number
 }
 
+/**
+ * Session validation function type.
+ * Returns session data if valid, null if invalid.
+ */
+export type SessionValidator = (token: string) => Promise<{
+  userId: string
+  email?: string
+  role?: 'admin' | 'user'
+  expiresAt?: Date
+  activeOrganizationId?: string
+} | null>
+
 export interface AuthConfig {
   jwtSecret?: string
   jwksUrl?: string
   apiKeys?: Map<string, ApiKeyConfig>
   publicPaths?: string[]
   cookieName?: string
+  /**
+   * Custom session validator function.
+   * When provided, this function is used to validate session tokens
+   * instead of the mock validation.
+   */
+  validateSession?: SessionValidator
+  /**
+   * KV namespace for session caching.
+   * When provided, validated sessions are cached for performance.
+   */
+  sessionCache?: KVNamespace
+  /**
+   * Session cache TTL in seconds (default: 300 = 5 minutes)
+   */
+  sessionCacheTtl?: number
 }
 
 export interface ApiKeyConfig {
@@ -75,11 +102,97 @@ const defaultConfig: AuthConfig = {
   publicPaths: ['/health', '/public'],
 }
 
-// In-memory API key store (should use KV in production)
-const apiKeys = new Map<string, ApiKeyConfig>([
-  ['test-api-key', { userId: 'api-user-1', role: 'user', name: 'Test API Key' }],
-  ['admin-api-key', { userId: 'api-admin-1', role: 'admin', name: 'Admin API Key' }],
-])
+// ============================================================================
+// API Key Loading from Environment/KV (SECURITY FIX)
+// ============================================================================
+
+/**
+ * Load API keys from environment variable.
+ * API_KEYS should be a JSON string mapping key -> ApiKeyConfig
+ *
+ * Example env.API_KEYS:
+ * {
+ *   "prod-key-123": { "userId": "user-1", "role": "user", "name": "Production Key" },
+ *   "admin-key-456": { "userId": "admin-1", "role": "admin", "name": "Admin Key" }
+ * }
+ *
+ * SECURITY: API keys must NEVER be hardcoded in source code.
+ * They must come from environment variables or KV storage.
+ */
+export function loadApiKeysFromEnv(env: Record<string, unknown>): Map<string, ApiKeyConfig> {
+  const apiKeys = new Map<string, ApiKeyConfig>()
+
+  const apiKeysJson = env.API_KEYS as string | undefined
+  if (!apiKeysJson) {
+    return apiKeys
+  }
+
+  try {
+    const parsed = JSON.parse(apiKeysJson) as Record<string, ApiKeyConfig>
+    for (const [key, config] of Object.entries(parsed)) {
+      apiKeys.set(key, config)
+    }
+  } catch {
+    // Invalid JSON - return empty map
+    console.warn('Failed to parse API_KEYS environment variable')
+  }
+
+  return apiKeys
+}
+
+// Runtime API key store - used for dynamically registered keys
+// SECURITY: This should only be used for runtime-registered keys.
+// Production keys should be loaded from environment via loadApiKeysFromEnv.
+const runtimeApiKeys = new Map<string, ApiKeyConfig>()
+
+/**
+ * Create an API key loader that checks multiple sources in order:
+ * 1. Environment variables (env.API_KEYS)
+ * 2. Runtime-registered keys (via registerApiKey)
+ * 3. KV storage
+ *
+ * Returns a function that can look up API key configurations.
+ *
+ * @param env - Environment bindings from the Cloudflare Worker context
+ * @returns Async function to look up API key configurations
+ */
+export function getApiKeyLoader(
+  env: Record<string, unknown>,
+): (apiKey: string) => Promise<ApiKeyConfig | undefined> {
+  // Load static keys from environment
+  const envKeys = loadApiKeysFromEnv(env)
+
+  // Get KV binding if available
+  const kv = env.KV as { get: (key: string) => Promise<string | null> } | undefined
+
+  return async (apiKey: string): Promise<ApiKeyConfig | undefined> => {
+    // Check env keys first (faster, no network call)
+    const envConfig = envKeys.get(apiKey)
+    if (envConfig) {
+      return envConfig
+    }
+
+    // Check runtime-registered keys
+    const runtimeConfig = runtimeApiKeys.get(apiKey)
+    if (runtimeConfig) {
+      return runtimeConfig
+    }
+
+    // Fall back to KV lookup
+    if (kv) {
+      try {
+        const kvValue = await kv.get(`api-key:${apiKey}`)
+        if (kvValue) {
+          return JSON.parse(kvValue) as ApiKeyConfig
+        }
+      } catch {
+        // KV lookup failed - return undefined
+      }
+    }
+
+    return undefined
+  }
+}
 
 // ============================================================================
 // JWT Verification
@@ -164,8 +277,11 @@ async function authenticateJWT(token: string, config: AuthConfig): Promise<AuthC
   }
 }
 
-async function authenticateApiKey(apiKey: string): Promise<AuthContext> {
-  const keyConfig = apiKeys.get(apiKey)
+async function authenticateApiKey(
+  apiKey: string,
+  loader: (key: string) => Promise<ApiKeyConfig | undefined>,
+): Promise<AuthContext> {
+  const keyConfig = await loader(apiKey)
   if (!keyConfig) {
     throw new HTTPException(401, { message: 'Invalid API key' })
   }
@@ -178,21 +294,102 @@ async function authenticateApiKey(apiKey: string): Promise<AuthContext> {
   }
 }
 
-async function authenticateSession(sessionToken: string, _config: AuthConfig): Promise<AuthContext> {
-  // In a real implementation, this would validate the session with better-auth
-  // For now, we'll just decode and trust the session token
-  // This should be replaced with actual better-auth session validation
+/**
+ * Cache key for session tokens in KV
+ */
+function getSessionCacheKey(token: string): string {
+  return `session:${token}`
+}
 
-  // Mock session validation - in production, call better-auth API
-  if (sessionToken === 'valid-session') {
-    return {
-      userId: 'session-user-1',
-      role: 'user',
-      method: 'session',
+/**
+ * Cached session data structure
+ */
+interface CachedSession {
+  userId: string
+  email?: string
+  role: 'admin' | 'user'
+  expiresAt?: string
+}
+
+async function authenticateSession(sessionToken: string, config: AuthConfig): Promise<AuthContext> {
+  // Check if session validator is configured
+  if (!config.validateSession) {
+    throw new HTTPException(401, { message: 'Session validation not configured' })
+  }
+
+  // Try to get from cache first (if KV is configured)
+  if (config.sessionCache) {
+    try {
+      const cached = await config.sessionCache.get<CachedSession>(getSessionCacheKey(sessionToken), 'json')
+      if (cached) {
+        // Check if cached session is still valid (not expired)
+        if (cached.expiresAt) {
+          const expiresAt = new Date(cached.expiresAt)
+          if (expiresAt <= new Date()) {
+            // Session expired, delete from cache and continue to validate
+            await config.sessionCache.delete(getSessionCacheKey(sessionToken))
+          } else {
+            // Return cached session
+            return {
+              userId: cached.userId,
+              email: cached.email,
+              role: cached.role,
+              method: 'session',
+            }
+          }
+        } else {
+          // No expiration, return cached session
+          return {
+            userId: cached.userId,
+            email: cached.email,
+            role: cached.role,
+            method: 'session',
+          }
+        }
+      }
+    } catch {
+      // Cache error - continue without cache
     }
   }
 
-  throw new HTTPException(401, { message: 'Invalid session' })
+  // Validate session using the configured validator
+  const session = await config.validateSession(sessionToken)
+
+  if (!session) {
+    throw new HTTPException(401, { message: 'Invalid session' })
+  }
+
+  // Check if session is expired
+  if (session.expiresAt && session.expiresAt <= new Date()) {
+    throw new HTTPException(401, { message: 'Session expired' })
+  }
+
+  const authContext: AuthContext = {
+    userId: session.userId,
+    email: session.email,
+    role: session.role || 'user',
+    method: 'session',
+  }
+
+  // Cache the validated session (if KV is configured)
+  if (config.sessionCache) {
+    try {
+      const cacheData: CachedSession = {
+        userId: session.userId,
+        email: session.email,
+        role: session.role || 'user',
+        expiresAt: session.expiresAt?.toISOString(),
+      }
+      const ttl = config.sessionCacheTtl ?? 300 // Default 5 minutes
+      await config.sessionCache.put(getSessionCacheKey(sessionToken), JSON.stringify(cacheData), {
+        expirationTtl: ttl,
+      })
+    } catch {
+      // Cache write error - continue without caching
+    }
+  }
+
+  return authContext
 }
 
 // ============================================================================
@@ -214,6 +411,11 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
       return next()
     }
 
+    // Get environment bindings for API key loading
+    // SECURITY: API keys are loaded from env.API_KEYS or KV, never hardcoded
+    const env = c.env as Record<string, unknown> | undefined
+    const apiKeyLoader = getApiKeyLoader(env ?? {})
+
     let authContext: AuthContext | null = null
 
     // Try JWT Bearer token first
@@ -227,11 +429,11 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
       }
     }
 
-    // Try API key
+    // Try API key (loaded from environment/KV)
     if (!authContext) {
       const apiKey = extractApiKey(c)
       if (apiKey) {
-        authContext = await authenticateApiKey(apiKey)
+        authContext = await authenticateApiKey(apiKey, apiKeyLoader)
       }
     }
 
@@ -328,15 +530,15 @@ export function requirePermission(permission: string): MiddlewareHandler {
 // ============================================================================
 
 export function registerApiKey(key: string, config: ApiKeyConfig): void {
-  apiKeys.set(key, config)
+  runtimeApiKeys.set(key, config)
 }
 
 export function revokeApiKey(key: string): boolean {
-  return apiKeys.delete(key)
+  return runtimeApiKeys.delete(key)
 }
 
 export function validateApiKey(key: string): ApiKeyConfig | undefined {
-  return apiKeys.get(key)
+  return runtimeApiKeys.get(key)
 }
 
 // ============================================================================
@@ -349,6 +551,93 @@ export async function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>, secr
   const jwt = await new jose.SignJWT(payload as jose.JWTPayload).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime(expiresIn).sign(secretKey)
 
   return jwt
+}
+
+// ============================================================================
+// Session Validator Factory
+// ============================================================================
+
+/**
+ * Database interface for session validation.
+ * Compatible with Drizzle ORM query interface.
+ */
+export interface SessionDatabase {
+  query: {
+    sessions: {
+      findFirst: (options: {
+        where: (table: { token: unknown; expiresAt: unknown }, ops: { eq: (a: unknown, b: unknown) => unknown; and: (...args: unknown[]) => unknown; gt: (a: unknown, b: unknown) => unknown }) => unknown
+      }) => Promise<{
+        id: string
+        userId: string
+        token: string
+        expiresAt: Date
+      } | undefined>
+    }
+    users: {
+      findFirst: (options: {
+        where: (table: { id: unknown }, ops: { eq: (a: unknown, b: unknown) => unknown }) => unknown
+      }) => Promise<{
+        id: string
+        email: string
+        role?: string | null
+      } | undefined>
+    }
+  }
+}
+
+/**
+ * Create a session validator function from a Drizzle database.
+ *
+ * This factory creates a validator that:
+ * 1. Looks up the session by token in the sessions table
+ * 2. Verifies the session hasn't expired
+ * 3. Fetches user details for the session
+ *
+ * @param db - Drizzle database instance with sessions and users tables
+ * @returns SessionValidator function for use with authMiddleware
+ *
+ * @example
+ * ```typescript
+ * import { drizzle } from 'drizzle-orm/d1'
+ * import { authMiddleware, createSessionValidator } from './middleware/auth'
+ * import * as schema from '../db'
+ *
+ * const db = drizzle(env.DB, { schema })
+ * const validateSession = createSessionValidator(db)
+ *
+ * app.use('*', authMiddleware({
+ *   validateSession,
+ *   sessionCache: env.KV,
+ * }))
+ * ```
+ */
+export function createSessionValidator(db: SessionDatabase): SessionValidator {
+  return async (token: string) => {
+    // Look up session by token
+    const session = await db.query.sessions.findFirst({
+      where: (t, { eq, and, gt }) => and(eq(t.token, token), gt(t.expiresAt, new Date())),
+    })
+
+    if (!session) {
+      return null
+    }
+
+    // Get user details
+    const user = await db.query.users.findFirst({
+      where: (t, { eq }) => eq(t.id, session.userId),
+    })
+
+    if (!user) {
+      return null
+    }
+
+    return {
+      userId: user.id,
+      email: user.email,
+      role: (user.role as 'admin' | 'user') || 'user',
+      expiresAt: session.expiresAt,
+    }
+  }
 }
 
 export default authMiddleware

@@ -58,6 +58,11 @@ type AppVariables = {
   user?: AuthContext
 }
 
+// Environment bindings for tests
+interface TestEnv {
+  API_KEYS: string
+}
+
 // Response types for type assertions
 interface AuthResponse {
   message?: string
@@ -73,10 +78,22 @@ interface AuthResponse {
 }
 
 // ============================================================================
+// Test Environment with API Keys
+// ============================================================================
+
+// Test API keys provided via environment (not hardcoded in source)
+const testEnv: TestEnv = {
+  API_KEYS: JSON.stringify({
+    'valid-api-key-12345': { userId: 'api-user-1', role: 'user', name: 'Test API Key' },
+    'admin-api-key-12345': { userId: 'api-admin-1', role: 'admin', name: 'Admin API Key' },
+  }),
+}
+
+// ============================================================================
 // Test App with Auth Middleware
 // ============================================================================
 
-const app = new Hono<{ Variables: AppVariables }>()
+const app = new Hono<{ Bindings: TestEnv; Variables: AppVariables }>()
 
 // Apply auth middleware globally
 app.use('*', authMiddleware({ jwtSecret: 'test-secret' }))
@@ -135,7 +152,8 @@ async function request(
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body)
   }
-  return app.request(path, init)
+  // Pass testEnv bindings so API keys are available
+  return app.request(path, init, testEnv)
 }
 
 // ============================================================================
@@ -872,7 +890,7 @@ describe('CORS Headers', () => {
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Authorization, Content-Type',
       },
-    })
+    }, testEnv)
 
     expect(res.status).toBe(204)
     expect(res.headers.get('Access-Control-Allow-Methods')).toBeTruthy()
@@ -887,7 +905,7 @@ describe('CORS Headers', () => {
         'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'Authorization',
       },
-    })
+    }, testEnv)
 
     const allowHeaders = res.headers.get('Access-Control-Allow-Headers')
     expect(allowHeaders?.toLowerCase()).toContain('authorization')
@@ -901,7 +919,7 @@ describe('CORS Headers', () => {
         'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'X-API-Key',
       },
-    })
+    }, testEnv)
 
     const allowHeaders = res.headers.get('Access-Control-Allow-Headers')
     expect(allowHeaders?.toLowerCase()).toContain('x-api-key')
@@ -914,7 +932,7 @@ describe('CORS Headers', () => {
         Origin: 'https://example.com',
         'Access-Control-Request-Method': 'GET',
       },
-    })
+    }, testEnv)
 
     const maxAge = res.headers.get('Access-Control-Max-Age')
     expect(maxAge).toBeTruthy()
@@ -1061,5 +1079,374 @@ describe('Edge Cases and Error Handling', () => {
     // Error message should be generic, not expose internal details
     expect(body.error).not.toContain('internal')
     expect(body.error).not.toContain('Detailed')
+  })
+})
+
+// ============================================================================
+// Session Validation Tests
+// ============================================================================
+
+import { createSessionValidator, type SessionValidator, type SessionDatabase } from '../../middleware/auth'
+
+describe('Session Validation with better-auth', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // Create a mock database for testing
+  function createMockDb(options: {
+    session?: { id: string; userId: string; token: string; expiresAt: Date } | null
+    user?: { id: string; email: string; role?: string | null } | null
+  }): SessionDatabase {
+    return {
+      query: {
+        sessions: {
+          findFirst: vi.fn().mockResolvedValue(options.session ?? undefined),
+        },
+        users: {
+          findFirst: vi.fn().mockResolvedValue(options.user ?? undefined),
+        },
+      },
+    }
+  }
+
+  // Create a mock KV namespace
+  function createMockKV(): KVNamespace {
+    const store = new Map<string, string>()
+    return {
+      get: vi.fn((key: string, type?: string) => {
+        const value = store.get(key)
+        if (!value) return Promise.resolve(null)
+        return Promise.resolve(type === 'json' ? JSON.parse(value) : value)
+      }),
+      put: vi.fn((key: string, value: string) => {
+        store.set(key, value)
+        return Promise.resolve()
+      }),
+      delete: vi.fn((key: string) => {
+        store.delete(key)
+        return Promise.resolve()
+      }),
+    } as unknown as KVNamespace
+  }
+
+  describe('createSessionValidator', () => {
+    it('returns session data for valid token', async () => {
+      const futureDate = new Date(Date.now() + 3600000) // 1 hour from now
+      const mockDb = createMockDb({
+        session: {
+          id: 'sess-123',
+          userId: 'user-456',
+          token: 'valid-token',
+          expiresAt: futureDate,
+        },
+        user: {
+          id: 'user-456',
+          email: 'test@example.com',
+          role: 'user',
+        },
+      })
+
+      const validator = createSessionValidator(mockDb)
+      const result = await validator('valid-token')
+
+      expect(result).not.toBeNull()
+      expect(result?.userId).toBe('user-456')
+      expect(result?.email).toBe('test@example.com')
+      expect(result?.role).toBe('user')
+    })
+
+    it('returns null for invalid token (session not found)', async () => {
+      const mockDb = createMockDb({
+        session: null,
+        user: null,
+      })
+
+      const validator = createSessionValidator(mockDb)
+      const result = await validator('invalid-token')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null when user not found for session', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockDb = createMockDb({
+        session: {
+          id: 'sess-123',
+          userId: 'user-456',
+          token: 'valid-token',
+          expiresAt: futureDate,
+        },
+        user: null,
+      })
+
+      const validator = createSessionValidator(mockDb)
+      const result = await validator('valid-token')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns admin role when user has admin role', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockDb = createMockDb({
+        session: {
+          id: 'sess-123',
+          userId: 'admin-user',
+          token: 'admin-token',
+          expiresAt: futureDate,
+        },
+        user: {
+          id: 'admin-user',
+          email: 'admin@example.com',
+          role: 'admin',
+        },
+      })
+
+      const validator = createSessionValidator(mockDb)
+      const result = await validator('admin-token')
+
+      expect(result?.role).toBe('admin')
+    })
+
+    it('defaults to user role when role is null', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockDb = createMockDb({
+        session: {
+          id: 'sess-123',
+          userId: 'user-456',
+          token: 'valid-token',
+          expiresAt: futureDate,
+        },
+        user: {
+          id: 'user-456',
+          email: 'test@example.com',
+          role: null,
+        },
+      })
+
+      const validator = createSessionValidator(mockDb)
+      const result = await validator('valid-token')
+
+      expect(result?.role).toBe('user')
+    })
+  })
+
+  describe('Session Authentication in Middleware', () => {
+    it('rejects session when no validator is configured', async () => {
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use('*', authMiddleware({ cookieName: 'session' }))
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=some-token',
+        },
+      })
+
+      expect(res.status).toBe(401)
+    })
+
+    it('authenticates with valid session token', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
+        userId: 'session-user',
+        email: 'session@example.com',
+        role: 'user' as const,
+        expiresAt: futureDate,
+      })
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok', user: c.get('user') }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=valid-session-token',
+        },
+      })
+
+      expect(res.status).toBe(200)
+      expect(mockValidator).toHaveBeenCalledWith('valid-session-token')
+    })
+
+    it('rejects mock token "valid-session" when real validator is configured', async () => {
+      // This test ensures the mock token is no longer accepted
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue(null)
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=valid-session',
+        },
+      })
+
+      expect(res.status).toBe(401)
+      expect(mockValidator).toHaveBeenCalledWith('valid-session')
+    })
+
+    it('rejects expired session', async () => {
+      const pastDate = new Date(Date.now() - 3600000) // 1 hour ago
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
+        userId: 'session-user',
+        role: 'user' as const,
+        expiresAt: pastDate,
+      })
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=expired-session-token',
+        },
+      })
+
+      expect(res.status).toBe(401)
+    })
+  })
+
+  describe('Session Caching with KV', () => {
+    it('caches validated sessions in KV', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
+        userId: 'cached-user',
+        email: 'cached@example.com',
+        role: 'user' as const,
+        expiresAt: futureDate,
+      })
+      const mockKV = createMockKV()
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+          sessionCache: mockKV,
+          sessionCacheTtl: 300,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      // First request - should call validator and cache
+      await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=cacheable-token',
+        },
+      })
+
+      expect(mockValidator).toHaveBeenCalledTimes(1)
+      expect(mockKV.put).toHaveBeenCalled()
+    })
+
+    it('returns cached session without calling validator', async () => {
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
+        userId: 'cached-user',
+        email: 'cached@example.com',
+        role: 'user' as const,
+        expiresAt: futureDate,
+      })
+      const mockKV = createMockKV()
+
+      // Pre-populate cache
+      await mockKV.put(
+        'session:precached-token',
+        JSON.stringify({
+          userId: 'cached-user',
+          email: 'cached@example.com',
+          role: 'user',
+          expiresAt: futureDate.toISOString(),
+        }),
+      )
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+          sessionCache: mockKV,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=precached-token',
+        },
+      })
+
+      expect(res.status).toBe(200)
+      expect(mockValidator).not.toHaveBeenCalled()
+    })
+
+    it('evicts expired sessions from cache', async () => {
+      const pastDate = new Date(Date.now() - 3600000)
+      const futureDate = new Date(Date.now() + 3600000)
+      const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
+        userId: 'fresh-user',
+        email: 'fresh@example.com',
+        role: 'user' as const,
+        expiresAt: futureDate,
+      })
+      const mockKV = createMockKV()
+
+      // Pre-populate cache with expired session
+      await mockKV.put(
+        'session:expired-cached-token',
+        JSON.stringify({
+          userId: 'expired-user',
+          email: 'expired@example.com',
+          role: 'user',
+          expiresAt: pastDate.toISOString(),
+        }),
+      )
+
+      const sessionApp = new Hono<{ Variables: AppVariables }>()
+      sessionApp.use(
+        '*',
+        authMiddleware({
+          cookieName: 'session',
+          validateSession: mockValidator,
+          sessionCache: mockKV,
+        }),
+      )
+      sessionApp.get('/protected', requireAuth(), (c) => c.json({ message: 'ok' }))
+
+      const res = await sessionApp.request('/protected', {
+        headers: {
+          Cookie: 'session=expired-cached-token',
+        },
+      })
+
+      expect(res.status).toBe(200)
+      // Should have called validator because cached session was expired
+      expect(mockValidator).toHaveBeenCalled()
+      // Should have deleted the expired cached entry
+      expect(mockKV.delete).toHaveBeenCalledWith('session:expired-cached-token')
+    })
   })
 })
