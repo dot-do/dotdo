@@ -26,17 +26,24 @@ export default defineWorkersConfig({
 
     poolOptions: {
       workers: {
-        // Minimal wrangler config for tests
+        // Use wrangler.jsonc for bindings
+        wrangler: {
+          configPath: resolve(__dirname, '../../wrangler.jsonc'),
+        },
+
+        // Miniflare options
         miniflare: {
           // Enable verbose logging in debug mode
           verbose: process.env.DEBUG === 'true',
 
-          // Compatibility settings
-          compatibilityDate: '2026-01-08',
-          compatibilityFlags: ['nodejs_compat', 'nodejs_compat_v2'],
+          // Compatibility settings - use supported date
+          compatibilityDate: '2025-09-06',
+          compatibilityFlags: ['nodejs_compat'],
 
-          // Enable outbound network access for CDN fetches (e.g., jsDelivr for WASM)
-          outboundService: 'internet',
+          // Modules rules for WASM (ES module style imports)
+          modulesRules: [
+            { type: 'CompiledWasm', include: ['**/*.wasm'] },
+          ],
         },
 
         // Isolate storage between tests for deterministic results

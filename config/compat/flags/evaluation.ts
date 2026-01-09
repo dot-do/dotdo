@@ -459,35 +459,22 @@ class PrerequisiteMemo {
 }
 
 // ============================================================================
-// REGEX CACHING FOR PERFORMANCE
+// OPERATOR REGISTRY INTEGRATION
 // ============================================================================
 
-const regexCache = new Map<string, RegExp | null>()
-const MAX_REGEX_CACHE_SIZE = 1000
+import { getOperatorRegistry, OperatorRegistry } from './operators'
 
-/**
- * Get or compile a cached regex pattern
- */
-function getCachedRegex(pattern: string): RegExp | null {
-  if (regexCache.has(pattern)) {
-    return regexCache.get(pattern)!
-  }
-
-  // Evict oldest if at capacity
-  if (regexCache.size >= MAX_REGEX_CACHE_SIZE) {
-    const oldest = regexCache.keys().next().value
-    if (oldest) regexCache.delete(oldest)
-  }
-
-  try {
-    const regex = new RegExp(pattern)
-    regexCache.set(pattern, regex)
-    return regex
-  } catch {
-    regexCache.set(pattern, null)
-    return null
-  }
-}
+// Re-export operator utilities for convenience
+export {
+  OperatorRegistry,
+  registerOperator,
+  unregisterOperator,
+  getOperatorRegistry,
+  getOperatorDocumentation,
+  TypeCoercion,
+  type CustomOperatorDefinition,
+  type OperatorFunction,
+} from './operators'
 
 // Extended flag definition with additional fields used in evaluation
 interface ExtendedFlagDefinition<T> extends FlagDefinition<T> {
@@ -549,205 +536,13 @@ function getBucket(key: string, seed?: number): number {
 }
 
 /**
- * Parse a semantic version string into components
- * Handles formats like: 1.0.0, 1.0.0-alpha, 1.0.0+build, v1.0.0, V2.0.0
- */
-function parseSemVer(version: string): { major: number; minor: number; patch: number; prerelease: string } | null {
-  // Strip leading 'v' or 'V' prefix if present
-  const cleanVersion = version.replace(/^[vV]/, '')
-  const match = cleanVersion.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?(?:\+[a-zA-Z0-9.-]+)?$/)
-  if (!match) return null
-  return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
-    prerelease: match[4] || '',
-  }
-}
-
-/**
- * Compare two semantic versions
- * Returns: -1 if a < b, 0 if a == b, 1 if a > b
- */
-function compareSemVer(a: string, b: string): number | null {
-  const parsedA = parseSemVer(a)
-  const parsedB = parseSemVer(b)
-  if (!parsedA || !parsedB) return null
-
-  // Compare major.minor.patch
-  if (parsedA.major !== parsedB.major) return parsedA.major > parsedB.major ? 1 : -1
-  if (parsedA.minor !== parsedB.minor) return parsedA.minor > parsedB.minor ? 1 : -1
-  if (parsedA.patch !== parsedB.patch) return parsedA.patch > parsedB.patch ? 1 : -1
-
-  // Compare prerelease (no prerelease > has prerelease)
-  if (!parsedA.prerelease && parsedB.prerelease) return 1
-  if (parsedA.prerelease && !parsedB.prerelease) return -1
-  if (parsedA.prerelease && parsedB.prerelease) {
-    return parsedA.prerelease < parsedB.prerelease ? -1 : parsedA.prerelease > parsedB.prerelease ? 1 : 0
-  }
-
-  return 0
-}
-
-/**
- * Parse a value as a Date
- */
-function parseDate(value: unknown): Date | null {
-  if (value instanceof Date) return value
-  if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value)
-    return isNaN(date.getTime()) ? null : date
-  }
-  return null
-}
-
-/**
- * Evaluate a single clause against the context
+ * Evaluate a single clause against the context using the operator registry
+ *
+ * This function delegates to the global OperatorRegistry, which supports
+ * both built-in and custom operators with optimized caching.
  */
 function evaluateClause(clause: TargetingClause, context: EvaluationContext): boolean {
-  const value = context[clause.attribute]
-
-  let matches = false
-
-  switch (clause.operator) {
-    // Membership operators
-    case 'in':
-      // Handle array context values - check if any element is in the clause values
-      if (Array.isArray(value)) {
-        matches = value.some(contextVal => clause.values.some(v => v === contextVal))
-      } else {
-        matches = clause.values.some(v => v === value)
-      }
-      break
-    case 'notIn':
-      // Handle array context values - check that no element is in the clause values
-      if (Array.isArray(value)) {
-        matches = !value.some(contextVal => clause.values.some(v => v === contextVal))
-      } else {
-        matches = !clause.values.some(v => v === value)
-      }
-      break
-
-    // String operators
-    case 'startsWith':
-      matches = typeof value === 'string' &&
-        clause.values.some(v => typeof v === 'string' && value.startsWith(v))
-      break
-    case 'endsWith':
-      matches = typeof value === 'string' &&
-        clause.values.some(v => typeof v === 'string' && value.endsWith(v))
-      break
-    case 'contains':
-      matches = typeof value === 'string' &&
-        clause.values.some(v => typeof v === 'string' && value.includes(v))
-      break
-    case 'matches':
-      matches = typeof value === 'string' &&
-        clause.values.some(v => {
-          if (typeof v === 'string') {
-            const regex = getCachedRegex(v)
-            return regex ? regex.test(value) : false
-          }
-          return false
-        })
-      break
-
-    // Numeric operators
-    case 'lessThan':
-      matches = typeof value === 'number' &&
-        clause.values.some(v => typeof v === 'number' && value < v)
-      break
-    case 'lessThanOrEqual':
-      matches = typeof value === 'number' &&
-        clause.values.some(v => typeof v === 'number' && value <= v)
-      break
-    case 'greaterThan':
-      matches = typeof value === 'number' &&
-        clause.values.some(v => typeof v === 'number' && value > v)
-      break
-    case 'greaterThanOrEqual':
-      matches = typeof value === 'number' &&
-        clause.values.some(v => typeof v === 'number' && value >= v)
-      break
-
-    // Date operators
-    case 'before': {
-      const dateValue = parseDate(value)
-      if (dateValue) {
-        matches = clause.values.some(v => {
-          const threshold = parseDate(v)
-          return threshold && dateValue.getTime() < threshold.getTime()
-        })
-      }
-      break
-    }
-    case 'after': {
-      const dateValue = parseDate(value)
-      if (dateValue) {
-        matches = clause.values.some(v => {
-          const threshold = parseDate(v)
-          return threshold && dateValue.getTime() > threshold.getTime()
-        })
-      }
-      break
-    }
-
-    // Semantic version operators
-    case 'semVerEqual':
-      if (typeof value === 'string') {
-        matches = clause.values.some(v => {
-          if (typeof v === 'string') {
-            const cmp = compareSemVer(value, v)
-            return cmp === 0
-          }
-          return false
-        })
-      }
-      break
-    case 'semVerLessThan':
-      if (typeof value === 'string') {
-        matches = clause.values.some(v => {
-          if (typeof v === 'string') {
-            const cmp = compareSemVer(value, v)
-            return cmp === -1
-          }
-          return false
-        })
-      }
-      break
-    case 'semVerGreaterThan':
-      if (typeof value === 'string') {
-        matches = clause.values.some(v => {
-          if (typeof v === 'string') {
-            const cmp = compareSemVer(value, v)
-            return cmp === 1
-          }
-          return false
-        })
-      }
-      break
-
-    // Segment operator (checks if user is in one of the named segments)
-    // The context should have a 'segments' attribute containing an array of segment IDs
-    // This operator checks if any of the user's segments are in the clause values
-    case 'segmentMatch': {
-      // Look for segments in the context, either at the specified attribute or at 'segments'
-      const segmentsValue = context.segments ?? value
-      if (Array.isArray(segmentsValue)) {
-        // Check if any of the context segments match any of the clause values
-        matches = segmentsValue.some(segment => clause.values.includes(segment))
-      } else if (segmentsValue !== undefined) {
-        // Single segment value
-        matches = clause.values.some(v => v === segmentsValue)
-      }
-      break
-    }
-
-    default:
-      matches = false
-  }
-
-  return clause.negate ? !matches : matches
+  return getOperatorRegistry().evaluate(clause, context)
 }
 
 /**

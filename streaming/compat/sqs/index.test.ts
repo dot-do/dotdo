@@ -300,11 +300,12 @@ describe('Queue Operations', () => {
       expect(result.Attributes?.QueueArn).toBeUndefined()
     })
 
-    it('should return message counts', async () => {
-      // Send a message
+    it('should return ApproximateNumberOfMessages for visible messages', async () => {
+      // Send a message with no delay (override queue's default delay)
       await client.send(new SendMessageCommand({
         QueueUrl: queueUrl,
         MessageBody: 'test message',
+        DelaySeconds: 0,
       }))
 
       const result = await client.send(new GetQueueAttributesCommand({
@@ -313,6 +314,98 @@ describe('Queue Operations', () => {
       }))
 
       expect(result.Attributes?.ApproximateNumberOfMessages).toBe('1')
+    })
+
+    it('should return ApproximateNumberOfMessagesDelayed for delayed messages', async () => {
+      // Send a message with queue's default 10 second delay
+      await client.send(new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: 'delayed message',
+      }))
+
+      const result = await client.send(new GetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        AttributeNames: ['ApproximateNumberOfMessagesDelayed', 'ApproximateNumberOfMessages'],
+      }))
+
+      // Message is delayed, so it should be in delayed count, not visible count
+      expect(result.Attributes?.ApproximateNumberOfMessagesDelayed).toBe('1')
+      expect(result.Attributes?.ApproximateNumberOfMessages).toBe('0')
+    })
+
+    it('should return ApproximateNumberOfMessagesNotVisible for in-flight messages', async () => {
+      // Send a message with no delay
+      await client.send(new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: 'inflight message',
+        DelaySeconds: 0,
+      }))
+
+      // Receive the message (puts it in-flight)
+      await client.send(new ReceiveMessageCommand({
+        QueueUrl: queueUrl,
+        MaxNumberOfMessages: 1,
+        VisibilityTimeout: 30,
+      }))
+
+      const result = await client.send(new GetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        AttributeNames: [
+          'ApproximateNumberOfMessagesNotVisible',
+          'ApproximateNumberOfMessages',
+          'ApproximateNumberOfMessagesDelayed',
+        ],
+      }))
+
+      // Message was received and is now in-flight (not visible)
+      expect(result.Attributes?.ApproximateNumberOfMessagesNotVisible).toBe('1')
+      expect(result.Attributes?.ApproximateNumberOfMessages).toBe('0')
+      expect(result.Attributes?.ApproximateNumberOfMessagesDelayed).toBe('0')
+    })
+
+    it('should return all message counts together', async () => {
+      // Create a fresh queue with no default delay for cleaner test
+      const freshQueue = await client.send(new CreateQueueCommand({
+        QueueName: 'count-test-queue',
+      }))
+      const freshQueueUrl = freshQueue.QueueUrl!
+
+      // Send messages in different states
+      // 1. A visible message (no delay)
+      await client.send(new SendMessageCommand({
+        QueueUrl: freshQueueUrl,
+        MessageBody: 'visible message',
+        DelaySeconds: 0,
+      }))
+
+      // 2. A delayed message
+      await client.send(new SendMessageCommand({
+        QueueUrl: freshQueueUrl,
+        MessageBody: 'delayed message',
+        DelaySeconds: 60,
+      }))
+
+      // 3. An in-flight message (receive but don't delete)
+      await client.send(new SendMessageCommand({
+        QueueUrl: freshQueueUrl,
+        MessageBody: 'inflight message',
+        DelaySeconds: 0,
+      }))
+      await client.send(new ReceiveMessageCommand({
+        QueueUrl: freshQueueUrl,
+        MaxNumberOfMessages: 1,
+        VisibilityTimeout: 30,
+      }))
+
+      const result = await client.send(new GetQueueAttributesCommand({
+        QueueUrl: freshQueueUrl,
+        AttributeNames: ['All'],
+      }))
+
+      // Check all three message count types
+      expect(result.Attributes?.ApproximateNumberOfMessages).toBe('1')
+      expect(result.Attributes?.ApproximateNumberOfMessagesDelayed).toBe('1')
+      expect(result.Attributes?.ApproximateNumberOfMessagesNotVisible).toBe('1')
     })
   })
 
@@ -1188,6 +1281,108 @@ describe('Integration', () => {
     }))
 
     expect(finalReceive.Messages).toBeUndefined()
+  })
+})
+
+// ============================================================================
+// MD5 HASH TESTS
+// ============================================================================
+
+describe('MD5 Hash Verification', () => {
+  let client: SQSClient
+  let queueUrl: string
+
+  beforeEach(async () => {
+    _clearAll()
+    client = new SQSClient({ region: 'us-east-1' })
+    const result = await client.send(new CreateQueueCommand({
+      QueueName: 'md5-test-queue',
+    }))
+    queueUrl = result.QueueUrl!
+  })
+
+  it('should compute correct MD5 hash for message body', async () => {
+    // Known MD5 values:
+    // MD5("Hello World") = b10a8db164e0754105b7a99be72e3fe5
+    const result = await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: 'Hello World',
+    }))
+
+    expect(result.MD5OfMessageBody).toBe('b10a8db164e0754105b7a99be72e3fe5')
+  })
+
+  it('should compute correct MD5 hash for empty string', async () => {
+    // MD5("") = d41d8cd98f00b204e9800998ecf8427e
+    const result = await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: '',
+    }))
+
+    expect(result.MD5OfMessageBody).toBe('d41d8cd98f00b204e9800998ecf8427e')
+  })
+
+  it('should compute correct MD5 hash for JSON content', async () => {
+    // MD5('{"key":"value"}') = a7353f7cddce808de0032747a0b7be50
+    const body = '{"key":"value"}'
+    const result = await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: body,
+    }))
+
+    expect(result.MD5OfMessageBody).toBe('a7353f7cddce808de0032747a0b7be50')
+  })
+
+  it('should return matching MD5 in received message', async () => {
+    const body = 'Test message for MD5 verification'
+    // MD5 of this string = e503fc68353af23a25703c966fbc1693
+
+    const sendResult = await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: body,
+    }))
+
+    const receiveResult = await client.send(new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 1,
+    }))
+
+    expect(receiveResult.Messages).toBeDefined()
+    expect(receiveResult.Messages![0].MD5OfBody).toBe(sendResult.MD5OfMessageBody)
+    expect(receiveResult.Messages![0].MD5OfBody).toBe('e503fc68353af23a25703c966fbc1693')
+  })
+
+  it('should compute correct MD5 for batch messages', async () => {
+    const result = await client.send(new SendMessageBatchCommand({
+      QueueUrl: queueUrl,
+      Entries: [
+        { Id: '1', MessageBody: 'Hello World' },
+        { Id: '2', MessageBody: '' },
+        { Id: '3', MessageBody: '{"key":"value"}' },
+      ],
+    }))
+
+    expect(result.Successful).toBeDefined()
+    expect(result.Successful).toHaveLength(3)
+
+    const msg1 = result.Successful!.find(m => m.Id === '1')
+    const msg2 = result.Successful!.find(m => m.Id === '2')
+    const msg3 = result.Successful!.find(m => m.Id === '3')
+
+    expect(msg1?.MD5OfMessageBody).toBe('b10a8db164e0754105b7a99be72e3fe5')
+    expect(msg2?.MD5OfMessageBody).toBe('d41d8cd98f00b204e9800998ecf8427e')
+    expect(msg3?.MD5OfMessageBody).toBe('a7353f7cddce808de0032747a0b7be50')
+  })
+
+  it('should compute correct MD5 for unicode content', async () => {
+    // MD5 of "Hello 世界" (UTF-8 encoded) = af91c2603879085df0cb545dd0366dcd
+    const body = 'Hello 世界'
+    const result = await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: body,
+    }))
+
+    expect(result.MD5OfMessageBody).toBe('af91c2603879085df0cb545dd0366dcd')
   })
 })
 

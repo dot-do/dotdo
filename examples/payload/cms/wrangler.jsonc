@@ -1,0 +1,7 @@
+{
+  "name": "payload-blog",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{ "binding": "D1", "database_name": "blog", "database_id": "YOUR_DB_ID" }]
+}

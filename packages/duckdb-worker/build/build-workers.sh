@@ -22,6 +22,13 @@ BUILD_TYPE="${1:---release}"
 DUCKDB_DIR="/build/duckdb"
 BUILD_DIR="${DUCKDB_DIR}/build-wasm"
 OUTPUT_DIR="${OUTPUT_DIR:-/output}"
+SIZE_OPTIMIZED=false
+MINIMAL_BUILD=false
+
+# Check for --minimal flag
+if [[ "$*" == *"--minimal"* ]]; then
+    MINIMAL_BUILD=true
+fi
 
 echo "=============================================="
 echo "DuckDB WASM Build for Cloudflare Workers"
@@ -88,16 +95,15 @@ EMCC_FLAGS=(
     "-sUSE_PTHREADS=0"
     "-sSINGLE_FILE=0"
 
-    # Filesystem - memory only
-    "-sFILESYSTEM=1"
-    "-sFORCE_FILESYSTEM=1"
+    # Filesystem - DISABLED for Workers (memory-only via runtime.ts)
+    "-sFILESYSTEM=0"
     "-sNODERAWFS=0"
 
     # Module configuration
     "-sMODULARIZE=1"
     "-sEXPORT_ES6=1"
     "-sEXPORT_NAME='createDuckDB'"
-    "-sENVIRONMENT='web,worker'"
+    "-sENVIRONMENT=web"
 
     # Export settings
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8','lengthBytesUTF8','stackSave','stackRestore','stackAlloc']"
@@ -133,12 +139,16 @@ case "${BUILD_TYPE}" in
     --size)
         echo "Building SIZE-OPTIMIZED configuration..."
         EMCC_FLAGS+=(
-            "-Oz"
-            "-flto"
-            "--closure=1"
-            "-sEVAL_CTORS=1"
+            "-Oz"                      # Optimize for size
+            "-flto=thin"               # Thin LTO (faster, still good size reduction)
+            "-fno-exceptions"          # No C++ exceptions
+            "-fno-rtti"                # No runtime type info
+            "-sEVAL_CTORS=1"           # Evaluate constructors at compile time
+            "-sEMIT_SYMBOL_MAP=0"      # No symbol map
+            "-sSUPPORT_LONGJMP=0"      # Disable longjmp support
         )
         CMAKE_BUILD_TYPE="MinSizeRel"
+        SIZE_OPTIMIZED=true
         ;;
     --release|*)
         echo "Building RELEASE configuration..."
@@ -173,7 +183,7 @@ emcmake cmake -B "${BUILD_DIR}" \
     -DBUILD_SHELL=OFF \
     -DBUILD_UNITTESTS=OFF \
     -DBUILD_BENCHMARKS=OFF \
-    -DBUILD_PARQUET_EXTENSION=ON \
+    -DBUILD_PARQUET_EXTENSION=$([ "${MINIMAL_BUILD}" = true ] && echo "OFF" || echo "ON") \
     -DBUILD_JSON_EXTENSION=ON \
     -DBUILD_JEMALLOC_EXTENSION=OFF \
     -DBUILD_ICU_EXTENSION=OFF \
@@ -255,6 +265,15 @@ fi
 
 echo "Linking ${ALL_LIBS}"
 
+# Set optimization level based on build type
+if [ "${SIZE_OPTIMIZED}" = true ]; then
+    OPT_LEVEL="-Oz"
+    echo "Using size optimization (-Oz)"
+else
+    OPT_LEVEL="-O3"
+    echo "Using performance optimization (-O3)"
+fi
+
 # Link all static libraries into a WASM module with ES6 exports
 # Use --whole-archive to ensure all symbols are included
 emcc \
@@ -268,12 +287,11 @@ emcc \
     -sALLOW_MEMORY_GROWTH=1 \
     -sSTACK_SIZE=1048576 \
     -sUSE_PTHREADS=0 \
-    -sFILESYSTEM=1 \
-    -sFORCE_FILESYSTEM=1 \
+    -sFILESYSTEM=0 \
     -sMODULARIZE=1 \
     -sEXPORT_ES6=1 \
     -sEXPORT_NAME='createDuckDB' \
-    -sENVIRONMENT='web,worker' \
+    -sENVIRONMENT=web \
     -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8","stackSave","stackRestore","stackAlloc"]' \
     -sEXPORTED_FUNCTIONS='["_malloc","_free","_duckdb_open","_duckdb_open_ext","_duckdb_close","_duckdb_connect","_duckdb_disconnect","_duckdb_query","_duckdb_destroy_result","_duckdb_column_count","_duckdb_row_count","_duckdb_column_name","_duckdb_column_type","_duckdb_value_varchar","_duckdb_value_int64","_duckdb_value_double","_duckdb_value_is_null","_duckdb_result_error","_duckdb_prepare","_duckdb_bind_boolean","_duckdb_bind_int32","_duckdb_bind_int64","_duckdb_bind_double","_duckdb_bind_varchar","_duckdb_bind_null","_duckdb_execute_prepared","_duckdb_destroy_prepare","_duckdb_appender_create","_duckdb_appender_destroy","_duckdb_append_bool","_duckdb_append_int32","_duckdb_append_int64","_duckdb_append_double","_duckdb_append_varchar","_duckdb_append_null","_duckdb_appender_end_row","_duckdb_appender_flush","_duckdb_appender_close"]' \
     -sASSERTIONS=0 \
@@ -281,7 +299,7 @@ emcc \
     -sNO_EXIT_RUNTIME=1 \
     -sABORTING_MALLOC=0 \
     -sERROR_ON_UNDEFINED_SYMBOLS=0 \
-    -O3
+    ${OPT_LEVEL}
 
 echo "Linking complete!"
 

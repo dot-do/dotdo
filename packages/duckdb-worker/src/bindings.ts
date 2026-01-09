@@ -6,7 +6,7 @@
  */
 
 import type { DuckDBInstance, DuckDBConfig, QueryResult, ColumnInfo } from './types.js'
-import type { DuckDBModule, DuckDBModuleConfig } from '../wasm/duckdb-worker.js'
+import type { DuckDBModule, DuckDBModuleConfig } from '../wasm/duckdb-worker-cf.js'
 
 // Use Cloudflare-compatible loader (patched to not use import.meta.url)
 import createDuckDBLoader from '../wasm/duckdb-worker-cf.js'
@@ -66,11 +66,103 @@ const DuckDBType = {
 } as const
 
 /**
+ * Set of type codes that duckdb_value_varchar doesn't handle properly
+ * These types return empty strings and need special handling via SQL casting
+ */
+const COMPLEX_TYPES_NEEDING_CAST = new Set<number>([
+  DuckDBType.LIST,
+  DuckDBType.STRUCT,
+  DuckDBType.MAP,
+  DuckDBType.ARRAY,
+  DuckDBType.UUID,
+  DuckDBType.UNION,
+  DuckDBType.TIME_TZ,
+  DuckDBType.TIMESTAMP_TZ,
+])
+
+/**
+ * Types that should be parsed as JSON after casting to VARCHAR
+ */
+const JSON_PARSEABLE_TYPES = new Set<number>([
+  DuckDBType.LIST,
+  DuckDBType.STRUCT,
+  DuckDBType.MAP,
+  DuckDBType.ARRAY,
+])
+
+/**
  * Map DuckDB type code to string name
  */
 function typeCodeToString(code: number): string {
   const entry = Object.entries(DuckDBType).find(([, v]) => v === code)
   return entry ? entry[0] : 'UNKNOWN'
+}
+
+/**
+ * Convert DuckDB's STRUCT/MAP string format to JSON
+ * DuckDB uses single quotes: {'key': value}
+ * JSON requires double quotes: {"key": value}
+ *
+ * This is a best-effort conversion that handles common cases.
+ * For complex nested structures with strings containing quotes, it may fail
+ * and fall back to returning the original string.
+ */
+function duckdbStructToJson(str: string): string {
+  // DuckDB STRUCT format: {'key': value, 'key2': 'string value'}
+  // Need to convert single-quoted keys to double-quoted
+  // and single-quoted string values to double-quoted
+
+  // State machine approach for proper quote handling
+  let inString = false
+  let stringChar = ''
+  const chars: string[] = []
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i]!
+    const prevChar = i > 0 ? str[i - 1] : ''
+
+    if (!inString) {
+      if (char === "'" || char === '"') {
+        // Starting a string
+        inString = true
+        stringChar = char
+        // Convert single quote to double quote
+        chars.push('"')
+      } else {
+        chars.push(char)
+      }
+    } else {
+      // Inside a string
+      if (char === stringChar && prevChar !== '\\') {
+        // Ending the string
+        inString = false
+        chars.push('"')
+      } else if (char === '"' && stringChar === "'") {
+        // Escape double quotes inside single-quoted strings
+        chars.push('\\"')
+      } else {
+        chars.push(char)
+      }
+    }
+  }
+
+  return chars.join('')
+}
+
+/**
+ * Convert DuckDB's MAP string format to JSON
+ * DuckDB MAP format: {key1=value1, key2=value2}
+ * JSON format: {"key1": value1, "key2": value2}
+ *
+ * This handles simple key-value pairs with unquoted keys.
+ */
+function duckdbMapToJson(str: string): string {
+  // DuckDB MAP format: {key1=1, key2=2}
+  // Need to: add quotes around keys, replace = with :
+
+  // Simple regex replacement for basic cases
+  // Match patterns like: key= at the start or after { or ,
+  return str.replace(/([{,]\s*)(\w+)\s*=/g, '$1"$2": ')
 }
 
 // ============================================================================
@@ -112,7 +204,10 @@ export interface LoadDuckDBOptions {
 
   /**
    * Pre-compiled WebAssembly.Module
-   * Use this in Workers with wasm_modules binding
+   * Use this in Workers with ES module WASM imports
+   * @example
+   * import duckdbWasm from './duckdb-worker.wasm'
+   * const db = await createDuckDB({}, { wasmModule: duckdbWasm })
    */
   wasmModule?: WebAssembly.Module
 
@@ -121,6 +216,13 @@ export interface LoadDuckDBOptions {
    * Use this if the loader is already imported
    */
   loaderModule?: { default: CreateDuckDBFn }
+
+  /**
+   * Use dynamic import to load the standard (non-CF) loader
+   * This provides a fallback for non-Workers environments
+   * @default false
+   */
+  useDynamicLoader?: boolean
 }
 
 /**
@@ -145,6 +247,16 @@ export async function loadDuckDBModule(
   // Get the createDuckDB function from loader module or pre-imported loader
   if (opts.loaderModule?.default) {
     createDuckDBFn = opts.loaderModule.default
+  } else if (opts.useDynamicLoader) {
+    // Dynamic import fallback for non-Workers environments
+    // This allows using the standard loader with import.meta.url support
+    try {
+      const dynamicLoader = await import('../wasm/duckdb-worker.js')
+      createDuckDBFn = dynamicLoader.default
+    } catch {
+      // Fall back to CF-compatible loader if dynamic import fails
+      createDuckDBFn = createDuckDBLoader
+    }
   } else if (!createDuckDBFn) {
     // Use the statically imported CF-compatible loader
     // This avoids dynamic import issues in Workers
@@ -257,31 +369,61 @@ export function createInstanceFromModule(
   // Instance-scoped file buffer registry (NOT global)
   const fileRegistry = new FileBufferRegistry()
 
+  // BigInt handling mode for JSON serialization
+  const bigIntMode = config?.bigIntMode ?? 'auto'
+
+  // Array to store config application warnings/errors
+  const configWarnings: string[] = []
+
   // Apply configuration via PRAGMA statements
   const applyConfig = async () => {
-    const pragmas: string[] = []
+    const pragmaConfigs: Array<{ pragma: string; configKey: string }> = []
 
     if (config?.maxMemory !== undefined) {
-      pragmas.push(`SET memory_limit='${config.maxMemory}'`)
+      pragmaConfigs.push({
+        pragma: `SET memory_limit='${config.maxMemory}'`,
+        configKey: 'maxMemory',
+      })
     }
     if (config?.threads !== undefined) {
-      pragmas.push(`SET threads=${config.threads}`)
+      pragmaConfigs.push({
+        pragma: `SET threads=${config.threads}`,
+        configKey: 'threads',
+      })
     }
     if (config?.accessMode !== undefined) {
-      pragmas.push(`SET access_mode='${config.accessMode}'`)
+      pragmaConfigs.push({
+        pragma: `SET access_mode='${config.accessMode}'`,
+        configKey: 'accessMode',
+      })
     }
     if (config?.defaultOrder !== undefined) {
-      pragmas.push(`SET default_order='${config.defaultOrder}'`)
+      pragmaConfigs.push({
+        pragma: `SET default_order='${config.defaultOrder}'`,
+        configKey: 'defaultOrder',
+      })
     }
 
-    // Execute each PRAGMA
-    for (const pragma of pragmas) {
-      await executeQuery(pragma)
+    // Execute each PRAGMA and capture errors
+    for (const { pragma, configKey } of pragmaConfigs) {
+      try {
+        await executeQuery(pragma)
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error)
+        configWarnings.push(`Failed to apply ${configKey}: ${errorMessage}`)
+      }
     }
   }
 
-  // Execute a query (internal helper)
-  const executeQuery = async (sql: string): Promise<QueryResult> => {
+  /**
+   * Low-level query execution (internal helper)
+   * Returns raw results without complex type handling
+   */
+  const executeQueryRaw = async (
+    sql: string,
+    originalColumns?: ColumnInfo[]
+  ): Promise<QueryResult> => {
     if (isClosed) {
       throw new Error('Database instance is closed')
     }
@@ -311,17 +453,28 @@ export function createInstanceFromModule(
       const columnCount = mod._duckdb_column_count(resultPtr)
       const rowCount = Number(mod._duckdb_row_count(resultPtr))
 
-      // Build column info
+      // Build column info (use original columns if provided, for type preservation)
       const columns: ColumnInfo[] = []
       for (let col = 0; col < columnCount; col++) {
         const namePtr = mod._duckdb_column_name(resultPtr, col)
         const name = mod.UTF8ToString(namePtr)
         const typeCode = mod._duckdb_column_type(resultPtr, col)
-        columns.push({
-          name,
-          type: typeCodeToString(typeCode),
-          typeCode,
-        })
+
+        // Use original column type if available (for re-queries with casts)
+        const origCol = originalColumns?.[col]
+        if (origCol) {
+          columns.push({
+            name,
+            type: origCol.type,
+            typeCode: origCol.typeCode,
+          })
+        } else {
+          columns.push({
+            name,
+            type: typeCodeToString(typeCode),
+            typeCode,
+          })
+        }
       }
 
       // Extract row data
@@ -383,7 +536,7 @@ export function createInstanceFromModule(
               case DuckDBType.UBIGINT:
               case DuckDBType.HUGEINT:
               case DuckDBType.UHUGEINT: {
-                // Preserve BigInt for large integers (5 params for legalized idx_t)
+                // Get value as string first (5 params for legalized idx_t)
                 const valPtr = (mod._duckdb_value_varchar as Function)(
                   resultPtr,
                   colLo,
@@ -393,7 +546,28 @@ export function createInstanceFromModule(
                 )
                 const valStr = mod.UTF8ToString(valPtr)
                 mod._free(valPtr)
-                rowData[colInfo.name] = BigInt(valStr)
+
+                // Convert to JSON-safe format based on bigIntMode config:
+                // - 'auto': number if safe, string otherwise (default)
+                // - 'string': always string for full precision
+                // - 'number': always number (may lose precision)
+                if (bigIntMode === 'string') {
+                  rowData[colInfo.name] = valStr
+                } else if (bigIntMode === 'number') {
+                  rowData[colInfo.name] = Number(BigInt(valStr))
+                } else {
+                  // 'auto' mode: check if value is within safe integer range
+                  const bigVal = BigInt(valStr)
+                  if (
+                    bigVal >= BigInt(Number.MIN_SAFE_INTEGER) &&
+                    bigVal <= BigInt(Number.MAX_SAFE_INTEGER)
+                  ) {
+                    rowData[colInfo.name] = Number(bigVal)
+                  } else {
+                    // Return as string to preserve full precision
+                    rowData[colInfo.name] = valStr
+                  }
+                }
                 break
               }
               case DuckDBType.FLOAT:
@@ -421,7 +595,33 @@ export function createInstanceFromModule(
                 )
                 const valStr = mod.UTF8ToString(valPtr)
                 mod._free(valPtr)
-                rowData[colInfo.name] = valStr
+
+                // For JSON-parseable types, parse the string as JSON
+                if (JSON_PARSEABLE_TYPES.has(colInfo.typeCode) && valStr) {
+                  try {
+                    // Try parsing as JSON first (works for LIST/ARRAY)
+                    rowData[colInfo.name] = JSON.parse(valStr)
+                  } catch {
+                    // For STRUCT, DuckDB uses single quotes - convert to JSON format
+                    // For MAP, DuckDB uses key=value format - convert to JSON format
+                    try {
+                      // Try STRUCT format first (single quotes)
+                      const structJson = duckdbStructToJson(valStr)
+                      rowData[colInfo.name] = JSON.parse(structJson)
+                    } catch {
+                      try {
+                        // Try MAP format (key=value)
+                        const mapJson = duckdbMapToJson(valStr)
+                        rowData[colInfo.name] = JSON.parse(mapJson)
+                      } catch {
+                        // If all parsing fails, return as string
+                        rowData[colInfo.name] = valStr
+                      }
+                    }
+                  }
+                } else {
+                  rowData[colInfo.name] = valStr
+                }
               }
             }
           }
@@ -441,6 +641,56 @@ export function createInstanceFromModule(
     } finally {
       mod.stackRestore(stackPtr)
     }
+  }
+
+  /**
+   * Execute a query with automatic handling of complex types
+   * If complex types are detected, the query is wrapped to cast them to VARCHAR
+   */
+  const executeQuery = async (sql: string): Promise<QueryResult> => {
+    // First, try to get column metadata by wrapping query in a CTE with LIMIT 0
+    // This is more reliable than DESCRIBE for complex queries
+    const metadataQuery = `WITH __cte AS (${sql}) SELECT * FROM __cte LIMIT 0`
+
+    let columns: ColumnInfo[]
+    try {
+      const metadataResult = await executeQueryRaw(metadataQuery)
+      columns = metadataResult.columns
+    } catch {
+      // If metadata query fails (e.g., for DDL statements), just execute directly
+      return executeQueryRaw(sql)
+    }
+
+    // Check if any columns need casting
+    const complexColumns = columns.filter((col) =>
+      COMPLEX_TYPES_NEEDING_CAST.has(col.typeCode)
+    )
+
+    if (complexColumns.length === 0) {
+      // No complex types, execute normally
+      return executeQueryRaw(sql)
+    }
+
+    // Build a wrapped query that casts complex columns to VARCHAR
+    // We use a CTE to avoid modifying the original query structure
+    const selectParts = columns.map((col) => {
+      // Escape column name for SQL
+      const escapedName = `"${col.name.replace(/"/g, '""')}"`
+
+      if (COMPLEX_TYPES_NEEDING_CAST.has(col.typeCode)) {
+        // For complex types, cast to VARCHAR
+        // DuckDB's CAST produces JSON-compatible output for LIST/STRUCT/MAP/ARRAY
+        // Note: TO_JSON is not available in minimal WASM builds, so we use CAST
+        return `CAST(${escapedName} AS VARCHAR) AS ${escapedName}`
+      } else {
+        return escapedName
+      }
+    })
+
+    const wrappedQuery = `WITH __original AS (${sql}) SELECT ${selectParts.join(', ')} FROM __original`
+
+    // Execute the wrapped query with original column types preserved
+    return executeQueryRaw(wrappedQuery, columns)
   }
 
   // Create the instance object
@@ -510,12 +760,15 @@ export function createInstanceFromModule(
     isOpen(): boolean {
       return !isClosed
     },
+
+    configWarnings,
   }
 
-  // Apply config if provided
+  // Apply config if provided (errors are captured in configWarnings array)
   if (config) {
     applyConfig().catch(() => {
-      // Config application failed silently
+      // Unexpected error in applyConfig itself (not individual pragmas)
+      // Individual pragma errors are already captured in configWarnings
     })
   }
 

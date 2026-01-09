@@ -4,8 +4,8 @@
   "name": "duckdb-worker-test",
   "account_id": "b6641681fe423910342b9ffa1364c76d",
   "main": "src/test-worker.ts",
-  "compatibility_date": "2026-01-08",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
 
   // Memory limits for DuckDB
   "limits": {
@@ -17,7 +17,9 @@
     "command": ""
   },
 
-  // Rules for handling WASM files (ES module import)
+  // Rules for handling WASM files (ES module import style)
+  // WASM modules are imported directly as ES modules:
+  // import wasmModule from './path/to/file.wasm'
   "rules": [
     { "type": "CompiledWasm", "globs": ["**/*.wasm"] }
   ]

@@ -300,38 +300,50 @@ function parseKeyCondition(
     }
   }
 
-  // Partition + sort key: pk = :pk AND sk op :sk
-  const compoundMatch = resolved.match(
-    /^(\w+)\s*=\s*:(\w+)\s+AND\s+(\w+)\s*(=|<|>|<=|>=|BETWEEN|begins_with)\s*(.+)$/i
+  // Partition + begins_with function: pk = :pk AND begins_with(sk, :prefix)
+  const beginsWithMatch = resolved.match(
+    /^(\w+)\s*=\s*:(\w+)\s+AND\s+begins_with\s*\(\s*(\w+)\s*,\s*:(\w+)\s*\)$/i
   )
-  if (compoundMatch) {
-    const [, pk, pkValue, sk, op, rest] = compoundMatch
-    const result: ReturnType<typeof parseKeyCondition> = {
+  if (beginsWithMatch) {
+    const [, pk, pkValue, sk, prefixValue] = beginsWithMatch
+    return {
       partitionKey: pk,
       partitionValue: values?.[`:${pkValue}`]!,
       sortKey: sk,
-      sortOp: op.toUpperCase(),
+      sortOp: 'BEGINS_WITH',
+      sortValue: values?.[`:${prefixValue}`],
     }
+  }
 
-    if (op.toUpperCase() === 'BETWEEN') {
-      const betweenMatch = rest.match(/:(\w+)\s+AND\s+:(\w+)/)
-      if (betweenMatch) {
-        result.sortValue = values?.[`:${betweenMatch[1]}`]
-        result.sortValue2 = values?.[`:${betweenMatch[2]}`]
-      }
-    } else if (op.toLowerCase() === 'begins_with') {
-      const bwMatch = rest.match(/\(\s*(\w+)\s*,\s*:(\w+)\s*\)/)
-      if (bwMatch) {
-        result.sortValue = values?.[`:${bwMatch[2]}`]
-      }
-    } else {
-      const valueMatch = rest.match(/:(\w+)/)
-      if (valueMatch) {
-        result.sortValue = values?.[`:${valueMatch[1]}`]
-      }
+  // Partition + sort key with BETWEEN: pk = :pk AND sk BETWEEN :start AND :end
+  const betweenMatch = resolved.match(
+    /^(\w+)\s*=\s*:(\w+)\s+AND\s+(\w+)\s+BETWEEN\s+:(\w+)\s+AND\s+:(\w+)$/i
+  )
+  if (betweenMatch) {
+    const [, pk, pkValue, sk, startValue, endValue] = betweenMatch
+    return {
+      partitionKey: pk,
+      partitionValue: values?.[`:${pkValue}`]!,
+      sortKey: sk,
+      sortOp: 'BETWEEN',
+      sortValue: values?.[`:${startValue}`],
+      sortValue2: values?.[`:${endValue}`],
     }
+  }
 
-    return result
+  // Partition + sort key with comparison operators: pk = :pk AND sk op :sk
+  const compoundMatch = resolved.match(
+    /^(\w+)\s*=\s*:(\w+)\s+AND\s+(\w+)\s*(=|<|>|<=|>=)\s*:(\w+)$/i
+  )
+  if (compoundMatch) {
+    const [, pk, pkValue, sk, op, skValue] = compoundMatch
+    return {
+      partitionKey: pk,
+      partitionValue: values?.[`:${pkValue}`]!,
+      sortKey: sk,
+      sortOp: op,
+      sortValue: values?.[`:${skValue}`],
+    }
   }
 
   throw new ValidationException(`Invalid KeyConditionExpression: ${expr}`)
@@ -384,7 +396,7 @@ function evaluateFilter(
   if (beginsWithMatch) {
     const attrValue = item[beginsWithMatch[1]]
     const prefixValue = values?.[`:${beginsWithMatch[2]}`]
-    if (attrValue?.S && prefixValue?.S) {
+    if (attrValue?.S !== undefined && prefixValue?.S !== undefined) {
       return attrValue.S.startsWith(prefixValue.S)
     }
     return false
@@ -525,6 +537,79 @@ function evaluateAttributeComparison(
 }
 
 /**
+ * Split SET assignments respecting parentheses in function calls
+ */
+function splitSetAssignments(expr: string): string[] {
+  const assignments: string[] = []
+  let current = ''
+  let depth = 0
+
+  for (let i = 0; i < expr.length; i++) {
+    const char = expr[i]
+    if (char === '(') {
+      depth++
+      current += char
+    } else if (char === ')') {
+      depth--
+      current += char
+    } else if (char === ',' && depth === 0) {
+      assignments.push(current.trim())
+      current = ''
+    } else {
+      current += char
+    }
+  }
+
+  if (current.trim()) {
+    assignments.push(current.trim())
+  }
+
+  return assignments
+}
+
+/**
+ * Evaluate if_not_exists function
+ */
+function evaluateIfNotExists(
+  item: Item,
+  attrPath: string,
+  defaultValue: AttributeValue
+): AttributeValue {
+  const existing = getNestedValue(item, attrPath)
+  return existing ?? defaultValue
+}
+
+/**
+ * Evaluate a list_append argument (can be attribute path, value reference, or if_not_exists)
+ */
+function evaluateListAppendArg(
+  arg: string,
+  item: Item,
+  values: Record<string, AttributeValue> | undefined
+): AttributeValue | undefined {
+  const trimmed = arg.trim()
+
+  // Check for if_not_exists(attr, :value)
+  const ifNotExistsMatch = trimmed.match(/^if_not_exists\s*\(\s*([\w.]+)\s*,\s*:(\w+)\s*\)$/i)
+  if (ifNotExistsMatch) {
+    const attrPath = ifNotExistsMatch[1]
+    const defaultValue = values?.[`:${ifNotExistsMatch[2]}`]
+    if (defaultValue) {
+      return evaluateIfNotExists(item, attrPath, defaultValue)
+    }
+    return undefined
+  }
+
+  // Check for value reference (:value)
+  if (trimmed.startsWith(':')) {
+    return values?.[trimmed]
+  }
+
+  // Attribute path
+  return getNestedValue(item, trimmed)
+}
+
+/**
  * Parse and apply update expression
  */
 function applyUpdateExpression(
@@ -539,7 +624,7 @@ function applyUpdateExpression(
   // Handle SET
   const setMatch = resolved.match(/SET\s+(.+?)(?=\s*(?:REMOVE|ADD|DELETE|$))/i)
   if (setMatch) {
-    const assignments = setMatch[1].split(',').map((a) => a.trim())
+    const assignments = splitSetAssignments(setMatch[1])
     for (const assignment of assignments) {
       // Simple assignment: attr = :value
       const simpleMatch = assignment.match(/^([\w.]+)\s*=\s*:(\w+)$/)
@@ -566,29 +651,47 @@ function applyUpdateExpression(
         continue
       }
 
-      // list_append: attr = list_append(attr, :value) or list_append(:value, attr)
-      const listAppendMatch = assignment.match(
-        /^([\w.]+)\s*=\s*list_append\s*\(\s*([\w.:]+)\s*,\s*([\w.:]+)\s*\)$/i
+      // list_append with nested if_not_exists:
+      // attr = list_append(if_not_exists(attr, :empty), :value)
+      const listAppendWithIfNotExistsMatch = assignment.match(
+        /^([\w.]+)\s*=\s*list_append\s*\(\s*(if_not_exists\s*\([^)]+\)|[\w.:]+)\s*,\s*(if_not_exists\s*\([^)]+\)|[\w.:]+)\s*\)$/i
       )
-      if (listAppendMatch) {
-        let first: AttributeValue | undefined
-        let second: AttributeValue | undefined
+      if (listAppendWithIfNotExistsMatch) {
+        const targetPath = listAppendWithIfNotExistsMatch[1]
+        const firstArg = listAppendWithIfNotExistsMatch[2]
+        const secondArg = listAppendWithIfNotExistsMatch[3]
 
-        if (listAppendMatch[2].startsWith(':')) {
-          first = values?.[listAppendMatch[2]]
-        } else {
-          first = getNestedValue(result, listAppendMatch[2])
-        }
-
-        if (listAppendMatch[3].startsWith(':')) {
-          second = values?.[listAppendMatch[3]]
-        } else {
-          second = getNestedValue(result, listAppendMatch[3])
-        }
+        const first = evaluateListAppendArg(firstArg, result, values)
+        const second = evaluateListAppendArg(secondArg, result, values)
 
         const list1 = first?.L ?? []
         const list2 = second?.L ?? []
-        setNestedValue(result, listAppendMatch[1], { L: [...list1, ...list2] })
+        setNestedValue(result, targetPath, { L: [...list1, ...list2] })
+        continue
+      }
+
+      // if_not_exists with arithmetic: attr = if_not_exists(attr, :zero) + :inc
+      const ifNotExistsArithmeticMatch = assignment.match(
+        /^([\w.]+)\s*=\s*if_not_exists\s*\(\s*([\w.]+)\s*,\s*:(\w+)\s*\)\s*([+-])\s*:(\w+)$/i
+      )
+      if (ifNotExistsArithmeticMatch) {
+        const targetPath = ifNotExistsArithmeticMatch[1]
+        const checkPath = ifNotExistsArithmeticMatch[2]
+        const defaultValueKey = `:${ifNotExistsArithmeticMatch[3]}`
+        const operator = ifNotExistsArithmeticMatch[4]
+        const operandKey = `:${ifNotExistsArithmeticMatch[5]}`
+
+        const existingValue = getNestedValue(result, checkPath)
+        const defaultValue = values?.[defaultValueKey]
+        const operandValue = values?.[operandKey]
+
+        // Use existing value if it exists, otherwise use default
+        const baseValue = existingValue ?? defaultValue
+        const base = baseValue?.N ? Number(baseValue.N) : 0
+        const operand = operandValue?.N ? Number(operandValue.N) : 0
+
+        const newValue = operator === '+' ? base + operand : base - operand
+        setNestedValue(result, targetPath, { N: String(newValue) })
         continue
       }
 
@@ -1083,7 +1186,7 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
           const cmpHigh = compareAttributeValues(sk, keyCondition.sortValue2!)
           return cmpLow >= 0 && cmpHigh <= 0
         case 'BEGINS_WITH':
-          if (sk.S && keyCondition.sortValue?.S) {
+          if (sk.S !== undefined && keyCondition.sortValue?.S !== undefined) {
             return sk.S.startsWith(keyCondition.sortValue.S)
           }
           return false
@@ -1093,19 +1196,7 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
     })
   }
 
-  // Apply filter expression
-  if (input.FilterExpression) {
-    items = items.filter((item) =>
-      evaluateFilter(
-        item,
-        input.FilterExpression!,
-        input.ExpressionAttributeNames,
-        input.ExpressionAttributeValues
-      )
-    )
-  }
-
-  // Sort by sort key
+  // Sort by sort key (before pagination)
   const sortKeyName = keySchema.find((k) => k.KeyType === 'RANGE')?.AttributeName
   const partitionKeyName = keySchema.find((k) => k.KeyType === 'HASH')?.AttributeName
   const direction = input.ScanIndexForward !== false ? 1 : -1
@@ -1151,15 +1242,30 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
     })
   }
 
-  const scannedCount = items.length
   let lastEvaluatedKey: Key | undefined
 
-  // Apply limit and determine LastEvaluatedKey
+  // AWS DynamoDB: Limit is applied BEFORE FilterExpression
+  // This means we scan up to Limit items, then filter, returning what matches
   if (input.Limit && items.length > input.Limit) {
     items = items.slice(0, input.Limit)
-    // Set LastEvaluatedKey to the last item's key
+    // Set LastEvaluatedKey to the last item's key (before filtering)
     const lastItem = items[items.length - 1]
     lastEvaluatedKey = extractKey(lastItem, keySchema)
+  }
+
+  // ScannedCount is the number of items examined BEFORE FilterExpression
+  const scannedCount = items.length
+
+  // Apply filter expression AFTER Limit (AWS DynamoDB behavior)
+  if (input.FilterExpression) {
+    items = items.filter((item) =>
+      evaluateFilter(
+        item,
+        input.FilterExpression!,
+        input.ExpressionAttributeNames,
+        input.ExpressionAttributeValues
+      )
+    )
   }
 
   // Apply projection (after extracting keys for pagination)
@@ -1252,7 +1358,21 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
     })
   }
 
-  // Apply filter expression
+  let lastEvaluatedKey: Key | undefined
+
+  // AWS DynamoDB: Limit is applied BEFORE FilterExpression
+  // This means we scan up to Limit items, then filter, returning what matches
+  if (input.Limit && items.length > input.Limit) {
+    items = items.slice(0, input.Limit)
+    // Set LastEvaluatedKey to the last item's key (before filtering)
+    const lastItem = items[items.length - 1]
+    lastEvaluatedKey = extractKey(lastItem, keySchema)
+  }
+
+  // ScannedCount is the number of items examined BEFORE FilterExpression
+  const scannedCount = items.length
+
+  // Apply filter expression AFTER Limit (AWS DynamoDB behavior)
   if (input.FilterExpression) {
     items = items.filter((item) =>
       evaluateFilter(
@@ -1262,17 +1382,6 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
         input.ExpressionAttributeValues
       )
     )
-  }
-
-  const scannedCount = items.length
-  let lastEvaluatedKey: Key | undefined
-
-  // Apply limit and determine LastEvaluatedKey
-  if (input.Limit && items.length > input.Limit) {
-    items = items.slice(0, input.Limit)
-    // Set LastEvaluatedKey to the last item's key
-    const lastItem = items[items.length - 1]
-    lastEvaluatedKey = extractKey(lastItem, keySchema)
   }
 
   // Apply projection (after extracting keys for pagination)

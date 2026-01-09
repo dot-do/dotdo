@@ -887,6 +887,86 @@ describe('QueryCommand', () => {
     expect(result.Count).toBe(5)
   })
 
+  it('should query with begins_with case-sensitive', async () => {
+    // Add an item with lowercase sk
+    await client.send(
+      new PutItemCommand({
+        TableName: 'Orders',
+        Item: {
+          pk: { S: 'USER#1' },
+          sk: { S: 'order#006' }, // lowercase
+          amount: { N: '600' },
+          status: { S: 'pending' },
+        },
+      })
+    )
+
+    // begins_with is case-sensitive, so searching for 'ORDER#' should not match 'order#'
+    const result = await client.send(
+      new QueryCommand({
+        TableName: 'Orders',
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': { S: 'USER#1' },
+          ':prefix': { S: 'ORDER#' },
+        },
+      })
+    )
+
+    // Should only match the 5 uppercase ORDER# items, not the lowercase order#006
+    expect(result.Count).toBe(5)
+
+    // Now search with lowercase prefix should match only the lowercase item
+    const result2 = await client.send(
+      new QueryCommand({
+        TableName: 'Orders',
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': { S: 'USER#1' },
+          ':prefix': { S: 'order#' },
+        },
+      })
+    )
+
+    expect(result2.Count).toBe(1)
+    expect(result2.Items![0].sk?.S).toBe('order#006')
+  })
+
+  it('should query with begins_with empty prefix matches all', async () => {
+    const result = await client.send(
+      new QueryCommand({
+        TableName: 'Orders',
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: {
+          ':pk': { S: 'USER#1' },
+          ':prefix': { S: '' }, // empty prefix matches all
+        },
+      })
+    )
+
+    // Empty prefix should match all items for USER#1
+    expect(result.Count).toBe(5)
+  })
+
+  it('should query with begins_with using ExpressionAttributeNames', async () => {
+    const result = await client.send(
+      new QueryCommand({
+        TableName: 'Orders',
+        KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :prefix)',
+        ExpressionAttributeNames: {
+          '#pk': 'pk',
+          '#sk': 'sk',
+        },
+        ExpressionAttributeValues: {
+          ':pk': { S: 'USER#1' },
+          ':prefix': { S: 'ORDER#00' },
+        },
+      })
+    )
+
+    expect(result.Count).toBe(5)
+  })
+
   it('should query with BETWEEN', async () => {
     const result = await client.send(
       new QueryCommand({
@@ -1486,6 +1566,18 @@ describe('Filter expressions', () => {
     expect(result.Count).toBe(1)
   })
 
+  it('should filter with begins_with empty prefix', async () => {
+    const result = await client.send(
+      new ScanCommand({
+        TableName: 'FilterTest',
+        FilterExpression: 'begins_with(name, :prefix)',
+        ExpressionAttributeValues: { ':prefix': { S: '' } },
+      })
+    )
+    // Empty prefix should match all items
+    expect(result.Count).toBe(1)
+  })
+
   it('should filter with contains', async () => {
     const result = await client.send(
       new ScanCommand({
@@ -1778,6 +1870,465 @@ describe('Update expressions', () => {
     expect(result.Item?.a).toBeUndefined()
     expect(result.Item?.b?.S).toBe('b')
     expect(result.Item?.c?.S).toBe('c')
+  })
+})
+
+// ============================================================================
+// LIST_APPEND TESTS
+// ============================================================================
+
+describe('list_append function', () => {
+  let client: DynamoDBClient
+
+  beforeEach(async () => {
+    clearAllTables()
+    client = new DynamoDBClient({ region: 'us-east-1' })
+    await client.send(
+      new CreateTableCommand({
+        TableName: 'ListAppendTest',
+        KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+        AttributeDefinitions: [{ AttributeName: 'pk', AttributeType: 'S' }],
+      })
+    )
+  })
+
+  describe('appending to existing list', () => {
+    it('should append items to an existing list using list_append(attr, :value)', async () => {
+      // Setup: Put item with existing list
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'a' }, { S: 'b' }] },
+          },
+        })
+      )
+
+      // Append new items
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(items, :newItems)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'c' }, { S: 'd' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(4)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('b')
+      expect(result.Item?.items?.L?.[2]?.S).toBe('c')
+      expect(result.Item?.items?.L?.[3]?.S).toBe('d')
+    })
+
+    it('should append a single item to an existing list', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            tags: { L: [{ S: 'tag1' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET tags = list_append(tags, :newTag)',
+          ExpressionAttributeValues: {
+            ':newTag': { L: [{ S: 'tag2' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.tags?.L).toHaveLength(2)
+      expect(result.Item?.tags?.L?.[0]?.S).toBe('tag1')
+      expect(result.Item?.tags?.L?.[1]?.S).toBe('tag2')
+    })
+  })
+
+  describe('prepending to existing list', () => {
+    it('should prepend items using list_append(:value, attr) where list is second argument', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'c' }, { S: 'd' }] },
+          },
+        })
+      )
+
+      // Prepend: list_append(:newItems, items) - newItems come first
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(:newItems, items)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'a' }, { S: 'b' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(4)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('b')
+      expect(result.Item?.items?.L?.[2]?.S).toBe('c')
+      expect(result.Item?.items?.L?.[3]?.S).toBe('d')
+    })
+  })
+
+  describe('list_append with if_not_exists', () => {
+    it('should create list when attribute is missing using if_not_exists with list_append', async () => {
+      // Item without a list attribute
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            name: { S: 'test' },
+          },
+        })
+      )
+
+      // Use if_not_exists to initialize the list, then append
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #list = list_append(if_not_exists(#list, :empty), :newItems)',
+          ExpressionAttributeNames: { '#list': 'items' },
+          ExpressionAttributeValues: {
+            ':empty': { L: [] },
+            ':newItems': { L: [{ S: 'first' }, { S: 'second' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(2)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('first')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('second')
+    })
+
+    it('should append to existing list when using if_not_exists and list exists', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'existing' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #list = list_append(if_not_exists(#list, :empty), :newItems)',
+          ExpressionAttributeNames: { '#list': 'items' },
+          ExpressionAttributeValues: {
+            ':empty': { L: [] },
+            ':newItems': { L: [{ S: 'new' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(2)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('existing')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('new')
+    })
+  })
+
+  describe('list_append edge cases', () => {
+    it('should handle appending to empty list', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(items, :newItems)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'a' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(1)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+    })
+
+    it('should handle appending empty list to existing list', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'a' }, { S: 'b' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(items, :empty)',
+          ExpressionAttributeValues: {
+            ':empty': { L: [] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(2)
+    })
+
+    it('should handle lists with mixed types', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'string' }, { N: '42' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(items, :newItems)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ BOOL: true }, { M: { nested: { S: 'value' } } }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(4)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('string')
+      expect(result.Item?.items?.L?.[1]?.N).toBe('42')
+      expect(result.Item?.items?.L?.[2]?.BOOL).toBe(true)
+      expect(result.Item?.items?.L?.[3]?.M?.nested?.S).toBe('value')
+    })
+
+    it('should handle list_append when attribute does not exist (treats as empty list)', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            name: { S: 'test' },
+          },
+        })
+      )
+
+      // list_append on non-existent attribute should treat it as empty list
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET items = list_append(items, :newItems)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'a' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(1)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+    })
+
+    it('should work with expression attribute names', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'a' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #i = list_append(#i, :newItems)',
+          ExpressionAttributeNames: { '#i': 'items' },
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'b' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(2)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('b')
+    })
+  })
+
+  describe('list_append with nested attributes', () => {
+    it('should append to nested list attribute', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            data: { M: { items: { L: [{ S: 'a' }] } } },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET data.items = list_append(data.items, :newItems)',
+          ExpressionAttributeValues: {
+            ':newItems': { L: [{ S: 'b' }] },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.data?.M?.items?.L).toHaveLength(2)
+      expect(result.Item?.data?.M?.items?.L?.[0]?.S).toBe('a')
+      expect(result.Item?.data?.M?.items?.L?.[1]?.S).toBe('b')
+    })
+  })
+
+  describe('list_append in transactions', () => {
+    it('should work in TransactWriteItems', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'ListAppendTest',
+          Item: {
+            pk: { S: 'item1' },
+            items: { L: [{ S: 'a' }] },
+          },
+        })
+      )
+
+      await client.send(
+        new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: 'ListAppendTest',
+                Key: { pk: { S: 'item1' } },
+                UpdateExpression: 'SET items = list_append(items, :newItems)',
+                ExpressionAttributeValues: {
+                  ':newItems': { L: [{ S: 'b' }] },
+                },
+              },
+            },
+          ],
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'ListAppendTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.items?.L).toHaveLength(2)
+      expect(result.Item?.items?.L?.[0]?.S).toBe('a')
+      expect(result.Item?.items?.L?.[1]?.S).toBe('b')
+    })
   })
 })
 
@@ -2170,6 +2721,679 @@ describe('Pagination', () => {
       for (const item of page2.Items!) {
         expect(page1Pks.has(item.pk?.S)).toBe(false)
       }
+    })
+  })
+})
+
+// ============================================================================
+// SCANNED COUNT TESTS
+// ============================================================================
+
+describe('ScannedCount behavior', () => {
+  let client: DynamoDBClient
+
+  beforeEach(async () => {
+    clearAllTables()
+    client = new DynamoDBClient({ region: 'us-east-1' })
+  })
+
+  describe('Query ScannedCount', () => {
+    beforeEach(async () => {
+      await client.send(
+        new CreateTableCommand({
+          TableName: 'TestTable',
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' },
+          ],
+          AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' },
+          ],
+        })
+      )
+
+      // Insert 10 items, 5 with status=active, 5 with status=inactive
+      for (let i = 0; i < 10; i++) {
+        await client.send(
+          new PutItemCommand({
+            TableName: 'TestTable',
+            Item: {
+              pk: { S: 'partition1' },
+              sk: { S: `item#${String(i).padStart(3, '0')}` },
+              status: { S: i < 5 ? 'active' : 'inactive' },
+              value: { N: String(i * 10) },
+            },
+          })
+        )
+      }
+    })
+
+    it('should have ScannedCount equal to Count when no FilterExpression', async () => {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'TestTable',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition1' } },
+        })
+      )
+
+      expect(result.Count).toBe(10)
+      expect(result.ScannedCount).toBe(10)
+      expect(result.Count).toBe(result.ScannedCount)
+    })
+
+    it('should have ScannedCount > Count when FilterExpression filters items', async () => {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'TestTable',
+          KeyConditionExpression: 'pk = :pk',
+          FilterExpression: 'status = :status',
+          ExpressionAttributeValues: {
+            ':pk': { S: 'partition1' },
+            ':status': { S: 'active' },
+          },
+        })
+      )
+
+      // 5 items match the filter, but 10 items were scanned
+      expect(result.Count).toBe(5)
+      expect(result.ScannedCount).toBe(10)
+      expect(result.ScannedCount).toBeGreaterThan(result.Count!)
+    })
+
+    it('should have ScannedCount respect Limit parameter (applied before filter)', async () => {
+      // AWS DynamoDB: Limit is applied before FilterExpression
+      // So if Limit=3, we scan 3 items, then filter, and return what matches
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'TestTable',
+          KeyConditionExpression: 'pk = :pk',
+          FilterExpression: 'status = :status',
+          ExpressionAttributeValues: {
+            ':pk': { S: 'partition1' },
+            ':status': { S: 'active' },
+          },
+          Limit: 3,
+        })
+      )
+
+      // With Limit=3, we scan 3 items (items 0, 1, 2 which are all active)
+      // All 3 match the filter, so Count=3, ScannedCount=3
+      expect(result.ScannedCount).toBe(3)
+      expect(result.Count).toBe(3)
+    })
+
+    it('should have ScannedCount reflect items examined when Limit excludes filtered items', async () => {
+      // Start from item 3 (which is active), scan 5 items (items 3, 4, 5, 6, 7)
+      // Items 3, 4 are active, items 5, 6, 7 are inactive
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'TestTable',
+          KeyConditionExpression: 'pk = :pk',
+          FilterExpression: 'status = :status',
+          ExpressionAttributeValues: {
+            ':pk': { S: 'partition1' },
+            ':status': { S: 'active' },
+          },
+          Limit: 5,
+          ExclusiveStartKey: {
+            pk: { S: 'partition1' },
+            sk: { S: 'item#002' }, // Start after item 2
+          },
+        })
+      )
+
+      // Scanned 5 items (3, 4, 5, 6, 7), but only items 3, 4 are active
+      expect(result.ScannedCount).toBe(5)
+      expect(result.Count).toBe(2)
+    })
+
+    it('should return correct ScannedCount with SELECT COUNT', async () => {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'TestTable',
+          KeyConditionExpression: 'pk = :pk',
+          FilterExpression: 'status = :status',
+          ExpressionAttributeValues: {
+            ':pk': { S: 'partition1' },
+            ':status': { S: 'inactive' },
+          },
+          Select: 'COUNT',
+        })
+      )
+
+      expect(result.Count).toBe(5) // 5 inactive items
+      expect(result.ScannedCount).toBe(10) // All 10 items scanned
+      expect(result.Items).toBeUndefined()
+    })
+  })
+
+  describe('Scan ScannedCount', () => {
+    beforeEach(async () => {
+      await client.send(
+        new CreateTableCommand({
+          TableName: 'ScanTestTable',
+          KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }],
+          AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
+        })
+      )
+
+      // Insert 20 items, half with category=books, half with category=electronics
+      for (let i = 0; i < 20; i++) {
+        await client.send(
+          new PutItemCommand({
+            TableName: 'ScanTestTable',
+            Item: {
+              id: { S: `item#${String(i).padStart(3, '0')}` },
+              category: { S: i < 10 ? 'books' : 'electronics' },
+              price: { N: String(i * 5) },
+            },
+          })
+        )
+      }
+    })
+
+    it('should have ScannedCount equal to Count when no FilterExpression', async () => {
+      const result = await client.send(
+        new ScanCommand({
+          TableName: 'ScanTestTable',
+        })
+      )
+
+      expect(result.Count).toBe(20)
+      expect(result.ScannedCount).toBe(20)
+      expect(result.Count).toBe(result.ScannedCount)
+    })
+
+    it('should have ScannedCount > Count when FilterExpression filters items', async () => {
+      const result = await client.send(
+        new ScanCommand({
+          TableName: 'ScanTestTable',
+          FilterExpression: 'category = :cat',
+          ExpressionAttributeValues: { ':cat': { S: 'books' } },
+        })
+      )
+
+      // 10 items match the filter, but 20 items were scanned
+      expect(result.Count).toBe(10)
+      expect(result.ScannedCount).toBe(20)
+      expect(result.ScannedCount).toBeGreaterThan(result.Count!)
+    })
+
+    it('should have ScannedCount respect Limit parameter (applied before filter)', async () => {
+      // With Limit=5, we only scan 5 items before applying the filter
+      const result = await client.send(
+        new ScanCommand({
+          TableName: 'ScanTestTable',
+          FilterExpression: 'category = :cat',
+          ExpressionAttributeValues: { ':cat': { S: 'books' } },
+          Limit: 5,
+        })
+      )
+
+      // Scanned 5 items, and since books are items 0-9 (first in sort order),
+      // all 5 should match
+      expect(result.ScannedCount).toBe(5)
+      expect(result.Count).toBeLessThanOrEqual(5)
+    })
+
+    it('should return correct ScannedCount with SELECT COUNT', async () => {
+      const result = await client.send(
+        new ScanCommand({
+          TableName: 'ScanTestTable',
+          FilterExpression: 'price >= :minPrice',
+          ExpressionAttributeValues: { ':minPrice': { N: '50' } },
+          Select: 'COUNT',
+        })
+      )
+
+      // Items with price >= 50 are items 10-19 (price 50, 55, ..., 95)
+      expect(result.Count).toBe(10)
+      expect(result.ScannedCount).toBe(20) // All items scanned
+      expect(result.Items).toBeUndefined()
+    })
+
+    it('should accumulate correct ScannedCount across paginated scans', async () => {
+      let totalScanned = 0
+      let totalCount = 0
+      let lastKey: any = undefined
+
+      do {
+        const result = await client.send(
+          new ScanCommand({
+            TableName: 'ScanTestTable',
+            FilterExpression: 'category = :cat',
+            ExpressionAttributeValues: { ':cat': { S: 'electronics' } },
+            Limit: 7,
+            ExclusiveStartKey: lastKey,
+          })
+        )
+
+        totalScanned += result.ScannedCount ?? 0
+        totalCount += result.Count ?? 0
+        lastKey = result.LastEvaluatedKey
+      } while (lastKey)
+
+      // Total scanned should be 20 (all items)
+      // Total count should be 10 (electronics items)
+      expect(totalScanned).toBe(20)
+      expect(totalCount).toBe(10)
+    })
+  })
+})
+
+// ============================================================================
+// IF_NOT_EXISTS FUNCTION TESTS
+// ============================================================================
+
+describe('if_not_exists function', () => {
+  let client: DynamoDBClient
+
+  beforeEach(async () => {
+    clearAllTables()
+    client = new DynamoDBClient({ region: 'us-east-1' })
+    await client.send(
+      new CreateTableCommand({
+        TableName: 'IfNotExistsTest',
+        KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+        AttributeDefinitions: [{ AttributeName: 'pk', AttributeType: 'S' }],
+      })
+    )
+  })
+
+  describe('basic if_not_exists usage', () => {
+    it('should set value when attribute is missing', async () => {
+      // Item without the 'status' attribute
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            name: { S: 'test' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #status = if_not_exists(#status, :default)',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':default': { S: 'active' } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.status?.S).toBe('active')
+    })
+
+    it('should preserve value when attribute exists', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            status: { S: 'inactive' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #status = if_not_exists(#status, :default)',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':default': { S: 'active' } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      // Should preserve existing 'inactive' value
+      expect(result.Item?.status?.S).toBe('inactive')
+    })
+
+    it('should work with different attribute types', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+          },
+        })
+      )
+
+      // Set number with if_not_exists
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET counter = if_not_exists(counter, :zero)',
+          ExpressionAttributeValues: { ':zero': { N: '0' } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.counter?.N).toBe('0')
+    })
+  })
+
+  describe('if_not_exists with arithmetic (counter pattern)', () => {
+    it('should initialize counter and add when attribute is missing', async () => {
+      // Item without a counter attribute
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            name: { S: 'test' },
+          },
+        })
+      )
+
+      // Common counter pattern: SET counter = if_not_exists(counter, :zero) + :inc
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #counter = if_not_exists(#counter, :zero) + :inc',
+          ExpressionAttributeNames: { '#counter': 'counter' },
+          ExpressionAttributeValues: {
+            ':zero': { N: '0' },
+            ':inc': { N: '1' },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      // Counter should be 0 + 1 = 1
+      expect(result.Item?.counter?.N).toBe('1')
+    })
+
+    it('should increment existing counter when attribute exists', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            counter: { N: '10' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET #counter = if_not_exists(#counter, :zero) + :inc',
+          ExpressionAttributeNames: { '#counter': 'counter' },
+          ExpressionAttributeValues: {
+            ':zero': { N: '0' },
+            ':inc': { N: '1' },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      // Counter should be 10 + 1 = 11
+      expect(result.Item?.counter?.N).toBe('11')
+    })
+
+    it('should support subtraction with if_not_exists', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET balance = if_not_exists(balance, :start) - :dec',
+          ExpressionAttributeValues: {
+            ':start': { N: '100' },
+            ':dec': { N: '10' },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      // Balance should be 100 - 10 = 90
+      expect(result.Item?.balance?.N).toBe('90')
+    })
+
+    it('should handle multiple if_not_exists with arithmetic in one expression', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            views: { N: '5' }, // Only views exists, visits does not
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET views = if_not_exists(views, :zero) + :inc, visits = if_not_exists(visits, :zero) + :inc',
+          ExpressionAttributeValues: {
+            ':zero': { N: '0' },
+            ':inc': { N: '1' },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      // views: 5 + 1 = 6, visits: 0 + 1 = 1
+      expect(result.Item?.views?.N).toBe('6')
+      expect(result.Item?.visits?.N).toBe('1')
+    })
+  })
+
+  describe('if_not_exists for item creation', () => {
+    it('should initialize all fields when item does not exist', async () => {
+      // Update on non-existent item - should create it
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'newitem' } },
+          UpdateExpression: 'SET #counter = if_not_exists(#counter, :zero) + :inc, #status = if_not_exists(#status, :default)',
+          ExpressionAttributeNames: {
+            '#counter': 'counter',
+            '#status': 'status',
+          },
+          ExpressionAttributeValues: {
+            ':zero': { N: '0' },
+            ':inc': { N: '1' },
+            ':default': { S: 'active' },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'newitem' } },
+        })
+      )
+
+      expect(result.Item?.pk?.S).toBe('newitem')
+      expect(result.Item?.counter?.N).toBe('1')
+      expect(result.Item?.status?.S).toBe('active')
+    })
+  })
+
+  describe('if_not_exists edge cases', () => {
+    it('should handle nested paths', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+            data: { M: { name: { S: 'test' } } },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET data.count = if_not_exists(data.count, :zero)',
+          ExpressionAttributeValues: { ':zero': { N: '0' } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.data?.M?.count?.N).toBe('0')
+    })
+
+    it('should handle if_not_exists where path references different attribute than target', async () => {
+      // SET newAttr = if_not_exists(oldAttr, :default)
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET newStatus = if_not_exists(oldStatus, :default)',
+          ExpressionAttributeValues: { ':default': { S: 'pending' } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.newStatus?.S).toBe('pending')
+      expect(result.Item?.oldStatus).toBeUndefined()
+    })
+
+    it('should work with boolean values', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET active = if_not_exists(active, :default)',
+          ExpressionAttributeValues: { ':default': { BOOL: true } },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.active?.BOOL).toBe(true)
+    })
+
+    it('should work with map values', async () => {
+      await client.send(
+        new PutItemCommand({
+          TableName: 'IfNotExistsTest',
+          Item: {
+            pk: { S: 'item1' },
+          },
+        })
+      )
+
+      await client.send(
+        new UpdateItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+          UpdateExpression: 'SET metadata = if_not_exists(metadata, :default)',
+          ExpressionAttributeValues: {
+            ':default': { M: { created: { S: '2025-01-01' }, version: { N: '1' } } },
+          },
+        })
+      )
+
+      const result = await client.send(
+        new GetItemCommand({
+          TableName: 'IfNotExistsTest',
+          Key: { pk: { S: 'item1' } },
+        })
+      )
+
+      expect(result.Item?.metadata?.M?.created?.S).toBe('2025-01-01')
+      expect(result.Item?.metadata?.M?.version?.N).toBe('1')
     })
   })
 })

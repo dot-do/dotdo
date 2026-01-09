@@ -75,6 +75,13 @@ export interface ResolutionDetails<T> {
 // ============================================================================
 
 /**
+ * Hook data storage for sharing data between hook stages.
+ * Per OpenFeature spec, hook data is created before the first stage
+ * and propagated between each stage of the hook.
+ */
+export type HookData = Map<string, unknown>
+
+/**
  * Context passed to hooks
  */
 export interface HookContext {
@@ -82,6 +89,16 @@ export interface HookContext {
   defaultValue: unknown
   flagValueType: string
   context?: EvaluationContext
+  /** Flag metadata (version, type info, etc.) */
+  flagMetadata?: Record<string, unknown>
+  /**
+   * Hook data storage for sharing data between stages.
+   * Each hook gets its own data map that persists across stages.
+   * Per OpenFeature spec: "Hook data MUST be created before the first
+   * stage invoked in a hook for a specific evaluation and propagated
+   * between each stage of the hook."
+   */
+  hookData?: HookData
 }
 
 /**
@@ -366,6 +383,239 @@ export function createContextTransformHook(config: ContextTransformConfig): Hook
   }
 }
 
+/**
+ * Configuration for validation hook
+ */
+export interface ValidationHookConfig {
+  /** Validate the evaluation context before evaluation */
+  validateContext?: (context: EvaluationContext) => boolean | Promise<boolean>
+  /** Validate the result after evaluation */
+  validateResult?: <T>(value: T, flagKey: string) => boolean | Promise<boolean>
+  /** Custom error handler for validation failures */
+  onValidationError?: (error: { type: 'context' | 'result'; flagKey: string; details?: string }) => void
+}
+
+/**
+ * Create a validation hook for flag evaluations.
+ * Validates context before evaluation and results after.
+ *
+ * @example
+ * ```ts
+ * const client = new FlagsClient(config)
+ * client.addHook(createValidationHook({
+ *   validateContext: (ctx) => !!ctx.targetingKey,
+ *   validateResult: (value, key) => value !== undefined,
+ *   onValidationError: (err) => console.warn('Validation failed:', err),
+ * }))
+ * ```
+ */
+export function createValidationHook(config: ValidationHookConfig): Hook {
+  return {
+    name: 'validation-hook',
+
+    async before(hookContext) {
+      if (config.validateContext && hookContext.context) {
+        const isValid = await config.validateContext(hookContext.context)
+        if (!isValid) {
+          config.onValidationError?.({
+            type: 'context',
+            flagKey: hookContext.flagKey,
+            details: 'Context validation failed',
+          })
+        }
+      }
+    },
+
+    async after(hookContext, details) {
+      if (config.validateResult) {
+        const isValid = await config.validateResult(details.value, hookContext.flagKey)
+        if (!isValid) {
+          config.onValidationError?.({
+            type: 'result',
+            flagKey: hookContext.flagKey,
+            details: `Result validation failed for value: ${JSON.stringify(details.value)}`,
+          })
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Configuration for timing hook
+ */
+export interface TimingHookConfig {
+  /** Callback when evaluation completes with timing data */
+  onTiming: (data: {
+    flagKey: string
+    durationMs: number
+    success: boolean
+    reason?: string
+  }) => void
+  /** Threshold in ms - only report timings above this (default: 0) */
+  thresholdMs?: number
+}
+
+/**
+ * Create a timing hook to measure evaluation performance.
+ * Uses hookData to share start time between stages.
+ *
+ * @example
+ * ```ts
+ * const client = new FlagsClient(config)
+ * client.addHook(createTimingHook({
+ *   onTiming: ({ flagKey, durationMs }) => {
+ *     console.log(`Flag ${flagKey} evaluated in ${durationMs}ms`)
+ *   },
+ *   thresholdMs: 10, // Only report slow evaluations
+ * }))
+ * ```
+ */
+export function createTimingHook(config: TimingHookConfig): Hook {
+  const threshold = config.thresholdMs ?? 0
+
+  return {
+    name: 'timing-hook',
+
+    before(hookContext) {
+      // Store start time in hookData for cross-stage sharing
+      hookContext.hookData?.set('startTime', Date.now())
+    },
+
+    after(hookContext, details) {
+      const startTime = hookContext.hookData?.get('startTime') as number | undefined
+      if (startTime) {
+        const duration = Date.now() - startTime
+        if (duration >= threshold) {
+          config.onTiming({
+            flagKey: hookContext.flagKey,
+            durationMs: duration,
+            success: true,
+            reason: details.reason,
+          })
+        }
+      }
+    },
+
+    error(hookContext) {
+      const startTime = hookContext.hookData?.get('startTime') as number | undefined
+      if (startTime) {
+        const duration = Date.now() - startTime
+        if (duration >= threshold) {
+          config.onTiming({
+            flagKey: hookContext.flagKey,
+            durationMs: duration,
+            success: false,
+          })
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Configuration for telemetry hook
+ */
+export interface TelemetryHookConfig {
+  /** Callback for telemetry events */
+  onEvent: (event: TelemetryEvent) => void
+  /** Include context in events (may contain PII - be careful) */
+  includeContext?: boolean
+}
+
+/**
+ * Telemetry event data
+ */
+export interface TelemetryEvent {
+  type: 'evaluation_start' | 'evaluation_success' | 'evaluation_error' | 'evaluation_complete'
+  flagKey: string
+  flagType: string
+  timestamp: number
+  context?: EvaluationContext
+  result?: {
+    value: unknown
+    variant?: string
+    reason?: string
+  }
+  error?: {
+    code: string
+    message?: string
+  }
+  durationMs?: number
+}
+
+/**
+ * Create a telemetry hook for comprehensive flag evaluation tracking.
+ * Emits events at each stage of evaluation for observability.
+ *
+ * @example
+ * ```ts
+ * const client = new FlagsClient(config)
+ * client.addHook(createTelemetryHook({
+ *   onEvent: (event) => telemetryService.track(event),
+ *   includeContext: false, // Don't include PII
+ * }))
+ * ```
+ */
+export function createTelemetryHook(config: TelemetryHookConfig): Hook {
+  return {
+    name: 'telemetry-hook',
+
+    before(hookContext) {
+      hookContext.hookData?.set('startTime', Date.now())
+      config.onEvent({
+        type: 'evaluation_start',
+        flagKey: hookContext.flagKey,
+        flagType: hookContext.flagValueType,
+        timestamp: Date.now(),
+        context: config.includeContext ? hookContext.context : undefined,
+      })
+    },
+
+    after(hookContext, details) {
+      const startTime = hookContext.hookData?.get('startTime') as number | undefined
+      config.onEvent({
+        type: 'evaluation_success',
+        flagKey: hookContext.flagKey,
+        flagType: hookContext.flagValueType,
+        timestamp: Date.now(),
+        result: {
+          value: details.value,
+          variant: details.variant,
+          reason: details.reason,
+        },
+        durationMs: startTime ? Date.now() - startTime : undefined,
+      })
+    },
+
+    error(hookContext, error) {
+      const startTime = hookContext.hookData?.get('startTime') as number | undefined
+      config.onEvent({
+        type: 'evaluation_error',
+        flagKey: hookContext.flagKey,
+        flagType: hookContext.flagValueType,
+        timestamp: Date.now(),
+        error: {
+          code: error.errorCode,
+          message: error.errorMessage,
+        },
+        durationMs: startTime ? Date.now() - startTime : undefined,
+      })
+    },
+
+    finally(hookContext) {
+      const startTime = hookContext.hookData?.get('startTime') as number | undefined
+      config.onEvent({
+        type: 'evaluation_complete',
+        flagKey: hookContext.flagKey,
+        flagType: hookContext.flagValueType,
+        timestamp: Date.now(),
+        durationMs: startTime ? Date.now() - startTime : undefined,
+      })
+    },
+  }
+}
+
 // ============================================================================
 // FLAG TYPES
 // ============================================================================
@@ -562,15 +812,29 @@ export class FlagsClient {
       evaluationStartTime: Date.now(),
     }
 
+    // Get flag for metadata (if available)
+    const flag = this.flags.get(flagKey)
+
     const hookContext: HookContext = {
       flagKey,
       defaultValue,
       flagValueType: expectedType,
       context,
+      // Include flag metadata if flag exists
+      flagMetadata: flag ? {
+        type: flag.type,
+        variationCount: flag.variations?.length ?? 0,
+        hasTargets: !!flag.targets,
+        hasRules: !!flag.rules,
+      } : undefined,
     }
 
+    // Create hook data maps for each hook per OpenFeature spec
+    // "Hook data MUST be created before the first stage invoked in a hook"
+    const hookDataMaps = this.hooks.map(() => new Map<string, unknown>())
+
     // Run before hooks (may transform context)
-    const transformedContext = await this.runBeforeHooks(hookContext, hints)
+    const transformedContext = await this.runBeforeHooks(hookContext, hints, hookDataMaps)
 
     // Use transformed context for evaluation
     const evaluationContext = transformedContext ?? context
@@ -598,13 +862,13 @@ export class FlagsClient {
       await this.runErrorHooks(hookContext, {
         errorCode: result.errorCode,
         errorMessage: result.errorMessage,
-      }, hints)
+      }, hints, hookDataMaps)
     } else {
-      await this.runAfterHooks(hookContext, result, hints)
+      await this.runAfterHooks(hookContext, result, hints, hookDataMaps)
     }
 
     // Always run finally hooks
-    await this.runFinallyHooks(hookContext, hints)
+    await this.runFinallyHooks(hookContext, hints, hookDataMaps)
 
     return result
   }
@@ -796,17 +1060,30 @@ export class FlagsClient {
   /**
    * Run before hooks and collect context transformations.
    * Returns transformed context if any hook provides one.
+   *
+   * Per OpenFeature spec:
+   * - Hooks run in order they were added
+   * - Each hook receives its own hookData map for cross-stage data sharing
+   * - Errors in hooks should not break evaluation
    */
   private async runBeforeHooks(
     context: HookContext,
-    hints: HookHints
+    hints: HookHints,
+    hookDataMaps: HookData[]
   ): Promise<EvaluationContext | undefined> {
     let transformedContext: EvaluationContext | undefined
 
-    for (const hook of this.hooks) {
+    for (let i = 0; i < this.hooks.length; i++) {
+      const hook = this.hooks[i]
       if (hook.before) {
         try {
-          const result = await hook.before(context, hints)
+          // Create a context copy with this hook's data map
+          const hookContextWithData: HookContext = {
+            ...context,
+            hookData: hookDataMaps[i],
+          }
+
+          const result = await hook.before(hookContextWithData, hints)
 
           // Check if hook returned a context transformation
           if (result && typeof result === 'object' && 'context' in result && result.context) {
@@ -823,15 +1100,26 @@ export class FlagsClient {
     return transformedContext
   }
 
+  /**
+   * Run after hooks with resolution details.
+   * Per OpenFeature spec, after hooks run in reverse order from before hooks.
+   */
   private async runAfterHooks(
     context: HookContext,
     details: ResolutionDetails<unknown>,
-    hints: HookHints
+    hints: HookHints,
+    hookDataMaps: HookData[]
   ): Promise<void> {
-    for (const hook of this.hooks) {
+    // Run in reverse order per OpenFeature spec
+    for (let i = this.hooks.length - 1; i >= 0; i--) {
+      const hook = this.hooks[i]
       if (hook.after) {
         try {
-          await hook.after(context, details, hints)
+          const hookContextWithData: HookContext = {
+            ...context,
+            hookData: hookDataMaps[i],
+          }
+          await hook.after(hookContextWithData, details, hints)
         } catch {
           // Hooks should not break evaluation
         }
@@ -839,29 +1127,57 @@ export class FlagsClient {
     }
   }
 
+  /**
+   * Run error hooks when evaluation fails.
+   * Per OpenFeature spec, error hooks run in reverse order.
+   */
   private async runErrorHooks(
     context: HookContext,
     error: HookError,
-    hints: HookHints
+    hints: HookHints,
+    hookDataMaps: HookData[]
   ): Promise<void> {
-    for (const hook of this.hooks) {
+    // Run in reverse order per OpenFeature spec
+    for (let i = this.hooks.length - 1; i >= 0; i--) {
+      const hook = this.hooks[i]
       if (hook.error) {
         try {
-          await hook.error(context, error, hints)
+          const hookContextWithData: HookContext = {
+            ...context,
+            hookData: hookDataMaps[i],
+          }
+          await hook.error(hookContextWithData, error, hints)
         } catch {
-          // Hooks should not break evaluation
+          // Per spec: "If an error hook abnormally terminates, evaluation MUST proceed"
         }
       }
     }
   }
 
-  private async runFinallyHooks(context: HookContext, hints: HookHints): Promise<void> {
-    for (const hook of this.hooks) {
+  /**
+   * Run finally hooks after evaluation completes (success or failure).
+   * Per OpenFeature spec:
+   * - Finally hooks always run regardless of success/failure
+   * - They run in reverse order
+   * - Exceptions should be caught and not propagated
+   */
+  private async runFinallyHooks(
+    context: HookContext,
+    hints: HookHints,
+    hookDataMaps: HookData[]
+  ): Promise<void> {
+    // Run in reverse order per OpenFeature spec
+    for (let i = this.hooks.length - 1; i >= 0; i--) {
+      const hook = this.hooks[i]
       if (hook.finally) {
         try {
-          await hook.finally(context, hints)
+          const hookContextWithData: HookContext = {
+            ...context,
+            hookData: hookDataMaps[i],
+          }
+          await hook.finally(hookContextWithData, hints)
         } catch {
-          // Hooks should not break evaluation
+          // Per spec: "exceptions thrown in finally hooks should be caught and not propagated"
         }
       }
     }

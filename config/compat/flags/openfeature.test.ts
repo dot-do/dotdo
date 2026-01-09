@@ -1010,4 +1010,280 @@ describe('OpenFeature Provider Interface', () => {
       expect(result3.reason).toBe(ResolutionReason.DEFAULT)
     })
   })
+
+  // ============================================================================
+  // HOOK DATA PROPAGATION TESTS (OpenFeature Spec Compliance)
+  // ============================================================================
+
+  describe('hook data propagation', () => {
+    it('should provide hookData map to hooks', async () => {
+      const client = new FlagsClient(defaultConfig)
+      let receivedHookData: Map<string, unknown> | undefined
+
+      client.registerFlag({
+        key: 'hook-data-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({
+        before(context) {
+          receivedHookData = context.hookData
+        },
+      })
+
+      await client.resolveBooleanEvaluation('hook-data-flag', false, {})
+
+      expect(receivedHookData).toBeInstanceOf(Map)
+    })
+
+    it('should preserve hookData across stages', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const savedValues: { before?: string; after?: string } = {}
+
+      client.registerFlag({
+        key: 'hook-data-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({
+        before(context) {
+          context.hookData?.set('testKey', 'testValue')
+          savedValues.before = context.hookData?.get('testKey') as string
+        },
+        after(context) {
+          savedValues.after = context.hookData?.get('testKey') as string
+        },
+      })
+
+      await client.resolveBooleanEvaluation('hook-data-flag', false, {})
+
+      expect(savedValues.before).toBe('testValue')
+      expect(savedValues.after).toBe('testValue')
+    })
+
+    it('should isolate hookData between different hooks', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const hook1Data: string[] = []
+      const hook2Data: string[] = []
+
+      client.registerFlag({
+        key: 'isolated-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({
+        name: 'hook1',
+        before(context) {
+          context.hookData?.set('source', 'hook1')
+        },
+        after(context) {
+          hook1Data.push(context.hookData?.get('source') as string)
+        },
+      })
+
+      client.addHook({
+        name: 'hook2',
+        before(context) {
+          context.hookData?.set('source', 'hook2')
+        },
+        after(context) {
+          hook2Data.push(context.hookData?.get('source') as string)
+        },
+      })
+
+      await client.resolveBooleanEvaluation('isolated-flag', false, {})
+
+      expect(hook1Data).toEqual(['hook1'])
+      expect(hook2Data).toEqual(['hook2'])
+    })
+
+    it('should preserve hookData in error and finally stages', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const stageData: { error?: string; finally?: string } = {}
+
+      client.addHook({
+        before(context) {
+          context.hookData?.set('errorKey', 'errorValue')
+        },
+        error(context) {
+          stageData.error = context.hookData?.get('errorKey') as string
+        },
+        finally(context) {
+          stageData.finally = context.hookData?.get('errorKey') as string
+        },
+      })
+
+      // Evaluate non-existent flag to trigger error
+      await client.resolveBooleanEvaluation('nonexistent', false, {})
+
+      expect(stageData.error).toBe('errorValue')
+      expect(stageData.finally).toBe('errorValue')
+    })
+  })
+
+  // ============================================================================
+  // FLAG METADATA IN HOOKS TESTS
+  // ============================================================================
+
+  describe('flag metadata in hooks', () => {
+    it('should include flag metadata in hook context', async () => {
+      const client = new FlagsClient(defaultConfig)
+      let receivedMetadata: Record<string, unknown> | undefined
+
+      client.registerFlag({
+        key: 'metadata-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+        targets: [{ variation: 0, values: ['user-1'] }],
+        rules: [{ clauses: [{ attribute: 'email', op: 'endsWith', values: ['@test.com'] }], variation: 0 }],
+      })
+
+      client.addHook({
+        before(context) {
+          receivedMetadata = context.flagMetadata
+        },
+      })
+
+      await client.resolveBooleanEvaluation('metadata-flag', false, {})
+
+      expect(receivedMetadata).toBeDefined()
+      expect(receivedMetadata?.type).toBe('boolean')
+      expect(receivedMetadata?.variationCount).toBe(2)
+      expect(receivedMetadata?.hasTargets).toBe(true)
+      expect(receivedMetadata?.hasRules).toBe(true)
+    })
+
+    it('should have undefined metadata for non-existent flags', async () => {
+      const client = new FlagsClient(defaultConfig)
+      let receivedMetadata: Record<string, unknown> | undefined = { initial: true }
+
+      client.addHook({
+        before(context) {
+          receivedMetadata = context.flagMetadata
+        },
+      })
+
+      await client.resolveBooleanEvaluation('nonexistent-flag', false, {})
+
+      expect(receivedMetadata).toBeUndefined()
+    })
+  })
+
+  // ============================================================================
+  // HOOK EXECUTION ORDER TESTS (OpenFeature Spec)
+  // ============================================================================
+
+  describe('hook execution order (OpenFeature spec)', () => {
+    it('should run before hooks in order added', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const order: string[] = []
+
+      client.registerFlag({
+        key: 'order-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({ name: 'hook1', before: () => order.push('before1') })
+      client.addHook({ name: 'hook2', before: () => order.push('before2') })
+      client.addHook({ name: 'hook3', before: () => order.push('before3') })
+
+      await client.resolveBooleanEvaluation('order-flag', false, {})
+
+      expect(order).toEqual(['before1', 'before2', 'before3'])
+    })
+
+    it('should run after hooks in reverse order', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const order: string[] = []
+
+      client.registerFlag({
+        key: 'order-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({ name: 'hook1', after: () => order.push('after1') })
+      client.addHook({ name: 'hook2', after: () => order.push('after2') })
+      client.addHook({ name: 'hook3', after: () => order.push('after3') })
+
+      await client.resolveBooleanEvaluation('order-flag', false, {})
+
+      // Per OpenFeature spec, after hooks run in reverse order
+      expect(order).toEqual(['after3', 'after2', 'after1'])
+    })
+
+    it('should run error hooks in reverse order', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const order: string[] = []
+
+      client.addHook({ name: 'hook1', error: () => order.push('error1') })
+      client.addHook({ name: 'hook2', error: () => order.push('error2') })
+      client.addHook({ name: 'hook3', error: () => order.push('error3') })
+
+      // Trigger error by evaluating non-existent flag
+      await client.resolveBooleanEvaluation('nonexistent', false, {})
+
+      expect(order).toEqual(['error3', 'error2', 'error1'])
+    })
+
+    it('should run finally hooks in reverse order', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const order: string[] = []
+
+      client.registerFlag({
+        key: 'order-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({ name: 'hook1', finally: () => order.push('finally1') })
+      client.addHook({ name: 'hook2', finally: () => order.push('finally2') })
+      client.addHook({ name: 'hook3', finally: () => order.push('finally3') })
+
+      await client.resolveBooleanEvaluation('order-flag', false, {})
+
+      expect(order).toEqual(['finally3', 'finally2', 'finally1'])
+    })
+
+    it('should run all stages in correct order: before -> after -> finally', async () => {
+      const client = new FlagsClient(defaultConfig)
+      const order: string[] = []
+
+      client.registerFlag({
+        key: 'full-order-flag',
+        type: 'boolean',
+        variations: [true, false],
+        defaultVariation: 0,
+      })
+
+      client.addHook({
+        name: 'hook1',
+        before: () => order.push('before1'),
+        after: () => order.push('after1'),
+        finally: () => order.push('finally1'),
+      })
+      client.addHook({
+        name: 'hook2',
+        before: () => order.push('before2'),
+        after: () => order.push('after2'),
+        finally: () => order.push('finally2'),
+      })
+
+      await client.resolveBooleanEvaluation('full-order-flag', false, {})
+
+      // before: 1,2 (forward), after: 2,1 (reverse), finally: 2,1 (reverse)
+      expect(order).toEqual(['before1', 'before2', 'after2', 'after1', 'finally2', 'finally1'])
+    })
+  })
 })

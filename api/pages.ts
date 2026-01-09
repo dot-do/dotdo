@@ -299,32 +299,68 @@ export class Counter extends DurableObject {
   return layout(`${title} - dotdo Documentation`, content, docsStyles)
 }
 
-// Admin styles
+// Admin styles - enhanced for MDX cockpit dashboard
 const adminStyles = `
   .admin-layout { display: flex; min-height: 100vh; }
   .shell, .admin-shell, aside.sidebar { width: 250px; background: #1f2937; color: #fff; padding: 1rem; }
   .shell a { display: block; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; margin-bottom: 0.25rem; }
   .shell a:hover { background: #374151; color: #fff; text-decoration: none; }
   .shell a.active { background: #2563eb; color: #fff; }
-  .admin-main { flex: 1; padding: 2rem; background: #f9fafb; }
+  .admin-main { flex: 1; padding: 2rem; background: #0a0a0a; color: #fff; overflow-y: auto; }
   .dashboard, [data-dashboard] { padding: 0; }
   .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
-  .kpi-card, .metric-card, .stat-card { background: #fff; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  .kpi-card h3 { font-size: 0.875rem; color: #6b7280; margin-bottom: 0.5rem; }
+  .kpi-card, .metric-card, .stat-card { background: #111; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #333; }
+  .kpi-card h3 { font-size: 0.875rem; color: #9ca3af; margin-bottom: 0.5rem; }
   .kpi-card .value { font-size: 2rem; font-weight: bold; }
-  table, [data-table], .data-table { width: 100%; background: #fff; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  table th, table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
-  table th { background: #f9fafb; font-weight: 600; }
-  select, [data-filter] { padding: 0.5rem 1rem; border: 1px solid #d1d5db; border-radius: 0.375rem; }
-  input[type="search"], input[placeholder*="Search"] { padding: 0.5rem 1rem; border: 1px solid #d1d5db; border-radius: 0.375rem; width: 100%; max-width: 300px; }
+  table, [data-table], .data-table { width: 100%; background: #111; border-radius: 0.5rem; overflow: hidden; border: 1px solid #333; }
+  table th, table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #333; }
+  table th { background: #0a0a0a; font-weight: 600; }
+  select, [data-filter] { padding: 0.5rem 1rem; border: 1px solid #333; border-radius: 0.375rem; background: #111; color: #fff; }
+  input[type="search"], input[placeholder*="Search"] { padding: 0.5rem 1rem; border: 1px solid #333; border-radius: 0.375rem; width: 100%; max-width: 300px; background: #111; color: #fff; }
   .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 500; border: none; }
   .btn-primary { background: #2563eb; color: #fff; }
-  form { background: #fff; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  form label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: #374151; }
-  form input, form select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; margin-bottom: 1rem; }
+  form { background: #111; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #333; }
+  form label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: #9ca3af; }
+  form input, form select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #333; border-radius: 0.375rem; margin-bottom: 1rem; background: #0a0a0a; color: #fff; }
   form input[type="submit"], form button[type="submit"] { background: #2563eb; color: #fff; border: none; cursor: pointer; width: auto; }
+  hr { border: none; border-top: 1px solid #333; margin: 2rem 0; }
+  h1, h2, h3 { color: #fff; }
+  p { color: #9ca3af; }
+  [data-component] { color: #fff; }
+  .section-box { background: #111; border: 1px solid #333; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; }
+  .agent-card { text-align: center; padding: 1rem; background: #111; border: 1px solid #333; border-radius: 0.5rem; }
+  .agent-avatar { width: 3rem; height: 3rem; margin: 0 auto 0.5rem; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+  .command-item { display: block; width: 100%; text-align: left; padding: 0.75rem 1rem; background: transparent; border: none; color: #fff; cursor: pointer; border-radius: 0.375rem; }
+  .command-item:hover { background: #333; }
+  .tabs-list { display: flex; gap: 0.5rem; border-bottom: 1px solid #333; padding-bottom: 0.5rem; margin-bottom: 1rem; }
+  .tab-trigger { padding: 0.5rem 1rem; background: transparent; border: none; color: #9ca3af; cursor: pointer; border-radius: 0.375rem; }
+  .tab-trigger[data-state="active"] { background: #333; color: #fff; }
+  .workflow-item { display: flex; justify-content: space-between; padding: 0.75rem; background: #0a0a0a; border-radius: 0.375rem; margin-bottom: 0.5rem; }
+  .timeline-item { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; }
+  .timeline-dot { width: 0.5rem; height: 0.5rem; background: #3b82f6; border-radius: 50%; margin-top: 0.5rem; }
+  .chart-placeholder { height: 12rem; display: flex; align-items: center; justify-content: center; color: #666; background: #0a0a0a; border-radius: 0.375rem; }
+  .settings-section { margin-bottom: 1.5rem; }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 0.25rem; }
+  .nav-item { display: flex; align-items: center; gap: 0.75rem; }
+  .sidebar-user { padding-top: 1rem; margin-top: auto; border-top: 1px solid #333; display: flex; align-items: center; gap: 0.75rem; }
 `
 
+// SVG Icons for the dashboard (inline)
+const icons = {
+  Home: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
+  Rocket: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path></svg>',
+  Users: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path></svg>',
+  GitBranch: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>',
+  Activity: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>',
+  Code: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>',
+  BarChart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>',
+  Settings: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+}
+
+// Kept for backwards compatibility with other admin pages
 const adminShell = (title: string, activeRoute: string, content: string) => `
   <div class="admin-layout">
     <aside class="shell admin-shell sidebar">
@@ -350,30 +386,463 @@ const adminShell = (title: string, activeRoute: string, content: string) => `
   </div>
 `
 
+/**
+ * Admin Dashboard - Renders .do/App.mdx content with @mdxui/cockpit components
+ *
+ * This server-side rendered page mirrors the MDX structure from .do/App.mdx
+ * with all required data attributes for E2E testing.
+ */
 export function adminDashboardHtml(): string {
+  // Data that would be passed to MDX
+  const stats = {
+    activeAgents: 7,
+    agentTrend: '+12%',
+    runningWorkflows: 12,
+    workflowTrend: '+3',
+    eventsToday: 1248,
+    eventTrend: '+15%',
+  }
+
+  const recentActivity = [
+    { id: '1', type: 'agent', title: 'Priya completed product spec', description: 'MVP specification for new feature', timestamp: new Date().toISOString() },
+    { id: '2', type: 'workflow', title: 'Deployment workflow completed', description: 'Production deployment successful', timestamp: new Date(Date.now() - 3600000).toISOString() },
+    { id: '3', type: 'event', title: 'New customer signup', description: 'Customer.signup event processed', timestamp: new Date(Date.now() - 7200000).toISOString() },
+  ]
+
+  const teamAgents = [
+    { id: '1', name: 'Priya', status: 'working', role: 'Product' },
+    { id: '2', name: 'Ralph', status: 'idle', role: 'Engineering' },
+    { id: '3', name: 'Tom', status: 'reviewing', role: 'Tech Lead' },
+    { id: '4', name: 'Mark', status: 'writing', role: 'Marketing' },
+    { id: '5', name: 'Sally', status: 'outreach', role: 'Sales' },
+    { id: '6', name: 'Quinn', status: 'testing', role: 'QA' },
+  ]
+
+  const startupColumns = ['Name', 'Status', 'Hypothesis', 'Experiments', 'Metrics']
+
+  const startups = [
+    { name: 'MyStartup', status: 'Active', hypothesis: 'PMF for B2B SaaS', experiments: 3, metrics: 'HUNCH: 72%' },
+    { name: 'AcmeInc', status: 'Testing', hypothesis: 'Marketplace model', experiments: 5, metrics: 'HUNCH: 58%' },
+  ]
+
+  const activeWorkflows = [
+    { id: '1', name: 'Customer Onboarding', status: 'running' },
+    { id: '2', name: 'Daily Standup', status: 'scheduled' },
+    { id: '3', name: 'Code Review', status: 'running' },
+  ]
+
+  const workflowEvents = [
+    { id: '1', type: 'workflow.started', timestamp: new Date().toISOString() },
+    { id: '2', type: 'task.completed', timestamp: new Date(Date.now() - 1800000).toISOString() },
+    { id: '3', type: 'agent.assigned', timestamp: new Date(Date.now() - 3600000).toISOString() },
+  ]
+
+  const revenueData = [
+    { month: 'Jan', revenue: 4000 },
+    { month: 'Feb', revenue: 5200 },
+    { month: 'Mar', revenue: 6100 },
+    { month: 'Apr', revenue: 7800 },
+    { month: 'May', revenue: 9200 },
+    { month: 'Jun', revenue: 11500 },
+  ]
+
+  const agentUsage = [
+    { agent: 'Priya', tasks: 45 },
+    { agent: 'Ralph', tasks: 128 },
+    { agent: 'Tom', tasks: 67 },
+    { agent: 'Mark', tasks: 34 },
+    { agent: 'Sally', tasks: 89 },
+    { agent: 'Quinn', tasks: 56 },
+  ]
+
+  const experimentResults = [
+    { variant: 'Control', conversion: 3.2 },
+    { variant: 'A', conversion: 4.1 },
+    { variant: 'B', conversion: 3.8 },
+    { variant: 'C', conversion: 5.2 },
+  ]
+
   const content = `
-    <div class="dashboard" data-dashboard>
-      <div class="metrics">
-        <div class="kpi-card metric-card stat-card">
-          <h3>Durable Objects</h3>
-          <div class="value">1,234</div>
+<div data-mdx-source=".do/App.mdx" data-mdxui-cockpit data-mdx-runtime>
+  <div data-component="DashboardLayout" class="admin-layout" style="display: flex; min-height: 100vh;">
+    <!-- Sidebar -->
+    <div data-component="Sidebar" style="width: 250px; background: #111; border-right: 1px solid #333; display: flex; flex-direction: column;">
+      <div data-component="SidebarNav" class="sidebar-nav" style="flex: 1; padding: 1rem;">
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #fff; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Home">${icons.Home}</span>
+            <span>Overview</span>
+          </a>
         </div>
-        <div class="kpi-card metric-card stat-card">
-          <h3>Requests</h3>
-          <div class="value">12,345</div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/startups" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Rocket">${icons.Rocket}</span>
+            <span>Startups</span>
+          </a>
         </div>
-        <div class="kpi-card metric-card stat-card">
-          <h3>Active Workflows</h3>
-          <div class="value">56</div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/agents" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Users">${icons.Users}</span>
+            <span>Agents</span>
+          </a>
         </div>
-        <div class="kpi-card metric-card stat-card">
-          <h3>Users</h3>
-          <div class="value">789</div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/workflows" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="GitBranch">${icons.GitBranch}</span>
+            <span>Workflows</span>
+          </a>
+        </div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/events" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Activity">${icons.Activity}</span>
+            <span>Events</span>
+          </a>
+        </div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/functions" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Code">${icons.Code}</span>
+            <span>Functions</span>
+          </a>
+        </div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/analytics" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="BarChart">${icons.BarChart}</span>
+            <span>Analytics</span>
+          </a>
+        </div>
+        <div data-component="NavItem" class="nav-item" style="margin-bottom: 0.25rem;">
+          <a href="/admin/settings" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #9ca3af; border-radius: 0.5rem; text-decoration: none;">
+            <span data-icon="Settings">${icons.Settings}</span>
+            <span>Settings</span>
+          </a>
+        </div>
+      </div>
+      <div data-component="SidebarUser" class="sidebar-user" style="padding: 1rem; border-top: 1px solid #333;">
+        <div style="width: 2rem; height: 2rem; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.875rem;">U</div>
+        <div>
+          <div style="font-size: 0.875rem; font-weight: 500;">User</div>
+          <div style="font-size: 0.75rem; color: #9ca3af;">user@dotdo.dev</div>
         </div>
       </div>
     </div>
-  `
-  return layout('Dashboard - dotdo Admin', adminShell('Dashboard', 'dashboard', content), adminStyles)
+
+    <!-- Main Content -->
+    <div data-component="DashboardContent" style="flex: 1; padding: 2rem; overflow-y: auto; background: #0a0a0a;">
+      <!-- Main Heading from MDX: # dotdo Dashboard -->
+      <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 2rem; color: #fff;">dotdo Dashboard</h1>
+
+      <!-- Welcome Section from MDX: ## Welcome to dotdo -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">Welcome to dotdo</h2>
+      <p style="color: #9ca3af; margin-bottom: 1.5rem;">Your autonomous business control center.</p>
+
+      <!-- KPI Cards Grid -->
+      <div data-component="DashboardGrid" data-cols="3" class="grid-3" style="margin-bottom: 2rem;">
+        <div data-component="KPICard" class="section-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <span style="font-size: 0.875rem; color: #9ca3af;">Active Agents</span>
+            <span data-icon="Users">${icons.Users}</span>
+          </div>
+          <div data-kpi-value style="font-size: 2rem; font-weight: bold; color: #fff;">${stats.activeAgents}</div>
+          <div data-kpi-trend style="font-size: 0.875rem; color: #22c55e; margin-top: 0.5rem;">${stats.agentTrend}</div>
+        </div>
+        <div data-component="KPICard" class="section-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <span style="font-size: 0.875rem; color: #9ca3af;">Workflows Running</span>
+            <span data-icon="GitBranch">${icons.GitBranch}</span>
+          </div>
+          <div data-kpi-value style="font-size: 2rem; font-weight: bold; color: #fff;">${stats.runningWorkflows}</div>
+          <div data-kpi-trend style="font-size: 0.875rem; color: #22c55e; margin-top: 0.5rem;">${stats.workflowTrend}</div>
+        </div>
+        <div data-component="KPICard" class="section-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <span style="font-size: 0.875rem; color: #9ca3af;">Events Today</span>
+            <span data-icon="Activity">${icons.Activity}</span>
+          </div>
+          <div data-kpi-value style="font-size: 2rem; font-weight: bold; color: #fff;">${stats.eventsToday}</div>
+          <div data-kpi-trend style="font-size: 0.875rem; color: #22c55e; margin-top: 0.5rem;">${stats.eventTrend}</div>
+        </div>
+      </div>
+
+      <!-- Recent Activity from MDX: ### Recent Activity -->
+      <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Recent Activity</h3>
+      <div data-component="ActivityFeed" data-items-count="${recentActivity.length}" class="section-box" style="margin-bottom: 2rem;">
+        ${recentActivity.map(item => `
+          <div data-activity-item style="padding: 0.75rem; border-bottom: 1px solid #333;">
+            <div style="font-weight: 500; color: #fff;">${item.title}</div>
+            <div style="font-size: 0.875rem; color: #9ca3af;">${item.description}</div>
+            <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">${new Date(item.timestamp).toLocaleString()}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Your Team from MDX: ### Your Team -->
+      <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Your Team</h3>
+      <div data-component="AgentStatus" data-agents-count="${teamAgents.length}" class="section-box" style="margin-bottom: 2rem;">
+        <p style="color: #9ca3af; margin-bottom: 1rem;">Monitor your AI agents in real-time. See what Priya, Ralph, Tom, and the team are working on.</p>
+        <div class="grid-6">
+          ${teamAgents.map(agent => `
+            <div style="text-align: center; padding: 1rem; background: #0a0a0a; border-radius: 0.5rem;">
+              <div style="width: 2.5rem; height: 2.5rem; margin: 0 auto 0.5rem; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-weight: bold;">${agent.name[0]}</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">${agent.name}</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">${agent.status}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Quick Actions from MDX: ### Quick Actions -->
+      <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Quick Actions</h3>
+      <div data-component="CommandPalette" class="section-box" style="margin-bottom: 2rem;">
+        <div data-component="CommandGroup" style="margin-bottom: 1rem;">
+          <div style="font-size: 0.875rem; font-weight: 600; color: #9ca3af; margin-bottom: 0.5rem; padding: 0 1rem;">Agents</div>
+          <button data-component="CommandItem" data-agent="priya" class="command-item">Ask Priya for product direction</button>
+          <button data-component="CommandItem" data-agent="ralph" class="command-item">Have Ralph start building</button>
+          <button data-component="CommandItem" data-agent="tom" class="command-item">Request code review from Tom</button>
+        </div>
+        <div data-component="CommandGroup">
+          <div style="font-size: 0.875rem; font-weight: 600; color: #9ca3af; margin-bottom: 0.5rem; padding: 0 1rem;">Workflows</div>
+          <button data-component="CommandItem" class="command-item">Create new workflow</button>
+          <button data-component="CommandItem" class="command-item">View running workflows</button>
+          <button data-component="CommandItem" class="command-item">Check event log</button>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- Startup Management from MDX: ## Startup Management -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Startup Management</h2>
+      <div data-component="DataTable" class="section-box" style="margin-bottom: 2rem;">
+        <p style="color: #9ca3af; margin-bottom: 1rem;">Manage all your startups from one place. Track hypotheses, experiments, and metrics.</p>
+        <div data-search style="margin-bottom: 1rem;">
+          <input type="search" placeholder="Search..." style="width: 100%; max-width: 300px; padding: 0.5rem 1rem; background: #0a0a0a; border: 1px solid #333; border-radius: 0.375rem; color: #fff;" />
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid #333;">
+              ${startupColumns.map(col => `<th data-sortable style="padding: 0.75rem 1rem; text-align: left; font-weight: 600; color: #9ca3af;">${col}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${startups.map(startup => `
+              <tr style="border-bottom: 1px solid #333;">
+                <td style="padding: 0.75rem 1rem; color: #fff;">${startup.name}</td>
+                <td style="padding: 0.75rem 1rem; color: #fff;">${startup.status}</td>
+                <td style="padding: 0.75rem 1rem; color: #fff;">${startup.hypothesis}</td>
+                <td style="padding: 0.75rem 1rem; color: #fff;">${startup.experiments}</td>
+                <td style="padding: 0.75rem 1rem; color: #fff;">${startup.metrics}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div data-pagination style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.5rem 0;">
+          <span style="font-size: 0.875rem; color: #9ca3af;">Showing ${startups.length} results</span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button style="padding: 0.25rem 0.75rem; background: #333; border: none; border-radius: 0.25rem; color: #fff; cursor: pointer;">Previous</button>
+            <button style="padding: 0.25rem 0.75rem; background: #333; border: none; border-radius: 0.25rem; color: #fff; cursor: pointer;">Next</button>
+          </div>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- Agent Configuration from MDX: ## Agent Configuration -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Agent Configuration</h2>
+      <div data-component="Tabs" class="section-box" style="margin-bottom: 2rem;">
+        <div data-component="TabsList" class="tabs-list">
+          <button data-component="TabsTrigger" data-state="active" class="tab-trigger">Active Agents</button>
+          <button data-component="TabsTrigger" data-state="inactive" class="tab-trigger">Available</button>
+          <button data-component="TabsTrigger" data-state="inactive" class="tab-trigger">Custom</button>
+        </div>
+        <div data-component="TabsContent" data-value="active">
+          <div data-component="AgentGrid" class="grid-6">
+            <div data-component="AgentCard" data-status="working" class="agent-card">
+              <div class="agent-avatar">P</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Priya</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">Product</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #166534; color: #22c55e; border-radius: 9999px;">working</span></div>
+            </div>
+            <div data-component="AgentCard" data-status="idle" class="agent-card">
+              <div class="agent-avatar">R</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Ralph</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">Engineering</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #333; color: #9ca3af; border-radius: 9999px;">idle</span></div>
+            </div>
+            <div data-component="AgentCard" data-status="reviewing" class="agent-card">
+              <div class="agent-avatar">T</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Tom</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">Tech Lead</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #1e3a5f; color: #3b82f6; border-radius: 9999px;">reviewing</span></div>
+            </div>
+            <div data-component="AgentCard" data-status="writing" class="agent-card">
+              <div class="agent-avatar">M</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Mark</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">Marketing</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #422006; color: #f97316; border-radius: 9999px;">writing</span></div>
+            </div>
+            <div data-component="AgentCard" data-status="outreach" class="agent-card">
+              <div class="agent-avatar">S</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Sally</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">Sales</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #4c1d95; color: #a78bfa; border-radius: 9999px;">outreach</span></div>
+            </div>
+            <div data-component="AgentCard" data-status="testing" class="agent-card">
+              <div class="agent-avatar">Q</div>
+              <div style="font-weight: 500; font-size: 0.875rem; color: #fff;">Quinn</div>
+              <div style="font-size: 0.75rem; color: #9ca3af;">QA</div>
+              <div style="margin-top: 0.5rem;"><span style="padding: 0.125rem 0.5rem; font-size: 0.75rem; background: #164e63; color: #22d3d1; border-radius: 9999px;">testing</span></div>
+            </div>
+          </div>
+        </div>
+        <div data-component="TabsContent" data-value="available" style="display: none;">
+          <p style="color: #9ca3af; padding: 1rem;">Additional agents available from agents.do</p>
+        </div>
+        <div data-component="TabsContent" data-value="custom" style="display: none;">
+          <p style="color: #9ca3af; padding: 1rem;">Create custom agents for your specific domain</p>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- Workflow Monitor from MDX: ## Workflow Monitor -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Workflow Monitor</h2>
+      <div data-component="WorkflowDashboard" class="grid-2" style="margin-bottom: 2rem;">
+        <div data-component="WorkflowList" data-workflows-count="${activeWorkflows.length}" class="section-box">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">Active Workflows</h4>
+          ${activeWorkflows.map(wf => `
+            <div class="workflow-item">
+              <span style="color: #fff;">${wf.name}</span>
+              <span style="font-size: 0.75rem; color: #9ca3af;">${wf.status}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div data-component="WorkflowTimeline" data-events-count="${workflowEvents.length}" class="section-box">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">Timeline</h4>
+          ${workflowEvents.map(event => `
+            <div class="timeline-item">
+              <div class="timeline-dot"></div>
+              <div>
+                <div style="font-size: 0.875rem; color: #fff;">${event.type}</div>
+                <div style="font-size: 0.75rem; color: #9ca3af;">${new Date(event.timestamp).toLocaleString()}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- Analytics from MDX: ## Analytics -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Analytics</h2>
+      <div data-component="AnalyticsDashboard" class="grid-3" style="margin-bottom: 2rem;">
+        <div data-component="AreaChart" data-data-count="${revenueData.length}" class="section-box">
+          <h4 style="font-weight: 600; color: #fff;">Revenue</h4>
+          <p style="font-size: 0.875rem; color: #9ca3af; margin-bottom: 1rem;">Monthly recurring revenue over time</p>
+          <div class="chart-placeholder">[Area Chart - ${revenueData.length} data points]</div>
+        </div>
+        <div data-component="BarChart" data-data-count="${agentUsage.length}" class="section-box">
+          <h4 style="font-weight: 600; color: #fff;">Agent Usage</h4>
+          <p style="font-size: 0.875rem; color: #9ca3af; margin-bottom: 1rem;">Tasks completed by each agent</p>
+          <div class="chart-placeholder">[Bar Chart - ${agentUsage.length} data points]</div>
+        </div>
+        <div data-component="LineChart" data-data-count="${experimentResults.length}" class="section-box">
+          <h4 style="font-weight: 600; color: #fff;">Experiment Results</h4>
+          <p style="font-size: 0.875rem; color: #9ca3af; margin-bottom: 1rem;">Conversion rates across variants</p>
+          <div class="chart-placeholder">[Line Chart - ${experimentResults.length} data points]</div>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- Settings from MDX: ## Settings -->
+      <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">Settings</h2>
+      <div data-component="SettingsLayout">
+        <div data-component="SettingsSection" class="section-box settings-section">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">Profile</h4>
+          <div data-component="UserProfile">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div style="width: 4rem; height: 4rem; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold;">U</div>
+              <div>
+                <div style="font-weight: 600; color: #fff;">User Name</div>
+                <div style="font-size: 0.875rem; color: #9ca3af;">user@dotdo.dev</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div data-component="SettingsSection" class="section-box settings-section">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">API Keys</h4>
+          <div data-component="APIKeyManager">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: #9ca3af;">No API keys configured</span>
+              <button style="padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none; border-radius: 0.375rem; cursor: pointer;">Create Key</button>
+            </div>
+          </div>
+        </div>
+        <div data-component="SettingsSection" class="section-box settings-section">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">Integrations</h4>
+          <div data-component="IntegrationsList">
+            <p style="color: #9ca3af; text-align: center; padding: 1rem;">No integrations configured</p>
+          </div>
+        </div>
+        <div data-component="SettingsSection" class="section-box settings-section">
+          <h4 style="font-weight: 600; margin-bottom: 1rem; color: #fff;">Billing</h4>
+          <div data-component="BillingManager">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-weight: 600; color: #fff;">Free Plan</div>
+                <div style="font-size: 0.875rem; color: #9ca3af;">Upgrade for more features</div>
+              </div>
+              <button style="padding: 0.5rem 1rem; background: #333; color: #fff; border: none; border-radius: 0.375rem; cursor: pointer;">Upgrade</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Tab switching script -->
+<script>
+  document.querySelectorAll('[data-component="TabsTrigger"]').forEach(trigger => {
+    trigger.addEventListener('click', () => {
+      const tabs = trigger.closest('[data-component="Tabs"]');
+      const triggers = tabs.querySelectorAll('[data-component="TabsTrigger"]');
+      const contents = tabs.querySelectorAll('[data-component="TabsContent"]');
+
+      triggers.forEach(t => t.setAttribute('data-state', 'inactive'));
+      trigger.setAttribute('data-state', 'active');
+
+      const value = trigger.textContent.toLowerCase().split(' ')[0];
+      contents.forEach(content => {
+        content.style.display = content.dataset.value === value ? 'block' : 'none';
+      });
+    });
+  });
+
+  // Agent command click handlers
+  document.querySelectorAll('[data-component="CommandItem"][data-agent]').forEach(item => {
+    item.addEventListener('click', () => {
+      const agent = item.dataset.agent;
+      const modal = document.createElement('div');
+      modal.setAttribute('data-agent-chat', agent);
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50;';
+      modal.innerHTML = \`
+        <div style="background: #111; border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; max-width: 28rem; width: 100%; margin: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="font-weight: 600; color: #fff;">Chat with \${agent}</h3>
+            <button onclick="this.closest('[data-agent-chat]').remove()" style="background: transparent; border: none; color: #9ca3af; cursor: pointer; font-size: 1.25rem;">X</button>
+          </div>
+          <p style="color: #9ca3af;">Starting conversation with \${agent}...</p>
+        </div>
+      \`;
+      modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+      document.body.appendChild(modal);
+    });
+  });
+</script>
+`
+
+  return layout('dotdo Dashboard', content, adminStyles)
 }
 
 // Login page styles

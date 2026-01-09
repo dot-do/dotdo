@@ -297,7 +297,10 @@ class ChannelImpl extends EventEmitter implements IChannel {
     // Simulate subscription success
     this._state = 'subscribed'
     this.subscribed = true
-    this._emit('pusher:subscription_succeeded')
+    // Defer event emission to allow handlers to be bound after subscribe() returns
+    queueMicrotask(() => {
+      this._emit('pusher:subscription_succeeded')
+    })
   }
 
   _unsubscribe(): void {
@@ -346,13 +349,19 @@ class PrivateChannelImpl extends ChannelImpl implements IPrivateChannel {
 
       this._state = 'subscribed'
       this.subscribed = true
-      this._emit('pusher:subscription_succeeded')
+      // Defer event emission to allow handlers to be bound after subscribe() returns
+      queueMicrotask(() => {
+        this._emit('pusher:subscription_succeeded')
+      })
     } catch (error) {
       this._state = 'subscription_error'
-      this._emit('pusher:subscription_error', {
-        type: 'AuthError',
-        error: error instanceof Error ? error.message : 'Authorization failed',
-        status: 403,
+      // Defer error event emission as well
+      queueMicrotask(() => {
+        this._emit('pusher:subscription_error', {
+          type: 'AuthError',
+          error: error instanceof Error ? error.message : 'Authorization failed',
+          status: 403,
+        })
       })
     }
   }
@@ -408,14 +417,20 @@ class PresenceChannelImpl extends PrivateChannelImpl implements IPresenceChannel
       // Notify other subscribers that a member joined
       publishToChannel(this.name, 'pusher:member_added', me, socketId ?? undefined)
 
-      // Emit subscription succeeded with members
-      this._emit('pusher:subscription_succeeded', this.members)
+      // Defer event emission to allow handlers to be bound after subscribe() returns
+      queueMicrotask(() => {
+        // Emit subscription succeeded with members
+        this._emit('pusher:subscription_succeeded', this.members)
+      })
     } catch (error) {
       this._state = 'subscription_error'
-      this._emit('pusher:subscription_error', {
-        type: 'AuthError',
-        error: error instanceof Error ? error.message : 'Authorization failed',
-        status: 403,
+      // Defer error event emission as well
+      queueMicrotask(() => {
+        this._emit('pusher:subscription_error', {
+          type: 'AuthError',
+          error: error instanceof Error ? error.message : 'Authorization failed',
+          status: 403,
+        })
       })
     }
   }

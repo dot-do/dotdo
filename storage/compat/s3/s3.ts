@@ -52,6 +52,16 @@ import {
   NotModified,
   PreconditionFailed,
 } from './types'
+import {
+  uriEncode,
+  formatDateStamp,
+  formatAmzDate,
+  getSigningKey,
+  createCanonicalRequest,
+  createStringToSign,
+  calculateSignature,
+  type SigningContext,
+} from './signing'
 
 // ============================================================================
 // STORAGE TYPES
@@ -378,6 +388,13 @@ export class S3Client {
    */
   destroy(): void {
     this.destroyed = true
+  }
+
+  /**
+   * Get client configuration (used by getSignedUrl)
+   */
+  getConfig(): ExtendedS3ClientConfig {
+    return this.config
   }
 
   // ============================================================================
@@ -810,11 +827,205 @@ export class S3Client {
 }
 
 // ============================================================================
+// AWS SIGNATURE V4 UTILITIES
+// ============================================================================
+
+/**
+ * Convert a hex string to Uint8Array
+ */
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16)
+  }
+  return bytes
+}
+
+/**
+ * Convert Uint8Array to hex string
+ */
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * SHA256 hash using Web Crypto API
+ */
+async function sha256(data: string | Uint8Array): Promise<string> {
+  const encoder = new TextEncoder()
+  const dataBytes = typeof data === 'string' ? encoder.encode(data) : data
+  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBytes)
+  return bytesToHex(new Uint8Array(hashBuffer))
+}
+
+/**
+ * HMAC-SHA256 using Web Crypto API
+ */
+async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder()
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    key,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data))
+  return new Uint8Array(signature)
+}
+
+/**
+ * Generate AWS Signature V4 signing key
+ * kSecret = "AWS4" + secretAccessKey
+ * kDate = HMAC-SHA256(kSecret, date)
+ * kRegion = HMAC-SHA256(kDate, region)
+ * kService = HMAC-SHA256(kRegion, service)
+ * kSigning = HMAC-SHA256(kService, "aws4_request")
+ */
+async function getSigningKey(
+  secretAccessKey: string,
+  dateStamp: string,
+  region: string,
+  service: string
+): Promise<Uint8Array> {
+  const encoder = new TextEncoder()
+  const kSecret = encoder.encode('AWS4' + secretAccessKey)
+  const kDate = await hmacSha256(kSecret, dateStamp)
+  const kRegion = await hmacSha256(kDate, region)
+  const kService = await hmacSha256(kRegion, service)
+  const kSigning = await hmacSha256(kService, 'aws4_request')
+  return kSigning
+}
+
+/**
+ * Format date as YYYYMMDD
+ */
+function formatDateStamp(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, '')
+}
+
+/**
+ * Format date as YYYYMMDDTHHMMSSZ (ISO8601 basic format)
+ */
+function formatAmzDate(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+}
+
+/**
+ * URI encode a string for AWS Signature V4
+ * AWS Signature V4 requires a specific encoding scheme
+ */
+function uriEncode(str: string, encodeSlash = true): string {
+  let encoded = ''
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i]
+    if (
+      (char >= 'A' && char <= 'Z') ||
+      (char >= 'a' && char <= 'z') ||
+      (char >= '0' && char <= '9') ||
+      char === '_' ||
+      char === '-' ||
+      char === '~' ||
+      char === '.'
+    ) {
+      encoded += char
+    } else if (char === '/' && !encodeSlash) {
+      encoded += char
+    } else {
+      const charCode = char.charCodeAt(0)
+      if (charCode < 128) {
+        encoded += '%' + charCode.toString(16).toUpperCase().padStart(2, '0')
+      } else {
+        // Handle multi-byte UTF-8 characters
+        const bytes = new TextEncoder().encode(char)
+        for (const byte of bytes) {
+          encoded += '%' + byte.toString(16).toUpperCase().padStart(2, '0')
+        }
+      }
+    }
+  }
+  return encoded
+}
+
+/**
+ * AWS Signature V4 signing context
+ */
+interface SigningContext {
+  accessKeyId: string
+  secretAccessKey: string
+  region: string
+  service: string
+  method: string
+  host: string
+  path: string
+  queryParams: Record<string, string>
+  signedHeaders: string[]
+  date: Date
+  expiresIn: number
+}
+
+/**
+ * Create canonical request for AWS Signature V4
+ */
+async function createCanonicalRequest(ctx: SigningContext): Promise<string> {
+  // Sort query parameters alphabetically
+  const sortedParams = Object.keys(ctx.queryParams).sort()
+  const canonicalQueryString = sortedParams
+    .map((key) => `${uriEncode(key)}=${uriEncode(ctx.queryParams[key])}`)
+    .join('&')
+
+  // Create canonical headers
+  const headers: Record<string, string> = {
+    host: ctx.host,
+  }
+  const sortedHeaders = Object.keys(headers).sort()
+  const canonicalHeaders = sortedHeaders.map((key) => `${key}:${headers[key]}\n`).join('')
+  const signedHeadersStr = sortedHeaders.join(';')
+
+  // For presigned URLs, the payload is UNSIGNED-PAYLOAD
+  const hashedPayload = 'UNSIGNED-PAYLOAD'
+
+  // Create canonical request
+  const canonicalRequest = [
+    ctx.method,
+    ctx.path,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeadersStr,
+    hashedPayload,
+  ].join('\n')
+
+  return canonicalRequest
+}
+
+/**
+ * Create string to sign for AWS Signature V4
+ */
+async function createStringToSign(
+  canonicalRequest: string,
+  amzDate: string,
+  credentialScope: string
+): Promise<string> {
+  const hashedCanonicalRequest = await sha256(canonicalRequest)
+  return ['AWS4-HMAC-SHA256', amzDate, credentialScope, hashedCanonicalRequest].join('\n')
+}
+
+/**
+ * Calculate AWS Signature V4 signature
+ */
+async function calculateSignature(signingKey: Uint8Array, stringToSign: string): Promise<string> {
+  const signature = await hmacSha256(signingKey, stringToSign)
+  return bytesToHex(signature)
+}
+
+// ============================================================================
 // PRESIGNED URLS
 // ============================================================================
 
 /**
- * Generate a presigned URL for an S3 operation
+ * Generate a presigned URL for an S3 operation using AWS Signature V4
  */
 export async function getSignedUrl(
   client: S3Client,
@@ -822,24 +1033,95 @@ export async function getSignedUrl(
   options: GetSignedUrlOptions = {}
 ): Promise<string> {
   const { expiresIn = 3600 } = options
-
-  const now = Date.now()
-  const expires = now + expiresIn * 1000
-
-  // Build a presigned URL (simplified - production would use actual AWS Signature V4)
+  const config = client.getConfig()
   const input = command.input as GetObjectCommandInput | PutObjectCommandInput
-  const operation = command._type === 'GetObject' ? 'get' : 'put'
+  const method = command._type === 'GetObject' ? 'GET' : 'PUT'
 
-  // Generate a fake signature
-  const signature = btoa(`${input.Bucket}:${input.Key}:${expires}:${operation}`)
+  // Get credentials
+  let credentials: Credentials | undefined
+  if (config.credentials) {
+    if (typeof config.credentials === 'function') {
+      credentials = await config.credentials()
+    } else {
+      credentials = config.credentials
+    }
+  }
 
-  // Build URL
-  const url = new URL(`https://${input.Bucket}.s3.amazonaws.com/${encodeURIComponent(input.Key)}`)
+  // Use default credentials if not provided
+  const accessKeyId = credentials?.accessKeyId ?? 'AKIADEFAULT00000FAKE'
+  const secretAccessKey = credentials?.secretAccessKey ?? 'DefaultSecretKeyForLocalDevelopment12345'
+  const region = config.region ?? 'us-east-1'
+  const service = 's3'
+
+  // Current time
+  const now = new Date()
+  const dateStamp = formatDateStamp(now)
+  const amzDate = formatAmzDate(now)
+
+  // Build host and path based on forcePathStyle
+  let host: string
+  let path: string
+
+  if (config.forcePathStyle) {
+    host = `s3.${region}.amazonaws.com`
+    // For path-style, don't encode slashes in the key path
+    path = `/${input.Bucket}/${uriEncode(input.Key, false)}`
+  } else {
+    host = `${input.Bucket}.s3.${region}.amazonaws.com`
+    // For virtual-hosted style, don't encode slashes in the key path
+    path = `/${uriEncode(input.Key, false)}`
+  }
+
+  // Credential scope
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
+  const credential = `${accessKeyId}/${credentialScope}`
+
+  // Query parameters (in alphabetical order for canonical request)
+  const queryParams: Record<string, string> = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': credential,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresIn),
+    'X-Amz-SignedHeaders': 'host',
+  }
+
+  // Create signing context
+  const ctx: SigningContext = {
+    accessKeyId,
+    secretAccessKey,
+    region,
+    service,
+    method,
+    host,
+    path,
+    queryParams,
+    signedHeaders: ['host'],
+    date: now,
+    expiresIn,
+  }
+
+  // Create canonical request
+  const canonicalRequest = await createCanonicalRequest(ctx)
+
+  // Create string to sign
+  const stringToSign = await createStringToSign(canonicalRequest, amzDate, credentialScope)
+
+  // Get signing key
+  const signingKey = await getSigningKey(secretAccessKey, dateStamp, region, service)
+
+  // Calculate signature
+  const signature = await calculateSignature(signingKey, stringToSign)
+
+  // Build final URL
+  const url = new URL(`https://${host}${path}`)
+
+  // Add query parameters in the order expected by AWS
   url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256')
+  url.searchParams.set('X-Amz-Credential', credential)
+  url.searchParams.set('X-Amz-Date', amzDate)
   url.searchParams.set('X-Amz-Expires', String(expiresIn))
   url.searchParams.set('X-Amz-SignedHeaders', 'host')
   url.searchParams.set('X-Amz-Signature', signature)
-  url.searchParams.set('X-Amz-Date', new Date(now).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z')
 
   return url.toString()
 }

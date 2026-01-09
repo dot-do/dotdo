@@ -1,0 +1,12 @@
+{
+  "name": "payload-blog",
+  "private": true,
+  "scripts": {
+    "dev": "payload dev",
+    "build": "payload build",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@dotdo/payload": "workspace:*"
+  }
+}

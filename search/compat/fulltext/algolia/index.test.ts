@@ -568,6 +568,186 @@ describe('facetFilters', () => {
 })
 
 // ============================================================================
+// NESTED FACET FILTER TESTS (dotdo-ifnt3)
+// ============================================================================
+
+describe('nested facetFilters normalization', () => {
+  let index: SearchIndex
+
+  beforeEach(async () => {
+    clearAllIndices()
+    const client = algoliasearch('test-app-id', 'test-api-key')
+    index = client.initIndex('products')
+    await index.saveObjects([
+      { objectID: '1', name: 'iPhone', brand: 'Apple', category: 'phones', status: 'active' },
+      { objectID: '2', name: 'MacBook', brand: 'Apple', category: 'laptops', status: 'active' },
+      { objectID: '3', name: 'Galaxy', brand: 'Samsung', category: 'phones', status: 'inactive' },
+      { objectID: '4', name: 'Pixel', brand: 'Google', category: 'phones', status: 'active' },
+    ])
+  })
+
+  it('should handle OR within nested array: ["category:A", "category:B"]', async () => {
+    // OR: category is phones OR laptops
+    const response = await index.search('', {
+      facetFilters: [['category:phones', 'category:laptops']],
+    })
+
+    expect(response.nbHits).toBe(4)
+  })
+
+  it('should handle AND between arrays: [["a"], ["b"]]', async () => {
+    // AND: (brand:Apple) AND (category:phones)
+    const response = await index.search('', {
+      facetFilters: [['brand:Apple'], ['category:phones']],
+    })
+
+    expect(response.nbHits).toBe(1)
+    expect((response.hits[0] as { name: string }).name).toBe('iPhone')
+  })
+
+  it('should handle mixed string and array: ["a", ["b", "c"]]', async () => {
+    // Mixed: status:active AND (brand:Apple OR brand:Samsung)
+    const response = await index.search('', {
+      facetFilters: ['status:active', ['brand:Apple', 'brand:Samsung']],
+    })
+
+    // Should match: iPhone (Apple, active), MacBook (Apple, active)
+    // Galaxy is Samsung but inactive, Pixel is active but Google
+    expect(response.nbHits).toBe(2)
+    expect(response.hits.every((h) => (h as { status: string }).status === 'active')).toBe(true)
+    expect(response.hits.every((h) => ['Apple', 'Samsung'].includes((h as { brand: string }).brand))).toBe(true)
+  })
+
+  it('should handle array starting with nested array then string: [["a", "b"], "c"]', async () => {
+    // (brand:Apple OR brand:Samsung) AND status:active
+    const response = await index.search('', {
+      facetFilters: [['brand:Apple', 'brand:Samsung'], 'status:active'],
+    })
+
+    // Should match: iPhone (Apple, active), MacBook (Apple, active)
+    // Galaxy is Samsung but inactive
+    expect(response.nbHits).toBe(2)
+  })
+
+  it('should handle complex nested filters with negation', async () => {
+    // (category:phones) AND NOT brand:Samsung AND status:active
+    const response = await index.search('', {
+      facetFilters: [['category:phones'], '-brand:Samsung', 'status:active'],
+    })
+
+    // Should match: iPhone (phones, Apple, active), Pixel (phones, Google, active)
+    expect(response.nbHits).toBe(2)
+    expect(response.hits.every((h) => (h as { brand: string }).brand !== 'Samsung')).toBe(true)
+  })
+
+  it('should handle deeply nested OR groups', async () => {
+    // (brand:Apple OR brand:Google) AND (category:phones OR category:laptops)
+    const response = await index.search('', {
+      facetFilters: [['brand:Apple', 'brand:Google'], ['category:phones', 'category:laptops']],
+    })
+
+    // Should match: iPhone, MacBook, Pixel
+    expect(response.nbHits).toBe(3)
+    expect(response.hits.every((h) => ['Apple', 'Google'].includes((h as { brand: string }).brand))).toBe(true)
+  })
+})
+
+// ============================================================================
+// NESTED NUMERIC FILTER TESTS (dotdo-ifnt3)
+// ============================================================================
+
+describe('nested numericFilters normalization', () => {
+  let index: SearchIndex
+
+  beforeEach(async () => {
+    clearAllIndices()
+    const client = algoliasearch('test-app-id', 'test-api-key')
+    index = client.initIndex('products')
+    await index.saveObjects([
+      { objectID: '1', name: 'Budget Phone', price: 299, stock: 100 },
+      { objectID: '2', name: 'Mid Phone', price: 599, stock: 50 },
+      { objectID: '3', name: 'Premium Phone', price: 999, stock: 25 },
+      { objectID: '4', name: 'Ultra Phone', price: 1499, stock: 10 },
+    ])
+  })
+
+  it('should handle nested numeric filter arrays', async () => {
+    // price >= 500 AND price <= 1000
+    const response = await index.search('', {
+      numericFilters: [['price>=500'], ['price<=1000']],
+    })
+
+    expect(response.nbHits).toBe(2)
+    expect(response.hits.every((h) => {
+      const price = (h as { price: number }).price
+      return price >= 500 && price <= 1000
+    })).toBe(true)
+  })
+
+  it('should handle mixed string and array numeric filters', async () => {
+    // stock>20 AND (price<400 OR price>900)
+    const response = await index.search('', {
+      numericFilters: ['stock>20', ['price<400', 'price>900']],
+    })
+
+    // Budget Phone: price 299 < 400, stock 100 > 20 -> match
+    // Mid Phone: price 599 (not < 400, not > 900), stock 50 > 20 -> no match
+    // Premium Phone: price 999 > 900, stock 25 > 20 -> match
+    // Ultra Phone: price 1499 > 900, stock 10 < 20 -> no match
+    expect(response.nbHits).toBe(2)
+  })
+})
+
+// ============================================================================
+// NESTED TAG FILTER TESTS (dotdo-ifnt3)
+// ============================================================================
+
+describe('nested tagFilters normalization', () => {
+  let index: SearchIndex
+
+  beforeEach(async () => {
+    clearAllIndices()
+    const client = algoliasearch('test-app-id', 'test-api-key')
+    index = client.initIndex('products')
+    await index.saveObjects([
+      { objectID: '1', name: 'iPhone', _tags: ['mobile', 'apple', 'premium'] },
+      { objectID: '2', name: 'MacBook', _tags: ['laptop', 'apple', 'premium'] },
+      { objectID: '3', name: 'Galaxy', _tags: ['mobile', 'samsung', 'budget'] },
+      { objectID: '4', name: 'Chromebook', _tags: ['laptop', 'google', 'budget'] },
+    ])
+  })
+
+  it('should handle nested tag filter arrays with OR', async () => {
+    // (mobile OR laptop) - all items match
+    const response = await index.search('', {
+      tagFilters: [['mobile', 'laptop']],
+    })
+
+    expect(response.nbHits).toBe(4)
+  })
+
+  it('should handle AND between tag filter arrays', async () => {
+    // mobile AND premium
+    const response = await index.search('', {
+      tagFilters: [['mobile'], ['premium']],
+    })
+
+    expect(response.nbHits).toBe(1)
+    expect((response.hits[0] as { name: string }).name).toBe('iPhone')
+  })
+
+  it('should handle mixed string and array tag filters', async () => {
+    // apple AND (mobile OR laptop)
+    const response = await index.search('', {
+      tagFilters: ['apple', ['mobile', 'laptop']],
+    })
+
+    expect(response.nbHits).toBe(2)
+    expect(response.hits.every((h) => ((h as { _tags: string[] })._tags).includes('apple'))).toBe(true)
+  })
+})
+
+// ============================================================================
 // FACET TESTS
 // ============================================================================
 

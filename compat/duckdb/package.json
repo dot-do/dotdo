@@ -1,0 +1,46 @@
+{
+  "name": "@dotdo/duckdb",
+  "version": "0.1.0",
+  "description": "DuckDB compat layer for Cloudflare Workers with DO extensions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "keywords": [
+    "duckdb",
+    "wasm",
+    "cloudflare",
+    "workers",
+    "sql",
+    "analytics",
+    "parquet",
+    "durable-objects"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "compat/duckdb"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.29.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "peerDependencies": {
+    "apache-arrow": "^18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -150,6 +150,11 @@ const globalKvBuckets = new Map<string, KvBucketData>()
 let globalSeq = 0
 let globalInboxCounter = 0
 
+// Global subscription registry for cross-connection messaging
+const globalSubscriptions = new Set<SubscriptionImpl>()
+// Queue group round-robin counters
+const queueGroupCounters = new Map<string, number>()
+
 /**
  * Get or create subject
  */
@@ -203,6 +208,31 @@ function matchSubject(pattern: string, subject: string): boolean {
   }
 
   return si === subjectParts.length
+}
+
+/**
+ * Match KV key pattern against a key
+ * KV keys use . as separator and * as single-segment wildcard
+ */
+function matchKvKeyPattern(pattern: string, key: string): boolean {
+  const patternParts = pattern.split('.')
+  const keyParts = key.split('.')
+
+  if (patternParts.length !== keyParts.length) {
+    return false
+  }
+
+  for (let i = 0; i < patternParts.length; i++) {
+    if (patternParts[i] === '*') {
+      // * matches any single segment
+      continue
+    }
+    if (patternParts[i] !== keyParts[i]) {
+      return false
+    }
+  }
+
+  return true
 }
 
 /**
@@ -333,6 +363,7 @@ class SubscriptionImpl implements Subscription {
 
   unsubscribe(_max?: number): void {
     this._closed = true
+    globalSubscriptions.delete(this)
     // Resolve any pending iterators
     for (const resolve of this._resolvers) {
       resolve({ value: undefined, done: true })
@@ -343,6 +374,7 @@ class SubscriptionImpl implements Subscription {
   async drain(): Promise<void> {
     // Process remaining messages then close
     this._closed = true
+    globalSubscriptions.delete(this)
   }
 
   isClosed(): boolean {
@@ -371,6 +403,10 @@ class SubscriptionImpl implements Subscription {
 
   getID(): number {
     return this._id
+  }
+
+  getQueue(): string | undefined {
+    return this._queue
   }
 
   _deliver(msg: Msg): void {
@@ -582,24 +618,7 @@ class ConsumerImpl implements Consumer {
       throw new NatsError(`Consumer ${this._name} not found`, ErrorCode.JetStream404NoMessages)
     }
 
-    return {
-      stream_name: this._stream,
-      name: this._name,
-      created: consumer.created,
-      config: consumer.config,
-      delivered: {
-        consumer_seq: consumer.delivered.consumer_seq,
-        stream_seq: consumer.delivered.stream_seq,
-      },
-      ack_floor: {
-        consumer_seq: consumer.ack_floor.consumer_seq,
-        stream_seq: consumer.ack_floor.stream_seq,
-      },
-      num_ack_pending: consumer.pending.size,
-      num_redelivered: 0,
-      num_waiting: 0,
-      num_pending: 0,
-    }
+    return buildConsumerInfo(this._stream, this._name, consumer)
   }
 
   async fetch(opts?: FetchOptions): Promise<ConsumerMessages> {
@@ -964,13 +983,20 @@ class KVImpl implements KV {
     return true
   }
 
-  async keys(_filter?: string): Promise<AsyncIterable<string>> {
+  async keys(filter?: string): Promise<AsyncIterable<string>> {
     const bucket = this._getBucket()
     const keyList: string[] = []
 
     for (const [key, history] of bucket.entries) {
       if (history.length > 0 && history[history.length - 1].operation === 'PUT') {
-        keyList.push(key)
+        // If filter provided, check if key matches (using NATS subject matching on key)
+        if (filter) {
+          if (matchKvKeyPattern(filter, key)) {
+            keyList.push(key)
+          }
+        } else {
+          keyList.push(key)
+        }
       }
     }
 
@@ -983,13 +1009,19 @@ class KVImpl implements KV {
     }
   }
 
-  async watch(_opts?: { key?: string }): Promise<AsyncIterable<KvEntry>> {
+  async watch(opts?: { key?: string }): Promise<AsyncIterable<KvEntry>> {
     const entries: KvEntry[] = []
     const resolvers: Array<(value: IteratorResult<KvEntry>) => void> = []
     let stopped = false
+    const keyPattern = opts?.key
 
     const watcher = (entry: KvEntry) => {
       if (stopped) return
+
+      // Filter by key pattern if provided
+      if (keyPattern && !matchKvKeyPattern(keyPattern, entry.key)) {
+        return
+      }
 
       if (resolvers.length > 0) {
         const resolve = resolvers.shift()!
@@ -1143,6 +1175,21 @@ class JetStreamClientImpl implements JetStreamClient {
       throw new NatsError(`No stream found for subject ${subject}`, ErrorCode.JetStream404NoMessages)
     }
 
+    // Check expectations
+    if (opts?.expect) {
+      if (opts.expect.lastSequence !== undefined && opts.expect.lastSequence !== targetStream.seq) {
+        throw new NatsError(`Expected last sequence ${opts.expect.lastSequence} but stream has ${targetStream.seq}`, ErrorCode.JetStream409)
+      }
+      if (opts.expect.lastMsgID !== undefined) {
+        // Find the last message's ID
+        const lastMsgId = targetStream.messages.length > 0 ?
+          Array.from(targetStream.messageIds).pop() : undefined
+        if (lastMsgId !== opts.expect.lastMsgID) {
+          throw new NatsError(`Expected last message ID ${opts.expect.lastMsgID}`, ErrorCode.JetStream409)
+        }
+      }
+    }
+
     // Check for duplicate
     if (opts?.msgID && targetStream.messageIds.has(opts.msgID)) {
       return {
@@ -1165,6 +1212,27 @@ class JetStreamClientImpl implements JetStreamClient {
 
     if (opts?.msgID) {
       targetStream.messageIds.add(opts.msgID)
+    }
+
+    // Enforce stream limits
+    const config = targetStream.config
+
+    // Enforce max_msgs
+    if (config.max_msgs && config.max_msgs > 0) {
+      while (targetStream.messages.length > config.max_msgs) {
+        targetStream.messages.shift()
+      }
+    }
+
+    // Enforce max_bytes
+    if (config.max_bytes && config.max_bytes > 0) {
+      let totalBytes = targetStream.messages.reduce((sum, m) => sum + m.data.length, 0)
+      while (totalBytes > config.max_bytes && targetStream.messages.length > 0) {
+        const removed = targetStream.messages.shift()
+        if (removed) {
+          totalBytes -= removed.data.length
+        }
+      }
     }
 
     return {
@@ -1240,15 +1308,30 @@ class StreamAPIImpl implements StreamAPI {
     return true
   }
 
-  async purge(name: string, _opts?: PurgeOpts): Promise<PurgeResponse> {
+  async purge(name: string, opts?: PurgeOpts): Promise<PurgeResponse> {
     const stream = globalStreams.get(name)
     if (!stream) {
       throw new NatsError(`Stream ${name} not found`, ErrorCode.JetStream404NoMessages)
     }
 
-    const purged = stream.messages.length
-    stream.messages = []
-    stream.messageIds.clear()
+    let purged = 0
+
+    if (opts?.filter) {
+      // Purge only messages matching the filter subject
+      const originalLength = stream.messages.length
+      stream.messages = stream.messages.filter(msg => {
+        if (matchSubject(opts.filter!, msg.subject)) {
+          purged++
+          return false // Remove this message
+        }
+        return true // Keep this message
+      })
+    } else {
+      // Purge all messages
+      purged = stream.messages.length
+      stream.messages = []
+      stream.messageIds.clear()
+    }
 
     return { success: true, purged }
   }
@@ -1269,8 +1352,23 @@ class StreamAPIImpl implements StreamAPI {
     }
   }
 
-  names(_subject?: string): Lister<string> {
-    const names = Array.from(globalStreams.keys())
+  names(subject?: string): Lister<string> {
+    let names: string[]
+
+    if (subject) {
+      // Filter streams by subject - find streams that would handle this subject
+      names = []
+      for (const [streamName, stream] of globalStreams) {
+        for (const streamSubject of stream.config.subjects || []) {
+          if (matchSubject(streamSubject, subject)) {
+            names.push(streamName)
+            break
+          }
+        }
+      }
+    } else {
+      names = Array.from(globalStreams.keys())
+    }
 
     return {
       async next(): Promise<string[]> {
@@ -1297,6 +1395,9 @@ class StreamAPIImpl implements StreamAPI {
     } else if (query.last_by_subj) {
       const matching = stream.messages.filter(m => m.subject === query.last_by_subj)
       msg = matching[matching.length - 1]
+    } else if (query.next_by_subj) {
+      // Get first message matching the subject
+      msg = stream.messages.find(m => m.subject === query.next_by_subj)
     }
 
     if (!msg) {
@@ -1326,6 +1427,9 @@ class StreamAPIImpl implements StreamAPI {
   }
 
   private _streamInfo(stream: StreamData): StreamInfo {
+    // Count unique subjects
+    const uniqueSubjects = new Set(stream.messages.map(m => m.subject))
+
     return {
       config: stream.config,
       state: {
@@ -1336,6 +1440,7 @@ class StreamAPIImpl implements StreamAPI {
         last_seq: stream.seq,
         last_ts: stream.messages[stream.messages.length - 1] ? new Date(stream.messages[stream.messages.length - 1].timestamp).toISOString() : new Date().toISOString(),
         consumer_count: globalConsumers.get(stream.config.name)?.size ?? 0,
+        num_subjects: uniqueSubjects.size,
       },
       created: stream.created,
     }
@@ -1345,6 +1450,46 @@ class StreamAPIImpl implements StreamAPI {
 // ============================================================================
 // CONSUMER API IMPLEMENTATION
 // ============================================================================
+
+/**
+ * Helper to calculate num_pending for a consumer
+ */
+function calculateNumPending(consumerData: ConsumerData): number {
+  const stream = globalStreams.get(consumerData.stream)
+  if (!stream) return 0
+
+  // Count messages after the delivered position that match the filter
+  const filter = consumerData.config.filter_subject
+  let pending = 0
+
+  for (const msg of stream.messages) {
+    if (msg.seq > consumerData.delivered.stream_seq) {
+      if (!filter || matchSubject(filter, msg.subject)) {
+        pending++
+      }
+    }
+  }
+
+  return pending
+}
+
+/**
+ * Build ConsumerInfo from consumer data
+ */
+function buildConsumerInfo(streamName: string, name: string, consumerData: ConsumerData): ConsumerInfo {
+  return {
+    stream_name: streamName,
+    name,
+    created: consumerData.created,
+    config: consumerData.config,
+    delivered: consumerData.delivered,
+    ack_floor: consumerData.ack_floor,
+    num_ack_pending: consumerData.pending.size,
+    num_redelivered: 0,
+    num_waiting: 0,
+    num_pending: calculateNumPending(consumerData),
+  }
+}
 
 class ConsumerAPIImpl implements ConsumerAPI {
   async add(stream: string, config: Partial<ConsumerConfig>): Promise<ConsumerInfo> {
@@ -1364,14 +1509,31 @@ class ConsumerAPIImpl implements ConsumerAPI {
       max_deliver: config.max_deliver ?? -1,
       ack_wait: config.ack_wait ?? 30000000000,
       deliver_subject: config.deliver_subject,
+      opt_start_seq: config.opt_start_seq,
     }
+
+    // Determine starting stream sequence based on deliver_policy
+    let startStreamSeq = 0
+    const deliverPolicy = consumerConfig.deliver_policy
+
+    if (deliverPolicy === DeliverPolicy.Last || deliverPolicy === 'last') {
+      // Start from the last message
+      startStreamSeq = streamData.seq > 0 ? streamData.seq - 1 : 0
+    } else if (deliverPolicy === DeliverPolicy.New || deliverPolicy === 'new') {
+      // Only new messages after consumer creation
+      startStreamSeq = streamData.seq
+    } else if ((deliverPolicy === DeliverPolicy.StartSequence || deliverPolicy === 'by_start_sequence') && config.opt_start_seq !== undefined) {
+      // Start from specific sequence (minus 1 since we start AFTER this point)
+      startStreamSeq = config.opt_start_seq - 1
+    }
+    // For DeliverPolicy.All (default), startStreamSeq = 0
 
     const consumer: ConsumerData = {
       config: consumerConfig,
       stream,
       name,
-      delivered: { consumer_seq: 0, stream_seq: 0 },
-      ack_floor: { consumer_seq: 0, stream_seq: 0 },
+      delivered: { consumer_seq: 0, stream_seq: startStreamSeq },
+      ack_floor: { consumer_seq: 0, stream_seq: startStreamSeq },
       pending: new Map(),
       redeliveryQueue: [],
       created: new Date().toISOString(),
@@ -1384,18 +1546,7 @@ class ConsumerAPIImpl implements ConsumerAPI {
     }
     consumers.set(name, consumer)
 
-    return {
-      stream_name: stream,
-      name,
-      created: consumer.created,
-      config: consumerConfig,
-      delivered: consumer.delivered,
-      ack_floor: consumer.ack_floor,
-      num_ack_pending: 0,
-      num_redelivered: 0,
-      num_waiting: 0,
-      num_pending: 0,
-    }
+    return buildConsumerInfo(stream, name, consumer)
   }
 
   async update(stream: string, durable: string, config: Partial<ConsumerConfig>): Promise<ConsumerInfo> {
@@ -1411,18 +1562,7 @@ class ConsumerAPIImpl implements ConsumerAPI {
 
     Object.assign(consumer.config, config)
 
-    return {
-      stream_name: stream,
-      name: durable,
-      created: consumer.created,
-      config: consumer.config,
-      delivered: consumer.delivered,
-      ack_floor: consumer.ack_floor,
-      num_ack_pending: consumer.pending.size,
-      num_redelivered: 0,
-      num_waiting: 0,
-      num_pending: 0,
-    }
+    return buildConsumerInfo(stream, durable, consumer)
   }
 
   async info(stream: string, consumer: string): Promise<ConsumerInfo> {
@@ -1436,18 +1576,7 @@ class ConsumerAPIImpl implements ConsumerAPI {
       throw new NatsError(`Consumer ${consumer} not found`, ErrorCode.JetStream404NoMessages)
     }
 
-    return {
-      stream_name: stream,
-      name: consumer,
-      created: consumerData.created,
-      config: consumerData.config,
-      delivered: consumerData.delivered,
-      ack_floor: consumerData.ack_floor,
-      num_ack_pending: consumerData.pending.size,
-      num_redelivered: 0,
-      num_waiting: 0,
-      num_pending: 0,
-    }
+    return buildConsumerInfo(stream, consumer, consumerData)
   }
 
   async delete(stream: string, consumer: string): Promise<boolean> {
@@ -1462,33 +1591,11 @@ class ConsumerAPIImpl implements ConsumerAPI {
 
     return {
       async next(): Promise<ConsumerInfo[]> {
-        return consumerList.map(([name, data]) => ({
-          stream_name: stream,
-          name,
-          created: data.created,
-          config: data.config,
-          delivered: data.delivered,
-          ack_floor: data.ack_floor,
-          num_ack_pending: data.pending.size,
-          num_redelivered: 0,
-          num_waiting: 0,
-          num_pending: 0,
-        }))
+        return consumerList.map(([name, data]) => buildConsumerInfo(stream, name, data))
       },
       async *[Symbol.asyncIterator]() {
         for (const [name, data] of consumerList) {
-          yield {
-            stream_name: stream,
-            name,
-            created: data.created,
-            config: data.config,
-            delivered: data.delivered,
-            ack_floor: data.ack_floor,
-            num_ack_pending: data.pending.size,
-            num_redelivered: 0,
-            num_waiting: 0,
-            num_pending: 0,
-          }
+          yield buildConsumerInfo(stream, name, data)
         }
       },
     }
@@ -1595,12 +1702,45 @@ class NatsConnectionImpl implements NatsConnection {
     this._stats.outMsgs++
     this._stats.outBytes += msg.data.length
 
-    // Deliver to matching subscriptions
-    for (const sub of this._subscriptions.values()) {
-      if (matchSubject(sub.getSubject(), subject)) {
-        const msgObj = new MsgImpl(this, subject, msg.data, msg.reply, msg.headers)
-        sub._deliver(msgObj)
+    // Collect matching subscriptions across all connections
+    const matchingSubs: SubscriptionImpl[] = []
+    for (const sub of globalSubscriptions) {
+      if (!sub.isClosed() && matchSubject(sub.getSubject(), subject)) {
+        matchingSubs.push(sub)
       }
+    }
+
+    // Group subscriptions by queue group
+    const regularSubs: SubscriptionImpl[] = []
+    const queueGroups = new Map<string, SubscriptionImpl[]>()
+
+    for (const sub of matchingSubs) {
+      const queue = sub.getQueue()
+      if (queue) {
+        if (!queueGroups.has(queue)) {
+          queueGroups.set(queue, [])
+        }
+        queueGroups.get(queue)!.push(sub)
+      } else {
+        regularSubs.push(sub)
+      }
+    }
+
+    // Deliver to all non-queue subscribers
+    for (const sub of regularSubs) {
+      const msgObj = new MsgImpl(this, subject, msg.data, msg.reply, msg.headers)
+      sub._deliver(msgObj)
+    }
+
+    // Deliver to one subscriber per queue group (round-robin)
+    for (const [queueName, subs] of queueGroups) {
+      if (subs.length === 0) continue
+      const key = `${subject}:${queueName}`
+      const counter = queueGroupCounters.get(key) ?? 0
+      const selectedSub = subs[counter % subs.length]
+      queueGroupCounters.set(key, counter + 1)
+      const msgObj = new MsgImpl(this, subject, msg.data, msg.reply, msg.headers)
+      selectedSub._deliver(msgObj)
     }
   }
 
@@ -1611,6 +1751,7 @@ class NatsConnectionImpl implements NatsConnection {
 
     const sub = new SubscriptionImpl(this, subject, opts)
     this._subscriptions.set(sub.getID(), sub)
+    globalSubscriptions.add(sub)
 
     return sub
   }
@@ -1760,6 +1901,8 @@ export function _clearAll(): void {
   globalStreams.clear()
   globalConsumers.clear()
   globalKvBuckets.clear()
+  globalSubscriptions.clear()
+  queueGroupCounters.clear()
   globalSeq = 0
   globalInboxCounter = 0
 }

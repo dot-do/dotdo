@@ -209,7 +209,7 @@ export default defineWorkspace([
   createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts']),
 
   // Compat layer tests (API-compatible SDKs backed by DO)
-  createNodeWorkspace('compat', ['compat/**/*.test.ts', 'db/compat/**/*.test.ts', 'search/compat/**/*.test.ts']),
+  createNodeWorkspace('compat', ['compat/**/*.test.ts', 'db/compat/**/*.test.ts', 'search/compat/**/*.test.ts', 'config/compat/**/*.test.ts', 'storage/compat/**/*.test.ts']),
 
   // Database core tests (sharding, replication, tiering, vectors)
   createNodeWorkspace('db-core', ['db/core/**/*.test.ts']),
@@ -221,6 +221,7 @@ export default defineWorkspace([
   // Note: Workers-specific tests are in packages/duckdb-worker/tests/workers/ and run in duckdb-worker-workers project
   createNodeWorkspace('duckdb-worker', [
     'packages/duckdb-worker/tests/*.test.ts',  // Root test files only, not workers/
+    'packages/duckdb-worker/tests/benchmarks/**/*.test.ts',  // Benchmarks (R2 colocation, etc.)
   ]),
 
   // @dotdo/duckdb-worker E2E tests (live worker HTTP tests)
@@ -248,6 +249,18 @@ export default defineWorkspace([
 
   // Benchmarks (SQL parsers, etc.)
   createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts']),
+
+  // Reliability tests (error handling, promise handling, resilience)
+  createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts']),
+
+  // Platform behavior tests (subrequest limits, WebSocket limits, etc.)
+  createNodeWorkspace('platform', ['tests/platform/**/*.test.ts']),
+
+  // Vector search tests (VectorShardDO, similarity search)
+  createNodeWorkspace('vector', ['tests/vector/**/*.test.ts']),
+
+  // Iceberg metadata DO tests (metadata parsing, partition pruning)
+  createNodeWorkspace('iceberg-do', ['tests/iceberg/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
@@ -292,10 +305,17 @@ export default defineWorkspace([
   {
     extends: './tests/config/vitest.workers.config.ts',
     test: {
-      ...sharedTestConfig,
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig.globals,
+      reporters: sharedTestConfig.reporters,
+      snapshotFormat: sharedTestConfig.snapshotFormat,
+      bail: sharedTestConfig.bail,
       name: 'duckdb-worker-workers',
       include: ['packages/duckdb-worker/tests/workers/**/*.test.ts'],
       exclude: defaultExcludes,
+      // Workers tests need longer timeout for WASM loading
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
       // Workers tests need sequential execution for stability
       sequence: {
         concurrent: false,
@@ -304,6 +324,8 @@ export default defineWorkspace([
       poolOptions: {
         workers: {
           wrangler: { configPath: resolve(PROJECT_ROOT, 'packages/duckdb-worker/wrangler.jsonc') },
+          isolatedStorage: true,
+          singleWorker: true,
         },
       },
     },

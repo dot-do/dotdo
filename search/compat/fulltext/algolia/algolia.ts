@@ -444,6 +444,16 @@ function tokenizeFilter(filter: string): string[] {
 
 /**
  * Parse facet filters array format
+ *
+ * Algolia facetFilters support these formats:
+ * - String: 'brand:Apple' -> AND single filter
+ * - Array of strings: ['brand:Apple', 'category:phones'] -> AND all filters
+ * - Array of arrays: [['brand:Apple', 'brand:Samsung']] -> OR within array
+ * - Mixed: ['status:active', ['brand:Apple', 'brand:Samsung']] -> AND (status:active AND (brand:Apple OR brand:Samsung))
+ *
+ * The normalized format is always string[][] (AND of ORs):
+ * - Each top-level element is an OR group (at least one must match)
+ * - All OR groups must match (AND between groups)
  */
 function parseFacetFilters(
   facetFilters: string | string[] | string[][] | undefined
@@ -453,15 +463,22 @@ function parseFacetFilters(
   // Normalize to array of arrays (AND of ORs)
   let normalized: string[][]
   if (typeof facetFilters === 'string') {
+    // Single string -> wrap in double array
     normalized = [[facetFilters]]
   } else if (Array.isArray(facetFilters) && facetFilters.length > 0) {
-    if (typeof facetFilters[0] === 'string') {
-      // Array of strings - AND together
-      normalized = (facetFilters as string[]).map((f) => [f])
-    } else {
-      // Array of arrays - AND of ORs
-      normalized = facetFilters as string[][]
-    }
+    // Array - handle each element individually
+    // Each element can be a string (single filter) or array (OR group)
+    normalized = facetFilters.map((item) => {
+      if (typeof item === 'string') {
+        // String -> wrap in array (becomes OR group with one element)
+        return [item]
+      } else if (Array.isArray(item)) {
+        // Array -> use as-is (OR group)
+        return item
+      }
+      // Fallback for unexpected types
+      return [String(item)]
+    })
   } else {
     return () => true
   }
@@ -491,18 +508,97 @@ function parseFacetFilters(
 
 /**
  * Parse numeric filters
+ *
+ * Algolia numericFilters support these formats:
+ * - String: 'price<100' -> single filter
+ * - Array of strings: ['price>50', 'price<100'] -> AND all filters
+ * - Array of arrays: [['price<50', 'price>200']] -> OR within array
+ * - Mixed: ['stock>0', ['price<100', 'price>500']] -> AND (stock>0 AND (price<100 OR price>500))
  */
 function parseNumericFilters(
   numericFilters: string | string[] | string[][] | undefined
 ): (obj: AlgoliaObject) => boolean {
   if (!numericFilters) return () => true
 
-  // Normalize to string filter
-  const filterStr = Array.isArray(numericFilters)
-    ? numericFilters.flat().join(' AND ')
-    : numericFilters
+  // For a single string, just parse it directly
+  if (typeof numericFilters === 'string') {
+    return parseFilter(numericFilters)
+  }
 
-  return parseFilter(filterStr)
+  // Normalize to array of arrays (AND of ORs)
+  const normalized: string[][] = numericFilters.map((item) => {
+    if (typeof item === 'string') {
+      return [item]
+    } else if (Array.isArray(item)) {
+      return item
+    }
+    return [String(item)]
+  })
+
+  return (obj) => {
+    // All top-level arrays must match (AND)
+    return normalized.every((orGroup) => {
+      // At least one in the group must match (OR)
+      const orFilterStr = orGroup.join(' OR ')
+      const orFilterFn = parseFilter(`(${orFilterStr})`)
+      return orFilterFn(obj)
+    })
+  }
+}
+
+/**
+ * Parse tag filters
+ *
+ * Algolia tagFilters support these formats:
+ * - String: 'mobile' -> single tag filter
+ * - Array of strings: ['mobile', 'premium'] -> AND all tags
+ * - Array of arrays: [['mobile', 'laptop']] -> OR within array
+ * - Mixed: ['apple', ['mobile', 'laptop']] -> AND (apple AND (mobile OR laptop))
+ *
+ * Tags are matched against the _tags field of objects.
+ */
+function parseTagFilters(
+  tagFilters: string | string[] | string[][] | undefined
+): (obj: AlgoliaObject) => boolean {
+  if (!tagFilters) return () => true
+
+  // Normalize to array of arrays (AND of ORs)
+  let normalized: string[][]
+  if (typeof tagFilters === 'string') {
+    normalized = [[tagFilters]]
+  } else if (Array.isArray(tagFilters) && tagFilters.length > 0) {
+    normalized = tagFilters.map((item) => {
+      if (typeof item === 'string') {
+        return [item]
+      } else if (Array.isArray(item)) {
+        return item
+      }
+      return [String(item)]
+    })
+  } else {
+    return () => true
+  }
+
+  return (obj) => {
+    const tags = obj._tags as string[] | undefined
+    if (!tags || !Array.isArray(tags)) {
+      // No tags on object - only match if all filters are negations
+      return normalized.every((orGroup) =>
+        orGroup.every((tag) => tag.startsWith('-'))
+      )
+    }
+
+    // All top-level arrays must match (AND)
+    return normalized.every((orGroup) => {
+      // At least one in the group must match (OR)
+      return orGroup.some((tag) => {
+        const isNegation = tag.startsWith('-')
+        const actualTag = isNegation ? tag.slice(1) : tag
+        const hasTag = tags.includes(actualTag)
+        return isNegation ? !hasTag : hasTag
+      })
+    })
+  }
 }
 
 // ============================================================================
@@ -642,9 +738,10 @@ class SearchIndexImpl implements SearchIndex {
     const filterFn = parseFilter(options.filters)
     const facetFilterFn = parseFacetFilters(options.facetFilters)
     const numericFilterFn = parseNumericFilters(options.numericFilters)
+    const tagFilterFn = parseTagFilters(options.tagFilters)
 
     objects = objects.filter((obj) =>
-      filterFn(obj) && facetFilterFn(obj) && numericFilterFn(obj)
+      filterFn(obj) && facetFilterFn(obj) && numericFilterFn(obj) && tagFilterFn(obj)
     )
 
     // Calculate scores and filter by query

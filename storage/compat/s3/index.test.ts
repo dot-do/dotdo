@@ -12,7 +12,7 @@
  *
  * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   S3Client,
   CreateBucketCommand,
@@ -1085,6 +1085,372 @@ describe('getSignedUrl', () => {
     )
 
     expect(url).toContain('X-Amz-Expires=7200')
+  })
+})
+
+// ============================================================================
+// AWS SIGNATURE V4 FORMAT VALIDATION TESTS
+// ============================================================================
+
+describe('getSignedUrl - AWS Signature V4 format', () => {
+  let client: S3Client
+
+  beforeEach(async () => {
+    clearAllBuckets()
+    client = new S3Client({
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+        secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      },
+    })
+    await client.send(new CreateBucketCommand({ Bucket: 'test-bucket' }))
+    await client.send(
+      new PutObjectCommand({
+        Bucket: 'test-bucket',
+        Key: 'test-key',
+        Body: 'test content',
+      })
+    )
+  })
+
+  afterEach(() => {
+    client.destroy()
+  })
+
+  describe('presigned URL structure', () => {
+    it('should include X-Amz-Credential in correct format', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      const credential = parsed.searchParams.get('X-Amz-Credential')
+
+      expect(credential).not.toBeNull()
+      // Format: <accessKeyId>/<date>/<region>/s3/aws4_request
+      const credentialParts = credential!.split('/')
+      expect(credentialParts).toHaveLength(5)
+      expect(credentialParts[0]).toBe('AKIAIOSFODNN7EXAMPLE')
+      expect(credentialParts[1]).toMatch(/^\d{8}$/) // YYYYMMDD
+      expect(credentialParts[2]).toBe('us-east-1')
+      expect(credentialParts[3]).toBe('s3')
+      expect(credentialParts[4]).toBe('aws4_request')
+    })
+
+    it('should include X-Amz-Date in ISO8601 basic format', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      const amzDate = parsed.searchParams.get('X-Amz-Date')
+
+      expect(amzDate).not.toBeNull()
+      // Format: YYYYMMDDTHHMMSSZ
+      expect(amzDate).toMatch(/^\d{8}T\d{6}Z$/)
+    })
+
+    it('should have X-Amz-Signature as 64-char lowercase hex', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      const signature = parsed.searchParams.get('X-Amz-Signature')
+
+      expect(signature).not.toBeNull()
+      // AWS Signature V4 produces a 64-character lowercase hex string (SHA256)
+      expect(signature).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('should include X-Amz-Algorithm as AWS4-HMAC-SHA256', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      expect(parsed.searchParams.get('X-Amz-Algorithm')).toBe('AWS4-HMAC-SHA256')
+    })
+
+    it('should include X-Amz-SignedHeaders containing host', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      const signedHeaders = parsed.searchParams.get('X-Amz-SignedHeaders')
+
+      expect(signedHeaders).not.toBeNull()
+      expect(signedHeaders).toContain('host')
+    })
+  })
+
+  describe('signature verification', () => {
+    it('should produce consistent signatures for same inputs', async () => {
+      // Mock the current time to ensure consistent signatures
+      const fixedDate = new Date('2024-01-15T10:30:00.000Z')
+      vi.useFakeTimers()
+      vi.setSystemTime(fixedDate)
+
+      try {
+        const url1 = await getSignedUrl(
+          client,
+          new GetObjectCommand({
+            Bucket: 'test-bucket',
+            Key: 'test-key',
+          }),
+          { expiresIn: 3600 }
+        )
+
+        const url2 = await getSignedUrl(
+          client,
+          new GetObjectCommand({
+            Bucket: 'test-bucket',
+            Key: 'test-key',
+          }),
+          { expiresIn: 3600 }
+        )
+
+        const parsed1 = new URL(url1)
+        const parsed2 = new URL(url2)
+
+        expect(parsed1.searchParams.get('X-Amz-Signature')).toBe(
+          parsed2.searchParams.get('X-Amz-Signature')
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('should produce different signatures for different keys', async () => {
+      const url1 = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      await client.send(
+        new PutObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'other-key',
+          Body: 'other content',
+        })
+      )
+
+      const url2 = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'other-key',
+        })
+      )
+
+      const sig1 = new URL(url1).searchParams.get('X-Amz-Signature')
+      const sig2 = new URL(url2).searchParams.get('X-Amz-Signature')
+
+      expect(sig1).not.toBe(sig2)
+    })
+
+    it('should produce different signatures for different operations', async () => {
+      const getUrl = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const putUrl = await getSignedUrl(
+        client,
+        new PutObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const getSig = new URL(getUrl).searchParams.get('X-Amz-Signature')
+      const putSig = new URL(putUrl).searchParams.get('X-Amz-Signature')
+
+      expect(getSig).not.toBe(putSig)
+    })
+
+    it('should produce different signatures with different credentials', async () => {
+      const url1 = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const client2 = new S3Client({
+        region: 'us-east-1',
+        credentials: {
+          accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+          secretAccessKey: 'differentSecretKey1234567890ABCDEF',
+        },
+      })
+
+      const url2 = await getSignedUrl(
+        client2,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      client2.destroy()
+
+      const sig1 = new URL(url1).searchParams.get('X-Amz-Signature')
+      const sig2 = new URL(url2).searchParams.get('X-Amz-Signature')
+
+      expect(sig1).not.toBe(sig2)
+    })
+  })
+
+  describe('expiration handling', () => {
+    it('should include correct X-Amz-Expires value', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        }),
+        { expiresIn: 900 }
+      )
+
+      const parsed = new URL(url)
+      expect(parsed.searchParams.get('X-Amz-Expires')).toBe('900')
+    })
+
+    it('should default to 3600 seconds expiration', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      expect(parsed.searchParams.get('X-Amz-Expires')).toBe('3600')
+    })
+  })
+
+  describe('URL structure', () => {
+    it('should use virtual-hosted style URL by default', async () => {
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      const parsed = new URL(url)
+      expect(parsed.hostname).toBe('test-bucket.s3.us-east-1.amazonaws.com')
+      expect(parsed.pathname).toBe('/test-key')
+    })
+
+    it('should properly encode special characters in keys', async () => {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'path/to/file with spaces.txt',
+          Body: 'test',
+        })
+      )
+
+      const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'path/to/file with spaces.txt',
+        })
+      )
+
+      const parsed = new URL(url)
+      // URL should be properly encoded
+      expect(parsed.pathname).toContain('path/to/')
+      expect(url).toContain('file%20with%20spaces.txt')
+    })
+
+    it('should use path-style URL when forcePathStyle is set', async () => {
+      const pathStyleClient = new S3Client({
+        region: 'us-east-1',
+        credentials: {
+          accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+          secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        },
+        forcePathStyle: true,
+      })
+
+      const url = await getSignedUrl(
+        pathStyleClient,
+        new GetObjectCommand({
+          Bucket: 'test-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      pathStyleClient.destroy()
+
+      const parsed = new URL(url)
+      expect(parsed.hostname).toBe('s3.us-east-1.amazonaws.com')
+      expect(parsed.pathname).toBe('/test-bucket/test-key')
+    })
+  })
+
+  describe('region handling', () => {
+    it('should include region in credential scope', async () => {
+      const euClient = new S3Client({
+        region: 'eu-west-1',
+        credentials: {
+          accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+          secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        },
+      })
+
+      await euClient.send(new CreateBucketCommand({ Bucket: 'eu-bucket' }))
+
+      const url = await getSignedUrl(
+        euClient,
+        new GetObjectCommand({
+          Bucket: 'eu-bucket',
+          Key: 'test-key',
+        })
+      )
+
+      euClient.destroy()
+
+      const parsed = new URL(url)
+      const credential = parsed.searchParams.get('X-Amz-Credential')
+
+      expect(credential).toContain('/eu-west-1/s3/')
+    })
   })
 })
 

@@ -26,8 +26,12 @@ import {
   type DuckDBInstance,
 } from '@dotdo/duckdb-worker'
 
-// Alias for test compatibility - uses CDN WASM loading
-const createDB = createDuckDB
+// Import WASM as ES module (Cloudflare Workers ES module style)
+import duckdbWasm from '../../wasm/duckdb-worker.wasm'
+
+// Use WASM module from ES module import
+const createDB = (config?: Parameters<typeof createDuckDB>[0]) =>
+  createDuckDB(config, { wasmModule: duckdbWasm })
 
 // ============================================================================
 // TEST FIXTURES
@@ -71,10 +75,10 @@ function createLargeBuffer(sizeKB: number): Uint8Array {
 // ============================================================================
 
 /**
- * SKIP: These tests require WASM module binding from env (env.DUCKDB_WASM).
- * See instantiation.test.ts for details on vitest-pool-workers configuration.
+ * Buffer registration tests using vitest-pool-workers with WASM module binding.
+ * Tests the runtime file buffer management for R2/Parquet workflows.
  */
-describe.skip('DuckDB WASM Buffer Registration in Workers', () => {
+describe('DuckDB WASM Buffer Registration in Workers', () => {
   // Clean up before each test
   beforeEach(() => {
     clearAllFiles()
@@ -250,7 +254,7 @@ describe.skip('DuckDB WASM Buffer Registration in Workers', () => {
 // DATABASE BUFFER INTEGRATION TESTS
 // ============================================================================
 
-describe.skip('DuckDB Buffer Query Integration', () => {
+describe('DuckDB Buffer Query Integration', () => {
   let db: DuckDBInstance
 
   beforeAll(async () => {
@@ -411,7 +415,7 @@ describe.skip('DuckDB Buffer Query Integration', () => {
 // PARQUET INTEGRATION TESTS (Mock Data)
 // ============================================================================
 
-describe.skip('Parquet Buffer Integration (Simulated)', () => {
+describe('Parquet Buffer Integration (Simulated)', () => {
   let db: DuckDBInstance
 
   beforeAll(async () => {
@@ -603,7 +607,7 @@ describe.skip('Parquet Buffer Integration (Simulated)', () => {
 // CLEANUP TESTS
 // ============================================================================
 
-describe.skip('Buffer Cleanup on Close', () => {
+describe('Buffer Cleanup on Close', () => {
   it('should clean up all buffers when database closes', async () => {
     /**
      * Test that closing database releases buffer memory.

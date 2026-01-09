@@ -97,6 +97,48 @@ The foundation of this architecture is the discovery that **each Durable Object 
 
 **Maximum theoretical scale**: 1,000 Regions x 31 Shards = **31,000 Shard DOs per query**, enabling ~31M R2 operations in a single coordinated request.
 
+### 1.3 WebSocket Message Subrequest Limit Reset
+
+Critical platform behavior for real-time analytics via WebSocket connections:
+
+> "For Durable Objects, both the subrequest limit and the KV operation limit are recalculated when new requests or new WebSocket messages arrive."
+> - [Cloudflare Durable Objects Limits](https://developers.cloudflare.com/durable-objects/platform/limits/)
+
+**Key behaviors verified:**
+
+| Behavior | Reset Trigger | Limit |
+|----------|---------------|-------|
+| Subrequest limit | Each WebSocket message | 1,000 |
+| CPU time limit | Each WebSocket message | 30s (configurable to 5min) |
+| KV operation limit | Each WebSocket message | 1,000 |
+
+**Architecture implications for real-time analytics:**
+
+```
+WebSocket Connection (Long-lived)
+│
+├── Message 1: Query "users by region"
+│   └── Fresh 1,000 subrequest budget
+│       └── Coordinator → Region DOs → Shard DOs
+│
+├── Message 2: Query "revenue by product"
+│   └── Fresh 1,000 subrequest budget (reset!)
+│       └── Coordinator → Region DOs → Shard DOs
+│
+└── Message N: Any subsequent query
+    └── Fresh 1,000 subrequest budget (reset!)
+        └── Full DO hierarchy available
+```
+
+**Benefits:**
+
+1. **Unlimited queries per connection** - No need to reconnect for quota refresh
+2. **Real-time dashboards** - Continuous high-throughput operations
+3. **Cost efficiency** - WebSocket hibernation between messages
+4. **Stateful sessions** - Connection maintains context across queries
+
+**Test verification:** See `tests/platform/subrequest-limit-reset.test.ts`
+
 ---
 
 ## Part 2: Vector Search Architecture

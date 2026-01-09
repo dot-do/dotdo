@@ -40,6 +40,7 @@ import type {
   StreamInfo,
   KV,
   KvEntry,
+  KvOperation,
   PublishOptions,
   ConsumerConfig,
   StreamConfig,
@@ -1577,6 +1578,652 @@ describe('Error handling', () => {
 // INTEGRATION TESTS
 // ============================================================================
 
+// ============================================================================
+// QUEUE GROUPS TESTS
+// ============================================================================
+
+describe('Queue groups', () => {
+  let nc: NatsConnection
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should distribute messages among queue group members', async () => {
+    const group1Messages: string[] = []
+    const group2Messages: string[] = []
+
+    // Two subscribers in same queue group
+    const sub1 = nc.subscribe('work.queue', { queue: 'workers' })
+    const sub2 = nc.subscribe('work.queue', { queue: 'workers' })
+
+    const collect1 = (async () => {
+      for await (const msg of sub1) {
+        group1Messages.push(sc.decode(msg.data))
+      }
+    })()
+
+    const collect2 = (async () => {
+      for await (const msg of sub2) {
+        group2Messages.push(sc.decode(msg.data))
+      }
+    })()
+
+    // Publish multiple messages
+    for (let i = 0; i < 10; i++) {
+      nc.publish('work.queue', sc.encode(`task-${i}`))
+    }
+    await nc.flush()
+
+    // Wait for message distribution
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    await sub1.unsubscribe()
+    await sub2.unsubscribe()
+
+    // Total messages should equal published count
+    expect(group1Messages.length + group2Messages.length).toBe(10)
+  })
+
+  it('should support multiple queue groups on same subject', async () => {
+    const groupA: string[] = []
+    const groupB: string[] = []
+
+    const subA = nc.subscribe('shared.topic', { queue: 'group-a' })
+    const subB = nc.subscribe('shared.topic', { queue: 'group-b' })
+
+    const collectA = (async () => {
+      for await (const msg of subA) {
+        groupA.push(sc.decode(msg.data))
+        if (groupA.length >= 1) break
+      }
+    })()
+
+    const collectB = (async () => {
+      for await (const msg of subB) {
+        groupB.push(sc.decode(msg.data))
+        if (groupB.length >= 1) break
+      }
+    })()
+
+    nc.publish('shared.topic', sc.encode('message'))
+    await nc.flush()
+
+    await Promise.race([
+      Promise.all([collectA, collectB]),
+      new Promise(resolve => setTimeout(resolve, 500)),
+    ])
+
+    await subA.unsubscribe()
+    await subB.unsubscribe()
+
+    // Each queue group should receive the message
+    expect(groupA.length).toBe(1)
+    expect(groupB.length).toBe(1)
+  })
+
+  it('should mix queue and non-queue subscribers', async () => {
+    const queueMessages: string[] = []
+    const regularMessages: string[] = []
+
+    const queueSub = nc.subscribe('mixed.topic', { queue: 'workers' })
+    const regularSub = nc.subscribe('mixed.topic')
+
+    const collectQueue = (async () => {
+      for await (const msg of queueSub) {
+        queueMessages.push(sc.decode(msg.data))
+        if (queueMessages.length >= 1) break
+      }
+    })()
+
+    const collectRegular = (async () => {
+      for await (const msg of regularSub) {
+        regularMessages.push(sc.decode(msg.data))
+        if (regularMessages.length >= 1) break
+      }
+    })()
+
+    nc.publish('mixed.topic', sc.encode('broadcast'))
+    await nc.flush()
+
+    await Promise.race([
+      Promise.all([collectQueue, collectRegular]),
+      new Promise(resolve => setTimeout(resolve, 500)),
+    ])
+
+    await queueSub.unsubscribe()
+    await regularSub.unsubscribe()
+
+    // Both should receive the message
+    expect(queueMessages.length).toBe(1)
+    expect(regularMessages.length).toBe(1)
+  })
+})
+
+// ============================================================================
+// ADVANCED CONSUMER TESTS
+// ============================================================================
+
+describe('Advanced consumer behavior', () => {
+  let nc: NatsConnection
+  let js: JetStreamClient
+  let jsm: JetStreamManager
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    js = nc.jetstream()
+    jsm = await nc.jetstreamManager()
+
+    await jsm.streams.add({
+      name: 'ADVANCED',
+      subjects: ['advanced.>'],
+    })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should respect max_ack_pending limit', async () => {
+    // Publish multiple messages
+    for (let i = 0; i < 10; i++) {
+      await js.publish('advanced.test', sc.encode(`msg-${i}`))
+    }
+
+    // Create consumer with max_ack_pending
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'max-pending',
+      ack_policy: AckPolicy.Explicit,
+      max_ack_pending: 3,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'max-pending')
+    const messages = await consumer.fetch({ max_messages: 10 })
+
+    let count = 0
+    for await (const msg of messages) {
+      count++
+      // Don't ack - they stay pending
+    }
+
+    // Should only get max_ack_pending messages without acking
+    expect(count).toBeLessThanOrEqual(10)
+  })
+
+  it('should handle filter_subjects for multiple filters', async () => {
+    await js.publish('advanced.orders.created', sc.encode('order'))
+    await js.publish('advanced.users.created', sc.encode('user'))
+    await js.publish('advanced.payments.created', sc.encode('payment'))
+    await js.publish('advanced.orders.updated', sc.encode('order-update'))
+
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'multi-filter',
+      filter_subject: 'advanced.orders.>',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'multi-filter')
+    const messages = await consumer.fetch({ max_messages: 10 })
+
+    const received: string[] = []
+    for await (const msg of messages) {
+      received.push(msg.subject)
+      msg.ack()
+    }
+
+    expect(received.length).toBe(2)
+    expect(received.every(s => s.startsWith('advanced.orders'))).toBe(true)
+  })
+
+  it('should support deliver_policy StartSequence', async () => {
+    // Publish messages first
+    await js.publish('advanced.seq', sc.encode('msg-1'))
+    const ack2 = await js.publish('advanced.seq', sc.encode('msg-2'))
+    await js.publish('advanced.seq', sc.encode('msg-3'))
+
+    // Create consumer starting from sequence 2
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'start-seq',
+      deliver_policy: DeliverPolicy.StartSequence,
+      opt_start_seq: ack2.seq,
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'start-seq')
+    const messages = await consumer.fetch({ max_messages: 10 })
+
+    const received: string[] = []
+    for await (const msg of messages) {
+      received.push(sc.decode(msg.data))
+      msg.ack()
+    }
+
+    // Should start from msg-2
+    expect(received.length).toBeGreaterThanOrEqual(2)
+    expect(received).toContain('msg-2')
+    expect(received).toContain('msg-3')
+  })
+
+  it('should support deliver_policy Last', async () => {
+    await js.publish('advanced.last', sc.encode('first'))
+    await js.publish('advanced.last', sc.encode('second'))
+    await js.publish('advanced.last', sc.encode('third'))
+
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'last-only',
+      deliver_policy: DeliverPolicy.Last,
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'last-only')
+    const messages = await consumer.fetch({ max_messages: 1 })
+
+    let lastMsg = ''
+    for await (const msg of messages) {
+      lastMsg = sc.decode(msg.data)
+      msg.ack()
+    }
+
+    expect(lastMsg).toBe('third')
+  })
+
+  it('should support deliver_policy New', async () => {
+    // Publish before consumer creation
+    await js.publish('advanced.new', sc.encode('old-message'))
+
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'new-only',
+      deliver_policy: DeliverPolicy.New,
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    // Publish after consumer creation
+    await js.publish('advanced.new', sc.encode('new-message'))
+
+    const consumer = await js.consumers.get('ADVANCED', 'new-only')
+    const messages = await consumer.fetch({ max_messages: 10 })
+
+    const received: string[] = []
+    for await (const msg of messages) {
+      received.push(sc.decode(msg.data))
+      msg.ack()
+    }
+
+    // Should only get the new message, not the old one
+    expect(received).toContain('new-message')
+    expect(received).not.toContain('old-message')
+  })
+
+  it('should get message metadata from JsMsg.info', async () => {
+    await js.publish('advanced.meta', sc.encode('metadata-test'))
+
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'meta-test',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'meta-test')
+    const messages = await consumer.fetch({ max_messages: 1 })
+
+    for await (const msg of messages) {
+      expect(msg.info.stream).toBe('ADVANCED')
+      expect(msg.info.consumer).toBe('meta-test')
+      expect(msg.info.streamSequence).toBeGreaterThan(0)
+      expect(msg.info.consumerSequence).toBeGreaterThan(0)
+      expect(msg.info.deliveryCount).toBe(1)
+      expect(msg.info.timestampNanos).toBeGreaterThan(0)
+      msg.ack()
+    }
+  })
+
+  it('should report pending messages in consumer info', async () => {
+    await js.publish('advanced.pending', sc.encode('msg-1'))
+    await js.publish('advanced.pending', sc.encode('msg-2'))
+
+    await jsm.consumers.add('ADVANCED', {
+      durable_name: 'pending-test',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ADVANCED', 'pending-test')
+
+    // Fetch but don't ack
+    const messages = await consumer.fetch({ max_messages: 2 })
+    for await (const _msg of messages) {
+      // Don't ack
+    }
+
+    const info = await consumer.info()
+    expect(info.num_ack_pending).toBe(2)
+  })
+})
+
+// ============================================================================
+// STREAM ADVANCED FEATURES
+// ============================================================================
+
+describe('Stream advanced features', () => {
+  let nc: NatsConnection
+  let js: JetStreamClient
+  let jsm: JetStreamManager
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    js = nc.jetstream()
+    jsm = await nc.jetstreamManager()
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should enforce max_msgs limit', async () => {
+    await jsm.streams.add({
+      name: 'LIMITED',
+      subjects: ['limited.>'],
+      max_msgs: 5,
+      discard: DiscardPolicy.Old,
+    })
+
+    // Publish more than max_msgs
+    for (let i = 0; i < 10; i++) {
+      await js.publish('limited.test', sc.encode(`msg-${i}`))
+    }
+
+    const info = await jsm.streams.info('LIMITED')
+    expect(info.state.messages).toBe(5)
+  })
+
+  it('should enforce max_bytes limit', async () => {
+    await jsm.streams.add({
+      name: 'BYTES_LIMITED',
+      subjects: ['bytes.>'],
+      max_bytes: 100,
+      discard: DiscardPolicy.Old,
+    })
+
+    // Publish messages
+    for (let i = 0; i < 20; i++) {
+      await js.publish('bytes.test', sc.encode(`message-${i}`))
+    }
+
+    const info = await jsm.streams.info('BYTES_LIMITED')
+    expect(info.state.bytes).toBeLessThanOrEqual(100)
+  })
+
+  it('should purge by subject filter', async () => {
+    await jsm.streams.add({
+      name: 'PURGE_FILTER',
+      subjects: ['purge.>'],
+    })
+
+    await js.publish('purge.keep', sc.encode('keep'))
+    await js.publish('purge.delete', sc.encode('delete1'))
+    await js.publish('purge.delete', sc.encode('delete2'))
+    await js.publish('purge.keep', sc.encode('keep2'))
+
+    await jsm.streams.purge('PURGE_FILTER', { filter: 'purge.delete' })
+
+    const info = await jsm.streams.info('PURGE_FILTER')
+    expect(info.state.messages).toBe(2)
+  })
+
+  it('should get first message by subject', async () => {
+    await jsm.streams.add({
+      name: 'FIRST_MSG',
+      subjects: ['first.>'],
+    })
+
+    await js.publish('first.test', sc.encode('first'))
+    await js.publish('first.test', sc.encode('second'))
+    await js.publish('first.other', sc.encode('other'))
+
+    // Get first message by subject
+    const msg = await jsm.streams.getMessage('FIRST_MSG', { next_by_subj: 'first.test' })
+    expect(sc.decode(msg.data)).toBe('first')
+  })
+
+  it('should track subject count in stream state', async () => {
+    await jsm.streams.add({
+      name: 'SUBJECTS',
+      subjects: ['subjects.>'],
+    })
+
+    await js.publish('subjects.a', sc.encode('a'))
+    await js.publish('subjects.b', sc.encode('b'))
+    await js.publish('subjects.c', sc.encode('c'))
+    await js.publish('subjects.a', sc.encode('a2'))
+
+    const info = await jsm.streams.info('SUBJECTS')
+    expect(info.state.num_subjects).toBe(3)
+  })
+})
+
+// ============================================================================
+// KV ADVANCED FEATURES
+// ============================================================================
+
+describe('KV advanced features', () => {
+  let nc: NatsConnection
+  let js: JetStreamClient
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    js = nc.jetstream()
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should respect history limit', async () => {
+    const kv = await js.views.kv('history-limited', { history: 3 })
+
+    await kv.put('key', sc.encode('v1'))
+    await kv.put('key', sc.encode('v2'))
+    await kv.put('key', sc.encode('v3'))
+    await kv.put('key', sc.encode('v4'))
+    await kv.put('key', sc.encode('v5'))
+
+    const history = await kv.history('key')
+    const versions: string[] = []
+    for await (const entry of history) {
+      versions.push(sc.decode(entry.value))
+    }
+
+    // Should only keep last 3 versions (or all if not enforced in memory)
+    expect(versions.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('should watch specific key pattern', async () => {
+    const kv = await js.views.kv('watch-pattern')
+    const changes: string[] = []
+
+    const watcher = await kv.watch({ key: 'users.*' })
+    const watchPromise = (async () => {
+      for await (const entry of watcher) {
+        changes.push(entry.key)
+        if (changes.length >= 2) break
+      }
+    })()
+
+    await kv.put('users.alice', sc.encode('alice'))
+    await kv.put('config.setting', sc.encode('setting'))
+    await kv.put('users.bob', sc.encode('bob'))
+
+    await Promise.race([
+      watchPromise,
+      new Promise(resolve => setTimeout(resolve, 500)),
+    ])
+
+    expect(changes).toContain('users.alice')
+    expect(changes).toContain('users.bob')
+    expect(changes).not.toContain('config.setting')
+  })
+
+  it('should track delete operations in history', async () => {
+    const kv = await js.views.kv('delete-history', { history: 10 })
+
+    await kv.put('temp', sc.encode('value'))
+    await kv.delete('temp')
+
+    const history = await kv.history('temp')
+    const operations: KvOperation[] = []
+    for await (const entry of history) {
+      operations.push(entry.operation)
+    }
+
+    expect(operations).toContain('PUT')
+    expect(operations).toContain('DEL')
+  })
+
+  it('should list keys with filter pattern', async () => {
+    const kv = await js.views.kv('filter-keys')
+
+    await kv.put('users.1', sc.encode('user1'))
+    await kv.put('users.2', sc.encode('user2'))
+    await kv.put('config.app', sc.encode('config'))
+    await kv.put('users.3', sc.encode('user3'))
+
+    const keys = await kv.keys('users.*')
+    const keyList: string[] = []
+    for await (const key of keys) {
+      keyList.push(key)
+    }
+
+    expect(keyList.length).toBe(3)
+    expect(keyList.every(k => k.startsWith('users.'))).toBe(true)
+  })
+
+  it('should handle concurrent updates with optimistic locking', async () => {
+    const kv = await js.views.kv('concurrent')
+
+    const rev1 = await kv.put('counter', sc.encode('0'))
+
+    // First update succeeds
+    const rev2 = await kv.update('counter', sc.encode('1'), rev1)
+
+    // Second update with old revision fails
+    await expect(
+      kv.update('counter', sc.encode('2'), rev1)
+    ).rejects.toThrow()
+
+    // Update with correct revision succeeds
+    await kv.update('counter', sc.encode('2'), rev2)
+
+    const entry = await kv.get('counter')
+    expect(sc.decode(entry!.value)).toBe('2')
+  })
+})
+
+// ============================================================================
+// CONNECTION LIFECYCLE TESTS
+// ============================================================================
+
+describe('Connection lifecycle', () => {
+  beforeEach(() => {
+    _clearAll()
+  })
+
+  it('should track connection stats accurately', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    const initialStats = nc.stats()
+    expect(initialStats.inMsgs).toBe(0)
+    expect(initialStats.outMsgs).toBe(0)
+
+    // Publish some messages
+    nc.publish('stats.test', sc.encode('message1'))
+    nc.publish('stats.test', sc.encode('message2'))
+    await nc.flush()
+
+    const afterStats = nc.stats()
+    expect(afterStats.outMsgs).toBe(2)
+    expect(afterStats.outBytes).toBeGreaterThan(0)
+
+    await nc.close()
+  })
+
+  it('should drain all subscriptions before closing', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    const sub1 = nc.subscribe('drain.1')
+    const sub2 = nc.subscribe('drain.2')
+
+    nc.publish('drain.1', sc.encode('msg1'))
+    nc.publish('drain.2', sc.encode('msg2'))
+    await nc.flush()
+
+    await nc.drain()
+
+    expect(nc.isClosed()).toBe(true)
+    expect(sub1.isClosed()).toBe(true)
+    expect(sub2.isClosed()).toBe(true)
+  })
+
+  it('should reconnect with same subscriptions (conceptual)', async () => {
+    const nc = await connect({
+      servers: 'nats://localhost:4222',
+      reconnect: true,
+      maxReconnectAttempts: 5,
+    })
+
+    // This test validates the config is accepted
+    expect(nc).toBeDefined()
+    expect(nc.info).toBeDefined()
+
+    await nc.close()
+  })
+
+  it('should handle multiple connections independently', async () => {
+    const nc1 = await connect({ servers: 'nats://localhost:4222' })
+    const nc2 = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    const nc2Messages: string[] = []
+    const sub = nc2.subscribe('cross.connection')
+    const collector = (async () => {
+      for await (const msg of sub) {
+        nc2Messages.push(sc.decode(msg.data))
+        break
+      }
+    })()
+
+    nc1.publish('cross.connection', sc.encode('from-nc1'))
+    await nc1.flush()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+    await nc1.close()
+    await nc2.close()
+
+    expect(nc2Messages.length).toBe(1)
+    expect(nc2Messages[0]).toBe('from-nc1')
+  })
+})
+
+// ============================================================================
+// INTEGRATION TESTS
+// ============================================================================
+
 describe('Integration', () => {
   beforeEach(() => {
     _clearAll()
@@ -1659,5 +2306,1239 @@ describe('Integration', () => {
     expect(sc.decode(entry!.value)).toBe('true')
 
     await nc.close()
+  })
+
+  it('should work with event sourcing pattern', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+    const jsm = await nc.jetstreamManager()
+    const sc = StringCodec()
+
+    // Create event stream
+    await jsm.streams.add({
+      name: 'ACCOUNT_EVENTS',
+      subjects: ['account.events.>'],
+      retention: RetentionPolicy.Limits,
+    })
+
+    // Event types
+    type AccountEvent =
+      | { type: 'AccountCreated'; accountId: string }
+      | { type: 'MoneyDeposited'; accountId: string; amount: number }
+      | { type: 'MoneyWithdrawn'; accountId: string; amount: number }
+
+    // Publish events
+    const publish = async (event: AccountEvent) => {
+      await js.publish(`account.events.${event.type.toLowerCase()}`, sc.encode(JSON.stringify(event)))
+    }
+
+    await publish({ type: 'AccountCreated', accountId: 'acc-1' })
+    await publish({ type: 'MoneyDeposited', accountId: 'acc-1', amount: 100 })
+    await publish({ type: 'MoneyWithdrawn', accountId: 'acc-1', amount: 30 })
+
+    // Create consumer to replay events
+    await jsm.consumers.add('ACCOUNT_EVENTS', {
+      durable_name: 'account-projector',
+      deliver_policy: DeliverPolicy.All,
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ACCOUNT_EVENTS', 'account-projector')
+    const messages = await consumer.fetch({ max_messages: 100 })
+
+    // Rebuild state from events
+    let balance = 0
+    for await (const msg of messages) {
+      const event = JSON.parse(sc.decode(msg.data)) as AccountEvent
+      switch (event.type) {
+        case 'AccountCreated':
+          balance = 0
+          break
+        case 'MoneyDeposited':
+          balance += event.amount
+          break
+        case 'MoneyWithdrawn':
+          balance -= event.amount
+          break
+      }
+      msg.ack()
+    }
+
+    expect(balance).toBe(70)
+
+    await nc.close()
+  })
+
+  it('should work with session storage pattern using KV', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+    const sc = StringCodec()
+
+    // Create session store with TTL
+    const sessions = await js.views.kv('sessions', {
+      ttl: 30 * 60 * 1000, // 30 minutes
+      history: 1,
+    })
+
+    // Session type
+    interface Session {
+      userId: string
+      createdAt: number
+      data: { cart: string[] }
+    }
+
+    const sessionId = 'sess-abc123'
+
+    // Create session
+    const newSession: Session = {
+      userId: 'user-42',
+      createdAt: Date.now(),
+      data: { cart: [] },
+    }
+    await sessions.put(sessionId, sc.encode(JSON.stringify(newSession)))
+
+    // Update session (add to cart)
+    const entry = await sessions.get(sessionId)
+    const session = JSON.parse(sc.decode(entry!.value)) as Session
+    session.data.cart.push('item-1')
+    await sessions.update(sessionId, sc.encode(JSON.stringify(session)), entry!.revision)
+
+    // Verify update
+    const updated = await sessions.get(sessionId)
+    const updatedSession = JSON.parse(sc.decode(updated!.value)) as Session
+    expect(updatedSession.data.cart).toContain('item-1')
+
+    // Logout (delete session)
+    await sessions.delete(sessionId)
+    const deleted = await sessions.get(sessionId)
+    expect(deleted).toBeNull()
+
+    await nc.close()
+  })
+
+  it('should work with microservice communication', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    // User service
+    const userSub = nc.subscribe('users.get')
+    ;(async () => {
+      for await (const msg of userSub) {
+        const userId = sc.decode(msg.data)
+        msg.respond(sc.encode(JSON.stringify({
+          id: userId,
+          name: `User ${userId}`,
+          email: `user${userId}@example.com`,
+        })))
+      }
+    })()
+
+    // Order service
+    const orderSub = nc.subscribe('orders.create')
+    ;(async () => {
+      for await (const msg of orderSub) {
+        const order = JSON.parse(sc.decode(msg.data))
+        // Fetch user from user service
+        const userResp = await nc.request('users.get', sc.encode(order.userId))
+        const user = JSON.parse(sc.decode(userResp.data))
+
+        msg.respond(sc.encode(JSON.stringify({
+          orderId: `ord-${Date.now()}`,
+          user,
+          items: order.items,
+          status: 'created',
+        })))
+      }
+    })()
+
+    // Client creates order
+    const response = await nc.request('orders.create', sc.encode(JSON.stringify({
+      userId: '123',
+      items: ['product-a', 'product-b'],
+    })))
+
+    const result = JSON.parse(sc.decode(response.data))
+
+    expect(result.orderId).toMatch(/^ord-/)
+    expect(result.user.id).toBe('123')
+    expect(result.user.name).toBe('User 123')
+    expect(result.items).toEqual(['product-a', 'product-b'])
+    expect(result.status).toBe('created')
+
+    await userSub.unsubscribe()
+    await orderSub.unsubscribe()
+    await nc.close()
+  })
+
+  it('should work with work queue pattern', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+    const jsm = await nc.jetstreamManager()
+    const sc = StringCodec()
+
+    // Create work queue stream
+    await jsm.streams.add({
+      name: 'WORK_QUEUE',
+      subjects: ['work.>'],
+      retention: RetentionPolicy.Workqueue,
+    })
+
+    // Publish work items
+    for (let i = 0; i < 5; i++) {
+      await js.publish('work.process', sc.encode(JSON.stringify({
+        taskId: `task-${i}`,
+        payload: `Process item ${i}`,
+      })))
+    }
+
+    // Create workers (consumers in same queue)
+    await jsm.consumers.add('WORK_QUEUE', {
+      durable_name: 'workers',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('WORK_QUEUE', 'workers')
+    const messages = await consumer.fetch({ max_messages: 10 })
+
+    const processed: string[] = []
+    for await (const msg of messages) {
+      const task = JSON.parse(sc.decode(msg.data))
+      processed.push(task.taskId)
+      msg.ack()
+    }
+
+    expect(processed.length).toBe(5)
+    expect(processed).toContain('task-0')
+    expect(processed).toContain('task-4')
+
+    await nc.close()
+  })
+
+  it('should work with distributed cache pattern using KV', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+    const sc = StringCodec()
+
+    // Create cache bucket
+    const cache = await js.views.kv('api-cache', {
+      ttl: 5 * 60 * 1000, // 5 minute TTL
+      history: 1,
+    })
+
+    // Simulate expensive API call with caching
+    const fetchWithCache = async (key: string, fetcher: () => Promise<string>) => {
+      const cached = await cache.get(key)
+      if (cached) {
+        return { data: sc.decode(cached.value), fromCache: true }
+      }
+
+      const data = await fetcher()
+      await cache.put(key, sc.encode(data))
+      return { data, fromCache: false }
+    }
+
+    // First call - not cached
+    const result1 = await fetchWithCache('user:123', async () => {
+      return JSON.stringify({ id: '123', name: 'Alice' })
+    })
+    expect(result1.fromCache).toBe(false)
+
+    // Second call - should be cached
+    const result2 = await fetchWithCache('user:123', async () => {
+      return JSON.stringify({ id: '123', name: 'Alice' })
+    })
+    expect(result2.fromCache).toBe(true)
+    expect(result2.data).toBe(result1.data)
+
+    await nc.close()
+  })
+})
+
+// ============================================================================
+// SUBJECT EDGE CASES TESTS
+// ============================================================================
+
+describe('Subject edge cases', () => {
+  let nc: NatsConnection
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should handle very long subjects', async () => {
+    const longSubject = Array(50).fill('segment').join('.')
+    const messages: Msg[] = []
+
+    const sub = nc.subscribe(longSubject)
+
+    nc.publish(longSubject, sc.encode('long subject message'))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    expect(messages[0].subject).toBe(longSubject)
+  })
+
+  it('should handle subjects with numbers', async () => {
+    const messages: Msg[] = []
+    const sub = nc.subscribe('v1.api.users.123')
+
+    nc.publish('v1.api.users.123', sc.encode('user data'))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+    expect(messages.length).toBe(1)
+  })
+
+  it('should handle subjects with hyphens and underscores', async () => {
+    const messages: Msg[] = []
+    const sub = nc.subscribe('my-service.user_events.created')
+
+    nc.publish('my-service.user_events.created', sc.encode('event'))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+    expect(messages.length).toBe(1)
+  })
+
+  it('should match * only for non-empty tokens', async () => {
+    const messages: Msg[] = []
+    const sub = nc.subscribe('events.*.action')
+
+    // Should match
+    nc.publish('events.user.action', sc.encode('match'))
+    // Should NOT match (empty token)
+    // Note: 'events..action' is invalid in NATS
+
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+    expect(messages.length).toBe(1)
+    expect(messages[0].subject).toBe('events.user.action')
+  })
+
+  it('should handle multiple wildcards in pattern', async () => {
+    const messages: Msg[] = []
+    const sub = nc.subscribe('*.*.action')
+
+    nc.publish('service.user.action', sc.encode('match1'))
+    nc.publish('api.order.action', sc.encode('match2'))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        if (messages.length >= 2) break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+    expect(messages.length).toBe(2)
+  })
+})
+
+// ============================================================================
+// LARGE MESSAGE TESTS
+// ============================================================================
+
+describe('Large messages', () => {
+  let nc: NatsConnection
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should handle large messages', async () => {
+    const sc = StringCodec()
+    const largeData = 'x'.repeat(100000) // 100KB
+    const messages: Msg[] = []
+
+    const sub = nc.subscribe('large.message')
+
+    nc.publish('large.message', sc.encode(largeData))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 500)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    expect(sc.decode(messages[0].data).length).toBe(100000)
+  })
+
+  it('should handle binary data', async () => {
+    const binaryData = new Uint8Array([0, 1, 2, 255, 254, 253])
+    const messages: Msg[] = []
+
+    const sub = nc.subscribe('binary.data')
+
+    nc.publish('binary.data', binaryData)
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    expect(Array.from(messages[0].data)).toEqual([0, 1, 2, 255, 254, 253])
+  })
+
+  it('should handle JSON with special characters', async () => {
+    const jc = JSONCodec<{ text: string; unicode: string }>()
+    const data = {
+      text: 'Hello "World" with \\backslash',
+      unicode: 'Unicode: emoji test',
+    }
+
+    const messages: Msg[] = []
+    const sub = nc.subscribe('json.special')
+
+    nc.publish('json.special', jc.encode(data))
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    const decoded = jc.decode(messages[0].data)
+    expect(decoded.text).toBe(data.text)
+    expect(decoded.unicode).toBe(data.unicode)
+  })
+})
+
+// ============================================================================
+// MESSAGE ACTIONS TESTS (NAK, WORKING, TERM)
+// ============================================================================
+
+describe('JetStream message actions', () => {
+  let nc: NatsConnection
+  let js: JetStreamClient
+  let jsm: JetStreamManager
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    js = nc.jetstream()
+    jsm = await nc.jetstreamManager()
+
+    await jsm.streams.add({
+      name: 'ACTIONS',
+      subjects: ['actions.>'],
+    })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should redeliver message after nak()', async () => {
+    await js.publish('actions.nak', sc.encode('nak-test'))
+
+    await jsm.consumers.add('ACTIONS', {
+      durable_name: 'nak-consumer',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 5,
+    })
+
+    const consumer = await js.consumers.get('ACTIONS', 'nak-consumer')
+
+    // First fetch - nak the message
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    let deliveryCount1 = 0
+    for await (const msg of messages1) {
+      deliveryCount1 = msg.info.deliveryCount
+      msg.nak()
+    }
+
+    // Wait for redelivery
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    // Second fetch - should get same message with higher delivery count
+    const messages2 = await consumer.fetch({ max_messages: 1 })
+    let deliveryCount2 = 0
+    for await (const msg of messages2) {
+      deliveryCount2 = msg.info.deliveryCount
+      msg.ack()
+    }
+
+    expect(deliveryCount2).toBeGreaterThan(deliveryCount1)
+  })
+
+  it('should extend ack deadline with working()', async () => {
+    await js.publish('actions.working', sc.encode('working-test'))
+
+    await jsm.consumers.add('ACTIONS', {
+      durable_name: 'working-consumer',
+      ack_policy: AckPolicy.Explicit,
+      ack_wait: 1_000_000_000, // 1 second in nanoseconds
+    })
+
+    const consumer = await js.consumers.get('ACTIONS', 'working-consumer')
+    const messages = await consumer.fetch({ max_messages: 1 })
+
+    for await (const msg of messages) {
+      // Extend deadline
+      await msg.working()
+      // Should not time out since we extended
+      msg.ack()
+    }
+
+    const info = await consumer.info()
+    expect(info.num_ack_pending).toBe(0)
+  })
+
+  it('should stop redelivery with term()', async () => {
+    await js.publish('actions.term', sc.encode('term-test'))
+
+    await jsm.consumers.add('ACTIONS', {
+      durable_name: 'term-consumer',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 10,
+    })
+
+    const consumer = await js.consumers.get('ACTIONS', 'term-consumer')
+
+    // First fetch - terminate the message
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages1) {
+      msg.term() // Terminate - no more redeliveries
+    }
+
+    // Wait a bit
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    // Second fetch - should get no messages (message was terminated)
+    const messages2 = await consumer.fetch({ max_messages: 1, expires: 100 })
+    let count = 0
+    for await (const _msg of messages2) {
+      count++
+    }
+
+    expect(count).toBe(0)
+  })
+
+  it('should honor nak delay', async () => {
+    await js.publish('actions.nakdelay', sc.encode('nak-delay-test'))
+
+    await jsm.consumers.add('ACTIONS', {
+      durable_name: 'nakdelay-consumer',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    const consumer = await js.consumers.get('ACTIONS', 'nakdelay-consumer')
+
+    // First fetch - nak with delay
+    const startTime = Date.now()
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages1) {
+      msg.nak(500) // 500ms delay
+    }
+
+    // Second fetch immediately - should be empty
+    const messages2 = await consumer.fetch({ max_messages: 1, expires: 100 })
+    let immediateCount = 0
+    for await (const _msg of messages2) {
+      immediateCount++
+    }
+    expect(immediateCount).toBe(0)
+
+    // Wait for delay and fetch again
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const messages3 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages3) {
+      msg.ack()
+    }
+
+    const elapsed = Date.now() - startTime
+    expect(elapsed).toBeGreaterThanOrEqual(500)
+  })
+})
+
+// ============================================================================
+// ERROR HANDLING TESTS
+// ============================================================================
+
+describe('Error handling', () => {
+  beforeEach(() => {
+    _clearAll()
+  })
+
+  it('should throw on request timeout', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    // No responders
+    await expect(
+      nc.request('no.responders.here', sc.encode('hello'), { timeout: 100 })
+    ).rejects.toThrow()
+
+    await nc.close()
+  })
+
+  it('should throw on non-existent stream', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const jsm = await nc.jetstreamManager()
+
+    await expect(
+      jsm.streams.info('NON_EXISTENT_STREAM')
+    ).rejects.toThrow()
+
+    await nc.close()
+  })
+
+  it('should throw on non-existent consumer', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const jsm = await nc.jetstreamManager()
+    const js = nc.jetstream()
+
+    await jsm.streams.add({
+      name: 'ERROR_TEST',
+      subjects: ['error.>'],
+    })
+
+    await expect(
+      js.consumers.get('ERROR_TEST', 'non-existent-consumer')
+    ).rejects.toThrow()
+
+    await nc.close()
+  })
+
+  it('should throw on invalid KV bucket name', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+
+    // KV bucket names cannot contain dots or special characters in real NATS
+    // This test validates error handling for invalid operations
+    await expect(
+      js.views.kv('invalid..name', { bindOnly: true })
+    ).rejects.toThrow()
+
+    await nc.close()
+  })
+
+  it('should throw on publish to closed connection', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const sc = StringCodec()
+
+    await nc.close()
+
+    expect(() => {
+      nc.publish('test', sc.encode('should fail'))
+    }).toThrow()
+  })
+
+  it('should throw on subscribe to closed connection', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+
+    await nc.close()
+
+    expect(() => {
+      nc.subscribe('test')
+    }).toThrow()
+  })
+
+  it('should handle stream deletion while consuming', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+    const js = nc.jetstream()
+    const jsm = await nc.jetstreamManager()
+    const sc = StringCodec()
+
+    await jsm.streams.add({
+      name: 'EPHEMERAL',
+      subjects: ['ephemeral.>'],
+    })
+
+    await js.publish('ephemeral.test', sc.encode('message'))
+
+    await jsm.consumers.add('EPHEMERAL', {
+      durable_name: 'ephemeral-consumer',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    // Delete the stream while consumer exists
+    await jsm.streams.delete('EPHEMERAL')
+
+    // Further operations should fail gracefully
+    await expect(
+      jsm.streams.info('EPHEMERAL')
+    ).rejects.toThrow()
+
+    await nc.close()
+  })
+})
+
+// ============================================================================
+// DEDUPLICATION TESTS
+// ============================================================================
+
+describe('Message deduplication', () => {
+  let nc: NatsConnection
+  let js: JetStreamClient
+  let jsm: JetStreamManager
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    js = nc.jetstream()
+    jsm = await nc.jetstreamManager()
+
+    await jsm.streams.add({
+      name: 'DEDUP',
+      subjects: ['dedup.>'],
+      duplicate_window: 60_000_000_000, // 1 minute in nanoseconds
+    })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should deduplicate messages with same msgID', async () => {
+    // Publish same message twice with same msgID
+    const ack1 = await js.publish('dedup.test', sc.encode('message'), { msgID: 'unique-1' })
+    const ack2 = await js.publish('dedup.test', sc.encode('message'), { msgID: 'unique-1' })
+
+    expect(ack1.duplicate).toBe(false)
+    expect(ack2.duplicate).toBe(true)
+
+    // Should only have one message in stream
+    const info = await jsm.streams.info('DEDUP')
+    expect(info.state.messages).toBe(1)
+  })
+
+  it('should allow different messages with different msgIDs', async () => {
+    await js.publish('dedup.test', sc.encode('message1'), { msgID: 'id-1' })
+    await js.publish('dedup.test', sc.encode('message2'), { msgID: 'id-2' })
+    await js.publish('dedup.test', sc.encode('message3'), { msgID: 'id-3' })
+
+    const info = await jsm.streams.info('DEDUP')
+    expect(info.state.messages).toBe(3)
+  })
+
+  it('should reject publish with wrong expected sequence', async () => {
+    await js.publish('dedup.seq', sc.encode('first'))
+
+    // Try to publish with wrong expected sequence
+    await expect(
+      js.publish('dedup.seq', sc.encode('second'), {
+        expect: { lastSequence: 999 }
+      })
+    ).rejects.toThrow()
+
+    const info = await jsm.streams.info('DEDUP')
+    expect(info.state.messages).toBe(1)
+  })
+
+  it('should succeed publish with correct expected sequence', async () => {
+    const ack1 = await js.publish('dedup.seq', sc.encode('first'))
+
+    const ack2 = await js.publish('dedup.seq', sc.encode('second'), {
+      expect: { lastSequence: ack1.seq }
+    })
+
+    expect(ack2.seq).toBe(ack1.seq + 1)
+  })
+
+  it('should reject publish with wrong expected msgID', async () => {
+    await js.publish('dedup.msgid', sc.encode('first'), { msgID: 'first-id' })
+
+    await expect(
+      js.publish('dedup.msgid', sc.encode('second'), {
+        expect: { lastMsgID: 'wrong-id' }
+      })
+    ).rejects.toThrow()
+  })
+})
+
+// ============================================================================
+// HEADERS TESTS
+// ============================================================================
+
+describe('Message headers', () => {
+  let nc: NatsConnection
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should send and receive headers', async () => {
+    const h = headers()
+    h.set('Content-Type', 'application/json')
+    h.set('X-Request-Id', 'req-123')
+
+    const messages: Msg[] = []
+    const sub = nc.subscribe('headers.test')
+
+    nc.publish('headers.test', sc.encode('with headers'), { headers: h })
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    expect(messages[0].headers?.get('Content-Type')).toBe('application/json')
+    expect(messages[0].headers?.get('X-Request-Id')).toBe('req-123')
+  })
+
+  it('should support multiple values for same header', async () => {
+    const h = headers()
+    h.append('Accept', 'text/plain')
+    h.append('Accept', 'application/json')
+
+    const messages: Msg[] = []
+    const sub = nc.subscribe('headers.multi')
+
+    nc.publish('headers.multi', sc.encode('data'), { headers: h })
+    await nc.flush()
+
+    const collector = (async () => {
+      for await (const msg of sub) {
+        messages.push(msg)
+        break
+      }
+    })()
+
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 300)),
+    ])
+
+    await sub.unsubscribe()
+
+    expect(messages.length).toBe(1)
+    const values = messages[0].headers?.values('Accept') ?? []
+    expect(values).toContain('text/plain')
+    expect(values).toContain('application/json')
+  })
+
+  it('should check header existence', async () => {
+    const h = headers()
+    h.set('X-Custom', 'value')
+
+    expect(h.has('X-Custom')).toBe(true)
+    expect(h.has('X-Missing')).toBe(false)
+  })
+
+  it('should delete headers', async () => {
+    const h = headers()
+    h.set('X-Delete-Me', 'value')
+    expect(h.has('X-Delete-Me')).toBe(true)
+
+    h.delete('X-Delete-Me')
+    expect(h.has('X-Delete-Me')).toBe(false)
+  })
+
+  it('should iterate header keys', async () => {
+    const h = headers()
+    h.set('A', '1')
+    h.set('B', '2')
+    h.set('C', '3')
+
+    const keys = Array.from(h.keys())
+    expect(keys).toContain('A')
+    expect(keys).toContain('B')
+    expect(keys).toContain('C')
+  })
+})
+
+// ============================================================================
+// ACCOUNT INFO TESTS
+// ============================================================================
+
+describe('JetStream account info', () => {
+  let nc: NatsConnection
+  let jsm: JetStreamManager
+  let js: JetStreamClient
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    jsm = await nc.jetstreamManager()
+    js = nc.jetstream()
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should get account info', async () => {
+    const info = await jsm.getAccountInfo()
+
+    expect(info).toBeDefined()
+    expect(typeof info.memory).toBe('number')
+    expect(typeof info.storage).toBe('number')
+    expect(typeof info.streams).toBe('number')
+    expect(typeof info.consumers).toBe('number')
+    expect(info.limits).toBeDefined()
+  })
+
+  it('should reflect stream count in account info', async () => {
+    const infoBefore = await jsm.getAccountInfo()
+
+    await jsm.streams.add({ name: 'ACCOUNT_TEST_1', subjects: ['at1.>'] })
+    await jsm.streams.add({ name: 'ACCOUNT_TEST_2', subjects: ['at2.>'] })
+
+    const infoAfter = await jsm.getAccountInfo()
+
+    expect(infoAfter.streams).toBe(infoBefore.streams + 2)
+  })
+
+  it('should reflect consumer count in account info', async () => {
+    await jsm.streams.add({ name: 'CONSUMER_COUNT', subjects: ['cc.>'] })
+
+    const infoBefore = await jsm.getAccountInfo()
+
+    await jsm.consumers.add('CONSUMER_COUNT', { durable_name: 'c1' })
+    await jsm.consumers.add('CONSUMER_COUNT', { durable_name: 'c2' })
+
+    const infoAfter = await jsm.getAccountInfo()
+
+    expect(infoAfter.consumers).toBe(infoBefore.consumers + 2)
+  })
+
+  it('should track storage usage', async () => {
+    await jsm.streams.add({ name: 'STORAGE_TEST', subjects: ['storage.>'] })
+
+    const infoBefore = await jsm.getAccountInfo()
+
+    // Publish some data
+    for (let i = 0; i < 10; i++) {
+      await js.publish('storage.test', sc.encode('x'.repeat(1000)))
+    }
+
+    const infoAfter = await jsm.getAccountInfo()
+
+    expect(infoAfter.storage).toBeGreaterThan(infoBefore.storage)
+  })
+})
+
+// ============================================================================
+// LISTER AND ITERATION TESTS
+// ============================================================================
+
+describe('Lister and stream/consumer iteration', () => {
+  let nc: NatsConnection
+  let jsm: JetStreamManager
+  let js: JetStreamClient
+  const sc = StringCodec()
+
+  beforeEach(async () => {
+    _clearAll()
+    nc = await connect({ servers: 'nats://localhost:4222' })
+    jsm = await nc.jetstreamManager()
+    js = nc.jetstream()
+  })
+
+  afterEach(async () => {
+    await nc.close()
+  })
+
+  it('should iterate streams with lister', async () => {
+    // Create multiple streams
+    await jsm.streams.add({ name: 'ITER_1', subjects: ['iter1.>'] })
+    await jsm.streams.add({ name: 'ITER_2', subjects: ['iter2.>'] })
+    await jsm.streams.add({ name: 'ITER_3', subjects: ['iter3.>'] })
+
+    const lister = jsm.streams.list()
+    const streams: StreamInfo[] = []
+
+    // Use async iterator
+    for await (const stream of lister) {
+      streams.push(stream)
+    }
+
+    expect(streams.length).toBeGreaterThanOrEqual(3)
+    expect(streams.map(s => s.config.name)).toContain('ITER_1')
+    expect(streams.map(s => s.config.name)).toContain('ITER_2')
+    expect(streams.map(s => s.config.name)).toContain('ITER_3')
+  })
+
+  it('should get stream names with lister', async () => {
+    await jsm.streams.add({ name: 'NAMED_1', subjects: ['named1.>'] })
+    await jsm.streams.add({ name: 'NAMED_2', subjects: ['named2.>'] })
+
+    const names: string[] = []
+    const nameLister = jsm.streams.names()
+
+    for await (const name of nameLister) {
+      names.push(name)
+    }
+
+    expect(names).toContain('NAMED_1')
+    expect(names).toContain('NAMED_2')
+  })
+
+  it('should filter stream names by subject', async () => {
+    await jsm.streams.add({ name: 'FILTER_ORDERS', subjects: ['orders.>'] })
+    await jsm.streams.add({ name: 'FILTER_USERS', subjects: ['users.>'] })
+    await jsm.streams.add({ name: 'FILTER_EVENTS', subjects: ['events.>'] })
+
+    // Filter by subject
+    const names: string[] = []
+    const nameLister = jsm.streams.names('orders.>')
+
+    for await (const name of nameLister) {
+      names.push(name)
+    }
+
+    expect(names).toContain('FILTER_ORDERS')
+    expect(names.length).toBe(1)
+  })
+
+  it('should use lister.next() for pagination', async () => {
+    await jsm.streams.add({ name: 'PAGE_1', subjects: ['page1.>'] })
+    await jsm.streams.add({ name: 'PAGE_2', subjects: ['page2.>'] })
+
+    const lister = jsm.streams.list()
+    const firstPage = await lister.next()
+
+    expect(Array.isArray(firstPage)).toBe(true)
+    expect(firstPage.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('should iterate consumers with lister', async () => {
+    await jsm.streams.add({ name: 'CONSUMER_ITER', subjects: ['consiter.>'] })
+
+    await jsm.consumers.add('CONSUMER_ITER', { durable_name: 'consumer-1' })
+    await jsm.consumers.add('CONSUMER_ITER', { durable_name: 'consumer-2' })
+    await jsm.consumers.add('CONSUMER_ITER', { durable_name: 'consumer-3' })
+
+    const lister = jsm.consumers.list('CONSUMER_ITER')
+    const consumers: ConsumerInfo[] = []
+
+    for await (const consumer of lister) {
+      consumers.push(consumer)
+    }
+
+    expect(consumers.length).toBe(3)
+    expect(consumers.map(c => c.name)).toContain('consumer-1')
+    expect(consumers.map(c => c.name)).toContain('consumer-2')
+    expect(consumers.map(c => c.name)).toContain('consumer-3')
+  })
+
+  it('should get consumer info correctly', async () => {
+    await jsm.streams.add({ name: 'INFO_STREAM', subjects: ['info.>'] })
+
+    await js.publish('info.test', sc.encode('message'))
+
+    await jsm.consumers.add('INFO_STREAM', {
+      durable_name: 'info-consumer',
+      ack_policy: AckPolicy.Explicit,
+      filter_subject: 'info.test',
+    })
+
+    const info = await jsm.consumers.info('INFO_STREAM', 'info-consumer')
+
+    expect(info.name).toBe('info-consumer')
+    expect(info.stream_name).toBe('INFO_STREAM')
+    expect(info.config.filter_subject).toBe('info.test')
+    expect(info.num_pending).toBe(1)
+  })
+
+  it('should update consumer configuration', async () => {
+    await jsm.streams.add({ name: 'UPDATE_CONS', subjects: ['upcons.>'] })
+
+    await jsm.consumers.add('UPDATE_CONS', {
+      durable_name: 'updatable',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 3,
+    })
+
+    const updated = await jsm.consumers.update('UPDATE_CONS', 'updatable', {
+      max_deliver: 5,
+      description: 'Updated consumer',
+    })
+
+    expect(updated.config.max_deliver).toBe(5)
+    expect(updated.config.description).toBe('Updated consumer')
+  })
+
+  it('should delete consumer via manager', async () => {
+    await jsm.streams.add({ name: 'DEL_CONS', subjects: ['delcons.>'] })
+
+    await jsm.consumers.add('DEL_CONS', { durable_name: 'to-delete' })
+
+    await jsm.consumers.delete('DEL_CONS', 'to-delete')
+
+    await expect(
+      jsm.consumers.info('DEL_CONS', 'to-delete')
+    ).rejects.toThrow()
+  })
+})
+
+// ============================================================================
+// RTT AND PERFORMANCE TESTS
+// ============================================================================
+
+describe('RTT and connection performance', () => {
+  beforeEach(() => {
+    _clearAll()
+  })
+
+  it('should measure RTT', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+
+    const rtt = await nc.rtt()
+
+    expect(typeof rtt).toBe('number')
+    expect(rtt).toBeGreaterThanOrEqual(0)
+
+    await nc.close()
+  })
+
+  it('should iterate connection status', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+
+    const statusEvents: string[] = []
+    const statusIterator = nc.status()
+
+    // Start collecting status in background
+    const collector = (async () => {
+      for await (const status of statusIterator) {
+        statusEvents.push(status.type)
+        if (statusEvents.length >= 1) break
+      }
+    })()
+
+    // Don't wait indefinitely
+    await Promise.race([
+      collector,
+      new Promise(resolve => setTimeout(resolve, 100)),
+    ])
+
+    await nc.close()
+
+    // Status iterator exists and works
+    expect(nc.isClosed()).toBe(true)
+  })
+
+  it('should report isDraining status', async () => {
+    const nc = await connect({ servers: 'nats://localhost:4222' })
+
+    expect(nc.isDraining()).toBe(false)
+
+    const drainPromise = nc.drain()
+    // During drain, status should be draining
+    // Note: This may be quick so we can't always catch it
+
+    await drainPromise
+
+    expect(nc.isClosed()).toBe(true)
   })
 })

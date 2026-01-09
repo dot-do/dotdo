@@ -8,6 +8,7 @@ import { doRoutes } from './routes/do'
 import { browsersRoutes } from './routes/browsers'
 import { sandboxesRoutes } from './routes/sandboxes'
 import { obsRoutes } from './routes/obs'
+import { analyticsRouter } from './analytics/router'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -176,6 +177,10 @@ app.route('/api/sandboxes', sandboxesRoutes)
 
 // Mount Observability API routes
 app.route('/api/obs', obsRoutes)
+
+// Mount Analytics API routes
+// Endpoints: /api/analytics/v1/search, /api/analytics/v1/lookup/:table/:key, /api/analytics/v1/query
+app.route('/api/analytics', analyticsRouter)
 
 // Mount MCP routes
 app.route('/mcp', mcpRoutes)

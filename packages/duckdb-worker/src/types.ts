@@ -36,6 +36,18 @@ export interface DuckDBConfig {
    * Custom configuration options passed directly to DuckDB
    */
   customConfig?: Record<string, string | number | boolean>
+
+  /**
+   * How to handle BIGINT values in query results for JSON serialization.
+   *
+   * - 'auto' (default): Convert to number if within safe integer range
+   *   (Number.MIN_SAFE_INTEGER to Number.MAX_SAFE_INTEGER), otherwise to string.
+   * - 'string': Always convert to string to preserve full precision.
+   * - 'number': Always convert to number (may lose precision for large values).
+   *
+   * @default 'auto'
+   */
+  bigIntMode?: 'auto' | 'string' | 'number'
 }
 
 /**
@@ -137,6 +149,26 @@ export interface DuckDBInstance {
   dropFile(name: string): boolean
 
   /**
+   * Retrieve a registered file buffer
+   * @param name - Virtual file name
+   * @returns The buffer if found, undefined otherwise
+   */
+  getFileBuffer(name: string): Uint8Array | undefined
+
+  /**
+   * Check if a virtual file exists in this instance
+   * @param name - Virtual file name
+   * @returns true if file is registered
+   */
+  hasFile(name: string): boolean
+
+  /**
+   * List all registered virtual files for this instance
+   * @returns Array of registered file names
+   */
+  listFiles(): string[]
+
+  /**
    * Close the DuckDB instance and release resources
    */
   close(): Promise<void>
@@ -145,6 +177,13 @@ export interface DuckDBInstance {
    * Check if the instance is still open
    */
   isOpen(): boolean
+
+  /**
+   * Warnings from config application.
+   * If config settings failed to apply, the error messages are stored here.
+   * Check this array after creating an instance with config options.
+   */
+  configWarnings: string[]
 }
 
 /**
