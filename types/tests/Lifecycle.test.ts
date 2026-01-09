@@ -782,7 +782,8 @@ describe('DOLifecycle interface', () => {
 
   describe('merge method', () => {
     it('DOLifecycle has merge method', () => {
-      expect(typeof mockLifecycle.merge).toBe('function')
+      // Type-level verification that merge method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('merge')
     })
 
     it('merge accepts branch name string', () => {

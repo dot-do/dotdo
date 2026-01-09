@@ -20,7 +20,7 @@ import {
   getMethodSignature,
   getMethodMetadata,
   type ParameterInfo,
-} from '../../objects/auto-wiring'
+} from '../../lib/auto-wiring'
 
 // ============================================================================
 // TYPES

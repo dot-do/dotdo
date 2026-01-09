@@ -853,14 +853,12 @@ describe('Visibility error handling', () => {
   })
 
   it('should return meaningful error for missing required context', async () => {
-    // @ts-expect-error - Method not yet implemented
-    const result = await sandbox.queryWithVisibility('SELECT * FROM things', {
-      visibility: 'user',
-      // Missing context
-    })
-
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/context.*required|authentication.*required/i)
+    await expect(
+      sandbox.queryWithVisibility('SELECT * FROM things', {
+        visibility: 'user',
+        // Missing context
+      })
+    ).rejects.toThrow(/context.*required|authentication.*required/i)
   })
 
   it('should handle SQL injection attempts in visibility parameter', async () => {

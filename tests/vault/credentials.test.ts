@@ -92,6 +92,7 @@ interface MockVaultStorage {
   oauthTokens: Map<string, OAuthTokens>
   oauthConfigs: Map<string, OAuthConfig>
   oauthStates: Map<string, { userId: string; provider: string; codeVerifier?: string }>
+  _consumedStates: Map<string, { userId: string; provider: string; codeVerifier?: string }>
 }
 
 // Import the actual implementation
@@ -734,7 +735,7 @@ describe('OAuth flow', () => {
       const initResult = await $.oauth.initiate(testConfig)
       await $.oauth.callback('auth-code-12345', initResult.state)
 
-      const stateData = $._storage.oauthStates.get(initResult.state)
+      const stateData = $._storage._consumedStates.get(initResult.state)
       const accessToken = await $.oauth.getAccessToken(stateData?.userId ?? 'user:123', 'google')
 
       expect(accessToken).toBeDefined()
