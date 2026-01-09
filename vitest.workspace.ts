@@ -50,4 +50,44 @@ export default defineWorkspace([
       environment: 'node',
     },
   },
+  // Library tests (sqids, utilities)
+  {
+    test: {
+      name: 'lib',
+      include: ['lib/tests/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
+  // Snippets tests (events normalizer, etc.)
+  {
+    test: {
+      name: 'snippets',
+      include: ['snippets/tests/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
+  // Workflow tests for $ proxy, domain, hash, flag, etc.
+  {
+    test: {
+      name: 'workflows',
+      include: ['workflows/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
+  // Types tests for type definitions
+  {
+    test: {
+      name: 'types',
+      include: ['types/tests/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
+  // Evals tests for evalite storage adapter
+  {
+    test: {
+      name: 'evals',
+      include: ['evals/tests/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
 ])

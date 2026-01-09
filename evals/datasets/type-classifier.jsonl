@@ -1,0 +1,10 @@
+{"input": "export const sum = (a: number, b: number) => a + b", "expected": "code", "description": "Pure deterministic arithmetic function"}
+{"input": "export const multiply = (a, b) => a * b", "expected": "code", "description": "Simple multiplication - deterministic"}
+{"input": "export const validateEmail = (email: string) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)", "expected": "code", "description": "Regex validation - deterministic"}
+{"input": "const brand = ai.storyBrand({ hero: customer, problem: pain })", "expected": "generative", "description": "AI template call for content generation"}
+{"input": "const summary = ai`summarize this document: ${doc}`", "expected": "generative", "description": "AI template literal for summarization"}
+{"input": "const sentiment = ai`analyze sentiment of: ${text}`", "expected": "generative", "description": "AI sentiment analysis - single completion"}
+{"input": "const research = amy`research ${competitor} market position`", "expected": "agentic", "description": "Agent with tools for research task"}
+{"input": "const deploy = amy`deploy ${app} to production and verify health checks`", "expected": "agentic", "description": "Agent deployment with verification loop"}
+{"input": "const approval = user`please review ${expense} for ${amount}`", "expected": "human", "description": "Human-in-the-loop approval"}
+{"input": "const decision = user`make final call on ${proposal}`", "expected": "human", "description": "Human decision required"}

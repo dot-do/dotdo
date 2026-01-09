@@ -552,9 +552,10 @@ describe('AgenticFunction Execution', () => {
           tools: ['calculate'],
         })
 
-        expect(result.steps).toHaveLength(2)
+        expect(result.steps).toHaveLength(3)
         expect(result.steps[0].type).toBe('tool_call')
-        expect(result.steps[1].type).toBe('final_answer')
+        expect(result.steps[1].type).toBe('tool_result')
+        expect(result.steps[2].type).toBe('final_answer')
       })
     })
   })
@@ -1101,7 +1102,7 @@ describe('AgenticFunction Execution', () => {
           onStep,
         })
 
-        expect(onStep).toHaveBeenCalledTimes(2)
+        expect(onStep).toHaveBeenCalledTimes(3) // tool_call + tool_result + final_answer
       })
 
       it('provides step details in callback', async () => {
@@ -1141,6 +1142,11 @@ describe('AgenticFunction Execution', () => {
         })
 
         expect(steps[1]).toMatchObject({
+          iteration: 1,
+          type: 'tool_result',
+        })
+
+        expect(steps[2]).toMatchObject({
           iteration: 2,
           type: 'final_answer',
           answer: 'The answer is 4',
@@ -1175,7 +1181,7 @@ describe('AgenticFunction Execution', () => {
         const events: string[] = []
         const onStep = vi.fn(async (step: AgentStep) => {
           await new Promise((resolve) => setTimeout(resolve, 10))
-          events.push(`step_${step.iteration}`)
+          events.push(`step_${step.iteration}_${step.type}`)
         })
 
         mockAI.complete
@@ -1196,13 +1202,22 @@ describe('AgenticFunction Execution', () => {
           onStep,
         })
 
-        expect(events).toEqual(['step_1', 'step_2'])
+        // 3 steps: tool_call, tool_result, final_answer
+        expect(events).toEqual(['step_1_tool_call', 'step_1_tool_result', 'step_2_final_answer'])
       })
     })
 
     describe('onToolCall callback', () => {
       it('calls onToolCall before tool execution', async () => {
-        const onToolCall = vi.fn()
+        const callOrder: string[] = []
+        const onToolCall = vi.fn(() => {
+          callOrder.push('onToolCall')
+        })
+        const originalExecute = mockTools.web_search.execute
+        mockTools.web_search.execute = vi.fn(async (...args) => {
+          callOrder.push('toolExecute')
+          return originalExecute(...args)
+        })
 
         mockAI.complete
           .mockResolvedValueOnce({
@@ -1229,7 +1244,8 @@ describe('AgenticFunction Execution', () => {
           }),
           expect.any(Object) // context
         )
-        expect(onToolCall).toHaveBeenCalledBefore(mockTools.web_search.execute as jest.Mock)
+        // Verify onToolCall was called before tool execution
+        expect(callOrder).toEqual(['onToolCall', 'toolExecute'])
       })
 
       it('can modify tool arguments in onToolCall', async () => {
@@ -1519,7 +1535,7 @@ describe('AgenticFunction Execution', () => {
         expect(typeof capturedState!.set).toBe('function')
         expect(typeof capturedState!.delete).toBe('function')
         expect(typeof capturedState!.getAll).toBe('function')
-      }
+      })
 
       it('state survives tool errors', async () => {
         const stateThenFailTool: ToolDefinition = {
@@ -1653,12 +1669,15 @@ describe('AgenticFunction Execution', () => {
         const sharedState = createMockState()
         await sharedState.storage.put('shared:data', 'shared_value')
 
+        let capturedResult: unknown
         const readTool: ToolDefinition = {
           name: 'read_shared',
           description: 'Read shared state',
           parameters: { type: 'object', properties: {} },
           execute: vi.fn(async (params, ctx: AgentContext) => {
-            return { value: await ctx.state.get('shared:data') }
+            const result = { value: await ctx.state.get('shared:data') }
+            capturedResult = result
+            return result
           }),
         }
 
@@ -1686,7 +1705,7 @@ describe('AgenticFunction Execution', () => {
           tools: ['read_shared'],
         })
 
-        expect(readTool.execute).toHaveReturnedWith(
+        expect(capturedResult).toEqual(
           expect.objectContaining({ value: 'shared_value' })
         )
       })
