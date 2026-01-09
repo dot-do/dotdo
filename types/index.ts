@@ -1,6 +1,64 @@
 // Core types
 export * from './Thing'
 
+// Cloudflare Bindings - unified type system
+export * from './CloudflareBindings'
+export type {
+  // Main env type
+  CloudflareEnv,
+  Env,
+  BaseEnv,
+  // Binding groups
+  DurableObjectBindings,
+  StorageBindings,
+  KVBindings,
+  R2Bindings,
+  D1Bindings,
+  AIBindings,
+  MessagingBindings,
+  QueueBindings,
+  PipelineBindings,
+  AdvancedBindings,
+  HyperdriveBindings,
+  RateLimitBindings,
+  BrowserBindings,
+  AssetsBindings,
+  SecretBindings,
+  // Type helpers
+  WithRequiredBindings,
+  WithStorage,
+  WithAI,
+  WithFullAI,
+  WithMessaging,
+  WithCoreBindings,
+  // Re-exported Cloudflare types
+  Ai,
+  KVNamespace,
+  R2Bucket,
+  D1Database,
+  DurableObjectNamespace,
+  Queue,
+  VectorizeIndex,
+  Hyperdrive,
+  RateLimiter,
+  Fetcher,
+  // Pipeline type
+  Pipeline,
+} from './CloudflareBindings'
+export {
+  // Type guards
+  hasKV,
+  hasR2,
+  hasD1,
+  hasAI,
+  hasVectorize,
+  hasQueue,
+  hasPipeline,
+  hasHyperdrive,
+  hasBrowser,
+  hasAssets,
+} from './CloudflareBindings'
+
 // Drizzle database type bridge
 export * from './drizzle'
 export * from './Things'

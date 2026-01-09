@@ -29,10 +29,10 @@ import {
   mockDB,
   mockQueue,
   mockFetch,
-} from '../testing/createTestContext'
+} from '../../testing/executor-context'
 
 // Import types from CodeFunctionExecutor for compatibility
-import type { ExecutionContext } from '../CodeFunctionExecutor'
+import type { ExecutionContext } from '../../lib/executors/CodeFunctionExecutor'
 
 // ============================================================================
 // TEST DATA FIXTURES

@@ -159,7 +159,7 @@ export interface AIBindings {
    *
    * @see https://developers.cloudflare.com/workers-ai/
    */
-  AI?: Fetcher
+  AI?: Ai
 
   /**
    * Vectorize index for semantic search
@@ -411,7 +411,7 @@ export function hasD1(env: CloudflareEnv): env is CloudflareEnv & { DB: D1Databa
 /**
  * Check if AI binding is available
  */
-export function hasAI(env: CloudflareEnv): env is CloudflareEnv & { AI: Fetcher } {
+export function hasAI(env: CloudflareEnv): env is CloudflareEnv & { AI: Ai } {
   return env.AI !== undefined
 }
 
@@ -488,7 +488,7 @@ export type WithStorage = WithRequiredBindings<'KV' | 'R2' | 'DB'>
 /**
  * Type helper for environment with AI bindings required
  */
-export type WithAI = WithRequiredBindings<'AI'>
+export type WithAI = CloudflareEnv & { AI: Ai }
 
 /**
  * Type helper for environment with full AI stack required
@@ -514,6 +514,7 @@ export type WithCoreBindings = WithRequiredBindings<'DO' | 'KV' | 'AI' | 'ASSETS
  * These are available globally via @cloudflare/workers-types
  */
 export type {
+  Ai,
   KVNamespace,
   R2Bucket,
   D1Database,
