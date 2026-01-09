@@ -1201,8 +1201,8 @@ describe('Vault and OAuth integration', () => {
     const tokens = await $.oauth.callback('auth-code-12345', initResult.state)
     expect(tokens.accessToken).toBeDefined()
 
-    // 3. Get state data for user ID
-    const stateData = $._storage.oauthStates.get(initResult.state)
+    // 3. Get state data for user ID (states are consumed after callback)
+    const stateData = $._storage._consumedStates.get(initResult.state)
     const userId = stateData?.userId ?? 'user:123'
 
     // 4. Retrieve access token
@@ -1241,7 +1241,7 @@ describe('Vault and OAuth integration', () => {
     // Delete vault credential should not affect OAuth tokens
     await $.vault('user:123').delete('custom-api-key')
 
-    const stateData = $._storage.oauthStates.get(initResult.state)
+    const stateData = $._storage._consumedStates.get(initResult.state)
     const accessToken = await $.oauth.getAccessToken(stateData?.userId ?? '', 'github')
     expect(accessToken).toBeDefined()
   })
@@ -1270,9 +1270,9 @@ describe('Vault and OAuth integration', () => {
     const githubInit = await $.oauth.initiate(githubConfig)
     const githubTokens = await $.oauth.callback('github-code', githubInit.state)
 
-    // Both tokens should be retrievable
-    const googleStateData = $._storage.oauthStates.get(googleInit.state)
-    const githubStateData = $._storage.oauthStates.get(githubInit.state)
+    // Both tokens should be retrievable (states are consumed after callback)
+    const googleStateData = $._storage._consumedStates.get(googleInit.state)
+    const githubStateData = $._storage._consumedStates.get(githubInit.state)
 
     const googleAccessToken = await $.oauth.getAccessToken(googleStateData?.userId ?? '', 'google')
     const githubAccessToken = await $.oauth.getAccessToken(githubStateData?.userId ?? '', 'github')
