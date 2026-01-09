@@ -1,6 +1,7 @@
 // Core schema exports
 export * from './nouns'
 export * from './verbs'
+export type { Visibility } from './things'
 export * from './things'
 export * from './relationships'
 export * from './objects'

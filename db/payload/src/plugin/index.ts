@@ -4,12 +4,15 @@
  * Integrates dotdo workflows and sync capabilities with Payload CMS.
  */
 
+// Conditional import for peer dependency
+// @ts-ignore - payload is a peer dependency
 import type { Config, Endpoint } from 'payload'
 import type {
   DotdoPluginConfig,
   ResolvedDotdoPluginConfig,
   PayloadPlugin,
 } from './types'
+import { createEndpoints, type EndpointPluginConfig } from './endpoints'
 
 /**
  * Validates the namespace URL
@@ -41,52 +44,6 @@ function resolveConfig(config: DotdoPluginConfig): ResolvedDotdoPluginConfig {
 }
 
 /**
- * Creates the sync endpoint
- */
-function createSyncEndpoint(
-  resolvedConfig: ResolvedDotdoPluginConfig
-): Endpoint {
-  return {
-    path: '/dotdo/sync',
-    method: 'post',
-    handler: async (req) => {
-      if (resolvedConfig.onSync) {
-        const body = await req.json?.()
-        await resolvedConfig.onSync({
-          collection: body?.collection ?? '',
-          operation: body?.operation ?? 'update',
-          doc: body?.doc ?? {},
-        })
-      }
-      return Response.json({ success: true })
-    },
-  }
-}
-
-/**
- * Creates the workflow endpoint
- */
-function createWorkflowEndpoint(
-  resolvedConfig: ResolvedDotdoPluginConfig
-): Endpoint {
-  return {
-    path: '/dotdo/workflow',
-    method: 'post',
-    handler: async (req) => {
-      if (resolvedConfig.onWorkflow) {
-        const body = await req.json?.()
-        await resolvedConfig.onWorkflow({
-          workflow: body?.workflow ?? '',
-          step: body?.step ?? '',
-          data: body?.data ?? {},
-        })
-      }
-      return Response.json({ success: true })
-    },
-  }
-}
-
-/**
  * dotdo Payload Plugin
  *
  * Creates a Payload plugin that integrates dotdo sync and workflow capabilities.
@@ -114,23 +71,20 @@ function createWorkflowEndpoint(
  * @param pluginConfig - Configuration options for the plugin
  * @returns A Payload plugin function
  */
-export function dotdoPlugin(pluginConfig: DotdoPluginConfig): PayloadPlugin {
+export function dotdoPlugin(
+  pluginConfig: DotdoPluginConfig & { syncPath?: string; workflowPath?: string }
+): PayloadPlugin {
   // Validate configuration upfront
   validateNamespace(pluginConfig.namespace)
 
   const resolvedConfig = resolveConfig(pluginConfig)
 
   return (incomingConfig: Config): Config => {
-    // Build endpoints array
-    const newEndpoints: Endpoint[] = []
-
-    if (resolvedConfig.syncEndpoint) {
-      newEndpoints.push(createSyncEndpoint(resolvedConfig))
-    }
-
-    if (resolvedConfig.workflowEndpoint) {
-      newEndpoints.push(createWorkflowEndpoint(resolvedConfig))
-    }
+    // Build endpoints array using the endpoints module
+    const newEndpoints: Endpoint[] = createEndpoints(
+      resolvedConfig,
+      pluginConfig as EndpointPluginConfig
+    )
 
     // Merge with existing config
     return {

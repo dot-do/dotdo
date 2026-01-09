@@ -23,7 +23,12 @@ import { DO as BaseDO } from './objects/DO'
 import { withFs } from './lib/mixins/fs'
 import { withBash } from './lib/mixins/bash'
 
-export const DO = withBash(withFs(BaseDO))
+// TODO: Configure executor and fs properly - these are placeholders
+export const DO = withBash(withFs(BaseDO), {
+  executor: () => {
+    throw new Error('Bash executor not configured - provide executor in withBash options')
+  }
+})
 
 /**
  * Capabilities included in this entry point

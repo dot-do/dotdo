@@ -1,12 +1,17 @@
 /**
- * Session Caching Module (Stub - RED Phase)
+ * Session Caching Module
  *
  * Provides two-level session caching:
  * - L1: In-memory LRU cache (fast, per-instance)
  * - L2: KV cache (shared across instances)
  *
- * This is a stub implementation for RED phase testing.
- * Will be implemented in GREEN phase.
+ * The caching strategy:
+ * - Check L1 memory cache first for fastest response
+ * - Fall back to L2 KV cache on L1 miss
+ * - Query database only on L2 miss
+ * - Populate both caches on database hit
+ * - Support cache invalidation on security events
+ * - Handle cache errors gracefully (fallback to DB)
  *
  * @module @dotdo/payload/auth/caching
  */
@@ -38,6 +43,8 @@ export interface L1MemoryCache {
   delete(token: string): void
   clear(): void
   size(): number
+  /** Internal: iterate over all entries for invalidation purposes */
+  entries?(): IterableIterator<[string, CachedSession]>
 }
 
 /**
@@ -147,25 +154,355 @@ export interface CachedSessionValidator {
 }
 
 // ============================================================================
-// Stub Implementations (RED Phase)
+// Default Configuration
+// ============================================================================
+
+const DEFAULT_L1_TTL_MS = 60000 // 1 minute
+const DEFAULT_L2_TTL_SECONDS = 300 // 5 minutes
+const DEFAULT_L1_MAX_SIZE = 1000
+
+// ============================================================================
+// L1 Memory Cache Implementation
 // ============================================================================
 
 /**
- * Creates an L1 memory cache.
- *
- * @stub This is a stub implementation that will be completed in GREEN phase.
+ * Internal cache entry with access tracking for LRU eviction.
  */
-export function createL1Cache(_config: L1CacheConfig): L1MemoryCache {
-  throw new Error('Not implemented: createL1Cache')
+interface L1CacheEntry {
+  data: CachedSession
+  lastAccess: number
 }
 
 /**
- * Creates a cached session validator.
+ * Creates an L1 memory cache with LRU eviction.
  *
- * @stub This is a stub implementation that will be completed in GREEN phase.
+ * @param config - Cache configuration (maxSize, ttlMs)
+ * @returns L1MemoryCache instance
+ *
+ * @example
+ * ```typescript
+ * const l1Cache = createL1Cache({ maxSize: 100, ttlMs: 60000 })
+ * l1Cache.set('token', cachedSession)
+ * const cached = l1Cache.get('token')
+ * ```
+ */
+export function createL1Cache(config: L1CacheConfig): L1MemoryCache {
+  const { maxSize, ttlMs } = config
+  const cache = new Map<string, L1CacheEntry>()
+
+  return {
+    get(token: string): CachedSession | undefined {
+      const entry = cache.get(token)
+      if (!entry) {
+        return undefined
+      }
+
+      const now = Date.now()
+
+      // Check if cache entry has expired based on configured TTL
+      if (now - entry.data.cachedAt >= ttlMs) {
+        cache.delete(token)
+        return undefined
+      }
+
+      // Check if the cached session itself has expired
+      if (now >= entry.data.expiresAt) {
+        cache.delete(token)
+        return undefined
+      }
+
+      // Update last access time for LRU tracking
+      entry.lastAccess = now
+
+      return entry.data
+    },
+
+    set(token: string, session: CachedSession): void {
+      const now = Date.now()
+
+      // Evict LRU entries if at capacity
+      if (cache.size >= maxSize && !cache.has(token)) {
+        // Find and remove the least recently used entry
+        let lruKey: string | null = null
+        let lruTime = Infinity
+
+        for (const [key, entry] of cache) {
+          if (entry.lastAccess < lruTime) {
+            lruTime = entry.lastAccess
+            lruKey = key
+          }
+        }
+
+        if (lruKey) {
+          cache.delete(lruKey)
+        }
+      }
+
+      cache.set(token, {
+        data: session,
+        lastAccess: now,
+      })
+    },
+
+    delete(token: string): void {
+      cache.delete(token)
+    },
+
+    clear(): void {
+      cache.clear()
+    },
+
+    size(): number {
+      return cache.size
+    },
+
+    *entries(): IterableIterator<[string, CachedSession]> {
+      for (const [key, entry] of cache) {
+        yield [key, entry.data]
+      }
+    },
+  }
+}
+
+// ============================================================================
+// Cached Session Validator Implementation
+// ============================================================================
+
+/**
+ * Creates a cached session validator with two-level caching.
+ *
+ * Cache lookup order:
+ * 1. L1 memory cache (fastest, per-instance)
+ * 2. L2 KV cache (shared across instances)
+ * 3. Database (slowest, source of truth)
+ *
+ * On successful validation, both caches are populated.
+ * Invalid sessions are not cached.
+ *
+ * @param options - Validator options including db, caches, and config
+ * @returns CachedSessionValidator instance
+ *
+ * @example
+ * ```typescript
+ * const validator = createCachedSessionValidator({
+ *   db,
+ *   l1Cache: createL1Cache({ maxSize: 100, ttlMs: 60000 }),
+ *   l2Cache: kvCacheAdapter,
+ *   config: { l2TtlSeconds: 300 }
+ * })
+ *
+ * const result = await validator.validate(sessionToken)
+ * if (result.valid) {
+ *   console.log('User:', result.user.email)
+ * }
+ * ```
  */
 export function createCachedSessionValidator(
-  _options: CachedSessionValidatorOptions,
+  options: CachedSessionValidatorOptions,
 ): CachedSessionValidator {
-  throw new Error('Not implemented: createCachedSessionValidator')
+  const { db, l1Cache, l2Cache, config = {}, broadcast } = options
+
+  const l1TtlMs = config.l1TtlMs ?? DEFAULT_L1_TTL_MS
+  const l2TtlSeconds = config.l2TtlSeconds ?? DEFAULT_L2_TTL_SECONDS
+
+  // Track tokens by userId for user-level invalidation
+  const tokensByUser = new Map<string, Set<string>>()
+
+  /**
+   * Track a token for a user (for invalidation purposes).
+   */
+  function trackToken(userId: string, token: string): void {
+    let tokens = tokensByUser.get(userId)
+    if (!tokens) {
+      tokens = new Set()
+      tokensByUser.set(userId, tokens)
+    }
+    tokens.add(token)
+  }
+
+  /**
+   * Get all tracked tokens for a user.
+   */
+  function getTokensForUser(userId: string): string[] {
+    const tokens = tokensByUser.get(userId)
+    return tokens ? Array.from(tokens) : []
+  }
+
+  /**
+   * Remove a token from tracking.
+   */
+  function untrackToken(userId: string, token: string): void {
+    const tokens = tokensByUser.get(userId)
+    if (tokens) {
+      tokens.delete(token)
+      if (tokens.size === 0) {
+        tokensByUser.delete(userId)
+      }
+    }
+  }
+
+  /**
+   * Validate a session token.
+   */
+  async function validate(token: string): Promise<SessionValidationResult> {
+    // Check L1 cache first
+    const l1Entry = l1Cache.get(token)
+    if (l1Entry) {
+      return {
+        valid: true,
+        user: l1Entry.user,
+        session: l1Entry.session,
+      }
+    }
+
+    // Check L2 cache
+    try {
+      const l2Entry = await l2Cache.get(token)
+      if (l2Entry && Date.now() < l2Entry.expiresAt) {
+        // Populate L1 from L2 hit
+        l1Cache.set(token, l2Entry)
+        trackToken(l2Entry.user.id, token)
+        return {
+          valid: true,
+          user: l2Entry.user,
+          session: l2Entry.session,
+        }
+      }
+    } catch {
+      // L2 error, continue to DB
+    }
+
+    // Query database
+    try {
+      const sessionWithUser = await db.getSessionByToken(token)
+
+      if (!sessionWithUser) {
+        return { valid: false, error: 'session_not_found' }
+      }
+
+      const { session, user } = sessionWithUser
+      const now = new Date()
+
+      // Check if session is expired
+      if (now >= session.expiresAt) {
+        return { valid: false, error: 'session_expired' }
+      }
+
+      // Check if user is banned
+      if (user.banned) {
+        if (user.banExpires && now >= user.banExpires) {
+          // Ban has expired
+        } else {
+          return { valid: false, error: 'user_banned' }
+        }
+      }
+
+      // Build result types
+      const betterAuthUser: BetterAuthUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        role: user.role,
+        image: user.image,
+        banned: user.banned ?? false,
+        banReason: user.banReason,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      }
+
+      const sessionData: SessionData = {
+        id: session.id,
+        token: session.token,
+        expiresAt: session.expiresAt,
+        userId: session.userId,
+      }
+
+      // Create cache entry
+      const cachedSession: CachedSession = {
+        user: betterAuthUser,
+        session: sessionData,
+        cachedAt: Date.now(),
+        expiresAt: Date.now() + l1TtlMs,
+      }
+
+      // Populate L1 cache
+      l1Cache.set(token, cachedSession)
+      trackToken(user.id, token)
+
+      // Populate L2 cache (fire and forget, don't block on errors)
+      l2Cache.set(token, cachedSession, l2TtlSeconds).catch(() => {
+        // Ignore L2 cache errors
+      })
+
+      return {
+        valid: true,
+        user: betterAuthUser,
+        session: sessionData,
+      }
+    } catch {
+      return { valid: false, error: 'database_error' }
+    }
+  }
+
+  /**
+   * Invalidate cached sessions based on an event.
+   */
+  async function invalidate(event: CacheInvalidationEvent): Promise<void> {
+    // Broadcast to other instances if available
+    if (broadcast) {
+      await broadcast.publish(event).catch(() => {
+        // Ignore broadcast errors
+      })
+    }
+
+    switch (event.type) {
+      case 'logout': {
+        // Invalidate specific session
+        const token = event.sessionToken
+        const l1Entry = l1Cache.get(token)
+        if (l1Entry) {
+          untrackToken(l1Entry.user.id, token)
+        }
+        l1Cache.delete(token)
+        await l2Cache.delete(token).catch(() => {})
+        break
+      }
+
+      case 'password_change':
+      case 'role_change':
+      case 'ban': {
+        // Invalidate all sessions for the user
+        const userId = event.userId
+
+        // Get tracked tokens
+        const trackedTokens = getTokensForUser(userId)
+
+        // Also scan the cache for any tokens that weren't tracked
+        // (e.g., if they were added directly to the cache)
+        const tokensToInvalidate = new Set(trackedTokens)
+
+        if (l1Cache.entries) {
+          for (const [token, session] of l1Cache.entries()) {
+            if (session.user.id === userId) {
+              tokensToInvalidate.add(token)
+            }
+          }
+        }
+
+        for (const token of tokensToInvalidate) {
+          l1Cache.delete(token)
+          await l2Cache.delete(token).catch(() => {})
+        }
+
+        tokensByUser.delete(userId)
+        break
+      }
+    }
+  }
+
+  return {
+    validate,
+    invalidate,
+  }
 }

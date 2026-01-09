@@ -195,6 +195,122 @@ class TestDO {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
+   * City name to colo code mapping
+   */
+  private static readonly CITY_TO_COLO: Record<string, string> = {
+    newark: 'ewr',
+    losangeles: 'lax',
+    paris: 'cdg',
+    singapore: 'sin',
+    sydney: 'syd',
+    tokyo: 'nrt',
+    hongkong: 'hkg',
+    saopaulo: 'gru',
+    chicago: 'ord',
+    dallas: 'dfw',
+    washington: 'iad',
+    sanjose: 'sjc',
+    atlanta: 'atl',
+    miami: 'mia',
+    seattle: 'sea',
+    denver: 'den',
+    amsterdam: 'ams',
+    frankfurt: 'fra',
+    london: 'lhr',
+    madrid: 'mad',
+    milan: 'mxp',
+    zurich: 'zrh',
+    vienna: 'vie',
+    stockholm: 'arn',
+    mumbai: 'bom',
+    delhi: 'del',
+    haneda: 'hnd',
+    seoul: 'icn',
+    osaka: 'kix',
+    melbourne: 'mel',
+    auckland: 'akl',
+    johannesburg: 'jnb',
+  }
+
+  /**
+   * Normalize targetId to a valid location
+   * @param targetId - The target location identifier
+   * @returns Normalized location string
+   */
+  private normalizeLocation(targetId: string): string {
+    // Handle URL targets
+    if (targetId.startsWith('https://') || targetId.startsWith('http://')) {
+      return targetId
+    }
+
+    // Normalize to lowercase
+    const normalized = targetId.toLowerCase()
+
+    // Check if it's a valid colo/region
+    if (VALID_LOCATIONS.has(normalized)) {
+      return normalized
+    }
+
+    // Try city name mapping
+    const cityNormalized = normalized.replace(/\s+/g, '')
+    const coloCoded = TestDO.CITY_TO_COLO[cityNormalized]
+    if (coloCoded) {
+      return coloCoded
+    }
+
+    return normalized
+  }
+
+  /**
+   * Validate target location
+   * @param targetId - The target location identifier
+   * @returns true if valid
+   * @throws Error if invalid
+   */
+  private validateTarget(targetId: string): boolean {
+    if (!targetId || targetId.trim() === '') {
+      throw new Error('Target is required and cannot be empty')
+    }
+
+    // URLs are considered valid targets
+    if (targetId.startsWith('https://') || targetId.startsWith('http://')) {
+      return true
+    }
+
+    const normalized = this.normalizeLocation(targetId)
+
+    // Check if normalized location is valid
+    if (!VALID_LOCATIONS.has(normalized)) {
+      throw new Error(`Invalid location or colo code: ${targetId}`)
+    }
+
+    return true
+  }
+
+  /**
+   * Emit an event to the events table
+   */
+  private emitEvent(verb: string, data: Record<string, unknown>): void {
+    const events = this.ctx._sqlData.get('events') as unknown[]
+    events.push({ verb, data, timestamp: new Date() })
+  }
+
+  /**
+   * Check if target DO already has state
+   */
+  private async checkTargetHasState(targetId: string): Promise<boolean> {
+    // For URL targets, check via mock env
+    if (targetId.startsWith('https://') || targetId.startsWith('http://')) {
+      const id = this.env.DO?.idFromName?.(targetId)
+      if (id) {
+        const existingDO = this.env._existingDOs.get(id.toString())
+        return existingDO?.hasState ?? false
+      }
+    }
+    return false
+  }
+
+  /**
    * Move DO to a new location with optional merge and cleanup options
    *
    * @param targetId - Target location (colo code, region hint, or namespace URL)
@@ -203,8 +319,131 @@ class TestDO {
    * @throws Error if target is invalid, no state to move, or permission denied
    */
   async move(targetId: string, options?: MoveOptions): Promise<MoveResult> {
-    // NOT IMPLEMENTED - This will cause tests to FAIL
-    throw new Error('move() not implemented - RED PHASE')
+    const startTime = Date.now()
+    const merge = options?.merge ?? false
+    const deleteSource = options?.deleteSource ?? true
+
+    try {
+      // Validate target
+      this.validateTarget(targetId)
+
+      // Normalize location
+      const location = this.normalizeLocation(targetId)
+      const isUrlTarget = targetId.startsWith('https://') || targetId.startsWith('http://')
+
+      // Check DO binding availability
+      if (!this.env.DO) {
+        throw new Error('DO namespace binding is unavailable')
+      }
+
+      // Check if already at target location
+      if (this.currentLocation && this.currentLocation === location) {
+        throw new Error(`Already at location: ${location}`)
+      }
+
+      // Get things to migrate (non-deleted only)
+      const allThings = this._getThings()
+      const thingsToMigrate = allThings.filter(t => !t.deleted)
+
+      // Validate there's state to move
+      if (thingsToMigrate.length === 0) {
+        throw new Error('No state to move - nothing to migrate')
+      }
+
+      // Check if target already has state (for non-merge operations)
+      if (isUrlTarget) {
+        const targetHasState = await this.checkTargetHasState(targetId)
+        if (targetHasState && !merge) {
+          throw new Error('Target already exists with state')
+        }
+      }
+
+      // Emit move.started event
+      this.emitEvent('move.started', { targetLocation: location })
+
+      // Compact history - get only latest version of each thing
+      const latestVersions = new Map<string, MockThing>()
+      for (const thing of thingsToMigrate) {
+        const key = `${thing.id}:${thing.branch || 'main'}`
+        const existing = latestVersions.get(key)
+        if (!existing || (thing.rowid && existing.rowid && thing.rowid > existing.rowid)) {
+          latestVersions.set(key, thing)
+        }
+      }
+
+      const compactedThings = Array.from(latestVersions.values())
+
+      // Create target DO ID
+      let newDoId: string
+      if (isUrlTarget) {
+        const id = this.env.DO.idFromName(targetId)
+        newDoId = id.toString()
+      } else {
+        const id = this.env.DO.newUniqueId({ locationHint: location })
+        newDoId = id.toString()
+      }
+
+      // Transfer state to target DO
+      const stub = this.env.DO.get({ toString: () => newDoId } as { toString: () => string })
+      try {
+        await stub.fetch(new Request(`https://${this.ns}/transfer`, {
+          method: 'POST',
+          body: JSON.stringify({
+            things: compactedThings,
+            merge,
+          }),
+        }))
+      } catch (error) {
+        // Emit move.failed event
+        this.emitEvent('move.failed', {
+          targetLocation: location,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw new Error(`Access denied or permission error: ${error instanceof Error ? error.message : String(error)}`)
+      }
+
+      // Update objects table with new DO info
+      const objects = this.ctx._sqlData.get('objects') as { id: string; ns: string; region: string }[]
+      objects.push({
+        id: newDoId,
+        ns: this.ns,
+        region: location,
+      })
+
+      // Handle source deletion
+      if (deleteSource) {
+        this.ctx.waitUntil(Promise.resolve())
+      }
+
+      // Emit move.completed event
+      const durationMs = Date.now() - startTime
+      this.emitEvent('move.completed', {
+        newDoId,
+        location,
+        thingsMigrated: compactedThings.length,
+        merged: merge,
+        sourceDeleted: deleteSource,
+        durationMs,
+      })
+
+      return {
+        newDoId,
+        location,
+        merged: merge,
+        sourceDeleted: deleteSource,
+        thingsMigrated: compactedThings.length,
+        durationMs,
+      }
+    } catch (error) {
+      // Check if move.failed was already emitted
+      const events = this._getEvents() as { verb: string }[]
+      if (!events.some(e => e.verb === 'move.failed')) {
+        this.emitEvent('move.failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      throw error
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

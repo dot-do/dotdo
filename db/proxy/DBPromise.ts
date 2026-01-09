@@ -145,7 +145,7 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
   map<U extends ThingEntity>(mapper: (item: T) => U): DBPromise<U> {
     return new DBPromise<U>(this.dataSource, [
       ...this.operations,
-      { type: 'map', mapper: mapper as (item: ThingEntity) => ThingEntity },
+      { type: 'map', mapper: mapper as unknown as (item: ThingEntity) => ThingEntity },
     ])
   }
 

@@ -14,8 +14,10 @@ import type {
   PayloadField,
   PayloadAdapterConfig,
 } from '../adapter/types'
-import type { NounData } from '../../../types/Noun'
-import type { ThingData } from '../../../types/Thing'
+import { slugToNounName, fieldNameToVerb } from '../adapter/types'
+import type { NounData } from '../../../../types/Noun'
+import type { ThingData } from '../../../../types/Thing'
+import { create as createOperation } from '../adapter/operations/create'
 
 // ============================================================================
 // TYPES
@@ -235,11 +237,82 @@ function createNounsStore(): NounsStore {
 // ============================================================================
 
 /**
+ * Hooks for adapter operations
+ */
+export interface AdapterHooks {
+  beforeCreate?: (args: { collection: string; data: Record<string, unknown>; operation: string }) => Promise<Record<string, unknown>>
+  afterCreate?: (args: { collection: string; doc: Record<string, unknown> }) => Promise<void>
+}
+
+// ============================================================================
+// DEFAULT SCHEMA DEFINITIONS
+// ============================================================================
+
+/**
+ * Default schema for posts collection (used in tests)
+ */
+const postsSchema: PayloadField[] = [
+  { type: 'text', name: 'title', required: true },
+  { type: 'text', name: 'slug', required: true },
+  { type: 'richText', name: 'content' },
+  { type: 'textarea', name: 'excerpt' },
+  { type: 'date', name: 'publishedAt' },
+  { type: 'number', name: 'views' },
+  { type: 'checkbox', name: 'featured' },
+  { type: 'select', name: 'status', options: ['draft', 'published', 'archived'] },
+  { type: 'relationship', name: 'author', relationTo: 'users' },
+  { type: 'relationship', name: 'categories', relationTo: 'categories', hasMany: true },
+  { type: 'upload', name: 'featuredImage', relationTo: 'media' },
+  {
+    type: 'array',
+    name: 'tags',
+    fields: [{ type: 'text', name: 'tag' }],
+  },
+  {
+    type: 'group',
+    name: 'metadata',
+    fields: [
+      { type: 'text', name: 'seoTitle' },
+      { type: 'textarea', name: 'seoDescription' },
+    ],
+  },
+  { type: 'blocks', name: 'layout' },
+  // Polymorphic relationship for parent field
+  { type: 'relationship', name: 'parent', relationTo: ['pages', 'posts'] },
+]
+
+/**
+ * Default schema for articles collection
+ */
+const articlesSchema: PayloadField[] = [
+  { type: 'text', name: 'title', required: true },
+  { type: 'text', name: 'slug', required: true },
+  { type: 'richText', name: 'body' },
+]
+
+/**
+ * Schema registry for collections
+ */
+const collectionSchemas: Record<string, PayloadField[]> = {
+  posts: postsSchema,
+  articles: articlesSchema,
+}
+
+/**
+ * Get schema for a collection, falls back to empty array
+ */
+function getCollectionSchema(collection: string): PayloadField[] {
+  return collectionSchemas[collection] || []
+}
+
+/**
  * Mock Payload adapter for testing
  */
 export interface MockPayloadAdapter extends PayloadDatabaseAdapter {
   /** In-memory document storage by collection */
   _collections: Map<string, Map<string, PayloadDocument>>
+  /** Hooks for adapter operations */
+  hooks?: AdapterHooks
 }
 
 function createMockAdapter(
@@ -505,16 +578,44 @@ function createMockAdapter(
 
   // Alias methods to match Payload Local API style
   const adapterWithAliases = adapter as MockPayloadAdapter & {
-    create: typeof adapter.createDocument
-    find: typeof adapter.findDocuments
-    findOne: typeof adapter.findDocument
-    update: typeof adapter.updateDocument
-    delete: typeof adapter.deleteDocument
+    create: (args: { collection: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
+    find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string }) => Promise<{ docs: PayloadDocument[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number }>
+    findOne: (args: { collection: string; id: string }) => Promise<PayloadDocument | null>
+    update: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
+    delete: (args: { collection: string; id: string }) => Promise<PayloadDocument>
     count: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ totalDocs: number }>
+    hooks?: any
   }
 
+  // Use the createOperation function for create
   adapterWithAliases.create = async (args: { collection: string; data: Record<string, unknown> }) => {
-    return adapter.createDocument(args.collection, args.data)
+    const namespace = config.namespace ?? 'https://test.do'
+
+    // Get fields schema for the collection (for now, use postFields as default schema)
+    // In real implementation, this would be fetched from collection config
+    const schema = getCollectionSchema(args.collection)
+
+    // Build the context for create operation
+    const ctx = {
+      namespace,
+      things,
+      relationships,
+      nouns,
+      schema,
+      hooks: adapterWithAliases.hooks,
+    }
+
+    // Track the operation
+    trackOperation('create', args.collection, { data: args.data })
+
+    // Call the create operation
+    const doc = await createOperation(args, ctx)
+
+    // Store in collections map
+    const col = getCollection(args.collection)
+    col.set(doc.id, doc)
+
+    return doc
   }
 
   adapterWithAliases.find = async (args: {

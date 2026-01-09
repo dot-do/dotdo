@@ -434,7 +434,7 @@ browsersRoutes.post('/:id/act', async (c) => {
     }
 
     const result = await actRes.json()
-    return c.json({ success: true, action: body.instruction, ...result })
+    return c.json({ success: true, action: body.instruction, ...(typeof result === 'object' && result !== null ? result : { result }) })
   } catch {
     return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to execute action' } }, 500)
   }

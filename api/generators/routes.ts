@@ -127,7 +127,7 @@ export interface GeneratorOptions {
  */
 export interface GeneratedRoutes {
   /** The Hono router with all generated routes */
-  router: Hono
+  router: Hono<any>
   /** Array of route configurations for documentation */
   routes: RouteConfig[]
   /** OpenAPI paths object */
@@ -315,11 +315,11 @@ export function generateZodSchema(parameters: ParameterInfo[]): ZodObject<Record
     } else if (lowerName.includes('enabled') || lowerName.includes('active') || lowerName.startsWith('is') || lowerName.startsWith('has')) {
       schema = z.coerce.boolean()
     } else if (lowerName === 'data' || lowerName === 'body' || lowerName === 'payload') {
-      schema = z.record(z.unknown())
+      schema = z.record(z.string(), z.unknown())
     } else if (lowerName.includes('items') || lowerName.includes('list') || lowerName.endsWith('s') && lowerName !== 'status') {
       schema = z.array(z.unknown())
     } else if (lowerName === 'options' || lowerName === 'config' || lowerName === 'settings') {
-      schema = z.record(z.unknown()).optional()
+      schema = z.record(z.string(), z.unknown()).optional()
     }
 
     // Make optional if marked as such

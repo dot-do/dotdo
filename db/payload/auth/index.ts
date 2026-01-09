@@ -54,3 +54,26 @@ export type {
   SessionWithUser,
   ValidateSessionOptions,
 } from './session'
+
+// ============================================================================
+// Role Mapping
+// ============================================================================
+
+export {
+  mapRoleToAccess,
+  getEffectiveRole,
+  generateAccessLevels,
+  createAccessControl,
+} from './roles'
+
+export type {
+  AccessPermission,
+  AccessLevels,
+  OrganizationRole,
+  UserContext,
+  CollectionAccessConfig,
+  PayloadUserWithRole,
+  PayloadAccessFunction,
+  PayloadAccessControl,
+  CreateAccessControlConfig,
+} from './roles'

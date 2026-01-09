@@ -4,6 +4,8 @@
  * TypeScript interfaces for the dotdo Payload CMS plugin.
  */
 
+// Conditional import for peer dependency
+// @ts-ignore - payload is a peer dependency
 import type { Config } from 'payload'
 
 /**

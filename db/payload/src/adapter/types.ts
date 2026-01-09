@@ -6,8 +6,8 @@
  * @module @dotdo/payload/adapter/types
  */
 
-import type { NounData, NounSchema } from '../../../types/Noun'
-import type { ThingData, Visibility } from '../../../types/Thing'
+import type { NounData, NounSchema } from '../../../../types/Noun'
+import type { ThingData, Visibility } from '../../../../types/Thing'
 
 // ============================================================================
 // PAYLOAD CMS BASE TYPES

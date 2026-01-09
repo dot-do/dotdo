@@ -1479,6 +1479,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     options: {
       mode: 'atomic' | 'staged' | 'eventual' | 'resumable'
       includeHistory?: boolean
+      includeState?: boolean
+      shallow?: boolean
+      transform?: (state: { things: Array<{ id: string; type: unknown; branch: string | null; name: string | null; data: Record<string, unknown>; deleted: boolean }>; relationships?: Array<{ id: string; verb: string; from: string; to: string; data: Record<string, unknown> | null }> }) => { things: Array<{ id: string; type: unknown; branch: string | null; name: string | null; data: Record<string, unknown>; deleted: boolean }>; relationships?: Array<{ id: string; verb: string; from: string; to: string; data: Record<string, unknown> | null }> } | Promise<{ things: Array<{ id: string; type: unknown; branch: string | null; name: string | null; data: Record<string, unknown>; deleted: boolean }>; relationships?: Array<{ id: string; verb: string; from: string; to: string; data: Record<string, unknown> | null }> }>
+      branch?: string
+      version?: number
+      colo?: string
       timeout?: number
       correlationId?: string
       // Eventual mode options
@@ -1518,9 +1524,21 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     const {
       mode,
       includeHistory = false,
+      includeState = true,
+      shallow = false,
+      transform,
+      branch: targetBranch,
+      version: targetVersion,
+      colo,
       timeout = 30000,
       correlationId = crypto.randomUUID(),
     } = options
+
+    // Validate mode first
+    const validModes = ['atomic', 'staged', 'eventual', 'resumable']
+    if (!validModes.includes(mode)) {
+      throw new Error(`Invalid mode: '${mode}' is not a valid clone mode`)
+    }
 
     // Handle eventual mode
     if (mode === 'eventual') {
@@ -1537,11 +1555,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       return this.initiateResumableClone(target, options as unknown as ResumableCloneOptions) as unknown as ReturnType<typeof this.clone>
     }
 
-    // For now, only atomic mode is implemented for other modes
-    if (mode !== 'atomic') {
-      throw new Error(`Clone mode '${mode}' not yet implemented`)
-    }
-
     const startTime = Date.now()
 
     // === VALIDATION ===
@@ -1549,6 +1562,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     // Validate options
     if (typeof timeout !== 'number' || timeout < 0) {
       throw new Error('Invalid timeout: must be a non-negative number')
+    }
+
+    // Validate colo code if provided
+    if (colo && !DO.VALID_COLOS.has(colo)) {
+      throw new Error(`Invalid colo: '${colo}' is not a valid location code`)
     }
 
     // Validate target namespace URL format
@@ -1569,11 +1587,36 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       throw new Error('Cannot clone to same namespace')
     }
 
+    // Validate branch if specified
+    if (targetBranch) {
+      const branches = await this.db.select().from(schema.branches)
+      const branchExists = branches.some(b => b.name === targetBranch)
+      if (!branchExists) {
+        throw new Error(`Branch not found: '${targetBranch}'`)
+      }
+    }
+
+    // Validate version if specified
+    if (targetVersion !== undefined) {
+      const branches = await this.db.select().from(schema.branches)
+      const mainBranch = branches.find(b => b.name === 'main' || b.name === null)
+      if (!mainBranch || (mainBranch.head !== null && targetVersion > mainBranch.head)) {
+        throw new Error(`Version not found: ${targetVersion}`)
+      }
+    }
+
     // Get things to validate source has state
-    const things = await this.db.select().from(schema.things)
+    let things = await this.db.select().from(schema.things)
+
+    // Filter by branch if specified
+    if (targetBranch) {
+      things = things.filter((t) => t.branch === targetBranch)
+    }
+
     const nonDeletedThings = things.filter((t) => !t.deleted)
 
-    if (nonDeletedThings.length === 0) {
+    // Only check for empty state if includeState is true
+    if (includeState && nonDeletedThings.length === 0) {
       throw new Error('No state to clone: source is empty')
     }
 

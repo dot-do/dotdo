@@ -278,7 +278,7 @@ export async function migrateVisibility(
   // Build the condition (handle empty conditions array)
   const condition = conditions.length > 0
     ? conditions.length > 1
-      ? and(...conditions as [unknown, unknown, ...unknown[]])
+      ? and(...(conditions as Parameters<typeof and>))
       : conditions[0]
     : undefined
 

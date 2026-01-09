@@ -236,12 +236,199 @@ class TestDO {
 
   /**
    * Squash history to current state with configurable options
-   * RED: This signature with options is not yet implemented
    */
   async compact(options?: CompactOptions): Promise<CompactResult> {
-    // Current implementation does not support options
-    // These tests will fail until the implementation is updated
-    throw new Error('compact(options) not implemented - RED TDD phase')
+    const things = this.db.getThings()
+    const actions = this.db.getActions()
+    const events = this.db.getEvents()
+
+    // Validate TTL
+    if (options?.ttl !== undefined && options.ttl < 0) {
+      throw new Error('TTL must be non-negative')
+    }
+
+    // Check if there's anything to compact
+    if (things.length === 0) {
+      throw new Error('Nothing to compact')
+    }
+
+    // Normalize threshold (negative treated as 0)
+    const threshold = Math.max(0, options?.threshold ?? 0)
+
+    // Check threshold - skip if total version count is below threshold
+    if (threshold > 0 && things.length < threshold) {
+      // Emit events for skipped compact
+      await this.emitEvent('compact.started', {
+        thingsCount: things.length,
+        options: options,
+      })
+      await this.emitEvent('compact.completed', {
+        skipped: true,
+        reason: 'threshold_not_met',
+      })
+      return {
+        thingsCompacted: 0,
+        actionsArchived: 0,
+        eventsArchived: 0,
+        skipped: true,
+      }
+    }
+
+    // Determine if archiving is enabled (default: true)
+    const shouldArchive = options?.archive !== false
+    const R2 = this.env.R2 as {
+      put(key: string, data: string, options?: {
+        customMetadata?: Record<string, string>
+        httpMetadata?: { cacheExpiry?: Date }
+      }): Promise<unknown>
+    } | undefined
+
+    // Build preserve keys set (including wildcard expansion)
+    const preserveKeys = options?.preserveKeys || []
+    const preservedSet = new Set<string>()
+
+    // Helper to check if a key matches any preserve pattern
+    const shouldPreserve = (id: string): boolean => {
+      for (const pattern of preserveKeys) {
+        if (pattern.endsWith('*')) {
+          const prefix = pattern.slice(0, -1)
+          if (id.startsWith(prefix)) {
+            preservedSet.add(id)
+            return true
+          }
+        } else if (id === pattern) {
+          preservedSet.add(id)
+          return true
+        }
+      }
+      return false
+    }
+
+    // Group things by id+branch to find latest versions
+    const thingsByKey = new Map<string, MockThing[]>()
+    for (const thing of things) {
+      const key = `${thing.id}:${thing.branch || 'main'}`
+      const group = thingsByKey.get(key) || []
+      group.push(thing)
+      thingsByKey.set(key, group)
+    }
+
+    // Prepare archive options with TTL
+    const archiveOptions = options?.ttl !== undefined && shouldArchive
+      ? {
+          httpMetadata: {
+            cacheExpiry: new Date(Date.now() + options.ttl * 1000)
+          }
+        }
+      : undefined
+
+    // Archive to R2 if enabled and R2 is available
+    let actionsArchived = 0
+    let eventsArchived = 0
+
+    if (shouldArchive && R2) {
+      // Archive things (old versions only, not preserved)
+      const thingsToArchive = things.filter(t => !shouldPreserve(t.id))
+      if (thingsToArchive.length > 0) {
+        await R2.put(
+          `archives/${this.ns}/things/${Date.now()}.json`,
+          JSON.stringify(thingsToArchive),
+          archiveOptions
+        )
+      }
+
+      // Archive actions
+      if (actions.length > 0) {
+        await R2.put(
+          `archives/${this.ns}/actions/${Date.now()}.json`,
+          JSON.stringify(actions),
+          archiveOptions
+        )
+        actionsArchived = actions.length
+      }
+
+      // Archive events (excluding compact events)
+      const eventsToArchive = events.filter((e: any) =>
+        e.verb !== 'compact.started' && e.verb !== 'compact.completed'
+      )
+      if (eventsToArchive.length > 0) {
+        await R2.put(
+          `archives/${this.ns}/events/${Date.now()}.json`,
+          JSON.stringify(eventsToArchive),
+          archiveOptions
+        )
+        eventsArchived = eventsToArchive.length
+      }
+    }
+
+    // Emit compact.started event
+    await this.emitEvent('compact.started', {
+      thingsCount: things.length,
+      options: options,
+    })
+
+    // Keep only latest version of each thing (unless preserved)
+    let compactedCount = 0
+    const newThings: MockThing[] = []
+
+    for (const [, group] of thingsByKey) {
+      const thingId = group[0].id
+
+      if (shouldPreserve(thingId)) {
+        // Preserve all versions for this key
+        for (const thing of group) {
+          newThings.push(thing)
+        }
+        // No versions compacted for preserved keys
+      } else {
+        // Get latest version (last in array based on insertion order)
+        const latest = group[group.length - 1]
+        newThings.push(latest)
+        compactedCount += group.length - 1
+      }
+    }
+
+    // Update the things array in place
+    const thingsArray = this.ctx._sqlData.get('things') as MockThing[]
+    thingsArray.length = 0
+    for (const thing of newThings) {
+      thingsArray.push(thing)
+    }
+
+    // Clear actions
+    const actionsArray = this.ctx._sqlData.get('actions') as unknown[]
+    actionsArray.length = 0
+
+    // Emit compact.completed event
+    await this.emitEvent('compact.completed', {
+      thingsCompacted: compactedCount,
+      actionsArchived,
+      eventsArchived,
+    })
+
+    // Build result
+    const result: CompactResult = {
+      thingsCompacted: compactedCount,
+      actionsArchived,
+      eventsArchived,
+    }
+
+    // Add preserved keys to result if any were specified and found
+    if (preserveKeys.length > 0) {
+      const foundPreserved = [...preservedSet].filter(k =>
+        things.some(t => t.id === k)
+      )
+      if (foundPreserved.length > 0) {
+        result.preservedKeys = foundPreserved
+      }
+    }
+
+    // Add TTL to result if archiving was performed
+    if (shouldArchive && R2 && options?.ttl !== undefined) {
+      result.archiveTtl = options.ttl
+    }
+
+    return result
   }
 }
 

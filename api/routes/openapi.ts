@@ -693,7 +693,7 @@ openapiRoutes.openapi(getThingRoute, (c) => {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
-  return c.json(thing)
+  return c.json(thing, 200)
 })
 
 openapiRoutes.openapi(updateThingRoute, async (c) => {
@@ -714,7 +714,7 @@ openapiRoutes.openapi(updateThingRoute, async (c) => {
 
   things.set(id, updated)
 
-  return c.json(updated)
+  return c.json(updated, 200)
 })
 
 openapiRoutes.openapi(deleteThingRoute, (c) => {
@@ -747,19 +747,19 @@ mcpOpenapiRoutes.openapi(mcpPostRoute, async (c) => {
   // Forward to actual MCP handler
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response
+  return response as any
 })
 
 mcpOpenapiRoutes.openapi(mcpGetRoute, async (c) => {
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response
+  return response as any
 })
 
 mcpOpenapiRoutes.openapi(mcpDeleteRoute, async (c) => {
   const { handleMcpRequest } = await import('./mcp')
   const response = await handleMcpRequest(c.req.raw)
-  return response
+  return response as any
 })
 
 // ============================================================================
@@ -779,7 +779,7 @@ rpcOpenapiRoutes.openapi(rpcPostRoute, async (c) => {
   })
   const app = new OpenAPIHono<{ Bindings: Env }>()
   app.route('/', rpcRoutes)
-  return app.fetch(req, c.env)
+  return app.fetch(req, c.env) as any
 })
 
 rpcOpenapiRoutes.openapi(rpcGetRoute, (c) => {

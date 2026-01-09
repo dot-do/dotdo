@@ -219,7 +219,7 @@ export function encodeValue(value: PrimitiveValue, type: ColumnType): Uint8Array
       return new Uint8Array([value ? 1 : 0])
     case 'binary':
       // Binary values are already Uint8Array or can be passed through
-      if (value instanceof Uint8Array) {
+      if (value !== null && typeof value === 'object' && value instanceof Uint8Array) {
         return value
       }
       return new TextEncoder().encode(String(value))
