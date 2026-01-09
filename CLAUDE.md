@@ -66,6 +66,23 @@ bd close <id>                         # Complete
 bd sync                               # Sync with git
 ```
 
+## Extended Primitives
+
+Core system primitives reimplemented for Durable Objects:
+
+- **fsx** - Full filesystem on DO SQLite with tiered storage (hot/warm/cold)
+- **gitx** - Complete Git implementation built on fsx with R2 object storage
+- **bashx** - Shell execution without VMs, runs natively on Workers
+
+## Compatibility Layer (@dotdo/compat)
+
+API-compatible packages for popular platforms, edge-native and AI-ready:
+
+- `@dotdo/supabase`, `@dotdo/firebase`, `@dotdo/mongo`
+- `@dotdo/postgres`, `@dotdo/kafka`, `@dotdo/redis`
+- Built-in sharding, replication, tiered storage
+- Scales to millions of parallel AI agents
+
 ## Key Concepts
 
 - **HumanFunction** - Escalation to humans for sensitive decisions (large refunds, audit risk, edge cases)
@@ -75,6 +92,7 @@ bd sync                               # Sync with git
 
 ## Related Projects
 
-- **MDXUI** (`~/projects/ui/apps/mdxui.dev`) - UI abstractions for Sites (Beacon) and Apps (Cockpit)
-- **StartupBuilder** (`~/projects/startupbuilder`) - 150K+ startup ideas from O*NET/NAICS/Zapier
-- **SB** (`~/projects/sb`) - StartupBuilder, SalesBuilder, ServicesBuilder using db4ai
+- **[MDXUI](https://mdxui.dev)** - UI abstractions for Sites (Beacon) and Apps (Cockpit)
+- **[org.ai](https://id.org.ai)** - Identity and auth for AI and humans
+- **StartupBuilder** - 150K+ startup ideas from O*NET/NAICS/Zapier
+- **SB** - StartupBuilder, SalesBuilder, ServicesBuilder using db4ai

@@ -157,19 +157,64 @@ await $.Customer(id).notify()
 await $.Order(id).fulfill()
 ```
 
-### Surfaces (UI)
+### Extended Primitives (fsx, gitx, bashx)
 
-Your business needs interfaces. Sites for customers, apps for operators:
+Core system primitives don't exist on Durable Objects. We rewrote them from scratch to be edge-native:
 
 ```typescript
-// Marketing site
+// fsx - Full filesystem on DO SQLite with tiered storage
+await $.fs.write('data/report.json', data)
+await $.fs.read('content/index.mdx')
+await $.fs.glob('**/*.ts')
+
+// gitx - Complete Git implementation built on fsx
+await $.git.clone('https://github.com/org/repo')
+await $.git.commit('feat: add new feature')
+await $.git.push('origin', 'main')
+
+// bashx - Shell execution without VMs
+const result = await $.bash`npm install && npm run build`
+await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
+```
+
+These aren't wrappers—they're complete reimplementations that run natively on Cloudflare Workers, enabling millions of parallel AI agents to have full system capabilities.
+
+### Compatibility Layer (@dotdo/compat)
+
+Use the APIs you already know. We've built edge-native, AI-ready compatibility layers for popular platforms:
+
+```typescript
+// Drop-in replacements that scale to millions of agents
+import { createClient } from '@dotdo/supabase'
+import { initializeApp } from '@dotdo/firebase'
+import { MongoClient } from '@dotdo/mongo'
+import { Client } from '@dotdo/postgres'
+import { Kafka } from '@dotdo/kafka'
+import { Redis } from '@dotdo/redis'
+
+// Same API, but running on Durable Objects
+const supabase = createClient(url, key)
+const { data } = await supabase.from('users').select('*')
+
+// Built-in sharding, replication, and tiered storage
+// Hot (DO SQLite) → Warm (R2 Iceberg) → Cold (Archive)
+```
+
+**Why this matters:** Your existing code works. Your AI agents can use familiar APIs. And it all scales horizontally across Cloudflare's global network.
+
+### Surfaces (UI)
+
+Your business needs interfaces. Sites for customers, apps for operators. Built with [MDXUI](https://mdxui.dev):
+
+```typescript
+// Marketing site (Beacon template)
 <Site type="marketing" theme="stripe">
   <Hero title="AI-Powered Tax Prep" cta="Get Started" />
   <Features items={features} />
   <Pricing plans={plans} />
 </Site>
 
-// Customer portal
+// Customer portal (Cockpit template)
 <App type="dashboard">
   <Returns collection="returns" />
   <Documents collection="documents" />
@@ -188,7 +233,7 @@ Your business needs interfaces. Sites for customers, apps for operators:
 
 Everything else you need, built in:
 
-- **Auth** - Users, orgs, API keys, federated identity
+- **Auth** - Users, orgs, API keys via [org.ai](https://id.org.ai) - federated identity for AI and humans
 - **Billing** - Subscriptions, usage-based, invoicing
 - **Analytics** - HUNCH metrics, funnels, cohorts
 - **Observability** - Traces, logs, alerts
@@ -238,13 +283,19 @@ Vibe on top, rigor underneath. The framework enforces deterministic verification
 
 Just as IaC made infrastructure programmable, BaC makes businesses programmable. Define your business in code, deploy it, let AI agents run it.
 
+### Scale to Millions
+
+Every primitive is designed for millions of parallel AI agents. Sharded storage, global replication, edge-native execution. Your business scales with you.
+
 ## Learn More
 
-- [Architecture](./docs/architecture.md) - How it all fits together
-- [Foundation Sprint](./docs/foundation-sprint.md) - Finding what to build
-- [Experimentation](./docs/experimentation.md) - Testing hypotheses
-- [Autonomous Ops](./docs/autonomous-ops.md) - AI agents in production
-- [API Reference](./docs/api.md) - Full documentation
+- [Architecture](https://github.com/dot-do/dotdo/blob/main/docs/architecture.md) - How it all fits together
+- [Foundation Sprint](https://github.com/dot-do/dotdo/blob/main/docs/foundation-sprint.md) - Finding what to build
+- [Experimentation](https://github.com/dot-do/dotdo/blob/main/docs/experimentation.md) - Testing hypotheses
+- [Autonomous Ops](https://github.com/dot-do/dotdo/blob/main/docs/autonomous-ops.md) - AI agents in production
+- [API Reference](https://github.com/dot-do/dotdo/blob/main/docs/api.md) - Full documentation
+- [MDXUI](https://mdxui.dev) - UI components for Sites and Apps
+- [org.ai](https://id.org.ai) - Identity and auth for AI and humans
 
 ## License
 

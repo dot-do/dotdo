@@ -7,6 +7,8 @@ import {
   toJsonPath,
   validateFieldPath,
   getFieldRef,
+  createFieldRefCache,
+  QueryBuilderError,
   type WhereClause,
   type QueryTable,
 } from '../../src/adapter/query-builder'
@@ -613,6 +615,152 @@ describe('Query Builder', () => {
     it('should use json_extract for nested fields', () => {
       const ref = getFieldRef('meta.featured', mockTable)
       expect(ref).toBeDefined()
+    })
+  })
+
+  // ============================================================================
+  // FIELD REFERENCE CACHE TESTS
+  // ============================================================================
+
+  describe('createFieldRefCache', () => {
+    it('should create a reusable cache instance', () => {
+      const cache = createFieldRefCache()
+      expect(cache).toBeDefined()
+      expect(cache.size).toBe(0)
+    })
+
+    it('should cache field references across multiple calls', () => {
+      const cache = createFieldRefCache()
+
+      // First call should populate cache
+      const ref1 = cache.get('meta.featured', mockTable)
+      expect(ref1).toBeDefined()
+      expect(cache.size).toBe(1)
+
+      // Second call should return cached value
+      const ref2 = cache.get('meta.featured', mockTable)
+      expect(ref2).toBeDefined()
+      expect(cache.size).toBe(1) // Still 1, not 2
+
+      // Same reference should be returned
+      expect(ref1).toBe(ref2)
+    })
+
+    it('should cache different fields separately', () => {
+      const cache = createFieldRefCache()
+
+      cache.get('name', mockTable)
+      cache.get('status', mockTable)
+      cache.get('meta.featured', mockTable)
+
+      expect(cache.size).toBe(3)
+    })
+
+    it('should allow clearing the cache', () => {
+      const cache = createFieldRefCache()
+
+      cache.get('name', mockTable)
+      cache.get('status', mockTable)
+      expect(cache.size).toBe(2)
+
+      cache.clear()
+      expect(cache.size).toBe(0)
+    })
+
+    it('should work with buildWhere options', () => {
+      const cache = createFieldRefCache()
+
+      const where1: WhereClause = { status: { equals: 'published' } }
+      const where2: WhereClause = { status: { equals: 'draft' } }
+
+      // Both queries use the same field, cache should be reused
+      buildWhere(where1, mockTable, { cache })
+      expect(cache.size).toBe(1)
+
+      buildWhere(where2, mockTable, { cache })
+      expect(cache.size).toBe(1) // Same field, still 1
+    })
+
+    it('should work with buildSort', () => {
+      const cache = createFieldRefCache()
+
+      buildSort('createdAt', mockTable, cache)
+      buildSort('-createdAt', mockTable, cache)
+
+      // Same field used twice, should only cache once
+      expect(cache.size).toBe(1)
+    })
+  })
+
+  // ============================================================================
+  // QUERY BUILDER ERROR TESTS
+  // ============================================================================
+
+  describe('QueryBuilderError', () => {
+    it('should create error with field information', () => {
+      const error = new QueryBuilderError('Invalid operator', 'status', 'unknown_op')
+
+      expect(error).toBeInstanceOf(Error)
+      expect(error).toBeInstanceOf(QueryBuilderError)
+      expect(error.name).toBe('QueryBuilderError')
+      expect(error.field).toBe('status')
+      expect(error.operator).toBe('unknown_op')
+      expect(error.message).toContain('Invalid operator')
+      expect(error.message).toContain('Field: status')
+      expect(error.message).toContain('Operator: unknown_op')
+    })
+
+    it('should include hint when provided', () => {
+      const error = new QueryBuilderError(
+        'Invalid operator',
+        'status',
+        'unknown_op',
+        'Use equals, not_equals, in, etc.'
+      )
+
+      expect(error.hint).toBe('Use equals, not_equals, in, etc.')
+      expect(error.message).toContain('Hint: Use equals, not_equals, in, etc.')
+    })
+
+    it('should work without operator', () => {
+      const error = new QueryBuilderError('Field validation failed', 'meta.invalid')
+
+      expect(error.field).toBe('meta.invalid')
+      expect(error.operator).toBeUndefined()
+      expect(error.message).toContain('Field: meta.invalid')
+      expect(error.message).not.toContain('Operator:')
+    })
+
+    it('should be thrown for unknown operators', () => {
+      const where = { status: { unknown_op: 'value' } } as unknown as WhereClause
+
+      try {
+        buildWhere(where, mockTable)
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(QueryBuilderError)
+        if (error instanceof QueryBuilderError) {
+          expect(error.field).toBe('status')
+          expect(error.operator).toBe('unknown_op')
+          expect(error.hint).toContain('Valid operators are:')
+        }
+      }
+    })
+
+    it('should provide helpful error for invalid in operator value', () => {
+      const where = { status: { in: 'not-an-array' } } as unknown as WhereClause
+
+      try {
+        buildWhere(where, mockTable)
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(QueryBuilderError)
+        if (error instanceof QueryBuilderError) {
+          expect(error.field).toBe('status')
+          expect(error.operator).toBe('in')
+          expect(error.message).toContain('requires an array value')
+        }
+      }
     })
   })
 })
