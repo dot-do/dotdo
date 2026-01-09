@@ -893,3 +893,502 @@ describe('isValidTargetingRule', () => {
     expect(isValidTargetingRule(null)).toBe(false)
   })
 })
+
+// ============================================================================
+// ADDITIONAL TYPE GUARD TESTS
+// ============================================================================
+
+import {
+  isFlagVariation,
+  isTargetingClause,
+  isRollout,
+  validateFlagDefinition,
+  validateTargetingClause,
+  createBooleanFlag,
+  createStringFlag,
+  emailDomainClause,
+  userIdClause,
+  percentageRollout,
+  getTotalWeight,
+  isValidRolloutWeights,
+  FlagBuilder,
+  TargetingRuleBuilder,
+} from './types'
+
+describe('isFlagVariation', () => {
+  it('should return true for valid variation with value only', () => {
+    expect(isFlagVariation({ value: 'control' })).toBe(true)
+  })
+
+  it('should return true for variation with all fields', () => {
+    expect(isFlagVariation({ value: 'control', label: 'Control', weight: 50 })).toBe(true)
+  })
+
+  it('should return false for missing value', () => {
+    expect(isFlagVariation({ label: 'Control', weight: 50 })).toBe(false)
+  })
+
+  it('should return false for invalid label type', () => {
+    expect(isFlagVariation({ value: 'control', label: 123 })).toBe(false)
+  })
+
+  it('should return false for invalid weight type', () => {
+    expect(isFlagVariation({ value: 'control', weight: '50' })).toBe(false)
+  })
+
+  it('should return false for null', () => {
+    expect(isFlagVariation(null)).toBe(false)
+  })
+
+  it('should return false for non-object', () => {
+    expect(isFlagVariation('control')).toBe(false)
+  })
+})
+
+describe('isTargetingClause', () => {
+  it('should return true for valid clause', () => {
+    const clause = { attribute: 'email', operator: 'endsWith', values: ['@company.com'] }
+    expect(isTargetingClause(clause)).toBe(true)
+  })
+
+  it('should return false for missing attribute', () => {
+    const clause = { operator: 'in', values: ['test'] }
+    expect(isTargetingClause(clause)).toBe(false)
+  })
+
+  it('should return false for missing operator', () => {
+    const clause = { attribute: 'email', values: ['test'] }
+    expect(isTargetingClause(clause)).toBe(false)
+  })
+
+  it('should return false for missing values', () => {
+    const clause = { attribute: 'email', operator: 'in' }
+    expect(isTargetingClause(clause)).toBe(false)
+  })
+
+  it('should return false for null', () => {
+    expect(isTargetingClause(null)).toBe(false)
+  })
+})
+
+describe('isRollout', () => {
+  it('should return true for valid rollout', () => {
+    const rollout = {
+      variations: [
+        { value: 'control', weight: 50 },
+        { value: 'treatment', weight: 50 },
+      ],
+    }
+    expect(isRollout(rollout)).toBe(true)
+  })
+
+  it('should return true for rollout with all options', () => {
+    const rollout = {
+      variations: [{ value: 'a', weight: 50 }, { value: 'b', weight: 50 }],
+      bucketBy: 'userId',
+      seed: 12345,
+    }
+    expect(isRollout(rollout)).toBe(true)
+  })
+
+  it('should return false for missing variations', () => {
+    expect(isRollout({ bucketBy: 'userId' })).toBe(false)
+  })
+
+  it('should return false for invalid variations', () => {
+    expect(isRollout({ variations: [{ label: 'no value' }] })).toBe(false)
+  })
+
+  it('should return false for invalid bucketBy type', () => {
+    expect(isRollout({ variations: [{ value: 'a' }], bucketBy: 123 })).toBe(false)
+  })
+
+  it('should return false for invalid seed type', () => {
+    expect(isRollout({ variations: [{ value: 'a' }], seed: '123' })).toBe(false)
+  })
+
+  it('should return false for null', () => {
+    expect(isRollout(null)).toBe(false)
+  })
+})
+
+// ============================================================================
+// VALIDATION HELPERS TESTS
+// ============================================================================
+
+describe('validateFlagDefinition', () => {
+  it('should return valid for correct flag', () => {
+    const result = validateFlagDefinition({ key: 'test', defaultValue: false })
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('should return errors for non-object', () => {
+    const result = validateFlagDefinition('not an object')
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Flag definition must be an object')
+  })
+
+  it('should return error for missing key', () => {
+    const result = validateFlagDefinition({ defaultValue: false })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Missing required field: key')
+  })
+
+  it('should return error for empty key', () => {
+    const result = validateFlagDefinition({ key: '  ', defaultValue: false })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Field "key" cannot be empty')
+  })
+
+  it('should return error for missing defaultValue', () => {
+    const result = validateFlagDefinition({ key: 'test' })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Missing required field: defaultValue')
+  })
+
+  it('should return error for invalid description type', () => {
+    const result = validateFlagDefinition({ key: 'test', defaultValue: false, description: 123 })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Field "description" must be a string')
+  })
+
+  it('should return error for invalid variations', () => {
+    const result = validateFlagDefinition({ key: 'test', defaultValue: false, variations: 'invalid' })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Field "variations" must be an array')
+  })
+
+  it('should return error for invalid targeting', () => {
+    const result = validateFlagDefinition({ key: 'test', defaultValue: false, targeting: 'invalid' })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Field "targeting" must be an array')
+  })
+
+  it('should return error for invalid tags', () => {
+    const result = validateFlagDefinition({ key: 'test', defaultValue: false, tags: [1, 2, 3] })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('All tags must be strings')
+  })
+})
+
+describe('validateTargetingClause', () => {
+  it('should return valid for correct clause', () => {
+    const result = validateTargetingClause({ attribute: 'email', operator: 'in', values: ['test'] })
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('should return error for missing attribute', () => {
+    const result = validateTargetingClause({ operator: 'in', values: ['test'] })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Missing required field: attribute')
+  })
+
+  it('should return error for missing operator', () => {
+    const result = validateTargetingClause({ attribute: 'email', values: ['test'] })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Missing required field: operator')
+  })
+
+  it('should return error for missing values', () => {
+    const result = validateTargetingClause({ attribute: 'email', operator: 'in' })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Missing required field: values')
+  })
+
+  it('should return error for non-object', () => {
+    const result = validateTargetingClause('invalid')
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Targeting clause must be an object')
+  })
+})
+
+// ============================================================================
+// HELPER FUNCTION TESTS
+// ============================================================================
+
+describe('createBooleanFlag', () => {
+  it('should create a boolean flag with defaults', () => {
+    const flag = createBooleanFlag('feature', false)
+    expect(flag.key).toBe('feature')
+    expect(flag.defaultValue).toBe(false)
+    expect(flag.variations).toHaveLength(2)
+  })
+
+  it('should create a boolean flag with options', () => {
+    const flag = createBooleanFlag('feature', true, {
+      description: 'A test feature',
+      tags: ['beta'],
+      temporary: true,
+    })
+    expect(flag.description).toBe('A test feature')
+    expect(flag.tags).toEqual(['beta'])
+    expect(flag.temporary).toBe(true)
+  })
+})
+
+describe('createStringFlag', () => {
+  it('should create a string flag with variations', () => {
+    const flag = createStringFlag('theme', 'light', ['light', 'dark', 'system'])
+    expect(flag.key).toBe('theme')
+    expect(flag.defaultValue).toBe('light')
+    expect(flag.variations).toHaveLength(3)
+    expect(flag.variations![0].value).toBe('light')
+  })
+
+  it('should create a string flag with options', () => {
+    const flag = createStringFlag('theme', 'light', ['light', 'dark'], {
+      description: 'Theme preference',
+    })
+    expect(flag.description).toBe('Theme preference')
+  })
+})
+
+describe('emailDomainClause', () => {
+  it('should create an email domain clause', () => {
+    const clause = emailDomainClause(['@company.com', '@partner.com'])
+    expect(clause.attribute).toBe('email')
+    expect(clause.operator).toBe('endsWith')
+    expect(clause.values).toEqual(['@company.com', '@partner.com'])
+  })
+})
+
+describe('userIdClause', () => {
+  it('should create a user ID clause', () => {
+    const clause = userIdClause(['user-1', 'user-2'])
+    expect(clause.attribute).toBe('targetingKey')
+    expect(clause.operator).toBe('in')
+    expect(clause.values).toEqual(['user-1', 'user-2'])
+  })
+})
+
+describe('percentageRollout', () => {
+  it('should create a percentage rollout', () => {
+    const rollout = percentageRollout(10)
+    expect(rollout.variations).toHaveLength(2)
+    expect(rollout.variations[0]).toEqual({ value: false, weight: 90 })
+    expect(rollout.variations[1]).toEqual({ value: true, weight: 10 })
+  })
+
+  it('should clamp percentage to 0-100', () => {
+    const rollout1 = percentageRollout(-10)
+    expect(rollout1.variations[1].weight).toBe(0)
+
+    const rollout2 = percentageRollout(150)
+    expect(rollout2.variations[1].weight).toBe(100)
+  })
+
+  it('should accept options', () => {
+    const rollout = percentageRollout(50, { bucketBy: 'orgId', seed: 123 })
+    expect(rollout.bucketBy).toBe('orgId')
+    expect(rollout.seed).toBe(123)
+  })
+})
+
+describe('getTotalWeight', () => {
+  it('should sum weights correctly', () => {
+    const variations = [
+      { value: 'a', weight: 25 },
+      { value: 'b', weight: 50 },
+      { value: 'c', weight: 25 },
+    ]
+    expect(getTotalWeight(variations)).toBe(100)
+  })
+
+  it('should treat missing weights as 0', () => {
+    const variations = [
+      { value: 'a', weight: 50 },
+      { value: 'b' },
+    ]
+    expect(getTotalWeight(variations)).toBe(50)
+  })
+})
+
+describe('isValidRolloutWeights', () => {
+  it('should return true for weights summing to 100', () => {
+    const variations = [
+      { value: 'a', weight: 50 },
+      { value: 'b', weight: 50 },
+    ]
+    expect(isValidRolloutWeights(variations)).toBe(true)
+  })
+
+  it('should return false for weights not summing to 100', () => {
+    const variations = [
+      { value: 'a', weight: 40 },
+      { value: 'b', weight: 40 },
+    ]
+    expect(isValidRolloutWeights(variations)).toBe(false)
+  })
+})
+
+// ============================================================================
+// FLAG BUILDER TESTS
+// ============================================================================
+
+describe('FlagBuilder', () => {
+  describe('static constructors', () => {
+    it('should create boolean flag builder', () => {
+      const flag = FlagBuilder.boolean('feature').build()
+      expect(flag.key).toBe('feature')
+      expect(flag.defaultValue).toBe(false)
+      expect(flag.variations).toHaveLength(2)
+    })
+
+    it('should create boolean flag with custom default', () => {
+      const flag = FlagBuilder.boolean('feature', true).build()
+      expect(flag.defaultValue).toBe(true)
+    })
+
+    it('should create string flag builder', () => {
+      const flag = FlagBuilder.string('theme', 'light').build()
+      expect(flag.key).toBe('theme')
+      expect(flag.defaultValue).toBe('light')
+    })
+
+    it('should create number flag builder', () => {
+      const flag = FlagBuilder.number('retries', 3).build()
+      expect(flag.key).toBe('retries')
+      expect(flag.defaultValue).toBe(3)
+    })
+
+    it('should create generic flag builder', () => {
+      const flag = FlagBuilder.create('config', { theme: 'dark' }).build()
+      expect(flag.defaultValue).toEqual({ theme: 'dark' })
+    })
+  })
+
+  describe('fluent methods', () => {
+    it('should set description', () => {
+      const flag = FlagBuilder.boolean('feature')
+        .description('A test feature')
+        .build()
+      expect(flag.description).toBe('A test feature')
+    })
+
+    it('should add variations', () => {
+      const flag = FlagBuilder.string('theme', 'light')
+        .variation('light', 'Light')
+        .variation('dark', 'Dark')
+        .variation('system', 'System', 50)
+        .build()
+      expect(flag.variations).toHaveLength(3)
+      expect(flag.variations![2].weight).toBe(50)
+    })
+
+    it('should set all variations at once', () => {
+      const flag = FlagBuilder.string('theme', 'light')
+        .variations([{ value: 'a' }, { value: 'b' }])
+        .build()
+      expect(flag.variations).toHaveLength(2)
+    })
+
+    it('should add targeting rules', () => {
+      const flag = FlagBuilder.boolean('feature')
+        .targeting({
+          id: 'rule-1',
+          clauses: [],
+          variation: true,
+        })
+        .build()
+      expect(flag.targeting).toHaveLength(1)
+    })
+
+    it('should add prerequisites', () => {
+      const flag = FlagBuilder.boolean('advanced')
+        .prerequisite('basic', true)
+        .build()
+      expect(flag.prerequisites).toHaveLength(1)
+      expect(flag.prerequisites![0]).toEqual({ key: 'basic', variation: true })
+    })
+
+    it('should add tags', () => {
+      const flag = FlagBuilder.boolean('feature')
+        .tags('beta', 'experimental')
+        .build()
+      expect(flag.tags).toEqual(['beta', 'experimental'])
+    })
+
+    it('should mark as temporary', () => {
+      const flag = FlagBuilder.boolean('feature')
+        .temporary()
+        .build()
+      expect(flag.temporary).toBe(true)
+    })
+
+    it('should chain all methods', () => {
+      const flag = FlagBuilder.boolean('feature')
+        .description('Test')
+        .tags('test')
+        .temporary()
+        .targeting({ id: 'r1', clauses: [], variation: true })
+        .prerequisite('other', true)
+        .build()
+
+      expect(flag.description).toBe('Test')
+      expect(flag.tags).toEqual(['test'])
+      expect(flag.temporary).toBe(true)
+      expect(flag.targeting).toHaveLength(1)
+      expect(flag.prerequisites).toHaveLength(1)
+    })
+  })
+})
+
+// ============================================================================
+// TARGETING RULE BUILDER TESTS
+// ============================================================================
+
+describe('TargetingRuleBuilder', () => {
+  it('should create a basic rule', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .variation(true)
+      .build()
+    expect(rule.id).toBe('rule-1')
+    expect(rule.variation).toBe(true)
+    expect(rule.clauses).toEqual([])
+  })
+
+  it('should set description', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .description('Enable for beta users')
+      .variation(true)
+      .build()
+    expect(rule.description).toBe('Enable for beta users')
+  })
+
+  it('should add clauses', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .clause(emailDomainClause(['@company.com']))
+      .clause({ attribute: 'plan', operator: 'in', values: ['enterprise'] })
+      .variation(true)
+      .build()
+    expect(rule.clauses).toHaveLength(2)
+  })
+
+  it('should set rollout instead of variation', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .rollout(percentageRollout(50))
+      .build()
+    expect(rule.rollout).toBeDefined()
+    expect(rule.variation).toBeUndefined()
+  })
+
+  it('should override rollout with variation', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .rollout(percentageRollout(50))
+      .variation(true)
+      .build()
+    expect(rule.variation).toBe(true)
+    expect(rule.rollout).toBeUndefined()
+  })
+
+  it('should override variation with rollout', () => {
+    const rule = TargetingRuleBuilder.create<boolean>('rule-1')
+      .variation(true)
+      .rollout(percentageRollout(50))
+      .build()
+    expect(rule.rollout).toBeDefined()
+    expect(rule.variation).toBeUndefined()
+  })
+})

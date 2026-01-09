@@ -639,6 +639,10 @@ describe('OpenFeature Provider Interface', () => {
           value: true,
           variant: expect.any(String),
           reason: expect.any(String),
+        }),
+        expect.objectContaining({
+          providerName: 'dotdo-flags',
+          evaluationStartTime: expect.any(Number),
         })
       )
     })
@@ -660,6 +664,10 @@ describe('OpenFeature Provider Interface', () => {
         }),
         expect.objectContaining({
           errorCode: ErrorCode.FLAG_NOT_FOUND,
+        }),
+        expect.objectContaining({
+          providerName: 'dotdo-flags',
+          evaluationStartTime: expect.any(Number),
         })
       )
     })

@@ -713,7 +713,14 @@ describe('AnalyticsClient', () => {
       })
       client.enqueue({ type: 'track', event: 'Test', anonymousId: 'a' } as any)
 
-      const result = await client.flush()
+      // Start flush but don't await yet - we need to advance timers for retry delays
+      const flushPromise = client.flush()
+
+      // Advance timers to allow retry delays to complete (100ms + 200ms = 300ms for exponential backoff)
+      // Use advanceTimersByTimeAsync to avoid infinite loop from resetFlushTimer
+      await vi.advanceTimersByTimeAsync(500)
+
+      const result = await flushPromise
 
       expect(result.success).toBe(true)
       expect(result.retriesUsed).toBe(2)
