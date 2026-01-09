@@ -101,8 +101,14 @@ export default defineWorkspace([
   // DB Proxy tests (fluent query builder)
   createNodeWorkspace('db-proxy', ['db/proxy/tests/**/*.test.ts']),
 
+  // Payload plugin tests
+  createNodeWorkspace('payload', ['db/payload/tests/**/*.test.ts']),
+
   // TanStack Start / Fumadocs build tests
   createNodeWorkspace('app', ['app/tests/**/*.test.ts']),
+
+  // App hooks tests (file structure verification for TDD)
+  createNodeWorkspace('app-hooks', ['app/lib/hooks/**/*.test.ts']),
 
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
@@ -174,6 +180,9 @@ export default defineWorkspace([
 
   // API routes tests (Node environment, for isolated route testing)
   createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts']),
+
+  // Compat layer tests (API-compatible SDKs backed by DO)
+  createNodeWorkspace('compat', ['compat/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests

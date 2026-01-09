@@ -885,6 +885,12 @@ export class CodeFunctionExecutor {
         const dataWithSequence = { ...(data as Record<string, unknown>), sequence }
         streamEmit?.(event, dataWithSequence)
         await this.onEvent?.(event, dataWithSequence)
+      } else if (event === 'progress') {
+        // Add percentage calculation for progress events
+        const progressData = data as { current: number; total: number }
+        const percentage = Math.round((progressData.current / progressData.total) * 100)
+        const dataWithPercentage = { ...progressData, percentage }
+        await this.onEvent?.(event, dataWithPercentage)
       } else {
         await this.onEvent?.(event, data)
       }

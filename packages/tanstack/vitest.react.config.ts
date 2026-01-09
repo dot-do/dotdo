@@ -2,14 +2,11 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    include: ['tests/react/**/*.test.tsx'],
     exclude: ['node_modules', 'dist'],
-    environment: 'node',
+    environment: 'jsdom',
     globals: true,
-    // React tests use jsdom
-    environmentMatchGlobs: [
-      ['tests/react/**', 'jsdom'],
-    ],
+    setupFiles: ['./tests/react/setup.ts'],
   },
   resolve: {
     alias: {
