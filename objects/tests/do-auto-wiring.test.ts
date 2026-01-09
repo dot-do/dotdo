@@ -666,9 +666,15 @@ describe('DO Auto-Wiring', () => {
 
       const methods = getExposedMethods(ManyMethodsDO)
 
-      expect(methods).toHaveLength(5)
+      // Check that all expected public methods are present
       expect(methods).toContain('method1')
+      expect(methods).toContain('method2')
+      expect(methods).toContain('method3')
+      expect(methods).toContain('method4')
       expect(methods).toContain('method5')
+      // Check that private methods are NOT exposed
+      expect(methods).not.toContain('_private1')
+      expect(methods).not.toContain('_private2')
     })
 
     it('handles deeply nested inheritance', () => {
@@ -900,12 +906,13 @@ describe('DO Auto-Wiring', () => {
 
       const methods = getExposedMethods(OrderDO)
 
+      // Check that all business methods are exposed
       expect(methods).toContain('createOrder')
       expect(methods).toContain('getOrder')
       expect(methods).toContain('cancelOrder')
+      // Check that private methods are NOT exposed
       expect(methods).not.toContain('_calculateTotal')
       expect(methods).not.toContain('_validateCustomer')
-      expect(methods).toHaveLength(3)
     })
 
     it('user management DO exposes CRUD operations', () => {

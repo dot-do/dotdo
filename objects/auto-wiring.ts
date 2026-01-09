@@ -126,6 +126,18 @@ const DO_BASE_METHODS = new Set([
 
   // Private methods (no underscore prefix but marked private in TypeScript)
   'getStoreContext',
+  'getOrCreateStub',
+  'recordFailure',
+  'clearCrossDoCache',
+  'createDefaultApp',
+
+  // Actor context methods
+  'setActor',
+  'clearActor',
+  'getCurrentActor',
+
+  // HTTP handling
+  'handleFetch',
 ])
 
 // ============================================================================
