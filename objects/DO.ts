@@ -1540,12 +1540,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
         }
 
         // Create target DO and check reachability via health check
+        const targetUrl = new URL(target)
         const doId = this.env.DO.idFromName(target)
         const stub = this.env.DO.get(doId)
 
         // Health check - validate target is reachable
         try {
-          const targetUrl = new URL(target)
           const healthResponse = await Promise.race([
             stub.fetch(new Request(`${targetUrl.origin}/health`)),
             new Promise<never>((_, reject) =>
@@ -1615,7 +1615,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
         // Transfer to target with timeout
         const transferPromise = stub.fetch(
-          new Request(`https://${target}/init`, {
+          new Request(`${targetUrl.origin}/init`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
