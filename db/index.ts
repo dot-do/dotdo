@@ -11,6 +11,7 @@ export * from './branches'
 export * from './files'
 export * from './git'
 export * from './auth'
+export * from './exec'
 
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
@@ -27,6 +28,7 @@ import { search } from './search'
 import { branches } from './branches'
 import { files } from './files'
 import { git, gitBranches, gitContent } from './git'
+import { exec } from './exec'
 import {
   // Core auth
   users,
@@ -76,6 +78,9 @@ export const schema = {
   git,
   gitBranches,
   gitContent,
+
+  // Exec - Shell command execution tracking
+  exec,
 
   // Auth - Core (better-auth)
   users,

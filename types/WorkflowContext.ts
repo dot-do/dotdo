@@ -190,3 +190,121 @@ export type DOFunction<Output, Input = unknown, Options extends Record<string, u
   input: Input,
   options?: Options,
 ) => Promise<Output>
+
+// ============================================================================
+// CAPABILITY MODULE TYPES
+// ============================================================================
+
+/**
+ * Filesystem capability for workflows that need file access
+ */
+export interface FsCapability {
+  readFile(path: string): Promise<string | Buffer>
+  writeFile(path: string, content: string | Buffer): Promise<void>
+  readDir(path: string): Promise<string[]>
+  exists(path: string): Promise<boolean>
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  rm(path: string, options?: { recursive?: boolean }): Promise<void>
+}
+
+/**
+ * Git capability for workflows that need version control
+ */
+export interface GitCapability {
+  status(): Promise<{ branch: string; staged: string[]; unstaged: string[] }>
+  add(files: string | string[]): Promise<void>
+  commit(message: string): Promise<string | { hash: string }>
+  push(remote?: string, branch?: string): Promise<void>
+  pull(remote?: string, branch?: string): Promise<void>
+  log(options?: { limit?: number }): Promise<Array<{ hash: string; message: string }>>
+  diff(ref?: string): Promise<string>
+}
+
+/**
+ * Result from bash exec command
+ */
+export interface ExecResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+}
+
+/**
+ * Options for bash exec command
+ */
+export interface ExecOptions {
+  cwd?: string
+  timeout?: number
+  env?: Record<string, string>
+}
+
+/**
+ * Bash capability for workflows that need shell access
+ */
+export interface BashCapability {
+  exec(command: string, options?: ExecOptions): Promise<ExecResult>
+  spawn(command: string, args?: string[]): unknown
+}
+
+/**
+ * Error thrown when a capability is not available
+ */
+export class CapabilityError extends Error {
+  constructor(
+    public capability: 'fs' | 'git' | 'bash',
+    public reason: 'not_available' | 'permission_denied' | 'load_failed',
+    message?: string
+  ) {
+    super(message ?? `Capability '${capability}' is ${reason.replace('_', ' ')}`)
+    this.name = 'CapabilityError'
+  }
+}
+
+// ============================================================================
+// TYPE HELPERS FOR COMPOSED CONTEXTS
+// ============================================================================
+
+/**
+ * WorkflowContext with required filesystem capability
+ */
+export type WithFs = WorkflowContext & { fs: FsCapability }
+
+/**
+ * WorkflowContext with required git capability
+ */
+export type WithGit = WorkflowContext & { git: GitCapability }
+
+/**
+ * WorkflowContext with required bash capability
+ */
+export type WithBash = WorkflowContext & { bash: BashCapability }
+
+/**
+ * WorkflowContext with all capabilities required
+ */
+export type WithAllCapabilities = WithFs & WithGit & WithBash
+
+// ============================================================================
+// TYPE GUARDS FOR CAPABILITY CHECKING
+// ============================================================================
+
+/**
+ * Check if context has filesystem capability
+ */
+export function hasFs(ctx: WorkflowContext): ctx is WithFs {
+  return ctx != null && typeof (ctx as WithFs).fs === 'object' && (ctx as WithFs).fs !== null
+}
+
+/**
+ * Check if context has git capability
+ */
+export function hasGit(ctx: WorkflowContext): ctx is WithGit {
+  return ctx != null && typeof (ctx as WithGit).git === 'object' && (ctx as WithGit).git !== null
+}
+
+/**
+ * Check if context has bash capability
+ */
+export function hasBash(ctx: WorkflowContext): ctx is WithBash {
+  return ctx != null && typeof (ctx as WithBash).bash === 'object' && (ctx as WithBash).bash !== null
+}

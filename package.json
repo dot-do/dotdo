@@ -5,6 +5,11 @@
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
+    "./tiny": "./tiny.ts",
+    "./fs": "./fs.ts",
+    "./git": "./git.ts",
+    "./bash": "./bash.ts",
+    "./full": "./full.ts",
     "./objects": "./objects/index.ts",
     "./objects/*": "./objects/*.ts",
     "./types": "./types/index.ts",

@@ -560,6 +560,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     console.log(`[${this.ns}] ${message}`, data)
   }
 
+  /**
+   * Check if this DO class has a specific capability
+   * Base DO class has no capabilities - mixins add them
+   */
+  hasCapability(name: string): boolean {
+    return false
+  }
+
   protected sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }

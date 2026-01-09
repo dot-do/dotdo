@@ -1,12 +1,19 @@
 import { defineWorkspace } from 'vitest/config'
+import { resolve } from 'path'
 
 export default defineWorkspace([
   // Node tests for file system / config verification
   {
     test: {
       name: 'node',
-      include: ['api/tests/setup.test.ts', 'api/tests/static-assets.test.ts'],
+      include: ['api/tests/setup.test.ts', 'api/tests/static-assets.test.ts', 'api/tests/entry-points.test.ts'],
       environment: 'node',
+    },
+    resolve: {
+      alias: {
+        // Mock cloudflare:workers for Node.js tests
+        'cloudflare:workers': resolve(__dirname, 'test-mocks/cloudflare-workers.ts'),
+      },
     },
   },
   // Schema tests for database/auth
