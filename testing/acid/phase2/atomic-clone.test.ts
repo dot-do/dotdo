@@ -260,7 +260,8 @@ describe('Atomic Clone Mode', () => {
 
       expect(cloneResult.thingsCloned).toBe(5)
       expect(cloneResult.relationshipsCloned).toBe(4) // Chain of 5 things = 4 relationships
-      expect(cloneResult.duration).toBeGreaterThan(0)
+      // Duration can be 0 in fast test environments where operation completes in <1ms
+      expect(cloneResult.duration).toBeGreaterThanOrEqual(0)
       expect(typeof cloneResult.duration).toBe('number')
     })
   })

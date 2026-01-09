@@ -329,7 +329,40 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
 
       if (deleteMatch) {
         const tableName = deleteMatch[1]
-        sqlData.set(tableName, [])
+        const tableData = sqlData.get(tableName) || []
+
+        // Parse WHERE clause for targeted deletes
+        // Support multiple formats:
+        // - DELETE FROM "things" WHERE "things"."id" = ?
+        // - delete from "things" where "id" = ?
+        // - DELETE FROM things WHERE id = ?
+        const wherePatterns = [
+          /WHERE\s+["`]?\w+["`]?\.["`]?(\w+)["`]?\s*=\s*\?/i,  // table.column = ?
+          /WHERE\s+["`]?(\w+)["`]?\s*=\s*\?/i,                  // column = ?
+        ]
+
+        let whereField: string | null = null
+        for (const pattern of wherePatterns) {
+          const match = query.match(pattern)
+          if (match) {
+            whereField = match[1]
+            break
+          }
+        }
+
+        if (whereField && params.length > 0) {
+          const whereValue = params[0] // First param is the WHERE value
+
+          // Filter out the matching records
+          const filteredData = tableData.filter((record: unknown) => {
+            const rec = record as Record<string, unknown>
+            return rec[whereField!] !== whereValue
+          })
+          sqlData.set(tableName, filteredData)
+        } else {
+          // No WHERE clause - clear entire table
+          sqlData.set(tableName, [])
+        }
         return createMockCursor<T>([])
       }
 

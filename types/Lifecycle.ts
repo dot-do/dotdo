@@ -578,6 +578,185 @@ export interface CloneLockState {
 }
 
 // ============================================================================
+// Two-Phase Commit (2PC) Types
+// ============================================================================
+
+/**
+ * Participant acknowledgment for 2PC operations
+ */
+export interface ParticipantAck {
+  /** Target namespace of the participant */
+  target: string
+  /** Status of the acknowledgment */
+  status: 'ready' | 'committed' | 'aborted' | 'failed' | 'timeout'
+  /** Participant's vote (for prepare phase) */
+  vote?: 'yes' | 'no'
+  /** Reason for vote (if no) */
+  reason?: string
+  /** Timestamp of acknowledgment */
+  timestamp: Date
+}
+
+/**
+ * Transaction log entry for 2PC coordinator
+ */
+export interface TransactionLogEntry {
+  /** Transaction phase */
+  phase: 'prepare' | 'commit' | 'abort'
+  /** Status of the phase */
+  status: 'started' | 'completed' | 'failed' | 'timeout'
+  /** Timestamp of the entry */
+  timestamp: Date
+  /** Additional data */
+  data?: Record<string, unknown>
+}
+
+/**
+ * Coordinator information for 2PC
+ */
+export interface CoordinatorInfo {
+  /** Source namespace (coordinator) */
+  sourceNs: string
+  /** Whether this DO is the coordinator */
+  isCoordinator: boolean
+  /** Transaction token */
+  token: string
+  /** Target participants */
+  participants: string[]
+  /** Current phase */
+  currentPhase: 'prepare' | 'commit' | 'abort' | 'completed'
+}
+
+/**
+ * Transaction audit log for debugging and compliance
+ */
+export interface TransactionAuditLog {
+  /** Transaction token */
+  token: string
+  /** Source namespace */
+  sourceNs: string
+  /** Target namespace(s) */
+  targetNs: string[]
+  /** All events in the transaction */
+  events: Array<{
+    type: 'prepare' | 'commit' | 'abort' | 'participant_ack' | 'broadcast'
+    status: 'started' | 'completed' | 'failed' | 'timeout'
+    timestamp: Date
+    participant?: string
+    data?: Record<string, unknown>
+  }>
+  /** Created timestamp */
+  createdAt: Date
+  /** Final outcome */
+  outcome?: 'committed' | 'aborted' | 'unknown'
+}
+
+/**
+ * Recovered transaction state after coordinator failure
+ */
+export interface RecoveredTransactionState {
+  /** Whether the transaction was found */
+  found: boolean
+  /** Transaction phase when recovered */
+  phase?: 'prepared' | 'committing' | 'aborting' | 'committed' | 'aborted'
+  /** Target namespace */
+  target?: string
+  /** Whether the transaction can be completed */
+  canComplete?: boolean
+  /** Token */
+  token?: string
+}
+
+/**
+ * Participant recovery response
+ */
+export interface ParticipantRecoveryResponse {
+  /** Action the participant should take */
+  action: 'commit' | 'abort' | 'wait' | 'unknown'
+  /** Decision from coordinator */
+  decision?: 'commit' | 'abort'
+  /** Additional data */
+  data?: Record<string, unknown>
+}
+
+/**
+ * Participant state history for debugging
+ */
+export interface ParticipantStateHistory {
+  /** Target namespace */
+  target: string
+  /** State transitions */
+  transitions: Array<{
+    from: 'initial' | 'prepared' | 'committed' | 'aborted'
+    to: 'prepared' | 'committed' | 'aborted'
+    timestamp: Date
+    data?: Record<string, unknown>
+  }>
+}
+
+/**
+ * Resumed transaction info
+ */
+export interface ResumedTransaction {
+  /** Transaction token */
+  token: string
+  /** Action taken (commit or abort) */
+  action: 'commit' | 'abort'
+  /** Whether resume succeeded */
+  success: boolean
+  /** Error if failed */
+  error?: string
+}
+
+/**
+ * Multi-target staged prepare result
+ */
+export interface MultiStagedPrepareResult {
+  /** Whether all participants prepared successfully */
+  allPrepared: boolean
+  /** Per-participant results */
+  participants: Array<{
+    target: string
+    status: 'prepared' | 'failed'
+    token?: string
+    error?: string
+  }>
+  /** Coordinator token for the overall transaction */
+  coordinatorToken: string
+}
+
+/**
+ * Extended staged clone options with 2PC settings
+ */
+export interface StagedCloneOptions2PC {
+  mode: 'staged'
+  /** Token expiration timeout in milliseconds (default: 5 minutes) */
+  tokenTimeout?: number
+  /** Validate target before staging */
+  validateTarget?: boolean
+  /** Callback for prepare progress */
+  onPrepareProgress?: (progress: number) => void
+  /** Checkpoint interval (items between checkpoints) */
+  checkpointInterval?: number
+  /** Maximum checkpoints to retain */
+  maxCheckpoints?: number
+  /** Validation mode for checkpoints */
+  validationMode?: 'strict' | 'lenient'
+  /** Coordinator timeout for participant responses (ms) */
+  coordinatorTimeout?: number
+  /** Participant acknowledgment timeout (ms) */
+  participantAckTimeout?: number
+  /** Maximum retries for participant acknowledgment */
+  maxAckRetries?: number
+  /** Prepare phase timeout (ms) */
+  prepareTimeout?: number
+  /** Commit phase timeout (ms) */
+  commitTimeout?: number
+  /** Abort phase timeout (ms) */
+  abortTimeout?: number
+}
+
+// ============================================================================
 // Shard Types
 // ============================================================================
 
