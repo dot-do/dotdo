@@ -18,6 +18,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '@mdxui/cockpit'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { BrowserScreencast } from '~/components/BrowserScreencast'
 
 // ============================================================================
 // Types
