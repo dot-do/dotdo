@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest'
  */
 
 // Import the module under test (will fail until implemented)
-import { AIGatewayClient, ChatMessage, ChatResponse, AIGatewayEnv } from './gateway'
+import { AIGatewayClient, ChatMessage, ChatResponse, AIGatewayEnv } from '../ai/gateway'
 import { AIConfig } from '../../types/AI'
 
 // ============================================================================
