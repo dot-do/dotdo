@@ -303,38 +303,39 @@ export function useSyncForm<TSchema extends ZodObject<ZodRawShape>>(
 
   // Submit handler
   const submit = useCallback(async () => {
-    // Validate the form first using form-level validation
-    await form.validate('change')
-
-    // Check if form has errors in errorMap or fieldMeta
-    const formErrors = form.state.errorMap
-    const hasFormErrors = Object.values(formErrors).some(
-      (error) => error !== undefined && error !== null && error !== ''
-    )
-
-    // Also check field-level errors
-    const hasFieldErrors = Object.values(form.state.fieldMeta).some(
-      (meta) => {
-        if (!meta) return false
-        const errors = meta.errors
-        if (Array.isArray(errors) && errors.length > 0) return true
-        if (meta.errorMap) {
-          return Object.values(meta.errorMap).some(
-            (e) => e !== undefined && e !== null && e !== ''
-          )
-        }
-        return false
-      }
-    )
-
-    if (hasFormErrors || hasFieldErrors || !form.state.isValid) {
-      return
-    }
-
+    // Set submitting immediately for UI feedback
     setIsSubmitting(true)
 
     try {
-      const values = form.state.values
+      // Validate the form first using form-level validation
+      await baseForm.validate('change')
+
+      // Check if form has errors in errorMap or fieldMeta
+      const formErrors = baseForm.state.errorMap
+      const hasFormErrors = Object.values(formErrors).some(
+        (error) => error !== undefined && error !== null && error !== ''
+      )
+
+      // Also check field-level errors
+      const hasFieldErrors = Object.values(baseForm.state.fieldMeta).some(
+        (meta) => {
+          if (!meta) return false
+          const errors = meta.errors
+          if (Array.isArray(errors) && errors.length > 0) return true
+          if (meta.errorMap) {
+            return Object.values(meta.errorMap).some(
+              (e) => e !== undefined && e !== null && e !== ''
+            )
+          }
+          return false
+        }
+      )
+
+      if (hasFormErrors || hasFieldErrors || !baseForm.state.isValid) {
+        return
+      }
+
+      const values = baseForm.state.values
 
       if (isEditing && initialId) {
         // Update existing item
@@ -352,7 +353,7 @@ export function useSyncForm<TSchema extends ZodObject<ZodRawShape>>(
     } finally {
       setIsSubmitting(false)
     }
-  }, [form, isEditing, initialId, collection, onSuccess, onError])
+  }, [baseForm, isEditing, initialId, collection, onSuccess, onError])
 
   // Reset handler
   const reset = useCallback(() => {

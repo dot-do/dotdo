@@ -209,7 +209,7 @@ export interface FunctionInstance {
   getInvocationHistory: () => Promise<InvocationRecord[]>
 
   // Composition methods
-  then: (next: FunctionInstance) => ComposedFunction
+  pipe: (next: FunctionInstance) => ComposedFunction
   if: (predicate: (input: unknown) => boolean) => ConditionalFunction
   map: <T, U>(fn: (output: T) => U) => FunctionInstance
   contramap: <T, U>(fn: (input: T) => U) => FunctionInstance
@@ -733,6 +733,9 @@ function createFunctionInstance(
     }
   }
 
+  // Track registry reference (set during auto-register or manual register)
+  registeredRegistry = options.registry
+
   const register = async (registry: FunctionRegistry): Promise<void> => {
     registeredRegistry = registry
     await registry.register(instance)
@@ -779,7 +782,7 @@ function createFunctionInstance(
   }
 
   // Composition methods
-  const then = (next: FunctionInstance): ComposedFunction => {
+  const pipe = (next: FunctionInstance): ComposedFunction => {
     return createComposedFunction([instance, next], options)
   }
 
@@ -848,7 +851,7 @@ function createFunctionInstance(
     toJSON,
     getMetadata,
     getInvocationHistory,
-    then,
+    pipe,
     if: ifMethod,
     map,
     contramap,
@@ -886,7 +889,7 @@ function createComposedFunction(
     steps: functions.map(f => ({ name: f.name, type: f.type })),
   })
 
-  const then = (next: FunctionInstance): ComposedFunction => {
+  const pipe = (next: FunctionInstance): ComposedFunction => {
     return createComposedFunction([...functions, next], options)
   }
 
@@ -897,7 +900,7 @@ function createComposedFunction(
     createdAt,
     execute,
     describe,
-    then,
+    pipe,
     if: (predicate) => createConditionalFunction(instance, predicate, options),
     map: (fn) => createMappedFunction(instance, fn, options),
     contramap: (fn) => createContramappedFunction(instance, fn, options),
@@ -948,7 +951,7 @@ function createConditionalFunction(
     createdAt,
     execute,
     else: elseMethod,
-    then: (next) => createComposedFunction([instance, next], options),
+    pipe: (next) => createComposedFunction([instance, next], options),
     if: (pred) => createConditionalFunction(instance, pred, options),
     map: (mapper) => createMappedFunction(instance, mapper, options),
     contramap: (mapper) => createContramappedFunction(instance, mapper, options),
@@ -987,7 +990,7 @@ function createMappedFunction<T, U>(
     type: fn.type,
     createdAt,
     execute,
-    then: (next) => createComposedFunction([instance, next], options),
+    pipe: (next) => createComposedFunction([instance, next], options),
     if: (pred) => createConditionalFunction(instance, pred, options),
     map: (m) => createMappedFunction(instance, m, options),
     contramap: (m) => createContramappedFunction(instance, m, options),
@@ -1026,7 +1029,7 @@ function createContramappedFunction<T, U>(
     type: fn.type,
     createdAt,
     execute,
-    then: (next) => createComposedFunction([instance, next], options),
+    pipe: (next) => createComposedFunction([instance, next], options),
     if: (pred) => createConditionalFunction(instance, pred, options),
     map: (m) => createMappedFunction(instance, m, options),
     contramap: (m) => createContramappedFunction(instance, m, options),
@@ -1068,7 +1071,7 @@ function createCatchFunction(
     type: fn.type,
     createdAt,
     execute,
-    then: (next) => createComposedFunction([instance, next], options),
+    pipe: (next) => createComposedFunction([instance, next], options),
     if: (pred) => createConditionalFunction(instance, pred, options),
     map: (m) => createMappedFunction(instance, m, options),
     contramap: (m) => createContramappedFunction(instance, m, options),
@@ -1110,7 +1113,7 @@ function createFinallyFunction(
     type: fn.type,
     createdAt,
     execute,
-    then: (next) => createComposedFunction([instance, next], options),
+    pipe: (next) => createComposedFunction([instance, next], options),
     if: (pred) => createConditionalFunction(instance, pred, options),
     map: (m) => createMappedFunction(instance, m, options),
     contramap: (m) => createContramappedFunction(instance, m, options),
@@ -1159,7 +1162,7 @@ function createParallelFunction(
     type: 'code',
     createdAt,
     execute,
-    then: (next) => createComposedFunction([instance, next], {} as CreateFunctionOptions),
+    pipe: (next) => createComposedFunction([instance, next], {} as CreateFunctionOptions),
     if: (pred) => createConditionalFunction(instance, pred, {} as CreateFunctionOptions),
     map: (m) => createMappedFunction(instance, m, {} as CreateFunctionOptions),
     contramap: (m) => createContramappedFunction(instance, m, {} as CreateFunctionOptions),
@@ -1185,8 +1188,13 @@ function createFunctionImpl(
   def: AnyFunctionDefinition,
   options: CreateFunctionOptions,
 ): Promise<FunctionInstance> {
-  // Validate definition (sync)
-  validate(def)
+  // Wrap everything to ensure validation errors become Promise rejections
+  try {
+    // Validate definition (sync)
+    validate(def)
+  } catch (e) {
+    return Promise.reject(e)
+  }
 
   // Create instance (sync)
   const instance = createFunctionInstance(def, options)
@@ -1234,7 +1242,11 @@ function createFunctionImpl(
     })
   }
 
-  return promise.then(() => instance)
+  // We need to explicitly resolve with the instance to avoid the thenable issue
+  // where JavaScript would try to call instance.then() since it exists
+  return new Promise<FunctionInstance>((resolve, reject) => {
+    promise.then(() => resolve(instance)).catch(reject)
+  })
 }
 
 // Create the main export with static methods
@@ -1264,47 +1276,50 @@ export const createFunction: CreateFunctionStatic = Object.assign(
         return Promise.reject(new Error('State is required to restore from storage'))
       }
 
-      return options.state.storage.get(`function:${name}`).then((stored) => {
-        const storedData = stored as {
-          name: string
-          type: 'code' | 'generative' | 'agentic' | 'human'
-          description?: string
-          id: string
-          createdAt: string
-        } | undefined
+      return new Promise<FunctionInstance>((resolve, reject) => {
+        options.state!.storage.get(`function:${name}`).then((stored) => {
+          const storedData = stored as {
+            name: string
+            type: 'code' | 'generative' | 'agentic' | 'human'
+            description?: string
+            id: string
+            createdAt: string
+          } | undefined
 
-        if (!storedData) {
-          throw new Error(`Function '${name}' not found in storage`)
-        }
+          if (!storedData) {
+            reject(new Error(`Function '${name}' not found in storage`))
+            return
+          }
 
-        // Create a minimal placeholder instance for restoration
-        // In real implementation, would need to store and restore full definition
-        const id = storedData.id
-        const createdAt = new Date(storedData.createdAt)
+          // Create a minimal placeholder instance for restoration
+          // In real implementation, would need to store and restore full definition
+          const id = storedData.id
+          const createdAt = new Date(storedData.createdAt)
 
-        const instance: FunctionInstance = {
-          id,
-          name: storedData.name,
-          type: storedData.type,
-          description: storedData.description,
-          createdAt,
-          execute: () => Promise.reject(
-            new Error('Function restored from storage cannot be executed without handler')
-          ),
-          register: (registry: FunctionRegistry) => registry.register(instance),
-          unregister: () => Promise.resolve(),
-          toJSON: () => ({ id, name: storedData.name, type: storedData.type }),
-          getMetadata: () => ({ id, name: storedData.name, type: storedData.type, createdAt, invocationCount: 0 }),
-          getInvocationHistory: () => Promise.resolve([]),
-          then: () => instance as ComposedFunction,
-          if: () => instance as ConditionalFunction,
-          map: () => instance,
-          contramap: () => instance,
-          catch: () => instance,
-          finally: () => instance,
-        }
+          const instance: FunctionInstance = {
+            id,
+            name: storedData.name,
+            type: storedData.type,
+            description: storedData.description,
+            createdAt,
+            execute: () => Promise.reject(
+              new Error('Function restored from storage cannot be executed without handler')
+            ),
+            register: (registry: FunctionRegistry) => registry.register(instance),
+            unregister: () => Promise.resolve(),
+            toJSON: () => ({ id, name: storedData.name, type: storedData.type }),
+            getMetadata: () => ({ id, name: storedData.name, type: storedData.type, createdAt, invocationCount: 0 }),
+            getInvocationHistory: () => Promise.resolve([]),
+            pipe: () => instance as ComposedFunction,
+            if: () => instance as ConditionalFunction,
+            map: () => instance,
+            contramap: () => instance,
+            catch: () => instance,
+            finally: () => instance,
+          }
 
-        return instance
+          resolve(instance)
+        }).catch(reject)
       })
     },
   }

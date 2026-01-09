@@ -16,6 +16,7 @@ export function SyncProvider({
   getAuthToken,
   reconnectDelay = 1000,
   maxReconnectDelay = 30000,
+  _wsFactory,
 }: SyncProviderProps): React.ReactElement {
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
   const [reconnectAttempts, setReconnectAttempts] = useState(0)
@@ -53,7 +54,9 @@ export function SyncProvider({
       wsRef.current.close()
     }
 
-    const ws = new WebSocket(doUrl)
+    // Use factory if provided (for testing), otherwise use global WebSocket
+    const createWebSocket = _wsFactory ?? ((url: string) => new WebSocket(url))
+    const ws = createWebSocket(doUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -101,7 +104,7 @@ export function SyncProvider({
       setLastError(error instanceof Error ? error : new Error('WebSocket error'))
       // The close event will follow, which handles reconnection
     }
-  }, [doUrl, getReconnectDelay])
+  }, [doUrl, getReconnectDelay, _wsFactory])
 
   // Initialize connection on mount and doUrl change
   useEffect(() => {

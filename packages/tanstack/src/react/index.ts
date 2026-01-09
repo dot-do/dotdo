@@ -6,10 +6,17 @@
  */
 
 // Types
-export type { SyncContextValue, SyncProviderProps, ConnectionState } from './types'
+export type {
+  SyncContextValue,
+  SyncProviderProps,
+  ConnectionState,
+  UseDotdoCollectionOptions,
+  UseDotdoCollectionResult,
+} from './types'
 
 // Context and hooks
 export { SyncContext, useSyncContext } from './context'
+export { useDotdoCollection } from './use-dotdo-collection'
 
 // Components
 export { SyncProvider } from './provider'

@@ -259,10 +259,11 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         ['things', Array.from({ length: 1000 }, (_, i) => ({
           id: `thing-${i}`,
           type: 1,
+          branch: null, // null = main branch
+          name: `Thing ${i}`,
           data: JSON.stringify({ index: i, payload: 'x'.repeat(1000) }),
-          version: 1,
-          branch: 'main',
           deleted: false,
+          visibility: 'public',
         }))],
       ]),
     })
@@ -280,37 +281,13 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
     it('should create checkpoints during clone', async () => {
       const target = 'https://target.test.do'
 
-      // Debug: Check SQL data
-      console.log('SQL things data count:', result.sqlData.get('things')?.length)
-
-      // Check SQL operations
-      const thingsData = result.storage.sql.exec('SELECT * FROM things')
-      console.log('SQL query result:', thingsData.toArray().length)
-
       const handle = await result.instance.clone(target, {
         mode: 'resumable',
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      // Debug: Check initial state
-      console.log('Initial status:', handle.status)
-      console.log('Initial alarmTime:', result.storage.alarmTime)
-      console.log('Initial checkpoints:', handle.checkpoints.length)
-
       // Advance time and process alarms
       await advanceTimeAndProcessAlarms(result.instance, result.storage, 1000)
-
-      // Debug: Check after first advance
-      console.log('After advance - status:', handle.status)
-      console.log('After advance - alarmTime:', result.storage.alarmTime)
-      console.log('After advance - checkpoints:', handle.checkpoints.length)
-      console.log('SQL operations:', result.storage.sql.operations.slice(-5).map(o => o.query))
-
-      // Check resumable state in storage
-      const resumableKey = Array.from(result.storage.data.keys()).find(k => k.startsWith('resumable:'))
-      console.log('Resumable key:', resumableKey)
-      const resumableState = result.storage.data.get(resumableKey!)
-      console.log('Resumable state:', JSON.stringify(resumableState, null, 2))
 
       // Wait for checkpoint
       await waitForCondition(
@@ -982,9 +959,17 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(2000)
-      const checkpoint = await handle.waitForCheckpoint()
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 2000)
 
+      // Wait for checkpoint
+      await waitForCondition(
+        () => handle.checkpoints.length > 0,
+        result.instance,
+        result.storage
+      )
+
+      const checkpoint = handle.checkpoints[handle.checkpoints.length - 1]
       expect(checkpoint.hash).toBeDefined()
       expect(checkpoint.hash.length).toBeGreaterThan(0)
       // SHA-256 produces 64 hex characters
@@ -998,8 +983,16 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(2000)
-      await handle.waitForCheckpoint()
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 2000)
+
+      // Wait for checkpoint
+      await waitForCondition(
+        () => handle.checkpoints.length > 0,
+        result.instance,
+        result.storage
+      )
+
       await handle.pause()
 
       const lastCheckpoint = handle.checkpoints[handle.checkpoints.length - 1]
@@ -1019,8 +1012,17 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(2000)
-      const checkpoint = await handle.waitForCheckpoint()
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 2000)
+
+      // Wait for checkpoint
+      await waitForCondition(
+        () => handle.checkpoints.length > 0,
+        result.instance,
+        result.storage
+      )
+
+      const checkpoint = handle.checkpoints[handle.checkpoints.length - 1]
 
       // Corrupt the checkpoint's stored hash
       const checkpointKey = `checkpoint:${checkpoint.id}`
@@ -1045,12 +1047,15 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         checkpointInterval: 1,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(5000)
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 3000, { maxAlarms: 10 })
 
-      // Create multiple checkpoints
-      await handle.waitForCheckpoint()
-      await handle.waitForCheckpoint()
-      await handle.waitForCheckpoint()
+      // Wait for multiple checkpoints
+      await waitForCondition(
+        () => handle.checkpoints.length >= 3,
+        result.instance,
+        result.storage
+      )
 
       expect(handle.checkpoints.length).toBeGreaterThanOrEqual(3)
 
@@ -1077,9 +1082,15 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      const startTime = Date.now()
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 3000, { maxAlarms: 10 })
 
-      await vi.advanceTimersByTimeAsync(5000)
+      // Wait for checkpoints
+      await waitForCondition(
+        () => handle.checkpoints.length > 0,
+        result.instance,
+        result.storage
+      )
 
       // Hash computation should not significantly slow down transfer
       // (This is more of a performance characteristic test)
@@ -1120,7 +1131,15 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         batchSize: 100,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(1000)
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 1000)
+
+      // Wait for transferring state
+      await waitForCondition(
+        () => handle.status === 'transferring',
+        result.instance,
+        result.storage
+      )
       expect(handle.status).toBe('transferring')
 
       // Attempt another clone
@@ -1142,12 +1161,13 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         lockTimeout,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(1000)
+      // Process alarms
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 1000)
 
       // Simulate stale lock scenario (e.g., original clone crashed)
       await handle.pause()
 
-      // Wait for lock timeout
+      // Wait for lock timeout (just advance time)
       await vi.advanceTimersByTimeAsync(lockTimeout + 1000)
 
       const lockInfo = await handle.getLockInfo()
@@ -1165,10 +1185,10 @@ describe('Resumable Clone Mode (Checkpoint-Based)', () => {
         lockTimeout: 1000,
       }) as unknown as ResumableCloneHandle
 
-      await vi.advanceTimersByTimeAsync(500)
+      await advanceTimeAndProcessAlarms(result.instance, result.storage, 500)
       await handle1.pause()
 
-      // Wait for lock to become stale
+      // Wait for lock to become stale (just advance time)
       await vi.advanceTimersByTimeAsync(2000)
 
       // Force override should work

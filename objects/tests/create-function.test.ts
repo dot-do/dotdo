@@ -1489,7 +1489,7 @@ describe('createFunction Factory', () => {
 
   describe('Composition', () => {
     describe('Function chaining', () => {
-      it('can chain functions with .then()', async () => {
+      it('can chain functions with .pipe()', async () => {
         const fn1 = await createFunction({
           name: 'double',
           type: 'code',
@@ -1502,7 +1502,7 @@ describe('createFunction Factory', () => {
           handler: (input: { value: number }) => ({ value: input.value + 10 }),
         }, { registry: mockRegistry, env: mockEnv })
 
-        const chained = fn1.then(fn2)
+        const chained = fn1.pipe(fn2)
 
         const result = await chained.execute({ value: 5 })
 
@@ -1528,7 +1528,7 @@ describe('createFunction Factory', () => {
           handler: (input: { value: number }) => ({ value: input.value - 3 }),
         }, { registry: mockRegistry, env: mockEnv })
 
-        const chained = fn1.then(fn2).then(fn3)
+        const chained = fn1.pipe(fn2).pipe(fn3)
 
         const result = await chained.execute({ value: 5 })
 
@@ -1548,7 +1548,7 @@ describe('createFunction Factory', () => {
           handler: () => ({}),
         }, { registry: mockRegistry, env: mockEnv })
 
-        const chained = fn1.then(fn2)
+        const chained = fn1.pipe(fn2)
 
         expect(chained.name).toBe('fetch -> transform')
       })
@@ -1568,7 +1568,7 @@ describe('createFunction Factory', () => {
           handler: vi.fn(),
         }, { registry: mockRegistry, env: mockEnv })
 
-        const chained = fn1.then(fn2)
+        const chained = fn1.pipe(fn2)
 
         await expect(chained.execute({})).rejects.toThrow('First fails')
         expect(fn2.handler).not.toHaveBeenCalled()
@@ -1828,9 +1828,9 @@ describe('createFunction Factory', () => {
         }, { registry: mockRegistry, env: mockEnv })
 
         const pipeline = fetchFn
-          .then(validateFn)
-          .then(transformFn)
-          .then(storeFn)
+          .pipe(validateFn)
+          .pipe(transformFn)
+          .pipe(storeFn)
 
         const result = await pipeline.execute({ url: 'https://api.example.com' })
 
@@ -1858,7 +1858,7 @@ describe('createFunction Factory', () => {
           },
         }, { registry: mockRegistry, env: mockEnv })
 
-        const pipeline = fn1.then(fn2)
+        const pipeline = fn1.pipe(fn2)
 
         await pipeline.execute({})
 
@@ -1882,7 +1882,7 @@ describe('createFunction Factory', () => {
           prompt: '{{text}}',
         }, { registry: mockRegistry, env: mockEnv })
 
-        const chained = prepareFn.then(generateFn)
+        const chained = prepareFn.pipe(generateFn)
 
         mockEnv.AI.generate.mockResolvedValueOnce({ text: 'AI generated content' })
 
@@ -1912,7 +1912,7 @@ describe('createFunction Factory', () => {
 
         mockEnv.NOTIFICATIONS.waitForResponse.mockResolvedValueOnce({ approved: true })
 
-        const chained = approveFn.then(processFn)
+        const chained = approveFn.pipe(processFn)
 
         const result = await chained.execute({ request: 'Test request' })
 
@@ -1935,7 +1935,7 @@ describe('createFunction Factory', () => {
 
         mockEnv.AGENT_RUNNER.run.mockResolvedValueOnce({ result: 'AI findings' })
 
-        const chained = researchFn.then(formatFn)
+        const chained = researchFn.pipe(formatFn)
 
         const result = await chained.execute({ query: 'What is AI?' })
 
@@ -2029,7 +2029,7 @@ describe('createFunction Factory', () => {
         handler: () => ({}),
       }, { registry: mockRegistry, env: mockEnv })
 
-      const composed = fn1.then(fn2)
+      const composed = fn1.pipe(fn2)
 
       expect(composed.describe()).toEqual({
         type: 'pipeline',

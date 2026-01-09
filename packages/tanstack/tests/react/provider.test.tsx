@@ -64,20 +64,19 @@ class MockWebSocket {
 // Test Setup
 // =============================================================================
 
-describe('SyncProvider', () => {
-  let originalWebSocket: typeof globalThis.WebSocket
+// WebSocket factory that uses our mock
+const createMockWebSocket = (url: string): WebSocket => {
+  return new MockWebSocket(url) as unknown as WebSocket
+}
 
+describe('SyncProvider', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     MockWebSocket.instances = []
-    originalWebSocket = globalThis.WebSocket
-    // @ts-expect-error - mock WebSocket
-    globalThis.WebSocket = MockWebSocket
   })
 
   afterEach(() => {
     vi.useRealTimers()
-    globalThis.WebSocket = originalWebSocket
     vi.restoreAllMocks()
   })
 
@@ -86,9 +85,33 @@ describe('SyncProvider', () => {
   // ===========================================================================
 
   describe('rendering', () => {
+    it('creates WebSocket via factory on mount', async () => {
+      // This is a debug test to verify the factory is being called
+      vi.useRealTimers() // Use real timers for this test
+      MockWebSocket.instances = [] // Reset instances
+
+      const factoryCalls: string[] = []
+      const debugFactory = (url: string): WebSocket => {
+        factoryCalls.push(url)
+        return new MockWebSocket(url) as unknown as WebSocket
+      }
+
+      await act(async () => {
+        render(
+          <SyncProvider doUrl="wss://debug.example.com/do/123" _wsFactory={debugFactory}>
+            <div>test</div>
+          </SyncProvider>
+        )
+      })
+
+      // The factory should have been called
+      expect(factoryCalls).toContain('wss://debug.example.com/do/123')
+      expect(MockWebSocket.instances.length).toBe(1)
+    })
+
     it('renders children', () => {
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <div data-testid="child">Child content</div>
         </SyncProvider>
       )
@@ -106,7 +129,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -148,7 +171,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://my-custom-url.example.com/do/abc">
+        <SyncProvider doUrl="wss://my-custom-url.example.com/do/abc" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -169,6 +192,7 @@ describe('SyncProvider', () => {
         <SyncProvider
           doUrl="wss://example.com/do/123"
           getAuthToken={mockGetAuthToken}
+          _wsFactory={createMockWebSocket}
         >
           <ContextConsumer />
         </SyncProvider>
@@ -190,6 +214,7 @@ describe('SyncProvider', () => {
         <SyncProvider
           doUrl="wss://example.com/do/123"
           reconnectDelay={5000}
+          _wsFactory={createMockWebSocket}
         >
           <ContextConsumer />
         </SyncProvider>
@@ -212,6 +237,7 @@ describe('SyncProvider', () => {
         <SyncProvider
           doUrl="wss://example.com/do/123"
           maxReconnectDelay={60000}
+          _wsFactory={createMockWebSocket}
         >
           <ContextConsumer />
         </SyncProvider>
@@ -235,7 +261,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -244,6 +270,9 @@ describe('SyncProvider', () => {
     })
 
     it('transitions to connected on successful connection', async () => {
+      // Use real timers for this test since useEffect needs to run
+      vi.useRealTimers()
+
       let contextValue: SyncContextValue | null = null
 
       function ContextConsumer() {
@@ -252,10 +281,15 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
+
+      // Wait for useEffect to run and create WebSocket
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(0)
+      })
 
       // Initial state should be connecting
       expect(contextValue?.connectionState).toBe('connecting')
@@ -280,7 +314,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -313,7 +347,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -345,13 +379,18 @@ describe('SyncProvider', () => {
         return null
       }
 
-      render(
-        <SyncProvider doUrl="wss://example.com/do/123">
-          <ContextConsumer />
-        </SyncProvider>
-      )
+      await act(async () => {
+        render(
+          <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
+            <ContextConsumer />
+          </SyncProvider>
+        )
+      })
 
-      // Initial state
+      // Initial state - wait for mount to complete
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(0)
+      })
       expect(contextValue?.reconnectAttempts).toBe(0)
 
       // Connect
@@ -366,18 +405,18 @@ describe('SyncProvider', () => {
         MockWebSocket.instances[0]?.simulateClose()
       })
 
-      // After first close, reconnect attempt should be scheduled
+      // After first close, reconnect attempt should increment
+      await waitFor(() => {
+        expect(contextValue?.reconnectAttempts).toBeGreaterThan(0)
+      })
+
+      // Advance timer to trigger reconnection
       await act(async () => {
         vi.advanceTimersByTime(1000)
       })
 
       // New WebSocket created for reconnection
       expect(MockWebSocket.instances.length).toBeGreaterThan(1)
-
-      // Reconnect attempts should have incremented
-      await waitFor(() => {
-        expect(contextValue?.reconnectAttempts).toBeGreaterThan(0)
-      })
     })
 
     it('resets reconnect attempts on successful reconnection', async () => {
@@ -388,15 +427,26 @@ describe('SyncProvider', () => {
         return null
       }
 
-      render(
-        <SyncProvider doUrl="wss://example.com/do/123">
-          <ContextConsumer />
-        </SyncProvider>
-      )
+      await act(async () => {
+        render(
+          <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
+            <ContextConsumer />
+          </SyncProvider>
+        )
+      })
+
+      // Wait for initial WebSocket to be created
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(0)
+      })
 
       // Connect
       await act(async () => {
         MockWebSocket.instances[0]?.simulateOpen()
+      })
+
+      await waitFor(() => {
+        expect(contextValue?.connectionState).toBe('connected')
       })
 
       // Disconnect
@@ -404,9 +454,19 @@ describe('SyncProvider', () => {
         MockWebSocket.instances[0]?.simulateClose()
       })
 
-      // Wait for reconnect
+      // Wait for reconnect attempts to increment
+      await waitFor(() => {
+        expect(contextValue?.reconnectAttempts).toBeGreaterThan(0)
+      })
+
+      // Advance timer to trigger reconnection
       await act(async () => {
         vi.advanceTimersByTime(1000)
+      })
+
+      // Wait for second WebSocket to be created
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(1)
       })
 
       // Reconnect successfully
@@ -435,7 +495,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -458,7 +518,7 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://example.com/do/123">
+        <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
           <ContextConsumer />
         </SyncProvider>
       )
@@ -480,32 +540,56 @@ describe('SyncProvider', () => {
 
   describe('cleanup', () => {
     it('closes WebSocket on unmount', async () => {
-      const { unmount } = render(
-        <SyncProvider doUrl="wss://example.com/do/123">
-          <div>Test</div>
-        </SyncProvider>
-      )
+      let unmountFn: () => void
 
-      // Connect
       await act(async () => {
-        MockWebSocket.instances[0]?.simulateOpen()
+        const { unmount } = render(
+          <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
+            <div>Test</div>
+          </SyncProvider>
+        )
+        unmountFn = unmount
+      })
+
+      // Wait for WebSocket to be created
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(0)
       })
 
       const ws = MockWebSocket.instances[0]
 
+      // Connect
+      await act(async () => {
+        ws?.simulateOpen()
+      })
+
       // Unmount
-      unmount()
+      act(() => {
+        unmountFn()
+      })
 
       // WebSocket should be closed
       expect(ws.close).toHaveBeenCalled()
     })
 
     it('cancels pending reconnection on unmount', async () => {
-      const { unmount } = render(
-        <SyncProvider doUrl="wss://example.com/do/123">
-          <div>Test</div>
-        </SyncProvider>
-      )
+      let unmountFn: () => void
+
+      await act(async () => {
+        const { unmount } = render(
+          <SyncProvider doUrl="wss://example.com/do/123" _wsFactory={createMockWebSocket}>
+            <div>Test</div>
+          </SyncProvider>
+        )
+        unmountFn = unmount
+      })
+
+      // Wait for WebSocket to be created
+      await waitFor(() => {
+        expect(MockWebSocket.instances.length).toBeGreaterThan(0)
+      })
+
+      const initialCount = MockWebSocket.instances.length
 
       // Connect then disconnect to trigger reconnection
       await act(async () => {
@@ -517,7 +601,9 @@ describe('SyncProvider', () => {
       })
 
       // Unmount before reconnection timer fires
-      unmount()
+      act(() => {
+        unmountFn()
+      })
 
       // Advance timer past reconnection delay
       await act(async () => {
@@ -525,7 +611,7 @@ describe('SyncProvider', () => {
       })
 
       // No new WebSocket should have been created after unmount
-      expect(MockWebSocket.instances.length).toBe(1)
+      expect(MockWebSocket.instances.length).toBe(initialCount)
     })
   })
 
@@ -549,9 +635,9 @@ describe('SyncProvider', () => {
       }
 
       render(
-        <SyncProvider doUrl="wss://outer.example.com/do/1">
+        <SyncProvider doUrl="wss://outer.example.com/do/1" _wsFactory={createMockWebSocket}>
           <OuterConsumer />
-          <SyncProvider doUrl="wss://inner.example.com/do/2">
+          <SyncProvider doUrl="wss://inner.example.com/do/2" _wsFactory={createMockWebSocket}>
             <InnerConsumer />
           </SyncProvider>
         </SyncProvider>
