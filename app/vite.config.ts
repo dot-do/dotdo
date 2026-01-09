@@ -1,14 +1,14 @@
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
-import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [
     tailwindcss(),
     tsConfigPaths(),
-    TanStackRouterVite({
+    tanstackRouter({
       routesDirectory: './routes',
       generatedRouteTree: './src/routeTree.gen.ts',
       routeFileIgnorePrefix: '-',
@@ -19,5 +19,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    target: 'esnext',
+  },
+  esbuild: {
+    target: 'esnext',
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'esnext',
+    },
   },
 })

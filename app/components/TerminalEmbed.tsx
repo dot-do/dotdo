@@ -213,12 +213,14 @@ export function TerminalEmbed({
 
       {/* Fullscreen button */}
       <button
+        type="button"
         onClick={toggleFullscreen}
         className="absolute top-2 right-2 z-10 p-2 bg-black/50 text-white rounded hover:bg-black/70"
         aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
       >
         {isFullscreen ? (
           <svg
+            aria-hidden="true"
             className="w-4 h-4"
             fill="none"
             viewBox="0 0 24 24"
@@ -233,6 +235,7 @@ export function TerminalEmbed({
           </svg>
         ) : (
           <svg
+            aria-hidden="true"
             className="w-4 h-4"
             fill="none"
             viewBox="0 0 24 24"

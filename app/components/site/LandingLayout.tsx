@@ -45,7 +45,7 @@ export function LandingLayout({ children }: LandingLayoutProps) {
 
       {/* Main */}
       <main id="main-content" data-primitive-content className="flex-1">
-        <div className="container max-w-6xl mx-auto px-4 py-12 prose prose-invert prose-lg max-w-none">
+        <div className="container max-w-6xl mx-auto px-4 py-12 prose prose-invert prose-lg">
           {children}
         </div>
       </main>

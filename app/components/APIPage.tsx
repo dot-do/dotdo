@@ -119,6 +119,7 @@ function CodeSampleTabs({ samples }: { samples: CodeSample[] }): React.ReactElem
       <div className="fd-tabs" role="tablist">
         {samples.map((sample, index) => (
           <button
+            type="button"
             key={sample.language}
             role="tab"
             aria-selected={index === activeTab}
@@ -132,7 +133,7 @@ function CodeSampleTabs({ samples }: { samples: CodeSample[] }): React.ReactElem
       <pre className="fd-code-block">
         <code>{samples[activeTab]?.code || ''}</code>
       </pre>
-      <button className="fd-copy-btn" onClick={() => navigator.clipboard.writeText(samples[activeTab]?.code || '')}>
+      <button type="button" className="fd-copy-btn" onClick={() => navigator.clipboard.writeText(samples[activeTab]?.code || '')}>
         Copy
       </button>
     </div>

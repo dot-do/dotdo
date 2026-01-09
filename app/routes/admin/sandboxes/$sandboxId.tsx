@@ -14,9 +14,9 @@
  */
 
 import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { Shell } from '~/components/ui/shell'
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { TerminalEmbed } from '~/components/TerminalEmbed'
+import { Shell } from '~/components/ui/shell'
 
 // ============================================================================
 // Types
@@ -61,7 +61,7 @@ function useSandboxState(sandboxId: string) {
       if (!response.ok) {
         throw new Error('Not found')
       }
-      const data = await response.json()
+      const data = await response.json() as SandboxState
       setState(data)
       setError(null)
     } catch (err) {
@@ -174,7 +174,7 @@ function ExposedPortsList({ ports, sandboxId, onExposePort }: ExposedPortsListPr
 
   const handleExposePort = () => {
     const port = parseInt(portInput)
-    if (!isNaN(port) && port > 0 && port < 65536) {
+    if (!Number.isNaN(port) && port > 0 && port < 65536) {
       onExposePort(port)
       setPortInput('')
       setShowModal(false)
@@ -186,6 +186,7 @@ function ExposedPortsList({ ports, sandboxId, onExposePort }: ExposedPortsListPr
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Exposed Ports</h3>
         <button
+          type="button"
           onClick={() => setShowModal(true)}
           className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm font-medium"
         >
@@ -232,12 +233,14 @@ function ExposedPortsList({ ports, sandboxId, onExposePort }: ExposedPortsListPr
             />
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setShowModal(false)}
                 className="flex-1 bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-medium"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleExposePort}
                 className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium"
               >
@@ -294,9 +297,9 @@ function SandboxDetailPage() {
       if (!response.ok) {
         throw new Error('Failed to expose port')
       }
-      const newPort = await response.json()
+      const newPort = await response.json() as ExposedPort
       setState((s) =>
-        s ? { ...s, exposedPorts: [...s.exposedPorts, newPort] } : null
+        s ? { ...s, exposedPorts: [...(s.exposedPorts || []), newPort] } : null
       )
     } catch (err) {
       console.error('Failed to expose port:', err)
@@ -325,6 +328,7 @@ function SandboxDetailPage() {
             <h1 className="text-2xl font-semibold">Sandbox: {sandboxId}</h1>
           </div>
           <button
+            type="button"
             onClick={handleDestroy}
             disabled={destroying}
             className="bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white px-4 py-2 rounded font-medium"
