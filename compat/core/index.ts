@@ -7,19 +7,19 @@
  * @see db/core for ShardRouter, ReplicaManager, TierManager, VectorRouter
  */
 
-// Stream types (local to stream.ts until moved to streaming/core)
-export type {
-  StreamConfig,
-  StreamSink,
-} from './stream'
-
-// Stream bridge
+// Re-export streaming/core for backwards compatibility
 export {
   StreamBridge,
   createStreamEvent,
   DEFAULT_STREAM_CONFIG,
-} from './stream'
-export type { StreamEvent, StreamOperation, StreamBridgeOptions } from './stream'
+} from '../../streaming/core'
+export type {
+  StreamConfig,
+  StreamSink,
+  StreamEvent,
+  StreamOperation,
+  StreamBridgeOptions,
+} from '../../streaming/core'
 
 // Re-export db/core infrastructure for backwards compatibility
 // This allows existing compat layer consumers to continue importing from here

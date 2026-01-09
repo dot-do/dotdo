@@ -1107,8 +1107,10 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
 
   // Sort by sort key
   const sortKeyName = keySchema.find((k) => k.KeyType === 'RANGE')?.AttributeName
+  const partitionKeyName = keySchema.find((k) => k.KeyType === 'HASH')?.AttributeName
+  const direction = input.ScanIndexForward !== false ? 1 : -1
+
   if (sortKeyName) {
-    const direction = input.ScanIndexForward !== false ? 1 : -1
     items.sort((a, b) => {
       const aVal = a[sortKeyName]
       const bVal = b[sortKeyName]
@@ -1117,14 +1119,50 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
     })
   }
 
-  const scannedCount = items.length
+  // Handle ExclusiveStartKey - skip items until past that key
+  if (input.ExclusiveStartKey) {
+    const startKey = input.ExclusiveStartKey
+    let foundStartKey = false
+    items = items.filter((item) => {
+      if (foundStartKey) return true
 
-  // Apply limit
-  if (input.Limit && items.length > input.Limit) {
-    items = items.slice(0, input.Limit)
+      // Check if this item's key matches the start key
+      let keysMatch = true
+      if (partitionKeyName) {
+        const itemPk = item[partitionKeyName]
+        const startPk = startKey[partitionKeyName]
+        if (!itemPk || !startPk || !attributeValuesEqual(itemPk, startPk)) {
+          keysMatch = false
+        }
+      }
+      if (keysMatch && sortKeyName) {
+        const itemSk = item[sortKeyName]
+        const startSk = startKey[sortKeyName]
+        if (!itemSk || !startSk || !attributeValuesEqual(itemSk, startSk)) {
+          keysMatch = false
+        }
+      }
+
+      if (keysMatch) {
+        foundStartKey = true
+        return false // Skip the start key item itself
+      }
+      return false // Skip items before the start key
+    })
   }
 
-  // Apply projection
+  const scannedCount = items.length
+  let lastEvaluatedKey: Key | undefined
+
+  // Apply limit and determine LastEvaluatedKey
+  if (input.Limit && items.length > input.Limit) {
+    items = items.slice(0, input.Limit)
+    // Set LastEvaluatedKey to the last item's key
+    const lastItem = items[items.length - 1]
+    lastEvaluatedKey = extractKey(lastItem, keySchema)
+  }
+
+  // Apply projection (after extracting keys for pagination)
   if (input.ProjectionExpression) {
     items = items.map((item) =>
       applyProjection(item, input.ProjectionExpression!, input.ExpressionAttributeNames)
@@ -1136,6 +1174,7 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
     return {
       Count: items.length,
       ScannedCount: scannedCount,
+      LastEvaluatedKey: lastEvaluatedKey,
       $metadata: createMetadata(),
     }
   }
@@ -1144,6 +1183,7 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
     Items: items,
     Count: items.length,
     ScannedCount: scannedCount,
+    LastEvaluatedKey: lastEvaluatedKey,
     $metadata: createMetadata(),
   }
 }
@@ -1154,7 +1194,63 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
     throw new ResourceNotFoundException(`Table ${input.TableName} not found`)
   }
 
+  const keySchema = table.keySchema
   let items = Array.from(table.items.values())
+
+  // Sort items by key for consistent pagination
+  const partitionKeyName = keySchema.find((k) => k.KeyType === 'HASH')?.AttributeName
+  const sortKeyName = keySchema.find((k) => k.KeyType === 'RANGE')?.AttributeName
+
+  items.sort((a, b) => {
+    if (partitionKeyName) {
+      const aVal = a[partitionKeyName]
+      const bVal = b[partitionKeyName]
+      if (aVal && bVal) {
+        const cmp = compareAttributeValues(aVal, bVal)
+        if (cmp !== 0) return cmp
+      }
+    }
+    if (sortKeyName) {
+      const aVal = a[sortKeyName]
+      const bVal = b[sortKeyName]
+      if (aVal && bVal) {
+        return compareAttributeValues(aVal, bVal)
+      }
+    }
+    return 0
+  })
+
+  // Handle ExclusiveStartKey - skip items until past that key
+  if (input.ExclusiveStartKey) {
+    const startKey = input.ExclusiveStartKey
+    let foundStartKey = false
+    items = items.filter((item) => {
+      if (foundStartKey) return true
+
+      // Check if this item's key matches the start key
+      let keysMatch = true
+      if (partitionKeyName) {
+        const itemPk = item[partitionKeyName]
+        const startPk = startKey[partitionKeyName]
+        if (!itemPk || !startPk || !attributeValuesEqual(itemPk, startPk)) {
+          keysMatch = false
+        }
+      }
+      if (keysMatch && sortKeyName) {
+        const itemSk = item[sortKeyName]
+        const startSk = startKey[sortKeyName]
+        if (!itemSk || !startSk || !attributeValuesEqual(itemSk, startSk)) {
+          keysMatch = false
+        }
+      }
+
+      if (keysMatch) {
+        foundStartKey = true
+        return false // Skip the start key item itself
+      }
+      return false // Skip items before the start key
+    })
+  }
 
   // Apply filter expression
   if (input.FilterExpression) {
@@ -1169,13 +1265,17 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
   }
 
   const scannedCount = items.length
+  let lastEvaluatedKey: Key | undefined
 
-  // Apply limit
+  // Apply limit and determine LastEvaluatedKey
   if (input.Limit && items.length > input.Limit) {
     items = items.slice(0, input.Limit)
+    // Set LastEvaluatedKey to the last item's key
+    const lastItem = items[items.length - 1]
+    lastEvaluatedKey = extractKey(lastItem, keySchema)
   }
 
-  // Apply projection
+  // Apply projection (after extracting keys for pagination)
   if (input.ProjectionExpression) {
     items = items.map((item) =>
       applyProjection(item, input.ProjectionExpression!, input.ExpressionAttributeNames)
@@ -1187,6 +1287,7 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
     return {
       Count: items.length,
       ScannedCount: scannedCount,
+      LastEvaluatedKey: lastEvaluatedKey,
       $metadata: createMetadata(),
     }
   }
@@ -1195,6 +1296,7 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
     Items: items,
     Count: items.length,
     ScannedCount: scannedCount,
+    LastEvaluatedKey: lastEvaluatedKey,
     $metadata: createMetadata(),
   }
 }

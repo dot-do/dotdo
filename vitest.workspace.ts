@@ -204,13 +204,16 @@ export default defineWorkspace([
   createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts']),
 
   // Compat layer tests (API-compatible SDKs backed by DO)
-  createNodeWorkspace('compat', ['compat/**/*.test.ts']),
+  createNodeWorkspace('compat', ['compat/**/*.test.ts', 'db/compat/**/*.test.ts', 'search/compat/**/*.test.ts']),
 
   // Database core tests (sharding, replication, tiering, vectors)
   createNodeWorkspace('db-core', ['db/core/**/*.test.ts']),
 
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
+
+  // @dotdo/duckdb-worker package tests
+  createNodeWorkspace('duckdb-worker', ['packages/duckdb-worker/tests/**/*.test.ts']),
 
   // AI template literal API tests
   createNodeWorkspace('ai', ['ai/tests/**/*.test.ts', 'ai/**/*.test.ts']),
@@ -220,6 +223,12 @@ export default defineWorkspace([
 
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
+
+  // Streaming core tests (StreamBridge, pipelines integration)
+  createNodeWorkspace('streaming', ['streaming/**/*.test.ts']),
+
+  // Benchmarks (SQL parsers, etc.)
+  createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
@@ -251,7 +260,7 @@ export default defineWorkspace([
     test: {
       ...sharedTestConfig,
       name: 'duckdb-wasm',
-      include: ['compat/duckdb-wasm/tests/**/*.test.ts'],
+      include: ['db/compat/sql/duckdb-wasm/tests/**/*.test.ts'],
       exclude: defaultExcludes,
       // Workers tests need sequential execution for stability
       sequence: {

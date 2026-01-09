@@ -97,6 +97,16 @@ interface StreamData {
 }
 
 /**
+ * Pending message info for tracking redelivery
+ */
+interface PendingMessage {
+  seq: number
+  deliverCount: number
+  ackDeadline: number // Timestamp when ack deadline expires
+  redeliverAfter?: number // Timestamp when message can be redelivered (for NAK with delay)
+}
+
+/**
  * Consumer data structure
  */
 interface ConsumerData {
@@ -105,7 +115,9 @@ interface ConsumerData {
   name: string
   delivered: { consumer_seq: number; stream_seq: number }
   ack_floor: { consumer_seq: number; stream_seq: number }
-  pending: Map<number, { seq: number; deliverCount: number }>
+  pending: Map<number, PendingMessage>
+  /** Messages waiting for redelivery after NAK */
+  redeliveryQueue: Array<{ seq: number; deliverCount: number; availableAt: number }>
   created: string
 }
 
@@ -472,11 +484,12 @@ class JsMsgImpl implements JsMsg {
   nak(delay?: number): void {
     if (this._acked) return
     this._acked = true
-    this._consumer._nak(this.info.streamSequence, delay)
+    this._consumer._nak(this.info.streamSequence, this.info.deliveryCount, delay)
   }
 
   async working(): Promise<void> {
-    // Extend ack deadline - no-op in in-memory implementation
+    // Extend ack deadline
+    this._consumer._working(this.info.streamSequence)
   }
 
   term(): void {
@@ -607,13 +620,81 @@ class ConsumerImpl implements Consumer {
     }
 
     const messages = new ConsumerMessagesImpl(this)
+    const now = Date.now()
+    const ackWaitMs = consumer.config.ack_wait ? consumer.config.ack_wait / 1000000 : 30000 // Default 30s
+    const maxDeliver = consumer.config.max_deliver ?? -1
 
-    // Get messages from stream starting at consumer position
+    let count = 0
+
+    // First, check redelivery queue for messages ready for redelivery
+    const readyForRedelivery: typeof consumer.redeliveryQueue = []
+    const stillWaiting: typeof consumer.redeliveryQueue = []
+
+    for (const redeliveryItem of consumer.redeliveryQueue) {
+      if (redeliveryItem.availableAt <= now) {
+        // Check max_deliver limit
+        if (maxDeliver > 0 && redeliveryItem.deliverCount >= maxDeliver) {
+          // Max delivery attempts reached, drop the message
+          continue
+        }
+        readyForRedelivery.push(redeliveryItem)
+      } else {
+        stillWaiting.push(redeliveryItem)
+      }
+    }
+    consumer.redeliveryQueue = stillWaiting
+
+    // Deliver redelivery messages first
+    for (const redeliveryItem of readyForRedelivery) {
+      if (count >= maxMessages) {
+        // Put back remaining for next fetch
+        stillWaiting.push(redeliveryItem)
+        continue
+      }
+
+      const msg = stream.messages.find(m => m.seq === redeliveryItem.seq)
+      if (!msg) continue
+
+      const filterSubject = consumer.config.filter_subject
+      if (filterSubject && !matchSubject(filterSubject, msg.subject)) {
+        continue
+      }
+
+      const newDeliverCount = redeliveryItem.deliverCount + 1
+      consumer.delivered.consumer_seq++
+      consumer.pending.set(msg.seq, {
+        seq: msg.seq,
+        deliverCount: newDeliverCount,
+        ackDeadline: now + ackWaitMs,
+      })
+
+      const jsMsg = new JsMsgImpl(
+        this,
+        msg.subject,
+        msg.data,
+        {
+          stream: this._stream,
+          consumer: this._name,
+          deliveryCount: newDeliverCount,
+          streamSequence: msg.seq,
+          consumerSequence: consumer.delivered.consumer_seq,
+          timestampNanos: msg.timestamp * 1000000,
+          pending: stream.messages.length - msg.seq,
+        },
+        msg.headers
+      )
+
+      messages._addMessage(jsMsg)
+      count++
+    }
+    consumer.redeliveryQueue = stillWaiting
+
+    // Then get new messages from stream
     const startSeq = consumer.delivered.stream_seq
     const filterSubject = consumer.config.filter_subject
 
-    let count = 0
     for (const msg of stream.messages) {
+      if (count >= maxMessages) break
       if (msg.seq <= startSeq) continue
 
       // Check filter subject
@@ -623,7 +704,11 @@ class ConsumerImpl implements Consumer {
 
       consumer.delivered.consumer_seq++
       consumer.delivered.stream_seq = msg.seq
-      consumer.pending.set(msg.seq, { seq: msg.seq, deliverCount: 1 })
+      consumer.pending.set(msg.seq, {
+        seq: msg.seq,
+        deliverCount: 1,
+        ackDeadline: now + ackWaitMs,
+      })
 
       const jsMsg = new JsMsgImpl(
         this,
@@ -643,8 +728,6 @@ class ConsumerImpl implements Consumer {
 
       messages._addMessage(jsMsg)
       count++
-
-      if (count >= maxMessages) break
     }
 
     // Complete the iterator after fetching
@@ -678,8 +761,43 @@ class ConsumerImpl implements Consumer {
     }
   }
 
-  _nak(_streamSeq: number, _delay?: number): void {
-    // In real implementation, would requeue for redelivery
+  _nak(streamSeq: number, deliveryCount: number, delay?: number): void {
+    const consumers = globalConsumers.get(this._stream)
+    if (!consumers) return
+    const consumer = consumers.get(this._name)
+    if (!consumer) return
+
+    // Remove from pending
+    consumer.pending.delete(streamSeq)
+
+    // Check max_deliver limit before queueing for redelivery
+    const maxDeliver = consumer.config.max_deliver ?? -1
+    if (maxDeliver > 0 && deliveryCount >= maxDeliver) {
+      // Max delivery attempts reached, don't redeliver
+      return
+    }
+
+    // Add to redelivery queue with optional delay
+    const availableAt = delay ? Date.now() + delay : Date.now()
+    consumer.redeliveryQueue.push({
+      seq: streamSeq,
+      deliverCount: deliveryCount,
+      availableAt,
+    })
+  }
+
+  _working(streamSeq: number): void {
+    const consumers = globalConsumers.get(this._stream)
+    if (!consumers) return
+    const consumer = consumers.get(this._name)
+    if (!consumer) return
+
+    // Extend the ack deadline
+    const pending = consumer.pending.get(streamSeq)
+    if (pending) {
+      const ackWaitMs = consumer.config.ack_wait ? consumer.config.ack_wait / 1000000 : 30000
+      pending.ackDeadline = Date.now() + ackWaitMs
+    }
   }
 
   _term(streamSeq: number): void {
@@ -1255,6 +1373,7 @@ class ConsumerAPIImpl implements ConsumerAPI {
       delivered: { consumer_seq: 0, stream_seq: 0 },
       ack_floor: { consumer_seq: 0, stream_seq: 0 },
       pending: new Map(),
+      redeliveryQueue: [],
       created: new Date().toISOString(),
     }
 

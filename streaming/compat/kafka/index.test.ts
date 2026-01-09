@@ -367,6 +367,181 @@ describe('Producer', () => {
       await txnProducer.disconnect()
     })
 
+    it('should rollback messages on abort - messages not visible to consumer', async () => {
+      // Create a fresh topic for this test
+      await admin.createTopics({
+        topics: [{ topic: 'abort-test-topic', numPartitions: 1 }],
+      })
+
+      const txnProducer = kafka.producer({ transactionalId: 'abort-test-txn' })
+      await txnProducer.connect()
+
+      // Send message in aborted transaction
+      const transaction = await txnProducer.transaction()
+      await transaction.send({
+        topic: 'abort-test-topic',
+        messages: [{ value: 'aborted-message' }],
+      })
+      await transaction.abort()
+
+      // Now try to consume - should find no messages
+      const testConsumer = kafka.consumer({ groupId: 'abort-test-group' })
+      await testConsumer.connect()
+      await testConsumer.subscribe({ topic: 'abort-test-topic', fromBeginning: true })
+
+      const messages: string[] = []
+      testConsumer.run({
+        eachMessage: async ({ message }) => {
+          messages.push(message.value?.toString() ?? '')
+        },
+      })
+
+      // Wait a bit for any messages to be consumed
+      await new Promise(resolve => setTimeout(resolve, 300))
+      await testConsumer.stop()
+
+      // Aborted messages should NOT be visible
+      expect(messages).toHaveLength(0)
+
+      await testConsumer.disconnect()
+      await txnProducer.disconnect()
+    })
+
+    it('should make messages visible only after commit', async () => {
+      // Create a fresh topic for this test
+      await admin.createTopics({
+        topics: [{ topic: 'commit-visibility-topic', numPartitions: 1 }],
+      })
+
+      const txnProducer = kafka.producer({ transactionalId: 'commit-visibility-txn' })
+      await txnProducer.connect()
+
+      // Start a consumer FIRST
+      const testConsumer = kafka.consumer({ groupId: 'commit-visibility-group' })
+      await testConsumer.connect()
+      await testConsumer.subscribe({ topic: 'commit-visibility-topic', fromBeginning: true })
+
+      const messages: string[] = []
+      testConsumer.run({
+        eachMessage: async ({ message }) => {
+          messages.push(message.value?.toString() ?? '')
+        },
+      })
+
+      // Send message in transaction but DON'T commit yet
+      const transaction = await txnProducer.transaction()
+      await transaction.send({
+        topic: 'commit-visibility-topic',
+        messages: [{ value: 'pending-message' }],
+      })
+
+      // Wait a bit - message should NOT be visible yet
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(messages).toHaveLength(0)
+
+      // Now commit
+      await transaction.commit()
+
+      // Wait for message to be consumed
+      await new Promise(resolve => setTimeout(resolve, 300))
+      await testConsumer.stop()
+
+      // NOW message should be visible
+      expect(messages).toHaveLength(1)
+      expect(messages[0]).toBe('pending-message')
+
+      await testConsumer.disconnect()
+      await txnProducer.disconnect()
+    })
+
+    it('should send offsets within transaction', async () => {
+      // Create topic and produce some messages
+      await admin.createTopics({
+        topics: [{ topic: 'sendoffsets-topic', numPartitions: 1 }],
+      })
+
+      await producer.connect()
+      await producer.send({
+        topic: 'sendoffsets-topic',
+        messages: [
+          { value: 'msg1' },
+          { value: 'msg2' },
+          { value: 'msg3' },
+        ],
+      })
+
+      const txnProducer = kafka.producer({ transactionalId: 'sendoffsets-txn' })
+      await txnProducer.connect()
+
+      // Consume and commit offset in transaction
+      const transaction = await txnProducer.transaction()
+
+      // Send offsets as part of transaction
+      await transaction.sendOffsets({
+        consumerGroupId: 'sendoffsets-group',
+        topics: [{
+          topic: 'sendoffsets-topic',
+          partitions: [{ partition: 0, offset: '2' }],
+        }],
+      })
+
+      await transaction.commit()
+
+      // Verify the offset was committed
+      const offsets = await admin.fetchOffsets({
+        groupId: 'sendoffsets-group',
+        topics: ['sendoffsets-topic'],
+      })
+
+      expect(offsets).toHaveLength(1)
+      expect(offsets[0].partitions[0].offset).toBe('2')
+
+      await txnProducer.disconnect()
+    })
+
+    it('should not commit offsets if transaction is aborted', async () => {
+      // Create topic
+      await admin.createTopics({
+        topics: [{ topic: 'abort-offsets-topic', numPartitions: 1 }],
+      })
+
+      await producer.connect()
+      await producer.send({
+        topic: 'abort-offsets-topic',
+        messages: [{ value: 'msg1' }],
+      })
+
+      const txnProducer = kafka.producer({ transactionalId: 'abort-offsets-txn' })
+      await txnProducer.connect()
+
+      const transaction = await txnProducer.transaction()
+
+      // Send offsets as part of transaction
+      await transaction.sendOffsets({
+        consumerGroupId: 'abort-offsets-group',
+        topics: [{
+          topic: 'abort-offsets-topic',
+          partitions: [{ partition: 0, offset: '10' }],
+        }],
+      })
+
+      // Abort the transaction
+      await transaction.abort()
+
+      // Verify the offset was NOT committed
+      const offsets = await admin.fetchOffsets({
+        groupId: 'abort-offsets-group',
+        topics: ['abort-offsets-topic'],
+      })
+
+      // Should either be empty or not have offset '10'
+      const hasCommittedOffset = offsets.length > 0 &&
+        offsets[0].partitions.some(p => p.offset === '10')
+      expect(hasCommittedOffset).toBe(false)
+
+      await txnProducer.disconnect()
+    })
+
     it('should throw error for transaction without transactionalId', async () => {
       await producer.connect()
       await expect(producer.transaction()).rejects.toThrow()

@@ -129,7 +129,7 @@ class InMemoryFirestore {
     return collection?.get(docId)
   }
 
-  setDocument(path: string, data: DocumentData, options?: SetOptions): void {
+  setDocument(path: string, data: DocumentData, options?: SetOptions, fieldsToDelete?: string[]): void {
     const [collectionPath, docId] = this.splitPath(path)
 
     if (!this.collections.has(collectionPath)) {
@@ -142,8 +142,15 @@ class InMemoryFirestore {
 
     if (options?.merge && existing) {
       // Merge data
+      const merged = { ...existing.data, ...data }
+      // Remove fields marked for deletion
+      if (fieldsToDelete) {
+        for (const field of fieldsToDelete) {
+          delete merged[field]
+        }
+      }
       collection.set(docId, {
-        data: { ...existing.data, ...data },
+        data: merged,
         createTime: existing.createTime,
         updateTime: now,
       })
@@ -154,6 +161,12 @@ class InMemoryFirestore {
         const fieldName = typeof field === 'string' ? field : (field as any)._segments?.join('.') ?? ''
         if (fieldName in data) {
           merged[fieldName] = data[fieldName]
+        }
+      }
+      // Remove fields marked for deletion
+      if (fieldsToDelete) {
+        for (const field of fieldsToDelete) {
+          delete merged[field]
         }
       }
       collection.set(docId, {
@@ -710,8 +723,25 @@ export async function setDoc<T extends DocumentData>(
   options?: SetOptions
 ): Promise<void> {
   const storage = (reference.firestore as FirestoreImpl)._storage
-  const processedData = processFieldValues(data)
-  storage.setDocument(reference.path, processedData, options)
+
+  // For merge operations, get existing data to properly apply FieldValue operations
+  let existingData: DocumentData | undefined
+  if (options?.merge || options?.mergeFields) {
+    const existing = storage.getDocument(reference.path)
+    existingData = existing?.data
+  }
+
+  const processedData = processFieldValues(data, existingData)
+
+  // Collect fields marked for deletion
+  const fieldsToDelete: string[] = []
+  for (const [key, value] of Object.entries(data)) {
+    if (value && typeof value === 'object' && '__type__' in value && (value as any).__type__ === 'delete') {
+      fieldsToDelete.push(key)
+    }
+  }
+
+  storage.setDocument(reference.path, processedData, options, fieldsToDelete.length > 0 ? fieldsToDelete : undefined)
 }
 
 /**
@@ -1251,8 +1281,10 @@ export function arrayRemove(...elements: unknown[]): FieldValue {
 
 /**
  * Process field values in data before storage
+ * @param data - The new data with potential FieldValue sentinels
+ * @param existingData - Optional existing document data for merge operations
  */
-function processFieldValues(data: DocumentData): DocumentData {
+function processFieldValues(data: DocumentData, existingData?: DocumentData): DocumentData {
   const result: DocumentData = {}
 
   for (const [key, value] of Object.entries(data)) {
@@ -1263,18 +1295,31 @@ function processFieldValues(data: DocumentData): DocumentData {
           result[key] = Timestamp.now()
           break
         case 'delete':
-          // Don't include this field
+          // Don't include this field (mark for deletion)
           break
-        case 'increment':
-          // Would need existing value - simplified
-          result[key] = fv._operand
+        case 'increment': {
+          const existingValue = existingData?.[key]
+          const base = typeof existingValue === 'number' ? existingValue : 0
+          result[key] = base + fv._operand
           break
-        case 'arrayUnion':
-          result[key] = fv._elements
+        }
+        case 'arrayUnion': {
+          const existingArray = existingData?.[key]
+          const arr = Array.isArray(existingArray) ? [...existingArray] : []
+          for (const elem of fv._elements) {
+            if (!arr.includes(elem)) {
+              arr.push(elem)
+            }
+          }
+          result[key] = arr
           break
-        case 'arrayRemove':
-          result[key] = []
+        }
+        case 'arrayRemove': {
+          const existingArray = existingData?.[key]
+          const arr = Array.isArray(existingArray) ? [...existingArray] : []
+          result[key] = arr.filter((item: unknown) => !fv._elements.includes(item))
           break
+        }
         default:
           result[key] = value
       }

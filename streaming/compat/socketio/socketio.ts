@@ -46,6 +46,86 @@ import type {
 import { TimeoutError, ConnectionError } from './types'
 
 // ============================================================================
+// GLOBAL ROOM REGISTRY
+// ============================================================================
+
+/**
+ * Global registry of room memberships: room -> Set of socketIds
+ */
+const roomMembers: Map<string, Set<string>> = new Map()
+
+/**
+ * Global registry of socket instances: socketId -> Socket
+ */
+const socketInstances: Map<string, SocketImpl> = new Map()
+
+/**
+ * Register a socket instance in the global registry
+ */
+function registerSocket(socket: SocketImpl): void {
+  socketInstances.set(socket.id, socket)
+}
+
+/**
+ * Unregister a socket instance from the global registry
+ */
+function unregisterSocket(socketId: string): void {
+  socketInstances.delete(socketId)
+  // Remove from all rooms
+  for (const [room, members] of roomMembers) {
+    members.delete(socketId)
+    if (members.size === 0) {
+      roomMembers.delete(room)
+    }
+  }
+}
+
+/**
+ * Add a socket to a room in the global registry
+ */
+function addToRoom(room: string, socketId: string): void {
+  if (!roomMembers.has(room)) {
+    roomMembers.set(room, new Set())
+  }
+  roomMembers.get(room)!.add(socketId)
+}
+
+/**
+ * Remove a socket from a room in the global registry
+ */
+function removeFromRoom(room: string, socketId: string): void {
+  const members = roomMembers.get(room)
+  if (members) {
+    members.delete(socketId)
+    if (members.size === 0) {
+      roomMembers.delete(room)
+    }
+  }
+}
+
+/**
+ * Get all socket IDs in a room
+ */
+function getSocketsInRoom(room: string): Set<string> {
+  return roomMembers.get(room) ?? new Set()
+}
+
+/**
+ * Get socket instance by ID
+ */
+function getSocketById(socketId: string): SocketImpl | undefined {
+  return socketInstances.get(socketId)
+}
+
+/**
+ * Clear all registries (for testing)
+ */
+function clearRegistries(): void {
+  roomMembers.clear()
+  socketInstances.clear()
+}
+
+// ============================================================================
 // UTILITIES
 // ============================================================================
 
@@ -282,16 +362,35 @@ class BroadcastOperatorImpl implements BroadcastOperator {
   }
 
   emit(event: string, ...args: unknown[]): boolean {
-    // In a real implementation, this would broadcast to all matching sockets
-    // For this DO-backed implementation, we simulate by emitting locally
-    // and storing for retrieval by other clients
-
     const rooms = this._targetRooms.size > 0 ? this._targetRooms : this._socket.rooms
 
-    // Store the message for room members
+    // Collect all unique socket IDs from target rooms
+    const targetSocketIds = new Set<string>()
     for (const room of rooms) {
-      if (!this._exceptRooms.has(room)) {
-        this._socket._broadcastToRoom(room, event, args, this._excludeSelf)
+      const members = getSocketsInRoom(room)
+      for (const socketId of members) {
+        targetSocketIds.add(socketId)
+      }
+    }
+
+    // Remove sockets in excepted rooms
+    for (const room of this._exceptRooms) {
+      const members = getSocketsInRoom(room)
+      for (const socketId of members) {
+        targetSocketIds.delete(socketId)
+      }
+    }
+
+    // Exclude sender if requested
+    if (this._excludeSelf) {
+      targetSocketIds.delete(this._socket.id)
+    }
+
+    // Deliver to each socket
+    for (const socketId of targetSocketIds) {
+      const socket = getSocketById(socketId)
+      if (socket && socket.connected) {
+        socket._receiveMessage(event, ...args)
       }
     }
 
@@ -339,21 +438,75 @@ class BroadcastOperatorImpl implements BroadcastOperator {
   }
 
   async fetchSockets(): Promise<unknown[]> {
-    // Return sockets in the targeted rooms
-    // In DO implementation, this would query the DO for connected sockets
-    return []
+    // Collect all unique socket IDs from target rooms
+    const targetSocketIds = new Set<string>()
+    for (const room of this._targetRooms) {
+      const members = getSocketsInRoom(room)
+      for (const socketId of members) {
+        targetSocketIds.add(socketId)
+      }
+    }
+
+    // Remove sockets in excepted rooms
+    for (const room of this._exceptRooms) {
+      const members = getSocketsInRoom(room)
+      for (const socketId of members) {
+        targetSocketIds.delete(socketId)
+      }
+    }
+
+    // Return actual socket instances
+    const sockets: SocketImpl[] = []
+    for (const socketId of targetSocketIds) {
+      const socket = getSocketById(socketId)
+      if (socket && socket.connected) {
+        sockets.push(socket)
+      }
+    }
+    return sockets
   }
 
   socketsJoin(room: string | string[]): void {
-    // In DO implementation, would make matched sockets join room
+    const rooms = Array.isArray(room) ? room : [room]
+    // Get sockets matching criteria and make them join
+    for (const targetRoom of this._targetRooms) {
+      const members = getSocketsInRoom(targetRoom)
+      for (const socketId of members) {
+        const socket = getSocketById(socketId)
+        if (socket) {
+          socket.join(rooms)
+        }
+      }
+    }
   }
 
   socketsLeave(room: string | string[]): void {
-    // In DO implementation, would make matched sockets leave room
+    const rooms = Array.isArray(room) ? room : [room]
+    // Get sockets matching criteria and make them leave
+    for (const targetRoom of this._targetRooms) {
+      const members = getSocketsInRoom(targetRoom)
+      for (const socketId of members) {
+        const socket = getSocketById(socketId)
+        if (socket) {
+          for (const r of rooms) {
+            socket.leave(r)
+          }
+        }
+      }
+    }
   }
 
   disconnectSockets(close?: boolean): void {
-    // In DO implementation, would disconnect matched sockets
+    // Get sockets matching criteria and disconnect them
+    for (const targetRoom of this._targetRooms) {
+      const members = getSocketsInRoom(targetRoom)
+      for (const socketId of members) {
+        const socket = getSocketById(socketId)
+        if (socket) {
+          socket.disconnect()
+        }
+      }
+    }
   }
 }
 
@@ -517,8 +670,12 @@ class SocketImpl extends EventEmitter implements ISocket {
       this._connected = true
       this._state = 'connected'
 
+      // Register in global registry
+      registerSocket(this)
+
       // Join the default room (socket's own room)
       this._rooms.add(this._id)
+      addToRoom(this._id, this._id)
 
       // Flush send buffer
       for (const { event, args } of this._sendBuffer) {
@@ -543,7 +700,10 @@ class SocketImpl extends EventEmitter implements ISocket {
 
     this._state = 'disconnecting'
 
-    // Clear rooms
+    // Unregister from global registry (also removes from all rooms)
+    unregisterSocket(this._id)
+
+    // Clear local rooms
     this._rooms.clear()
 
     this._connected = false
@@ -633,15 +793,19 @@ class SocketImpl extends EventEmitter implements ISocket {
     const rooms = Array.isArray(room) ? room : [room]
     for (const r of rooms) {
       this._rooms.add(r)
+      // Register in global room registry
+      addToRoom(r, this._id)
     }
   }
 
   leave(room: string): void {
     this._rooms.delete(room)
+    // Unregister from global room registry
+    removeFromRoom(room, this._id)
   }
 
   to(room: string | string[]): BroadcastOperator {
-    const operator = new BroadcastOperatorImpl(this)
+    const operator = new BroadcastOperatorImpl(this, true) // excludeSelf by default for to()
     return operator.to(room)
   }
 
@@ -650,20 +814,13 @@ class SocketImpl extends EventEmitter implements ISocket {
   }
 
   except(room: string | string[]): BroadcastOperator {
-    const operator = new BroadcastOperatorImpl(this)
+    const operator = new BroadcastOperatorImpl(this, true) // excludeSelf by default
     return operator.except(room)
   }
 
   _broadcastToRoom(room: string, event: string, args: unknown[], excludeSelf: boolean): void {
-    // Store message for room
-    if (!SocketImpl._roomMessages.has(room)) {
-      SocketImpl._roomMessages.set(room, [])
-    }
-    SocketImpl._roomMessages.get(room)!.push({
-      event,
-      args,
-      senderId: excludeSelf ? this._id : '',
-    })
+    // This method is now deprecated - broadcasts are handled directly by BroadcastOperatorImpl
+    // Kept for backward compatibility but does nothing
   }
 
   // ============================================================================
@@ -926,4 +1083,5 @@ export function _clearAll(): void {
   }
   managers.clear()
   SocketImpl._clearRoomMessages()
+  clearRegistries()
 }

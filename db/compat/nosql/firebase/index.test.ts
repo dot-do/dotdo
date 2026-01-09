@@ -1161,6 +1161,99 @@ describe('Field Values', () => {
     const tags = snapshot.data()?.tags as string[]
     expect(tags).toEqual(['tech'])
   })
+
+  // FieldValue operations in setDoc with merge
+  it('should increment in setDoc with merge', async () => {
+    const docRef = doc(db, 'counters/views')
+    await setDoc(docRef, { count: 10 })
+    await setDoc(docRef, { count: increment(5) }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.count).toBe(15)
+  })
+
+  it('should increment from zero when field missing in setDoc with merge', async () => {
+    const docRef = doc(db, 'counters/new')
+    await setDoc(docRef, { name: 'test' })
+    await setDoc(docRef, { count: increment(5) }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.count).toBe(5)
+    expect(snapshot.data()?.name).toBe('test')
+  })
+
+  it('should arrayUnion in setDoc with merge', async () => {
+    const docRef = doc(db, 'posts/merge1')
+    await setDoc(docRef, { tags: ['a', 'b'] })
+    await setDoc(docRef, { tags: arrayUnion('c', 'b') }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    const tags = snapshot.data()?.tags as string[]
+    expect(tags).toContain('a')
+    expect(tags).toContain('b')
+    expect(tags).toContain('c')
+    expect(tags.filter((t) => t === 'b').length).toBe(1) // No duplicates
+  })
+
+  it('should arrayUnion to empty array when field missing in setDoc with merge', async () => {
+    const docRef = doc(db, 'posts/merge2')
+    await setDoc(docRef, { title: 'test' })
+    await setDoc(docRef, { tags: arrayUnion('a', 'b') }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.tags).toEqual(['a', 'b'])
+    expect(snapshot.data()?.title).toBe('test')
+  })
+
+  it('should arrayRemove in setDoc with merge', async () => {
+    const docRef = doc(db, 'posts/merge3')
+    await setDoc(docRef, { tags: ['a', 'b', 'c'] })
+    await setDoc(docRef, { tags: arrayRemove('a') }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.tags).toEqual(['b', 'c'])
+  })
+
+  it('should handle arrayRemove when field missing in setDoc with merge', async () => {
+    const docRef = doc(db, 'posts/merge4')
+    await setDoc(docRef, { title: 'test' })
+    await setDoc(docRef, { tags: arrayRemove('a') }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.tags).toEqual([])
+    expect(snapshot.data()?.title).toBe('test')
+  })
+
+  it('should handle multiple FieldValue operations in setDoc with merge', async () => {
+    const docRef = doc(db, 'items/multi')
+    await setDoc(docRef, { count: 10, tags: ['x'], name: 'original' })
+    await setDoc(
+      docRef,
+      {
+        count: increment(5),
+        tags: arrayUnion('y'),
+        name: 'updated',
+      },
+      { merge: true }
+    )
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.count).toBe(15)
+    expect(snapshot.data()?.tags).toContain('x')
+    expect(snapshot.data()?.tags).toContain('y')
+    expect(snapshot.data()?.name).toBe('updated')
+  })
+
+  it('should deleteField in setDoc with merge', async () => {
+    const docRef = doc(db, 'users/del')
+    await setDoc(docRef, { name: 'Alice', age: 30, city: 'NYC' })
+    await setDoc(docRef, { age: deleteField() }, { merge: true })
+
+    const snapshot = await getDoc(docRef)
+    expect(snapshot.data()?.name).toBe('Alice')
+    expect(snapshot.data()?.city).toBe('NYC')
+    expect(snapshot.data()?.age).toBeUndefined()
+  })
 })
 
 // ============================================================================

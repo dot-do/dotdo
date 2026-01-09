@@ -1196,6 +1196,164 @@ describe('JetStream consumers', () => {
       break
     }
   })
+
+  it('should redeliver message after NAK', async () => {
+    await jsm.consumers.add('EVENTS', {
+      durable_name: 'nak-redelivery',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 5,
+    })
+
+    await js.publish('events.test', sc.encode('nak-me'))
+
+    const consumer = await js.consumers.get('EVENTS', 'nak-redelivery')
+
+    let deliveryCount = 0
+
+    // First fetch - NAK the message
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages1) {
+      deliveryCount++
+      expect(msg.info.deliveryCount).toBe(1)
+      msg.nak() // Reject first time
+    }
+
+    // Second fetch - should get redelivered message
+    const messages2 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages2) {
+      deliveryCount++
+      expect(msg.info.deliveryCount).toBe(2) // Should be second delivery
+      expect(sc.decode(msg.data)).toBe('nak-me')
+      msg.ack() // Accept on redelivery
+    }
+
+    expect(deliveryCount).toBe(2) // Should be delivered twice
+  })
+
+  it('should redeliver message with delay after NAK with delay', async () => {
+    await jsm.consumers.add('EVENTS', {
+      durable_name: 'nak-delay',
+      ack_policy: AckPolicy.Explicit,
+    })
+
+    await js.publish('events.test', sc.encode('delay-nak'))
+
+    const consumer = await js.consumers.get('EVENTS', 'nak-delay')
+
+    // First fetch - NAK with delay
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    const nakTime = Date.now()
+    for await (const msg of messages1) {
+      msg.nak(50) // 50ms delay
+    }
+
+    // Immediate fetch should not get the message (still delayed)
+    const messages2 = await consumer.fetch({ max_messages: 1 })
+    let immediateCount = 0
+    for await (const _msg of messages2) {
+      immediateCount++
+    }
+    expect(immediateCount).toBe(0)
+
+    // Wait for delay to expire
+    await new Promise(resolve => setTimeout(resolve, 60))
+
+    // Now should get the message
+    const messages3 = await consumer.fetch({ max_messages: 1 })
+    let delayedCount = 0
+    for await (const msg of messages3) {
+      delayedCount++
+      msg.ack()
+    }
+    expect(delayedCount).toBe(1)
+  })
+
+  it('should extend ack deadline with working()', async () => {
+    await jsm.consumers.add('EVENTS', {
+      durable_name: 'working-test',
+      ack_policy: AckPolicy.Explicit,
+      ack_wait: 50000000, // 50ms in nanoseconds
+    })
+
+    await js.publish('events.test', sc.encode('work-long'))
+
+    const consumer = await js.consumers.get('EVENTS', 'working-test')
+
+    // First fetch
+    const messages1 = await consumer.fetch({ max_messages: 1 })
+    for await (const msg of messages1) {
+      // Extend the deadline
+      await msg.working()
+      // Wait 30ms (would timeout without working())
+      await new Promise(resolve => setTimeout(resolve, 30))
+      // Extend again
+      await msg.working()
+      // Wait another 30ms
+      await new Promise(resolve => setTimeout(resolve, 30))
+      // Still ours - ack it
+      msg.ack()
+    }
+
+    // Verify message was acked and not redelivered
+    const info = await consumer.info()
+    expect(info.num_ack_pending).toBe(0)
+  })
+
+  it('should track delivery count across multiple NAKs', async () => {
+    await jsm.consumers.add('EVENTS', {
+      durable_name: 'multi-nak',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 10,
+    })
+
+    await js.publish('events.test', sc.encode('multi-nak-me'))
+
+    const consumer = await js.consumers.get('EVENTS', 'multi-nak')
+    const deliveryCounts: number[] = []
+
+    // NAK 3 times, then ack
+    for (let i = 0; i < 4; i++) {
+      const messages = await consumer.fetch({ max_messages: 1 })
+      for await (const msg of messages) {
+        deliveryCounts.push(msg.info.deliveryCount)
+        if (i < 3) {
+          msg.nak()
+        } else {
+          msg.ack()
+        }
+      }
+    }
+
+    expect(deliveryCounts).toEqual([1, 2, 3, 4])
+  })
+
+  it('should stop redelivery after max_deliver attempts', async () => {
+    await jsm.consumers.add('EVENTS', {
+      durable_name: 'max-redeliver',
+      ack_policy: AckPolicy.Explicit,
+      max_deliver: 3,
+    })
+
+    await js.publish('events.test', sc.encode('max-nak'))
+
+    const consumer = await js.consumers.get('EVENTS', 'max-redeliver')
+    let deliveryCount = 0
+
+    // NAK until max_deliver is reached
+    for (let i = 0; i < 5; i++) {
+      const messages = await consumer.fetch({ max_messages: 1 })
+      let gotMessage = false
+      for await (const msg of messages) {
+        gotMessage = true
+        deliveryCount++
+        msg.nak()
+      }
+      if (!gotMessage) break
+    }
+
+    // Should only be delivered max_deliver times
+    expect(deliveryCount).toBe(3)
+  })
 })
 
 // ============================================================================

@@ -279,10 +279,31 @@ function defaultPartitioner(): Partitioner {
 // TRANSACTION IMPLEMENTATION
 // ============================================================================
 
+/**
+ * Staged message for transaction
+ */
+interface StagedMessage {
+  topic: string
+  partition: number
+  message: KafkaMessage
+  metadata: RecordMetadata
+}
+
+/**
+ * Staged offset for transaction
+ */
+interface StagedOffset {
+  consumerGroupId: string
+  topic: string
+  partition: number
+  offset: string
+}
+
 class TransactionImpl implements ITransaction {
   private _producer: ProducerImpl
   private _active = true
-  private _pendingMessages: { topic: string; partition: number; messages: KafkaMessage[] }[] = []
+  private _stagedMessages: StagedMessage[] = []
+  private _stagedOffsets: StagedOffset[] = []
 
   constructor(producer: ProducerImpl) {
     this._producer = producer
@@ -293,7 +314,8 @@ class TransactionImpl implements ITransaction {
       throw new KafkaJSNonRetriableError('Transaction is not active')
     }
 
-    const results = await this._producer._sendInternal(record, true)
+    // Stage the messages instead of writing directly
+    const results = await this._producer._stageMessages(record, this._stagedMessages)
     return results
   }
 
@@ -302,34 +324,89 @@ class TransactionImpl implements ITransaction {
       throw new KafkaJSNonRetriableError('Transaction is not active')
     }
 
-    const results = await this._producer._sendBatchInternal(batch, true)
+    const results: RecordMetadata[] = []
+
+    if (batch.topicMessages) {
+      for (const topicMessages of batch.topicMessages) {
+        const recordResults = await this._producer._stageMessages(
+          {
+            topic: topicMessages.topic,
+            messages: topicMessages.messages,
+            acks: batch.acks,
+            timeout: batch.timeout,
+            compression: batch.compression,
+          },
+          this._stagedMessages
+        )
+        results.push(...recordResults)
+      }
+    }
+
     return results
   }
 
-  async sendOffsets(_offsets: {
+  async sendOffsets(offsets: {
     consumerGroupId: string
     topics: { topic: string; partitions: { partition: number; offset: string }[] }[]
   }): Promise<void> {
     if (!this._active) {
       throw new KafkaJSNonRetriableError('Transaction is not active')
     }
-    // In-memory implementation - no-op for offset commits in transaction
+
+    // Stage the offset commits
+    for (const topicOffsets of offsets.topics) {
+      for (const partitionOffset of topicOffsets.partitions) {
+        this._stagedOffsets.push({
+          consumerGroupId: offsets.consumerGroupId,
+          topic: topicOffsets.topic,
+          partition: partitionOffset.partition,
+          offset: partitionOffset.offset,
+        })
+      }
+    }
   }
 
   async commit(): Promise<void> {
     if (!this._active) {
       throw new KafkaJSNonRetriableError('Transaction is not active')
     }
+
+    // Commit all staged messages to main storage
+    for (const staged of this._stagedMessages) {
+      const topic = getTopic(staged.topic)
+      if (!topic) continue
+
+      const partitionData = topic.partitions.get(staged.partition)
+      if (!partitionData) continue
+
+      partitionData.messages.push(staged.message)
+      partitionData.highWatermark++
+    }
+
+    // Commit all staged offset updates
+    for (const staged of this._stagedOffsets) {
+      const group = getOrCreateConsumerGroup(staged.consumerGroupId)
+
+      if (!group.offsets.has(staged.topic)) {
+        group.offsets.set(staged.topic, new Map())
+      }
+      group.offsets.get(staged.topic)!.set(staged.partition, parseInt(staged.offset))
+    }
+
     this._active = false
-    // Messages are already committed in in-memory implementation
+    this._stagedMessages = []
+    this._stagedOffsets = []
   }
 
   async abort(): Promise<void> {
     if (!this._active) {
       throw new KafkaJSNonRetriableError('Transaction is not active')
     }
+
+    // Simply discard all staged messages and offsets
+    this._stagedMessages = []
+    this._stagedOffsets = []
     this._active = false
-    // In production, would rollback messages
   }
 
   isActive(): boolean {
@@ -460,6 +537,95 @@ class ProducerImpl implements IProducer {
         )
         results.push(...recordResults)
       }
+    }
+
+    return results
+  }
+
+  /**
+   * Stage messages for transactional commit.
+   * Messages are NOT written to main storage until commit() is called.
+   */
+  async _stageMessages(record: ProducerRecord, stagedMessages: StagedMessage[]): Promise<RecordMetadata[]> {
+    if (!this._connected) {
+      throw new KafkaJSError('Producer is not connected')
+    }
+
+    let topic = getTopic(record.topic)
+
+    // Auto-create topic if allowed
+    if (!topic && this._producerConfig.allowAutoTopicCreation !== false) {
+      createTopic({ topic: record.topic, numPartitions: 1 })
+      topic = getTopic(record.topic)
+    }
+
+    if (!topic) {
+      throw new KafkaJSTopicNotFound(`Topic ${record.topic} not found`, { topic: record.topic })
+    }
+
+    const results: RecordMetadata[] = []
+    const partitionMetadata: PartitionMetadata[] = Array.from(topic.partitions.keys()).map(p => ({
+      partitionId: p,
+      leader: 0,
+      replicas: [0],
+      isr: [0],
+    }))
+
+    // Count staged messages per partition to calculate correct offset
+    const stagedCounts = new Map<string, number>()
+    for (const staged of stagedMessages) {
+      const key = `${staged.topic}:${staged.partition}`
+      stagedCounts.set(key, (stagedCounts.get(key) ?? 0) + 1)
+    }
+
+    for (const message of record.messages) {
+      const partition = this._partitioner({
+        topic: record.topic,
+        partitionMetadata,
+        message,
+      })
+
+      const partitionData = topic.partitions.get(partition)
+      if (!partitionData) {
+        throw new KafkaJSError(`Partition ${partition} not found for topic ${record.topic}`)
+      }
+
+      // Calculate offset including previously staged messages
+      const stagingKey = `${record.topic}:${partition}`
+      const stagedCount = stagedCounts.get(stagingKey) ?? 0
+      const offset = (partitionData.highWatermark + stagedCount).toString()
+
+      const kafkaMessage: KafkaMessage = {
+        key: message.key ? (typeof message.key === 'string' ? Buffer.from(message.key) : message.key) : null,
+        value: message.value ? (typeof message.value === 'string' ? Buffer.from(message.value) : message.value) : null,
+        timestamp: message.timestamp ?? Date.now().toString(),
+        size: message.value ? (typeof message.value === 'string' ? message.value.length : message.value.length) : 0,
+        attributes: 0,
+        offset,
+        headers: message.headers,
+      }
+
+      const metadata: RecordMetadata = {
+        topicName: record.topic,
+        partition,
+        errorCode: 0,
+        baseOffset: offset,
+        logAppendTime: kafkaMessage.timestamp,
+        logStartOffset: '0',
+      }
+
+      // Stage the message instead of writing directly
+      stagedMessages.push({
+        topic: record.topic,
+        partition,
+        message: kafkaMessage,
+        metadata,
+      })
+
+      // Update staged count for subsequent messages in this batch
+      stagedCounts.set(stagingKey, stagedCount + 1)
+
+      results.push(metadata)
     }
 
     return results

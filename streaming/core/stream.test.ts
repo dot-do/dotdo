@@ -9,7 +9,7 @@
  * - Transform functions
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { StreamConfig } from './types'
+import type { StreamConfig } from './stream'
 import { StreamBridge, createStreamEvent } from './stream'
 
 // ============================================================================

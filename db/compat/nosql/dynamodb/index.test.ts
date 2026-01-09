@@ -1860,3 +1860,316 @@ describe('Error handling', () => {
     ).rejects.toThrow(ValidationException)
   })
 })
+
+// ============================================================================
+// PAGINATION TESTS
+// ============================================================================
+
+describe('Pagination', () => {
+  let client: DynamoDBClient
+
+  beforeEach(async () => {
+    clearAllTables()
+    client = new DynamoDBClient({ region: 'us-east-1' })
+  })
+
+  describe('Query pagination', () => {
+    beforeEach(async () => {
+      await client.send(
+        new CreateTableCommand({
+          TableName: 'PaginationTest',
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' },
+          ],
+          AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'N' },
+          ],
+        })
+      )
+
+      // Insert 25 items
+      for (let i = 0; i < 25; i++) {
+        await client.send(
+          new PutItemCommand({
+            TableName: 'PaginationTest',
+            Item: {
+              pk: { S: 'partition' },
+              sk: { N: String(i) },
+              data: { S: `item-${i}` },
+            },
+          })
+        )
+      }
+    })
+
+    it('should return LastEvaluatedKey when Limit is less than total items', async () => {
+      const page1 = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 10,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(10)
+      expect(page1.LastEvaluatedKey).toBeDefined()
+      expect(page1.LastEvaluatedKey?.pk?.S).toBe('partition')
+      expect(page1.LastEvaluatedKey?.sk).toBeDefined()
+    })
+
+    it('should not return LastEvaluatedKey when all items returned', async () => {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 100, // More than total items
+        })
+      )
+
+      expect(result.Items).toHaveLength(25)
+      expect(result.LastEvaluatedKey).toBeUndefined()
+    })
+
+    it('should continue from ExclusiveStartKey', async () => {
+      const page1 = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 10,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(10)
+      expect(page1.LastEvaluatedKey).toBeDefined()
+
+      const page2 = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 10,
+          ExclusiveStartKey: page1.LastEvaluatedKey,
+        })
+      )
+
+      expect(page2.Items).toHaveLength(10)
+      // First item of page2 should be different from any item in page1
+      expect(page2.Items![0].sk?.N).not.toBe(page1.Items![0].sk?.N)
+      // page2 should continue right after page1
+      const lastPage1Sk = Number(page1.Items![page1.Items!.length - 1].sk?.N)
+      const firstPage2Sk = Number(page2.Items![0].sk?.N)
+      expect(firstPage2Sk).toBe(lastPage1Sk + 1)
+    })
+
+    it('should iterate through all items with pagination', async () => {
+      const allItems: any[] = []
+      let lastKey: any = undefined
+
+      do {
+        const result = await client.send(
+          new QueryCommand({
+            TableName: 'PaginationTest',
+            KeyConditionExpression: 'pk = :pk',
+            ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+            Limit: 7, // Use odd number to test partial pages
+            ExclusiveStartKey: lastKey,
+          })
+        )
+
+        allItems.push(...result.Items!)
+        lastKey = result.LastEvaluatedKey
+      } while (lastKey)
+
+      expect(allItems).toHaveLength(25)
+
+      // Verify no duplicates
+      const skValues = allItems.map((item) => item.sk?.N)
+      const uniqueSkValues = new Set(skValues)
+      expect(uniqueSkValues.size).toBe(25)
+    })
+
+    it('should paginate in descending order', async () => {
+      const page1 = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 10,
+          ScanIndexForward: false,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(10)
+      expect(page1.Items![0].sk?.N).toBe('24') // Highest value first
+      expect(page1.LastEvaluatedKey).toBeDefined()
+
+      const page2 = await client.send(
+        new QueryCommand({
+          TableName: 'PaginationTest',
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: { ':pk': { S: 'partition' } },
+          Limit: 10,
+          ScanIndexForward: false,
+          ExclusiveStartKey: page1.LastEvaluatedKey,
+        })
+      )
+
+      expect(page2.Items).toHaveLength(10)
+      // Should continue in descending order
+      const lastPage1Sk = Number(page1.Items![page1.Items!.length - 1].sk?.N)
+      const firstPage2Sk = Number(page2.Items![0].sk?.N)
+      expect(firstPage2Sk).toBe(lastPage1Sk - 1)
+    })
+  })
+
+  describe('Scan pagination', () => {
+    beforeEach(async () => {
+      await client.send(
+        new CreateTableCommand({
+          TableName: 'ScanPaginationTest',
+          KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }],
+          AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
+        })
+      )
+
+      // Insert 25 items
+      for (let i = 0; i < 25; i++) {
+        await client.send(
+          new PutItemCommand({
+            TableName: 'ScanPaginationTest',
+            Item: {
+              id: { S: `item-${String(i).padStart(3, '0')}` },
+              data: { S: `data-${i}` },
+            },
+          })
+        )
+      }
+    })
+
+    it('should return LastEvaluatedKey when Limit is less than total items', async () => {
+      const page1 = await client.send(
+        new ScanCommand({
+          TableName: 'ScanPaginationTest',
+          Limit: 10,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(10)
+      expect(page1.LastEvaluatedKey).toBeDefined()
+      expect(page1.LastEvaluatedKey?.id).toBeDefined()
+    })
+
+    it('should continue from ExclusiveStartKey', async () => {
+      const page1 = await client.send(
+        new ScanCommand({
+          TableName: 'ScanPaginationTest',
+          Limit: 10,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(10)
+      expect(page1.LastEvaluatedKey).toBeDefined()
+
+      const page2 = await client.send(
+        new ScanCommand({
+          TableName: 'ScanPaginationTest',
+          Limit: 10,
+          ExclusiveStartKey: page1.LastEvaluatedKey,
+        })
+      )
+
+      expect(page2.Items).toHaveLength(10)
+
+      // Ensure no overlap between pages
+      const page1Ids = new Set(page1.Items!.map((item) => item.id?.S))
+      const page2Ids = page2.Items!.map((item) => item.id?.S)
+      for (const id of page2Ids) {
+        expect(page1Ids.has(id)).toBe(false)
+      }
+    })
+
+    it('should iterate through all items with pagination', async () => {
+      const allItems: any[] = []
+      let lastKey: any = undefined
+
+      do {
+        const result = await client.send(
+          new ScanCommand({
+            TableName: 'ScanPaginationTest',
+            Limit: 7,
+            ExclusiveStartKey: lastKey,
+          })
+        )
+
+        allItems.push(...result.Items!)
+        lastKey = result.LastEvaluatedKey
+      } while (lastKey)
+
+      expect(allItems).toHaveLength(25)
+
+      // Verify no duplicates
+      const ids = allItems.map((item) => item.id?.S)
+      const uniqueIds = new Set(ids)
+      expect(uniqueIds.size).toBe(25)
+    })
+  })
+
+  describe('Pagination with hash-only key', () => {
+    beforeEach(async () => {
+      await client.send(
+        new CreateTableCommand({
+          TableName: 'HashOnlyPagination',
+          KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+          AttributeDefinitions: [{ AttributeName: 'pk', AttributeType: 'S' }],
+        })
+      )
+
+      // Insert items
+      for (let i = 0; i < 15; i++) {
+        await client.send(
+          new PutItemCommand({
+            TableName: 'HashOnlyPagination',
+            Item: {
+              pk: { S: `item-${String(i).padStart(3, '0')}` },
+              data: { S: `data-${i}` },
+            },
+          })
+        )
+      }
+    })
+
+    it('should paginate scan with hash-only key', async () => {
+      const page1 = await client.send(
+        new ScanCommand({
+          TableName: 'HashOnlyPagination',
+          Limit: 5,
+        })
+      )
+
+      expect(page1.Items).toHaveLength(5)
+      expect(page1.LastEvaluatedKey).toBeDefined()
+      expect(page1.LastEvaluatedKey?.pk).toBeDefined()
+
+      const page2 = await client.send(
+        new ScanCommand({
+          TableName: 'HashOnlyPagination',
+          Limit: 5,
+          ExclusiveStartKey: page1.LastEvaluatedKey,
+        })
+      )
+
+      expect(page2.Items).toHaveLength(5)
+
+      // No overlap
+      const page1Pks = new Set(page1.Items!.map((item) => item.pk?.S))
+      for (const item of page2.Items!) {
+        expect(page1Pks.has(item.pk?.S)).toBe(false)
+      }
+    })
+  })
+})

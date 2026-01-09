@@ -1044,6 +1044,222 @@ describe('Integration', () => {
 })
 
 // ============================================================================
+// ROOM BROADCAST DELIVERY TESTS
+// ============================================================================
+
+describe('Room broadcast delivery', () => {
+  afterEach(() => {
+    _clearAll()
+  })
+
+  it('should deliver room broadcast to other sockets in the room', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('room1')
+    socket2.join('room1')
+
+    const received: string[] = []
+    socket2.on('message', (data) => received.push(data as string))
+
+    socket1.to('room1').emit('message', 'hello')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received).toContain('hello')
+
+    socket1.disconnect()
+    socket2.disconnect()
+  })
+
+  it('should NOT deliver to sockets not in the room', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+    const socket3 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('room1')
+    socket2.join('room1')
+    // socket3 does NOT join room1
+
+    const received2: string[] = []
+    const received3: string[] = []
+    socket2.on('message', (data) => received2.push(data as string))
+    socket3.on('message', (data) => received3.push(data as string))
+
+    socket1.to('room1').emit('message', 'hello2')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received2).toContain('hello2')
+    expect(received3).toHaveLength(0) // socket3 not in room
+
+    socket1.disconnect()
+    socket2.disconnect()
+    socket3.disconnect()
+  })
+
+  it('should NOT deliver to the sender when using to()', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('room1')
+    socket2.join('room1')
+
+    const received1: string[] = []
+    const received2: string[] = []
+    socket1.on('message', (data) => received1.push(data as string))
+    socket2.on('message', (data) => received2.push(data as string))
+
+    socket1.to('room1').emit('message', 'broadcast')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received1).toHaveLength(0) // sender should not receive
+    expect(received2).toContain('broadcast')
+
+    socket1.disconnect()
+    socket2.disconnect()
+  })
+
+  it('should deliver broadcast.emit to all sockets except sender', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('common')
+    socket2.join('common')
+
+    const received1: string[] = []
+    const received2: string[] = []
+    socket1.on('announcement', (data) => received1.push(data as string))
+    socket2.on('announcement', (data) => received2.push(data as string))
+
+    socket1.broadcast.emit('announcement', 'hello all')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received1).toHaveLength(0) // sender excluded
+    expect(received2).toContain('hello all')
+
+    socket1.disconnect()
+    socket2.disconnect()
+  })
+
+  it('should return sockets with fetchSockets()', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+    const socket3 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('room1')
+    socket2.join('room1')
+    // socket3 does NOT join room1
+
+    const sockets = await socket1.in('room1').fetchSockets()
+
+    expect(sockets).toHaveLength(2)
+    expect(sockets.map((s: any) => s.id)).toContain(socket1.id)
+    expect(sockets.map((s: any) => s.id)).toContain(socket2.id)
+    expect(sockets.map((s: any) => s.id)).not.toContain(socket3.id)
+
+    socket1.disconnect()
+    socket2.disconnect()
+    socket3.disconnect()
+  })
+
+  it('should handle multiple rooms correctly', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+    const socket3 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('roomA')
+    socket2.join(['roomA', 'roomB'])
+    socket3.join('roomB')
+
+    const received1: string[] = []
+    const received2: string[] = []
+    const received3: string[] = []
+    socket1.on('msg', (data) => received1.push(data as string))
+    socket2.on('msg', (data) => received2.push(data as string))
+    socket3.on('msg', (data) => received3.push(data as string))
+
+    // Emit to roomB only
+    socket1.to('roomB').emit('msg', 'to-roomB')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received1).toHaveLength(0) // socket1 not in roomB
+    expect(received2).toContain('to-roomB') // socket2 in roomB
+    expect(received3).toContain('to-roomB') // socket3 in roomB
+
+    socket1.disconnect()
+    socket2.disconnect()
+    socket3.disconnect()
+  })
+
+  it('should handle except() to exclude rooms', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+    const socket3 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('main')
+    socket2.join(['main', 'vip'])
+    socket3.join('main')
+
+    const received1: string[] = []
+    const received2: string[] = []
+    const received3: string[] = []
+    socket1.on('msg', (data) => received1.push(data as string))
+    socket2.on('msg', (data) => received2.push(data as string))
+    socket3.on('msg', (data) => received3.push(data as string))
+
+    // Emit to main except vip
+    socket1.to('main').except('vip').emit('msg', 'not-for-vip')
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(received1).toHaveLength(0) // sender excluded
+    expect(received2).toHaveLength(0) // socket2 is in 'vip' room, should be excluded
+    expect(received3).toContain('not-for-vip') // socket3 in main, not in vip
+
+    socket1.disconnect()
+    socket2.disconnect()
+    socket3.disconnect()
+  })
+
+  it('should clean up room membership on disconnect', async () => {
+    const socket1 = io('ws://localhost:3000', { forceNew: true })
+    const socket2 = io('ws://localhost:3000', { forceNew: true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    socket1.join('room1')
+    socket2.join('room1')
+
+    // Verify both are in room
+    let sockets = await socket1.in('room1').fetchSockets()
+    expect(sockets).toHaveLength(2)
+
+    // Disconnect socket2
+    socket2.disconnect()
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    // Now only socket1 should be in room
+    sockets = await socket1.in('room1').fetchSockets()
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0].id).toBe(socket1.id)
+
+    socket1.disconnect()
+  })
+})
+
+// ============================================================================
 // RECOVERED/ACTIVE STATE TESTS
 // ============================================================================
 

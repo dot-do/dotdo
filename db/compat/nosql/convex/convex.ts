@@ -5,6 +5,9 @@
  * This in-memory implementation matches the Convex Client API.
  * Production version routes to Durable Objects based on config.
  *
+ * GENERIC TABLE SUPPORT: Any table name works, not just hardcoded modules.
+ * Function naming convention: "tableName:operation" (e.g., "products:create")
+ *
  * @see https://docs.convex.dev/client/javascript
  */
 
@@ -179,7 +182,7 @@ interface Subscription {
 // ============================================================================
 
 /**
- * ConvexClient implementation
+ * ConvexClient implementation with generic table support
  */
 export class ConvexClient implements IConvexClient {
   private instanceId: string
@@ -430,286 +433,329 @@ export class ConvexClient implements IConvexClient {
   }
 
   // ============================================================================
-  // FUNCTION EXECUTION
+  // GENERIC FUNCTION EXECUTION
   // ============================================================================
 
+  /**
+   * Execute a query function.
+   * Format: "tableName:operation" (e.g., "products:list", "users:get")
+   *
+   * Supported generic operations:
+   * - list: Get all documents (supports filtering via args)
+   * - get: Get document by ID
+   * - listBy*: Filter by field (e.g., listByAssignee, listByPriority)
+   * - listCompleted, etc.: Filter by specific field values
+   */
   private async executeQuery(
     functionName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
-    // Parse function name (format: "module:function")
-    const [module, func] = functionName.split(':')
+    const [tableName, func] = functionName.split(':')
 
-    // Built-in query handlers
-    if (module === 'messages') {
-      return this.handleMessagesQuery(func, args)
-    }
-    if (module === 'users') {
-      return this.handleUsersQuery(func, args)
-    }
-    if (module === 'channels') {
-      return this.handleChannelsQuery(func, args)
-    }
-
-    // Unknown function - for testing invalid references
-    if (module === 'invalid' || module === 'error') {
+    // Handle explicit error/invalid cases for testing
+    if (tableName === 'invalid' || tableName === 'error') {
       throw new Error(`Function not found: ${functionName}`)
     }
 
-    // Default: return empty array for list, null for get
-    if (func === 'list') return []
-    return null
+    // Get the table (creates empty one if doesn't exist)
+    const table = getTable(this.tables, tableName)
+
+    // Execute based on operation type
+    return this.executeGenericQuery(table, func, args)
   }
 
+  /**
+   * Execute generic query operations on any table
+   */
+  private executeGenericQuery(
+    table: TableStorage,
+    operation: string,
+    args: Record<string, unknown>
+  ): unknown {
+    // List all documents
+    if (operation === 'list') {
+      let results = Array.from(table.values())
+
+      // Apply any field filters from args (except special args)
+      const specialArgs = ['paginationOpts', 'limit', 'cursor', 'order']
+      for (const [key, value] of Object.entries(args)) {
+        if (!specialArgs.includes(key) && value !== undefined) {
+          results = results.filter((doc) => doc[key] === value)
+        }
+      }
+
+      // Handle pagination
+      const paginationOpts = args.paginationOpts as { numItems?: number; cursor?: string } | undefined
+      if (paginationOpts) {
+        const limit = paginationOpts.numItems ?? 10
+        results = results.slice(0, limit)
+      }
+
+      return results
+    }
+
+    // Get single document by ID
+    if (operation === 'get') {
+      const id = args.id as string
+      return table.get(id) ?? null
+    }
+
+    // Handle listBy* operations (e.g., listByAssignee, listByAuthor)
+    if (operation.startsWith('listBy')) {
+      // Extract field name from operation (e.g., "listByAssignee" -> "assignee")
+      const fieldName = operation.slice(6).charAt(0).toLowerCase() + operation.slice(7)
+      let results = Array.from(table.values())
+
+      // Filter by the extracted field or use arg with same name
+      const filterValue = args[fieldName]
+      if (filterValue !== undefined) {
+        results = results.filter((doc) => doc[fieldName] === filterValue)
+      }
+
+      // Also check for explicit filter args
+      for (const [key, value] of Object.entries(args)) {
+        if (key !== fieldName && value !== undefined) {
+          // Handle minPriority, maxPriority style filters
+          if (key.startsWith('min')) {
+            const field = key.slice(3).charAt(0).toLowerCase() + key.slice(4)
+            results = results.filter((doc) => {
+              const docValue = doc[field]
+              return typeof docValue === 'number' && docValue >= (value as number)
+            })
+          } else if (key.startsWith('max')) {
+            const field = key.slice(3).charAt(0).toLowerCase() + key.slice(4)
+            results = results.filter((doc) => {
+              const docValue = doc[field]
+              return typeof docValue === 'number' && docValue <= (value as number)
+            })
+          }
+        }
+      }
+
+      return results
+    }
+
+    // Handle listCompleted, listPending, etc. (filter by boolean/enum field)
+    if (operation.startsWith('list')) {
+      // Extract what we're filtering by (e.g., "listCompleted" filters where completed=true)
+      const suffix = operation.slice(4)
+      if (suffix) {
+        const fieldName = suffix.charAt(0).toLowerCase() + suffix.slice(1)
+        let results = Array.from(table.values())
+
+        // Check if there's an arg for this field
+        const filterValue = args[fieldName]
+        if (filterValue !== undefined) {
+          results = results.filter((doc) => doc[fieldName] === filterValue)
+        }
+
+        return results
+      }
+    }
+
+    // Handle getByToken for auth
+    if (operation === 'getByToken') {
+      if (this.authTokenFetcher) {
+        const docs = Array.from(table.values())
+        return docs[0] ?? null
+      }
+      return null
+    }
+
+    // Default: return empty array for unknown operations
+    return []
+  }
+
+  /**
+   * Execute a mutation function.
+   * Format: "tableName:operation" (e.g., "products:create", "users:update")
+   *
+   * Supported generic operations:
+   * - create/send: Insert new document
+   * - update/patch: Update existing document
+   * - remove/delete: Delete document
+   */
   private async executeMutation(
     functionName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
-    const [module, func] = functionName.split(':')
+    const [tableName, func] = functionName.split(':')
 
-    if (module === 'messages') {
-      return this.handleMessagesMutation(func, args)
-    }
-    if (module === 'users') {
-      return this.handleUsersMutation(func, args)
-    }
-    if (module === 'channels') {
-      return this.handleChannelsMutation(func, args)
-    }
-
-    // Unknown function
-    if (module === 'invalid' || module === 'error' || module === 'custom') {
+    // Handle explicit error/invalid cases for testing
+    if (tableName === 'invalid' || tableName === 'error' || tableName === 'custom') {
       throw new Error(`Mutation not found: ${functionName}`)
     }
 
+    // Get or create the table
+    const table = getTable(this.tables, tableName)
+
+    // Execute based on operation type
+    return this.executeGenericMutation(table, func, args)
+  }
+
+  /**
+   * Execute generic mutation operations on any table
+   */
+  private executeGenericMutation(
+    table: TableStorage,
+    operation: string,
+    args: Record<string, unknown>
+  ): unknown {
+    // Create/Send/Insert: Add new document
+    if (operation === 'create' || operation === 'send' || operation === 'insert') {
+      const id = generateId()
+      const doc: Document = {
+        _id: id,
+        _creationTime: Date.now(),
+        ...args,
+      }
+      // Remove 'id' from args if it was passed (we generate our own)
+      delete doc.id
+      table.set(id, doc)
+      return id
+    }
+
+    // Update/Patch: Modify existing document
+    if (operation === 'update' || operation === 'patch') {
+      const id = args.id as string | undefined
+
+      if (id) {
+        // Update specific document by ID
+        const existing = table.get(id)
+        if (existing) {
+          const updated: Document = { ...existing }
+          for (const [key, value] of Object.entries(args)) {
+            if (key !== 'id' && value !== undefined) {
+              updated[key] = value
+            }
+          }
+          table.set(id, updated)
+          return id
+        }
+        return null
+      } else {
+        // If no ID, update first document (legacy behavior for users:update)
+        const docs = Array.from(table.values())
+        if (docs.length > 0) {
+          const doc = docs[0]
+          for (const [key, value] of Object.entries(args)) {
+            if (key !== 'id' && value !== undefined) {
+              doc[key] = value
+            }
+          }
+          table.set(doc._id, doc)
+          return doc._id
+        }
+        // Create new if none exists
+        const newId = generateId()
+        const newDoc: Document = {
+          _id: newId,
+          _creationTime: Date.now(),
+          ...args,
+        }
+        table.set(newId, newDoc)
+        return newId
+      }
+    }
+
+    // Remove/Delete: Remove document
+    if (operation === 'remove' || operation === 'delete') {
+      const id = args.id as string
+      table.delete(id)
+      return null
+    }
+
+    // Replace: Full document replacement
+    if (operation === 'replace') {
+      const id = args.id as string
+      const existing = table.get(id)
+      if (existing) {
+        const newDoc: Document = {
+          _id: id,
+          _creationTime: existing._creationTime,
+          ...args,
+        }
+        delete newDoc.id
+        table.set(id, newDoc)
+        return id
+      }
+      return null
+    }
+
+    // AddMember: Special case for channel-like tables
+    if (operation === 'addMember') {
+      const channelName = args.channel as string
+      const userId = args.user as string
+
+      for (const doc of table.values()) {
+        if (doc.name === channelName) {
+          const members = (doc.members as string[]) ?? []
+          if (!members.includes(userId)) {
+            members.push(userId)
+            doc.members = members
+            table.set(doc._id, doc)
+          }
+          return null
+        }
+      }
+      return null
+    }
+
+    // Increment: For counter-like operations
+    if (operation === 'increment') {
+      const id = args.id as string
+      const field = (args.field as string) ?? 'value'
+      const amount = (args.amount as number) ?? 1
+
+      const existing = table.get(id)
+      if (existing) {
+        const currentValue = (existing[field] as number) ?? 0
+        existing[field] = currentValue + amount
+        table.set(id, existing)
+        return existing[field]
+      }
+      return null
+    }
+
+    // Default: return null for unknown operations
     return null
   }
 
+  /**
+   * Execute an action function.
+   * Actions can call external APIs and are not transactional.
+   */
   private async executeAction(
     functionName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
     const [module, func] = functionName.split(':')
 
-    if (module === 'openai') {
-      return this.handleOpenAIAction(func, args)
-    }
-    if (module === 'search') {
-      return this.handleSearchAction(func, args)
-    }
-
-    // Unknown function
+    // Handle explicit error/invalid cases
     if (module === 'invalid' || module === 'error') {
       throw new Error(`Action not found: ${functionName}`)
     }
 
+    // OpenAI mock actions
+    if (module === 'openai') {
+      return this.handleOpenAIAction(func, args)
+    }
+
+    // Search mock actions
+    if (module === 'search') {
+      return this.handleSearchAction(func, args)
+    }
+
+    // Default: return null for unknown actions
     return null
   }
 
   // ============================================================================
-  // MESSAGES HANDLERS
-  // ============================================================================
-
-  private handleMessagesQuery(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'messages')
-
-    if (func === 'list') {
-      const messages = Array.from(table.values())
-
-      // Filter by channel if specified
-      const channel = args.channel as string | undefined
-      const filtered = channel
-        ? messages.filter((m) => m.channel === channel)
-        : messages
-
-      // Handle pagination
-      const paginationOpts = args.paginationOpts as { numItems?: number; cursor?: string } | undefined
-      if (paginationOpts) {
-        const limit = paginationOpts.numItems ?? 10
-        return filtered.slice(0, limit)
-      }
-
-      return filtered
-    }
-
-    if (func === 'get') {
-      const id = args.id as string
-      return table.get(id) ?? null
-    }
-
-    return []
-  }
-
-  private handleMessagesMutation(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'messages')
-
-    if (func === 'send') {
-      const id = generateId()
-      const doc: Document = {
-        _id: id,
-        _creationTime: Date.now(),
-        body: args.body as string,
-        author: args.author as string,
-        channel: args.channel as string,
-      }
-      table.set(id, doc)
-      return id
-    }
-
-    if (func === 'update') {
-      const id = args.id as string
-      const existing = table.get(id)
-      if (existing) {
-        const updated = { ...existing }
-        if (args.body !== undefined) updated.body = args.body
-        table.set(id, updated)
-      }
-      return null
-    }
-
-    if (func === 'remove') {
-      const id = args.id as string
-      table.delete(id)
-      return null
-    }
-
-    return null
-  }
-
-  // ============================================================================
-  // USERS HANDLERS
-  // ============================================================================
-
-  private handleUsersQuery(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'users')
-
-    if (func === 'list') {
-      return Array.from(table.values())
-    }
-
-    if (func === 'get') {
-      const id = args.id as string
-      return table.get(id) ?? null
-    }
-
-    if (func === 'getByToken') {
-      // Return user based on auth token
-      if (this.authTokenFetcher) {
-        const users = Array.from(table.values())
-        return users[0] ?? null
-      }
-      return null
-    }
-
-    return null
-  }
-
-  private handleUsersMutation(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'users')
-
-    if (func === 'create') {
-      const id = generateId()
-      const doc: Document = {
-        _id: id,
-        _creationTime: Date.now(),
-        name: args.name as string,
-        email: args.email as string,
-      }
-      table.set(id, doc)
-      return id
-    }
-
-    if (func === 'update') {
-      // Update current user or specified user
-      const users = Array.from(table.values())
-      if (users.length > 0) {
-        const user = users[0]
-        if (args.name !== undefined) user.name = args.name
-        if (args.email !== undefined) user.email = args.email
-        table.set(user._id, user)
-        return user._id
-      }
-
-      // Create new user if none exists
-      const id = generateId()
-      const doc: Document = {
-        _id: id,
-        _creationTime: Date.now(),
-        name: args.name as string ?? 'User',
-        email: args.email as string ?? '',
-      }
-      table.set(id, doc)
-      return id
-    }
-
-    return null
-  }
-
-  // ============================================================================
-  // CHANNELS HANDLERS
-  // ============================================================================
-
-  private handleChannelsQuery(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'channels')
-
-    if (func === 'list') {
-      return Array.from(table.values())
-    }
-
-    if (func === 'get') {
-      const id = args.id as string
-      return table.get(id) ?? null
-    }
-
-    return []
-  }
-
-  private handleChannelsMutation(func: string, args: Record<string, unknown>): unknown {
-    const table = getTable(this.tables, 'channels')
-
-    if (func === 'create') {
-      const id = generateId()
-      const doc: Document = {
-        _id: id,
-        _creationTime: Date.now(),
-        name: args.name as string,
-        description: args.description as string ?? '',
-        members: [],
-      }
-      table.set(id, doc)
-      return id
-    }
-
-    if (func === 'addMember') {
-      const channelName = args.channel as string
-      const userId = args.user as string
-
-      // Find channel by name
-      for (const channel of table.values()) {
-        if (channel.name === channelName) {
-          const members = (channel.members as string[]) ?? []
-          if (!members.includes(userId)) {
-            members.push(userId)
-            channel.members = members
-            table.set(channel._id, channel)
-          }
-          return null
-        }
-      }
-
-      return null
-    }
-
-    return null
-  }
-
-  // ============================================================================
-  // ACTION HANDLERS
+  // ACTION HANDLERS (Mock implementations for testing)
   // ============================================================================
 
   private handleOpenAIAction(func: string, args: Record<string, unknown>): unknown {
     if (func === 'chat') {
-      // Mock AI response
       return {
         response: `AI response to: ${args.prompt}`,
         model: 'gpt-4',
@@ -718,7 +764,6 @@ export class ConvexClient implements IConvexClient {
     }
 
     if (func === 'embed') {
-      // Mock embedding
       return {
         embedding: Array.from({ length: 1536 }, () => Math.random()),
         model: 'text-embedding-ada-002',
