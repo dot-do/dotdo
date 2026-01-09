@@ -113,7 +113,7 @@ dotdo is batteries-included. Everything you need, nothing you don't.
 
 ### Domain Classes
 
-Build with primitives that match how businesses actually work:
+Business-as-Code means building with primitives that match how businesses actually work:
 
 ```
 DO (Base)
@@ -124,9 +124,9 @@ DO (Base)
 │   ├── Marketplace  ► Multi-sided platforms
 │   └── Directory    ► Listings and discovery
 │
-├── Worker ──────────► Who does the work
+├── Worker ──────────► Who operates your Autonomous Business
 │   ├── Agent        ► AI workers with tools
-│   └── Human        ► People for escalation
+│   └── Human        ► People for escalation (HumanFunction)
 │
 ├── App ─────────────► User-facing applications
 ├── Site ────────────► Marketing, docs, blog
@@ -200,7 +200,7 @@ const { data } = await supabase.from('users').select('*')
 // Hot (DO SQLite) → Warm (R2 Iceberg) → Cold (Archive)
 ```
 
-**Why this matters:** Your existing code works. Your AI agents can use familiar APIs. And it all scales horizontally across Cloudflare's global network.
+**Why this matters:** Your existing code works. Your AI agents can use familiar APIs. And it all scales horizontally across Cloudflare's global network—enabling true Autonomous Businesses with millions of parallel agents.
 
 ### Surfaces (UI)
 
@@ -233,7 +233,7 @@ Your business needs interfaces. Sites for customers, apps for operators. Built w
 
 Everything else you need, built in:
 
-- **Auth** - Users, orgs, API keys via [org.ai](https://id.org.ai) - federated identity for AI and humans
+- **Auth** - Users, orgs, API keys via [org.ai](https://id.org.ai) - federated identity for AI agents and humans
 - **Billing** - Subscriptions, usage-based, invoicing
 - **Analytics** - HUNCH metrics, funnels, cohorts
 - **Observability** - Traces, logs, alerts
@@ -285,7 +285,7 @@ Just as IaC made infrastructure programmable, BaC makes businesses programmable.
 
 ### Scale to Millions
 
-Every primitive is designed for millions of parallel AI agents. Sharded storage, global replication, edge-native execution. Your business scales with you.
+Every primitive is designed for Autonomous Businesses with millions of parallel AI agents. Sharded storage, global replication, edge-native execution. Whether you're building Services-as-Software or a full Autonomous Business, the platform scales with you.
 
 ## Learn More
 
