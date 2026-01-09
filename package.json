@@ -98,7 +98,9 @@
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc -p examples/tsconfig.json",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "db:seed": "npx tsx db/seeds/run.ts",
+    "db:seed:integrations": "npx tsx db/seeds/run.ts integrations"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.2.0",
