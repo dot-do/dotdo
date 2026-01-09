@@ -22,7 +22,7 @@ const isCI = !!process.env.CI
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8787'
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: '.',
 
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -40,10 +40,10 @@ export default defineConfig({
   reporter: isCI
     ? [
         ['github'],
-        ['html', { open: 'never', outputFolder: 'testing/playwright-report' }],
-        ['json', { outputFile: 'tests/results/e2e-results.json' }],
+        ['html', { open: 'never', outputFolder: 'playwright-report' }],
+        ['json', { outputFile: '../results/e2e-results.json' }],
       ]
-    : [['html', { open: 'on-failure', outputFolder: 'testing/playwright-report' }]],
+    : [['html', { open: 'on-failure', outputFolder: 'playwright-report' }]],
 
   /* Global test timeout */
   timeout: 30 * 1000,
@@ -120,7 +120,7 @@ export default defineConfig({
   ],
 
   /* Output directory for test artifacts */
-  outputDir: 'tests/results/e2e',
+  outputDir: '../results/e2e',
 
   /* Preserve output on failure */
   preserveOutput: 'failures-only',

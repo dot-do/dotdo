@@ -1,0 +1,145 @@
+# Meet Your AI Team
+
+Named agents with real identity. Not chatbots—workers.
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+// Template literal syntax for natural requests
+const spec = await priya`define the MVP for ${hypothesis}`
+const code = await ralph`build ${spec}`
+const review = await tom`review ${code}`
+```
+
+---
+
+## The Team
+
+<AgentGrid>
+  <AgentProfile name="Priya" role="Product Manager" avatar="/agents/priya.png">
+    **Specs, roadmaps, priorities.** Priya turns your hypothesis into actionable specs. She thinks in user stories, not features.
+
+    ```typescript
+    await priya`what should we build next?`
+    await priya`prioritize the backlog for ${sprint}`
+    await priya`write acceptance criteria for ${feature}`
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Ralph" role="Engineer" avatar="/agents/ralph.png">
+    **Builds what you need.** Ralph writes production code. Tests included. He prefers simple solutions.
+
+    ```typescript
+    await ralph`build ${spec}`
+    await ralph`fix the bug in ${component}`
+    await ralph`add tests for ${module}`
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Tom" role="Tech Lead" avatar="/agents/tom.png">
+    **Architecture, code review.** Tom reviews PRs, designs systems, and catches edge cases before they become incidents.
+
+    ```typescript
+    await tom`review ${pullRequest}`
+    await tom`design the architecture for ${system}`
+    await tom`ship ${app}` // Review + merge + deploy
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Rae" role="Frontend" avatar="/agents/rae.png">
+    **React, UI, accessibility.** Rae builds interfaces. She cares about UX, responsiveness, and a11y.
+
+    ```typescript
+    await rae`build the ${component} component`
+    await rae`make ${page} responsive`
+    await rae`audit accessibility for ${app}`
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Mark" role="Marketing" avatar="/agents/mark.png">
+    **Copy, content, launches.** Mark writes landing pages, blog posts, and launch announcements.
+
+    ```typescript
+    await mark`announce the launch`
+    await mark`write a blog post about ${feature}`
+    await mark`create copy for ${campaign}`
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Sally" role="Sales" avatar="/agents/sally.png">
+    **Outreach, demos, closing.** Sally handles cold outreach, schedules demos, and follows up.
+
+    ```typescript
+    await sally`start selling`
+    await sally`reach out to ${leads}`
+    await sally`follow up with ${prospect}`
+    ```
+  </AgentProfile>
+
+  <AgentProfile name="Quinn" role="QA" avatar="/agents/quinn.png">
+    **Testing, edge cases, quality.** Quinn finds bugs before users do. She thinks like an attacker.
+
+    ```typescript
+    await quinn`test ${feature}`
+    await quinn`find edge cases in ${spec}`
+    await quinn`write e2e tests for ${flow}`
+    ```
+  </AgentProfile>
+</AgentGrid>
+
+---
+
+## Real Identity
+
+Each agent has:
+- **GitHub account** — `@priya-do`, `@ralph-do`, etc.
+- **Email** — `priya@agents.do`
+- **Avatar** — Consistent across all platforms
+- **Audit trail** — Full history of actions
+
+When Tom reviews your PR, you see `@tom-do` commenting. Not "AI Assistant".
+
+---
+
+## Pipeline Execution
+
+Agents compose with promise pipelining. One network round trip, not N.
+
+```typescript
+// This is ONE batch operation
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+  .map(pr => tom`merge ${pr}`)
+
+// Not N separate API calls
+```
+
+The `.map()` isn't JavaScript. It's a **Magic Map** that sends your callback to the server.
+
+---
+
+## Custom Agents
+
+Build domain-specific agents for your industry.
+
+```typescript
+import { Agent } from 'dotdo'
+
+export class LegalReviewer extends Agent {
+  name = 'Lexi'
+  role = 'Legal'
+
+  systemPrompt = `You review contracts and legal documents.
+    Flag risks. Suggest revisions. Never give legal advice.`
+}
+
+// Use it
+const reviewed = await lexi`review ${contract}`
+```
+
+---
+
+<CTA primary="/docs/agents" secondary="https://agents.do">
+  Explore agents.do
+</CTA>

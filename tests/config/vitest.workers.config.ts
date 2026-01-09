@@ -16,8 +16,22 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { resolve } from 'path'
+
+// Resolve path to duckdb-wasm browser-blocking module
+// The package doesn't export this path in its exports field, but the file exists
+const DUCKDB_BROWSER_BLOCKING = resolve(
+  __dirname,
+  '../../node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs'
+)
 
 export default defineWorkersConfig({
+  resolve: {
+    alias: {
+      // Map the import path to the actual file location
+      '@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs': DUCKDB_BROWSER_BLOCKING,
+    },
+  },
   test: {
     // Enable globals (describe, it, expect) without imports
     globals: true,

@@ -132,16 +132,16 @@ describe('fumadocs-openapi Configuration', () => {
 
   describe('source.config.ts Integration', () => {
     it('source.config.ts exists', () => {
-      expect(existsSync('source.config.ts')).toBe(true)
+      expect(existsSync('docs/source.config.ts')).toBe(true)
     })
 
     it('source.config.ts imports fumadocs-openapi', async () => {
-      const content = await readFile('source.config.ts', 'utf-8')
+      const content = await readFile('docs/source.config.ts', 'utf-8')
       expect(content).toContain('fumadocs-openapi')
     })
 
     it('source.config.ts defines API docs collection', async () => {
-      const content = await readFile('source.config.ts', 'utf-8')
+      const content = await readFile('docs/source.config.ts', 'utf-8')
       expect(content).toMatch(/api|openapi/i)
     })
   })

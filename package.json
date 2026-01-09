@@ -5,7 +5,7 @@
   "workspaces": [
     "packages/*"
   ],
-  "main": "./index.ts",
+  "main": "./do/index.ts",
   "bin": {
     "do": "./cli/bin.ts"
   },
@@ -13,27 +13,27 @@
   "exports": {
     ".": {
       "types": "./types/index.ts",
-      "default": "./index.ts"
+      "default": "./do/index.ts"
     },
     "./tiny": {
       "types": "./types/index.ts",
-      "default": "./tiny.ts"
+      "default": "./do/tiny.ts"
     },
     "./fs": {
       "types": "./types/index.ts",
-      "default": "./fs.ts"
+      "default": "./do/fs.ts"
     },
     "./git": {
       "types": "./types/index.ts",
-      "default": "./git.ts"
+      "default": "./do/git.ts"
     },
     "./bash": {
       "types": "./types/index.ts",
-      "default": "./bash.ts"
+      "default": "./do/bash.ts"
     },
     "./full": {
       "types": "./types/index.ts",
-      "default": "./full.ts"
+      "default": "./do/full.ts"
     },
     "./objects": {
       "types": "./objects/index.ts",
@@ -66,20 +66,19 @@
     },
     "./api/*": "./api/*.ts",
     "./testing": {
-      "types": "./testing/index.ts",
-      "default": "./testing/index.ts"
+      "types": "./tests/harness/index.ts",
+      "default": "./tests/harness/index.ts"
     },
-    "./testing/*": "./testing/*.ts",
+    "./testing/*": "./tests/harness/*.ts",
+    "./hunch": {
+      "types": "./metrics/hunch.ts",
+      "default": "./metrics/hunch.ts"
+    },
     "./dist": "./dist",
     "./dist/*": "./dist/*"
   },
   "files": [
-    "index.ts",
-    "tiny.ts",
-    "fs.ts",
-    "git.ts",
-    "bash.ts",
-    "full.ts",
+    "do",
     "objects",
     "types",
     "snippets",
@@ -87,11 +86,12 @@
     "lib",
     "workflows",
     "api",
-    "testing",
+    "tests/harness",
+    "metrics",
     "dist"
   ],
   "scripts": {
-    "types": "wrangler types worker.d.ts -c wrangler.jsonc",
+    "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && npm run dev",
     "build": "cd app && npm run build",
@@ -102,14 +102,14 @@
     "test:run": "vitest run --reporter=dot",
     "test:coverage": "vitest run --coverage",
     "test:workers": "vitest --project=workers",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:report": "playwright show-report",
-    "test:e2e:chromium": "playwright test --project=chromium",
-    "test:e2e:firefox": "playwright test --project=firefox",
-    "test:e2e:webkit": "playwright test --project=webkit",
-    "test:e2e:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test -c tests/e2e/playwright.config.ts --ui",
+    "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
+    "test:e2e:report": "playwright show-report tests/e2e/playwright-report",
+    "test:e2e:chromium": "playwright test -c tests/e2e/playwright.config.ts --project=chromium",
+    "test:e2e:firefox": "playwright test -c tests/e2e/playwright.config.ts --project=firefox",
+    "test:e2e:webkit": "playwright test -c tests/e2e/playwright.config.ts --project=webkit",
+    "test:e2e:mobile": "playwright test -c tests/e2e/playwright.config.ts --project=mobile-chrome --project=mobile-safari",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc -p examples/tsconfig.json",
     "lint": "eslint .",
@@ -126,6 +126,7 @@
   "dependencies": {
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
+    "@duckdb/duckdb-wasm": "1.33.1-dev16.0",
     "@hono/zod-openapi": "^1.2.0",
     "@mdxui/beacon": "^0.2.0",
     "@mdxui/cockpit": "^0.2.0",
@@ -167,6 +168,14 @@
     "tw-animate-css": "^1.4.0",
     "zod": "^4.3.5"
   },
+  "prettier": {
+    "semi": false,
+    "singleQuote": true,
+    "jsxSingleQuote": true,
+    "tabWidth": 2,
+    "useTabs": false,
+    "printWidth": 160
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
@@ -199,6 +208,6 @@
     "vite": "^6.0.0",
     "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^2.0.5",
-    "wrangler": "^3.100.0"
+    "wrangler": "^4.58.0"
   }
 }

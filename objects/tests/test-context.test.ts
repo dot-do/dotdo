@@ -29,7 +29,7 @@ import {
   mockDB,
   mockQueue,
   mockFetch,
-} from '../../testing/executor-context'
+} from '../../tests/harness/executor-context'
 
 // Import types from CodeFunctionExecutor for compatibility
 import type { ExecutionContext } from '../../lib/executors/CodeFunctionExecutor'

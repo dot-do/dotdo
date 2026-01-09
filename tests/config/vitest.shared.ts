@@ -8,8 +8,8 @@
 import { resolve } from 'path'
 import type { UserConfig } from 'vitest/config'
 
-/** Project root directory */
-export const PROJECT_ROOT = resolve(__dirname)
+/** Project root directory (two levels up from tests/config/) */
+export const PROJECT_ROOT = resolve(__dirname, '../..')
 
 /** Cloudflare workers module mock path */
 export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudflare-workers.ts')

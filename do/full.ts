@@ -25,8 +25,8 @@
  * ```
  */
 
-import { DO as BaseDO } from './objects/DO'
-import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from './lib/mixins'
+import { DO as BaseDO } from '../objects/DO'
+import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from '../lib/mixins'
 
 /**
  * Stub executor that throws when used.

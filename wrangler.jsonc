@@ -5,6 +5,9 @@
   "compatibility_date": "2026-01-08",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Don't try to resolve optional browser automation packages
+  "find_additional_modules": false,
+
   // Static assets configuration
   "assets": {
     "directory": "./dist",

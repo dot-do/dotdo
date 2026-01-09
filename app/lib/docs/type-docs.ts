@@ -5,7 +5,7 @@
  * using fumadocs-typescript integration.
  */
 
-import { typeDocConfig } from '../../../source.config'
+import { typeDocConfig } from '../../../docs/source.config'
 
 /**
  * TypeDoc configuration interface

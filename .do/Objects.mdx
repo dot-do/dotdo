@@ -1,0 +1,224 @@
+# Durable Objects
+
+Virtual Chrome tabs with persistent state. The building blocks of dotdo.
+
+```typescript
+import { DO } from 'dotdo'
+
+export class Counter extends DO {
+  count = 0
+
+  increment() {
+    return ++this.count
+  }
+}
+```
+
+---
+
+## Why Durable Objects?
+
+Traditional backends have problems at scale:
+- **Database connections** — Limited pool, per-request overhead
+- **Race conditions** — Concurrent writes corrupt state
+- **Cold starts** — Serverless spins up, then down
+- **Global state** — Shared memory causes bugs
+
+Durable Objects solve all of these:
+- **Single-threaded** — No race conditions
+- **In-memory state** — No database round-trip
+- **0ms cold starts** — Already running on edge
+- **Isolated** — Each instance is independent
+
+---
+
+## Object Hierarchy
+
+<ObjectTree>
+  <ObjectNode name="DO" description="Base class. State + RPC.">
+    <ObjectNode name="Entity" description="Single record. CRUD operations.">
+      <ObjectNode name="Agent" description="AI worker with tools." />
+      <ObjectNode name="Human" description="Routes to humans." />
+    </ObjectNode>
+    <ObjectNode name="Collection" description="Multiple records. Query + filter.">
+      <ObjectNode name="Directory" description="Hierarchical. Paths + folders." />
+    </ObjectNode>
+    <ObjectNode name="Workflow" description="Orchestration. Events + schedules." />
+    <ObjectNode name="Function" description="Callable. Three execution modes." />
+  </ObjectNode>
+</ObjectTree>
+
+---
+
+## DO — Base Class
+
+Everything extends DO. State persists automatically.
+
+```typescript
+export class MyDO extends DO {
+  // State is persisted
+  data: Record<string, unknown> = {}
+
+  // Methods are RPC endpoints
+  async getData(key: string) {
+    return this.data[key]
+  }
+
+  async setData(key: string, value: unknown) {
+    this.data[key] = value
+  }
+}
+```
+
+---
+
+## Entity — Single Record
+
+For individual resources with identity.
+
+```typescript
+export class User extends Entity {
+  name: string
+  email: string
+  plan: 'free' | 'pro' | 'enterprise'
+
+  async upgrade(plan: string) {
+    this.plan = plan
+    await this.$.emit('User.upgraded', { plan })
+  }
+}
+```
+
+---
+
+## Collection — Multiple Records
+
+For queryable sets of data.
+
+```typescript
+export class Users extends Collection<User> {
+  async findByEmail(email: string) {
+    return this.query({ email })
+  }
+
+  async findPro() {
+    return this.query({ plan: 'pro' })
+  }
+}
+```
+
+---
+
+## Business Objects
+
+Higher-level abstractions for common patterns.
+
+<FeatureGrid cols={2}>
+  <Feature title="Business">
+    Full company. Revenue, expenses, employees.
+
+    ```typescript
+    export class Acme extends Business {
+      name = 'Acme Corp'
+      industry = 'SaaS'
+    }
+    ```
+  </Feature>
+
+  <Feature title="App">
+    Web application. Routes, auth, database.
+
+    ```typescript
+    export class MyApp extends App {
+      routes = [...]
+      auth = betterAuth(...)
+    }
+    ```
+  </Feature>
+
+  <Feature title="Site">
+    Marketing site. Pages, blog, SEO.
+
+    ```typescript
+    export class MySite extends Site {
+      domain = 'example.com'
+      pages = [...]
+    }
+    ```
+  </Feature>
+
+  <Feature title="SaaS">
+    Full SaaS product. Billing, users, features.
+
+    ```typescript
+    export class MySaaS extends SaaS {
+      plans = ['free', 'pro', 'enterprise']
+      features = [...]
+    }
+    ```
+  </Feature>
+</FeatureGrid>
+
+---
+
+## Service Objects
+
+For APIs and tools.
+
+```typescript
+export class PaymentService extends Service {
+  async charge(amount: number, customer: string) {
+    return stripe.charges.create({ amount, customer })
+  }
+}
+
+export class MyAPI extends API {
+  routes = {
+    'POST /charge': this.payment.charge,
+  }
+}
+```
+
+---
+
+## Addressing
+
+Each DO instance has a unique ID.
+
+```typescript
+// Get by ID
+const user = await env.USER.get(id)
+
+// Get by name (deterministic ID)
+const user = await env.USER.get(env.USER.idFromName('alice@example.com'))
+
+// Call methods via RPC
+const data = await user.getData()
+```
+
+---
+
+## Cross-DO Communication
+
+DOs can call each other.
+
+```typescript
+export class Order extends DO {
+  async process() {
+    // Get customer DO
+    const customer = await this.$.Customer(this.customerId)
+
+    // Call method on it
+    await customer.addOrder(this.id)
+
+    // Emit event
+    await this.$.emit('Order.processed', { orderId: this.id })
+  }
+}
+```
+
+---
+
+<CTA primary="/docs/objects">
+  Deep dive into Durable Objects
+</CTA>

@@ -3,13 +3,13 @@ import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 
 describe('TanStack Start + Fumadocs Build', () => {
-  describe('source.config.ts', () => {
+  describe('docs/source.config.ts', () => {
     it('should exist at project root', () => {
-      expect(existsSync('source.config.ts')).toBe(true);
+      expect(existsSync('docs/source.config.ts')).toBe(true);
     });
 
     it('should define docs collection', async () => {
-      const content = await readFile('source.config.ts', 'utf-8');
+      const content = await readFile('docs/source.config.ts', 'utf-8');
       expect(content).toContain('defineDocs');
       expect(content).toContain("dir: 'docs'");
     });

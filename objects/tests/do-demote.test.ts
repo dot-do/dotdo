@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createMockDO, MockDOResult, MockEnv, createMockDONamespace } from '../../testing/do'
+import { createMockDO, MockDOResult, MockEnv, createMockDONamespace } from '../../tests/harness/do'
 import { DO } from '../DO'
 import type { DemoteResult } from '../../types/Lifecycle'
 

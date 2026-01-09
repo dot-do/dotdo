@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 
+// Skip cloudflare plugin during vitest - it conflicts with @cloudflare/vitest-pool-workers
+// The plugin's validateWorkerEnvironmentOptions doesn't handle undefined resolve.external
+const isVitest = process.env.VITEST === 'true'
+
 export default defineConfig({
-  plugins: [cloudflare()],
+  plugins: isVitest ? [] : [cloudflare()],
   // Public directory for static files (_headers, robots.txt, etc.)
   // These files are copied to dist during build
   publicDir: 'public',

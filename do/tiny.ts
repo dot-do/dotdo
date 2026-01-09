@@ -14,7 +14,7 @@
  * ```
  */
 
-export { DO } from './objects/DO'
+export { DO } from '../objects/DO'
 
 /**
  * Capabilities included in this entry point

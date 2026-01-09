@@ -22,15 +22,15 @@
 export { DO, capabilities, withFs, withGit, withBash } from './full'
 
 // Core Durable Object classes (excluding base DO which is overridden above)
-export { Agent, Human, Worker } from './objects'
-export { Entity, Collection, Directory, Package, Product } from './objects'
-export { Business, App, Site, SaaS } from './objects'
-export { Workflow } from './objects'
-export { Function } from './objects'
-export { Service, API, SDK, CLI } from './objects'
+export { Agent, Human, Worker } from '../objects'
+export { Entity, Collection, Directory, Package, Product } from '../objects'
+export { Business, App, Site, SaaS } from '../objects'
+export { Workflow } from '../objects'
+export { Function } from '../objects'
+export { Service, API, SDK, CLI } from '../objects'
 
 // Type definitions
-export * from './types'
+export * from '../types'
 
 // Code snippets for common patterns
-export * from './snippets'
+export * from '../snippets'

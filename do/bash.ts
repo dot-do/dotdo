@@ -19,9 +19,9 @@
  * ```
  */
 
-import { DO as BaseDO } from './objects/DO'
-import { withFs } from './lib/mixins/fs'
-import { withBash } from './lib/mixins/bash'
+import { DO as BaseDO } from '../objects/DO'
+import { withFs } from '../lib/mixins/fs'
+import { withBash } from '../lib/mixins/bash'
 
 // TODO: Configure executor and fs properly - these are placeholders
 export const DO = withBash(withFs(BaseDO), {

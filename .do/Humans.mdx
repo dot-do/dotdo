@@ -1,0 +1,176 @@
+# Human Escalation
+
+AI does the work. Humans make decisions. Route to Slack, email, SMS with full audit trail.
+
+```typescript
+import { legal, ceo } from 'humans.do'
+
+const approved = await ceo`approve the partnership with ${company}`
+const reviewed = await legal`review ${contract}`
+```
+
+---
+
+## When AI Needs Humans
+
+Some decisions shouldn't be automated:
+- High-value transactions
+- Legal or compliance matters
+- Edge cases outside training data
+- Customer escalations
+- Strategic decisions
+
+---
+
+## Human Functions
+
+Define when to escalate.
+
+```typescript
+import { Human } from 'dotdo'
+
+export class RefundApprover extends Human {
+  trigger = 'refund > $10000'
+  role = 'senior-accountant'
+  sla = '4 hours'
+
+  channels = ['slack', 'email']
+}
+```
+
+When triggered:
+1. Slack notification to `#accounting`
+2. Email to on-call accountant
+3. SLA countdown starts
+4. Full context attached
+
+---
+
+## Escalation Channels
+
+<FeatureGrid cols={3}>
+  <Feature icon="Slack" title="Slack">
+    Interactive buttons. Thread replies. Real-time.
+  </Feature>
+  <Feature icon="Mail" title="Email">
+    Rich HTML. Attachments. Reply to respond.
+  </Feature>
+  <Feature icon="Phone" title="SMS">
+    Urgent alerts. Quick approvals. Y/N responses.
+  </Feature>
+</FeatureGrid>
+
+---
+
+## The Decision Loop
+
+```typescript
+export class ContractReview extends Workflow {
+  async run(contract: Contract) {
+    // AI does initial analysis
+    const analysis = await tom`analyze risks in ${contract}`
+
+    // Route based on risk level
+    if (analysis.riskLevel === 'high') {
+      return await legal`review ${contract} with ${analysis}`
+    }
+
+    // Low risk: auto-approve
+    return { approved: true, analysis }
+  }
+}
+```
+
+---
+
+## Audit Trail
+
+Every human decision is logged:
+
+```typescript
+{
+  decision: 'approved',
+  human: 'jane@company.com',
+  timestamp: '2024-01-15T14:32:00Z',
+  context: { contractId: 'abc123', amount: 50000 },
+  reasoning: 'Standard terms, existing customer',
+  channel: 'slack',
+  responseTime: '2h 15m'
+}
+```
+
+---
+
+## SLA Management
+
+Define response time expectations.
+
+```typescript
+export class UrgentApproval extends Human {
+  sla = '1 hour'
+
+  onSlaBreached = async () => {
+    // Escalate to manager
+    await manager`urgent: ${this.request} needs approval`
+  }
+
+  onSlaWarning = async () => {
+    // Send reminder at 50% of SLA
+    await this.remind()
+  }
+}
+```
+
+---
+
+## Role-Based Routing
+
+Route to the right human based on context.
+
+```typescript
+export class ExpenseApproval extends Human {
+  async route(expense: Expense) {
+    if (expense.amount > 50000) {
+      return 'cfo'
+    }
+    if (expense.amount > 10000) {
+      return 'finance-manager'
+    }
+    return 'team-lead'
+  }
+}
+```
+
+---
+
+## Hybrid Teams
+
+Mix AI agents and humans seamlessly.
+
+```typescript
+import { priya, ralph } from 'agents.do'
+import { cto, designer } from 'humans.do'
+
+export class ProductDevelopment extends Workflow {
+  async run(idea: string) {
+    // AI: spec and build
+    const spec = await priya`define ${idea}`
+    const prototype = await ralph`build ${spec}`
+
+    // Human: design review
+    const design = await designer`review UX of ${prototype}`
+
+    // AI: implement feedback
+    const final = await ralph`implement ${design.feedback}`
+
+    // Human: final approval
+    return await cto`approve for production: ${final}`
+  }
+}
+```
+
+---
+
+<CTA primary="/docs/humans" secondary="https://humans.do">
+  Explore humans.do
+</CTA>

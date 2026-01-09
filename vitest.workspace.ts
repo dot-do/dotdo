@@ -21,12 +21,13 @@
  *
  * Workers Environment:
  * - workers: Runtime integration tests (uses @cloudflare/vitest-pool-workers)
+ * - duckdb-wasm: DuckDB WASM instantiation tests (requires Workers runtime)
  *
  * Run specific workspace: npx vitest --project=workers
  * Run all workspaces: npx vitest --workspace
  *
- * @see vitest.shared.ts for shared configuration
- * @see vitest.workers.config.ts for Workers pool configuration
+ * @see tests/config/vitest.shared.ts for shared configuration
+ * @see tests/config/vitest.workers.config.ts for Workers pool configuration
  */
 
 import { defineWorkspace } from 'vitest/config'
@@ -35,7 +36,7 @@ import {
   nodeResolveConfig,
   defaultExcludes,
   CHDB_MOCK,
-} from './vitest.shared'
+} from './tests/config/vitest.shared'
 
 /**
  * Creates a Node.js test workspace configuration
@@ -128,11 +129,11 @@ export default defineWorkspace([
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
 
-  // Testing utilities tests
-  createNodeWorkspace('testing', ['testing/tests/**/*.test.ts']),
+  // Test harness utilities tests
+  createNodeWorkspace('harness', ['tests/harness/**/*.test.ts']),
 
   // ACID test suite (Phase 1-6 tests for consistency/durability)
-  createNodeWorkspace('acid', ['testing/acid/**/*.test.ts', 'tests/acid/**/*.test.ts']),
+  createNodeWorkspace('acid', ['tests/acid/**/*.test.ts']),
 
   // Test mocks infrastructure
   createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
@@ -220,7 +221,7 @@ export default defineWorkspace([
 
   // Runtime integration tests using Cloudflare Workers pool
   {
-    extends: './vitest.workers.config.ts',
+    extends: './tests/config/vitest.workers.config.ts',
     test: {
       ...sharedTestConfig,
       name: 'workers',
@@ -231,6 +232,21 @@ export default defineWorkspace([
       ],
       exclude: defaultExcludes,
       setupFiles: ['./api/tests/middleware/setup.ts'],
+      // Workers tests need sequential execution for stability
+      sequence: {
+        concurrent: false,
+      },
+    },
+  },
+
+  // DuckDB WASM tests - require Workers runtime for WASM instantiation
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      ...sharedTestConfig,
+      name: 'duckdb-wasm',
+      include: ['compat/duckdb-wasm/tests/**/*.test.ts'],
+      exclude: defaultExcludes,
       // Workers tests need sequential execution for stability
       sequence: {
         concurrent: false,

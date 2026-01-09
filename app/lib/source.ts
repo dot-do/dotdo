@@ -1,7 +1,12 @@
 import { loader } from 'fumadocs-core/source'
-import { docs, meta } from 'fumadocs-mdx:collections'
+
+// TODO: Re-enable fumadocs-mdx collections once build is working
+// import { docs, meta } from 'fumadocs-mdx:collections'
 
 export const source = loader({
   baseUrl: '/docs',
-  source: { docs, meta },
+  source: {
+    docs: { type: 'docs', files: () => [] },
+    meta: { type: 'meta', files: () => [] }
+  },
 })

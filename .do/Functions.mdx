@@ -1,0 +1,146 @@
+# Durable Functions
+
+Serverless functions that remember. State persists across invocations.
+
+```typescript
+import { Function } from 'dotdo'
+
+export class Counter extends Function {
+  count = 0
+
+  async increment() {
+    this.count++
+    return this.count
+  }
+}
+```
+
+---
+
+## Why Durable?
+
+Traditional serverless is stateless. Every invocation starts fresh.
+
+| Serverless | Durable Functions |
+|------------|-------------------|
+| State in database | State in memory |
+| Cold starts | 0ms activation |
+| Connection per request | Persistent connections |
+| Race conditions | Single-threaded |
+
+---
+
+## Three Execution Modes
+
+```typescript
+// Fire-and-forget — no confirmation
+$.send(event)
+
+// Single attempt — fail fast
+$.try(action)
+
+// Durable — retries with backoff
+$.do(action)
+```
+
+Use `$.send` for analytics. Use `$.try` for idempotent ops. Use `$.do` for everything else.
+
+---
+
+## Function Types
+
+<FeatureGrid cols={2}>
+  <Feature icon="<>" title="Code Functions">
+    Pure TypeScript. Runs in V8 isolates. Deterministic execution.
+
+    ```typescript
+    export class Calculator extends Function {
+      async add(a: number, b: number) {
+        return a + b
+      }
+    }
+    ```
+  </Feature>
+
+  <Feature icon="AI" title="Agentic Functions">
+    LLM-powered with tools. Non-deterministic but auditable.
+
+    ```typescript
+    export class Researcher extends Function {
+      async research(topic: string) {
+        return this.agent`research ${topic}`
+      }
+    }
+    ```
+  </Feature>
+
+  <Feature icon="User" title="Human Functions">
+    Route to humans for decisions. Full audit trail.
+
+    ```typescript
+    export class Approver extends Function {
+      async approve(request: Request) {
+        return this.human`approve ${request}`
+      }
+    }
+    ```
+  </Feature>
+
+  <Feature icon="Cog" title="Hybrid Functions">
+    Compose all three. AI does work, humans decide.
+
+    ```typescript
+    export class Reviewer extends Function {
+      async review(pr: PR) {
+        const analysis = await this.agent`analyze ${pr}`
+        return this.human`approve? ${analysis}`
+      }
+    }
+    ```
+  </Feature>
+</FeatureGrid>
+
+---
+
+## Invocation
+
+```typescript
+// Direct call
+const result = await counter.increment()
+
+// Via RPC
+const stub = env.COUNTER.get(id)
+const result = await stub.increment()
+
+// Via HTTP
+POST /api/functions/counter/increment
+```
+
+---
+
+## State Management
+
+State is automatically persisted. No explicit save needed.
+
+```typescript
+export class ShoppingCart extends Function {
+  items: Item[] = []
+
+  async add(item: Item) {
+    this.items.push(item)
+    // Automatically persisted
+  }
+
+  async checkout() {
+    const order = await this.processOrder(this.items)
+    this.items = [] // Clear cart
+    return order
+  }
+}
+```
+
+---
+
+<CTA primary="/docs/functions">
+  Learn more about Functions
+</CTA>

@@ -117,22 +117,22 @@ describe('fumadocs-typescript Configuration', () => {
 
   describe('Source Configuration', () => {
     it('source.config.ts exists', () => {
-      expect(existsSync('source.config.ts')).toBe(true)
+      expect(existsSync('docs/source.config.ts')).toBe(true)
     })
 
     it('source.config.ts imports fumadocs-typescript', async () => {
-      const content = await readFile('source.config.ts', 'utf-8')
+      const content = await readFile('docs/source.config.ts', 'utf-8')
       expect(content).toContain('fumadocs-typescript')
     })
 
     it('source.config.ts configures TypeScript type extraction', async () => {
-      const content = await readFile('source.config.ts', 'utf-8')
+      const content = await readFile('docs/source.config.ts', 'utf-8')
       // Should configure type extraction from source files
       expect(content).toMatch(/createTypeTable|generateTypeDoc|typeTable/i)
     })
 
     it('source.config.ts references types directory', async () => {
-      const content = await readFile('source.config.ts', 'utf-8')
+      const content = await readFile('docs/source.config.ts', 'utf-8')
       // Should reference the types/ directory for extraction
       expect(content).toMatch(/types\/|\.\/types|types\*/)
     })

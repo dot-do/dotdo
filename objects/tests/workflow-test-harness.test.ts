@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 
 // This import will FAIL - WorkflowTestHarness doesn't exist yet
-import { WorkflowTestHarness, type WorkflowTestHarnessOptions } from '../../testing/workflow-harness'
+import { WorkflowTestHarness, type WorkflowTestHarnessOptions } from '../../tests/harness/workflow-harness'
 
 import {
   Workflow,
