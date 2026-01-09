@@ -10,6 +10,11 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['tests/react/**', 'jsdom'],
     ],
+    setupFiles: ['./tests/react/setup.ts'],
+  },
+  esbuild: {
+    jsx: 'automatic',
+    jsxImportSource: 'react',
   },
   resolve: {
     alias: {

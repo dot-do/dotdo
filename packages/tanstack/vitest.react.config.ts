@@ -13,4 +13,8 @@ export default defineConfig({
       '@dotdo/tanstack': './src/index.ts',
     },
   },
+  esbuild: {
+    jsx: 'automatic',
+    jsxImportSource: 'react',
+  },
 })

@@ -6,6 +6,17 @@
  */
 
 import '@testing-library/jest-dom/vitest'
+import { vi, beforeEach, afterEach } from 'vitest'
+
+// Override vi.useFakeTimers to configure shouldAdvanceTime
+const originalUseFakeTimers = vi.useFakeTimers.bind(vi)
+vi.useFakeTimers = (options?: Parameters<typeof vi.useFakeTimers>[0]) => {
+  return originalUseFakeTimers({
+    shouldAdvanceTime: true,
+    advanceTimeDelta: 20,
+    ...options,
+  })
+}
 
 // Clean up after each test
 afterEach(() => {

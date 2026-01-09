@@ -20,7 +20,7 @@ import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
-import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError } from '../types/WorkflowContext'
+import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError, HandlerOptions, HandlerRegistration, EnhancedDispatchResult, EventFilter } from '../types/WorkflowContext'
 import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from '../workflows/schedule-builder'
 import { ScheduleManager, type Schedule } from '../workflows/ScheduleManager'
 import type { Thing } from '../types/Thing'
@@ -343,8 +343,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   // Event handler registry for $.on.Noun.verb() registration
   // Key format: "Noun.verb" (e.g., "Customer.created")
-  // Value: Array of registered handler functions
-  protected _eventHandlers: Map<string, Function[]> = new Map()
+  // Value: Array of registered handler registrations with metadata
+  protected _eventHandlers: Map<string, HandlerRegistration[]> = new Map()
+
+  // Counter for generating unique handler names
+  private _handlerCounter: number = 0
 
   // Schedule handler registry for $.every scheduling
   // Key format: schedule name
@@ -438,10 +441,29 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   /**
    * DLQStore - Dead Letter Queue for failed events
+   *
+   * The DLQ integrates with event handlers for replay functionality.
+   * When a handler fails, the event is added to the DLQ and can be replayed.
    */
   get dlq(): DLQStore {
     if (!this._dlq) {
-      this._dlq = new DLQStore(this.getStoreContext(), this._eventHandlers)
+      // Create an adapter map for DLQ that extracts handlers from registrations
+      const handlerMap = new Map<string, (data: unknown) => Promise<unknown>>()
+      for (const [eventKey, registrations] of this._eventHandlers) {
+        if (registrations.length > 0) {
+          handlerMap.set(eventKey, async (data) => {
+            const event: DomainEvent = {
+              id: `dlq-replay-${crypto.randomUUID()}`,
+              verb: eventKey.split('.')[1] || '',
+              source: `https://${this.ns}/${eventKey.split('.')[0]}/replay`,
+              data,
+              timestamp: new Date(),
+            }
+            await this.dispatchEventToHandlers(event)
+          })
+        }
+      }
+      this._dlq = new DLQStore(this.getStoreContext(), handlerMap)
     }
     return this._dlq
   }
@@ -4146,19 +4168,46 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     return new Proxy({} as OnProxy, {
       get: (_, noun: string): OnNounProxy => {
         return new Proxy({} as OnNounProxy, {
-          get: (_, verb: string): (handler: EventHandler) => void => {
-            return (handler: EventHandler): void => {
+          get: (_, verb: string): ((handler: EventHandler, options?: HandlerOptions) => void) => {
+            return (handler: EventHandler, options?: HandlerOptions): void => {
               // Build the event key in format "Noun.verb"
               const eventKey = `${noun}.${verb}`
 
               // Get or create the handlers array for this event
-              const handlers = self._eventHandlers.get(eventKey) ?? []
+              const registrations = self._eventHandlers.get(eventKey) ?? []
 
-              // Add the handler to the array
-              handlers.push(handler)
+              // Generate handler name if not provided
+              const handlerName = options?.name
+                || (handler as Function).name
+                || `handler_${++self._handlerCounter}`
+
+              // Create the handler registration with metadata
+              const registration: HandlerRegistration = {
+                name: handlerName,
+                priority: options?.priority ?? 0,
+                registeredAt: Date.now(),
+                sourceNs: self.ns,
+                handler,
+                filter: options?.filter,
+                maxRetries: options?.maxRetries ?? 3,
+                executionCount: 0,
+                successCount: 0,
+                failureCount: 0,
+              }
+
+              // Add the registration to the array
+              registrations.push(registration)
+
+              // Sort by priority (higher priority first), then by registration order
+              registrations.sort((a, b) => {
+                if (b.priority !== a.priority) {
+                  return b.priority - a.priority
+                }
+                return a.registeredAt - b.registeredAt
+              })
 
               // Store back in the registry
-              self._eventHandlers.set(eventKey, handlers)
+              self._eventHandlers.set(eventKey, registrations)
             }
           },
         })
@@ -4307,98 +4356,125 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // EVENT HANDLER MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Get registered event handlers for a specific event key
-   *
-   * @param eventKey - The event key in format "Noun.verb" (e.g., "Customer.created")
-   * @returns Array of registered handler functions, or empty array if none
-   *
-   * @example
-   * ```typescript
-   * const handlers = this.getEventHandlers('Customer.created')
-   * ```
-   */
   getEventHandlers(eventKey: string): Function[] {
+    const registrations = this._eventHandlers.get(eventKey) ?? []
+    return registrations.map((r) => r.handler)
+  }
+
+  getHandlersByPriority(eventKey: string): Array<{ handler: Function; priority: number }> {
+    const registrations = this._eventHandlers.get(eventKey) ?? []
+    return registrations.map((r) => ({ handler: r.handler, priority: r.priority }))
+  }
+
+  getHandlerMetadata(eventKey: string, handlerName: string): HandlerRegistration | undefined {
+    const registrations = this._eventHandlers.get(eventKey) ?? []
+    return registrations.find((r) => r.name === handlerName)
+  }
+
+  getHandlerRegistrations(eventKey: string): HandlerRegistration[] {
     return this._eventHandlers.get(eventKey) ?? []
   }
 
-  /**
-   * Dispatch an event to all registered handlers
-   *
-   * Handlers are executed sequentially. Errors in one handler do not prevent
-   * other handlers from executing. All errors are collected and returned.
-   *
-   * @param event - The domain event to dispatch
-   * @returns Object with count of successful handlers and array of errors
-   *
-   * @example
-   * ```typescript
-   * const event: DomainEvent = {
-   *   id: 'evt-123',
-   *   verb: 'created',
-   *   source: 'https://example.do/Customer/cust-456',
-   *   data: { email: 'user@example.com' },
-   *   timestamp: new Date()
-   * }
-   * const result = await this.dispatchEventToHandlers(event)
-   * console.log(`${result.handled} handlers executed, ${result.errors.length} errors`)
-   * ```
-   */
-  async dispatchEventToHandlers(event: DomainEvent): Promise<{ handled: number; errors: Error[] }> {
-    // Extract noun from source URL (format: "https://ns/Noun/id")
-    const sourceParts = event.source.split('/')
-    const noun = sourceParts[sourceParts.length - 2] || ''
-
-    // Build event key
-    const eventKey = `${noun}.${event.verb}`
-
-    // Get registered handlers
-    const handlers = this._eventHandlers.get(eventKey) ?? []
-
-    let handled = 0
-    const errors: Error[] = []
-
-    // Execute each handler, catching errors
-    for (const handler of handlers) {
-      try {
-        await handler(event)
-        handled++
-      } catch (e) {
-        errors.push(e instanceof Error ? e : new Error(String(e)))
-      }
-    }
-
-    return { handled, errors }
+  listAllHandlers(): Map<string, HandlerRegistration[]> {
+    return new Map(this._eventHandlers)
   }
 
-  /**
-   * Unregister an event handler
-   *
-   * @param eventKey - The event key in format "Noun.verb"
-   * @param handler - The handler function to remove
-   * @returns true if the handler was found and removed, false otherwise
-   *
-   * @example
-   * ```typescript
-   * const handler = async (event) => { ... }
-   * this.$.on.Customer.created(handler)
-   * // Later:
-   * this.unregisterEventHandler('Customer.created', handler)
-   * ```
-   */
-  unregisterEventHandler(eventKey: string, handler: Function): boolean {
-    const handlers = this._eventHandlers.get(eventKey)
+  private collectMatchingHandlers(noun: string, verb: string): HandlerRegistration[] {
+    const matchingHandlers: Array<{ registration: HandlerRegistration; isWildcard: boolean }> = []
+    const exactKey = `${noun}.${verb}`
+    for (const reg of this._eventHandlers.get(exactKey) ?? []) {
+      matchingHandlers.push({ registration: reg, isWildcard: false })
+    }
+    for (const reg of this._eventHandlers.get(`*.${verb}`) ?? []) {
+      matchingHandlers.push({ registration: reg, isWildcard: true })
+    }
+    for (const reg of this._eventHandlers.get(`${noun}.*`) ?? []) {
+      matchingHandlers.push({ registration: reg, isWildcard: true })
+    }
+    for (const reg of this._eventHandlers.get('*.*') ?? []) {
+      matchingHandlers.push({ registration: reg, isWildcard: true })
+    }
+    matchingHandlers.sort((a, b) => {
+      if (b.registration.priority !== a.registration.priority) {
+        return b.registration.priority - a.registration.priority
+      }
+      if (a.isWildcard !== b.isWildcard) {
+        return a.isWildcard ? 1 : -1
+      }
+      return a.registration.registeredAt - b.registration.registeredAt
+    })
+    return matchingHandlers.map((h) => h.registration)
+  }
 
-    if (!handlers) {
+  async dispatchEventToHandlers(event: DomainEvent): Promise<EnhancedDispatchResult> {
+    const sourceParts = event.source.split('/')
+    const noun = sourceParts[sourceParts.length - 2] || ''
+    const registrations = this.collectMatchingHandlers(noun, event.verb)
+
+    let handled = 0
+    let filtered = 0
+    let wildcardMatches = 0
+    const errors: Error[] = []
+    const dlqEntries: string[] = []
+
+    const exactKey = `${noun}.${event.verb}`
+    const exactRegistrations = new Set((this._eventHandlers.get(exactKey) ?? []).map((r) => r.name))
+
+    for (const registration of registrations) {
+      if (!exactRegistrations.has(registration.name)) {
+        wildcardMatches++
+      }
+      if (registration.filter) {
+        try {
+          const shouldExecute = await registration.filter(event)
+          if (!shouldExecute) {
+            filtered++
+            continue
+          }
+        } catch {
+          filtered++
+          continue
+        }
+      }
+      registration.executionCount++
+      registration.lastExecutedAt = Date.now()
+      try {
+        await registration.handler(event)
+        registration.successCount++
+        handled++
+      } catch (e) {
+        registration.failureCount++
+        const error = e instanceof Error ? e : new Error(String(e))
+        errors.push(error)
+        try {
+          const dlqEntry = await this.dlq.add({
+            eventId: event.id,
+            verb: `${noun}.${event.verb}`,
+            source: event.source,
+            data: event.data as Record<string, unknown>,
+            error: error.message,
+            errorStack: error.stack,
+            maxRetries: registration.maxRetries,
+          })
+          dlqEntries.push(dlqEntry.id)
+        } catch {
+          console.error('Failed to add event to DLQ')
+        }
+      }
+    }
+    return { handled, errors, dlqEntries, filtered, wildcardMatches }
+  }
+
+  unregisterEventHandler(eventKey: string, handler: Function): boolean {
+    const registrations = this._eventHandlers.get(eventKey)
+    if (!registrations) {
       return false
     }
-
-    const index = handlers.indexOf(handler)
+    const index = registrations.findIndex((r) => r.handler === handler)
     if (index > -1) {
-      handlers.splice(index, 1)
+      registrations.splice(index, 1)
       return true
     }
-
     return false
   }
 

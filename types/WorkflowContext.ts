@@ -224,20 +224,88 @@ export interface DomainEvent<TData = unknown> {
  *
  * @typeParam TPayload - The expected payload type for this event
  */
-export type EventHandler<TPayload = unknown> = (
-  event: DomainEvent<TPayload>
-) => Promise<void>
+export type EventHandler<TPayload = unknown> = (event: DomainEvent<TPayload>) => Promise<void> | void
+
+// ============================================================================
+// ENHANCED HANDLER OPTIONS AND METADATA
+// ============================================================================
+
+/**
+ * Filter predicate for conditional event handling
+ * Returns true to allow the handler to execute, false to skip
+ */
+export type EventFilter<TPayload = unknown> = (event: DomainEvent<TPayload>) => boolean | Promise<boolean>
+
+/**
+ * Options for enhanced event handler registration
+ */
+export interface HandlerOptions<TPayload = unknown> {
+  /** Priority for execution ordering (higher = runs first, default: 0) */
+  priority?: number
+  /** Filter predicate for conditional handling */
+  filter?: EventFilter<TPayload>
+  /** Handler name for debugging and metadata tracking */
+  name?: string
+  /** Maximum retry attempts when handler fails (for DLQ integration) */
+  maxRetries?: number
+}
+
+/**
+ * Handler registration metadata tracked by the system
+ */
+export interface HandlerRegistration<TPayload = unknown> {
+  /** Handler name (from options or generated) */
+  name: string
+  /** Handler priority (default: 0) */
+  priority: number
+  /** Registration timestamp (epoch ms) */
+  registeredAt: number
+  /** Source DO namespace that registered this handler */
+  sourceNs: string
+  /** The handler function itself */
+  handler: EventHandler<TPayload>
+  /** Optional filter predicate */
+  filter?: EventFilter<TPayload>
+  /** Maximum retries for DLQ (default: 3) */
+  maxRetries: number
+  /** Last execution timestamp (epoch ms) */
+  lastExecutedAt?: number
+  /** Total execution count */
+  executionCount: number
+  /** Successful execution count */
+  successCount: number
+  /** Failed execution count */
+  failureCount: number
+}
+
+/**
+ * Enhanced dispatch result with additional metadata
+ */
+export interface EnhancedDispatchResult {
+  /** Number of handlers that executed successfully */
+  handled: number
+  /** Array of errors from failed handlers */
+  errors: Error[]
+  /** IDs of DLQ entries created for failed handlers */
+  dlqEntries: string[]
+  /** Number of handlers skipped due to filter predicate */
+  filtered: number
+  /** Number of wildcard handler matches */
+  wildcardMatches: number
+}
 
 /**
  * OnNounProxy - Provides typed verb access for a specific noun
  *
  * When EventPayloadMap is extended with typed events, the handler
  * will receive properly typed event payloads.
+ *
+ * Enhanced to support optional HandlerOptions as second parameter.
  */
 export interface OnNounProxy<Noun extends string = string> {
-  [verb: string]: <V extends string>(
-    this: { [K in V]: unknown },
-    handler: EventHandler<EventPayload<Noun, V>>
+  [verb: string]: (
+    handler: EventHandler<EventPayload<Noun, string>>,
+    options?: HandlerOptions<EventPayload<Noun, string>>
   ) => void
 }
 
@@ -246,13 +314,23 @@ export interface OnNounProxy<Noun extends string = string> {
  *
  * This enables type inference: $.on.Customer.created(handler)
  * will infer the handler parameter type from EventPayloadMap['Customer.created']
+ *
+ * Enhanced to support optional HandlerOptions as second parameter.
  */
 export type TypedOnNounProxy<Noun extends string> = {
-  [Verb in string]: (handler: EventHandler<EventPayload<Noun, Verb>>) => void
+  [Verb in string]: (
+    handler: EventHandler<EventPayload<Noun, Verb>>,
+    options?: HandlerOptions<EventPayload<Noun, Verb>>
+  ) => void
 }
 
 /**
  * OnProxy - Provides typed noun access for event subscriptions
+ *
+ * Supports wildcard patterns:
+ * - $.on['*'].created - all nouns with 'created' verb
+ * - $.on.Customer['*'] - all verbs for Customer noun
+ * - $.on['*']['*'] - all events (global handler)
  */
 export interface OnProxy {
   [Noun: string]: TypedOnNounProxy<typeof Noun>

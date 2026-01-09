@@ -4,13 +4,41 @@
  * This module provides type mappings and adapters for using Payload CMS
  * as a data source for dotdo Things.
  *
- * Types to be implemented:
- * - PayloadDatabaseAdapter: Main adapter interface
- * - CollectionToNoun: Maps Payload collections to dotdo Nouns
- * - FieldToData: Transforms Payload fields to Thing data
- * - PayloadDocumentToThing: Maps Payload documents to ThingEntity
- * - RelationshipFieldMapping: Maps relationship fields to relationships table
+ * @module @dotdo/payload
  */
 
-// Placeholder - types will be implemented to make tests pass
-export {}
+// ============================================================================
+// ADAPTER TYPES
+// ============================================================================
+
+export type {
+  PayloadDatabaseAdapter,
+  PayloadAdapterConfig,
+  PayloadField,
+  PayloadFieldType,
+  PayloadCollection,
+  PayloadDocument,
+  CollectionToNoun,
+  FieldToData,
+  PayloadDocumentToThing,
+  RelationshipFieldMapping,
+} from './adapter/types'
+
+export { slugToNounName, fieldNameToVerb, mapFieldType } from './adapter/types'
+
+// ============================================================================
+// TESTING HARNESS
+// ============================================================================
+
+export type {
+  AdapterOperation,
+  SeedData,
+  PayloadAdapterHarnessConfig,
+  PayloadAdapterHarness,
+  ThingsStore,
+  RelationshipsStore,
+  NounsStore,
+  MockPayloadAdapter,
+} from './testing/harness'
+
+export { createPayloadAdapterHarness } from './testing/harness'
