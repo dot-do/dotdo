@@ -23,7 +23,7 @@
  */
 
 import { DO as BaseDO } from './objects/DO'
-import { withFs, withGit, withBash } from './objects/mixins'
+import { withFs, withGit, withBash } from './lib/mixins'
 
 export const DO = withBash(withGit(withFs(BaseDO)))
 

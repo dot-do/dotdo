@@ -84,8 +84,8 @@ describe('Schema Table Definition', () => {
 
     it('table name is "do_observability"', () => {
       expect(observability, 'observability table must exist').toBeDefined()
-      // Drizzle tables have a _ property with table info
-      const tableName = (observability as { _: { name: string } })._?.name ?? ''
+      // Drizzle tables store the name via symbol - consistent with other tests in codebase
+      const tableName = (observability as any)[Symbol.for('drizzle:Name')] ?? (observability as any)._?.name
       expect(tableName).toBe('do_observability')
     })
   })
@@ -650,6 +650,9 @@ describe('Partition Columns', () => {
 
 describe('Complete Event Examples', () => {
   it('creates complete log event', () => {
+    expect(deriveHour, 'deriveHour must be defined').toBeDefined()
+    expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+
     const timestamp = Date.now()
     const event: ObservabilityEvent = {
       id: 'log-001',
@@ -668,8 +671,8 @@ describe('Complete Event Examples', () => {
       message: JSON.stringify(['User logged in', { userId: 'user-123' }]),
       stack: null,
       metadata: JSON.stringify({ source: 'auth-service' }),
-      hour: deriveHour(timestamp),
-      severity_bucket: deriveSeverityBucket('info'),
+      hour: deriveHour!(timestamp),
+      severity_bucket: deriveSeverityBucket!('info'),
     }
 
     expect(event.id).toBe('log-001')
@@ -678,6 +681,9 @@ describe('Complete Event Examples', () => {
   })
 
   it('creates complete exception event', () => {
+    expect(deriveHour, 'deriveHour must be defined').toBeDefined()
+    expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+
     const timestamp = Date.now()
     const event: ObservabilityEvent = {
       id: 'exc-001',
@@ -696,8 +702,8 @@ describe('Complete Event Examples', () => {
       message: JSON.stringify(['Database connection failed']),
       stack: 'Error: Connection refused\n    at connect(db.ts:42)\n    at query(db.ts:100)',
       metadata: JSON.stringify({ database: 'users_db', attempts: 3 }),
-      hour: deriveHour(timestamp),
-      severity_bucket: deriveSeverityBucket('error'),
+      hour: deriveHour!(timestamp),
+      severity_bucket: deriveSeverityBucket!('error'),
     }
 
     expect(event.id).toBe('exc-001')
@@ -707,6 +713,9 @@ describe('Complete Event Examples', () => {
   })
 
   it('creates complete request event', () => {
+    expect(deriveHour, 'deriveHour must be defined').toBeDefined()
+    expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+
     const timestamp = Date.now()
     const event: ObservabilityEvent = {
       id: 'req-001',
@@ -725,8 +734,8 @@ describe('Complete Event Examples', () => {
       message: null,
       stack: null,
       metadata: JSON.stringify({ cache_hit: true }),
-      hour: deriveHour(timestamp),
-      severity_bucket: deriveSeverityBucket('info'),
+      hour: deriveHour!(timestamp),
+      severity_bucket: deriveSeverityBucket!('info'),
     }
 
     expect(event.id).toBe('req-001')
@@ -737,6 +746,9 @@ describe('Complete Event Examples', () => {
   })
 
   it('creates complete do_method event', () => {
+    expect(deriveHour, 'deriveHour must be defined').toBeDefined()
+    expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+
     const timestamp = Date.now()
     const event: ObservabilityEvent = {
       id: 'do-001',
@@ -755,8 +767,8 @@ describe('Complete Event Examples', () => {
       message: null,
       stack: null,
       metadata: JSON.stringify({ previous_value: 5, new_value: 6 }),
-      hour: deriveHour(timestamp),
-      severity_bucket: deriveSeverityBucket('info'),
+      hour: deriveHour!(timestamp),
+      severity_bucket: deriveSeverityBucket!('info'),
     }
 
     expect(event.id).toBe('do-001')

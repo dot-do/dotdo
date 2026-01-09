@@ -8,11 +8,16 @@ import { z } from 'zod'
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   onclose: ((event: { code?: number; reason?: string }) => void) | null = null
   onerror: ((error: Error) => void) | null = null
-  readyState = 1 // OPEN
+  readyState = MockWebSocket.OPEN
 
   constructor(public url: string) {
     MockWebSocket.instances.push(this)
@@ -213,7 +218,7 @@ describe('client/subscribe', () => {
       ws.simulateMessage({
         type: 'initial',
         collection: 'Task',
-        items: [],
+        data: [],
         txid: 100,
       })
 
@@ -268,7 +273,7 @@ describe('client/subscribe', () => {
       ws.simulateMessage({
         type: 'initial',
         collection: 'Task',
-        items,
+        data: items,
         txid: 100,
       })
 
@@ -298,7 +303,7 @@ describe('client/subscribe', () => {
       ws.simulateMessage({
         type: 'initial',
         collection: 'Task',
-        items: [],
+        data: [],
         txid: 100,
       })
 
@@ -346,10 +351,10 @@ describe('client/subscribe', () => {
       }
 
       ws.simulateMessage({
-        type: 'change',
+        type: 'insert',
         collection: 'Task',
-        operation: 'insert',
-        thing: newTask,
+        key: newTask.$id,
+        data: newTask,
         txid: 101,
       })
 
@@ -389,10 +394,10 @@ describe('client/subscribe', () => {
       }
 
       ws.simulateMessage({
-        type: 'change',
+        type: 'update',
         collection: 'Task',
-        operation: 'update',
-        thing: updatedTask,
+        key: updatedTask.$id,
+        data: updatedTask,
         txid: 102,
       })
 
@@ -423,10 +428,9 @@ describe('client/subscribe', () => {
       ws.simulateOpen()
 
       ws.simulateMessage({
-        type: 'change',
+        type: 'delete',
         collection: 'Task',
-        operation: 'delete',
-        id: 'task-1',
+        key: 'task-1',
         txid: 103,
       })
 

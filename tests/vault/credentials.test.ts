@@ -94,9 +94,12 @@ interface MockVaultStorage {
   oauthStates: Map<string, { userId: string; provider: string; codeVerifier?: string }>
 }
 
-// Mock implementation placeholder - will fail until real implementation exists
+// Import the actual implementation
+import { createMockVaultContext as createVaultContextImpl } from '../../lib/vault/store'
+
+// Wrapper that casts to the expected type interface
 function createMockVaultContext(): VaultContext {
-  throw new Error('createMockVaultContext is not implemented')
+  return createVaultContextImpl() as unknown as VaultContext
 }
 
 // ============================================================================

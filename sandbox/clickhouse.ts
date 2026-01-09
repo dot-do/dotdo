@@ -192,11 +192,245 @@ export class ChDBSandbox {
   private sessionPath?: string
   private defaultFormat: OutputFormat
   private limits: ResourceLimits
+  private visibilityContext?: QueryContext
 
-  constructor(config?: ChDBSessionConfig & { tier?: Tier }) {
+  /** Whether anonymous users can query public data */
+  allowAnonymousPublicAccess: boolean
+
+  constructor(config?: ChDBSessionConfig & { tier?: Tier; allowAnonymousPublicAccess?: boolean }) {
     this.sessionPath = config?.dataPath
     this.defaultFormat = config?.format ?? 'JSONEachRow'
     this.limits = TIER_LIMITS[config?.tier ?? 'starter']
+    this.allowAnonymousPublicAccess = config?.allowAnonymousPublicAccess ?? true
+  }
+
+  // --------------------------------------------------------------------------
+  // Visibility Context Management
+  // --------------------------------------------------------------------------
+
+  /**
+   * Set the default visibility context for subsequent queries
+   */
+  setVisibilityContext(context: QueryContext | undefined): void {
+    this.visibilityContext = context
+  }
+
+  /**
+   * Get the current visibility context
+   */
+  getVisibilityContext(): QueryContext | undefined {
+    return this.visibilityContext
+  }
+
+  // --------------------------------------------------------------------------
+  // Visibility-Aware Queries
+  // --------------------------------------------------------------------------
+
+  /**
+   * Execute a query with visibility filtering
+   */
+  async queryWithVisibility<T = unknown>(
+    sql: string,
+    options: VisibilityQueryOptions
+  ): Promise<QueryResult<T>> {
+    const { visibility, context } = options
+
+    // Validate visibility value
+    if (visibility !== undefined) {
+      const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+      for (const v of visibilities) {
+        if (!VALID_VISIBILITY_VALUES.includes(v)) {
+          return {
+            success: false,
+            error: `Invalid visibility value: ${v}`,
+          }
+        }
+      }
+
+      // Check context requirements for user/org visibility
+      if (visibilities.includes('user')) {
+        if (!context?.userId) {
+          throw new Error('Context with userId is required for user visibility')
+        }
+      }
+      if (visibilities.includes('org')) {
+        if (!context?.orgId) {
+          throw new Error('Context with orgId is required for org visibility')
+        }
+      }
+    }
+
+    // Build visibility filter clause
+    const visibilityClause = this.buildVisibilityClause(visibility, context)
+
+    // Inject visibility filter into query
+    const filteredSql = this.injectVisibilityFilter(sql, visibilityClause)
+
+    return this.query<T>(filteredSql)
+  }
+
+  /**
+   * Execute a query for public data only (no auth required)
+   *
+   * Note: This method validates `allowAnonymousPublicAccess` synchronously
+   * and throws immediately if disabled.
+   */
+  queryPublic<T = unknown>(
+    sql: string,
+    format?: OutputFormat
+  ): Promise<QueryResult<T>> {
+    if (!this.allowAnonymousPublicAccess) {
+      throw new Error('Anonymous public access is disabled')
+    }
+
+    // Always filter to public visibility only
+    const visibilityClause = "visibility = 'public'"
+    const filteredSql = this.injectVisibilityFilter(sql, visibilityClause)
+
+    return this.query<T>(filteredSql, format)
+  }
+
+  /**
+   * Query Iceberg table with visibility filtering
+   */
+  async queryIcebergWithVisibility<T = unknown>(options: {
+    bucket: string
+    tablePath: string
+    query: string
+    visibility: Visibility | Visibility[]
+    context?: QueryContext
+    format?: OutputFormat
+  }): Promise<QueryResult<T>> {
+    const tableName = options.tablePath.split('/').pop() ?? 'iceberg_table'
+
+    // Build visibility filter
+    const visibilityClause = this.buildVisibilityClause(options.visibility, options.context)
+
+    // Build query with visibility filter
+    const sql = `
+      SELECT * FROM (
+        ${options.query.replace(
+          new RegExp(`\\b${tableName}\\b`, 'gi'),
+          `s3('https://${options.bucket}.r2.cloudflarestorage.com/${options.tablePath}/data/*.parquet')`
+        )}
+      ) WHERE ${visibilityClause}
+    `
+
+    return this.query<T>(sql, options.format)
+  }
+
+  /**
+   * Query Parquet files with visibility filtering
+   */
+  async queryParquetWithVisibility<T = unknown>(options: {
+    path: string
+    query: string
+    visibility: Visibility | Visibility[]
+    context?: QueryContext
+    format?: OutputFormat
+  }): Promise<QueryResult<T>> {
+    // Build visibility filter
+    const visibilityClause = this.buildVisibilityClause(options.visibility, options.context)
+
+    // Replace data reference with s3 path
+    const sql = options.query.replace(
+      /\bdata\b/gi,
+      `s3('${options.path}')`
+    )
+
+    // Inject visibility filter
+    const filteredSql = this.injectVisibilityFilter(sql, visibilityClause)
+
+    return this.query<T>(filteredSql, options.format)
+  }
+
+  /**
+   * Execute a session query with visibility filtering
+   */
+  async queryWithSessionAndVisibility<T = unknown>(
+    sql: string,
+    options: VisibilityQueryOptions
+  ): Promise<QueryResult<T>> {
+    const { visibility, context } = options
+
+    // Build visibility filter clause
+    const visibilityClause = this.buildVisibilityClause(visibility, context)
+
+    // Inject visibility filter into query
+    const filteredSql = this.injectVisibilityFilter(sql, visibilityClause)
+
+    return this.queryWithSession<T>(filteredSql)
+  }
+
+  /**
+   * Build visibility filter clause
+   */
+  private buildVisibilityClause(
+    visibility: Visibility | Visibility[] | undefined,
+    context?: QueryContext
+  ): string {
+    if (!visibility) {
+      return '1=1'
+    }
+
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const conditions: string[] = []
+
+    for (const v of visibilities) {
+      switch (v) {
+        case 'public':
+        case 'unlisted':
+          conditions.push(`visibility = '${v}'`)
+          break
+        case 'org':
+          if (context?.orgId) {
+            conditions.push(`(visibility = 'org' AND org_id = '${context.orgId.replace(/'/g, "''")}')`)
+          }
+          break
+        case 'user':
+          if (context?.userId) {
+            conditions.push(`(visibility = 'user' AND user_id = '${context.userId.replace(/'/g, "''")}')`)
+          }
+          break
+      }
+    }
+
+    if (conditions.length === 0) {
+      return '1=0' // No valid conditions
+    }
+
+    return conditions.length === 1 ? conditions[0] : `(${conditions.join(' OR ')})`
+  }
+
+  /**
+   * Inject visibility filter into SQL query
+   */
+  private injectVisibilityFilter(sql: string, visibilityClause: string): string {
+    // Check if query already has WHERE clause
+    const upperSql = sql.toUpperCase()
+    const whereIndex = upperSql.lastIndexOf('WHERE')
+    const groupByIndex = upperSql.indexOf('GROUP BY')
+    const orderByIndex = upperSql.indexOf('ORDER BY')
+    const limitIndex = upperSql.indexOf('LIMIT')
+
+    // Find where to inject the filter
+    if (whereIndex >= 0) {
+      // Insert after existing WHERE clause
+      const afterWhere = whereIndex + 5
+      return `${sql.slice(0, afterWhere)} ${visibilityClause} AND ${sql.slice(afterWhere)}`
+    } else {
+      // Find insertion point (before GROUP BY, ORDER BY, or LIMIT)
+      let insertPoint = sql.length
+      if (groupByIndex >= 0) insertPoint = Math.min(insertPoint, groupByIndex)
+      if (orderByIndex >= 0) insertPoint = Math.min(insertPoint, orderByIndex)
+      if (limitIndex >= 0) insertPoint = Math.min(insertPoint, limitIndex)
+
+      // Map back to original case positions
+      const realInsertPoint = insertPoint === sql.length ? sql.length :
+        sql.length - (upperSql.length - insertPoint)
+
+      return `${sql.slice(0, realInsertPoint)} WHERE ${visibilityClause} ${sql.slice(realInsertPoint)}`
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -514,6 +748,78 @@ export class QueryBuilder {
   }
 
   /**
+   * Add a visibility value
+   */
+  visibility(value: Visibility): this {
+    if (!VALID_VISIBILITY_VALUES.includes(value)) {
+      throw new Error(`Invalid visibility value: ${value}`)
+    }
+    this.parts.push(`'${value}'`)
+    return this
+  }
+
+  /**
+   * Add an array of visibility values
+   */
+  visibilityArray(values: Visibility[]): this {
+    for (const v of values) {
+      if (!VALID_VISIBILITY_VALUES.includes(v)) {
+        throw new Error(`Invalid visibility value: ${v}`)
+      }
+    }
+    this.parts.push(`(${values.map(v => `'${v}'`).join(', ')})`)
+    return this
+  }
+
+  /**
+   * Add a complete visibility filter clause
+   */
+  visibilityFilter(options: VisibilityQueryOptions): this {
+    const { visibility, context } = options
+
+    if (!visibility) {
+      this.parts.push('1=1')
+      return this
+    }
+
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const conditions: string[] = []
+
+    for (const v of visibilities) {
+      if (!VALID_VISIBILITY_VALUES.includes(v)) {
+        throw new Error(`Invalid visibility value: ${v}`)
+      }
+
+      switch (v) {
+        case 'public':
+        case 'unlisted':
+          conditions.push(`visibility = '${v}'`)
+          break
+        case 'org':
+          if (context?.orgId) {
+            conditions.push(`(visibility = 'org' AND org_id = '${context.orgId.replace(/'/g, "''")}')`)
+          }
+          break
+        case 'user':
+          if (context?.userId) {
+            conditions.push(`(visibility = 'user' AND user_id = '${context.userId.replace(/'/g, "''")}')`)
+          }
+          break
+      }
+    }
+
+    if (conditions.length === 0) {
+      this.parts.push('1=0')
+    } else if (conditions.length === 1) {
+      this.parts.push(conditions[0])
+    } else {
+      this.parts.push(`(${conditions.join(' OR ')})`)
+    }
+
+    return this
+  }
+
+  /**
    * Build the final SQL string
    */
   build(): string {
@@ -603,6 +909,107 @@ export const QueryTemplates = {
       avg(${column}) as avg
     FROM ${table}
   `,
+
+  // --------------------------------------------------------------------------
+  // Visibility-Aware Templates
+  // --------------------------------------------------------------------------
+
+  /**
+   * Count events by date with visibility filter
+   */
+  eventsByDateWithVisibility: (table: string, visibility: Visibility | Visibility[]) => {
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const visibilityFilter = visibilities.length === 1
+      ? `visibility = '${visibilities[0]}'`
+      : `visibility IN (${visibilities.map(v => `'${v}'`).join(', ')})`
+
+    return `
+    SELECT
+      toDate(timestamp) as date,
+      count() as events,
+      uniq(user_id) as unique_users
+    FROM ${table}
+    WHERE ${visibilityFilter}
+    GROUP BY date
+    ORDER BY date DESC
+  `
+  },
+
+  /**
+   * Top N by count with visibility filter
+   */
+  topNWithVisibility: (table: string, groupBy: string, n: number = 10, visibility: Visibility | Visibility[]) => {
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const visibilityFilter = visibilities.length === 1
+      ? `visibility = '${visibilities[0]}'`
+      : `visibility IN (${visibilities.map(v => `'${v}'`).join(', ')})`
+
+    return `
+    SELECT
+      ${groupBy},
+      count() as count
+    FROM ${table}
+    WHERE ${visibilityFilter}
+    GROUP BY ${groupBy}
+    ORDER BY count DESC
+    LIMIT ${n}
+  `
+  },
+
+  /**
+   * Time series aggregation with visibility filter
+   */
+  timeSeriesWithVisibility: (
+    table: string,
+    interval: 'hour' | 'day' | 'week' | 'month' = 'day',
+    visibility: Visibility | Visibility[]
+  ) => {
+    const truncFunc = {
+      hour: 'toStartOfHour',
+      day: 'toDate',
+      week: 'toStartOfWeek',
+      month: 'toStartOfMonth',
+    }[interval]
+
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const visibilityFilter = visibilities.length === 1
+      ? `visibility = '${visibilities[0]}'`
+      : `visibility IN (${visibilities.map(v => `'${v}'`).join(', ')})`
+
+    return `
+      SELECT
+        ${truncFunc}(timestamp) as period,
+        count() as count
+      FROM ${table}
+      WHERE ${visibilityFilter}
+      GROUP BY period
+      ORDER BY period
+    `
+  },
+
+  /**
+   * Percentile statistics with visibility filter
+   */
+  percentilesWithVisibility: (table: string, column: string, visibility: Visibility | Visibility[]) => {
+    const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+    const visibilityFilter = visibilities.length === 1
+      ? `visibility = '${visibilities[0]}'`
+      : `visibility IN (${visibilities.map(v => `'${v}'`).join(', ')})`
+
+    return `
+    SELECT
+      min(${column}) as min,
+      quantile(0.25)(${column}) as p25,
+      quantile(0.50)(${column}) as median,
+      quantile(0.75)(${column}) as p75,
+      quantile(0.95)(${column}) as p95,
+      quantile(0.99)(${column}) as p99,
+      max(${column}) as max,
+      avg(${column}) as avg
+    FROM ${table}
+    WHERE ${visibilityFilter}
+  `
+  },
 }
 
 // ============================================================================
@@ -651,6 +1058,13 @@ export function createQueryBuilder(): QueryBuilder {
  * // Returns: "SELECT * FROM users WHERE id = 123 AND name = 'Alice'"
  * ```
  */
+/**
+ * Validate a visibility value
+ */
+function validateVisibility(value: unknown): value is Visibility {
+  return VALID_VISIBILITY_VALUES.includes(value as Visibility)
+}
+
 export function buildQuery(
   template: string,
   params: Record<string, unknown>
@@ -688,9 +1102,123 @@ export function buildQuery(
             throw new Error(`Invalid identifier: ${value}`)
           }
           return String(value)
+        case 'Visibility':
+          if (!validateVisibility(value)) {
+            throw new Error(`Invalid visibility value: ${value}`)
+          }
+          return `'${value}'`
+        case 'VisibilityArray':
+          const visibilities = value as unknown[]
+          if (!Array.isArray(visibilities)) {
+            throw new Error(`Invalid visibility array: ${value}`)
+          }
+          for (const v of visibilities) {
+            if (!validateVisibility(v)) {
+              throw new Error(`Invalid visibility value: ${v}`)
+            }
+          }
+          return `(${visibilities.map(v => `'${v}'`).join(', ')})`
         default:
           return String(value)
       }
     }
   )
+}
+
+// ============================================================================
+// Cache Key Generation for Visibility-Aware Caching
+// ============================================================================
+
+/**
+ * Options for cache key generation
+ */
+interface CacheKeyOptions {
+  visibility?: Visibility | Visibility[]
+  context?: QueryContext
+}
+
+/**
+ * Create a cache key that includes visibility information
+ *
+ * For public visibility, the cache is shared across all users.
+ * For org/user visibility, the cache is scoped to the specific org/user.
+ */
+export function createCacheKey(query: string, options: CacheKeyOptions): string {
+  const { visibility, context } = options
+
+  // Base key is the query itself
+  let key = query
+
+  if (!visibility) {
+    return key
+  }
+
+  const visibilities = Array.isArray(visibility) ? visibility : [visibility]
+
+  // For public visibility, don't include context in key (shared cache)
+  if (visibilities.length === 1 && visibilities[0] === 'public') {
+    return `${key}:visibility:public`
+  }
+
+  // For other visibilities, include context
+  const parts = [`${key}:visibility:${visibilities.sort().join(',')}`]
+
+  if (visibilities.includes('org') && context?.orgId) {
+    parts.push(`org:${context.orgId}`)
+  }
+
+  if (visibilities.includes('user') && context?.userId) {
+    parts.push(`user:${context.userId}`)
+  }
+
+  return parts.join(':')
+}
+
+// ============================================================================
+// ClickHouse Cache for Visibility-Aware Caching
+// ============================================================================
+
+/**
+ * Simple in-memory cache for ClickHouse query results
+ * with visibility-aware cache key generation
+ */
+export class ClickHouseCache {
+  private cache: Map<string, unknown[]> = new Map()
+
+  /**
+   * Get cached result for a query with visibility options
+   */
+  async get<T = unknown>(
+    query: string,
+    options: CacheKeyOptions
+  ): Promise<T[] | undefined> {
+    const key = createCacheKey(query, options)
+    return this.cache.get(key) as T[] | undefined
+  }
+
+  /**
+   * Set cached result for a query with visibility options
+   */
+  async set<T = unknown>(
+    query: string,
+    options: CacheKeyOptions,
+    data: T[]
+  ): Promise<void> {
+    const key = createCacheKey(query, options)
+    this.cache.set(key, data)
+  }
+
+  /**
+   * Clear the cache
+   */
+  clear(): void {
+    this.cache.clear()
+  }
+
+  /**
+   * Get the number of cached entries
+   */
+  size(): number {
+    return this.cache.size
+  }
 }

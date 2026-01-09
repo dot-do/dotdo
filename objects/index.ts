@@ -127,7 +127,7 @@ export {
   type DomainProxy,
   type MethodProxy,
   DOCallError,
-} from './StepDOBridge'
+} from '../workflows/StepDOBridge'
 
 // Schedule Manager
 export {
@@ -143,7 +143,7 @@ export {
   ScheduleValidationError,
   ScheduleNotFoundError,
   InvalidCronExpressionError,
-} from './ScheduleManager'
+} from '../workflows/ScheduleManager'
 
 // Step Result Storage
 export {
@@ -153,7 +153,7 @@ export {
   type StepStatus,
   type GetAllOptions,
   type ResultSummary,
-} from './StepResultStorage'
+} from '../workflows/StepResultStorage'
 
 // Modifier API
 export {
@@ -170,7 +170,7 @@ export {
   type OutputModifierFunction,
   type ConditionFunction,
   type ModifierFunction,
-} from './Modifier'
+} from '../lib/Modifier'
 
 // DOAuth - Authentication capability
 export {
@@ -180,7 +180,7 @@ export {
   type DOAuthContext,
   type ProviderConfig as DOAuthProviderConfig,
   type SessionData as DOAuthSessionData,
-} from './DOAuth'
+} from '../lib/DOAuth'
 
 // ============================================================================
 // FUNCTION TYPE SYSTEM (Refactored)
@@ -219,7 +219,7 @@ export {
   type ExecutionMiddleware,
   type MiddlewareContext,
   type MiddlewareNext,
-} from './BaseFunctionExecutor'
+} from '../lib/executors/BaseFunctionExecutor'
 
 // Function Registry
 export {
@@ -233,7 +233,7 @@ export {
   type FunctionMetadata,
   type FunctionFilter,
   type RegistryStats,
-} from './FunctionRegistry'
+} from '../lib/functions/FunctionRegistry'
 
 // Function Composition
 export {
@@ -265,7 +265,7 @@ export {
   type PipeOptions,
   type ParallelOptions,
   type RetryOptions,
-} from './FunctionComposition'
+} from '../lib/functions/FunctionComposition'
 
 // Function Middleware
 export {
@@ -307,4 +307,4 @@ export {
   type TraceSpan,
   type TraceSink,
   type TracingOptions,
-} from './FunctionMiddleware'
+} from '../lib/functions/FunctionMiddleware'

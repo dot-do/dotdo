@@ -98,6 +98,14 @@ export interface ThingsDb {
 // ============================================================================
 
 /**
+ * Options for getCurrentThing query
+ */
+export interface GetCurrentThingOptions {
+  /** Filter by visibility level(s) */
+  visibility?: Visibility | Visibility[]
+}
+
+/**
  * Get the current version of a thing by ID.
  * Optionally filter by branch (null = main branch).
  *
@@ -106,16 +114,36 @@ export interface ThingsDb {
  * @param db - Drizzle database instance
  * @param id - The thing ID to look up
  * @param branch - Optional branch name (null = main branch)
+ * @param options - Optional query options (visibility filter)
  * @returns The current version of the thing or undefined if not found
  */
 export async function getCurrentThing(
   db: ThingsDb,
   id: string,
-  branch: string | null = null
+  branch: string | null = null,
+  options: GetCurrentThingOptions = {}
 ): Promise<Thing | undefined> {
-  const condition = branch === null
-    ? and(eq(things.id, id), isNull(things.branch))
-    : and(eq(things.id, id), eq(things.branch, branch))
+  const { visibility } = options
+
+  // Build conditions array
+  const conditions: unknown[] = [eq(things.id, id)]
+
+  if (branch === null) {
+    conditions.push(isNull(things.branch))
+  } else {
+    conditions.push(eq(things.branch, branch))
+  }
+
+  // Add visibility filter
+  if (visibility !== undefined) {
+    if (Array.isArray(visibility)) {
+      conditions.push(inArray(things.visibility, visibility))
+    } else {
+      conditions.push(eq(things.visibility, visibility))
+    }
+  }
+
+  const condition = and(...conditions as [unknown, unknown, ...unknown[]])
 
   const results = await db
     .select()
@@ -211,6 +239,8 @@ export interface GetCurrentThingsOptions {
   includeDeleted?: boolean
   /** Maximum number of results */
   limit?: number
+  /** Filter by visibility level(s) */
+  visibility?: Visibility | Visibility[]
 }
 
 /**
@@ -225,7 +255,7 @@ export async function getCurrentThings(
   db: ThingsDb,
   options: GetCurrentThingsOptions = {}
 ): Promise<Thing[]> {
-  const { type, branch = null, includeDeleted = false, limit = 100 } = options
+  const { type, branch = null, includeDeleted = false, limit = 100, visibility } = options
 
   // Build conditions array
   const conditions: unknown[] = []
@@ -242,6 +272,15 @@ export async function getCurrentThings(
 
   if (!includeDeleted) {
     conditions.push(eq(things.deleted, false))
+  }
+
+  // Add visibility filter
+  if (visibility !== undefined) {
+    if (Array.isArray(visibility)) {
+      conditions.push(inArray(things.visibility, visibility))
+    } else {
+      conditions.push(eq(things.visibility, visibility))
+    }
   }
 
   const condition = conditions.length > 1 ? and(...conditions as [unknown, unknown, ...unknown[]]) : conditions[0]
@@ -282,6 +321,7 @@ export async function softDeleteThing(
     name: current.name,
     data: current.data,
     deleted: true,
+    visibility: current.visibility,
   }
 
   const results = await db
@@ -318,6 +358,7 @@ export async function undeleteThing(
     name: current.name,
     data: current.data,
     deleted: false,
+    visibility: current.visibility,
   }
 
   const results = await db

@@ -69,7 +69,7 @@ function createFullEvent(): ObservabilityEvent {
 describe('deriveHour', () => {
   it('converts timestamp to correct ISO hour (truncates to hour)', () => {
     // 2024-01-01T12:34:56.789Z should become 2024-01-01T12:00:00Z
-    const timestamp = 1704109496789 // 2024-01-01T12:34:56.789Z
+    const timestamp = 1704112496789 // 2024-01-01T12:34:56.789Z
     const result = deriveHour(timestamp)
 
     expect(result).toBe('2024-01-01T12:00:00Z')
@@ -93,7 +93,7 @@ describe('deriveHour', () => {
 
   it('handles timestamps just before hour boundary', () => {
     // 2024-01-01T11:59:59.999Z should become 2024-01-01T11:00:00Z
-    const timestamp = 1704106799999 // 2024-01-01T11:59:59.999Z
+    const timestamp = 1704110399999 // 2024-01-01T11:59:59.999Z
     const result = deriveHour(timestamp)
 
     expect(result).toBe('2024-01-01T11:00:00Z')
@@ -101,7 +101,7 @@ describe('deriveHour', () => {
 
   it('handles timestamps at exact hour boundary', () => {
     // 2024-01-01T12:00:00.000Z should become 2024-01-01T12:00:00Z
-    const timestamp = 1704106800000 // 2024-01-01T12:00:00.000Z
+    const timestamp = 1704110400000 // 2024-01-01T12:00:00.000Z
     const result = deriveHour(timestamp)
 
     expect(result).toBe('2024-01-01T12:00:00Z')
@@ -109,7 +109,7 @@ describe('deriveHour', () => {
 
   it('handles timestamps just after hour boundary', () => {
     // 2024-01-01T12:00:00.001Z should become 2024-01-01T12:00:00Z
-    const timestamp = 1704106800001 // 2024-01-01T12:00:00.001Z
+    const timestamp = 1704110400001 // 2024-01-01T12:00:00.001Z
     const result = deriveHour(timestamp)
 
     expect(result).toBe('2024-01-01T12:00:00Z')
@@ -223,7 +223,7 @@ describe('transformForIceberg', () => {
   describe('partition columns', () => {
     it('adds hour partition column', () => {
       const event = createSampleEvent({
-        timestamp: 1704109496789, // 2024-01-01T12:34:56.789Z
+        timestamp: 1704112496789, // 2024-01-01T12:34:56.789Z
       })
       const result = transformForIceberg(event)
 

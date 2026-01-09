@@ -321,6 +321,8 @@ export interface FindFileOptions {
   id: string
   /** Snapshot id (default: current snapshot) */
   snapshotId?: number
+  /** Auth context for visibility checks */
+  auth?: AuthContext
 }
 
 /**

@@ -14,6 +14,9 @@ export const PROJECT_ROOT = resolve(__dirname)
 /** Cloudflare workers module mock path */
 export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudflare-workers.ts')
 
+/** chdb mock path for environments without native module */
+export const CHDB_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/chdb.ts')
+
 /**
  * Shared test configuration settings applied to all test workspaces
  */

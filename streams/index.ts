@@ -10,6 +10,16 @@
  * - actions: Audit log for SOC2 compliance
  */
 
+/**
+ * Visibility levels for Things
+ *
+ * Used for multi-tenant data isolation in R2 Iceberg tables:
+ * - 'user': Private to the user (default)
+ * - 'team': Shared within team/organization
+ * - 'public': Publicly accessible
+ */
+export type Visibility = 'user' | 'team' | 'public'
+
 // SQL file paths (relative to package root)
 export const SQL_FILES = {
   things: './streams/things.sql',
@@ -45,6 +55,7 @@ export interface ThingRecord {
   action_id: string
   timestamp: string
   ns: string
+  visibility: Visibility // Visibility level for multi-tenant isolation
 }
 
 /**

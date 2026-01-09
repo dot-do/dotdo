@@ -11,7 +11,6 @@ import type {
   UnsubscribeMessage,
   InitialMessage,
   ChangeMessage,
-  SyncThing,
 } from '../protocol'
 
 // =============================================================================
@@ -90,6 +89,38 @@ const INITIAL_RECONNECT_DELAY = 1000 // 1 second
 export function dotdoCollectionOptions<T extends { $id: string }>(
   config: DotdoCollectionConfig<T>
 ): DotdoCollectionOptions<T> {
+  // Helper to make RPC calls
+  const rpcCall = async (method: string, body: unknown): Promise<{ rowid: number }> => {
+    // Normalize URL - remove trailing slash if present
+    const baseUrl = config.doUrl.endsWith('/')
+      ? config.doUrl.slice(0, -1)
+      : config.doUrl
+
+    // Extract headers from fetchOptions to merge properly
+    const { headers: customHeaders, ...restFetchOptions } = config.fetchOptions || {}
+
+    const response = await fetch(
+      `${baseUrl}/rpc/${config.collection}.${method}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+        ...restFetchOptions,
+        // Headers must be merged after spread to preserve both custom and required headers
+        headers: {
+          'Content-Type': 'application/json',
+          ...(customHeaders as Record<string, string> || {}),
+        },
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`RPC ${method} failed: ${error}`)
+    }
+
+    return response.json()
+  }
+
   return {
     id: `dotdo:${config.collection}`,
     schema: config.schema,
@@ -130,20 +161,21 @@ export function dotdoCollectionOptions<T extends { $id: string }>(
           callbacks.begin()
 
           if (msg.type === 'initial') {
-            // Handle initial data load
-            callbacks.onData(msg.items as T[])
+            // Handle initial data load - use 'data' field per new protocol
+            callbacks.onData(msg.data as T[])
             callbacks.commit({ txid: msg.txid })
-          } else if (msg.type === 'change') {
-            // Handle change stream
-            switch (msg.operation) {
+          } else {
+            // Handle change messages - type is 'insert' | 'update' | 'delete'
+            switch (msg.type) {
               case 'insert':
-                callbacks.onInsert(msg.thing as T)
+                callbacks.onInsert(msg.data as T)
                 break
               case 'update':
-                callbacks.onUpdate(msg.thing as T)
+                callbacks.onUpdate(msg.data as T)
                 break
               case 'delete':
-                callbacks.onDelete({ id: msg.id! })
+                // Delete uses 'key' field per new protocol
+                callbacks.onDelete({ id: msg.key })
                 break
             }
             callbacks.commit({ txid: msg.txid })
@@ -183,7 +215,8 @@ export function dotdoCollectionOptions<T extends { $id: string }>(
         }
 
         // Send unsubscribe message and close socket
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        // Use numeric value 1 for OPEN to support both browser and mock WebSocket
+        if (ws && ws.readyState === 1) {
           const unsubscribeMsg: UnsubscribeMessage = {
             type: 'unsubscribe',
             collection: config.collection,
@@ -196,9 +229,20 @@ export function dotdoCollectionOptions<T extends { $id: string }>(
       }
     },
 
-    // Mutation handlers will be added in the next task
-    onInsert: undefined,
-    onUpdate: undefined,
-    onDelete: undefined,
+    // Mutation handlers
+    onInsert: async ({ transaction }: { transaction: { changes: T } }) => {
+      const result = await rpcCall('create', transaction.changes)
+      return { txid: result.rowid }
+    },
+
+    onUpdate: async ({ id, data }: { id: string; data: Partial<T> }) => {
+      const result = await rpcCall('update', { id, data })
+      return { txid: result.rowid }
+    },
+
+    onDelete: async ({ id }: { id: string }) => {
+      const result = await rpcCall('delete', { id })
+      return { txid: result.rowid }
+    },
   }
 }

@@ -147,3 +147,40 @@ export function isThingADO(thing: Thing): boolean {
   const { path } = parseThingId(thing.$id)
   return path === '' || thing.$id === thing.identity.ns
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VISIBILITY HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function isPublic(thing: ThingData): boolean {
+  return thing.visibility === 'public'
+}
+
+export function isUnlisted(thing: ThingData): boolean {
+  return thing.visibility === 'unlisted'
+}
+
+export function isOrgVisible(thing: ThingData): boolean {
+  return thing.visibility === 'org'
+}
+
+export function isUserOnly(thing: ThingData): boolean {
+  return thing.visibility === 'user' || thing.visibility === undefined
+}
+
+export function canView(thing: ThingData, actor: Actor): boolean {
+  // Public and unlisted things are viewable by anyone
+  if (thing.visibility === 'public' || thing.visibility === 'unlisted') {
+    return true
+  }
+
+  // Org visibility requires matching orgId
+  if (thing.visibility === 'org') {
+    const thingOrgId = thing.meta?.orgId as string | undefined
+    return !!actor.orgId && actor.orgId === thingOrgId
+  }
+
+  // User visibility (or undefined = default private) requires matching ownerId
+  const thingOwnerId = thing.meta?.ownerId as string | undefined
+  return !!actor.userId && actor.userId === thingOwnerId
+}

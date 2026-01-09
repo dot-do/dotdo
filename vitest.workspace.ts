@@ -34,6 +34,7 @@ import {
   sharedTestConfig,
   nodeResolveConfig,
   defaultExcludes,
+  CHDB_MOCK,
 } from './vitest.shared'
 
 /**
@@ -127,14 +128,34 @@ export default defineWorkspace([
   // Usage/analytics tests
   createNodeWorkspace('usage', ['tests/usage/**/*.test.ts']),
 
-  // Visibility tests
-  createNodeWorkspace('visibility', ['tests/visibility/**/*.test.ts']),
+  // Visibility tests (with chdb mock)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'visibility',
+      include: ['tests/visibility/**/*.test.ts'],
+      exclude: defaultExcludes,
+      environment: 'node' as const,
+    },
+    resolve: {
+      alias: {
+        ...nodeResolveConfig.alias,
+        chdb: CHDB_MOCK,
+      },
+    },
+  },
 
   // Tests for types in tests/types directory
   createNodeWorkspace('tests-types', ['tests/types/**/*.test.ts']),
 
+  // Streams transformation tests (Pipeline SQL transforms)
+  createNodeWorkspace('streams', ['tests/streams/**/*.test.ts']),
+
   // Tail worker and other worker processing tests (non-runtime)
   createNodeWorkspace('tests-workers', ['tests/workers/**/*.test.ts']),
+
+  // Tests for objects in tests/objects directory (mocked Durable Objects)
+  createNodeWorkspace('tests-objects', ['tests/objects/**/*.test.ts']),
 
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),

@@ -16,7 +16,7 @@
  */
 
 import { DO as BaseDO } from './objects/DO'
-import { withFs } from './objects/mixins/fs'
+import { withFs } from './lib/mixins/fs'
 
 export const DO = withFs(BaseDO)
 

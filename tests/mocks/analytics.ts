@@ -130,27 +130,29 @@ export function createMockAnalyticsBinding(): MockAnalyticsBinding {
       // Parse the SQL to determine what kind of query this is
       const sqlLower = sql.toLowerCase()
 
-      // Handle summary queries (COUNT, SUM, AVG)
-      if (sqlLower.includes('count(') || sqlLower.includes('sum(') || sqlLower.includes('avg(')) {
-        return handleAggregateQuery(sql, params, events)
-      }
-
-      // Handle timeline/bucket queries (GROUP BY with time truncation)
+      // Handle timeline/bucket queries FIRST (GROUP BY with time truncation)
+      // These also have COUNT/SUM/AVG but should be handled by timeline
       if (sqlLower.includes('group by') && (sqlLower.includes('date_trunc') || sqlLower.includes('strftime'))) {
         return handleTimelineQuery(sql, params, events)
       }
 
-      // Handle top endpoints query
-      if (sqlLower.includes('group by') && sqlLower.includes('endpoint')) {
+      // Handle top endpoints query (GROUP BY endpoint, method)
+      if (sqlLower.includes('group by') && sqlLower.includes('endpoint') && sqlLower.includes('method')) {
         return handleEndpointQuery(sql, params, events)
       }
 
-      // Handle API key usage query
-      if (sqlLower.includes('group by') && sqlLower.includes('api_key')) {
+      // Handle API key usage query (GROUP BY api_key_id)
+      if (sqlLower.includes('group by') && sqlLower.includes('api_key_id')) {
         return handleApiKeyQuery(sql, params, events)
       }
 
-      // Handle raw events query
+      // Handle summary queries (COUNT, SUM, AVG without GROUP BY)
+      // This should only match pure aggregate queries
+      if ((sqlLower.includes('count(') || sqlLower.includes('sum(') || sqlLower.includes('avg(')) && !sqlLower.includes('group by')) {
+        return handleAggregateQuery(sql, params, events)
+      }
+
+      // Handle raw events query (SELECT * or without aggregates)
       return handleRawEventsQuery(sql, params, events)
     },
   }
@@ -212,11 +214,20 @@ function parseWhereClause(sql: string, params: unknown[] = []): { start?: Date; 
     }
   }
 
-  // Check for status code filter
+  // Check for status code filter - SQL uses IN (?, ?, ?) with individual params
   if (sql.includes('status_code IN')) {
-    if (params[paramIndex] && Array.isArray(params[paramIndex])) {
-      result.statusCodes = params[paramIndex] as number[]
-      paramIndex++
+    // Count the number of placeholders in the IN clause
+    const inMatch = sql.match(/status_code IN\s*\(([^)]+)\)/i)
+    if (inMatch) {
+      const placeholders = inMatch[1].split(',').length
+      const statusCodes: number[] = []
+      for (let i = 0; i < placeholders && params[paramIndex] !== undefined; i++) {
+        statusCodes.push(Number(params[paramIndex]))
+        paramIndex++
+      }
+      if (statusCodes.length > 0) {
+        result.statusCodes = statusCodes
+      }
     }
   }
 

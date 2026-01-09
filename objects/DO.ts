@@ -21,8 +21,8 @@ import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
 import type { WorkflowContext, DomainProxy, OnProxy, OnNounProxy, EventHandler, DomainEvent, ScheduleBuilder, ScheduleTimeProxy, ScheduleExecutor, ScheduleHandler, TryOptions, DoOptions, RetryPolicy, ActionStatus, ActionError } from '../types/WorkflowContext'
-import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from './schedule-builder'
-import { ScheduleManager, type Schedule } from './ScheduleManager'
+import { createScheduleBuilderProxy, type ScheduleBuilderConfig } from '../workflows/schedule-builder'
+import { ScheduleManager, type Schedule } from '../workflows/ScheduleManager'
 import type { Thing } from '../types/Thing'
 import {
   ThingsStore,
@@ -794,97 +794,455 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
+   * Default retry policy for durable execution
+   */
+  protected static readonly DEFAULT_RETRY_POLICY: RetryPolicy = {
+    maxAttempts: 3,
+    initialDelayMs: 100,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+    jitter: true,
+  }
+
+  /**
+   * Default timeout for try operations (30 seconds)
+   */
+  protected static readonly DEFAULT_TRY_TIMEOUT = 30000
+
+  /**
+   * Step result cache for replay (maps stepId -> result)
+   * Used by $.do() for durable execution
+   */
+  private _stepCache: Map<string, { result: unknown; completedAt: number }> = new Map()
+
+  /**
    * Fire-and-forget event emission (non-blocking, non-durable)
+   *
+   * Uses queueMicrotask for truly non-blocking execution.
+   * Does not await logging or event emission.
+   * Swallows all errors silently (best effort).
    */
   protected send(event: string, data: unknown): void {
-    // Best-effort action logging
-    this.logAction('send', event, data).catch(() => {})
+    // Use queueMicrotask for truly non-blocking execution
+    queueMicrotask(() => {
+      // Best-effort action logging - don't await
+      this.logAction('send', event, data).catch(() => {
+        // Silently swallow logging errors
+      })
 
-    // Best-effort event emission
-    this.emitEvent(event, data).catch(() => {})
+      // Best-effort event emission - don't await
+      this.emitEvent(event, data).catch(() => {
+        // Silently swallow event emission errors
+      })
+
+      // Best-effort action execution - don't await
+      this.executeAction(event, data).catch(() => {
+        // Silently swallow execution errors
+      })
+    })
   }
 
   /**
    * Quick attempt without durability (blocking, non-durable)
+   *
+   * Features:
+   * - Single attempt, no retries
+   * - Proper error propagation with original error type
+   * - Timeout support
+   * - Complete action status tracking
+   *
+   * @param action - The action to execute
+   * @param data - The data to pass to the action
+   * @param options - Optional execution options (timeout)
    */
-  protected async try<T>(action: string, data: unknown): Promise<T> {
+  protected async try<T>(action: string, data: unknown, options?: TryOptions): Promise<T> {
+    const timeout = options?.timeout ?? DO.DEFAULT_TRY_TIMEOUT
+    const startedAt = new Date()
+
+    // Log action with pending status
     const actionRecord = await this.logAction('try', action, data)
 
+    // Update status to running
+    await this.updateActionStatus(actionRecord.id, 'running', { startedAt })
+
+    // Create timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Action '${action}' timed out after ${timeout}ms`))
+      }, timeout)
+    })
+
     try {
-      const result = await this.executeAction(action, data)
-      await this.completeAction(actionRecord.rowid, result)
+      // Race between action execution and timeout
+      const result = await Promise.race([
+        this.executeAction(action, data),
+        timeoutPromise,
+      ]) as T
+
+      // Calculate duration
+      const completedAt = new Date()
+      const duration = completedAt.getTime() - startedAt.getTime()
+
+      // Update action to completed
+      await this.completeAction(actionRecord.id, result, { completedAt, duration })
+
+      // Emit completion event
       await this.emitEvent(`${action}.completed`, { result })
-      return result as T
+
+      return result
     } catch (error) {
-      await this.failAction(actionRecord.rowid, error)
-      await this.emitEvent(`${action}.failed`, { error }).catch(() => {})
+      // Calculate duration
+      const completedAt = new Date()
+      const duration = completedAt.getTime() - startedAt.getTime()
+
+      // Convert error to ActionError format
+      const actionError: ActionError = {
+        message: (error as Error).message,
+        name: (error as Error).name,
+        stack: (error as Error).stack,
+      }
+
+      // Update action to failed
+      await this.failAction(actionRecord.id, actionError, { completedAt, duration })
+
+      // Emit failure event (best effort)
+      await this.emitEvent(`${action}.failed`, { error: actionError }).catch(() => {})
+
+      // Re-throw original error to preserve type and stack
       throw error
     }
   }
 
   /**
    * Durable execution with retries (blocking, durable)
+   *
+   * Features:
+   * - Configurable retry policy with exponential backoff and jitter
+   * - Step persistence for replay
+   * - Complete action lifecycle tracking
+   * - Integration with WorkflowRuntime
+   *
+   * @param action - The action to execute
+   * @param data - The data to pass to the action
+   * @param options - Optional execution options (retry, timeout, stepId)
    */
-  protected async do<T>(action: string, data: unknown): Promise<T> {
+  protected async do<T>(action: string, data: unknown, options?: DoOptions): Promise<T> {
+    // Merge retry policy with defaults
+    const retryPolicy: RetryPolicy = {
+      ...DO.DEFAULT_RETRY_POLICY,
+      ...options?.retry,
+    }
+
+    // Generate or use provided step ID
+    const stepId = options?.stepId ?? this.generateStepId(action, data)
+
+    // Check for cached step result (replay)
+    const cachedResult = this._stepCache.get(stepId)
+    if (cachedResult) {
+      return cachedResult.result as T
+    }
+
+    const startedAt = new Date()
+
+    // Log action with pending status
     const actionRecord = await this.logAction('do', action, data)
 
-    const maxRetries = 3
-    let lastError: unknown
+    let lastError: Error | undefined
+    let attempts = 0
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt++) {
+      attempts = attempt
+
+      // Update status to running (first attempt) or retrying (subsequent)
+      const status: ActionStatus = attempt === 1 ? 'running' : 'retrying'
+      await this.updateActionStatus(actionRecord.id, status, {
+        startedAt,
+        attempts,
+      })
+
       try {
-        const result = await this.executeAction(action, data)
-        await this.completeAction(actionRecord.rowid, result)
+        // Execute the action
+        const result = await this.executeAction(action, data) as T
+
+        // Calculate duration
+        const completedAt = new Date()
+        const duration = completedAt.getTime() - startedAt.getTime()
+
+        // Update action to completed
+        await this.completeAction(actionRecord.id, result, {
+          completedAt,
+          duration,
+          attempts,
+        })
+
+        // Cache step result for replay
+        this._stepCache.set(stepId, {
+          result,
+          completedAt: completedAt.getTime(),
+        })
+
+        // Persist step result to storage
+        await this.persistStepResult(stepId, result)
+
+        // Emit completion event
         await this.emitEvent(`${action}.completed`, { result })
-        return result as T
+
+        return result
       } catch (error) {
-        lastError = error
-        if (attempt < maxRetries - 1) {
-          await this.updateActionStatus(actionRecord.rowid, 'retrying')
-          await this.sleep(Math.pow(2, attempt) * 1000) // Exponential backoff
+        lastError = error as Error
+
+        // Update attempts count
+        await this.updateActionAttempts(actionRecord.id, attempts)
+
+        // If more retries remain, wait with exponential backoff
+        if (attempt < retryPolicy.maxAttempts) {
+          const delay = this.calculateBackoffDelay(attempt, retryPolicy)
+          await this.sleep(delay)
         }
       }
     }
 
-    await this.failAction(actionRecord.rowid, lastError)
-    await this.emitEvent(`${action}.failed`, { error: lastError })
+    // All retries exhausted - record failure
+    const completedAt = new Date()
+    const duration = completedAt.getTime() - startedAt.getTime()
+
+    const actionError: ActionError = {
+      message: lastError!.message,
+      name: lastError!.name,
+      stack: lastError!.stack,
+    }
+
+    await this.failAction(actionRecord.id, actionError, {
+      completedAt,
+      duration,
+      attempts,
+    })
+
+    // Emit failure event
+    await this.emitEvent(`${action}.failed`, { error: actionError })
+
     throw lastError
+  }
+
+  /**
+   * Calculate backoff delay with optional jitter
+   */
+  protected calculateBackoffDelay(attempt: number, policy: RetryPolicy): number {
+    // Exponential backoff: initialDelay * (multiplier ^ (attempt - 1))
+    let delay = policy.initialDelayMs * Math.pow(policy.backoffMultiplier, attempt - 1)
+
+    // Cap at max delay
+    delay = Math.min(delay, policy.maxDelayMs)
+
+    // Add jitter (0-25% of delay)
+    if (policy.jitter) {
+      const jitterRange = delay * 0.25
+      delay += Math.random() * jitterRange
+    }
+
+    return Math.floor(delay)
+  }
+
+  /**
+   * Generate a deterministic step ID from action and data
+   */
+  protected generateStepId(action: string, data: unknown): string {
+    const content = JSON.stringify({ action, data })
+    // Simple hash for step ID (in production, use a proper hash function)
+    let hash = 0
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash // Convert to 32bit integer
+    }
+    return `${action}:${Math.abs(hash).toString(36)}`
+  }
+
+  /**
+   * Persist step result to storage for durable replay
+   */
+  protected async persistStepResult(stepId: string, result: unknown): Promise<void> {
+    try {
+      await this.ctx.storage.put(`step:${stepId}`, {
+        result,
+        completedAt: Date.now(),
+      })
+    } catch {
+      // Best effort persistence
+    }
+  }
+
+  /**
+   * Load persisted step results on initialization
+   */
+  protected async loadPersistedSteps(): Promise<void> {
+    try {
+      const steps = await this.ctx.storage.list({ prefix: 'step:' })
+      for (const [key, value] of steps) {
+        const stepId = key.replace('step:', '')
+        const data = value as { result: unknown; completedAt: number }
+        this._stepCache.set(stepId, data)
+      }
+    } catch {
+      // Best effort loading
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTION LOGGING (append-only)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  protected async logAction(durability: 'send' | 'try' | 'do', verb: string, input: unknown): Promise<{ rowid: number }> {
-    const result = await this.db
+  /**
+   * Log a new action to the actions table
+   */
+  protected async logAction(
+    durability: 'send' | 'try' | 'do',
+    verb: string,
+    input: unknown
+  ): Promise<{ id: string; rowid: number }> {
+    const id = crypto.randomUUID()
+
+    await this.db
       .insert(schema.actions)
       // @ts-expect-error - Schema field names may differ
       .values({
-        id: crypto.randomUUID(),
+        id,
         verb,
         target: this.ns,
-        actor: this._currentActor, // Get from actor context
+        actor: this._currentActor,
         input: input as Record<string, unknown>,
+        durability,
         status: 'pending',
         createdAt: new Date(),
       })
-      .returning({ rowid: schema.actions.id })
 
-    return { rowid: 0 } // SQLite rowid
+    return { id, rowid: 0 } // SQLite rowid is auto-assigned
   }
 
-  protected async completeAction(rowid: number | string, output: unknown): Promise<void> {
-    // Update action status
+  /**
+   * Update action status and optional fields
+   */
+  protected async updateActionStatus(
+    actionId: string,
+    status: ActionStatus,
+    fields?: {
+      startedAt?: Date
+      attempts?: number
+    }
+  ): Promise<void> {
+    try {
+      const updateData: Record<string, unknown> = { status }
+
+      if (fields?.startedAt) {
+        updateData.startedAt = fields.startedAt
+      }
+      if (fields?.attempts !== undefined) {
+        // Store attempts in options JSON field
+        updateData.options = JSON.stringify({ attempts: fields.attempts })
+      }
+
+      await this.db
+        .update(schema.actions)
+        .set(updateData)
+        .where(eq(schema.actions.id, actionId))
+    } catch {
+      // Best effort status update
+    }
   }
 
-  protected async failAction(rowid: number | string, error: unknown): Promise<void> {
-    // Update action status to failed
+  /**
+   * Update action attempts count
+   */
+  protected async updateActionAttempts(actionId: string, attempts: number): Promise<void> {
+    try {
+      await this.db
+        .update(schema.actions)
+        .set({
+          options: JSON.stringify({ attempts }),
+        })
+        .where(eq(schema.actions.id, actionId))
+    } catch {
+      // Best effort update
+    }
   }
 
-  protected async updateActionStatus(rowid: number, status: string): Promise<void> {
-    // Update action status
+  /**
+   * Complete an action successfully
+   */
+  protected async completeAction(
+    actionId: string,
+    output: unknown,
+    fields?: {
+      completedAt?: Date
+      duration?: number
+      attempts?: number
+    }
+  ): Promise<void> {
+    try {
+      const updateData: Record<string, unknown> = {
+        status: 'completed' as ActionStatus,
+        output: output as number, // This maps to the output field (thing rowid)
+      }
+
+      if (fields?.completedAt) {
+        updateData.completedAt = fields.completedAt
+      }
+      if (fields?.duration !== undefined) {
+        updateData.duration = fields.duration
+      }
+      if (fields?.attempts !== undefined) {
+        updateData.options = JSON.stringify({ attempts: fields.attempts })
+      }
+
+      await this.db
+        .update(schema.actions)
+        .set(updateData)
+        .where(eq(schema.actions.id, actionId))
+    } catch {
+      // Best effort completion
+    }
   }
 
+  /**
+   * Fail an action with error details
+   */
+  protected async failAction(
+    actionId: string,
+    error: ActionError,
+    fields?: {
+      completedAt?: Date
+      duration?: number
+      attempts?: number
+    }
+  ): Promise<void> {
+    try {
+      const updateData: Record<string, unknown> = {
+        status: 'failed' as ActionStatus,
+        error: error,
+      }
+
+      if (fields?.completedAt) {
+        updateData.completedAt = fields.completedAt
+      }
+      if (fields?.duration !== undefined) {
+        updateData.duration = fields.duration
+      }
+      if (fields?.attempts !== undefined) {
+        updateData.options = JSON.stringify({ attempts: fields.attempts })
+      }
+
+      await this.db
+        .update(schema.actions)
+        .set(updateData)
+        .where(eq(schema.actions.id, actionId))
+    } catch {
+      // Best effort failure recording
+    }
+  }
+
+  /**
+   * Execute an action - override in subclasses to handle specific actions
+   */
   protected async executeAction(action: string, data: unknown): Promise<unknown> {
     // Override in subclasses to handle specific actions
     throw new Error(`Unknown action: ${action}`)

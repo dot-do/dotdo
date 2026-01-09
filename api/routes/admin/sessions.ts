@@ -183,14 +183,17 @@ function sanitizeObject(obj: Record<string, unknown>): Record<string, unknown> {
  * ```
  */
 export function createReplayHandler(store?: MockSessionStore) {
-  const sessionStore = store || getGlobalSessionStore()
+  // Use a getter to always get the current global store if no explicit store provided
+  // This ensures tests that call createMockSessionStore() after createReplayHandler()
+  // still work correctly
+  const getStore = () => store || getGlobalSessionStore()
 
   return {
     /**
      * List sessions with optional filtering and pagination
      */
     async listSessions(params: ListSessionsParams): Promise<ListSessionsResponse> {
-      let sessions = [...sessionStore.sessions]
+      let sessions = [...getStore().sessions]
 
       // Apply filters
       if (params.start !== undefined) {
@@ -253,7 +256,7 @@ export function createReplayHandler(store?: MockSessionStore) {
         return null
       }
 
-      const session = sessionStore.getSession(id)
+      const session = getStore().getSession(id)
       if (!session) {
         return null
       }
@@ -275,7 +278,7 @@ export function createReplayHandler(store?: MockSessionStore) {
         return null
       }
 
-      const session = sessionStore.getSession(id)
+      const session = getStore().getSession(id)
       if (!session) {
         return null
       }

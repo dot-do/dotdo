@@ -396,6 +396,10 @@ export interface StoreContext {
     }
     PIPELINE?: { send(data: unknown): Promise<void> }
     AI?: { fetch(request: Request): Promise<Response> }
+    /** R2 SQL binding for global object registry (cross-DO resolution fallback) */
+    R2_SQL?: {
+      exec(query: string, params: unknown[]): Promise<{ results: unknown[] }>
+    }
   }
   typeCache: Map<string, number>
 }
@@ -1751,6 +1755,69 @@ export class ObjectsStore {
 
     const doId = this.ctx.env.DO.idFromString(obj.id)
     return this.ctx.env.DO.get(doId)
+  }
+
+  /**
+   * Get an object from R2 SQL global registry (fallback for cross-DO resolution)
+   *
+   * This is called when the local objects table doesn't have the namespace.
+   * The R2 SQL database stores a global registry of all namespaces across DOs.
+   *
+   * @param ns - The namespace to look up
+   * @returns The object entity if found, null otherwise
+   */
+  async getGlobal(ns: string): Promise<DOObjectEntity | null> {
+    // Check if R2 SQL binding is available
+    const r2Sql = this.ctx.env.R2_SQL as {
+      exec(query: string, params: unknown[]): Promise<{ results: unknown[] }>
+    } | undefined
+
+    if (!r2Sql) {
+      // R2 SQL not configured, return null
+      return null
+    }
+
+    try {
+      // Query the global objects registry in R2 SQL
+      const result = await r2Sql.exec(
+        'SELECT ns, id, class, relation, shard_key, shard_index, region, "primary", cached, created_at FROM objects WHERE ns = ?',
+        [ns]
+      )
+
+      if (!result.results || result.results.length === 0) {
+        return null
+      }
+
+      const r = result.results[0] as {
+        ns: string
+        id: string
+        class: string
+        relation: string | null
+        shard_key: string | null
+        shard_index: number | null
+        region: string | null
+        primary: boolean | null
+        cached: string | null
+        created_at: string
+      }
+
+      return {
+        ns: r.ns,
+        id: r.id,
+        class: r.class,
+        relation: r.relation,
+        shardKey: r.shard_key,
+        shardIndex: r.shard_index,
+        region: r.region,
+        primary: r.primary,
+        cached: r.cached ? JSON.parse(r.cached) : null,
+        createdAt: new Date(r.created_at),
+      }
+    } catch (error) {
+      // R2 SQL query failed, return null (fallback behavior)
+      console.error('R2 SQL global lookup failed:', error)
+      return null
+    }
   }
 }
 

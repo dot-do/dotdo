@@ -20,8 +20,8 @@
  */
 
 import { DO as BaseDO } from './objects/DO'
-import { withFs } from './objects/mixins/fs'
-import { withBash } from './objects/mixins/bash'
+import { withFs } from './lib/mixins/fs'
+import { withBash } from './lib/mixins/bash'
 
 export const DO = withBash(withFs(BaseDO))
 

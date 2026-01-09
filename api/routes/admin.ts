@@ -349,6 +349,60 @@ export function createAdminRouter(): Hono<{ Bindings: AdminEnv; Variables: Admin
   })
 
   // ============================================================================
+  // GET /usage/keys/export - Export API Keys to CSV
+  // NOTE: This route MUST come before /usage/keys/:keyId to avoid being caught by the param route
+  // ============================================================================
+
+  router.get('/usage/keys/export', async (c) => {
+    const { format, range: rangeParam, start, end } = c.req.query()
+
+    // Validate format
+    if (format && format !== 'csv') {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid format parameter. Only csv is supported' } }, 400)
+    }
+
+    // Parse time range
+    const { range, error: rangeError } = parseTimeRange(rangeParam, start, end)
+    if (rangeError) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: rangeError } }, 400)
+    }
+
+    if (!c.env.ANALYTICS) {
+      return c.json({ error: { code: 'ANALYTICS_ERROR', message: 'Analytics service not available' } }, 500)
+    }
+
+    try {
+      const client = createQueryClient(c.env.ANALYTICS)
+      const queryOptions: QueryOptions = { range: range!, limit: 10000 }
+
+      const apiKeys = await client.getApiKeyUsage(queryOptions)
+      const apiKeyConfig = getApiKeyConfig(c.env)
+
+      const csvData = apiKeys.map((key) => ({
+        apiKeyId: key.apiKeyId,
+        name: apiKeyConfig[key.apiKeyId]?.name || '',
+        requests: key.requests,
+        cost: key.cost,
+        avgLatencyMs: key.avgLatencyMs,
+        topEndpoint: key.topEndpoint,
+        errors: key.errors,
+      }))
+
+      const csv = toCSV(csvData, ['apiKeyId', 'name', 'requests', 'cost', 'avgLatencyMs', 'topEndpoint', 'errors'])
+
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="api-keys-usage-${range!.start.toISOString().split('T')[0]}-${range!.end.toISOString().split('T')[0]}.csv"`,
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return c.json({ error: { code: 'ANALYTICS_ERROR', message: `Analytics query failed: ${message}` } }, 500)
+    }
+  })
+
+  // ============================================================================
   // GET /usage/keys - Per-Key Usage
   // ============================================================================
 
@@ -423,17 +477,71 @@ export function createAdminRouter(): Hono<{ Bindings: AdminEnv; Variables: Admin
   })
 
   // ============================================================================
+  // GET /usage/keys/:keyId/export - Export Single Key to CSV
+  // NOTE: This route MUST come before /usage/keys/:keyId to avoid being caught
+  // ============================================================================
+
+  router.get('/usage/keys/:keyId/export', async (c) => {
+    const keyId = c.req.param('keyId')
+    const { format, range: rangeParam, start, end } = c.req.query()
+
+    // Validate format
+    if (format && format !== 'csv') {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid format parameter. Only csv is supported' } }, 400)
+    }
+
+    // Parse time range
+    const { range, error: rangeError } = parseTimeRange(rangeParam, start, end)
+    if (rangeError) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: rangeError } }, 400)
+    }
+
+    // Check if API key exists
+    const apiKeyConfig = getApiKeyConfig(c.env)
+    if (!apiKeyConfig[keyId]) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'API key not found' } }, 404)
+    }
+
+    if (!c.env.ANALYTICS) {
+      return c.json({ error: { code: 'ANALYTICS_ERROR', message: 'Analytics service not available' } }, 500)
+    }
+
+    try {
+      const client = createQueryClient(c.env.ANALYTICS)
+      const queryOptions: QueryOptions = { range: range!, apiKeyId: keyId }
+      const bucketSize = getBucketSizeForRange(range!)
+
+      const timeline = await client.getTimeline({ ...queryOptions, bucketSize })
+
+      const csvData = timeline.map((point) => ({
+        timestamp: point.timestamp.toISOString(),
+        requests: point.requests,
+        cost: point.cost,
+        avgLatencyMs: point.avgLatencyMs,
+        errors: point.errors,
+      }))
+
+      const csv = toCSV(csvData, ['timestamp', 'requests', 'cost', 'avgLatencyMs', 'errors'])
+
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${keyId}-usage-${range!.start.toISOString().split('T')[0]}-${range!.end.toISOString().split('T')[0]}.csv"`,
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return c.json({ error: { code: 'ANALYTICS_ERROR', message: `Analytics query failed: ${message}` } }, 500)
+    }
+  })
+
+  // ============================================================================
   // GET /usage/keys/:keyId - Single Key Detail
   // ============================================================================
 
   router.get('/usage/keys/:keyId', async (c) => {
     const keyId = c.req.param('keyId')
     const { range: rangeParam, start, end } = c.req.query()
-
-    // Check if this is an export route (handled separately)
-    if (keyId === 'export') {
-      return c.notFound()
-    }
 
     // Parse time range
     const { range, error: rangeError } = parseTimeRange(rangeParam, start, end)

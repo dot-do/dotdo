@@ -23,6 +23,8 @@ import type {
   DataFileEntry,
   Snapshot,
   PartitionFilter,
+  Visibility,
+  AuthContext,
 } from './types'
 
 // ============================================================================
@@ -43,6 +45,9 @@ const NS_PARTITION_INDEX = 0
 
 /** Index of 'type' partition in partition summaries */
 const TYPE_PARTITION_INDEX = 1
+
+/** Index of 'visibility' partition in partition summaries */
+const VISIBILITY_PARTITION_INDEX = 2
 
 // ============================================================================
 // Cache Entry Type
@@ -241,7 +246,7 @@ export class IcebergReader {
       return null
     }
 
-    // Step 4: Prune manifests by partition bounds
+    // Step 4: Prune manifests by partition bounds (including visibility)
     const candidateManifests = this.filterManifestsByPartition(manifestList.manifests, partition)
     if (candidateManifests.length === 0) {
       return null
@@ -295,7 +300,10 @@ export class IcebergReader {
   async getRecord<T extends IcebergRecord = IcebergRecord>(
     options: GetRecordOptions
   ): Promise<T | null> {
-    const { id, columns } = options
+    const { id, columns, partition, auth } = options
+
+    // Check visibility authorization before any data access
+    this.checkVisibilityAuthorization(partition.visibility, auth)
 
     // Navigate to the file containing the record
     const fileInfo = await this.findFile(options)
@@ -308,6 +316,9 @@ export class IcebergReader {
     if (!record) {
       return null
     }
+
+    // Verify record-level authorization for org/user visibility
+    this.checkRecordAuthorization(record, partition.visibility, auth)
 
     // Note: Column filtering is accepted for API completeness but returns full record.
     // Full Parquet column projection would be implemented when using actual Parquet reader.
@@ -549,6 +560,28 @@ export class IcebergReader {
       return false
     }
 
+    // Check visibility bounds if specified and partition has visibility summary
+    if (partition.visibility && manifest.partitions.length > VISIBILITY_PARTITION_INDEX) {
+      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]
+      if (
+        !this.valueInBounds(
+          partition.visibility,
+          visibilityBounds.lowerBound,
+          visibilityBounds.upperBound
+        )
+      ) {
+        return false
+      }
+    }
+
+    // When no visibility is specified, exclude unlisted manifests from general queries
+    if (!partition.visibility && manifest.partitions.length > VISIBILITY_PARTITION_INDEX) {
+      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]
+      if (visibilityBounds.lowerBound === 'unlisted' && visibilityBounds.upperBound === 'unlisted') {
+        return false
+      }
+    }
+
     return true
   }
 
@@ -608,8 +641,12 @@ export class IcebergReader {
     const partitionMatches = entries.filter((entry) => this.entryMatchesPartition(entry, partition))
 
     // Find file using column statistics
+    // When visibility is explicitly specified, we're doing a targeted lookup
+    // and should check all matching partition files
+    const skipBoundsCheck = !!partition.visibility
+
     for (const entry of partitionMatches) {
-      if (this.idMayExistInFile(id, entry)) {
+      if (skipBoundsCheck || this.idMayExistInFile(id, entry)) {
         return this.createFindFileResult(entry)
       }
     }
@@ -621,7 +658,15 @@ export class IcebergReader {
    * Check if a data file entry matches the target partition exactly.
    */
   private entryMatchesPartition(entry: DataFileEntry, partition: PartitionFilter): boolean {
-    return entry.partition.ns === partition.ns && entry.partition.type === partition.type
+    const nsMatch = entry.partition.ns === partition.ns
+    const typeMatch = entry.partition.type === partition.type
+
+    // If visibility is specified, it must match
+    if (partition.visibility) {
+      return nsMatch && typeMatch && entry.partition.visibility === partition.visibility
+    }
+
+    return nsMatch && typeMatch
   }
 
   /**
@@ -664,6 +709,79 @@ export class IcebergReader {
       recordCount: entry.recordCount,
       fileSizeBytes: entry.fileSizeBytes,
       partition: entry.partition,
+    }
+  }
+
+  // ==========================================================================
+  // Visibility Authorization (Private)
+  // ==========================================================================
+
+  /**
+   * Check visibility authorization before data access.
+   * Throws an error if the visibility level requires authentication and none is provided.
+   *
+   * @param visibility - The visibility level of the requested data
+   * @param auth - The auth context (optional)
+   * @throws Error if authorization is required but not provided
+   */
+  private checkVisibilityAuthorization(visibility: Visibility | undefined, auth?: AuthContext): void {
+    // Public and unlisted records don't require auth for access
+    if (!visibility || visibility === 'public' || visibility === 'unlisted') {
+      return
+    }
+
+    // Org visibility requires orgId in auth context
+    if (visibility === 'org') {
+      if (!auth?.orgId) {
+        throw new Error('Unauthorized: org visibility requires authentication with orgId')
+      }
+      return
+    }
+
+    // User visibility requires userId in auth context
+    if (visibility === 'user') {
+      if (!auth?.userId) {
+        throw new Error('Unauthorized: user visibility requires authentication with userId')
+      }
+      return
+    }
+  }
+
+  /**
+   * Check record-level authorization after retrieving the record.
+   * Verifies the auth context matches the record's owner/org.
+   *
+   * @param record - The retrieved record
+   * @param visibility - The visibility level
+   * @param auth - The auth context
+   * @throws Error if the record's owner/org doesn't match auth context
+   */
+  private checkRecordAuthorization<T extends IcebergRecord>(
+    record: T,
+    visibility: Visibility | undefined,
+    auth?: AuthContext
+  ): void {
+    // Public and unlisted records are accessible without additional checks
+    if (!visibility || visibility === 'public' || visibility === 'unlisted') {
+      return
+    }
+
+    // For org visibility, verify orgId matches
+    if (visibility === 'org') {
+      const recordOrgId = (record as Record<string, unknown>).orgId as string | undefined
+      if (recordOrgId && auth?.orgId !== recordOrgId) {
+        throw new Error('Unauthorized: orgId does not match record')
+      }
+      return
+    }
+
+    // For user visibility, verify userId matches ownerId
+    if (visibility === 'user') {
+      const recordOwnerId = (record as Record<string, unknown>).ownerId as string | undefined
+      if (recordOwnerId && auth?.userId !== recordOwnerId) {
+        throw new Error('Unauthorized: userId does not match record owner')
+      }
+      return
     }
   }
 }
