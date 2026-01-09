@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { apiRoutes } from './routes/api'
 import { mcpRoutes } from './routes/mcp'
 import { rpcRoutes } from './routes/rpc'
+import { browsersRoutes } from './routes/browsers'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -12,11 +13,13 @@ import { landingPageHtml, docsPageHtml, adminDashboardHtml, adminLoginHtml, admi
 // Re-export Durable Object classes for wrangler
 export { TestDurableObject } from './test-do'
 export { DurableObject } from 'cloudflare:workers'
+export { Browser } from '../objects/Browser'
 
 // Types for Cloudflare Workers bindings
 export interface Env {
   KV: KVNamespace
   DO: DurableObjectNamespace
+  BROWSER_DO: DurableObjectNamespace
   TEST_KV: KVNamespace
   TEST_DO: DurableObjectNamespace
   ASSETS: Fetcher
@@ -135,6 +138,9 @@ app.get('/api/openapi.json', (c) => {
 
 // Mount API routes
 app.route('/api', apiRoutes)
+
+// Mount Browser API routes
+app.route('/api/browsers', browsersRoutes)
 
 // Mount MCP routes
 app.route('/mcp', mcpRoutes)

@@ -10,6 +10,8 @@ export * from './Experiment'
 export * from './Flag'
 export * from './capabilities'
 export * from './ids'
+export * from './event'
+export * from './fn'
 
 // Re-export key types for convenience
 export type { Thing, ThingData } from './Thing'
@@ -79,3 +81,32 @@ export {
   isEventId,
   isNounId,
 } from './ids'
+
+// 5W+H Event types
+export type {
+  Event as FiveWHEvent,
+  EventData,
+  EventWho,
+  EventWhat,
+  EventWhen,
+  EventWhere,
+  EventWhy,
+  EventHow,
+  FunctionMethod,
+  CascadeAttempt,
+  EventCascade,
+  ValidationError as EventValidationError,
+  ValidationResult as EventValidationResult,
+} from './event'
+export { EventSchema, validateEvent, createEvent } from './event'
+
+// Fn type system
+export type {
+  Fn,
+  AsyncFn,
+  RpcFn,
+  StreamFn,
+  TaggedResult,
+  FunctionType,
+  RpcPromise,
+} from './fn'
