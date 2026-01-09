@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DO, type Env } from '../DO'
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import type * as schema from '../../db'
 
 // ============================================================================

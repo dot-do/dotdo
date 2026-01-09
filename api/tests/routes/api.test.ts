@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { env, SELF } from 'cloudflare:test'
 
 /**
  * REST API Route Tests
@@ -10,6 +11,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
  * - Create routes in worker/src/routes/api.ts (or similar)
  * - Mount routes on the main Hono app
  * - Implement Thing CRUD operations with proper status codes
+ *
+ * NOTE: Tests now use DO-based storage via env.DO binding.
+ * The in-memory Map has been replaced with Durable Object persistence.
  */
 
 // Import the actual app

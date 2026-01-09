@@ -588,25 +588,21 @@ describe('Child span creation', () => {
 // 7. Linking Frontend Events to Backend Traces Tests
 // ============================================================================
 
+// Additional function imports for linking
+let linkFrontendToBackend: ((sessionEvent: { correlationId: string }, backendCtx: CorrelationContext) => boolean) | undefined
+let createSessionCorrelation: ((sessionId: string) => CorrelationContext) | undefined
+
+try {
+  // @ts-expect-error - Module not yet implemented
+  const linkModule = await import('../../workflows/context/correlation')
+  linkFrontendToBackend = linkModule.linkFrontendToBackend
+  createSessionCorrelation = linkModule.createSessionCorrelation
+} catch {
+  linkFrontendToBackend = undefined
+  createSessionCorrelation = undefined
+}
+
 describe('Linking frontend events to backend traces', () => {
-  // Helper to simulate DO interaction
-  interface MockDOStub {
-    fetch(request: Request): Promise<Response>
-  }
-
-  let linkFrontendToBackend: ((sessionEvent: { correlationId: string }, backendCtx: CorrelationContext) => boolean) | undefined
-  let createSessionCorrelation: ((sessionId: string) => CorrelationContext) | undefined
-
-  try {
-    // @ts-expect-error - Module not yet implemented
-    const linkModule = await import('../../workflows/context/correlation')
-    linkFrontendToBackend = linkModule.linkFrontendToBackend
-    createSessionCorrelation = linkModule.createSessionCorrelation
-  } catch {
-    linkFrontendToBackend = undefined
-    createSessionCorrelation = undefined
-  }
-
   it('createSessionCorrelation function is exported', () => {
     expect(createSessionCorrelation).toBeDefined()
   })

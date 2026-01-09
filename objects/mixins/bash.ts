@@ -177,6 +177,7 @@ const BASH_CAPABILITY_CACHE = Symbol('bashCapabilityCache')
  */
 export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase) {
   return class WithBash extends Base {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'bash']
 
     /**

@@ -1,5 +1,8 @@
 // Core types
 export * from './Thing'
+
+// Drizzle database type bridge
+export * from './drizzle'
 export * from './Things'
 export * from './Collection'
 export * from './Noun'

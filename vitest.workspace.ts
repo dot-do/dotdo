@@ -103,6 +103,9 @@ export default defineWorkspace([
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
 
+  // Testing utilities tests
+  createNodeWorkspace('testing', ['testing/tests/**/*.test.ts']),
+
   // Test mocks infrastructure
   createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
 
@@ -114,6 +117,12 @@ export default defineWorkspace([
 
   // Vault credential storage tests
   createNodeWorkspace('vault', ['tests/vault/**/*.test.ts']),
+
+  // Session replay tests
+  createNodeWorkspace('session-replay', ['tests/session-replay/**/*.test.ts']),
+
+  // Usage/analytics tests
+  createNodeWorkspace('usage', ['tests/usage/**/*.test.ts']),
 
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),

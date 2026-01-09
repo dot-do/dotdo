@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DO, type Env } from '../DO'
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import type * as schema from '../../db'
 
 // ============================================================================
@@ -236,7 +236,7 @@ describe('DO Base Class', () => {
       expect(doInstance).toHaveProperty('db')
 
       // Access protected db property for testing
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
       expect(db).toBeDefined()
     })
 
@@ -291,7 +291,7 @@ describe('DO Base Class', () => {
       const doInstance = new DO(mockState, mockEnv)
 
       // The Drizzle instance should be initialized with the sql storage
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
       expect(db).toBeDefined()
     })
   })
@@ -399,7 +399,7 @@ describe('DO Base Class', () => {
     })
 
     it('db property is accessible', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       expect(db).toBeDefined()
       expect(db).not.toBeNull()
@@ -407,45 +407,45 @@ describe('DO Base Class', () => {
 
     it('schema is properly imported', () => {
       // The db should have access to the schema tables
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       // Drizzle should have query and schema access
       expect(db).toBeDefined()
     })
 
     it('db has select method', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       expect(typeof db.select).toBe('function')
     })
 
     it('db has insert method', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       expect(typeof db.insert).toBe('function')
     })
 
     it('db has update method', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       expect(typeof db.update).toBe('function')
     })
 
     it('db has delete method', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       expect(typeof db.delete).toBe('function')
     })
 
     it('database uses SQLite dialect', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       // The db should be configured for SQLite/D1
       expect(db).toBeDefined()
     })
 
     it('db preserves schema reference', () => {
-      const db = (doInstance as unknown as { db: DrizzleD1Database<typeof schema> }).db
+      const db = (doInstance as unknown as { db: DrizzleSqliteDODatabase<typeof schema> }).db
 
       // Schema should be accessible (Drizzle stores it internally)
       expect(db).toBeDefined()

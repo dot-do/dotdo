@@ -151,6 +151,7 @@ const FS_CAPABILITY_CACHE = Symbol('fsCapabilityCache')
  */
 export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: TBase) {
   return class WithFs extends Base {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'fs']
 
     /**

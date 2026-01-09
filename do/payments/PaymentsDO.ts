@@ -19,8 +19,8 @@
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { drizzle } from 'drizzle-orm/d1'
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import { drizzle } from 'drizzle-orm/durable-sqlite'
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import { eq, and, desc, gte, sql } from 'drizzle-orm'
 import Stripe from 'stripe'
 import * as schema from './schema'
@@ -73,12 +73,12 @@ export interface UsageRecord {
 
 export class PaymentsDO extends DurableObject<PaymentsEnv> {
   readonly ns = 'https://payments.do'
-  protected db: DrizzleD1Database<typeof schema>
+  protected db: DrizzleSqliteDODatabase<typeof schema>
   protected stripe: Stripe
 
   constructor(ctx: DurableObjectState, env: PaymentsEnv) {
     super(ctx, env)
-    this.db = drizzle(ctx.storage.sql as any, { schema })
+    this.db = drizzle(ctx.storage, { schema })
     this.stripe = new Stripe(env.STRIPE_SECRET_KEY, {
       apiVersion: '2024-12-18.acacia',
       httpClient: Stripe.createFetchHttpClient(),

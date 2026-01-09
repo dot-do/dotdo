@@ -11,7 +11,7 @@
  */
 
 import { eq, and, or, desc, asc, isNull, sql } from 'drizzle-orm'
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import type { DODatabase, AppSchema } from '../types/drizzle'
 import * as schema from '../db'
 
 // ============================================================================
@@ -385,7 +385,7 @@ export interface ObjectsListOptions {
 // ============================================================================
 
 export interface StoreContext {
-  db: DrizzleD1Database<typeof schema>
+  db: DODatabase<AppSchema>
   ns: string
   currentBranch: string
   env: {

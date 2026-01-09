@@ -281,6 +281,7 @@ const GIT_CAPABILITY_CACHE = Symbol('gitCapabilityCache')
  */
 export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: TBase) {
   return class WithGit extends Base {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static capabilities = [...((Base as any).capabilities || []), 'git']
 
     /**
