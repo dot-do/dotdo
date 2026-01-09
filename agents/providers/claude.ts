@@ -278,7 +278,7 @@ export class ClaudeProvider implements AgentProvider {
     }
   }
 
-  private convertMessages(messages: Message[]): unknown[] {
+  convertMessages(messages: Message[]): unknown[] {
     return messages.map((msg) => {
       switch (msg.role) {
         case 'user':
@@ -334,7 +334,7 @@ export class ClaudeProvider implements AgentProvider {
     })
   }
 
-  private convertTools(tools: ToolDefinition[]): unknown[] {
+  convertTools(tools: ToolDefinition[]): unknown[] {
     return tools.map((tool) => ({
       name: tool.name,
       description: tool.description,

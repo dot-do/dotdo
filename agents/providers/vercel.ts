@@ -178,11 +178,21 @@ export class VercelProvider implements AgentProvider {
     const result: Record<string, unknown> = {}
 
     for (const tool of tools) {
+      // Determine parameters: Zod schema stays as-is for Vercel SDK,
+      // JSON Schema (object with 'type') is passed through directly
+      let parameters: unknown
+      if (isZodSchema(tool.inputSchema)) {
+        parameters = tool.inputSchema
+      } else if (typeof tool.inputSchema === 'object' && tool.inputSchema !== null && 'type' in tool.inputSchema) {
+        // Already JSON Schema - pass through
+        parameters = tool.inputSchema
+      } else {
+        parameters = { type: 'object', properties: {} }
+      }
+
       result[tool.name] = {
         description: tool.description,
-        parameters: isZodSchema(tool.inputSchema)
-          ? tool.inputSchema
-          : zodToJsonSchema(tool.inputSchema as never),
+        parameters,
         // Note: execute is handled by our agent loop, not Vercel's
       }
     }

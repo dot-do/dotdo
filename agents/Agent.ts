@@ -283,7 +283,7 @@ export class BaseAgent implements Agent {
           toolResults: allToolResults,
           messages,
           steps: stepNumber,
-          finishReason: 'stop',
+          finishReason: stepResult.finishReason,
           usage: totalTokens,
         }
       }

@@ -268,7 +268,7 @@ class VoiceAgent implements Agent {
     // const response = await fetch('https://api.vapi.ai/call/web', { ... })
 
     this.session = {
-      id: `voice-${Date.now()}`,
+      id: `voice-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       status: 'connecting',
       transcript: [],
     }
@@ -435,5 +435,4 @@ export function createLiveKitProvider(options: LiveKitProviderOptions): LiveKitP
   return new LiveKitProvider(options)
 }
 
-export { VapiProvider, LiveKitProvider }
 export default VapiProvider
