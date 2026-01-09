@@ -841,7 +841,7 @@ describe('Token refresh', () => {
 
     const initResult = await $.oauth.initiate(testConfig)
     const tokens = await $.oauth.callback('auth-code-12345', initResult.state)
-    const stateData = $._storage.oauthStates.get(initResult.state)
+    const stateData = $._storage._consumedStates.get(initResult.state)
 
     return { tokens, userId: stateData?.userId ?? 'user:123', provider: 'google' }
   }
