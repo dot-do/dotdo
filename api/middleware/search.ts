@@ -167,6 +167,237 @@ function hasRequiredScopes(accountScopes: string[] | undefined, requiredScopes: 
   return requiredScopes.every(scope => accountScopes.includes(scope))
 }
 
+/**
+ * Validates an EPCIS event type
+ */
+function isValidEventType(eventType: string): eventType is EPCISEventType {
+  return VALID_EVENT_TYPES.includes(eventType as EPCISEventType)
+}
+
+/**
+ * Validates an ISO 8601 date string
+ */
+function isValidISODate(dateStr: string): boolean {
+  const date = new Date(dateStr)
+  return !isNaN(date.getTime())
+}
+
+/**
+ * Checks if an EPC pattern matches a value (supports wildcards)
+ */
+function matchesEPCPattern(pattern: string, value: string): boolean {
+  if (pattern.includes('*')) {
+    // Convert wildcard pattern to regex
+    const regexPattern = pattern.replace(/\./g, '\\.').replace(/\*/g, '.*')
+    const regex = new RegExp(`^${regexPattern}$`)
+    return regex.test(value)
+  }
+  return pattern === value
+}
+
+/**
+ * Filters events based on EPCIS MATCH_epc pattern
+ * Matches against epcList and parentID
+ */
+function matchesEPC(event: Record<string, unknown>, pattern: string): boolean {
+  // Check epcList
+  const epcList = event.epcList as string[] | undefined
+  if (epcList && Array.isArray(epcList)) {
+    if (epcList.some(epc => matchesEPCPattern(pattern, epc))) {
+      return true
+    }
+  }
+
+  // Check parentID
+  const parentID = event.parentID as string | undefined
+  if (parentID && matchesEPCPattern(pattern, parentID)) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Filters events by time range parameters
+ */
+function matchesTimeFilter(
+  event: Record<string, unknown>,
+  filters: Record<string, string>
+): boolean {
+  // Check GE_eventTime (greater than or equal)
+  if (filters.GE_eventTime) {
+    const eventTime = new Date(event.eventTime as string)
+    const filterTime = new Date(filters.GE_eventTime)
+    if (eventTime < filterTime) return false
+  }
+
+  // Check LT_eventTime (less than)
+  if (filters.LT_eventTime) {
+    const eventTime = new Date(event.eventTime as string)
+    const filterTime = new Date(filters.LT_eventTime)
+    if (eventTime >= filterTime) return false
+  }
+
+  // Check GE_recordTime
+  if (filters.GE_recordTime) {
+    const recordTime = new Date(event.recordTime as string)
+    const filterTime = new Date(filters.GE_recordTime)
+    if (recordTime < filterTime) return false
+  }
+
+  // Check LT_recordTime
+  if (filters.LT_recordTime) {
+    const recordTime = new Date(event.recordTime as string)
+    const filterTime = new Date(filters.LT_recordTime)
+    if (recordTime >= filterTime) return false
+  }
+
+  return true
+}
+
+/**
+ * Set of all EPCIS-specific parameter names (for passthrough filtering)
+ */
+const ALL_EPCIS_PARAMS = new Set([
+  'eventType',
+  ...EPCIS_TIME_PARAMS,
+  ...EPCIS_PATTERN_PARAMS,
+  ...Object.keys(EPCIS_PARAM_MAPPINGS),
+])
+
+/**
+ * Parse and validate EPCIS query parameters
+ * Returns { error, dbWhere, clientFilters } where:
+ * - error: error message if validation failed
+ * - dbWhere: mapped parameters to pass to database
+ * - clientFilters: original filter values for response
+ * - epcisFilters: filters that need client-side application
+ */
+function parseEPCISParams(filters: Record<string, string>): {
+  error?: string
+  dbWhere: Record<string, unknown>
+  clientFilters: Record<string, string>
+  epcisFilters: {
+    eventType?: string
+    timeFilters: Record<string, string>
+    matchEpc?: string
+  }
+} {
+  const dbWhere: Record<string, unknown> = {}
+  const clientFilters: Record<string, string> = { ...filters }
+  const epcisFilters: {
+    eventType?: string
+    timeFilters: Record<string, string>
+    matchEpc?: string
+  } = { timeFilters: {} }
+
+  // First, pass through any non-EPCIS filters directly to the database
+  for (const [key, value] of Object.entries(filters)) {
+    if (!ALL_EPCIS_PARAMS.has(key)) {
+      dbWhere[key] = value
+    }
+  }
+
+  // Handle eventType
+  if (filters.eventType) {
+    if (!isValidEventType(filters.eventType)) {
+      return {
+        error: 'Invalid event type',
+        dbWhere: {},
+        clientFilters: {},
+        epcisFilters: { timeFilters: {} },
+      }
+    }
+    dbWhere.eventType = filters.eventType
+    epcisFilters.eventType = filters.eventType
+  }
+
+  // Handle time range parameters
+  for (const timeParam of EPCIS_TIME_PARAMS) {
+    if (filters[timeParam]) {
+      if (!isValidISODate(filters[timeParam])) {
+        return {
+          error: 'Invalid date format',
+          dbWhere: {},
+          clientFilters: {},
+          epcisFilters: { timeFilters: {} },
+        }
+      }
+      dbWhere[timeParam] = filters[timeParam]
+      epcisFilters.timeFilters[timeParam] = filters[timeParam]
+    }
+  }
+
+  // Validate time range (GE should be before LT)
+  if (filters.GE_eventTime && filters.LT_eventTime) {
+    const geTime = new Date(filters.GE_eventTime)
+    const ltTime = new Date(filters.LT_eventTime)
+    if (geTime >= ltTime) {
+      return {
+        error: 'Invalid time range: start must be before end',
+        dbWhere: {},
+        clientFilters: {},
+        epcisFilters: { timeFilters: {} },
+      }
+    }
+  }
+
+  // Handle MATCH_epc pattern
+  if (filters.MATCH_epc) {
+    dbWhere.MATCH_epc = filters.MATCH_epc
+    epcisFilters.matchEpc = filters.MATCH_epc
+  }
+
+  // Handle mapped EPCIS parameters
+  for (const [param, field] of Object.entries(EPCIS_PARAM_MAPPINGS)) {
+    if (filters[param]) {
+      dbWhere[field] = filters[param]
+    }
+  }
+
+  return { dbWhere, clientFilters, epcisFilters }
+}
+
+/**
+ * Apply EPCIS filters to results (client-side filtering)
+ * This handles filtering that can't be done at the database level
+ */
+function applyEPCISFilters(
+  results: unknown[],
+  epcisFilters: {
+    eventType?: string
+    timeFilters: Record<string, string>
+    matchEpc?: string
+  },
+  allFilters: Record<string, string>
+): unknown[] {
+  let filtered = results as Record<string, unknown>[]
+
+  // Filter by eventType
+  if (epcisFilters.eventType) {
+    filtered = filtered.filter(event => event.eventType === epcisFilters.eventType)
+  }
+
+  // Filter by time range
+  if (Object.keys(epcisFilters.timeFilters).length > 0) {
+    filtered = filtered.filter(event => matchesTimeFilter(event, epcisFilters.timeFilters))
+  }
+
+  // Filter by MATCH_epc pattern
+  if (epcisFilters.matchEpc) {
+    filtered = filtered.filter(event => matchesEPC(event, epcisFilters.matchEpc!))
+  }
+
+  // Apply mapped field filters (EQ_bizStep -> bizStep, etc.)
+  for (const [param, field] of Object.entries(EPCIS_PARAM_MAPPINGS)) {
+    if (allFilters[param]) {
+      filtered = filtered.filter(event => event[field] === allFilters[param])
+    }
+  }
+
+  return filtered
+}
+
 // ============================================================================
 // Middleware Factory
 // ============================================================================
@@ -337,6 +568,12 @@ export function search(config?: SearchConfig): MiddlewareHandler {
         }
       }
 
+      // Parse and validate EPCIS query parameters
+      const epcisResult = parseEPCISParams(filters)
+      if (epcisResult.error) {
+        return c.json({ error: epcisResult.error }, 400)
+      }
+
       // Get database and perform search
       const db = c.get('db') as { query: Record<string, DbQuery> } | undefined
       if (!db) {
@@ -346,19 +583,21 @@ export function search(config?: SearchConfig): MiddlewareHandler {
       const queryHandler = db.query[type]
 
       try {
-        // Build where clause with query and filters
-        const where: Record<string, unknown> = { ...filters }
+        // Build where clause with query and EPCIS-mapped filters
+        const where: Record<string, unknown> = { ...epcisResult.dbWhere }
         if (q) {
           where.q = q
         }
 
         if (queryHandler) {
-          results = await queryHandler.findMany({
+          const rawResults = await queryHandler.findMany({
             where,
             limit,
             offset,
           })
-          total = results.length // In a real implementation, we'd have a separate count query
+          // Apply EPCIS filters client-side (for mock data compatibility)
+          results = applyEPCISFilters(rawResults, epcisResult.epcisFilters, filters)
+          total = results.length
         } else {
           // Type is configured but no query handler - return empty results
           results = []
@@ -540,6 +779,12 @@ export function search(config?: SearchConfig): MiddlewareHandler {
             }
           }
 
+          // Parse and validate EPCIS query parameters
+          const epcisResult = parseEPCISParams(filters)
+          if (epcisResult.error) {
+            return ctx.json({ error: epcisResult.error }, 400)
+          }
+
           // Get database and perform search
           const db = c.get('db') as { query: Record<string, DbQuery> } | undefined
           if (!db) {
@@ -549,18 +794,20 @@ export function search(config?: SearchConfig): MiddlewareHandler {
           const queryHandler = db.query[type]
 
           try {
-            // Build where clause with query and filters
-            const where: Record<string, unknown> = { ...filters }
+            // Build where clause with query and EPCIS-mapped filters
+            const where: Record<string, unknown> = { ...epcisResult.dbWhere }
             if (q) {
               where.q = q
             }
 
             if (queryHandler) {
-              results = await queryHandler.findMany({
+              const rawResults = await queryHandler.findMany({
                 where,
                 limit,
                 offset,
               })
+              // Apply EPCIS filters client-side (for mock data compatibility)
+              results = applyEPCISFilters(rawResults, epcisResult.epcisFilters, filters)
               total = results.length
             } else {
               // Type is configured but no query handler - return empty results
