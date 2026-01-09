@@ -6,6 +6,7 @@ export * from './Verb'
 export * from './DO'
 export * from './WorkflowContext'
 export * from './Experiment'
+export * from './capabilities'
 
 // Re-export key types for convenience
 export type { Thing, ThingData } from './Thing'
@@ -22,3 +23,29 @@ export type { WorkflowContext, OnProxy, ScheduleBuilder, DomainProxy, DomainEven
 
 export type { Experiment, ExperimentStatus, ExperimentInput } from './Experiment'
 export { ExperimentSchema } from './Experiment'
+
+// Capability module types
+export type {
+  CapabilityModule,
+  FsCapability,
+  GitCapability,
+  BashCapability,
+  ExecResult,
+  ExecOptions,
+  SpawnedProcess,
+  SpawnOptions,
+  FileStats,
+  MkdirOptions,
+  RmOptions,
+  GitStatus,
+  GitCommit,
+  GitLogOptions,
+  GitCloneOptions,
+  CapabilityName,
+  CapabilityErrorReason,
+  WithFs,
+  WithGit,
+  WithBash,
+  WithAllCapabilities,
+} from './capabilities'
+export { CapabilityError, hasFs, hasGit, hasBash, hasAllCapabilities } from './capabilities'
