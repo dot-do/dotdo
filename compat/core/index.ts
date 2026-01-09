@@ -95,3 +95,14 @@ export {
   formatDuration,
 } from './tier'
 export type { HotStorage, ColdStorage, TierBindings } from './tier'
+
+// Vector router
+export {
+  VectorRouter,
+  createVectorEngine,
+  cosineSimilarity,
+  euclideanDistance,
+  dotProduct,
+  normalizeVector,
+} from './vector'
+export type { VectorHit, SearchOptions, VectorEngine, VectorEntry } from './vector'
