@@ -70,7 +70,7 @@ export interface WithFsContext extends WorkflowContext {
 // MIXIN TYPE
 // ============================================================================
 
-type Constructor<T = {}> = new (...args: any[]) => T
+type Constructor<T = {}> = new (...args: unknown[]) => T
 
 type DOConstructor<E extends Env = Env> = Constructor<DO<E>> & typeof DO<E>
 
@@ -177,7 +177,7 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
       return this[FS_CAPABILITY_CACHE]
     }
 
-    constructor(...args: any[]) {
+    constructor(...args: ConstructorParameters<TBase>) {
       super(...args)
 
       // Extend $ to include fs capability

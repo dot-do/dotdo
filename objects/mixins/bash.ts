@@ -96,7 +96,7 @@ export interface WithBashContext extends WithFsContext {
 // MIXIN TYPE
 // ============================================================================
 
-type Constructor<T = {}> = new (...args: any[]) => T
+type Constructor<T = {}> = new (...args: unknown[]) => T
 
 // Type that requires $.fs to exist on the base class
 type DOWithFsConstructor<E extends Env = Env> = Constructor<DO<E> & { $: WithFsContext }> & typeof DO<E>
@@ -203,7 +203,7 @@ export function withBash<TBase extends Constructor<{ $: WithFsContext }>>(Base: 
       return this[BASH_CAPABILITY_CACHE]
     }
 
-    constructor(...args: any[]) {
+    constructor(...args: ConstructorParameters<TBase>) {
       super(...args)
 
       // Extend $ to include bash capability (preserving fs from parent)

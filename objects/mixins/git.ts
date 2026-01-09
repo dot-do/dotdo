@@ -165,7 +165,7 @@ export interface WithGitContext extends WithFsContext {
 // MIXIN TYPE
 // ============================================================================
 
-type Constructor<T = {}> = new (...args: any[]) => T
+type Constructor<T = {}> = new (...args: unknown[]) => T
 
 // Type that requires $.fs to exist on the base class
 type DOWithFsConstructor<E extends Env = Env> = Constructor<DO<E> & { $: WithFsContext }> & typeof DO<E>
@@ -307,7 +307,7 @@ export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
       return this[GIT_CAPABILITY_CACHE]
     }
 
-    constructor(...args: any[]) {
+    constructor(...args: ConstructorParameters<TBase>) {
       super(...args)
 
       // Extend $ to include git capability (preserving fs from parent)
