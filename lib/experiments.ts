@@ -2,9 +2,6 @@
  * Experiment Branch Resolution
  *
  * Deterministically assigns users to experiment branches via hash.
- *
- * This is a STUB file for TDD RED phase - all functions throw "not implemented".
- * Implementation will be added in GREEN phase.
  */
 
 export interface Experiment {
@@ -17,34 +14,56 @@ export interface Experiment {
   winner?: string
 }
 
+// In-memory storage for experiments (keyed by thingId)
+const experiments: Map<string, Experiment> = new Map()
+
 /**
  * Hash function that returns a numeric value for deterministic assignment.
- * Uses the input string to produce a consistent integer.
+ * Uses a simple DJB2 hash algorithm to produce a consistent non-negative integer.
  */
 export function hash(input: string): number {
-  throw new Error('hash not implemented')
+  let h = 5381
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h) ^ input.charCodeAt(i)
+  }
+  // Ensure non-negative by using unsigned right shift
+  return h >>> 0
 }
 
 /**
  * Get the active experiment for a given thing.
  * Returns undefined if no active experiment exists.
+ *
+ * An experiment is considered active if:
+ * - status is 'running', OR
+ * - status is 'completed' AND has a winner set
  */
 export function getActiveExperiment(thingId: string): Experiment | undefined {
-  throw new Error('getActiveExperiment not implemented')
+  const experiment = experiments.get(thingId)
+  if (!experiment) return undefined
+
+  // Draft experiments are not active
+  if (experiment.status === 'draft') return undefined
+
+  // Completed experiments without a winner are not active
+  if (experiment.status === 'completed' && !experiment.winner) return undefined
+
+  // Running experiments or completed with winner are active
+  return experiment
 }
 
 /**
  * Set an active experiment for testing purposes.
  */
 export function setActiveExperiment(thingId: string, experiment: Experiment): void {
-  throw new Error('setActiveExperiment not implemented')
+  experiments.set(thingId, experiment)
 }
 
 /**
  * Clear all registered experiments.
  */
 export function clearExperiments(): void {
-  throw new Error('clearExperiments not implemented')
+  experiments.clear()
 }
 
 /**
@@ -53,11 +72,41 @@ export function clearExperiments(): void {
  * Algorithm:
  * 1. Get active experiment for thingId
  * 2. If no experiment, return 'main'
- * 3. Hash userId:experimentId for traffic allocation
- * 4. If hash % 10000 > traffic * 10000, return 'main' (excluded)
- * 5. Hash userId:experimentId:branch for branch assignment
- * 6. Return branches[hash % branches.length]
+ * 3. If completed with winner, return winner
+ * 4. If branches array is empty, return 'main'
+ * 5. Hash userId:experimentId for traffic allocation
+ * 6. If hash % 10000 >= traffic * 10000, return 'main' (excluded)
+ * 7. Hash userId:experimentId:branch for branch assignment
+ * 8. Return branches[hash % branches.length]
  */
 export function resolveBranch(userId: string, thingId: string): string {
-  throw new Error('resolveBranch not implemented')
+  const experiment = getActiveExperiment(thingId)
+
+  // No active experiment - return main
+  if (!experiment) return 'main'
+
+  // Completed experiment with winner - always return winner
+  if (experiment.status === 'completed' && experiment.winner) {
+    return experiment.winner
+  }
+
+  // Handle empty branches array gracefully
+  if (experiment.branches.length === 0) {
+    return 'main'
+  }
+
+  // Traffic allocation check using 10000 buckets for precision
+  const trafficHash = hash(`${userId}:${experiment.id}`)
+  const trafficThreshold = experiment.traffic * 10000
+
+  // If hash result is >= threshold, user is excluded from experiment
+  if (trafficHash % 10000 >= trafficThreshold) {
+    return 'main'
+  }
+
+  // User is in experiment - determine branch assignment
+  const branchHash = hash(`${userId}:${experiment.id}:branch`)
+  const branchIndex = branchHash % experiment.branches.length
+
+  return experiment.branches[branchIndex]
 }

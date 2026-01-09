@@ -11,8 +11,19 @@ import { Hono } from 'hono'
  * - Local search (SQLite FTS) for configured types
  * - Provider search (GitHub, etc.) via linked accounts
  * - Query params: q, limit, offset, and arbitrary filters
+ * - EPCIS 2.0 query parameter support (eventType, bizStep, MATCH_epc, etc.)
  * - Standardized response format
  * - Authentication required
+ *
+ * EPCIS 2.0 Query Parameters (5W+H model):
+ * | 5W+H  | EPCIS Field               | Query Parameter           |
+ * |-------|---------------------------|---------------------------|
+ * | WHO   | source, destination       | EQ_source, EQ_destination |
+ * | WHAT  | epcList, parentID         | MATCH_epc, EQ_parentID    |
+ * | WHEN  | eventTime, recordTime     | GE_eventTime, LT_eventTime|
+ * | WHERE | readPoint, bizLocation    | EQ_readPoint, EQ_bizLocation |
+ * | WHY   | bizStep, disposition      | EQ_bizStep, EQ_disposition|
+ * | HOW   | bizTransaction            | EQ_bizTransaction         |
  */
 
 // ============================================================================
@@ -68,6 +79,63 @@ interface DbQuery {
     offset?: number
   }) => Promise<unknown[]>
 }
+
+// ============================================================================
+// EPCIS Constants and Types
+// ============================================================================
+
+/**
+ * Valid EPCIS 2.0 event types
+ */
+const VALID_EVENT_TYPES = [
+  'ObjectEvent',
+  'AggregationEvent',
+  'TransactionEvent',
+  'TransformationEvent',
+  'AssociationEvent',
+] as const
+
+type EPCISEventType = typeof VALID_EVENT_TYPES[number]
+
+/**
+ * EPCIS query parameter mappings to internal field names
+ * Maps EPCIS 2.0 query params to our database schema fields
+ */
+const EPCIS_PARAM_MAPPINGS: Record<string, string> = {
+  // WHY parameters
+  'EQ_bizStep': 'bizStep',
+  'bizStep': 'bizStep', // alias
+  'EQ_disposition': 'disposition',
+
+  // WHERE parameters
+  'EQ_bizLocation': 'bizLocation',
+  'EQ_readPoint': 'readPoint',
+
+  // WHO parameters
+  'EQ_source': 'source',
+  'EQ_destination': 'destination',
+
+  // HOW parameters
+  'EQ_bizTransaction': 'bizTransaction',
+
+  // WHAT parameters
+  'EQ_parentID': 'parentID',
+}
+
+/**
+ * EPCIS time range parameters (these need special handling)
+ */
+const EPCIS_TIME_PARAMS = [
+  'GE_eventTime',
+  'LT_eventTime',
+  'GE_recordTime',
+  'LT_recordTime',
+] as const
+
+/**
+ * EPCIS pattern matching parameters (these need special handling)
+ */
+const EPCIS_PATTERN_PARAMS = ['MATCH_epc'] as const
 
 // ============================================================================
 // Helper Functions

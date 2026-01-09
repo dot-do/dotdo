@@ -64,6 +64,7 @@
     "mdxui": "^0.1.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "sqids": "^0.3.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {

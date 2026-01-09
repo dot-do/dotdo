@@ -5,6 +5,7 @@ export * from './Noun'
 export * from './Verb'
 export * from './DO'
 export * from './WorkflowContext'
+export * from './Experiment'
 
 // Re-export key types for convenience
 export type { Thing, ThingData } from './Thing'
@@ -18,3 +19,6 @@ export type { Verb, VerbData } from './Verb'
 export type { DO, DOConfig, Relationship, ObjectRef, Action, Event, SearchResult } from './DO'
 
 export type { WorkflowContext, OnProxy, ScheduleBuilder, DomainProxy, DomainEvent, EventHandler, ScheduleHandler, DOFunction } from './WorkflowContext'
+
+export type { Experiment, ExperimentStatus, ExperimentInput } from './Experiment'
+export { ExperimentSchema } from './Experiment'

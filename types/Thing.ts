@@ -14,6 +14,14 @@ export interface ThingData {
   data?: Record<string, unknown>
   meta?: Record<string, unknown>
 
+  // Git provenance (when synced from git)
+  $source?: {
+    repo: string // 'https://github.com/drivly/startups.studio'
+    path: string // 'content/blog/hello-world.mdx' (relative to binding path)
+    branch: string // 'main', 'feature/dark-mode'
+    commit: string // SHA of the commit this version is from
+  }
+
   // Timestamps
   createdAt: Date
   updatedAt: Date
@@ -79,6 +87,22 @@ export interface ThingDO extends Thing {
 
   // Can contain its own Things collections
   collection<T extends Thing = Thing>(noun: string): import('./Things').Things<T>
+
+  // Git binding (when linked to a repository)
+  $git?: {
+    repo: string // 'https://github.com/drivly/startups.studio'
+    path: string // '' for root, 'packages/core' for monorepo
+    branch: string // Current branch context
+    commit: string // Current synced commit
+    syncMode: 'pull' | 'push' | 'mirror'
+    lastSyncAt: Date
+  }
+
+  // Parent DO relationship (for hierarchical DOs)
+  $parent?: ThingDO
+
+  // Child DOs (branches, shards, etc.)
+  $children?: ThingDO[]
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

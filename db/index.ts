@@ -8,6 +8,8 @@ export * from './actions'
 export * from './events'
 export * from './search'
 export * from './branches'
+export * from './files'
+export * from './git'
 export * from './auth'
 
 // Linked accounts query helpers and validation
@@ -23,6 +25,8 @@ import { actions } from './actions'
 import { events } from './events'
 import { search } from './search'
 import { branches } from './branches'
+import { files } from './files'
+import { git, gitBranches, gitContent } from './git'
 import {
   // Core auth
   users,
@@ -66,6 +70,12 @@ export const schema = {
   events,
   search,
   branches,
+  files,
+
+  // Git integration
+  git,
+  gitBranches,
+  gitContent,
 
   // Auth - Core (better-auth)
   users,
