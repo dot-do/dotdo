@@ -29,10 +29,27 @@
  */
 
 import { Hono } from 'hono'
-import type { Context as HonoContext, MiddlewareHandler, Next } from 'hono'
-import { auth as authFederation, type AuthConfig as FederationAuthConfig } from '../api/middleware/auth-federation'
-import { authMiddleware, requireAuth, requireRole, type AuthConfig, type AuthContext } from '../api/middleware/auth'
-import type { DO, Env } from './DO'
+import type { Context as HonoContext, MiddlewareHandler } from 'hono'
+import { auth as authFederation } from '../api/middleware/auth-federation'
+import { authMiddleware, requireAuth, requireRole } from '../api/middleware/auth'
+import type { DO } from './DO'
+
+// ============================================================================
+// Hono App Type with Variables
+// ============================================================================
+
+/**
+ * Variables available in Hono context after auth middleware
+ */
+interface AuthVariables {
+  user?: {
+    id: string
+    email?: string
+    role?: string
+  }
+  session?: SessionData
+  auth?: DOAuthContext
+}
 
 // ============================================================================
 // Types
@@ -111,7 +128,7 @@ export interface DOAuthContext {
  */
 export class DOAuth {
   /** The Hono app handling auth routes */
-  private app: Hono
+  private app: Hono<{ Variables: AuthVariables }>
 
   /** Reference to the parent DO */
   private do: DO
@@ -148,8 +165,8 @@ export class DOAuth {
   /**
    * Create the Hono app with auth routes
    */
-  private createApp(): Hono {
-    const app = new Hono()
+  private createApp(): Hono<{ Variables: AuthVariables }> {
+    const app = new Hono<{ Variables: AuthVariables }>()
 
     // Mount the auth federation middleware
     app.use(
@@ -166,8 +183,8 @@ export class DOAuth {
 
     // Add session endpoint
     app.get('/api/auth/session', async (c) => {
-      const session = c.get('session') as SessionData | undefined
-      const user = c.get('user') as { id: string; email?: string; role?: string } | undefined
+      const session = c.get('session')
+      const user = c.get('user')
 
       if (!session || !user) {
         return c.json({ authenticated: false }, 200)
@@ -188,7 +205,7 @@ export class DOAuth {
 
     // Add me endpoint (requires auth)
     app.get('/api/auth/me', (c) => {
-      const user = c.get('user') as { id: string; email?: string; role?: string } | undefined
+      const user = c.get('user')
 
       if (!user) {
         return c.json({ error: 'Unauthorized' }, 401)
@@ -314,7 +331,7 @@ export class DOAuth {
    * Get the Hono app for direct mounting.
    * Useful when you want to compose with other Hono apps.
    */
-  getApp(): Hono {
+  getApp(): Hono<{ Variables: AuthVariables }> {
     return this.app
   }
 
