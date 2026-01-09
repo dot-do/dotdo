@@ -1,4 +1,4 @@
-# dotdo
+# [.do](https://platform.do)
 
 > A batteries-included framework for vibe coders to do a Foundation Sprint and build an Experimentation Machine where the result is a Profitable Autonomous Business.
 
