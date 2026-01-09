@@ -1,0 +1,61 @@
+---
+title: Installation
+description: How to install and set up do.md
+---
+
+# Installation
+
+Get **do.md** installed and ready to use in your project.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- Node.js 18 or higher
+- A Cloudflare account (for deployment)
+- *Basic familiarity* with TypeScript
+
+## Quick Start
+
+Install do.md via npm:
+
+```bash
+npm install dotdo
+```
+
+Or using pnpm:
+
+```bash
+pnpm add dotdo
+```
+
+## Configuration
+
+Create a `wrangler.toml` file in your project root:
+
+```json
+{
+  "name": "my-app",
+  "main": "src/index.ts"
+}
+```
+
+## Verify Installation
+
+Run the following command to verify:
+
+```typescript
+import { DO } from 'dotdo'
+
+const app = new DO()
+console.log('do.md is ready!')
+```
+
+> **Note**: Make sure to check the [API Reference](/docs/api) for detailed configuration options.
+
+## Next Steps
+
+- Read the [Concepts](/docs/concepts) to understand the architecture
+- Check out the [Guides](/docs/guides) for practical examples
+
+Visit https://github.com/dotdo/dotdo for more information.

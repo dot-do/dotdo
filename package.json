@@ -3,37 +3,77 @@
   "version": "0.0.1",
   "type": "module",
   "main": "./index.ts",
+  "types": "./types/index.ts",
   "exports": {
-    ".": "./index.ts",
-    "./tiny": "./tiny.ts",
-    "./fs": "./fs.ts",
-    "./git": "./git.ts",
-    "./bash": "./bash.ts",
-    "./full": "./full.ts",
-    "./objects": "./objects/index.ts",
+    ".": {
+      "types": "./types/index.ts",
+      "default": "./index.ts"
+    },
+    "./tiny": {
+      "types": "./types/index.ts",
+      "default": "./tiny.ts"
+    },
+    "./fs": {
+      "types": "./types/index.ts",
+      "default": "./fs.ts"
+    },
+    "./git": {
+      "types": "./types/index.ts",
+      "default": "./git.ts"
+    },
+    "./bash": {
+      "types": "./types/index.ts",
+      "default": "./bash.ts"
+    },
+    "./full": {
+      "types": "./types/index.ts",
+      "default": "./full.ts"
+    },
+    "./objects": {
+      "types": "./objects/index.ts",
+      "default": "./objects/index.ts"
+    },
     "./objects/*": "./objects/*.ts",
-    "./types": "./types/index.ts",
+    "./types": {
+      "types": "./types/index.ts",
+      "default": "./types/index.ts"
+    },
     "./types/*": "./types/*.ts",
-    "./snippets": "./snippets/index.ts",
+    "./snippets": {
+      "types": "./snippets/index.ts",
+      "default": "./snippets/index.ts"
+    },
     "./snippets/*": "./snippets/*.ts",
-    "./streams": "./streams/index.ts",
-    "./streams/*": "./streams/*.sql",
-    "./api": "./api/index.ts",
-    "./api/*": "./api/*.ts",
-    "./docs": "./docs/index.mdx",
-    "./docs/*": "./docs/*",
-    "./dist": "./dist/index.html",
-    "./dist/*": "./dist/*"
+    "./streams": {
+      "types": "./streams/index.ts",
+      "default": "./streams/index.ts"
+    },
+    "./lib": {
+      "types": "./lib/index.ts",
+      "default": "./lib/index.ts"
+    },
+    "./lib/*": "./lib/*.ts",
+    "./workflows/*": "./workflows/*.ts",
+    "./api": {
+      "types": "./api/index.ts",
+      "default": "./api/index.ts"
+    },
+    "./api/*": "./api/*.ts"
   },
   "files": [
     "index.ts",
+    "tiny.ts",
+    "fs.ts",
+    "git.ts",
+    "bash.ts",
+    "full.ts",
     "objects",
     "types",
     "snippets",
     "streams",
-    "api",
-    "docs",
-    "dist"
+    "lib",
+    "workflows",
+    "api"
   ],
   "scripts": {
     "types": "wrangler types worker.d.ts -c wrangler.jsonc",
@@ -43,7 +83,7 @@
     "deploy": "npm run build && wrangler deploy",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run",
+    "test:run": "vitest run --reporter=dot",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -78,6 +118,7 @@
     "@cloudflare/workers-types": "^4.20241230.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/vite": "^4.1.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/mdx": "^2.0.0",
     "@types/node": "^25.0.3",
     "@types/react": "^19.0.0",
@@ -85,6 +126,7 @@
     "@vitejs/plugin-react": "^4.4.0",
     "@vitest/runner": "^2.0.5",
     "@vitest/snapshot": "^2.0.5",
+    "better-sqlite3": "^12.5.0",
     "prettier": "^3.7.4",
     "smol-toml": "^1.6.0",
     "tailwindcss": "^4.1.0",

@@ -1,0 +1,66 @@
+---
+title: Deployment
+description: Deploy do.md applications to production
+---
+
+# Deployment
+
+Deploy your do.md application to Cloudflare Workers.
+
+## Prerequisites
+
+Before deploying, ensure you have:
+
+- Cloudflare account configured
+- Wrangler CLI installed
+- Production secrets set
+
+## Basic Deployment
+
+```bash
+npm run deploy
+```
+
+Or using wrangler directly:
+
+```bash
+wrangler deploy
+```
+
+## Environment Variables
+
+Set production environment variables:
+
+```bash
+wrangler secret put DATABASE_URL
+wrangler secret put API_SECRET
+```
+
+## Multi-Region Deployment
+
+do.md supports multi-region deployment for low latency:
+
+```typescript
+// Configure regions
+export default {
+  regions: ['us-east', 'eu-west', 'ap-southeast']
+}
+```
+
+## Monitoring
+
+Monitor your deployment:
+
+1. Check Cloudflare dashboard
+2. Set up alerts
+3. Review analytics
+
+## Rollback
+
+If something goes wrong:
+
+```bash
+wrangler rollback
+```
+
+See [API Reference](/docs/api) for configuration options.

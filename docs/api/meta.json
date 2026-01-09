@@ -2,5 +2,5 @@
   "title": "API Reference",
   "description": "REST API documentation",
   "root": true,
-  "pages": ["index"]
+  "pages": ["index", "authentication"]
 }

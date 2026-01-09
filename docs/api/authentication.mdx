@@ -1,0 +1,75 @@
+---
+title: Authentication
+description: API authentication methods and security
+---
+
+# Authentication
+
+Learn how to authenticate API requests to do.md.
+
+## Overview
+
+do.md supports multiple authentication methods:
+
+- **API Keys** - For server-to-server communication
+- **JWT Tokens** - For user sessions
+- **OAuth 2.0** - For third-party integrations
+
+## API Keys
+
+Generate an API key from your dashboard:
+
+```typescript
+// Using API key authentication
+const client = new DO({
+  apiKey: process.env.DO_API_KEY
+})
+```
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/keys` | List all API keys |
+| POST | `/api/keys` | Create new key |
+| DELETE | `/api/keys/:id` | Revoke a key |
+
+## JWT Authentication
+
+```typescript
+import { createToken, verifyToken } from 'dotdo/auth'
+
+// Create a JWT token
+const token = await createToken({
+  userId: 'user_123',
+  permissions: ['read', 'write']
+})
+
+// Verify token
+const payload = await verifyToken(token)
+```
+
+## Request Headers
+
+Include authentication in your requests:
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.do.md/things
+```
+
+## Rate Limiting
+
+API requests are rate limited:
+
+1. Free tier: 100 requests/minute
+2. Pro tier: 1000 requests/minute
+3. Enterprise: Custom limits
+
+## Security Best Practices
+
+> **Warning**: Never expose your API keys in client-side code.
+
+- Rotate keys regularly
+- Use environment variables
+- Enable IP allowlisting
+
+See the [Guides](/docs/guides) for more security tips.
