@@ -8,7 +8,7 @@ export function LandingLayout({ children }: LandingLayoutProps) {
   const currentYear = new Date().getFullYear()
 
   return (
-    <div className="min-h-screen flex flex-col bg-black text-white">
+    <div data-primitive-page="true" className="min-h-screen flex flex-col bg-black text-white dark:bg-black dark:text-white">
       {/* Skip link */}
       <a
         href="#main-content"
@@ -18,7 +18,7 @@ export function LandingLayout({ children }: LandingLayoutProps) {
       </a>
 
       {/* Header */}
-      <header className="border-b border-gray-800">
+      <header data-primitive-header className="border-b border-gray-800">
         <nav className="container max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <a href="/" className="text-xl font-bold flex items-center gap-2">
             <span className="text-2xl">.do</span>
@@ -44,14 +44,14 @@ export function LandingLayout({ children }: LandingLayoutProps) {
       </header>
 
       {/* Main */}
-      <main id="main-content" className="flex-1">
-        <div className="prose prose-invert prose-lg max-w-none">
+      <main id="main-content" data-primitive-content className="flex-1">
+        <div className="container max-w-6xl mx-auto px-4 py-12 prose prose-invert prose-lg max-w-none">
           {children}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 py-12 px-4">
+      <footer data-primitive-footer className="border-t border-gray-800 py-12 px-4">
         <div className="container max-w-6xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div className="md:col-span-2">

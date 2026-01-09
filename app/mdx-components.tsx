@@ -12,6 +12,9 @@ import {
   FeatureGrid,
   Feature,
   CTA,
+  PrimitivePage,
+} from '@dotdo/landing'
+import {
   Hero,
   Section,
   CodeBlock,
@@ -24,6 +27,7 @@ export {
   FeatureGrid,
   Feature,
   CTA,
+  PrimitivePage,
   Hero,
   Section,
   CodeBlock,
@@ -40,6 +44,7 @@ export function useMDXComponents(components: Record<string, unknown>) {
     FeatureGrid,
     Feature,
     CTA,
+    PrimitivePage,
     Hero,
     Section,
     CodeBlock,

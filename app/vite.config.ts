@@ -1,21 +1,23 @@
 import { defineConfig } from 'vite'
-import { cloudflare } from '@cloudflare/vite-plugin'
 import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [
     tailwindcss(),
     tsConfigPaths(),
-    tanstackStart({
-      spa: {
-        enabled: true,
-        prerender: { enabled: true },
-      },
+    TanStackRouterVite({
+      routesDirectory: './routes',
+      generatedRouteTree: './src/routeTree.gen.ts',
+      routeFileIgnorePrefix: '-',
+      quoteStyle: 'single',
     }),
-    cloudflare(),
     react(),
   ],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
 })

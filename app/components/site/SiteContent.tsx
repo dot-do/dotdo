@@ -2,9 +2,11 @@
  * Landing Page Content Component
  *
  * TSX version of Site.mdx content
+ * Uses @dotdo/landing components with proper data attributes
  */
 
-import { AgentGrid, Agent, FeatureGrid, Feature, CTA, CodeBlock } from '.'
+import { AgentGrid, Agent, FeatureGrid, Feature, CTA } from '@dotdo/landing'
+import { CodeBlock } from '.'
 
 export function SiteContent() {
   return (
@@ -34,6 +36,8 @@ export class MyStartup extends Startup {
 }`}</CodeBlock>
       </section>
 
+      <hr />
+
       {/* How It Works */}
       <section className="space-y-6">
         <h2 className="text-3xl font-bold">How This Actually Works</h2>
@@ -57,6 +61,8 @@ const sprint = await priya\`plan the sprint\`
           server, and replays it for each result. All in one network round trip.
         </p>
       </section>
+
+      <hr />
 
       {/* Meet Your Team */}
       <section className="space-y-6">
@@ -91,6 +97,8 @@ const sprint = await priya\`plan the sprint\`
         </p>
       </section>
 
+      <hr />
+
       {/* The $ Context */}
       <section className="space-y-6">
         <h2 className="text-3xl font-bold">The $ Context</h2>
@@ -110,6 +118,8 @@ $.on.Payment.failed(handler)
 // Scheduling
 $.every.monday.at('9am')(handler)`}</CodeBlock>
       </section>
+
+      <hr />
 
       {/* Why We Rebuilt Everything */}
       <section className="space-y-6">
@@ -146,6 +156,8 @@ $.every.monday.at('9am')(handler)`}</CodeBlock>
           </Feature>
         </FeatureGrid>
       </section>
+
+      <hr />
 
       {/* Pricing */}
       <section className="space-y-6">
@@ -189,6 +201,8 @@ $.every.monday.at('9am')(handler)`}</CodeBlock>
         </div>
       </section>
 
+      <hr />
+
       {/* CTA */}
       <section className="text-center space-y-6">
         <h2 className="text-3xl font-bold">
@@ -203,7 +217,7 @@ $.every.monday.at('9am')(handler)`}</CodeBlock>
         </CTA>
       </section>
 
-      {/* Footer */}
+      {/* Footer content section - note: no hr here to match Site.mdx */}
       <section className="text-center space-y-4 border-t pt-8">
         <p>
           <strong>Solo founders</strong> — Get a team without hiring one.
