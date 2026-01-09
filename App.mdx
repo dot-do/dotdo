@@ -1,0 +1,167 @@
+# dotdo Dashboard
+
+<DashboardLayout>
+  <Sidebar>
+    <SidebarNav>
+      <NavItem href="/admin" icon="Home">Overview</NavItem>
+      <NavItem href="/admin/startups" icon="Rocket">Startups</NavItem>
+      <NavItem href="/admin/agents" icon="Users">Agents</NavItem>
+      <NavItem href="/admin/workflows" icon="GitBranch">Workflows</NavItem>
+      <NavItem href="/admin/events" icon="Activity">Events</NavItem>
+      <NavItem href="/admin/functions" icon="Code">Functions</NavItem>
+      <NavItem href="/admin/analytics" icon="BarChart">Analytics</NavItem>
+      <NavItem href="/admin/settings" icon="Settings">Settings</NavItem>
+    </SidebarNav>
+    <SidebarUser />
+  </Sidebar>
+
+  <DashboardContent>
+    ## Welcome to dotdo
+
+    Your autonomous business control center.
+
+    <DashboardGrid cols={3}>
+      <KPICard
+        title="Active Agents"
+        value={stats.activeAgents}
+        trend={stats.agentTrend}
+        icon="Users"
+      />
+      <KPICard
+        title="Workflows Running"
+        value={stats.runningWorkflows}
+        trend={stats.workflowTrend}
+        icon="GitBranch"
+      />
+      <KPICard
+        title="Events Today"
+        value={stats.eventsToday}
+        trend={stats.eventTrend}
+        icon="Activity"
+      />
+    </DashboardGrid>
+
+    ### Recent Activity
+
+    <ActivityFeed items={recentActivity} />
+
+    ### Your Team
+
+    <AgentStatus agents={teamAgents}>
+      Monitor your AI agents in real-time. See what Priya, Ralph, Tom, and the team are working on.
+    </AgentStatus>
+
+    ### Quick Actions
+
+    <CommandPalette>
+      <CommandGroup heading="Agents">
+        <CommandItem onSelect={() => priya`what should we build next?`}>
+          Ask Priya for product direction
+        </CommandItem>
+        <CommandItem onSelect={() => ralph`build the next feature`}>
+          Have Ralph start building
+        </CommandItem>
+        <CommandItem onSelect={() => tom`review recent changes`}>
+          Request code review from Tom
+        </CommandItem>
+      </CommandGroup>
+      <CommandGroup heading="Workflows">
+        <CommandItem>Create new workflow</CommandItem>
+        <CommandItem>View running workflows</CommandItem>
+        <CommandItem>Check event log</CommandItem>
+      </CommandGroup>
+    </CommandPalette>
+  </DashboardContent>
+</DashboardLayout>
+
+---
+
+## Startup Management
+
+<DataTable
+  columns={startupColumns}
+  data={startups}
+  searchable
+  sortable
+  pagination
+>
+  Manage all your startups from one place. Track hypotheses, experiments, and metrics.
+</DataTable>
+
+---
+
+## Agent Configuration
+
+<Tabs defaultValue="active">
+  <TabsList>
+    <TabsTrigger value="active">Active Agents</TabsTrigger>
+    <TabsTrigger value="available">Available</TabsTrigger>
+    <TabsTrigger value="custom">Custom</TabsTrigger>
+  </TabsList>
+  <TabsContent value="active">
+    <AgentGrid>
+      <AgentCard agent={priya} status="working" />
+      <AgentCard agent={ralph} status="idle" />
+      <AgentCard agent={tom} status="reviewing" />
+      <AgentCard agent={mark} status="idle" />
+      <AgentCard agent={sally} status="outreach" />
+      <AgentCard agent={quinn} status="testing" />
+    </AgentGrid>
+  </TabsContent>
+  <TabsContent value="available">
+    Additional agents available from agents.do
+  </TabsContent>
+  <TabsContent value="custom">
+    Create custom agents for your specific domain
+  </TabsContent>
+</Tabs>
+
+---
+
+## Workflow Monitor
+
+<WorkflowDashboard>
+  <WorkflowList workflows={activeWorkflows} />
+  <WorkflowTimeline events={workflowEvents} />
+</WorkflowDashboard>
+
+---
+
+## Analytics
+
+<AnalyticsDashboard>
+  <AreaChart
+    data={revenueData}
+    title="Revenue"
+    description="Monthly recurring revenue over time"
+  />
+  <BarChart
+    data={agentUsage}
+    title="Agent Usage"
+    description="Tasks completed by each agent"
+  />
+  <LineChart
+    data={experimentResults}
+    title="Experiment Results"
+    description="Conversion rates across variants"
+  />
+</AnalyticsDashboard>
+
+---
+
+## Settings
+
+<SettingsLayout>
+  <SettingsSection title="Profile">
+    <UserProfile />
+  </SettingsSection>
+  <SettingsSection title="API Keys">
+    <APIKeyManager />
+  </SettingsSection>
+  <SettingsSection title="Integrations">
+    <IntegrationsList />
+  </SettingsSection>
+  <SettingsSection title="Billing">
+    <BillingManager />
+  </SettingsSection>
+</SettingsLayout>

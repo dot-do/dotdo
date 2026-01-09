@@ -1,23 +1,135 @@
 ---
-title: do.md
-description: A Durable Object framework for building stateful, event-driven applications
+title: dotdo
+description: Build your 1-Person Unicorn. Business-as-Code for autonomous businesses run by AI agents.
 ---
 
-# do.md
+# Build your 1-Person Unicorn
 
-Build stateful, event-driven applications with Durable Objects.
+Deploy a startup with product, engineering, marketing, and sales. It's Tuesday. You're one person.
 
-## Getting Started
+```typescript
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
 
-Coming soon.
+export class MyStartup extends Startup {
+  async launch() {
+    const spec = await priya`define the MVP for ${this.hypothesis}`
+    const app = await ralph`build ${spec}`
+    await tom`ship ${app}`
+    await mark`announce the launch`
+    await sally`start selling`
+  }
+}
+```
 
-## Concepts
+## How It Works
 
-- **Things** - Named entities with state and behavior
-- **Relationships** - Connections between things
-- **Actions** - Operations that modify state
-- **Events** - Immutable records of what happened
+dotdo is built on [Cap'n Web](https://github.com/cloudflare/capnweb)—object-capability RPC with **Promise Pipelining**.
 
-## Guides
+```typescript
+// This runs as a single batch, not N separate calls
+const sprint = await priya`plan the sprint`
+  .map(issue => ralph`build ${issue}`)
+  .map(code => tom`review ${code}`)
+```
 
-Content to be written.
+The `.map()` isn't JavaScript's array method. It's a **Magic Map** that records your callback, sends it to the server, and replays it for each result. All in one network round trip.
+
+## Core Concepts
+
+<Cards>
+  <Card title="The $ Context" href="/docs/sdk/workflow-context">
+    Three durability levels, event handlers, and scheduling—all via proxy.
+  </Card>
+  <Card title="Things" href="/docs/sdk/thing">
+    Named entities with state and behavior. The building blocks of your business.
+  </Card>
+  <Card title="Functions" href="/docs/sdk/functions">
+    Durable execution with automatic retries and exactly-once semantics.
+  </Card>
+  <Card title="Capabilities" href="/docs/sdk/capabilities">
+    fsx, gitx, bashx—extended primitives rebuilt for edge without VMs.
+  </Card>
+</Cards>
+
+## The Technical Foundation
+
+**V8 Isolates + Durable Objects:** Virtual Chrome tabs with persistent state. 0ms cold starts. Runs in 300+ cities worldwide.
+
+**38 Compat SDKs:** Use APIs you know—Supabase, MongoDB, Kafka, Redis. Same code, scales to millions of agents.
+
+**$0 Egress:** Built on Cloudflare R2. Your data warehouse runs at a fraction of legacy costs.
+
+## Quick Start
+
+```bash
+npm install dotdo
+npx dotdo init my-startup
+npx dotdo dev
+```
+
+## Meet Your Team
+
+| Agent | Role | Does |
+|-------|------|------|
+| **Priya** | Product | specs, roadmaps, priorities |
+| **Ralph** | Engineering | builds what you need |
+| **Tom** | Tech Lead | architecture, code review |
+| **Mark** | Marketing | copy, content, launches |
+| **Sally** | Sales | outreach, demos, closing |
+| **Quinn** | QA | testing, edge cases, quality |
+
+Each agent has real identity. When Tom reviews your PR, you see `@tom-do` commenting. They're not chatbots. They're workers.
+
+## Human Escalation
+
+AI does the work. Humans make the decisions.
+
+```typescript
+import { legal, ceo } from 'humans.do'
+
+const approved = await ceo`approve the partnership`
+
+escalation = this.HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+})
+```
+
+Messages route to Slack, email, SMS. Full audit trail.
+
+## Why We Rebuilt Everything
+
+Traditional infrastructure crumbles under 10,000 parallel AI agents:
+
+- **Databases** hit connection limits
+- **Filesystems** can't handle concurrent writes
+- **Git servers** choke on parallel clones
+- **Message queues** back up under load
+
+We rebuilt on V8 isolates—virtual Chrome tabs with durable state, running on the edge, right next to your users.
+
+## Next Steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation">
+    Get dotdo running in your project.
+  </Card>
+  <Card title="RPC & Pipelines" href="/docs/rpc">
+    Deep dive into Cap'n Web and promise pipelining.
+  </Card>
+  <Card title="API Reference" href="/docs/api">
+    Complete API documentation.
+  </Card>
+</Cards>
+
+---
+
+**Solo founders** — Get a team without hiring one.
+
+**Small teams** — AI does the work, humans decide.
+
+**Growing startups** — Add humans without changing code.
+
+[platform.do](https://platform.do) · [agents.do](https://agents.do) · [workers.do](https://workers.do)
