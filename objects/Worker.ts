@@ -74,6 +74,8 @@ export interface Channel {
  * Worker - Common interface for AI and Human workers
  */
 export class Worker extends DO {
+  static override readonly $type = 'Worker'
+
   protected mode: WorkerMode = 'supervised'
 
   constructor(ctx: DurableObjectState, env: Env) {

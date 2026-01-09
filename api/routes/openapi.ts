@@ -19,20 +19,20 @@ export const ThingSchema = z
     $id: z.string().openapi({ description: 'Qualified identifier (thing:{id})', example: 'thing:123e4567-e89b-12d3-a456-426614174000' }),
     $type: z.string().openapi({ description: 'Type URL or "thing"', example: 'thing' }),
     name: z.string().min(1).max(10000).openapi({ description: 'Name of the thing', example: 'My Thing' }),
-    data: z.record(z.unknown()).optional().openapi({ description: 'Additional data' }),
+    data: z.record(z.string(), z.unknown()).optional().openapi({ description: 'Additional data' }),
     createdAt: z.string().datetime().openapi({ description: 'Creation timestamp (ISO 8601)', example: '2024-01-01T00:00:00.000Z' }),
     updatedAt: z.string().datetime().openapi({ description: 'Last update timestamp (ISO 8601)', example: '2024-01-01T00:00:00.000Z' }),
   })
-  .openapi('Thing')
+  .openapi('Thing', {})
 
 // Error schema - standard error response
 export const ErrorSchema = z
   .object({
     code: z.string().openapi({ description: 'Error code', example: 'NOT_FOUND' }),
     message: z.string().openapi({ description: 'Human-readable error message', example: 'Thing not found' }),
-    details: z.record(z.array(z.string())).optional().openapi({ description: 'Field-specific error details' }),
+    details: z.record(z.string(), z.array(z.string())).optional().openapi({ description: 'Field-specific error details' }),
   })
-  .openapi('Error')
+  .openapi('Error', {})
 
 // Error response wrapper
 export const ErrorResponseSchema = z.object({
@@ -44,17 +44,17 @@ export const CreateThingRequestSchema = z
   .object({
     name: z.string().min(1).max(10000).openapi({ description: 'Name of the thing', example: 'My New Thing' }),
     $type: z.string().optional().openapi({ description: 'Type URL or "thing"', example: 'thing' }),
-    data: z.record(z.unknown()).optional().openapi({ description: 'Additional data' }),
+    data: z.record(z.string(), z.unknown()).optional().openapi({ description: 'Additional data' }),
   })
-  .openapi('CreateThingRequest')
+  .openapi('CreateThingRequest', {})
 
 // Update thing request
 export const UpdateThingRequestSchema = z
   .object({
     name: z.string().min(1).max(10000).optional().openapi({ description: 'Updated name', example: 'Updated Thing' }),
-    data: z.record(z.unknown()).optional().openapi({ description: 'Updated data' }),
+    data: z.record(z.string(), z.unknown()).optional().openapi({ description: 'Updated data' }),
   })
-  .openapi('UpdateThingRequest')
+  .openapi('UpdateThingRequest', {})
 
 // Health response
 export const HealthResponseSchema = z
@@ -62,7 +62,7 @@ export const HealthResponseSchema = z
     status: z.literal('ok').openapi({ description: 'Health status', example: 'ok' }),
     timestamp: z.string().datetime().openapi({ description: 'Current timestamp (ISO 8601)', example: '2024-01-01T00:00:00.000Z' }),
   })
-  .openapi('HealthResponse')
+  .openapi('HealthResponse', {})
 
 // JSON-RPC schemas for MCP
 export const JsonRpcRequestSchema = z
@@ -70,9 +70,9 @@ export const JsonRpcRequestSchema = z
     jsonrpc: z.literal('2.0').openapi({ description: 'JSON-RPC version' }),
     id: z.union([z.string(), z.number()]).optional().openapi({ description: 'Request ID' }),
     method: z.string().openapi({ description: 'Method name', example: 'initialize' }),
-    params: z.record(z.unknown()).optional().openapi({ description: 'Method parameters' }),
+    params: z.record(z.string(), z.unknown()).optional().openapi({ description: 'Method parameters' }),
   })
-  .openapi('JsonRpcRequest')
+  .openapi('JsonRpcRequest', {})
 
 export const JsonRpcResponseSchema = z
   .object({
@@ -88,7 +88,7 @@ export const JsonRpcResponseSchema = z
       .optional()
       .openapi({ description: 'Error object' }),
   })
-  .openapi('JsonRpcResponse')
+  .openapi('JsonRpcResponse', {})
 
 // RPC schemas
 export const RpcRequestSchema = z
@@ -99,20 +99,20 @@ export const RpcRequestSchema = z
       .array(
         z.object({
           promiseId: z.string(),
-          target: z.record(z.unknown()),
+          target: z.record(z.string(), z.unknown()),
           method: z.string(),
-          args: z.array(z.record(z.unknown())),
+          args: z.array(z.record(z.string(), z.unknown())),
         }),
       )
       .optional(),
   })
-  .openapi('RpcRequest')
+  .openapi('RpcRequest', {})
 
 export const RpcResponseSchema = z
   .object({
     id: z.string().openapi({ description: 'Request ID' }),
     type: z.enum(['result', 'error', 'batch']).openapi({ description: 'Response type' }),
-    results: z.array(z.record(z.unknown())).optional(),
+    results: z.array(z.record(z.string(), z.unknown())).optional(),
     error: z
       .object({
         code: z.string(),
@@ -121,7 +121,7 @@ export const RpcResponseSchema = z
       })
       .optional(),
   })
-  .openapi('RpcResponse')
+  .openapi('RpcResponse', {})
 
 // ============================================================================
 // In-memory storage (shared with api.ts - should use DO in production)
@@ -434,7 +434,7 @@ const adminSettingsRoute = createRoute({
       description: 'Admin settings',
       content: {
         'application/json': {
-          schema: z.object({ settings: z.record(z.unknown()) }),
+          schema: z.object({ settings: z.record(z.string(), z.unknown()) }),
         },
       },
     },

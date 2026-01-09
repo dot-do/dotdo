@@ -33,6 +33,8 @@ export interface PendingApproval {
 }
 
 export class Human extends Worker {
+  static override readonly $type = 'Human'
+
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'manual'
   private channels: NotificationChannel[] = []
   private escalationPolicy: EscalationPolicy | null = null

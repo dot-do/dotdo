@@ -33,6 +33,8 @@ export interface EntityRecord {
 }
 
 export class Entity extends DO {
+  static override readonly $type = 'Entity'
+
   private schema: EntitySchema | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {

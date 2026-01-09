@@ -97,6 +97,89 @@ const CROSS_DO_CONFIG = {
 
 export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
+  // TYPE DISCRIMINATOR
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Static $type property - the class type discriminator
+   * Must be overridden in subclasses
+   */
+  static readonly $type: string = 'DO'
+
+  /**
+   * Static initializer to protect $type on the prototype
+   */
+  static {
+    // Make the $type getter non-configurable and non-writable on the prototype
+    Object.defineProperty(DO.prototype, '$type', {
+      get() {
+        return (this.constructor as typeof DO).$type
+      },
+      configurable: false,
+      enumerable: true,
+    })
+  }
+
+  /**
+   * Get the full type hierarchy for this instance
+   * Returns an array from most specific to most general (e.g., ['Agent', 'Worker', 'DO'])
+   */
+  getTypeHierarchy(): string[] {
+    const hierarchy: string[] = []
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let current: typeof DO | null = this.constructor as typeof DO
+
+    while (current && current.$type) {
+      hierarchy.push(current.$type)
+      const parent = Object.getPrototypeOf(current)
+      if (parent === Function.prototype || !parent.$type) break
+      current = parent
+    }
+
+    return hierarchy
+  }
+
+  /**
+   * Check if this instance is of or extends the given type
+   */
+  isInstanceOfType(type: string): boolean {
+    return this.getTypeHierarchy().includes(type)
+  }
+
+  /**
+   * Check for exact type match
+   */
+  isType(type: string): boolean {
+    return this.$type === type
+  }
+
+  /**
+   * Check if this type extends the given type (includes exact match)
+   */
+  extendsType(type: string): boolean {
+    return this.isInstanceOfType(type)
+  }
+
+  /**
+   * Assert that this instance is of the expected type, throw otherwise
+   */
+  assertType(expectedType: string): void {
+    if (this.$type !== expectedType) {
+      throw new Error(`expected ${expectedType} but got ${this.$type}`)
+    }
+  }
+
+  /**
+   * Serialize this DO to JSON including $type
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      $type: this.$type,
+      ns: this.ns,
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -402,6 +485,13 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   constructor(ctx: DurableObjectState, env: E) {
     super(ctx, env)
 
+    // Protect $type on this instance to prevent tampering
+    Object.defineProperty(this, '$type', {
+      get: () => (this.constructor as typeof DO).$type,
+      configurable: false,
+      enumerable: true,
+    })
+
     // Initialize namespace from storage or derive from ID
     this.ns = '' // Will be set during initialization
 
@@ -581,26 +671,31 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   protected async emitEvent(verb: string, data: unknown): Promise<void> {
-    // Insert event
-    await this.db.insert(schema.events).values({
-      id: crypto.randomUUID(),
-      verb,
-      source: this.ns,
-      data: data as Record<string, unknown>,
-      sequence: 0, // Will use SQLite rowid
-      streamed: false,
-      createdAt: new Date(),
-    })
+    // Insert event (best-effort, don't block pipeline streaming)
+    try {
+      await this.db.insert(schema.events).values({
+        id: crypto.randomUUID(),
+        verb,
+        source: this.ns,
+        data: data as Record<string, unknown>,
+        sequence: 0, // Will use SQLite rowid
+        streamed: false,
+        createdAt: new Date(),
+      })
+    } catch {
+      // Best-effort database insert
+    }
 
     // Stream to Pipeline if configured
     if (this.env.PIPELINE) {
       try {
-        await this.env.PIPELINE.send({
+        await this.env.PIPELINE.send([{
           verb,
           source: this.ns,
+          $context: this.ns,
           data,
           timestamp: new Date().toISOString(),
-        })
+        }])
       } catch {
         // Best-effort streaming
       }
@@ -768,7 +863,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     }
 
     // Delete old versions (use raw SQL for bulk delete)
-    // @ts-expect-error - SqlStorage exec method
     await this.ctx.storage.sql.exec('DELETE FROM things')
 
     // Re-insert only latest versions
@@ -784,7 +878,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     }
 
     // Clear actions
-    // @ts-expect-error - SqlStorage exec method
     await this.ctx.storage.sql.exec('DELETE FROM actions')
 
     // Emit compact.completed event

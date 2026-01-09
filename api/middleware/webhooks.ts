@@ -678,7 +678,7 @@ export function webhooks(config?: WebhooksConfig): MiddlewareHandler {
         }
         // If handler explicitly returns something with status, honor it
         if (result && typeof result === 'object' && 'status' in result) {
-          return c.json(result as object, (result as { status?: number }).status || 200)
+          return c.json(result as object, ((result as { status?: number }).status || 200) as 200)
         }
       } catch (error) {
         await emitTelemetry(config?.telemetry, {

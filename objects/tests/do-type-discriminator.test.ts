@@ -615,6 +615,8 @@ describe('Identity Resolution', () => {
       const registry = new TypeRegistry()
       registry.register(Business)
 
+      const mockEnv = createMockEnv()
+
       // RED: The internal lookup key should include namespace
       const result = await resolveId('https://acme.do/Business/main', registry, mockEnv)
 

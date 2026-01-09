@@ -38,6 +38,8 @@ export interface Memory {
 }
 
 export class Agent extends Worker {
+  static override readonly $type = 'Agent'
+
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'autonomous'
   private tools: Map<string, Tool> = new Map()
 

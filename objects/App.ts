@@ -15,6 +15,8 @@ export interface AppConfig {
 }
 
 export class App extends DO {
+  static override readonly $type = 'App'
+
   private config: AppConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {

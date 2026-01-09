@@ -167,7 +167,7 @@ export class EventsStore implements IEventsStore {
       data: row.data as Record<string, unknown>,
       actionId: null, // Schema may not have this
       sequence: row.sequence,
-      streamed: row.streamed,
+      streamed: row.streamed ?? false,
       streamedAt: null, // Schema may not have this
       createdAt: row.createdAt,
     }

@@ -80,7 +80,7 @@ export function createTrackedCapability(
 ): CapabilityModule {
   const { methods = {}, properties = {}, disposable = false } = options
 
-  return class TrackedCapability {
+  const TrackedCapability = class {
     static capabilityName = name
 
     constructor() {
@@ -97,27 +97,27 @@ export function createTrackedCapability(
 
       // Apply properties
       Object.assign(this, properties)
+
+      // Apply custom methods
+      for (const [methodName, fn] of Object.entries(methods)) {
+        ;(this as Record<string, unknown>)[methodName] = fn
+      }
+
+      // Conditional dispose
+      if (disposable) {
+        ;(this as Record<string, unknown>)['dispose'] = (): void => {
+          // Cleanup logic
+        }
+      }
     }
 
     // Default test method
     testMethod(): string {
       return `${name} capability working`
     }
+  }
 
-    // Apply custom methods
-    ...Object.fromEntries(
-      Object.entries(methods).map(([methodName, fn]) => [methodName, fn]),
-    )
-
-    // Conditional dispose
-    ...(disposable
-      ? {
-          dispose(): void {
-            // Cleanup logic
-          },
-        }
-      : {})
-  } as unknown as CapabilityModule
+  return TrackedCapability as unknown as CapabilityModule
 }
 
 /**

@@ -273,7 +273,7 @@ export const EventSchema = z.object({
   channel: z.string().optional(),
   cascade: EventCascadeSchema.optional(),
   transaction: z.string().optional(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 }).refine(
   (data) => {
     // Validate timestamp <= recorded when both are provided

@@ -15,6 +15,8 @@ export interface BusinessConfig {
 }
 
 export class Business extends DO {
+  static override readonly $type = 'Business'
+
   private config: BusinessConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {

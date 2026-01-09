@@ -17,6 +17,8 @@ export interface SiteConfig {
 }
 
 export class Site extends DO {
+  static override readonly $type = 'Site'
+
   private config: SiteConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {

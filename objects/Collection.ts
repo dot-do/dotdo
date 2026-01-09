@@ -23,6 +23,8 @@ export interface CollectionConfig {
 }
 
 export class Collection extends Entity {
+  static override readonly $type = 'Collection'
+
   private collectionConfig: CollectionConfig | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {

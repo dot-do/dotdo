@@ -410,7 +410,7 @@ export function resources(config?: ResourcesConfig): MiddlewareHandler {
 
     // Negotiate content type
     const acceptHeader = c.req.header('Accept')
-    const contentType = negotiateContentType(acceptHeader, supportedContentTypes)
+    const contentType = negotiateContentType(acceptHeader ?? null, supportedContentTypes)
 
     // Build handler context
     const ctx: HandlerContext = {

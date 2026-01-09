@@ -1,6 +1,7 @@
 // Core types
 export * from './Thing'
 export * from './Things'
+export * from './Collection'
 export * from './Noun'
 export * from './Verb'
 export * from './DO'
@@ -14,6 +15,9 @@ export * from './ids'
 export type { Thing, ThingData } from './Thing'
 
 export type { Things, ThingsCollection, CreateOptions, ForEachOptions, Query } from './Things'
+
+export type { Collection, CollectionData, CollectionFactory } from './Collection'
+export { COLLECTION_TYPE, buildItemId, collection } from './Collection'
 
 export type { Noun, NounData, NounSchema, FieldDefinition, ParsedField } from './Noun'
 

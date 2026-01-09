@@ -173,7 +173,7 @@ export function validateMetadata(
 export function safeValidateMetadata(
   metadata: unknown,
   provider?: string
-): z.SafeParseReturnType<unknown, LinkedAccountMetadata> {
+): z.ZodSafeParseResult<LinkedAccountMetadata> {
   const schema = provider ? getMetadataSchemaForProvider(provider) : LinkedAccountMetadataSchema
   return schema.safeParse(metadata)
 }

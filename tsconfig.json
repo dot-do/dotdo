@@ -44,5 +44,16 @@
     "evals/**/*",
     "test-mocks/**/*"
   ],
-  "exclude": ["node_modules", "dist", "app", "examples"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "app",
+    "examples",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/tests/**/*.ts",
+    "test-utils/**/*",
+    "test-mocks/**/*",
+    "api/tests/**/*"
+  ]
 }

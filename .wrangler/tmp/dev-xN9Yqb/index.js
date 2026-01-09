@@ -21654,37 +21654,37 @@ var ThingSchema = external_exports.object({
   $id: external_exports.string().openapi({ description: "Qualified identifier (thing:{id})", example: "thing:123e4567-e89b-12d3-a456-426614174000" }),
   $type: external_exports.string().openapi({ description: 'Type URL or "thing"', example: "thing" }),
   name: external_exports.string().min(1).max(1e4).openapi({ description: "Name of the thing", example: "My Thing" }),
-  data: external_exports.record(external_exports.unknown()).optional().openapi({ description: "Additional data" }),
+  data: external_exports.record(external_exports.string(), external_exports.unknown()).optional().openapi({ description: "Additional data" }),
   createdAt: external_exports.string().datetime().openapi({ description: "Creation timestamp (ISO 8601)", example: "2024-01-01T00:00:00.000Z" }),
   updatedAt: external_exports.string().datetime().openapi({ description: "Last update timestamp (ISO 8601)", example: "2024-01-01T00:00:00.000Z" })
-}).openapi("Thing");
+}).openapi("Thing", {});
 var ErrorSchema = external_exports.object({
   code: external_exports.string().openapi({ description: "Error code", example: "NOT_FOUND" }),
   message: external_exports.string().openapi({ description: "Human-readable error message", example: "Thing not found" }),
-  details: external_exports.record(external_exports.array(external_exports.string())).optional().openapi({ description: "Field-specific error details" })
-}).openapi("Error");
+  details: external_exports.record(external_exports.string(), external_exports.array(external_exports.string())).optional().openapi({ description: "Field-specific error details" })
+}).openapi("Error", {});
 var ErrorResponseSchema = external_exports.object({
   error: ErrorSchema
 });
 var CreateThingRequestSchema = external_exports.object({
   name: external_exports.string().min(1).max(1e4).openapi({ description: "Name of the thing", example: "My New Thing" }),
   $type: external_exports.string().optional().openapi({ description: 'Type URL or "thing"', example: "thing" }),
-  data: external_exports.record(external_exports.unknown()).optional().openapi({ description: "Additional data" })
-}).openapi("CreateThingRequest");
+  data: external_exports.record(external_exports.string(), external_exports.unknown()).optional().openapi({ description: "Additional data" })
+}).openapi("CreateThingRequest", {});
 var UpdateThingRequestSchema = external_exports.object({
   name: external_exports.string().min(1).max(1e4).optional().openapi({ description: "Updated name", example: "Updated Thing" }),
-  data: external_exports.record(external_exports.unknown()).optional().openapi({ description: "Updated data" })
-}).openapi("UpdateThingRequest");
+  data: external_exports.record(external_exports.string(), external_exports.unknown()).optional().openapi({ description: "Updated data" })
+}).openapi("UpdateThingRequest", {});
 var HealthResponseSchema = external_exports.object({
   status: external_exports.literal("ok").openapi({ description: "Health status", example: "ok" }),
   timestamp: external_exports.string().datetime().openapi({ description: "Current timestamp (ISO 8601)", example: "2024-01-01T00:00:00.000Z" })
-}).openapi("HealthResponse");
+}).openapi("HealthResponse", {});
 var JsonRpcRequestSchema = external_exports.object({
   jsonrpc: external_exports.literal("2.0").openapi({ description: "JSON-RPC version" }),
   id: external_exports.union([external_exports.string(), external_exports.number()]).optional().openapi({ description: "Request ID" }),
   method: external_exports.string().openapi({ description: "Method name", example: "initialize" }),
-  params: external_exports.record(external_exports.unknown()).optional().openapi({ description: "Method parameters" })
-}).openapi("JsonRpcRequest");
+  params: external_exports.record(external_exports.string(), external_exports.unknown()).optional().openapi({ description: "Method parameters" })
+}).openapi("JsonRpcRequest", {});
 var JsonRpcResponseSchema = external_exports.object({
   jsonrpc: external_exports.literal("2.0").openapi({ description: "JSON-RPC version" }),
   id: external_exports.union([external_exports.string(), external_exports.number(), external_exports.null()]).openapi({ description: "Request ID" }),
@@ -21694,29 +21694,29 @@ var JsonRpcResponseSchema = external_exports.object({
     message: external_exports.string().openapi({ description: "Error message" }),
     data: external_exports.unknown().optional().openapi({ description: "Error data" })
   }).optional().openapi({ description: "Error object" })
-}).openapi("JsonRpcResponse");
+}).openapi("JsonRpcResponse", {});
 var RpcRequestSchema = external_exports.object({
   id: external_exports.string().openapi({ description: "Request ID" }),
   type: external_exports.enum(["call", "batch", "resolve", "dispose"]).openapi({ description: "Request type" }),
   calls: external_exports.array(
     external_exports.object({
       promiseId: external_exports.string(),
-      target: external_exports.record(external_exports.unknown()),
+      target: external_exports.record(external_exports.string(), external_exports.unknown()),
       method: external_exports.string(),
-      args: external_exports.array(external_exports.record(external_exports.unknown()))
+      args: external_exports.array(external_exports.record(external_exports.string(), external_exports.unknown()))
     })
   ).optional()
-}).openapi("RpcRequest");
+}).openapi("RpcRequest", {});
 var RpcResponseSchema = external_exports.object({
   id: external_exports.string().openapi({ description: "Request ID" }),
   type: external_exports.enum(["result", "error", "batch"]).openapi({ description: "Response type" }),
-  results: external_exports.array(external_exports.record(external_exports.unknown())).optional(),
+  results: external_exports.array(external_exports.record(external_exports.string(), external_exports.unknown())).optional(),
   error: external_exports.object({
     code: external_exports.string(),
     message: external_exports.string(),
     data: external_exports.unknown().optional()
   }).optional()
-}).openapi("RpcResponse");
+}).openapi("RpcResponse", {});
 var things2 = /* @__PURE__ */ new Map();
 var healthRoute = createRoute({
   method: "get",
@@ -21994,7 +21994,7 @@ var adminSettingsRoute = createRoute({
       description: "Admin settings",
       content: {
         "application/json": {
-          schema: external_exports.object({ settings: external_exports.record(external_exports.unknown()) })
+          schema: external_exports.object({ settings: external_exports.record(external_exports.string(), external_exports.unknown()) })
         }
       }
     },
