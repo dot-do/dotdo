@@ -911,10 +911,13 @@ describe('Atomic Clone Mode', () => {
 
     it('should handle things with complex nested data', async () => {
       // RED: Nested objects must be cloned correctly
+      // Schema order: id, type, branch, name, data, deleted, visibility
       const complexThings = [
         {
           id: 'complex-1',
           type: 1,
+          branch: null,
+          name: 'Complex Item',
           data: {
             nested: {
               deeply: {

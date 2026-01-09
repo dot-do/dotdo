@@ -781,7 +781,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
       const largeData = Array.from({ length: 5000 }, (_, i) => ({
         id: `pressure-thing-${i}`,
         type: 1,
-        data: JSON.stringify({ index: i }),
+        data: { index: i },
         version: 1,
         branch: null,
         deleted: false,
