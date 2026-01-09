@@ -214,8 +214,14 @@ export default defineWorkspace([
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
 
-  // @dotdo/duckdb-worker package tests
-  createNodeWorkspace('duckdb-worker', ['packages/duckdb-worker/tests/**/*.test.ts']),
+  // @dotdo/duckdb-worker package tests (Node.js compatible tests only)
+  // Note: Workers-specific tests are in packages/duckdb-worker/tests/workers/ and run in duckdb-worker-workers project
+  createNodeWorkspace('duckdb-worker', [
+    'packages/duckdb-worker/tests/*.test.ts',  // Root test files only, not workers/
+  ]),
+
+  // @dotdo/worker-helpers package tests (Customer Worker Helpers)
+  createNodeWorkspace('worker-helpers', ['packages/worker-helpers/tests/**/*.test.ts']),
 
   // AI template literal API tests
   createNodeWorkspace('ai', ['ai/tests/**/*.test.ts', 'ai/**/*.test.ts']),

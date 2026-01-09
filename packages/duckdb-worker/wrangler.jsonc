@@ -1,0 +1,13 @@
+{
+  // Configuration for @dotdo/duckdb-worker package testing
+  // Uses our custom DuckDB WASM build without GOT imports
+  "name": "duckdb-worker-tests",
+  "main": "tests/workers/test-entry.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_v2"],
+
+  // Custom WASM module - our Workers-compatible DuckDB build
+  "wasm_modules": {
+    "DUCKDB_WASM": "wasm/duckdb-worker.wasm"
+  }
+}
