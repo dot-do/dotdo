@@ -94,6 +94,56 @@ import {
 export type { Env }
 
 // ============================================================================
+// CROSS-DO ERROR CLASS
+// ============================================================================
+
+/**
+ * Custom error class for cross-DO call failures with rich context
+ */
+export class CrossDOError extends Error {
+  code: string
+  context: {
+    targetDO?: string
+    method?: string
+    source?: string
+    attempts?: number
+    originalError?: string
+  }
+
+  constructor(
+    code: string,
+    message: string,
+    context: {
+      targetDO?: string
+      method?: string
+      source?: string
+      attempts?: number
+      originalError?: string
+    } = {}
+  ) {
+    super(message)
+    this.name = 'CrossDOError'
+    this.code = code
+    this.context = context
+
+    // Preserve stack trace in V8
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, CrossDOError)
+    }
+  }
+
+  toJSON() {
+    return {
+      error: {
+        code: this.code,
+        message: this.message,
+        context: this.context,
+      },
+    }
+  }
+}
+
+// ============================================================================
 // COLLECTION & RELATIONSHIP TYPES
 // ============================================================================
 
@@ -464,13 +514,58 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
   /**
    * Fire-and-forget event emission (non-blocking, non-durable)
+   * Errors are logged but don't propagate (by design for fire-and-forget)
    */
   protected send(event: string, data: unknown): void {
     queueMicrotask(() => {
-      this.logAction('send', event, data).catch(() => {})
-      this.emitEvent(event, data).catch(() => {})
-      this.executeAction(event, data).catch(() => {})
+      this.logAction('send', event, data).catch((error) => {
+        console.error(`[send] Failed to log action for ${event}:`, error)
+        this.emitSystemError('send.logAction.failed', event, error)
+      })
+      this.emitEvent(event, data).catch((error) => {
+        console.error(`[send] Failed to emit event ${event}:`, error)
+        this.emitSystemError('send.emitEvent.failed', event, error)
+      })
+      this.executeAction(event, data).catch((error) => {
+        console.error(`[send] Failed to execute action ${event}:`, error)
+        this.emitSystemError('send.executeAction.failed', event, error)
+      })
     })
+  }
+
+  /**
+   * Emit a system error event for monitoring/observability
+   * This is a best-effort operation that should never throw
+   */
+  private emitSystemError(errorType: string, originalEvent: string, error: unknown): void {
+    try {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorStack = error instanceof Error ? error.stack : undefined
+
+      // Log to console for immediate visibility
+      console.error(`[system.${errorType}]`, {
+        ns: this.ns,
+        originalEvent,
+        error: errorMessage,
+        stack: errorStack,
+      })
+
+      // Try to persist to DLQ for later replay
+      this.dlq.add({
+        eventId: `system-error-${crypto.randomUUID()}`,
+        verb: errorType,
+        source: this.ns,
+        data: { originalEvent, error: errorMessage },
+        error: errorMessage,
+        errorStack,
+        maxRetries: 3,
+      }).catch(() => {
+        // Absolute last resort - can't even log to DLQ
+        console.error(`[CRITICAL] Failed to add system error to DLQ: ${errorType}`)
+      })
+    } catch {
+      // Never throw from error handler
+    }
   }
 
   /**
@@ -765,9 +860,14 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   protected async emitEvent(verb: string, data: unknown): Promise<void> {
+    const eventId = crypto.randomUUID()
+    let dbError: Error | null = null
+    let pipelineError: Error | null = null
+
+    // Attempt database insert with error capture
     try {
       await this.db.insert(schema.events).values({
-        id: crypto.randomUUID(),
+        id: eventId,
         verb,
         source: this.ns,
         data: data as Record<string, unknown>,
@@ -775,21 +875,72 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         streamed: false,
         createdAt: new Date(),
       })
-    } catch {
-      // Best-effort database insert
-    }
+    } catch (error) {
+      dbError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[emitEvent] Database insert failed for ${verb}:`, dbError.message)
 
-    if (this.env.PIPELINE) {
+      // Add to DLQ for retry
       try {
-        await this.env.PIPELINE.send([{
+        await this.dlq.add({
+          eventId,
           verb,
           source: this.ns,
-          $context: this.ns,
-          data,
-          timestamp: new Date().toISOString(),
-        }])
+          data: data as Record<string, unknown>,
+          error: dbError.message,
+          errorStack: dbError.stack,
+          maxRetries: 3,
+        })
+      } catch (dlqError) {
+        console.error(`[emitEvent] Failed to add to DLQ:`, dlqError)
+      }
+    }
+
+    // Attempt pipeline send with error capture and retry
+    if (this.env.PIPELINE) {
+      const maxPipelineRetries = 3
+      const baseDelay = 100
+
+      for (let attempt = 1; attempt <= maxPipelineRetries; attempt++) {
+        try {
+          await this.env.PIPELINE.send([{
+            verb,
+            source: this.ns,
+            $context: this.ns,
+            data,
+            timestamp: new Date().toISOString(),
+          }])
+          pipelineError = null // Success - clear any previous error
+          break
+        } catch (error) {
+          pipelineError = error instanceof Error ? error : new Error(String(error))
+          console.error(`[emitEvent] Pipeline send attempt ${attempt}/${maxPipelineRetries} failed for ${verb}:`, pipelineError.message)
+
+          if (attempt < maxPipelineRetries) {
+            // Exponential backoff
+            const delay = baseDelay * Math.pow(2, attempt - 1)
+            await this.sleep(delay)
+          }
+        }
+      }
+
+      // If all pipeline retries failed, log for metrics
+      if (pipelineError) {
+        console.error(`[emitEvent] Pipeline send failed after ${maxPipelineRetries} attempts for ${verb}`)
+      }
+    }
+
+    // Emit system error event if either operation failed (for observability)
+    if (dbError || pipelineError) {
+      try {
+        // Use console for metrics visibility (can be scraped by log aggregators)
+        console.error('[metrics.event.emission.failure]', {
+          ns: this.ns,
+          verb,
+          dbError: dbError?.message ?? null,
+          pipelineError: pipelineError?.message ?? null,
+        })
       } catch {
-        // Best-effort streaming
+        // Never throw from error reporting
       }
     }
   }
@@ -1095,17 +1246,56 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     return this.invokeCrossDOMethod(noun, id, method, args)
   }
 
+  // Circuit breaker state for cross-DO calls (per target DO)
+  private static _circuitBreakers: Map<string, {
+    failures: number
+    lastFailure: number
+    state: 'closed' | 'open' | 'half-open'
+  }> = new Map()
+
+  // Circuit breaker configuration
+  private static readonly CIRCUIT_BREAKER_CONFIG = {
+    failureThreshold: 5,
+    resetTimeoutMs: 30000,
+    halfOpenRequests: 1,
+  }
+
+  // Cross-DO retry configuration
+  private static readonly CROSS_DO_RETRY_CONFIG = {
+    maxAttempts: 3,
+    initialDelayMs: 100,
+    maxDelayMs: 5000,
+    backoffMultiplier: 2,
+    retryableStatuses: [500, 502, 503, 504],
+    retryableErrors: ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'],
+  }
+
+  // Default timeout for cross-DO calls
+  private static readonly CROSS_DO_TIMEOUT_MS = 30000
+
   protected async invokeCrossDOMethod(
     noun: string,
     id: string,
     method: string,
     args: unknown[],
+    options?: { timeout?: number }
   ): Promise<unknown> {
     if (!this.env.DO) {
       throw new Error(`Method '${method}' not found and DO namespace not configured for cross-DO calls`)
     }
 
     const targetNs = `${noun}/${id}`
+    const timeout = options?.timeout ?? DO.CROSS_DO_TIMEOUT_MS
+
+    // Check circuit breaker
+    const circuitState = this.checkCircuitBreaker(targetNs)
+    if (circuitState === 'open') {
+      throw new CrossDOError(
+        'CIRCUIT_BREAKER_OPEN',
+        `Circuit breaker open for ${targetNs}`,
+        { targetDO: targetNs, source: this.ns }
+      )
+    }
 
     const doNamespace = this.env.DO as {
       idFromName(name: string): unknown
@@ -1115,26 +1305,206 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     const doId = doNamespace.idFromName(targetNs)
     const stub = doNamespace.get(doId)
 
-    const response = await stub.fetch(
-      new Request(`https://${targetNs}/rpc/${method}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ args }),
-      }),
+    const { maxAttempts, initialDelayMs, maxDelayMs, backoffMultiplier, retryableStatuses } = DO.CROSS_DO_RETRY_CONFIG
+
+    let lastError: Error | undefined
+    let attempts = 0
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attempts = attempt
+
+      try {
+        const response = await this.fetchWithCrossDOTimeout(
+          stub,
+          `https://${targetNs}/rpc/${method}`,
+          { args },
+          timeout
+        )
+
+        // Check for rate limiting
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After')
+          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : initialDelayMs * Math.pow(backoffMultiplier, attempt - 1)
+          if (attempt < maxAttempts) {
+            await this.sleep(Math.min(delay, maxDelayMs))
+            continue
+          }
+        }
+
+        // Non-retryable client errors
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          const errorText = await response.text()
+          this.recordCircuitBreakerSuccess(targetNs)
+          throw new CrossDOError(
+            'CROSS_DO_CLIENT_ERROR',
+            `Cross-DO RPC failed: ${response.status} - ${errorText}`,
+            { targetDO: targetNs, method, source: this.ns }
+          )
+        }
+
+        // Retryable server errors
+        if (!response.ok && retryableStatuses.includes(response.status)) {
+          const errorText = await response.text()
+          lastError = new Error(`Cross-DO RPC failed: ${response.status} - ${errorText}`)
+
+          if (attempt < maxAttempts) {
+            const delay = Math.min(initialDelayMs * Math.pow(backoffMultiplier, attempt - 1), maxDelayMs)
+            await this.sleep(delay)
+            continue
+          }
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          this.recordCircuitBreakerFailure(targetNs)
+          throw new CrossDOError(
+            'CROSS_DO_ERROR',
+            `Cross-DO RPC failed: ${response.status} - ${errorText}`,
+            { targetDO: targetNs, method, attempts, source: this.ns }
+          )
+        }
+
+        const result = await response.json() as { result?: unknown; error?: string }
+
+        if (result.error) {
+          this.recordCircuitBreakerFailure(targetNs)
+          throw new CrossDOError(
+            'CROSS_DO_ERROR',
+            result.error,
+            { targetDO: targetNs, method, source: this.ns }
+          )
+        }
+
+        // Success - record and return
+        this.recordCircuitBreakerSuccess(targetNs)
+        return result.result
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        // Check for timeout
+        if (lastError.name === 'AbortError' || lastError.message.includes('timeout')) {
+          this.recordCircuitBreakerFailure(targetNs)
+          throw new CrossDOError(
+            'CROSS_DO_TIMEOUT',
+            `Cross-DO call to ${targetNs}.${method}() timed out after ${timeout}ms`,
+            { targetDO: targetNs, method, source: this.ns }
+          )
+        }
+
+        // Check if error is retryable
+        const isRetryable = DO.CROSS_DO_RETRY_CONFIG.retryableErrors.some(
+          errType => lastError!.message.includes(errType)
+        )
+
+        if (isRetryable && attempt < maxAttempts) {
+          const delay = Math.min(initialDelayMs * Math.pow(backoffMultiplier, attempt - 1), maxDelayMs)
+          await this.sleep(delay)
+          continue
+        }
+
+        // Not retryable or exhausted retries
+        this.recordCircuitBreakerFailure(targetNs)
+        throw lastError
+      }
+    }
+
+    // Exhausted all retries
+    this.recordCircuitBreakerFailure(targetNs)
+    throw new CrossDOError(
+      'CROSS_DO_ERROR',
+      `Cross-DO call failed after ${attempts} attempts`,
+      {
+        targetDO: targetNs,
+        method,
+        attempts,
+        source: this.ns,
+        originalError: lastError?.message,
+      }
     )
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`Cross-DO RPC failed: ${response.status} - ${errorText}`)
+  /**
+   * Fetch with timeout for cross-DO calls
+   */
+  private async fetchWithCrossDOTimeout(
+    stub: { fetch(request: Request | string, init?: RequestInit): Promise<Response> },
+    url: string,
+    body: unknown,
+    timeoutMs: number
+  ): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      return await stub.fetch(
+        new Request(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      )
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  /**
+   * Check circuit breaker state for a target DO
+   */
+  private checkCircuitBreaker(targetNs: string): 'closed' | 'open' | 'half-open' {
+    const breaker = DO._circuitBreakers.get(targetNs)
+    if (!breaker) return 'closed'
+
+    const { failureThreshold, resetTimeoutMs } = DO.CIRCUIT_BREAKER_CONFIG
+
+    if (breaker.state === 'open') {
+      // Check if enough time has passed to try half-open
+      if (Date.now() - breaker.lastFailure >= resetTimeoutMs) {
+        breaker.state = 'half-open'
+        return 'half-open'
+      }
+      return 'open'
     }
 
-    const result = await response.json() as { result?: unknown; error?: string }
-
-    if (result.error) {
-      throw new Error(result.error)
+    if (breaker.failures >= failureThreshold) {
+      breaker.state = 'open'
+      return 'open'
     }
 
-    return result.result
+    return breaker.state
+  }
+
+  /**
+   * Record a successful cross-DO call (reset circuit breaker)
+   */
+  private recordCircuitBreakerSuccess(targetNs: string): void {
+    DO._circuitBreakers.set(targetNs, {
+      failures: 0,
+      lastFailure: 0,
+      state: 'closed',
+    })
+  }
+
+  /**
+   * Record a failed cross-DO call
+   */
+  private recordCircuitBreakerFailure(targetNs: string): void {
+    const breaker = DO._circuitBreakers.get(targetNs) ?? {
+      failures: 0,
+      lastFailure: 0,
+      state: 'closed' as const,
+    }
+
+    breaker.failures++
+    breaker.lastFailure = Date.now()
+
+    if (breaker.failures >= DO.CIRCUIT_BREAKER_CONFIG.failureThreshold) {
+      breaker.state = 'open'
+    }
+
+    DO._circuitBreakers.set(targetNs, breaker)
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
