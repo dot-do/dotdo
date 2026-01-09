@@ -1,4 +1,4 @@
-import { definePayload, collection } from '@dotdo/payload'
+import { collection, definePayload } from '@dotdo/payload'
 
 const Users = collection({ slug: 'users', auth: true, fields: [] })
 

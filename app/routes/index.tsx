@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { SiteContent } from '../components/site/SiteContent'
+import React from 'react'
 import { LandingLayout } from '../components/site/LandingLayout'
+import { SiteContent } from '../components/site/SiteContent'
 
 export const Route = createFileRoute('/')({
   component: LandingPage,

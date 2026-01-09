@@ -5,7 +5,7 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell, DataTable } from '~/components/ui/shell'
+import { DataTable, Shell } from '~/components/ui/shell'
 
 export const Route = createFileRoute('/admin/activity/')({
   component: ActivityPage,

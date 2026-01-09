@@ -1,5 +1,5 @@
-import { DocsLayout } from 'fumadocs-ui/layouts/docs'
 import { createFileRoute } from '@tanstack/react-router'
+import { DocsLayout } from 'fumadocs-ui/layouts/docs'
 import { source } from '../../lib/source'
 
 export const Route = createFileRoute('/docs/$')({

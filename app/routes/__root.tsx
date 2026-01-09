@@ -1,6 +1,6 @@
+import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { RootProvider } from 'fumadocs-ui/provider/tanstack'
-import { Outlet, createRootRoute } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import React from 'react'
 
 export const Route = createRootRoute({
   component: RootComponent,

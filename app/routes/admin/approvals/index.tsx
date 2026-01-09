@@ -114,22 +114,18 @@ function ApprovalQueuePage() {
       }
     }
     loadApprovals()
-  }, [filters])
+  }, [])
 
   const handleApprovalClick = (id: string) => {
     navigate({ to: '/admin/approvals/$approvalId', params: { approvalId: id } })
   }
 
   const handleQuickApprove = async (id: string) => {
-    setApprovals((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: 'approved' as const } : a))
-    )
+    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'approved' as const } : a)))
   }
 
   const handleQuickReject = async (id: string) => {
-    setApprovals((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: 'rejected' as const } : a))
-    )
+    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'rejected' as const } : a)))
   }
 
   const handleFilterChange = (newFilters: ApprovalFilters) => {
@@ -143,7 +139,7 @@ function ApprovalQueuePage() {
 
   return (
     <Shell>
-      <div className="p-6">
+      <div className='p-6'>
         <ApprovalQueueComponent
           approvals={approvals}
           onApprovalClick={handleApprovalClick}
