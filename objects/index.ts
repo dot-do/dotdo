@@ -144,3 +144,30 @@ export {
   ScheduleNotFoundError,
   InvalidCronExpressionError,
 } from './ScheduleManager'
+
+// Step Result Storage
+export {
+  StepResultStorage,
+  type StepResultInput,
+  type StoredStepResult,
+  type StepStatus,
+  type GetAllOptions,
+  type ResultSummary,
+} from './StepResultStorage'
+
+// Modifier API
+export {
+  modifier,
+  inputModifier,
+  outputModifier,
+  conditionalModifier,
+  applyInputModifiers,
+  applyOutputModifiers,
+  type Modifier,
+  type ModifierConfig,
+  type ModifierContext,
+  type InputModifierFunction,
+  type OutputModifierFunction,
+  type ConditionFunction,
+  type ModifierFunction,
+} from './Modifier'

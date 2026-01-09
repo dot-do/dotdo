@@ -14,6 +14,23 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { WaitForEventManager, type WaitForEventOptions } from './WaitForEventManager'
+import {
+  type Modifier,
+  type ModifierContext,
+  applyInputModifiers,
+  applyOutputModifiers,
+} from './Modifier'
+import {
+  ParallelStepExecutor,
+  ParallelExecutionError,
+  type ParallelStepDefinition,
+  type ParallelStepResult,
+  type ParallelOptions,
+  type ParallelMode,
+} from './ParallelStepExecutor'
+
+// Re-export for convenience
+export { ParallelExecutionError } from './ParallelStepExecutor'
 
 // ============================================================================
 // TYPES
@@ -48,6 +65,8 @@ export interface WorkflowStepConfig {
   retries?: number
   /** Delay between retries */
   retryDelay?: string | number
+  /** Modifiers to transform input/output */
+  modifiers?: Modifier[]
 }
 
 export interface StepExecutionResult {
@@ -59,6 +78,8 @@ export interface StepExecutionResult {
   startedAt?: Date
   completedAt?: Date
   retryCount?: number
+  /** For parallel steps: individual results keyed by step name */
+  parallelResults?: Record<string, ParallelStepResult>
 }
 
 export interface WorkflowExecutionResult {
@@ -98,6 +119,12 @@ interface RegisteredStep {
   name: string
   handler: (ctx: StepContext) => Promise<unknown>
   config?: WorkflowStepConfig
+  /** Whether this is a parallel step group */
+  isParallel?: boolean
+  /** Parallel step definitions (only for parallel steps) */
+  parallelSteps?: ParallelStepDefinition[]
+  /** Parallel execution options */
+  parallelOptions?: ParallelOptions
 }
 
 interface PersistedWorkflowState {
@@ -228,6 +255,7 @@ export class WorkflowRuntime {
   private _completedAt: Date | undefined = undefined
   private _pendingEvents: string[] = []
   private _initialized = false
+  private _parallelGroupCounter = 0
 
   // For waitForEvent resolution
   private waitResolvers = new Map<
@@ -349,6 +377,60 @@ export class WorkflowRuntime {
    */
   step(name: string, handler: (ctx: StepContext) => Promise<unknown>, config?: WorkflowStepConfig): this {
     this.registerStep(name, handler, config)
+    return this
+  }
+
+  /**
+   * Register a group of steps to execute in parallel
+   *
+   * @example
+   * ```typescript
+   * workflow
+   *   .step('validate', validateOrder)
+   *   .parallel([
+   *     step('checkInventory', checkStock),
+   *     step('checkPayment', validatePayment),
+   *     step('checkShipping', calculateShipping),
+   *   ])
+   *   .step('confirm', confirmOrder)
+   * ```
+   */
+  parallel(steps: ParallelStepDefinition[], options: ParallelOptions = {}): this {
+    if (this._state !== 'pending') {
+      throw new Error('Cannot register steps after workflow has started')
+    }
+
+    // Validate: at least 2 steps required
+    if (!steps || steps.length < 2) {
+      throw new Error('Parallel execution requires at least two steps')
+    }
+
+    // Validate: unique step names
+    const names = new Set<string>()
+    for (const step of steps) {
+      if (names.has(step.name)) {
+        throw new Error(`Duplicate step name in parallel group: ${step.name}`)
+      }
+      names.add(step.name)
+    }
+
+    // Generate group name if not provided
+    const groupName = options.name || `parallel-${this._parallelGroupCounter++}`
+
+    // Create a placeholder handler that will be handled specially in executeStep
+    const parallelHandler = async (ctx: StepContext): Promise<unknown> => {
+      // This is a placeholder - actual execution happens in executeStep
+      throw new Error('Parallel handler should not be called directly')
+    }
+
+    this._steps.push({
+      name: groupName,
+      handler: parallelHandler,
+      isParallel: true,
+      parallelSteps: steps,
+      parallelOptions: options,
+    })
+
     return this
   }
 
@@ -525,6 +607,45 @@ export class WorkflowRuntime {
       }
     }
 
+    // Restore parallel step results
+    const parallelStates = await this.storage.list<PersistedStepState>({ prefix: 'workflow:parallel:' })
+    for (const [key, parallelState] of parallelStates) {
+      // Key format: workflow:parallel:{stepIndex}:{stepName}
+      const match = key.match(/workflow:parallel:(\d+):(.+)/)
+      if (match) {
+        const stepIndex = parseInt(match[1], 10)
+        const parallelStepName = match[2]
+
+        // Ensure step result exists
+        if (!this._stepResults[stepIndex]) {
+          this._stepResults[stepIndex] = {
+            name: `parallel-${stepIndex}`,
+            status: 'running',
+            parallelResults: {},
+          }
+        }
+
+        // Ensure parallelResults exists
+        if (!this._stepResults[stepIndex].parallelResults) {
+          this._stepResults[stepIndex].parallelResults = {}
+        }
+
+        // Add the parallel step result
+        this._stepResults[stepIndex].parallelResults![parallelStepName] = {
+          name: parallelState.name,
+          status: parallelState.status as 'pending' | 'running' | 'completed' | 'failed',
+          output: parallelState.output,
+          duration: parallelState.duration,
+          startedAt: parallelState.startedAt ? new Date(parallelState.startedAt) : undefined,
+          completedAt: parallelState.completedAt ? new Date(parallelState.completedAt) : undefined,
+        }
+        if (parallelState.error) {
+          this._stepResults[stepIndex].parallelResults![parallelStepName].error = new Error(parallelState.error.message)
+          this._stepResults[stepIndex].parallelResults![parallelStepName].error!.name = parallelState.error.name
+        }
+      }
+    }
+
     this._initialized = true
   }
 
@@ -559,7 +680,8 @@ export class WorkflowRuntime {
       }
 
       // Check if workflow was paused (e.g., by waitForEvent)
-      if (this._state === 'paused') {
+      // Note: State can change during async step execution
+      if ((this._state as WorkflowRuntimeState) === 'paused') {
         return
       }
 
@@ -569,6 +691,11 @@ export class WorkflowRuntime {
   }
 
   private async executeStep(step: RegisteredStep, index: number): Promise<StepExecutionResult> {
+    // Handle parallel step execution
+    if (step.isParallel && step.parallelSteps) {
+      return this.executeParallelStep(step, index)
+    }
+
     const result: StepExecutionResult = {
       name: step.name,
       status: 'running',
@@ -581,14 +708,30 @@ export class WorkflowRuntime {
       stepIndex: index,
     })
 
-    const context = this.createStepContext(step.name, index)
+    // Create modifier context for input/output transformation
+    const modifierContext: ModifierContext = {
+      stepName: step.name,
+      stepIndex: index,
+      workflowInstanceId: this._instanceId,
+    }
+
     const maxRetries = step.config?.retries || 0
+    const modifiers = step.config?.modifiers || []
     let lastError: Error | undefined
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       result.retryCount = attempt
 
       try {
+        // Apply input modifiers before step execution
+        const modifiedInput =
+          modifiers.length > 0
+            ? await applyInputModifiers(modifiers, this._input, modifierContext)
+            : this._input
+
+        // Create context with potentially modified input
+        const context = this.createStepContext(step.name, index, modifiedInput)
+
         // Handle timeout if configured
         let output: unknown
         if (step.config?.timeout) {
@@ -611,8 +754,14 @@ export class WorkflowRuntime {
           return result
         }
 
+        // Apply output modifiers after step execution
+        const modifiedOutput =
+          modifiers.length > 0
+            ? await applyOutputModifiers(modifiers, output, modifiedInput, modifierContext)
+            : output
+
         result.status = 'completed'
-        result.output = output
+        result.output = modifiedOutput
         result.completedAt = new Date()
         result.duration = result.completedAt.getTime() - result.startedAt!.getTime()
 
@@ -620,7 +769,7 @@ export class WorkflowRuntime {
           instanceId: this._instanceId,
           stepName: step.name,
           stepIndex: index,
-          output,
+          output: modifiedOutput,
           duration: result.duration,
         })
 
@@ -656,11 +805,165 @@ export class WorkflowRuntime {
     return result
   }
 
-  private createStepContext(stepName: string, stepIndex: number): StepContext {
+  /**
+   * Execute a parallel step group
+   */
+  private async executeParallelStep(step: RegisteredStep, index: number): Promise<StepExecutionResult> {
+    const result: StepExecutionResult = {
+      name: step.name,
+      status: 'running',
+      startedAt: new Date(),
+      parallelResults: {},
+    }
+
+    const options = step.parallelOptions || {}
+
+    // Emit parallel.started event
+    this.emit('parallel.started', {
+      instanceId: this._instanceId,
+      groupName: step.name,
+      stepCount: step.parallelSteps!.length,
+    })
+
+    // Create base context for all parallel steps
+    const previousOutput = index > 0 ? this._stepResults[index - 1]?.output : undefined
+    const baseContext: Omit<StepContext, 'stepName' | 'stepIndex'> = {
+      input: this._input,
+      previousStepOutput: previousOutput,
+      workflowInstanceId: this._instanceId,
+      waitForEvent: this.createWaitForEvent(step.name),
+      $: this.createDomainProxy(),
+      emit: (event: string, data: unknown) => this.emit(event, data),
+    }
+
+    // Create executor
+    const executor = new ParallelStepExecutor(step.parallelSteps!, options)
+
+    try {
+      // Execute all parallel steps
+      const parallelResult = await executor.execute(
+        baseContext,
+        // onStepStart callback
+        (stepName) => {
+          this.emit('step.started', {
+            instanceId: this._instanceId,
+            stepName,
+            stepIndex: index,
+            isParallel: true,
+            groupName: step.name,
+          })
+        },
+        // onStepComplete callback
+        (stepName, stepResult) => {
+          result.parallelResults![stepName] = stepResult
+
+          // Persist individual parallel step result
+          this.storage.put(`workflow:parallel:${index}:${stepName}`, {
+            name: stepResult.name,
+            status: stepResult.status,
+            output: stepResult.output,
+            duration: stepResult.duration,
+            startedAt: stepResult.startedAt?.toISOString(),
+            completedAt: stepResult.completedAt?.toISOString(),
+            error: stepResult.error
+              ? {
+                  message: stepResult.error.message,
+                  name: stepResult.error.name,
+                }
+              : undefined,
+          })
+
+          if (stepResult.status === 'completed') {
+            this.emit('step.completed', {
+              instanceId: this._instanceId,
+              stepName,
+              stepIndex: index,
+              output: stepResult.output,
+              duration: stepResult.duration,
+              isParallel: true,
+              groupName: step.name,
+            })
+          } else if (stepResult.status === 'failed') {
+            this.emit('step.failed', {
+              instanceId: this._instanceId,
+              stepName,
+              stepIndex: index,
+              error: stepResult.error
+                ? { message: stepResult.error.message, name: stepResult.error.name }
+                : undefined,
+              isParallel: true,
+              groupName: step.name,
+            })
+          }
+        }
+      )
+
+      result.status = 'completed'
+      result.output = parallelResult.merged
+      result.parallelResults = parallelResult.results
+      result.completedAt = new Date()
+      result.duration = result.completedAt.getTime() - result.startedAt!.getTime()
+
+      // Emit parallel.completed event
+      this.emit('parallel.completed', {
+        instanceId: this._instanceId,
+        groupName: step.name,
+        completedCount: parallelResult.completedCount,
+        failedCount: parallelResult.failedCount,
+        duration: parallelResult.duration,
+      })
+
+      // Also emit step.completed for the parallel group itself
+      this.emit('step.completed', {
+        instanceId: this._instanceId,
+        stepName: step.name,
+        stepIndex: index,
+        output: result.output,
+        duration: result.duration,
+      })
+
+      return result
+    } catch (error) {
+      // Capture partial results from executor
+      const partialResults = executor.getResults()
+      for (const [name, stepResult] of partialResults) {
+        result.parallelResults![name] = stepResult
+      }
+
+      result.status = 'failed'
+      result.error = error instanceof Error ? error : new Error(String(error))
+      result.completedAt = new Date()
+      result.duration = result.completedAt.getTime() - result.startedAt!.getTime()
+
+      // Emit parallel.failed event
+      const failedStep = error instanceof ParallelExecutionError ? error.failedStep : 'unknown'
+      this.emit('parallel.failed', {
+        instanceId: this._instanceId,
+        groupName: step.name,
+        failedStep,
+        error: result.error
+          ? { message: result.error.message, name: result.error.name }
+          : undefined,
+      })
+
+      this.emit('step.failed', {
+        instanceId: this._instanceId,
+        stepName: step.name,
+        stepIndex: index,
+        error: result.error
+          ? { message: result.error.message, name: result.error.name }
+          : undefined,
+      })
+
+      return result
+    }
+  }
+
+  private createStepContext(stepName: string, stepIndex: number, inputOverride?: unknown): StepContext {
     const previousOutput = stepIndex > 0 ? this._stepResults[stepIndex - 1]?.output : undefined
 
     return {
-      input: this._input,
+      input: inputOverride !== undefined ? inputOverride : this._input,
       previousStepOutput: previousOutput,
       stepName,
       stepIndex,
