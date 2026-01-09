@@ -9,11 +9,91 @@ The new architecture introduces **capability modules** that extend the base DO c
 - `$.fs` - Filesystem operations (provided by `fsx`)
 - `$.git` - Git operations (provided by `gitx`)
 - `$.bash` - Shell execution (provided by `bashx`)
+- `$.jq` - JSON query (optional RPC binding)
+- `$.npm` - Package management (optional RPC binding)
 
 These modules are:
 1. **Lazy-loaded** - Only initialized when first accessed
 2. **Tree-shakeable** - Import only what you need
 3. **External packages** - Distributed as separate npm packages
+4. **Optional RPC bindings** - Heavy tools as separate Workers to keep bundles small
+
+## Execution Tiers
+
+The architecture uses a **tiered execution model** for optimal performance:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Tier 1: Native In-Worker (<1ms)                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  • fetch/ofetch (curl equivalent)     • JSON operations              │
+│  • Node.js APIs (nodejs_compat_v2)    • Text processing              │
+│  • Path, crypto, streams, zlib        • Basic file ops via $.fs      │
+└─────────────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│                 Tier 2: RPC Bindings (<5ms)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  • $.jq → jq.do (jqjs as a service)                                  │
+│  • $.npm → npm.do (package resolution/execution)                     │
+│  • Heavy gitx operations → git.do                                    │
+│  Optional: Only loaded if binding exists in wrangler.toml           │
+└─────────────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│              Tier 3: worker_loaders (<10ms cold)                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  • Dynamic npm packages (fetch from esm.sh, run in isolate)          │
+│  • User-provided code (sandboxed V8 isolate)                         │
+│  • ai-evaluate pattern for code execution                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│              Tier 4: Sandbox SDK (2-3s cold)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│  Only for things that truly need Linux:                              │
+│  • Shell scripts with bash-specific features                         │
+│  • Python with native C extensions (numpy, pandas)                   │
+│  • Binary executables (ffmpeg, imagemagick)                          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## RPC Binding Architecture
+
+Heavy tools like jq can be **optional RPC bindings** - separate Workers that don't bloat your core bundle:
+
+```toml
+# wrangler.toml - only add bindings you need
+[[services]]
+binding = "JQ"
+service = "jq-do"
+
+[[services]]
+binding = "NPM"
+service = "npm-do"
+```
+
+```typescript
+// In your DO - graceful fallback if binding doesn't exist
+class MyDO extends DO {
+  async processData(data: unknown, filter: string) {
+    // If JQ binding exists, use it (fast, dedicated Worker)
+    if (this.env.JQ) {
+      return this.env.JQ.query(data, filter)
+    }
+    // Fallback: inline jqjs (adds to bundle size)
+    const jq = await import('jqjs')
+    return jq.run(data, filter)
+  }
+}
+```
+
+The `$` proxy handles this automatically:
+
+```typescript
+// $.jq automatically uses RPC binding if available, falls back to inline
+const result = await this.$.jq(data, '.users[].name')
+```
 
 ## Dependency Graph
 

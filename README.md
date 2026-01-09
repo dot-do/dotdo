@@ -101,6 +101,46 @@ await $.human.ask('Approve this expense?', {
 })
 ```
 
+## Capability Modules
+
+The `$` WorkflowContext provides lazy-loaded capabilities:
+
+```typescript
+class MySite extends DO {
+  async build() {
+    // Filesystem (fsx)
+    const content = await this.$.fs.read('content/index.mdx')
+
+    // Git operations (gitx)
+    await this.$.git.pull('origin', 'main')
+
+    // Shell execution (bashx) - runs natively in Workers!
+    await this.$.bash`npm install && npm run build`
+
+    // JSON query - uses RPC binding if available
+    const users = await this.$.jq(data, '.users[].name')
+  }
+}
+```
+
+### Execution Tiers
+
+| Tier | Latency | Examples |
+|------|---------|----------|
+| **Native** | <1ms | fetch/curl, JSON, Node.js APIs, crypto |
+| **RPC Binding** | <5ms | jq, npm resolution, heavy git ops |
+| **worker_loaders** | <10ms | Dynamic npm packages, user code |
+| **Sandbox SDK** | 2-3s | Python/native binaries (rare) |
+
+**Most operations run natively** in Workers with `nodejs_compat_v2`. Heavy tools like jq can be optional RPC bindings - separate Workers that don't bloat your bundle:
+
+```toml
+# wrangler.toml - only add what you need
+[[services]]
+binding = "JQ"
+service = "jq-do"
+```
+
 ## CLI
 
 ```bash
