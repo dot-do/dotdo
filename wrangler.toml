@@ -78,24 +78,57 @@ tag = "v4"
 new_classes = ["Workflow", "IntegrationsDO", "SandboxDO"]
 
 # ============================================================================
-# QUEUES
+# QUEUES - Async Job Processing
 # See https://developers.cloudflare.com/queues/
+# Queue operations are handled by lib/cloudflare/queues.ts
 # ============================================================================
+
+# Events Queue - Domain event delivery to external systems
 [[queues.producers]]
-binding = "QUEUE"
+binding = "EVENTS_QUEUE"
 queue = "dotdo-events"
 
 [[queues.consumers]]
 queue = "dotdo-events"
-max_batch_size = 10
+max_batch_size = 50
 max_batch_timeout = 30
 max_retries = 3
-dead_letter_queue = "dotdo-events-dlq"
+dead_letter_queue = "dotdo-dlq"
 
-# Dead letter queue for failed messages
+# Jobs Queue - Background task processing (emails, reports, etc.)
 [[queues.producers]]
-binding = "DLQ"
-queue = "dotdo-events-dlq"
+binding = "JOBS_QUEUE"
+queue = "dotdo-jobs"
+
+[[queues.consumers]]
+queue = "dotdo-jobs"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq"
+
+# Webhooks Queue - External webhook delivery with extended retries
+[[queues.producers]]
+binding = "WEBHOOKS_QUEUE"
+queue = "dotdo-webhooks"
+
+[[queues.consumers]]
+queue = "dotdo-webhooks"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq"
+
+# Dead Letter Queue - Failed message storage for analysis/replay
+[[queues.producers]]
+binding = "DLQ_QUEUE"
+queue = "dotdo-dlq"
+
+[[queues.consumers]]
+queue = "dotdo-dlq"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 0
 
 # ============================================================================
 # AI BINDINGS
@@ -163,15 +196,49 @@ binding = "DB"
 database_name = "dotdo-staging"
 database_id = "placeholder-staging-d1-id"
 
+# Staging Queues
 [[env.staging.queues.producers]]
-binding = "QUEUE"
+binding = "EVENTS_QUEUE"
 queue = "dotdo-events-staging"
 
 [[env.staging.queues.consumers]]
 queue = "dotdo-events-staging"
-max_batch_size = 10
+max_batch_size = 50
 max_batch_timeout = 30
 max_retries = 3
+dead_letter_queue = "dotdo-dlq-staging"
+
+[[env.staging.queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "dotdo-jobs-staging"
+
+[[env.staging.queues.consumers]]
+queue = "dotdo-jobs-staging"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq-staging"
+
+[[env.staging.queues.producers]]
+binding = "WEBHOOKS_QUEUE"
+queue = "dotdo-webhooks-staging"
+
+[[env.staging.queues.consumers]]
+queue = "dotdo-webhooks-staging"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "dotdo-dlq-staging"
+
+[[env.staging.queues.producers]]
+binding = "DLQ_QUEUE"
+queue = "dotdo-dlq-staging"
+
+[[env.staging.queues.consumers]]
+queue = "dotdo-dlq-staging"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 0
 
 [[env.staging.vectorize]]
 binding = "VECTORS"

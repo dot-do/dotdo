@@ -891,6 +891,15 @@ describe('WorkersAI batch operations', () => {
   })
 
   it('handles batch size limits', async () => {
+    // Mock to return appropriate number of embeddings for each batch call
+    ;(mockEnv.AI as unknown as { run: Mock }).run
+      .mockResolvedValueOnce({
+        data: Array(100).fill([0.1, 0.2, 0.3]),
+      })
+      .mockResolvedValueOnce({
+        data: Array(50).fill([0.4, 0.5, 0.6]),
+      })
+
     const texts = Array(150).fill('test') // Assuming batch limit is 100
     const response = await ai.generateEmbeddings(texts)
 

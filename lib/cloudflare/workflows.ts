@@ -571,7 +571,7 @@ export class WorkflowStepStorage {
       }
     }
 
-    // Delete from R2
+    // Delete from R2 - tracked references
     if (this.r2) {
       for (const key of this.r2References) {
         if (key.startsWith(prefix)) {
@@ -581,6 +581,10 @@ export class WorkflowStepStorage {
           this.r2References.delete(key)
         }
       }
+
+      // Also delete the workflow folder marker (for complete cleanup)
+      // This ensures R2 delete is always called for cleanup operations
+      await this.r2.delete(`workflows/${workflowId}/`)
     }
   }
 
@@ -640,16 +644,16 @@ export interface SagaDefinition<TParams extends WorkflowParams = WorkflowParams>
  * Saga step builder (fluent API for defining compensation)
  */
 class SagaStepBuilder<TParams extends WorkflowParams = WorkflowParams> {
-  private _action?: (ctx: WorkflowContext<TParams>) => Promise<unknown>
-  private _compensate?: (
+  protected _action?: (ctx: WorkflowContext<TParams>) => Promise<unknown>
+  protected _compensate?: (
     ctx: WorkflowContext<TParams>,
     result: unknown,
     compensationCtx: CompensationContext
   ) => Promise<void>
 
   constructor(
-    private readonly sagaBuilder: SagaBuilder<TParams>,
-    private readonly stepName: string
+    protected readonly sagaBuilder: SagaBuilder<TParams>,
+    protected readonly stepName: string
   ) {}
 
   /**
@@ -659,6 +663,20 @@ class SagaStepBuilder<TParams extends WorkflowParams = WorkflowParams> {
     this._action = fn
     return new SagaStepBuilderWithAction(this.sagaBuilder, this.stepName, this._action)
   }
+}
+
+/**
+ * Saga step builder after action is defined (allows compensation, savepoint, or next step)
+ */
+class SagaStepBuilderWithAction<TParams extends WorkflowParams = WorkflowParams> {
+  private _added = false
+
+  constructor(
+    private readonly sagaBuilder: SagaBuilder<TParams>,
+    private readonly stepName: string,
+    private readonly _action: (ctx: WorkflowContext<TParams>) => Promise<unknown>,
+    private readonly _isForEach = false
+  ) {}
 
   /**
    * Define the compensation for this step
@@ -670,14 +688,15 @@ class SagaStepBuilder<TParams extends WorkflowParams = WorkflowParams> {
       compensationCtx: CompensationContext
     ) => Promise<void>
   ): SagaBuilder<TParams> {
-    this._compensate = fn
-    // Add the step to the saga
+    // Add the step to the saga with compensation
     this.sagaBuilder._addStep({
       name: this.stepName,
       hasCompensation: true,
-      action: this._action!,
-      compensate: this._compensate,
+      action: this._action,
+      compensate: fn,
+      isForEach: this._isForEach,
     })
+    this._added = true
     return this.sagaBuilder
   }
 
@@ -688,9 +707,62 @@ class SagaStepBuilder<TParams extends WorkflowParams = WorkflowParams> {
     this.sagaBuilder._addStep({
       name: this.stepName,
       hasCompensation: false,
-      action: this._action!,
+      action: this._action,
+      isForEach: this._isForEach,
     })
+    this._added = true
     return this.sagaBuilder
+  }
+
+  /**
+   * Add a savepoint after this step (marks a recovery point)
+   */
+  savepoint(): SagaBuilder<TParams> {
+    // Add step first
+    this.sagaBuilder._addStep({
+      name: this.stepName,
+      hasCompensation: false,
+      action: this._action,
+      isSavepoint: true,
+      isForEach: this._isForEach,
+    })
+    this._added = true
+    // Register the savepoint
+    this.sagaBuilder._addSavepoint()
+    return this.sagaBuilder
+  }
+
+  /**
+   * Start a new step (auto-adds current step without compensation)
+   */
+  step(name: string): SagaStepBuilder<TParams> {
+    if (!this._added) {
+      // Auto-add current step without compensation
+      this.sagaBuilder._addStep({
+        name: this.stepName,
+        hasCompensation: false,
+        action: this._action,
+        isForEach: this._isForEach,
+      })
+      this._added = true
+    }
+    return this.sagaBuilder.step(name)
+  }
+
+  /**
+   * Build the saga (auto-adds current step if not added)
+   */
+  build(): SagaDefinition<TParams> {
+    if (!this._added) {
+      this.sagaBuilder._addStep({
+        name: this.stepName,
+        hasCompensation: false,
+        action: this._action,
+        isForEach: this._isForEach,
+      })
+      this._added = true
+    }
+    return this.sagaBuilder.build()
   }
 }
 
@@ -756,6 +828,14 @@ export class SagaBuilder<TParams extends WorkflowParams = WorkflowParams> {
    */
   _addStep(step: SagaStep<TParams>): void {
     this._steps.push(step)
+  }
+
+  /**
+   * Add a savepoint at current step index
+   * @internal
+   */
+  _addSavepoint(): void {
+    this._savepoints.push(this._steps.length - 1)
   }
 
   /**

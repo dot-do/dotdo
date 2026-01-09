@@ -45,3 +45,67 @@ export {
   type CacheOptions,
   type TTLHelpers,
 } from './kv'
+
+// ============================================================================
+// QUEUES - Async Job Processing
+// ============================================================================
+
+export {
+  // Message Types
+  type BaseMessage,
+  type RetryMetadata,
+  type JobMessage,
+  type EventMessage,
+  type WorkflowTrigger,
+  type QueueMessage,
+
+  // Message Factory Functions
+  type CreateJobMessageInput,
+  type CreateEventMessageInput,
+  type CreateWorkflowTriggerInput,
+  createJobMessage,
+  createEventMessage,
+  createWorkflowTrigger,
+
+  // Type Guards
+  isJobMessage,
+  isEventMessage,
+  isWorkflowTrigger,
+
+  // Retry Policies
+  type RetryPolicy,
+  DEFAULT_RETRY_POLICY,
+  createRetryPolicy,
+  calculateBackoffDelay,
+  shouldSendToDLQ,
+
+  // Queue Configuration
+  type QueueConfig,
+  createQueueConfig,
+  QUEUE_CONFIGS,
+
+  // Queue Client
+  type SendResult,
+  type BatchSendResult,
+  type SendOptions,
+  type QueueClient,
+  createQueueClient,
+
+  // DLQ Integration
+  type DLQSendOptions,
+  sendToDLQ,
+
+  // Consumer Batch Processing
+  type QueuedMessage,
+  type MessageBatch,
+  createMessageBatch,
+
+  // Consumer Handler Utilities
+  type JobHandler,
+  type EventHandler,
+  type MessageHandler,
+  type BatchProcessResult,
+  createJobHandler,
+  createEventHandler,
+  processMessageBatch,
+} from './queues'

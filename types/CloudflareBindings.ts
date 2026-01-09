@@ -208,25 +208,49 @@ export interface AIBindings {
  *
  * Queues provide reliable message delivery with retries
  * and dead letter queue support.
+ *
+ * Queue operations are handled by lib/cloudflare/queues.ts
+ *
+ * Queue Types:
+ * - EVENTS_QUEUE: Domain event delivery to external systems
+ * - JOBS_QUEUE: Background task processing (emails, reports, etc.)
+ * - WEBHOOKS_QUEUE: External webhook delivery
+ * - DLQ_QUEUE: Dead letter queue for failed messages
  */
 export interface QueueBindings {
   /**
-   * Primary queue for background jobs
-   */
-  QUEUE?: Queue
-
-  /**
    * Events queue for domain event delivery
+   * Queue: dotdo-events
    */
   EVENTS_QUEUE?: Queue
 
   /**
+   * Jobs queue for background task processing
+   * Queue: dotdo-jobs
+   */
+  JOBS_QUEUE?: Queue
+
+  /**
    * Webhooks queue for external delivery
+   * Queue: dotdo-webhooks
    */
   WEBHOOKS_QUEUE?: Queue
 
   /**
    * Dead letter queue for failed messages
+   * Queue: dotdo-dlq
+   */
+  DLQ_QUEUE?: Queue
+
+  /**
+   * @deprecated Use EVENTS_QUEUE instead
+   * Legacy binding for backward compatibility
+   */
+  QUEUE?: Queue
+
+  /**
+   * @deprecated Use DLQ_QUEUE instead
+   * Legacy binding for backward compatibility
    */
   DLQ?: Queue
 }
@@ -458,9 +482,38 @@ export function hasVectorize(env: CloudflareEnv): env is CloudflareEnv & { VECTO
 
 /**
  * Check if Queue binding is available
+ * @deprecated Use hasEventsQueue, hasJobsQueue, or hasWebhooksQueue instead
  */
 export function hasQueue(env: CloudflareEnv): env is CloudflareEnv & { QUEUE: Queue } {
   return env.QUEUE !== undefined
+}
+
+/**
+ * Check if Events Queue binding is available
+ */
+export function hasEventsQueue(env: CloudflareEnv): env is CloudflareEnv & { EVENTS_QUEUE: Queue } {
+  return env.EVENTS_QUEUE !== undefined
+}
+
+/**
+ * Check if Jobs Queue binding is available
+ */
+export function hasJobsQueue(env: CloudflareEnv): env is CloudflareEnv & { JOBS_QUEUE: Queue } {
+  return env.JOBS_QUEUE !== undefined
+}
+
+/**
+ * Check if Webhooks Queue binding is available
+ */
+export function hasWebhooksQueue(env: CloudflareEnv): env is CloudflareEnv & { WEBHOOKS_QUEUE: Queue } {
+  return env.WEBHOOKS_QUEUE !== undefined
+}
+
+/**
+ * Check if DLQ binding is available
+ */
+export function hasDLQ(env: CloudflareEnv): env is CloudflareEnv & { DLQ_QUEUE: Queue } {
+  return env.DLQ_QUEUE !== undefined
 }
 
 /**
@@ -539,7 +592,12 @@ export type WithFullAI = WithRequiredBindings<'AI' | 'VECTORS'>
 /**
  * Type helper for environment with messaging bindings required
  */
-export type WithMessaging = WithRequiredBindings<'QUEUE' | 'PIPELINE'>
+export type WithMessaging = WithRequiredBindings<'EVENTS_QUEUE' | 'JOBS_QUEUE' | 'WEBHOOKS_QUEUE'>
+
+/**
+ * Type helper for environment with all queue bindings required
+ */
+export type WithQueues = WithRequiredBindings<'EVENTS_QUEUE' | 'JOBS_QUEUE' | 'WEBHOOKS_QUEUE' | 'DLQ_QUEUE'>
 
 /**
  * Type helper for environment with all core bindings required

@@ -113,6 +113,9 @@ export default defineWorkspace([
   // Testing utilities tests
   createNodeWorkspace('testing', ['testing/tests/**/*.test.ts']),
 
+  // ACID test suite (Phase 1-6 tests for consistency/durability)
+  createNodeWorkspace('acid', ['testing/acid/**/*.test.ts']),
+
   // Test mocks infrastructure
   createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
 
