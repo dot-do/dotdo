@@ -27,8 +27,17 @@ export interface Thing {
 
 export const apiRoutes = new Hono<{ Bindings: Env }>()
 
-// API info - root endpoint
+// API info - root endpoint (handles both / and empty path)
 apiRoutes.get('/', (c) => {
+  return c.json({
+    name: 'dotdo',
+    version: '0.0.1',
+    endpoints: ['/api/health', '/api/things'],
+  })
+})
+
+// Also handle empty path for /api (mounted route without trailing slash)
+apiRoutes.get('', (c) => {
   return c.json({
     name: 'dotdo',
     version: '0.0.1',
@@ -108,7 +117,12 @@ apiRoutes.post('/things', async (c) => {
     if (!text || text.trim() === '') {
       return c.json({ error: { code: 'BAD_REQUEST', message: 'Request body cannot be empty' } }, 400)
     }
-    body = JSON.parse(text)
+    const parsed = JSON.parse(text)
+    // Body must be a non-null object (not array, string, number, etc.)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Request body must be a JSON object' } }, 400)
+    }
+    body = parsed
   } catch {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
   }

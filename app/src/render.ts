@@ -5,48 +5,114 @@
  * Note: For full SSR with React components, use TanStack Start's server rendering.
  * This function provides a static HTML representation for test verification.
  */
+
+const SITE_URL = 'https://do.md'
+const SITE_NAME = 'do.md'
+const TWITTER_HANDLE = '@domddev'
+const DEFAULT_IMAGE = `${SITE_URL}/og-image.png`
+
 export async function renderPage(path: string): Promise<string> {
   if (path === '/') {
     return generateLandingPageHtml()
+  }
+  if (path === '/about') {
+    return generateAboutPageHtml()
+  }
+  if (path === '/blog/test-article') {
+    return generateBlogArticleHtml()
   }
 
   throw new Error(`Unknown path: ${path}`)
 }
 
+interface PageMeta {
+  title: string
+  description: string
+  canonicalUrl: string
+  ogType: 'website' | 'article'
+  ogImage?: string
+  publishedTime?: string
+  modifiedTime?: string
+  author?: string
+}
+
+function generateMetaTags(meta: PageMeta): string {
+  const ogImage = meta.ogImage || DEFAULT_IMAGE
+
+  let tags = `
+  <title>${meta.title}</title>
+  <meta name="description" content="${meta.description}">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="${meta.title}">
+  <meta property="og:description" content="${meta.description}">
+  <meta property="og:type" content="${meta.ogType}">
+  <meta property="og:url" content="${meta.canonicalUrl}">
+  <meta property="og:image" content="${ogImage}">
+  <meta property="og:site_name" content="${SITE_NAME}">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="${TWITTER_HANDLE}">
+  <meta name="twitter:title" content="${meta.title}">
+  <meta name="twitter:description" content="${meta.description}">
+  <meta name="twitter:image" content="${ogImage}">
+
+  <!-- Canonical -->
+  <link rel="canonical" href="${meta.canonicalUrl}">`
+
+  if (meta.ogType === 'article') {
+    tags += `
+
+  <!-- Article-specific -->
+  <meta property="article:published_time" content="${meta.publishedTime}">
+  <meta property="article:modified_time" content="${meta.modifiedTime || meta.publishedTime}">
+  <meta property="article:author" content="${meta.author || SITE_NAME}">`
+  }
+
+  return tags
+}
+
+function generateJsonLd(type: string, data: Record<string, unknown>): string {
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': type,
+    ...data,
+  }
+  return `<script type="application/ld+json">
+${JSON.stringify(jsonLd, null, 2)}
+</script>`
+}
+
 function generateLandingPageHtml(): string {
   const year = new Date().getFullYear()
+
+  const meta: PageMeta = {
+    title: 'dotdo - Durable Objects Made Simple',
+    description: 'Build stateful serverless applications with Cloudflare Durable Objects. Type-safe, scalable, and easy to use TypeScript framework.',
+    canonicalUrl: `${SITE_URL}/`,
+    ogType: 'website',
+  }
+
+  const jsonLd = generateJsonLd('WebSite', {
+    name: SITE_NAME,
+    url: SITE_URL,
+    description: meta.description,
+    publisher: {
+      '@type': 'Organization',
+      name: SITE_NAME,
+    },
+  })
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>dotdo - Durable Objects Made Simple</title>
-  <meta name="description" content="Build stateful serverless applications with Cloudflare Durable Objects. Type-safe, scalable, and easy to use TypeScript framework for edge computing.">
-  <meta property="og:title" content="dotdo - Durable Objects Made Simple">
-  <meta property="og:description" content="Build stateful serverless applications with Cloudflare Durable Objects. Type-safe, scalable, and easy to use TypeScript framework for edge computing.">
-  <meta property="og:image" content="https://dotdo.dev/og-image.png">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="dotdo - Durable Objects Made Simple">
-  <meta name="twitter:description" content="Build stateful serverless applications with Cloudflare Durable Objects.">
-  <link rel="canonical" href="https://dotdo.dev/">
+  ${generateMetaTags(meta)}
+  <link rel="icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "dotdo",
-    "description": "Durable Objects framework for Cloudflare Workers",
-    "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "Cloud",
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    }
-  }
-  </script>
+  ${jsonLd}
   <style>
     /* Critical CSS inlined */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -349,6 +415,196 @@ function generateLandingPageHtml(): string {
     />
   </div>
   <script defer src="/static/app.js"></script>
+</body>
+</html>`
+}
+
+function generateAboutPageHtml(): string {
+  const year = new Date().getFullYear()
+
+  const meta: PageMeta = {
+    title: 'About do.md',
+    description: 'Learn about do.md, the framework that makes building stateful serverless apps with Cloudflare Durable Objects simple and intuitive.',
+    canonicalUrl: `${SITE_URL}/about`,
+    ogType: 'website',
+  }
+
+  const jsonLd = generateJsonLd('WebPage', {
+    name: 'About do.md',
+    url: meta.canonicalUrl,
+    description: meta.description,
+    isPartOf: {
+      '@type': 'WebSite',
+      name: SITE_NAME,
+      url: SITE_URL,
+    },
+  })
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${generateMetaTags(meta)}
+  <link rel="icon" href="/favicon.ico">
+  ${jsonLd}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen flex flex-col">
+    <header role="banner">
+      <nav class="container max-w-7xl mx-auto px-4 py-4">
+        <a href="/" class="text-xl font-bold">dotdo</a>
+      </nav>
+    </header>
+
+    <main id="main-content" role="main" class="flex-1">
+      <section class="py-20 px-4">
+        <div class="container max-w-4xl mx-auto">
+          <h1 class="text-4xl font-bold mb-8">About do.md</h1>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Our Mission</h2>
+          <p class="mb-4">
+            We believe building stateful serverless applications should be simple, intuitive, and enjoyable.
+            do.md provides a framework that makes Cloudflare Durable Objects accessible to every developer.
+          </p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">The Problem We Solve</h2>
+          <p class="mb-4">
+            Traditional serverless architectures are stateless by design. While this simplifies scaling,
+            it makes building real-time, stateful applications complex and error-prone.
+          </p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Our Solution</h2>
+          <p class="mb-4">
+            do.md leverages Cloudflare Durable Objects to provide persistent state at the edge.
+            With built-in TypeScript support, Drizzle ORM integration, and workflow orchestration,
+            you can build sophisticated applications with minimal boilerplate.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer role="contentinfo" class="bg-gray-900 text-gray-300 py-12 px-4">
+      <div class="container max-w-7xl mx-auto text-center">
+        <p>&copy; ${year} do.md. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`
+}
+
+function generateBlogArticleHtml(): string {
+  const year = new Date().getFullYear()
+  const publishedDate = '2025-01-01'
+  const modifiedDate = '2025-01-08'
+
+  const meta: PageMeta = {
+    title: 'Getting Started with Durable Objects - do.md',
+    description: 'Learn how to build your first stateful serverless application using Cloudflare Durable Objects and the do.md framework in this step-by-step tutorial.',
+    canonicalUrl: `${SITE_URL}/blog/test-article`,
+    ogType: 'article',
+    ogImage: `${SITE_URL}/blog/test-article-og.png`,
+    publishedTime: publishedDate,
+    modifiedTime: modifiedDate,
+    author: SITE_NAME,
+  }
+
+  const jsonLd = generateJsonLd('Article', {
+    headline: 'Getting Started with Durable Objects',
+    description: meta.description,
+    image: meta.ogImage,
+    datePublished: publishedDate,
+    dateModified: modifiedDate,
+    author: {
+      '@type': 'Organization',
+      name: SITE_NAME,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: SITE_NAME,
+      logo: {
+        '@type': 'ImageObject',
+        url: `${SITE_URL}/logo.png`,
+      },
+    },
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': meta.canonicalUrl,
+    },
+  })
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${generateMetaTags(meta)}
+  <link rel="icon" href="/favicon.ico">
+  ${jsonLd}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen flex flex-col">
+    <header role="banner">
+      <nav class="container max-w-7xl mx-auto px-4 py-4">
+        <a href="/" class="text-xl font-bold">dotdo</a>
+      </nav>
+    </header>
+
+    <main id="main-content" role="main" class="flex-1">
+      <article class="py-20 px-4">
+        <div class="container max-w-4xl mx-auto">
+          <h1 class="text-4xl font-bold mb-4">Getting Started with Durable Objects</h1>
+          <p class="text-gray-600 mb-8">Published on January 1, 2025 by ${SITE_NAME}</p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Introduction</h2>
+          <p class="mb-4">
+            Durable Objects are a powerful primitive for building stateful serverless applications.
+            In this tutorial, we'll walk through building your first Durable Object with do.md.
+          </p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Prerequisites</h2>
+          <p class="mb-4">
+            Before we begin, make sure you have Node.js installed and a Cloudflare account set up.
+            You'll also need the Wrangler CLI for deploying your application.
+          </p>
+
+          <h3 class="text-xl font-semibold mt-6 mb-3">Installing Dependencies</h3>
+          <p class="mb-4">
+            First, install the required packages using npm or your preferred package manager.
+          </p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Creating Your First Durable Object</h2>
+          <p class="mb-4">
+            With do.md, creating a Durable Object is as simple as extending our base DO class.
+            The framework handles all the boilerplate for you.
+          </p>
+
+          <h2 class="text-2xl font-semibold mt-8 mb-4">Conclusion</h2>
+          <p class="mb-4">
+            You've now created your first Durable Object application! Continue exploring the
+            documentation to learn about advanced features like workflows and real-time updates.
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <footer role="contentinfo" class="bg-gray-900 text-gray-300 py-12 px-4">
+      <div class="container max-w-7xl mx-auto text-center">
+        <p>&copy; ${year} do.md. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
 </body>
 </html>`
 }

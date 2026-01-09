@@ -12,6 +12,7 @@ export * from './files'
 export * from './git'
 export * from './auth'
 export * from './exec'
+export * from './dlq'
 
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
@@ -64,6 +65,7 @@ import {
   linkedAccounts,
 } from './auth'
 import { providers, accountTypes } from './integrations'
+import { dlq } from './dlq'
 
 export const schema = {
   // Core DO tables
@@ -127,4 +129,7 @@ export const schema = {
   // Integrations - Provider registry for integrations.do
   providers,
   accountTypes,
+
+  // Dead Letter Queue - Failed events for retry
+  dlq,
 }

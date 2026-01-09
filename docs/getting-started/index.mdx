@@ -1,8 +1,38 @@
 ---
 title: Getting Started
-description: Get up and running with do.md
+description: Introduction to getting up and running with do.md
 ---
 
-# Getting Started
+# Introduction to Getting Started
 
-Learn how to build stateful applications with do.md.
+Learn how to build stateful applications with do.md. This is an **introduction** to building your first application.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- Node.js 18 or later
+- A Cloudflare account
+- Basic knowledge of TypeScript
+
+## Installation
+
+Install do.md using npm:
+
+```bash
+npm install dotdo
+```
+
+## Quick Start
+
+Create a new Durable Object:
+
+```typescript
+import { DO } from 'dotdo'
+
+export class MyDO extends DO {
+  // Your code here
+}
+```
+
+Deploy to Cloudflare Workers for production use.

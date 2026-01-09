@@ -12,6 +12,17 @@
     "not_found_handling": "single-page-application"
   },
 
+  // Browser Rendering API (headless Chromium)
+  // NOTE: Disabled for local development - requires remote
+  // "browser": {
+  //   "binding": "BROWSER"
+  // },
+
+  // Workers AI
+  "ai": {
+    "binding": "AI"
+  },
+
   // KV namespaces
   "kv_namespaces": [
     {

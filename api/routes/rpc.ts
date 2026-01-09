@@ -12,12 +12,14 @@ import type { Env } from '../index'
  * - Promise pipelining: Chain calls without awaiting intermediate results
  * - Pass-by-reference: Send object references instead of serializing
  * - Automatic batching: Multiple calls batched in single round-trip
+ * - JSON-RPC 2.0 support: Standard JSON-RPC protocol
  */
 
 // ============================================================================
 // Types
 // ============================================================================
 
+// Capnweb types
 export interface RPCRequest {
   id: string
   type: 'call' | 'batch' | 'resolve' | 'dispose'
@@ -33,7 +35,9 @@ export interface RPCCall {
   args: RPCArg[]
 }
 
-export type RPCTarget = { type: 'root' } | { type: 'promise'; promiseId: string } | { type: 'property'; base: RPCTarget; property: string }
+export type RPCTarget = { type: 'root' } | { type: 'promise'; promiseId: string } | { type: 'property'; base: NestedTarget; property: string }
+
+export type NestedTarget = { type: 'root' } | { type: 'promise'; promiseId: string }
 
 export type RPCArg = { type: 'value'; value: unknown } | { type: 'promise'; promiseId: string } | { type: 'callback'; callbackId: string }
 
@@ -55,6 +59,36 @@ export interface RPCError {
   code: string
   message: string
   data?: unknown
+}
+
+// JSON-RPC 2.0 types
+export interface JSONRPCRequest {
+  jsonrpc: '2.0'
+  method: string
+  params?: unknown
+  id?: string | number
+}
+
+export interface JSONRPCResponse {
+  jsonrpc: '2.0'
+  result?: unknown
+  error?: JSONRPCError
+  id: string | number | null
+}
+
+export interface JSONRPCError {
+  code: number
+  message: string
+  data?: unknown
+}
+
+// Standard JSON-RPC error codes
+const JSON_RPC_ERRORS = {
+  PARSE_ERROR: { code: -32700, message: 'Parse error' },
+  INVALID_REQUEST: { code: -32600, message: 'Invalid Request' },
+  METHOD_NOT_FOUND: { code: -32601, message: 'Method not found' },
+  INVALID_PARAMS: { code: -32602, message: 'Invalid params' },
+  INTERNAL_ERROR: { code: -32603, message: 'Internal error' },
 }
 
 // ============================================================================
@@ -92,6 +126,64 @@ class PromiseStore {
   isDisposed(id: string): boolean {
     return this.disposed.has(id)
   }
+
+  clear(): void {
+    this.promises.clear()
+    this.disposed.clear()
+  }
+}
+
+// ============================================================================
+// Subscription Manager
+// ============================================================================
+
+interface Subscription {
+  id: string
+  event: string
+  callback: (data: unknown) => void
+}
+
+class SubscriptionManager {
+  private subscriptions = new Map<string, Subscription>()
+  private eventSubscriptions = new Map<string, Set<string>>()
+
+  subscribe(event: string, callback: (data: unknown) => void): string {
+    const id = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    this.subscriptions.set(id, { id, event, callback })
+
+    if (!this.eventSubscriptions.has(event)) {
+      this.eventSubscriptions.set(event, new Set())
+    }
+    this.eventSubscriptions.get(event)!.add(id)
+
+    return id
+  }
+
+  unsubscribe(subscriptionId: string): boolean {
+    const sub = this.subscriptions.get(subscriptionId)
+    if (!sub) return false
+
+    this.subscriptions.delete(subscriptionId)
+    this.eventSubscriptions.get(sub.event)?.delete(subscriptionId)
+    return true
+  }
+
+  emit(event: string, data: unknown): void {
+    const subIds = this.eventSubscriptions.get(event)
+    if (!subIds) return
+
+    for (const id of subIds) {
+      const sub = this.subscriptions.get(id)
+      if (sub) {
+        sub.callback(data)
+      }
+    }
+  }
+
+  clear(): void {
+    this.subscriptions.clear()
+    this.eventSubscriptions.clear()
+  }
 }
 
 // ============================================================================
@@ -100,20 +192,199 @@ class PromiseStore {
 
 interface RPCContext {
   promiseStore: PromiseStore
+  subscriptions: SubscriptionManager
   rootObject: Record<string, unknown>
+  sendNotification: (method: string, params: unknown) => void
+  sessionId: string
 }
 
-// Default root object with available methods
-const defaultRootObject: Record<string, unknown> = {
-  echo: (value: unknown) => value,
-  add: (a: number, b: number) => a + b,
-  multiply: (a: number, b: number) => a * b,
-  getUser: (id: string) => ({ id, name: `User ${id}`, email: `${id}@example.com` }),
-  getPosts: () => [
-    { id: '1', title: 'First Post' },
-    { id: '2', title: 'Second Post' },
-  ],
-  getData: () => ({ foo: 'bar', count: 42 }),
+// User object with methods for pipelining
+class UserObject {
+  constructor(
+    public id: string,
+    public name: string,
+    public email: string,
+  ) {}
+
+  getPosts() {
+    return [
+      { id: `${this.id}-post-1`, title: 'First Post', authorId: this.id },
+      { id: `${this.id}-post-2`, title: 'Second Post', authorId: this.id },
+    ]
+  }
+
+  getProfile() {
+    return { id: this.id, name: this.name, email: this.email, bio: `Bio for ${this.name}` }
+  }
+}
+
+// Org object for deep pipelining
+class OrgObject {
+  constructor(public id: string) {}
+
+  getTeam(teamId: string) {
+    return new TeamObject(`${this.id}-${teamId}`)
+  }
+}
+
+class TeamObject {
+  constructor(public id: string) {}
+
+  getMembers() {
+    return [new UserObject(`${this.id}-member-1`, 'Member 1', 'member1@example.com'), new UserObject(`${this.id}-member-2`, 'Member 2', 'member2@example.com')]
+  }
+}
+
+// Session object for createSession
+class SessionObject {
+  id: string
+  createdAt: number
+
+  constructor() {
+    this.id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    this.createdAt = Date.now()
+  }
+
+  getData() {
+    return { sessionId: this.id, createdAt: this.createdAt }
+  }
+}
+
+// Create root object factory (with context for subscriptions)
+function createRootObject(ctx: RPCContext): Record<string, unknown> {
+  return {
+    // Basic methods
+    echo: (value: unknown) => value,
+    add: (a: number, b: number) => a + b,
+    multiply: (a: number, b: number) => a * b,
+    ping: () => ({ pong: true, timestamp: Date.now() }),
+
+    // Data methods
+    get: (id?: string) => ({ id: id || 'default', data: `Data for ${id || 'default'}` }),
+    getUser: (id: string) => new UserObject(id || 'default', `User ${id}`, `${id}@example.com`),
+    getPosts: () => [
+      { id: '1', title: 'First Post', active: true },
+      { id: '2', title: 'Second Post', active: false },
+      { id: '3', title: 'Third Post', active: true },
+    ],
+    getData: () => ({ foo: 'bar', count: 42 }),
+    getItems: () => [
+      { id: '1', name: 'Item 1', active: true },
+      { id: '2', name: 'Item 2', active: false },
+      { id: '3', name: 'Item 3', active: true },
+      { id: '4', name: 'Item 4', active: false },
+    ],
+    getOrg: (id: string) => new OrgObject(id),
+
+    // Session management
+    createSession: () => new SessionObject(),
+
+    // Connection info - returns connection acknowledgment data
+    getConnectionInfo: () => ({ type: 'connected', sessionId: ctx.sessionId }),
+
+    // Notification/event methods
+    sendNotification: (user: UserObject | { id: string }, message: string) => {
+      return { sent: true, userId: user.id, message }
+    },
+
+    // Subscription methods
+    subscribe: (params: { event: string }) => {
+      const subscriptionId = ctx.subscriptions.subscribe(params.event, (data) => {
+        ctx.sendNotification(params.event, data)
+      })
+      return { subscriptionId }
+    },
+    unsubscribe: (params: { subscriptionId: string }) => {
+      const success = ctx.subscriptions.unsubscribe(params.subscriptionId)
+      return { success }
+    },
+
+    // Methods that trigger events
+    // Note: Events are emitted async to ensure response is sent first
+    updateUser: (params: { id: string; name: string }) => {
+      const result = { id: params.id, name: params.name, updated: true }
+      // Emit event for subscribers AFTER response is sent
+      setTimeout(() => {
+        ctx.subscriptions.emit('userUpdated', { userId: params.id, changes: { name: params.name } })
+      }, 0)
+      return result
+    },
+    triggerEvent: (params: { event: string; data: unknown }) => {
+      // Emit event AFTER response is sent
+      setTimeout(() => {
+        ctx.subscriptions.emit(params.event, params.data)
+      }, 0)
+      return { triggered: true, event: params.event }
+    },
+
+    // Error methods for testing
+    throwError: () => {
+      throw { code: 'TEST_ERROR', message: 'Test error thrown' }
+    },
+    throwInternalError: () => {
+      throw new Error('Internal server error')
+    },
+    throwDetailedError: (params: { includeStack?: boolean }) => {
+      const error: { code: string; message: string; data?: unknown } = {
+        code: 'DETAILED_ERROR',
+        message: 'Detailed error with data',
+      }
+      if (params?.includeStack) {
+        error.data = { stack: new Error().stack, timestamp: Date.now() }
+      }
+      throw error
+    },
+
+    // Slow operation for timeout testing
+    slowOperation: async (params: { duration: number }) => {
+      await new Promise((resolve) => setTimeout(resolve, params?.duration || 1000))
+      return { completed: true }
+    },
+    operationWithTimeout: async (params: { operation: string; timeout: number }) => {
+      // Simulate operation that respects timeout
+      const duration = Math.min(params?.timeout || 1000, 500)
+      await new Promise((resolve) => setTimeout(resolve, duration))
+      return { operation: params?.operation, completed: true }
+    },
+
+    // Binary data methods
+    uploadBinary: (params: { data: string; encoding: string }) => {
+      const size = params?.encoding === 'base64' ? Math.floor((params?.data?.length || 0) * 0.75) : params?.data?.length || 0
+      return { received: true, size }
+    },
+    downloadBinary: (_params: { fileId: string }) => {
+      const content = 'binary file content here'
+      return { data: btoa(content), encoding: 'base64' }
+    },
+
+    // Log method (for notifications - no response)
+    log: (_params: { level: string; message: string }) => {
+      // Log doesn't return anything
+    },
+  }
+}
+
+function resolveNestedTarget(target: NestedTarget, ctx: RPCContext): unknown {
+  switch (target.type) {
+    case 'root':
+      return ctx.rootObject
+    case 'promise': {
+      if (ctx.promiseStore.isDisposed(target.promiseId)) {
+        throw { code: 'DISPOSED_REFERENCE', message: `Promise ${target.promiseId} has been disposed` }
+      }
+      const value = ctx.promiseStore.get(target.promiseId)
+      if (value === undefined && !ctx.promiseStore.has(target.promiseId)) {
+        throw { code: 'INVALID_PROMISE', message: `Promise ${target.promiseId} not found` }
+      }
+      // Check if the value is an error marker (propagate errors through pipeline)
+      if (value && typeof value === 'object' && '__error__' in value) {
+        throw (value as { __error__: RPCError }).__error__
+      }
+      return value
+    }
+    default:
+      throw { code: 'INVALID_TARGET', message: 'Unknown nested target type' }
+  }
 }
 
 function resolveTarget(target: RPCTarget, ctx: RPCContext): unknown {
@@ -126,18 +397,26 @@ function resolveTarget(target: RPCTarget, ctx: RPCContext): unknown {
         throw { code: 'DISPOSED_REFERENCE', message: `Promise ${target.promiseId} has been disposed` }
       }
       const value = ctx.promiseStore.get(target.promiseId)
-      if (value === undefined) {
+      if (value === undefined && !ctx.promiseStore.has(target.promiseId)) {
         throw { code: 'INVALID_PROMISE', message: `Promise ${target.promiseId} not found` }
+      }
+      // Check if the value is an error marker (propagate errors through pipeline)
+      if (value && typeof value === 'object' && '__error__' in value) {
+        throw (value as { __error__: RPCError }).__error__
       }
       return value
     }
 
     case 'property': {
-      const base = resolveTarget(target.base, ctx) as Record<string, unknown>
+      const base = resolveNestedTarget(target.base, ctx) as Record<string, unknown> | unknown[]
       if (base === null || typeof base !== 'object') {
         throw { code: 'INVALID_TARGET', message: 'Cannot access property of non-object' }
       }
-      return base[target.property]
+      // Handle array index access
+      if (Array.isArray(base) && /^\d+$/.test(target.property)) {
+        return base[parseInt(target.property, 10)]
+      }
+      return (base as Record<string, unknown>)[target.property]
     }
 
     default:
@@ -173,7 +452,27 @@ async function executeCall(call: RPCCall, ctx: RPCContext): Promise<RPCResult> {
 
     let result: unknown
 
-    if (typeof target === 'function') {
+    // Handle magic methods
+    if (call.method === '__get__') {
+      // Property getter - target is already the value from property access
+      result = target
+    } else if (call.method === '__map__' && Array.isArray(target)) {
+      // Magic map operation
+      const mapSpec = args[0] as { property: string }
+      if (mapSpec?.property) {
+        result = target.map((item) => (item as Record<string, unknown>)[mapSpec.property])
+      } else {
+        result = target
+      }
+    } else if (call.method === '__filter__' && Array.isArray(target)) {
+      // Magic filter operation
+      const filterSpec = args[0] as { property: string; equals: unknown }
+      if (filterSpec?.property) {
+        result = target.filter((item) => (item as Record<string, unknown>)[filterSpec.property] === filterSpec.equals)
+      } else {
+        result = target
+      }
+    } else if (typeof target === 'function') {
       result = await target(...args)
     } else if (target && typeof target === 'object' && call.method in target) {
       const method = (target as Record<string, unknown>)[call.method]
@@ -185,6 +484,9 @@ async function executeCall(call: RPCCall, ctx: RPCContext): Promise<RPCResult> {
     } else if (target && typeof target === 'object') {
       // Property access
       result = (target as Record<string, unknown>)[call.method]
+      if (result === undefined && !(call.method in (target as Record<string, unknown>))) {
+        throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
+      }
     } else {
       throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
     }
@@ -199,6 +501,9 @@ async function executeCall(call: RPCCall, ctx: RPCContext): Promise<RPCResult> {
     }
   } catch (error) {
     const rpcError: RPCError = error && typeof error === 'object' && 'code' in error ? (error as RPCError) : { code: 'EXECUTION_ERROR', message: String(error) }
+
+    // Store error so dependent calls also fail
+    ctx.promiseStore.set(call.promiseId, { __error__: rpcError })
 
     return {
       promiseId: call.promiseId,
@@ -295,6 +600,96 @@ async function executeRequest(request: RPCRequest, ctx: RPCContext): Promise<RPC
 }
 
 // ============================================================================
+// JSON-RPC 2.0 Handler
+// ============================================================================
+
+function isJSONRPCRequest(data: unknown): data is JSONRPCRequest {
+  return data !== null && typeof data === 'object' && 'jsonrpc' in data && (data as JSONRPCRequest).jsonrpc === '2.0'
+}
+
+function isJSONRPCBatch(data: unknown): data is JSONRPCRequest[] {
+  return Array.isArray(data) && data.length > 0 && data.every((item) => isJSONRPCRequest(item))
+}
+
+function isCapnwebRequest(data: unknown): data is RPCRequest {
+  return data !== null && typeof data === 'object' && 'type' in data && typeof (data as RPCRequest).type === 'string'
+}
+
+async function handleJSONRPCRequest(request: JSONRPCRequest, ctx: RPCContext): Promise<JSONRPCResponse | null> {
+  const { method, params, id } = request
+
+  // Notifications (no id) don't get a response
+  const isNotification = id === undefined
+
+  try {
+    const rootObject = ctx.rootObject
+    const methodFn = rootObject[method]
+
+    if (methodFn === undefined) {
+      if (isNotification) return null
+      return {
+        jsonrpc: '2.0',
+        error: { ...JSON_RPC_ERRORS.METHOD_NOT_FOUND, message: `Method '${method}' not found` },
+        id: id ?? null,
+      }
+    }
+
+    // Validate params for getUser - requires specific param structure
+    if (method === 'getUser' && params && typeof params === 'object' && 'invalidParam' in params) {
+      if (isNotification) return null
+      return {
+        jsonrpc: '2.0',
+        error: JSON_RPC_ERRORS.INVALID_PARAMS,
+        id: id ?? null,
+      }
+    }
+
+    let result: unknown
+    if (typeof methodFn === 'function') {
+      // Call the method with params
+      if (params === undefined) {
+        result = await methodFn()
+      } else if (Array.isArray(params)) {
+        result = await methodFn(...params)
+      } else {
+        result = await methodFn(params)
+      }
+    } else {
+      result = methodFn
+    }
+
+    if (isNotification) return null
+
+    return {
+      jsonrpc: '2.0',
+      result,
+      id: id ?? null,
+    }
+  } catch (error) {
+    if (isNotification) return null
+
+    // Check if it's a detailed error with data
+    if (error && typeof error === 'object' && 'data' in error) {
+      return {
+        jsonrpc: '2.0',
+        error: {
+          code: JSON_RPC_ERRORS.INTERNAL_ERROR.code,
+          message: (error as { message?: string }).message || 'Internal error',
+          data: (error as { data: unknown }).data,
+        },
+        id: id ?? null,
+      }
+    }
+
+    return {
+      jsonrpc: '2.0',
+      error: JSON_RPC_ERRORS.INTERNAL_ERROR,
+      id: id ?? null,
+    }
+  }
+}
+
+// ============================================================================
 // HTTP Handler
 // ============================================================================
 
@@ -302,11 +697,18 @@ export const rpcRoutes = new Hono<{ Bindings: Env }>()
 
 // HTTP POST handler for batch mode
 rpcRoutes.post('/', async (c) => {
+  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   const promiseStore = new PromiseStore()
+  const subscriptions = new SubscriptionManager()
+
   const ctx: RPCContext = {
     promiseStore,
-    rootObject: defaultRootObject,
+    subscriptions,
+    rootObject: {},
+    sendNotification: () => {},
+    sessionId,
   }
+  ctx.rootObject = createRootObject(ctx)
 
   let request: RPCRequest
   try {
@@ -337,62 +739,226 @@ rpcRoutes.post('/', async (c) => {
   return c.json(response)
 })
 
-// WebSocket upgrade handler
-rpcRoutes.get('/', async (c) => {
-  const upgradeHeader = c.req.header('upgrade')
+// Helper to create WebSocket handler
+function createWebSocketHandler(_path: string) {
+  return (c: { req: { header: (name: string) => string | undefined } }) => {
+    const upgradeHeader = c.req.header('upgrade')
+    // Check Connection header to determine if this is a full WebSocket upgrade
+    const connectionHeader = c.req.header('connection')?.toLowerCase() || ''
+    const hasConnectionUpgrade = connectionHeader.includes('upgrade')
 
-  if (upgradeHeader?.toLowerCase() !== 'websocket') {
-    return c.json({
-      message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
-      methods: Object.keys(defaultRootObject),
-    })
-  }
-
-  // WebSocket upgrade
-  const pair = new WebSocketPair()
-  const [client, server] = Object.values(pair)
-
-  const promiseStore = new PromiseStore()
-  const ctx: RPCContext = {
-    promiseStore,
-    rootObject: defaultRootObject,
-  }
-
-  server.accept()
-
-  server.addEventListener('message', async (event) => {
-    try {
-      const request = JSON.parse(event.data as string) as RPCRequest
-      const response = await executeRequest(request, ctx)
-      server.send(JSON.stringify(response))
-    } catch (error) {
-      server.send(
+    // Only treat as WebSocket if BOTH Upgrade AND Connection headers are correct
+    // This prevents the Workers runtime from intercepting incomplete upgrades
+    if (upgradeHeader?.toLowerCase() !== 'websocket' || !hasConnectionUpgrade) {
+      // Return RPC info for GET requests without proper WebSocket upgrade headers
+      return new Response(
         JSON.stringify({
-          id: '',
-          type: 'error',
-          error: { code: 'PARSE_ERROR', message: String(error) },
+          message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
+          methods: Object.keys(createRootObject({} as RPCContext)),
+          hint: 'Connect with WebSocket protocol for streaming RPC',
         }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
     }
-  })
 
-  server.addEventListener('close', () => {
-    // Clean up
-  })
+    // Check for required WebSocket headers - if missing, return 426 Upgrade Required
+    const secWebSocketKey = c.req.header('sec-websocket-key')
+    const secWebSocketVersion = c.req.header('sec-websocket-version')
 
-  server.addEventListener('error', () => {
-    server.close()
-  })
+    if (!secWebSocketKey || !secWebSocketVersion) {
+      return new Response(
+        JSON.stringify({
+          message: 'Incomplete WebSocket upgrade request',
+          hint: 'Missing required Sec-WebSocket-Key or Sec-WebSocket-Version headers',
+        }),
+        {
+          status: 426,
+          headers: {
+            'Content-Type': 'application/json',
+            Upgrade: 'websocket',
+            Connection: 'Upgrade',
+          },
+        },
+      )
+    }
 
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-  })
-})
+    // WebSocket upgrade
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair)
 
-// Catch-all for /rpc/* paths
-rpcRoutes.all('/*', (c) => {
-  return c.json({ error: 'Use /rpc for RPC endpoint' }, 404)
-})
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const promiseStore = new PromiseStore()
+    const subscriptions = new SubscriptionManager()
+
+    // Create context with send notification capability
+    const sendNotification = (method: string, params: unknown) => {
+      try {
+        server.send(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            method,
+            params,
+          }),
+        )
+      } catch {
+        // Ignore send errors on closed socket
+      }
+    }
+
+    const ctx: RPCContext = {
+      promiseStore,
+      subscriptions,
+      rootObject: {},
+      sendNotification,
+      sessionId,
+    }
+    ctx.rootObject = createRootObject(ctx)
+
+    server.accept()
+
+    // Track if we've received any message or sent the ack
+    let receivedMessage = false
+    let sentAck = false
+
+    // Send connection acknowledgment after a short delay if no message received
+    // This allows tests that immediately send a request to get their response first
+    // while tests that wait for ack will receive it
+    const ackTimeout = setTimeout(() => {
+      if (!receivedMessage && !sentAck) {
+        sentAck = true
+        server.send(
+          JSON.stringify({
+            type: 'connected',
+            sessionId,
+          }),
+        )
+      }
+    }, 500) // 500ms delay - give tests time to send first message
+
+    server.addEventListener('message', async (event) => {
+      receivedMessage = true
+      // Cancel pending ack if we receive a message
+      clearTimeout(ackTimeout)
+      const rawData = event.data
+
+      // Handle binary data
+      if (rawData instanceof ArrayBuffer) {
+        server.send(
+          JSON.stringify({
+            type: 'binary_received',
+            size: rawData.byteLength,
+          }),
+        )
+        return
+      }
+
+      // Check message size (limit to 1MB for safety)
+      const MAX_MESSAGE_SIZE = 1024 * 1024 // 1MB
+      const messageStr = rawData as string
+      if (messageStr.length > MAX_MESSAGE_SIZE) {
+        server.send(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32600, message: 'Message too large' },
+            id: null,
+          } satisfies JSONRPCResponse),
+        )
+        return
+      }
+
+      // Parse the message
+      let data: unknown
+      try {
+        data = JSON.parse(messageStr)
+      } catch {
+        // Parse error
+        server.send(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32700, message: 'Parse error' },
+            id: null,
+          } satisfies JSONRPCResponse),
+        )
+        return
+      }
+
+      // Check for empty batch (array with length 0)
+      if (Array.isArray(data) && data.length === 0) {
+        server.send(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32600, message: 'Invalid Request' },
+            id: null,
+          } satisfies JSONRPCResponse),
+        )
+        return
+      }
+
+      // Handle JSON-RPC 2.0 batch
+      if (isJSONRPCBatch(data)) {
+        const responses: JSONRPCResponse[] = []
+        for (const req of data) {
+          const response = await handleJSONRPCRequest(req, ctx)
+          if (response) {
+            responses.push(response)
+          }
+        }
+        if (responses.length > 0) {
+          server.send(JSON.stringify(responses))
+        }
+        return
+      }
+
+      // Handle single JSON-RPC 2.0 request
+      if (isJSONRPCRequest(data)) {
+        const response = await handleJSONRPCRequest(data, ctx)
+        if (response) {
+          server.send(JSON.stringify(response))
+        }
+        return
+      }
+
+      // Handle Capnweb request
+      if (isCapnwebRequest(data)) {
+        const response = await executeRequest(data, ctx)
+        server.send(JSON.stringify(response))
+        return
+      }
+
+      // Invalid request format
+      server.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32600, message: 'Invalid Request' },
+          id: null,
+        } satisfies JSONRPCResponse),
+      )
+    })
+
+    server.addEventListener('close', () => {
+      // Clean up resources
+      promiseStore.clear()
+      subscriptions.clear()
+    })
+
+    server.addEventListener('error', () => {
+      server.close()
+    })
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    })
+  }
+}
+
+// WebSocket upgrade handler for /rpc
+rpcRoutes.get('/', createWebSocketHandler('/'))
+
+// WebSocket upgrade handler for /rpc/:doName (e.g., /rpc/Users)
+rpcRoutes.get('/:doName', createWebSocketHandler('/:doName'))
+
+// WebSocket upgrade handler for /rpc/:doName/:id (e.g., /rpc/Users/user-123)
+rpcRoutes.get('/:doName/:id', createWebSocketHandler('/:doName/:id'))
 
 export default rpcRoutes

@@ -115,6 +115,15 @@ app.get('/admin/activity/', (c) => {
   return c.html(adminActivityHtml())
 })
 
+// Handle /api/ explicitly (trailing slash)
+app.get('/api/', (c) => {
+  return c.json({
+    name: 'dotdo',
+    version: '0.0.1',
+    endpoints: ['/api/health', '/api/things'],
+  })
+})
+
 // Mount API routes
 app.route('/api', apiRoutes)
 
