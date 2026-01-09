@@ -27,3 +27,13 @@ export {
   type DBQuery,
   type FetchCall,
 } from './createTestContext'
+
+export {
+  WorkflowTestHarness,
+  type WorkflowTestHarnessOptions,
+  type StepCall,
+  type EmittedEvent,
+  type LogEntry,
+  type WorkflowRunResult,
+  type QueuedEvent,
+} from './WorkflowTestHarness'

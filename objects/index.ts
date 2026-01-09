@@ -102,3 +102,45 @@ export {
   type WebhookConfig,
   type RateLimitConfig,
 } from './IntegrationsDO'
+
+// Workflow Runtime
+export {
+  WorkflowRuntime,
+  type WorkflowRuntimeConfig,
+  type WorkflowRuntimeOptions,
+  type WorkflowStepConfig,
+  type StepExecutionResult,
+  type WorkflowExecutionResult,
+  type WorkflowMetrics,
+  type StepContext,
+  type WorkflowRuntimeState,
+  WorkflowStateError,
+  WorkflowStepError,
+  WorkflowTimeoutError,
+} from './WorkflowRuntime'
+
+// Step DO Bridge
+export {
+  StepDOBridge,
+  type DOStub,
+  type DONamespaceBinding,
+  type DomainProxy,
+  type MethodProxy,
+  DOCallError,
+} from './StepDOBridge'
+
+// Schedule Manager
+export {
+  ScheduleManager,
+  type Schedule,
+  type ScheduleOptions,
+  type ScheduleUpdateOptions,
+  type ScheduleListOptions,
+  type CronExpression,
+  type NextRunTimeOptions,
+  parseCronExpression,
+  getNextRunTime,
+  ScheduleValidationError,
+  ScheduleNotFoundError,
+  InvalidCronExpressionError,
+} from './ScheduleManager'
