@@ -114,7 +114,7 @@ export default defineWorkspace([
   createNodeWorkspace('testing', ['testing/tests/**/*.test.ts']),
 
   // ACID test suite (Phase 1-6 tests for consistency/durability)
-  createNodeWorkspace('acid', ['testing/acid/**/*.test.ts']),
+  createNodeWorkspace('acid', ['testing/acid/**/*.test.ts', 'tests/acid/**/*.test.ts']),
 
   // Test mocks infrastructure
   createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
@@ -125,6 +125,9 @@ export default defineWorkspace([
   // Rate limit binding tests
   createNodeWorkspace('rate-limit', ['tests/rate-limit/**/*.test.ts']),
 
+  // Database migrations tests
+  createNodeWorkspace('migrations', ['tests/migrations/**/*.test.ts']),
+
   // Vault credential storage tests
   createNodeWorkspace('vault', ['tests/vault/**/*.test.ts']),
 
@@ -133,6 +136,9 @@ export default defineWorkspace([
 
   // Usage/analytics tests
   createNodeWorkspace('usage', ['tests/usage/**/*.test.ts']),
+
+  // Cache tests (visibility cache, etc.)
+  createNodeWorkspace('cache', ['tests/cache/**/*.test.ts']),
 
   // Visibility tests (with chdb mock)
   {

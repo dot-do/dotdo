@@ -49,12 +49,24 @@ export const things = sqliteTable(
     visibility: text('visibility').$type<Visibility>().default('user'),
   },
   (table) => [
+    // Primary lookup indexes
     index('things_id_idx').on(table.id),
     index('things_type_idx').on(table.type),
     index('things_branch_idx').on(table.branch),
     index('things_id_branch_idx').on(table.id, table.branch),
+
+    // Visibility indexes - optimized for partition pruning strategy (ns, type, visibility)
+    // See: streams/partitions.md for partition strategy documentation
     index('things_visibility_idx').on(table.visibility),
+
+    // Composite: visibility + type for listing public/org resources by type
+    // Supports: "List all public Functions", "List all org Schemas"
     index('things_visibility_type_idx').on(table.visibility, table.type),
+
+    // Composite: type + visibility for type-first queries with visibility filter
+    // Supports: "List Functions where visibility = public"
+    // Matches Iceberg partition order (after ns): type before visibility
+    index('things_type_visibility_idx').on(table.type, table.visibility),
   ],
 )
 

@@ -36,10 +36,39 @@ import {
 } from '../sandbox'
 
 // ============================================================================
-// Types
+// New Session Lifecycle Types
 // ============================================================================
 
-interface SandboxState {
+export type SessionStatus = 'idle' | 'running' | 'stopped' | 'error'
+
+export interface ExtendedSandboxConfig extends SandboxConfig {
+  /** Timeout in milliseconds before session auto-destroys */
+  timeoutMs?: number
+}
+
+export interface SessionState {
+  status: SessionStatus
+  sandboxId: string
+  config: ExtendedSandboxConfig
+  createdAt: Date
+  lastActivityAt: Date
+  error?: string
+}
+
+export interface CreateSessionOptions {
+  sandboxId: string
+  config?: ExtendedSandboxConfig
+}
+
+export interface SandboxEnv extends Env {
+  Sandbox?: DurableObjectNamespace
+}
+
+// ============================================================================
+// Legacy Types (backward compatibility)
+// ============================================================================
+
+interface LegacySandboxState {
   status: 'idle' | 'running' | 'stopped'
   exposedPorts: ExposedPort[]
   createdAt: string
@@ -127,22 +156,268 @@ class RingBuffer {
 // SandboxDO Class
 // ============================================================================
 
-export class SandboxDO extends DO {
-  static readonly $type = 'SandboxDO'
+export class SandboxDO extends DO<SandboxEnv> {
+  static readonly $type = 'Sandbox'
 
   private sandbox: DotdoSandbox | null = null
-  private sessionId: string | null = null
-  private createdAt: string | null = null
-  private sessionStatus: 'idle' | 'running' | 'stopped' = 'idle'
+  private legacySessionId: string | null = null
+  private legacyCreatedAt: string | null = null
+  private legacySessionStatus: 'idle' | 'running' | 'stopped' = 'idle'
+
+  // New session state for lifecycle API
+  private session: SessionState | null = null
 
   // Terminal WebSocket state
   private terminalSessions: Map<string, TerminalSession> = new Map()
 
   protected app: Hono
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: SandboxEnv) {
     super(ctx, env)
     this.app = this.createRoutes()
+    // Load persisted session on construction
+    this.loadSession()
+  }
+
+  // --------------------------------------------------------------------------
+  // New Session Lifecycle API (TDD)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Create a new sandbox session
+   */
+  async create(options: CreateSessionOptions): Promise<SessionState> {
+    // Check if Sandbox namespace is configured
+    if (!this.env.Sandbox) {
+      throw new Error('Sandbox namespace not configured')
+    }
+
+    // Check if session already exists
+    if (this.session && this.session.status !== 'stopped') {
+      throw new Error('Session already exists')
+    }
+
+    const { sandboxId, config = {} } = options
+    const now = new Date()
+
+    // Create the underlying sandbox
+    this.sandbox = getSandbox(
+      this.env.Sandbox as unknown as DurableObjectNamespace,
+      sandboxId,
+      'sandbox.do',
+      {
+        sleepAfter: config.sleepAfter ?? '10m',
+        keepAlive: config.keepAlive ?? false,
+        normalizeId: config.normalizeId ?? true,
+      }
+    )
+
+    // Create session state
+    this.session = {
+      status: 'running',
+      sandboxId,
+      config,
+      createdAt: now,
+      lastActivityAt: now,
+    }
+
+    // Update legacy fields for backward compatibility
+    this.legacySessionId = sandboxId
+    this.legacyCreatedAt = now.toISOString()
+    this.legacySessionStatus = 'running'
+
+    // Persist to storage
+    await this.persistSession()
+
+    // Schedule timeout alarm if configured
+    if (config.timeoutMs) {
+      await this.scheduleTimeout(config.timeoutMs)
+    }
+
+    // Emit lifecycle event
+    await this.emitEvent('sandbox.created', {
+      sandboxId,
+      config,
+    })
+
+    return this.session
+  }
+
+  /**
+   * Destroy the sandbox session
+   */
+  async destroy(): Promise<void> {
+    if (!this.session || !this.sandbox) {
+      throw new Error('No active session')
+    }
+
+    const { sandboxId } = this.session
+
+    // Destroy the underlying sandbox
+    await this.sandbox.destroy()
+
+    // Update session status
+    this.session.status = 'stopped'
+
+    // Emit lifecycle event
+    await this.emitEvent('sandbox.destroyed', { sandboxId })
+
+    // Clear session from storage
+    await this.ctx.storage.delete('session')
+
+    // Cancel any scheduled alarms
+    await this.ctx.storage.deleteAlarm()
+
+    // Clear in-memory state
+    this.session = null
+    this.sandbox = null
+    this.legacySessionId = null
+    this.legacySessionStatus = 'stopped'
+  }
+
+  /**
+   * Get the current session state
+   */
+  async getState(): Promise<SessionState | null> {
+    // Try to load from storage if not in memory
+    if (!this.session) {
+      await this.loadSession()
+    }
+    return this.session
+  }
+
+  /**
+   * Execute a command in the sandbox
+   */
+  async exec(command: string): Promise<ExecResult> {
+    if (!this.session || !this.sandbox) {
+      throw new Error('No active session')
+    }
+
+    try {
+      // Execute the command
+      const result = await this.sandbox.exec(command)
+
+      // Update activity timestamp
+      await this.updateActivity()
+
+      return result
+    } catch (error) {
+      // Update session to error state
+      this.session.status = 'error'
+      this.session.error = error instanceof Error ? error.message : 'Unknown error'
+      await this.persistSession()
+
+      // Emit error event
+      await this.emitEvent('sandbox.error', {
+        sandboxId: this.session.sandboxId,
+        error: this.session.error,
+      })
+
+      throw error
+    }
+  }
+
+  /**
+   * Handle DO alarm - checks for session timeout
+   */
+  async alarm(): Promise<void> {
+    // Call parent alarm handler first
+    await super.alarm()
+
+    if (!this.session) {
+      return
+    }
+
+    const config = this.session.config
+    const timeoutMs = config.timeoutMs
+
+    if (!timeoutMs) {
+      return
+    }
+
+    // Check if session has timed out
+    const now = Date.now()
+    const lastActivity = new Date(this.session.lastActivityAt).getTime()
+    const elapsed = now - lastActivity
+
+    if (elapsed >= timeoutMs) {
+      // Session has timed out - emit event and destroy
+      await this.emitEvent('sandbox.timeout', {
+        sandboxId: this.session.sandboxId,
+        elapsed,
+        timeoutMs,
+      })
+
+      await this.destroy()
+    } else {
+      // Reschedule alarm for remaining time
+      const remaining = timeoutMs - elapsed
+      await this.scheduleTimeout(remaining)
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Private Session Helpers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Load session state from storage
+   */
+  private async loadSession(): Promise<void> {
+    const stored = await this.ctx.storage.get<SessionState>('session')
+    if (stored) {
+      this.session = stored
+
+      // Update legacy fields for backward compatibility
+      this.legacySessionId = stored.sandboxId
+      this.legacyCreatedAt = new Date(stored.createdAt).toISOString()
+      this.legacySessionStatus = stored.status === 'error' ? 'stopped' : stored.status
+
+      // Recreate sandbox instance if session is running
+      if (stored.status === 'running' && this.env.Sandbox) {
+        this.sandbox = getSandbox(
+          this.env.Sandbox as unknown as DurableObjectNamespace,
+          stored.sandboxId,
+          'sandbox.do',
+          stored.config
+        )
+      }
+    }
+  }
+
+  /**
+   * Persist session state to storage
+   */
+  private async persistSession(): Promise<void> {
+    if (this.session) {
+      await this.ctx.storage.put('session', this.session)
+    }
+  }
+
+  /**
+   * Update last activity timestamp and reschedule timeout
+   */
+  private async updateActivity(): Promise<void> {
+    if (!this.session) {
+      return
+    }
+
+    this.session.lastActivityAt = new Date()
+    await this.persistSession()
+
+    // Reschedule timeout if configured
+    if (this.session.config.timeoutMs) {
+      await this.scheduleTimeout(this.session.config.timeoutMs)
+    }
+  }
+
+  /**
+   * Schedule a timeout alarm
+   */
+  private async scheduleTimeout(ms: number): Promise<void> {
+    const scheduledTime = Date.now() + ms
+    await this.ctx.storage.setAlarm(scheduledTime)
   }
 
   // --------------------------------------------------------------------------
@@ -184,59 +459,117 @@ export class SandboxDO extends DO {
       await next()
     })
 
-    // POST /create - Create sandbox session
+    // GET /health - Health check
+    app.get('/health', (c) => {
+      return c.json({ status: 'ok', ns: this.ns, type: this.$type })
+    })
+
+    // --------------------------------------------------------------------------
+    // New Session Lifecycle Routes
+    // --------------------------------------------------------------------------
+
+    // POST /session - Create sandbox session (new API)
+    app.post('/session', async (c) => {
+      try {
+        const body = c.get('body') as CreateSessionOptions || {}
+        // Use provided sandboxId or generate one
+        const options: CreateSessionOptions = {
+          sandboxId: body.sandboxId || crypto.randomUUID(),
+          config: body.config,
+        }
+        const result = await this.create(options)
+        return c.json(result, 201)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create session'
+        return c.json({ error: message }, 400)
+      }
+    })
+
+    // DELETE /session - Destroy sandbox session (new API)
+    app.delete('/session', async (c) => {
+      try {
+        await this.destroy()
+        return c.json({ success: true })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to destroy session'
+        return c.json({ error: message }, 400)
+      }
+    })
+
+    // GET /session/state - Get session state (new API)
+    app.get('/session/state', async (c) => {
+      const state = await this.getState()
+      if (!state) {
+        return c.json({ error: 'No active session' }, 404)
+      }
+      return c.json(state)
+    })
+
+    // --------------------------------------------------------------------------
+    // Legacy Routes (backward compatibility)
+    // --------------------------------------------------------------------------
+
+    // POST /create - Create sandbox session (legacy)
     app.post('/create', async (c) => {
       if (this.sandbox !== null) {
         return c.json({ error: 'Session already exists' }, 409)
       }
 
       const body = c.get('body') as CreateRequest || {}
-      const config: SandboxConfig = {
+      const config: ExtendedSandboxConfig = {
         sleepAfter: body.sleepAfter,
         keepAlive: body.keepAlive,
       }
 
       try {
-        this.sessionId = crypto.randomUUID()
+        const sandboxId = crypto.randomUUID()
         const hostname = new URL(c.req.url).hostname
 
         this.sandbox = getSandbox(
-          this.env.Sandbox as any,
-          this.sessionId,
+          this.env.Sandbox as unknown as DurableObjectNamespace,
+          sandboxId,
           hostname,
           config
         )
 
-        this.createdAt = new Date().toISOString()
-        this.sessionStatus = 'running'
+        this.legacySessionId = sandboxId
+        this.legacyCreatedAt = new Date().toISOString()
+        this.legacySessionStatus = 'running'
+
+        // Also create new session state
+        this.session = {
+          status: 'running',
+          sandboxId,
+          config,
+          createdAt: new Date(),
+          lastActivityAt: new Date(),
+        }
+        await this.persistSession()
 
         return c.json({
-          sessionId: this.sessionId,
+          sessionId: sandboxId,
           status: 'created',
         })
       } catch (err) {
         this.sandbox = null
-        this.sessionId = null
+        this.legacySessionId = null
         throw err
       }
     })
 
-    // POST /exec - Execute command
+    // POST /exec - Execute command (uses new API internally)
     app.post('/exec', async (c) => {
-      if (!this.sandbox) {
-        return c.json({ error: 'No active session' }, 400)
-      }
-
       const body = c.get('body') as ExecRequest || {}
       if (!body.command) {
         return c.json({ error: 'Missing required field: command' }, 400)
       }
 
       try {
-        const result = await this.sandbox.exec(body.command)
+        const result = await this.exec(body.command)
         return c.json(result)
       } catch (err) {
-        throw err
+        const message = err instanceof Error ? err.message : 'Execution failed'
+        return c.json({ error: message }, 400)
       }
     })
 
@@ -366,15 +699,15 @@ export class SandboxDO extends DO {
       }
     })
 
-    // GET /state - Get session state
+    // GET /state - Get session state (legacy)
     app.get('/state', async (c) => {
-      const state: SandboxState = {
-        status: this.sessionStatus,
+      const state: LegacySandboxState = {
+        status: this.legacySessionStatus,
         exposedPorts: [],
-        createdAt: this.createdAt || '',
+        createdAt: this.legacyCreatedAt || '',
       }
 
-      if (this.sandbox && this.sessionStatus === 'running') {
+      if (this.sandbox && this.legacySessionStatus === 'running') {
         try {
           state.exposedPorts = await this.sandbox.getExposedPorts()
         } catch {
@@ -385,7 +718,7 @@ export class SandboxDO extends DO {
       return c.json(state)
     })
 
-    // POST /destroy - Destroy sandbox
+    // POST /destroy - Destroy sandbox (legacy)
     app.post('/destroy', async (c) => {
       if (!this.sandbox) {
         return c.json({ error: 'No active session' }, 400)
@@ -394,8 +727,10 @@ export class SandboxDO extends DO {
       try {
         await this.sandbox.destroy()
         this.sandbox = null
-        this.sessionId = null
-        this.sessionStatus = 'stopped'
+        this.legacySessionId = null
+        this.legacySessionStatus = 'stopped'
+        this.session = null
+        await this.ctx.storage.delete('session')
         return c.json({ success: true })
       } catch (err) {
         throw err

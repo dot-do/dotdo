@@ -8,8 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DO } from '../../../objects/DO'
 import { withFs } from '../fs'
-import { withBash, type BashExecutor, type BashModuleOptions, BashModule } from '../bash'
-import type { BashResult, BashCapability } from '../bash'
+import { withBash, BashModule } from '../bash'
+import type { BashExecutor, BashResult, BashCapability } from '../bash'
 
 // ============================================================================
 // TEST HELPERS
@@ -220,12 +220,6 @@ describe('withBash Mixin', () => {
   describe('FsCapability Integration', () => {
     it('should accept optional fs capability from config', () => {
       const mockExecutor = createMockExecutor()
-      const mockFs = {
-        read: vi.fn(),
-        exists: vi.fn(),
-        list: vi.fn(),
-        stat: vi.fn(),
-      }
 
       // Use withFs first to have $.fs available
       const DOWithFsAndBash = withBash(withFs(DO), {
@@ -293,7 +287,7 @@ describe('BashCapability Interface', () => {
 
       expect(mockExecutor.execute).toHaveBeenCalledWith(
         'git status --short',
-        expect.any(Object)
+        undefined
       )
     })
 
@@ -333,7 +327,7 @@ describe('BashCapability Interface', () => {
 
       expect(mockExecutor.execute).toHaveBeenCalledWith(
         script,
-        expect.any(Object)
+        undefined
       )
     })
   })

@@ -564,7 +564,8 @@ export class WorkflowStepStorage {
   async cleanup(workflowId: string): Promise<void> {
     // Delete from in-memory
     const prefix = `${workflowId}:`
-    for (const key of this.inMemory.keys()) {
+    const inMemoryKeys = Array.from(this.inMemory.keys())
+    for (const key of inMemoryKeys) {
       if (key.startsWith(prefix)) {
         this.inMemory.delete(key)
         this.metadata.delete(key)
@@ -573,7 +574,8 @@ export class WorkflowStepStorage {
 
     // Delete from R2 - tracked references
     if (this.r2) {
-      for (const key of this.r2References) {
+      const r2Keys = Array.from(this.r2References)
+      for (const key of r2Keys) {
         if (key.startsWith(prefix)) {
           const [wfId, stepId] = key.split(':')
           const r2Key = `workflows/${wfId}/steps/${stepId}/result.json`

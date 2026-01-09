@@ -35,6 +35,9 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.145.5
         version: 1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2))
+      bashx:
+        specifier: file:../bashx
+        version: file:../bashx(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(rpc.do@0.1.4)
       better-auth:
         specifier: ^1.4.10
         version: 1.4.10(@tanstack/react-start@1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)))(better-sqlite3@12.5.0)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@2.1.9(@types/node@25.0.3)(lightningcss@1.30.2))
@@ -3087,6 +3090,20 @@ packages:
   baseline-browser-mapping@2.9.13:
     resolution: {integrity: sha512-WhtvB2NG2wjr04+h77sg3klAIwrgOqnjS49GGudnUPGFFgg7G17y7Qecqp+2Dr5kUDxNRBca0SK7cG8JwzkWDQ==}
     hasBin: true
+
+  bashx@file:../bashx:
+    resolution: {directory: ../bashx, type: directory}
+    peerDependencies:
+      drizzle-orm: '>=0.30.0'
+      mcp.do: '*'
+      rpc.do: '*'
+    peerDependenciesMeta:
+      drizzle-orm:
+        optional: true
+      mcp.do:
+        optional: true
+      rpc.do:
+        optional: true
 
   better-auth@1.4.10:
     resolution: {integrity: sha512-0kqwEBJLe8eyFzbUspRG/htOriCf9uMLlnpe34dlIJGdmDfPuQISd4shShvUrvIVhPxsY1dSTXdXPLpqISYOYg==}
@@ -8368,6 +8385,11 @@ snapshots:
   base64-js@1.5.1: {}
 
   baseline-browser-mapping@2.9.13: {}
+
+  bashx@file:../bashx(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(rpc.do@0.1.4):
+    optionalDependencies:
+      drizzle-orm: 0.45.1(@cloudflare/workers-types@4.20260108.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9)
+      rpc.do: 0.1.4
 
   better-auth@1.4.10(@tanstack/react-start@1.146.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)))(better-sqlite3@12.5.0)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260108.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.5.0)(kysely@0.28.9))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@2.1.9(@types/node@25.0.3)(lightningcss@1.30.2)):
     dependencies:

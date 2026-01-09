@@ -23,5 +23,26 @@
  */
 
 export { withFs, type FsCapability, type WithFsContext } from './fs'
-export { withGit, type GitCapability, type WithGitContext } from './git'
-export { withBash, type BashCapability, type WithBashContext } from './bash'
+export {
+  withGit,
+  GitModule,
+  createGitModule,
+  type GitCapability,
+  type GitModuleOptions,
+  type WithGitContext,
+  type WithGitDO,
+  type GitBinding,
+  type GitStatus,
+  type GitCommitResult,
+  type SyncResult,
+  type PushResult,
+} from './git'
+export {
+  withBash,
+  BashModule,
+  type BashCapability,
+  type BashExecutor,
+  type BashResult,
+  type WithBashContext,
+  type WithBashConfig,
+} from './bash'

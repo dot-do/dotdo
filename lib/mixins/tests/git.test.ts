@@ -353,14 +353,17 @@ describe('withGit Mixin', () => {
       class TestDO extends withGit(withFs(DO)) {}
       const instance = new TestDO(mockState, mockEnv)
       const mockR2 = new MockR2Bucket()
+      const mockFs = new MockFsCapability()
 
+      // Configure with mock fs injected
       instance.$.git.configure({
         repo: 'org/repo',
         r2: mockR2 as unknown as R2Bucket,
+        fs: mockFs as unknown as FsCapability,
       })
 
-      // Write a file through $.fs
-      await instance.$.fs.write('/test.txt', 'Hello, World!')
+      // Write a file through mock fs
+      mockFs._setFile('/test.txt', 'Hello, World!')
 
       // Git should be able to stage the file
       await instance.$.git.add('/test.txt')
@@ -373,14 +376,17 @@ describe('withGit Mixin', () => {
       class TestDO extends withGit(withFs(DO)) {}
       const instance = new TestDO(mockState, mockEnv)
       const mockR2 = new MockR2Bucket()
+      const mockFs = new MockFsCapability()
 
+      // Configure with mock fs injected
       instance.$.git.configure({
         repo: 'org/repo',
         r2: mockR2 as unknown as R2Bucket,
+        fs: mockFs as unknown as FsCapability,
       })
 
-      // Write file content
-      await instance.$.fs.write('/src/index.ts', 'export const version = "1.0.0"')
+      // Write file content through mock fs
+      mockFs._setFile('/src/index.ts', 'export const version = "1.0.0"')
 
       // Stage and commit
       await instance.$.git.add('/src/index.ts')

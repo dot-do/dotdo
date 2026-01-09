@@ -2597,6 +2597,222 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       await this._scheduleManager.handleAlarm()
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VISIBILITY HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Actor context for visibility checks.
+   * Set per-request from session/auth context.
+   */
+  private _currentActorContext: { userId?: string; orgId?: string } = {}
+
+  /**
+   * Set the current actor context for visibility checks.
+   * Call this at the start of each request after authentication.
+   *
+   * @param actor - Actor context with userId and optional orgId
+   *
+   * @example
+   * ```typescript
+   * // In your fetch handler after authentication
+   * this.setActorContext({
+   *   userId: authContext.userId,
+   *   orgId: session?.activeOrganizationId
+   * })
+   * ```
+   */
+  protected setActorContext(actor: { userId?: string; orgId?: string }): void {
+    this._currentActorContext = actor
+  }
+
+  /**
+   * Get the current actor context for visibility checks.
+   *
+   * @returns Current actor context
+   */
+  protected getActorContext(): { userId?: string; orgId?: string } {
+    return this._currentActorContext
+  }
+
+  /**
+   * Clear the current actor context.
+   * Call this at the end of each request to prevent context leakage.
+   */
+  protected clearActorContext(): void {
+    this._currentActorContext = {}
+  }
+
+  /**
+   * Check if the current actor can view a thing based on visibility.
+   *
+   * Visibility rules:
+   * - 'public': Anyone can view
+   * - 'unlisted': Anyone with the link can view
+   * - 'org': Only members of the thing's organization can view
+   * - 'user': Only the owner can view
+   *
+   * @param thing - The thing to check visibility for
+   * @returns true if the current actor can view the thing
+   *
+   * @example
+   * ```typescript
+   * const thing = await this.things.get(id)
+   * if (!this.canViewThing(thing)) {
+   *   throw new Error('Access denied')
+   * }
+   * ```
+   */
+  protected canViewThing(thing: Thing | null | undefined): boolean {
+    if (!thing) {
+      return false
+    }
+
+    const visibility = (thing.data as Record<string, unknown>)?.visibility as string | undefined ?? 'user'
+    const actor = this._currentActorContext
+
+    // Public and unlisted are viewable by anyone
+    if (visibility === 'public' || visibility === 'unlisted') {
+      return true
+    }
+
+    // Org visibility requires matching orgId
+    if (visibility === 'org') {
+      const thingOrgId = (thing.data as Record<string, unknown>)?.meta?.orgId as string | undefined ??
+                          (thing.data as Record<string, unknown>)?.orgId as string | undefined
+      return !!actor.orgId && actor.orgId === thingOrgId
+    }
+
+    // User visibility requires matching ownerId
+    const thingOwnerId = (thing.data as Record<string, unknown>)?.meta?.ownerId as string | undefined ??
+                          (thing.data as Record<string, unknown>)?.ownerId as string | undefined
+    return !!actor.userId && actor.userId === thingOwnerId
+  }
+
+  /**
+   * Assert that the current actor can view a thing, throwing if not.
+   *
+   * @param thing - The thing to check visibility for
+   * @param message - Optional custom error message
+   * @throws Error if access is denied
+   *
+   * @example
+   * ```typescript
+   * const thing = await this.things.get(id)
+   * this.assertCanView(thing) // throws if not allowed
+   * return thing
+   * ```
+   */
+  protected assertCanView(thing: Thing | null | undefined, message?: string): void {
+    if (!thing) {
+      throw new Error(message ?? 'Thing not found')
+    }
+
+    if (!this.canViewThing(thing)) {
+      const visibility = (thing.data as Record<string, unknown>)?.visibility as string | undefined ?? 'user'
+      let reason: string
+      switch (visibility) {
+        case 'org':
+          reason = 'Organization membership required'
+          break
+        case 'user':
+          reason = 'Owner access required'
+          break
+        default:
+          reason = 'Access denied'
+      }
+      throw new Error(message ?? reason)
+    }
+  }
+
+  /**
+   * Filter a list of things to only those the current actor can view.
+   *
+   * @param things - Array of things to filter
+   * @returns Filtered array of visible things
+   *
+   * @example
+   * ```typescript
+   * const allThings = await this.things.list()
+   * return this.filterVisibleThings(allThings)
+   * ```
+   */
+  protected filterVisibleThings<T extends Thing>(things: T[]): T[] {
+    return things.filter((thing) => this.canViewThing(thing))
+  }
+
+  /**
+   * Get a thing by ID, checking visibility.
+   * Returns null if the thing doesn't exist or isn't visible to the actor.
+   *
+   * @param id - Thing ID to retrieve
+   * @returns The thing if found and visible, null otherwise
+   *
+   * @example
+   * ```typescript
+   * const thing = await this.getVisibleThing('thing-123')
+   * if (!thing) {
+   *   return c.json({ error: 'Not found' }, 404)
+   * }
+   * ```
+   */
+  protected async getVisibleThing(id: string): Promise<Thing | null> {
+    const thing = await this.things.get(id)
+    if (!thing) {
+      return null
+    }
+    return this.canViewThing(thing) ? thing : null
+  }
+
+  /**
+   * Get the visibility level of a thing.
+   *
+   * @param thing - The thing to check
+   * @returns The visibility level ('public', 'unlisted', 'org', 'user')
+   */
+  protected getVisibility(thing: Thing | null | undefined): 'public' | 'unlisted' | 'org' | 'user' {
+    if (!thing) {
+      return 'user'
+    }
+    return ((thing.data as Record<string, unknown>)?.visibility as string | undefined) as 'public' | 'unlisted' | 'org' | 'user' ?? 'user'
+  }
+
+  /**
+   * Check if the current actor is the owner of a thing.
+   *
+   * @param thing - The thing to check ownership of
+   * @returns true if the current actor is the owner
+   */
+  protected isOwner(thing: Thing | null | undefined): boolean {
+    if (!thing) {
+      return false
+    }
+
+    const thingOwnerId = (thing.data as Record<string, unknown>)?.meta?.ownerId as string | undefined ??
+                          (thing.data as Record<string, unknown>)?.ownerId as string | undefined
+
+    const actor = this._currentActorContext
+    return !!actor.userId && actor.userId === thingOwnerId
+  }
+
+  /**
+   * Check if the current actor is in the same org as a thing.
+   *
+   * @param thing - The thing to check org membership for
+   * @returns true if the current actor is in the thing's org
+   */
+  protected isInThingOrg(thing: Thing | null | undefined): boolean {
+    if (!thing) {
+      return false
+    }
+
+    const thingOrgId = (thing.data as Record<string, unknown>)?.meta?.orgId as string | undefined ??
+                        (thing.data as Record<string, unknown>)?.orgId as string | undefined
+
+    const actor = this._currentActorContext
+    return !!actor.orgId && actor.orgId === thingOrgId
+  }
 }
 
 export default DO

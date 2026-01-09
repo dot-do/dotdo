@@ -40,13 +40,32 @@ const DEFAULT_BASE_PATH = 'iceberg/'
 /** Default cache TTL in milliseconds (1 minute) */
 const DEFAULT_CACHE_TTL_MS = 60_000
 
-/** Index of 'ns' partition in partition summaries */
+// ============================================================================
+// Partition Index Constants
+// ============================================================================
+//
+// Partition order: (ns, type, visibility)
+//
+// Rationale for this order:
+//   1. ns (namespace)   - Primary: Tenant isolation at storage level
+//   2. type             - Secondary: Resource type filtering
+//   3. visibility       - Tertiary: Access control pruning
+//
+// This enables efficient manifest pruning:
+//   - Public queries skip manifests with only user/org data
+//   - Private queries skip manifests with only public data
+//   - Unlisted data is excluded from general listings
+//
+// See: streams/partitions.md for full partition strategy documentation
+// ============================================================================
+
+/** Index of 'ns' partition in partition summaries (primary partition key) */
 const NS_PARTITION_INDEX = 0
 
-/** Index of 'type' partition in partition summaries */
+/** Index of 'type' partition in partition summaries (secondary partition key) */
 const TYPE_PARTITION_INDEX = 1
 
-/** Index of 'visibility' partition in partition summaries */
+/** Index of 'visibility' partition in partition summaries (tertiary partition key) */
 const VISIBILITY_PARTITION_INDEX = 2
 
 // ============================================================================
@@ -519,6 +538,20 @@ export class IcebergReader {
   // ==========================================================================
   // Partition Pruning (Private)
   // ==========================================================================
+  //
+  // Partition pruning uses the (ns, type, visibility) order to efficiently
+  // skip manifests that cannot contain matching data:
+  //
+  // 1. Namespace bounds check - eliminates cross-tenant manifests
+  // 2. Type bounds check - eliminates manifests without matching type
+  // 3. Visibility bounds check - eliminates manifests without matching visibility
+  //
+  // Special handling for visibility:
+  // - Explicit visibility filter: Only include manifests with matching visibility
+  // - No visibility filter: Exclude unlisted-only manifests (discoverable content)
+  //
+  // See: streams/partitions.md for full partition strategy documentation
+  // ==========================================================================
 
   /**
    * Filter manifests by partition bounds.
@@ -526,6 +559,8 @@ export class IcebergReader {
    * Uses partition summaries in manifest metadata to skip manifests
    * that cannot possibly contain matching files. This is a key optimization
    * that reduces the number of R2 requests.
+   *
+   * Pruning order follows partition key order: ns -> type -> visibility
    *
    * @param manifests - All manifests from the manifest list
    * @param partition - Target partition filter

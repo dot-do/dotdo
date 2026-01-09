@@ -40,10 +40,10 @@ export default defineConfig({
   reporter: isCI
     ? [
         ['github'],
-        ['html', { open: 'never' }],
+        ['html', { open: 'never', outputFolder: 'testing/playwright-report' }],
         ['json', { outputFile: 'tests/results/e2e-results.json' }],
       ]
-    : [['html', { open: 'on-failure' }]],
+    : [['html', { open: 'on-failure', outputFolder: 'testing/playwright-report' }]],
 
   /* Global test timeout */
   timeout: 30 * 1000,
