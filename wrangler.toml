@@ -1,0 +1,36 @@
+# dotdo Worker Configuration
+# See https://developers.cloudflare.com/workers/configuration/
+
+name = "dotdo"
+main = "api/index.ts"
+compatibility_date = "2026-01-08"
+compatibility_flags = ["nodejs_compat"]
+
+# Static assets configuration
+# See https://developers.cloudflare.com/workers/static-assets/
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/mcp", "/rpc/*"]
+
+# KV namespaces
+[[kv_namespaces]]
+binding = "KV"
+id = "placeholder-kv-id"
+
+[[kv_namespaces]]
+binding = "TEST_KV"
+id = "placeholder-test-kv-id"
+
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "DO", class_name = "DurableObject" },
+  { name = "TEST_DO", class_name = "TestDurableObject" }
+]
+
+# Migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["DurableObject", "TestDurableObject"]
