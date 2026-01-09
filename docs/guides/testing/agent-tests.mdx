@@ -1,0 +1,583 @@
+---
+title: Agent Testing
+description: Testing agent interactions with mock providers and fixtures
+---
+
+# Agent Testing
+
+dotdo provides testing utilities for deterministic agent tests. Mock providers return predefined responses, allowing you to test agent behavior without hitting real LLM APIs.
+
+## Testing Utilities
+
+Import the testing utilities from `agents/testing`:
+
+```typescript
+import {
+  createMockProvider,
+  createIsolatedMockProvider,
+  createMockTool,
+  createTrackedTool,
+  mockResponses,
+  fixtures,
+  expectAgentResult,
+  collectStreamEvents,
+} from 'agents/testing'
+```
+
+## Mock Responses
+
+Create predictable responses for testing:
+
+```typescript title="agents/testing.test.ts"
+import { describe, it, expect } from 'vitest'
+import { mockResponses } from './testing'
+
+describe('mockResponses', () => {
+  it('creates text response', () => {
+    const response = mockResponses.text('Hello, world!')
+
+    expect(response.text).toBe('Hello, world!')
+    expect(response.finishReason).toBe('stop')
+    expect(response.usage).toBeDefined()
+  })
+
+  it('creates tool call response', () => {
+    const response = mockResponses.toolCall('search', { query: 'test' })
+
+    expect(response.toolCalls).toHaveLength(1)
+    expect(response.toolCalls[0].name).toBe('search')
+    expect(response.toolCalls[0].arguments).toEqual({ query: 'test' })
+    expect(response.finishReason).toBe('tool_calls')
+  })
+
+  it('creates multiple tool calls', () => {
+    const response = mockResponses.toolCalls([
+      { name: 'search', args: { query: 'a' } },
+      { name: 'fetch', args: { url: 'http://...' } },
+    ])
+
+    expect(response.toolCalls).toHaveLength(2)
+  })
+
+  it('creates error response', () => {
+    const response = mockResponses.error('Something went wrong')
+
+    expect(response.text).toBe('Something went wrong')
+    expect(response.finishReason).toBe('error')
+  })
+})
+```
+
+## Mock Providers
+
+Create providers that return predetermined responses:
+
+```typescript title="agents/integration.test.ts"
+import { describe, it, expect, vi } from 'vitest'
+import { createMockProvider, mockResponses, fixtures } from './testing'
+
+describe('Mock Provider', () => {
+  it('returns responses in sequence', async () => {
+    const provider = createMockProvider({
+      responses: [
+        mockResponses.text('First'),
+        mockResponses.text('Second'),
+      ],
+    })
+
+    const agent = provider.createAgent(fixtures.minimalAgent)
+
+    const result1 = await agent.run({ prompt: 'Hello' })
+    expect(result1.text).toBe('First')
+
+    const result2 = await agent.run({ prompt: 'Again' })
+    expect(result2.text).toBe('Second')
+  })
+
+  it('calls onGenerate callback', async () => {
+    const onGenerate = vi.fn()
+
+    const provider = createMockProvider({
+      responses: [mockResponses.text('Response')],
+      onGenerate,
+    })
+
+    const agent = provider.createAgent(fixtures.minimalAgent)
+    await agent.run({ prompt: 'Hello' })
+
+    expect(onGenerate).toHaveBeenCalledWith(
+      expect.any(Array),  // messages
+      expect.any(Object), // config
+      0                   // step index
+    )
+  })
+})
+```
+
+## Isolated Mock Provider
+
+For tests where each agent needs separate step tracking:
+
+```typescript
+import { createIsolatedMockProvider, mockResponses, fixtures } from './testing'
+
+describe('Isolated Mock Provider', () => {
+  it('resets step index for each agent', async () => {
+    const provider = createIsolatedMockProvider({
+      responses: [
+        mockResponses.text('First'),
+        mockResponses.text('Second'),
+      ],
+    })
+
+    const agent1 = provider.createAgent({ ...fixtures.minimalAgent, id: 'agent-1' })
+    const agent2 = provider.createAgent({ ...fixtures.minimalAgent, id: 'agent-2' })
+
+    // Both get "First" - separate step counters
+    const result1 = await agent1.run({ prompt: 'Hello' })
+    const result2 = await agent2.run({ prompt: 'Hello' })
+
+    expect(result1.text).toBe('First')
+    expect(result2.text).toBe('First')
+  })
+})
+```
+
+## Testing Tool Loops
+
+Test the do...while loop pattern with tool calls:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
+import { tool, hasToolCall, stepCountIs } from './index'
+import { createMockProvider, mockResponses } from './testing'
+
+describe('Tool Loop', () => {
+  const calculatorTool = tool({
+    name: 'calculator',
+    description: 'Perform arithmetic',
+    inputSchema: z.object({
+      operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
+      a: z.number(),
+      b: z.number(),
+    }),
+    execute: async ({ operation, a, b }) => {
+      switch (operation) {
+        case 'add': return { result: a + b }
+        case 'subtract': return { result: a - b }
+        case 'multiply': return { result: a * b }
+        case 'divide': return { result: a / b }
+      }
+    },
+  })
+
+  it('executes tool and continues to next step', async () => {
+    const provider = createMockProvider({
+      responses: [
+        mockResponses.toolCall('calculator', {
+          operation: 'add',
+          a: 2,
+          b: 3,
+        }),
+        mockResponses.text('The result is 5'),
+      ],
+    })
+
+    const agent = provider.createAgent({
+      id: 'calc-agent',
+      name: 'Calculator',
+      instructions: 'You are a calculator.',
+      model: 'mock-model',
+      tools: [calculatorTool],
+    })
+
+    const result = await agent.run({ prompt: 'What is 2 + 3?' })
+
+    expect(result.toolCalls).toHaveLength(1)
+    expect(result.toolResults[0].result).toEqual({ result: 5 })
+    expect(result.text).toBe('The result is 5')
+    expect(result.steps).toBe(2)
+  })
+
+  it('stops when finish tool called', async () => {
+    const finishTool = tool({
+      name: 'finish',
+      description: 'Mark task complete',
+      inputSchema: z.object({ summary: z.string() }),
+      execute: async ({ summary }) => ({ done: true, summary }),
+    })
+
+    const provider = createMockProvider({
+      responses: [
+        mockResponses.toolCall('finish', { summary: 'Task completed' }),
+        mockResponses.text('This should not appear'),
+      ],
+    })
+
+    const agent = provider.createAgent({
+      id: 'finish-agent',
+      name: 'Finisher',
+      instructions: 'Complete tasks.',
+      model: 'mock-model',
+      tools: [finishTool],
+      stopWhen: hasToolCall('finish'),
+    })
+
+    const result = await agent.run({ prompt: 'Do the task' })
+
+    expect(result.toolCalls).toHaveLength(1)
+    expect(result.steps).toBe(1)
+    expect(result.text).toBeFalsy()
+  })
+})
+```
+
+## Testing Stop Conditions
+
+Test various stop conditions:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { stepCountIs, hasToolCall, hasText, customStop } from './Agent'
+
+describe('Stop Conditions', () => {
+  it('stepCountIs creates step count condition', () => {
+    const condition = stepCountIs(5)
+
+    expect(condition.type).toBe('stepCount')
+    expect(condition).toEqual({ type: 'stepCount', count: 5 })
+  })
+
+  it('hasToolCall creates tool call condition', () => {
+    const condition = hasToolCall('finish')
+
+    expect(condition.type).toBe('hasToolCall')
+    expect(condition).toEqual({ type: 'hasToolCall', toolName: 'finish' })
+  })
+
+  it('hasText creates text condition', () => {
+    const condition = hasText()
+
+    expect(condition.type).toBe('hasText')
+  })
+
+  it('customStop creates custom condition', () => {
+    const checkFn = (state) => state.totalTokens >= 1000
+    const condition = customStop(checkFn)
+
+    expect(condition.type).toBe('custom')
+    expect(condition.check).toBe(checkFn)
+  })
+})
+```
+
+## Tracked Tools
+
+Track tool calls for assertions:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { createTrackedTool } from './testing'
+
+describe('Tracked Tools', () => {
+  it('records all tool calls', async () => {
+    const [trackedTool, calls] = createTrackedTool('search')
+
+    await trackedTool.execute({ query: 'first' }, { agentId: 'test' })
+    await trackedTool.execute({ query: 'second' }, { agentId: 'test' })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0].input).toEqual({ query: 'first' })
+    expect(calls[1].input).toEqual({ query: 'second' })
+  })
+
+  it('records timestamps', async () => {
+    const [trackedTool, calls] = createTrackedTool('search')
+    const before = new Date()
+
+    await trackedTool.execute({ query: 'test' }, { agentId: 'test' })
+
+    const after = new Date()
+    expect(calls[0].timestamp.getTime()).toBeGreaterThanOrEqual(before.getTime())
+    expect(calls[0].timestamp.getTime()).toBeLessThanOrEqual(after.getTime())
+  })
+
+  it('returns custom value', async () => {
+    const [trackedTool] = createTrackedTool('search', { results: ['a', 'b'] })
+
+    const result = await trackedTool.execute({ query: 'test' }, { agentId: 'test' })
+
+    expect(result).toEqual({ results: ['a', 'b'] })
+  })
+})
+```
+
+## Testing Agent Hooks
+
+Test onPreToolUse, onPostToolUse, and onStepFinish:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest'
+import { BaseAgent, tool } from './index'
+import { z } from 'zod'
+
+describe('Agent Hooks', () => {
+  const testTool = tool({
+    name: 'test',
+    description: 'Test tool',
+    inputSchema: z.object({ value: z.string() }),
+    execute: async ({ value }) => ({ processed: value }),
+  })
+
+  it('onPreToolUse can deny tool calls', async () => {
+    const onPreToolUse = vi.fn().mockResolvedValue({
+      action: 'deny',
+      reason: 'Not allowed in test mode',
+    })
+
+    const toolExecute = vi.fn().mockResolvedValue('executed')
+    const deniedTool = tool({
+      name: 'deniedTool',
+      description: 'Will be denied',
+      inputSchema: z.object({}),
+      execute: toolExecute,
+    })
+
+    const mockGen = createMockGenerate([
+      mockResponses.toolCall('deniedTool', {}),
+      mockResponses.text('Handled denial'),
+    ])
+
+    const agent = new BaseAgent({
+      config: { id: 'test', name: 'Test', instructions: '', model: 'mock' },
+      provider: { name: 'mock', version: '1.0', createAgent: vi.fn() },
+      hooks: { onPreToolUse },
+      generate: mockGen,
+    })
+
+    const result = await agent.run({ prompt: 'Test', tools: [deniedTool] })
+
+    expect(toolExecute).not.toHaveBeenCalled()
+    expect(result.toolResults[0].error).toBe('Not allowed in test mode')
+  })
+
+  it('onPostToolUse receives tool call and result', async () => {
+    const onPostToolUse = vi.fn().mockResolvedValue(undefined)
+
+    const mockGen = createMockGenerate([
+      mockResponses.toolCall('test', { value: 'input' }),
+      mockResponses.text('Done'),
+    ])
+
+    const agent = new BaseAgent({
+      config: { id: 'test', name: 'Test', instructions: '', model: 'mock' },
+      provider: { name: 'mock', version: '1.0', createAgent: vi.fn() },
+      hooks: { onPostToolUse },
+      generate: mockGen,
+    })
+
+    await agent.run({ prompt: 'Test', tools: [testTool] })
+
+    expect(onPostToolUse).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'test' }),
+      expect.objectContaining({ result: { processed: 'input' } })
+    )
+  })
+})
+```
+
+## Testing Streaming
+
+Test streaming responses with collectStreamEvents:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { collectStreamEvents } from './testing'
+
+describe('Streaming', () => {
+  it('collects all stream events', async () => {
+    async function* mockStream() {
+      yield { type: 'text-delta', data: { textDelta: 'Hello ' }, timestamp: new Date() }
+      yield { type: 'text-delta', data: { textDelta: 'World' }, timestamp: new Date() }
+      yield { type: 'done', data: {}, timestamp: new Date() }
+    }
+
+    const { events, textDeltas } = await collectStreamEvents(mockStream())
+
+    expect(events).toHaveLength(3)
+    expect(textDeltas).toEqual(['Hello ', 'World'])
+  })
+
+  it('collects tool calls from stream', async () => {
+    async function* mockStream() {
+      yield {
+        type: 'tool-call-end',
+        data: { toolCall: { id: '1', name: 'search', arguments: { q: 'test' } } },
+        timestamp: new Date(),
+      }
+      yield { type: 'done', data: {}, timestamp: new Date() }
+    }
+
+    const { toolCalls } = await collectStreamEvents(mockStream())
+
+    expect(toolCalls).toHaveLength(1)
+    expect(toolCalls[0].name).toBe('search')
+  })
+})
+```
+
+## Testing Agent Results
+
+Use expectAgentResult for assertions:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { expectAgentResult } from './testing'
+
+describe('expectAgentResult', () => {
+  it('validates text match', () => {
+    const result = { text: 'Hello', steps: 1, toolCalls: [] }
+
+    expectAgentResult(result, { text: 'Hello' })
+
+    expect(() => expectAgentResult(result, { text: 'Goodbye' }))
+      .toThrow('Expected text "Goodbye"')
+  })
+
+  it('validates regex match', () => {
+    const result = { text: 'Hello World!', steps: 1, toolCalls: [] }
+
+    expectAgentResult(result, { text: /World/ })
+
+    expect(() => expectAgentResult(result, { text: /Universe/ }))
+      .toThrow('Expected text to match')
+  })
+
+  it('validates step count', () => {
+    const result = { text: 'Done', steps: 5, toolCalls: [] }
+
+    expectAgentResult(result, { minSteps: 3 })
+    expectAgentResult(result, { maxSteps: 10 })
+
+    expect(() => expectAgentResult(result, { minSteps: 10 }))
+      .toThrow('Expected at least 10 steps')
+  })
+})
+```
+
+## Testing Review Loops
+
+Test the do...while review pattern:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { createMockProvider, mockResponses } from './testing'
+import { tool, hasToolCall } from './index'
+import { z } from 'zod'
+
+describe('Review Loop Pattern', () => {
+  const reviewTool = tool({
+    name: 'review',
+    description: 'Request review of work',
+    inputSchema: z.object({
+      work: z.string(),
+      reviewer: z.string(),
+    }),
+    execute: async ({ work, reviewer }) => ({
+      approved: work.length > 10,
+      feedback: work.length > 10 ? 'Good work!' : 'Needs more detail',
+    }),
+  })
+
+  const submitTool = tool({
+    name: 'submit',
+    description: 'Submit final work',
+    inputSchema: z.object({ work: z.string() }),
+    execute: async ({ work }) => ({ submitted: true, work }),
+  })
+
+  it('iterates until review approved', async () => {
+    const provider = createMockProvider({
+      responses: [
+        // First attempt - too short
+        mockResponses.toolCall('review', {
+          work: 'Short',
+          reviewer: 'tom',
+        }),
+        // Second attempt - detailed enough
+        mockResponses.toolCall('review', {
+          work: 'This is detailed work with enough content',
+          reviewer: 'tom',
+        }),
+        // Submit after approval
+        mockResponses.toolCall('submit', {
+          work: 'This is detailed work with enough content',
+        }),
+      ],
+    })
+
+    const agent = provider.createAgent({
+      id: 'review-agent',
+      name: 'Reviewer',
+      instructions: 'Get work reviewed, then submit when approved.',
+      model: 'mock-model',
+      tools: [reviewTool, submitTool],
+      stopWhen: hasToolCall('submit'),
+    })
+
+    const result = await agent.run({ prompt: 'Complete and submit work' })
+
+    expect(result.toolCalls).toHaveLength(3)
+    expect(result.toolResults[0].result.approved).toBe(false)
+    expect(result.toolResults[1].result.approved).toBe(true)
+    expect(result.toolResults[2].result.submitted).toBe(true)
+  })
+})
+```
+
+## Fixtures
+
+Use predefined fixtures for common test scenarios:
+
+```typescript
+import { fixtures } from './testing'
+
+// Minimal agent config
+fixtures.minimalAgent
+// { id: 'test-agent', name: 'Test', instructions: 'You are a test agent.', model: 'mock' }
+
+// Sample chat messages
+fixtures.chatMessages
+// [{ role: 'user', content: '...' }, ...]
+
+// Tool call sequence
+fixtures.toolCallSequence
+// Responses with tool calls and results
+```
+
+## Best Practices
+
+1. **Use mock providers** - Never call real LLM APIs in tests
+2. **Test complete flows** - Verify tool loops work end-to-end
+3. **Track tool calls** - Use createTrackedTool for detailed assertions
+4. **Test error handling** - Verify agents handle tool errors gracefully
+5. **Test stop conditions** - Ensure agents stop when expected
+
+```typescript
+// Good: Complete flow test
+it('searches, reviews, and submits', async () => {
+  // Set up mock responses for full flow
+  // Verify each step executed correctly
+})
+
+// Avoid: Testing mock internals
+it('mock provider increments step', async () => {
+  // Too coupled to test infrastructure
+})
+```
+
+## Next Steps
+
+- [Unit Testing](/guides/testing/unit-tests) - Test DOs with mocked state
+- [Integration Testing](/guides/testing/integration-tests) - Workers runtime tests

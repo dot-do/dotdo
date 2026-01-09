@@ -1,0 +1,349 @@
+---
+title: dev
+description: Start local development server with Wrangler
+---
+
+# dotdo dev
+
+Start a local development server powered by Wrangler. Includes hot reload, agent simulation, and a local dashboard.
+
+## Usage
+
+```bash
+npx dotdo dev [options]
+```
+
+## Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--port <number>` | Port to run the server on | `8787` |
+| `--local` | Run in fully local mode (no remote calls) | `false` |
+| `--persist` | Persist Durable Object state between restarts | `true` |
+| `--remote` | Use remote agents instead of local simulation | `false` |
+| `--log-level <level>` | Log verbosity: `debug`, `info`, `warn`, `error` | `info` |
+
+## Basic Usage
+
+```bash
+npx dotdo dev
+```
+
+Expected output:
+
+```
+Authenticating...
+Logged in as nathan@example.com
+
+Starting dev server...
+  Workers: Ready
+  Durable Objects: Ready
+  Dashboard: http://localhost:8787
+
+Watching for changes...
+```
+
+## What Happens on Start
+
+1. **Authentication** - The CLI checks for an existing session or prompts you to log in via browser OAuth
+2. **Wrangler Spawn** - Spawns `wrangler dev` with your `DO_TOKEN` in the environment
+3. **Hot Reload** - Watches your source files and rebuilds on changes
+4. **Local Dashboard** - Serves an interactive dashboard at the root URL
+
+## Development Workflow
+
+### Start the Server
+
+```bash
+npx dotdo dev
+```
+
+### Trigger Your Startup
+
+<Tabs items={['curl', 'browser', 'dashboard']}>
+  <Tab value="curl">
+```bash
+curl -X POST http://localhost:8787/launch
+```
+
+Watch the terminal for agent activity logs.
+  </Tab>
+  <Tab value="browser">
+Open [http://localhost:8787](http://localhost:8787) in your browser.
+
+Click the "Launch" button in the dashboard.
+  </Tab>
+  <Tab value="dashboard">
+The dashboard at `http://localhost:8787` shows:
+
+- Agent activity feed
+- Current state
+- Event log
+- RPC inspector
+  </Tab>
+</Tabs>
+
+### View Logs
+
+Agent activity appears in the terminal:
+
+```
+[priya] Analyzing hypothesis: "Small teams need a simple way to track customer feedback"
+[priya] Generated spec: { features: ['feedback-widget', 'dashboard', 'reports'], ... }
+[ralph] Building feature: feedback-widget
+[ralph] Building feature: dashboard
+[tom] Reviewing code...
+[tom] Requested changes: "Add input validation to feedback form"
+[ralph] Fixing: "Add input validation to feedback form"
+[tom] Approved
+[mark] Writing announcement...
+[sally] Starting outreach...
+```
+
+## Configuration
+
+### Custom Port
+
+```bash
+npx dotdo dev --port 3000
+```
+
+Then access at [http://localhost:3000](http://localhost:3000).
+
+### Persist State
+
+By default, Durable Object state persists between restarts. To start fresh:
+
+```bash
+npx dotdo dev --no-persist
+```
+
+Or delete the persistence directory:
+
+```bash
+rm -rf .wrangler/state
+npx dotdo dev
+```
+
+### Local Mode
+
+Run without any remote connections:
+
+```bash
+npx dotdo dev --local
+```
+
+In local mode:
+- Agents run with mock responses
+- No API calls to external services
+- Useful for offline development
+
+### Remote Agents
+
+Use production agents in development:
+
+```bash
+npx dotdo dev --remote
+```
+
+<Callout type="warn">
+Remote mode uses real API credits. Use sparingly during development.
+</Callout>
+
+## Environment Variables
+
+### Local Secrets
+
+Create `.dev.vars` for local development secrets:
+
+```bash title=".dev.vars"
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgres://...
+```
+
+These are automatically loaded by Wrangler.
+
+### Runtime Environment
+
+The dev server sets these automatically:
+
+| Variable | Description |
+|----------|-------------|
+| `DO_TOKEN` | Your authentication token |
+| `DO_ENV` | Set to `development` |
+| `DO_API_URL` | API endpoint |
+
+## Durable Objects State
+
+### Inspecting State
+
+Access the state inspector at:
+
+```
+http://localhost:8787/__inspect
+```
+
+Shows:
+- Active Durable Objects
+- Their current state
+- Recent RPC calls
+
+### Resetting State
+
+```bash
+# Delete all local state
+rm -rf .wrangler/state
+
+# Or reset a specific DO
+curl -X DELETE http://localhost:8787/__admin/do/MyStartup/default
+```
+
+## Hot Reload Behavior
+
+When you save a file:
+
+1. Wrangler rebuilds the bundle (~100ms)
+2. Worker restarts
+3. Durable Objects keep their state (unless you changed their class structure)
+4. Active WebSocket connections reconnect automatically
+
+<Callout type="info">
+If you change a Durable Object's storage schema, you may need to reset state or handle migration in your code.
+</Callout>
+
+## Debugging
+
+### Enable Debug Logs
+
+```bash
+npx dotdo dev --log-level debug
+```
+
+Shows detailed information:
+- RPC call traces
+- Agent reasoning steps
+- Pipeline batching
+
+### Inspect RPC Calls
+
+The dashboard includes an RPC inspector showing:
+- All calls in the current pipeline
+- Promise dependencies
+- Execution timing
+
+### VS Code Debugging
+
+Add to `.vscode/launch.json`:
+
+```json title=".vscode/launch.json"
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug dotdo dev",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["dotdo", "dev"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
+```
+
+## Common Issues
+
+### "Port 8787 already in use"
+
+Another process is using the port. Either:
+
+```bash
+# Use a different port
+npx dotdo dev --port 8788
+
+# Or kill the existing process
+lsof -ti:8787 | xargs kill
+```
+
+### "Wrangler not authenticated"
+
+Log in to Cloudflare:
+
+```bash
+npx wrangler login
+```
+
+### "Durable Object not found"
+
+Check your `wrangler.toml` has the correct class name:
+
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+```
+
+The `class_name` must match your exported class.
+
+### "Authentication failed"
+
+Your session may have expired:
+
+```bash
+npx dotdo logout
+npx dotdo login
+npx dotdo dev
+```
+
+### "Network connection error"
+
+Check your internet connection. If working offline, use:
+
+```bash
+npx dotdo dev --local
+```
+
+## Advanced Usage
+
+### Multiple Startups
+
+If you have multiple Durable Object classes:
+
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" },
+  { name = "ORDER", class_name = "Order" }
+]
+```
+
+Access each via the dashboard or API.
+
+### Custom Wrangler Arguments
+
+Pass additional arguments to Wrangler:
+
+```bash
+npx dotdo dev -- --inspector-port 9229
+```
+
+Everything after `--` is passed to `wrangler dev`.
+
+### Integration with Other Tools
+
+```bash
+# Run alongside other services
+concurrently "npx dotdo dev" "npm run db:studio"
+
+# With turbo
+turbo dev --filter=@myorg/startup
+```
+
+## Next Steps
+
+- [Deploy to production](/docs/cli/deploy) - Ship your startup
+- [Generate scaffolding](/docs/cli/generate) - Add more agents and entities
+- [Workflow Context](/docs/sdk/workflow-context) - Learn the $ DSL

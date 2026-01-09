@@ -1,0 +1,308 @@
+---
+title: Vault
+description: Secure storage for secrets, API keys, and sensitive credentials
+---
+
+# Vault
+
+Secrets stay secret. Store credentials securely, access them safely.
+
+## The Problem
+
+Secrets end up in bad places: environment variables that get logged, config files that get committed, stack traces that get sent to error tracking. When AI agents run your code, you need guarantees that secrets stay protected.
+
+## Vault Basics
+
+```typescript
+// Store a secret
+await $.vault.set('stripe_key', process.env.STRIPE_KEY)
+
+// Retrieve it (only authorized code can access)
+const key = await $.vault.get('stripe_key')
+
+// Use it
+const stripe = new Stripe(key)
+```
+
+That's it. Secrets go in, secrets come out. Everything in between is encrypted.
+
+## What Vault Protects Against
+
+| Threat | Protection |
+|--------|------------|
+| **Accidental logging** | Secrets are never included in logs |
+| **Stack traces** | Secrets redacted from error reports |
+| **LLM exposure** | Secrets never sent to AI models |
+| **Git commits** | Vault values stored outside code |
+| **Env var leaks** | Encrypted at rest and in transit |
+
+## Storing Secrets
+
+```typescript
+// Single secret
+await $.vault.set('api_key', 'sk_live_...')
+
+// With metadata
+await $.vault.set('database_url', connectionString, {
+  description: 'Production database',
+  rotateAfter: '90d',
+})
+
+// Multiple secrets at once
+await $.vault.setMany({
+  stripe_key: process.env.STRIPE_KEY,
+  sendgrid_key: process.env.SENDGRID_KEY,
+  database_url: process.env.DATABASE_URL,
+})
+```
+
+## Retrieving Secrets
+
+```typescript
+// Get a single secret
+const apiKey = await $.vault.get('api_key')
+
+// Get multiple secrets
+const { stripe_key, sendgrid_key } = await $.vault.getMany([
+  'stripe_key',
+  'sendgrid_key',
+])
+
+// Check if a secret exists
+const exists = await $.vault.has('api_key')
+```
+
+## Access Control
+
+Not all code should access all secrets. Scope access by role or context.
+
+```typescript
+// Define which roles can access which secrets
+$.vault.authorize({
+  'stripe_key': ['payment-service', 'admin'],
+  'database_url': ['api-server', 'admin'],
+  'sendgrid_key': ['email-service', 'admin'],
+})
+```
+
+When code without the right role tries to access a secret:
+
+```typescript
+// In email service (has 'email-service' role)
+const key = await $.vault.get('sendgrid_key') // Works
+
+// In email service trying to access payment secrets
+const stripe = await $.vault.get('stripe_key') // Throws AccessDenied
+```
+
+## Agent Secret Access
+
+Agents can be granted secret access, but it's explicit:
+
+```typescript
+// Ralph can access code-related secrets
+$.vault.authorize({
+  'github_token': ['developer', 'ralph'],
+  'npm_token': ['developer', 'ralph'],
+})
+
+// Sally cannot access code secrets, only CRM
+$.vault.authorize({
+  'salesforce_key': ['sales', 'sally'],
+  'hubspot_key': ['sales', 'sally'],
+})
+```
+
+## Secret Rotation
+
+Secrets should rotate. Vault tracks rotation and can alert when secrets are stale.
+
+```typescript
+// Set rotation policy
+await $.vault.set('api_key', newKey, {
+  rotateAfter: '30d',
+})
+
+// Check rotation status
+const status = await $.vault.rotationStatus('api_key')
+// { needsRotation: false, expiresIn: '25d', lastRotated: '2024-01-01' }
+
+// Get all secrets needing rotation
+const stale = await $.vault.needsRotation()
+// ['old_api_key', 'legacy_token']
+
+// Listen for rotation reminders
+$.on.Vault.rotationDue(async ($, { secretName, daysOverdue }) => {
+  await $.alert.ops(`Secret ${secretName} needs rotation`, {
+    daysOverdue,
+    severity: daysOverdue > 30 ? 'high' : 'medium',
+  })
+})
+```
+
+## Environment-Specific Secrets
+
+Different secrets for different environments:
+
+```typescript
+// Set environment-specific secrets
+await $.vault.set('database_url', prodUrl, { env: 'production' })
+await $.vault.set('database_url', stagingUrl, { env: 'staging' })
+await $.vault.set('database_url', devUrl, { env: 'development' })
+
+// Get automatically uses current environment
+const dbUrl = await $.vault.get('database_url')
+// Returns the right URL based on deployment environment
+```
+
+## Secret References
+
+Pass secret references instead of values. The reference resolves at execution time.
+
+```typescript
+// Create a reference
+const stripeRef = $.vault.ref('stripe_key')
+
+// Pass to functions - they get the value when they need it
+await processPayment(stripeRef, amount)
+
+// The function resolves the reference
+async function processPayment(keyRef, amount) {
+  const key = await keyRef.resolve()
+  const stripe = new Stripe(key)
+  // ...
+}
+```
+
+This pattern prevents secrets from appearing in function parameters, logs, or serialization.
+
+## Audit Trail
+
+Every secret access is logged:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "actor": {
+    "type": "agent",
+    "id": "ralph",
+    "email": "ralph@agents.do"
+  },
+  "action": "vault.get",
+  "secret": "github_token",
+  "result": "success",
+  "context": {
+    "service": "code-deploy",
+    "environment": "production"
+  }
+}
+```
+
+Monitor for unusual access patterns:
+
+```typescript
+$.on.Vault.access(async ($, { secretName, actor, unusual }) => {
+  if (unusual) {
+    await $.alert.security('Unusual secret access', {
+      secretName,
+      actor,
+      reason: unusual.reason,
+    })
+  }
+})
+```
+
+## Encryption
+
+Secrets are encrypted at rest and in transit:
+
+| Layer | Encryption |
+|-------|------------|
+| **At rest** | AES-256-GCM |
+| **In transit** | TLS 1.3 |
+| **Key management** | Hardware security modules |
+| **Access** | Zero-knowledge architecture |
+
+Your secrets are encrypted with keys you control. Even dotdo infrastructure cannot read your raw secrets.
+
+## Migration
+
+Moving secrets from environment variables to Vault:
+
+```typescript
+// One-time migration script
+const envSecrets = {
+  STRIPE_KEY: process.env.STRIPE_KEY,
+  DATABASE_URL: process.env.DATABASE_URL,
+  SENDGRID_KEY: process.env.SENDGRID_KEY,
+}
+
+for (const [name, value] of Object.entries(envSecrets)) {
+  if (value) {
+    await $.vault.set(name.toLowerCase(), value)
+    console.log(`Migrated ${name}`)
+  }
+}
+
+// Then update your code to use vault
+// Old: const key = process.env.STRIPE_KEY
+// New: const key = await $.vault.get('stripe_key')
+```
+
+## Best Practices
+
+### Never Log Secrets
+
+Vault prevents accidental logging, but don't try to circumvent it:
+
+```typescript
+// Good
+const key = await $.vault.get('api_key')
+await callApi(key)
+
+// Bad - defeats the purpose
+const key = await $.vault.get('api_key')
+console.log(`Using key: ${key}`) // Don't do this
+```
+
+### Use References
+
+When passing secrets between functions, use references:
+
+```typescript
+// Good - reference resolves at use time
+const ref = $.vault.ref('api_key')
+await externalService(ref)
+
+// Less good - value exposed in memory longer
+const key = await $.vault.get('api_key')
+await externalService(key)
+```
+
+### Rotate Regularly
+
+Set rotation policies and follow them:
+
+```typescript
+await $.vault.set('api_key', key, {
+  rotateAfter: '90d',  // Rotate every 90 days
+})
+```
+
+### Scope Access Tightly
+
+Each service should only access the secrets it needs:
+
+```typescript
+$.vault.authorize({
+  'payment_key': ['payment-service'],  // Only payment
+  'email_key': ['email-service'],      // Only email
+  'admin_key': ['admin'],              // Only admin
+})
+```
+
+## Related
+
+- [Authentication](/docs/security/authentication) - Identity verification
+- [Authorization](/docs/security/authorization) - Role-based access control
+- [Human Escalation](/docs/humans) - When to involve humans for approvals

@@ -1,0 +1,160 @@
+---
+title: Security
+description: Identity, authorization, and secrets management for AI-powered businesses
+---
+
+# Security
+
+Security in dotdo is built on a simple principle: every actor has an identity, every action has a trail.
+
+## The Challenge
+
+When AI agents act on your behalf, you need answers to hard questions:
+
+- Who performed this action - human or agent?
+- What permissions did they have?
+- How are secrets protected from exposure?
+- Where's the audit trail?
+
+dotdo answers all of these by default.
+
+## Core Components
+
+### Identity with org.ai
+
+Every actor in your system has a verifiable identity. Humans authenticate through org.ai. Agents have their own identities - real email addresses, real GitHub accounts.
+
+```typescript
+import { auth } from 'org.ai'
+
+const user = await auth.verify(request)
+
+// Both humans and agents have identity
+console.log(user.type)   // 'human' or 'agent'
+console.log(user.email)  // real email address
+console.log(user.id)     // unique identifier
+```
+
+When Tom reviews your PR, you see `@tom-do` in the comments. Not "AI Assistant". A real, traceable identity.
+
+### Authorization
+
+Role-based access control that works for humans and agents alike.
+
+```typescript
+// Define what each role can do
+$.authorize({
+  'Customer.read': ['user', 'admin'],
+  'Customer.write': ['admin'],
+  'Order.create': ['user', 'admin'],
+  'Refund.approve': ['finance', 'admin'],
+})
+```
+
+Agents respect the same permission boundaries as humans. Ralph can build your app, but he can't approve refunds unless you grant that permission.
+
+### Vault
+
+Secrets stay secret. The vault stores credentials with encryption and access controls.
+
+```typescript
+// Store a secret
+await $.vault.set('stripe_key', process.env.STRIPE_KEY)
+
+// Retrieve it (only authorized code can access)
+const key = await $.vault.get('stripe_key')
+```
+
+Secrets are never logged, never exposed in stack traces, never sent to LLMs.
+
+## Security by Default
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Zero trust** | Every request verified, every action authorized |
+| **Least privilege** | Agents only get permissions they need |
+| **Audit everything** | Full trail of who did what, when |
+| **Secrets isolation** | Credentials never exposed to unauthorized code |
+| **Identity verification** | Both humans and agents have verifiable identity |
+
+## Common Patterns
+
+### Verify Before Acting
+
+```typescript
+import { auth } from 'org.ai'
+
+export async function handleRequest(request: Request) {
+  const user = await auth.verify(request)
+
+  if (!user) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+
+  // User is verified - proceed
+}
+```
+
+### Permission Checks
+
+```typescript
+$.on.Refund.request(async ($, { amount }) => {
+  // Check permission dynamically
+  if (amount > 10000 && !$.user.hasRole('finance')) {
+    return $.escalate.to('finance', {
+      reason: 'High-value refund requires finance approval',
+    })
+  }
+
+  await processRefund(amount)
+})
+```
+
+### Secure Integrations
+
+```typescript
+// Secrets stay in the vault, not your code
+const stripe = new Stripe(await $.vault.get('stripe_key'))
+
+// External services never see raw credentials in logs
+await stripe.charges.create({
+  amount: 1000,
+  currency: 'usd',
+})
+```
+
+## Audit Trail
+
+Every action is recorded:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "actor": {
+    "type": "agent",
+    "id": "tom-do",
+    "email": "tom@agents.do"
+  },
+  "action": "Customer.update",
+  "resource": "customer_abc123",
+  "result": "success",
+  "metadata": {
+    "ip": "192.168.1.1",
+    "region": "us-east"
+  }
+}
+```
+
+Compliance teams get the paper trail they need. Security teams get the visibility they need.
+
+<Cards>
+  <Card title="Authentication" href="/docs/security/authentication">
+    Identity verification with org.ai for humans and agents.
+  </Card>
+  <Card title="Authorization" href="/docs/security/authorization">
+    Role-based permissions and access control.
+  </Card>
+  <Card title="Vault" href="/docs/security/vault">
+    Secure storage for secrets and credentials.
+  </Card>
+</Cards>

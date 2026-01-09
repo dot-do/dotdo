@@ -1,32 +1,311 @@
 ---
-title: Pipelines
-description: Batch multiple operations into single round-trips
+title: Promise Pipelining
+description: Batch entire call graphs into single network round trips
 ---
 
-# Pipelines
+import { Callout } from 'fumadocs-ui/components/callout'
 
-Pipelines batch multiple independent operations into a single network round-trip.
+# Promise Pipelining
+
+Promise pipelining is the core technique that makes Cap'n Web fast. Instead of waiting for each RPC result before making the next call, you pass unawaited promises directly as arguments. The system batches everything into a single network round trip.
+
+## The Mental Model
+
+Think of a pipeline as a recipe you're sending to a chef:
+
+**Without pipelining (ordering one dish at a time):**
+1. "Make me a salad" - wait for salad
+2. "Now make soup with those croutons" - wait for soup
+3. "Now plate both" - wait for plate
+
+**With pipelining (sending the whole recipe):**
+1. "Make a salad. Then use those croutons for soup. Then plate both."
+2. Chef does everything, sends you the final plate
+
+The chef (server) has all the intermediate ingredients (values). Why send them back to you just so you can hand them back?
+
+## Building Pipelines
+
+Pipelines form automatically when you pass RpcPromises to other calls:
 
 ```typescript
-// These three calls are batched automatically:
-const [user, posts, settings] = await Promise.all([rpc.getUser('alice'), rpc.getPosts({ limit: 10 }), rpc.getSettings()])
+// Each call returns an RpcPromise
+const spec = priya`define the MVP`          // RpcPromise<Spec>
+const app = ralph`build ${spec}`             // RpcPromise<App>
+const deployed = tom`ship ${app}`            // RpcPromise<Deployment>
+
+// Nothing has executed yet - we've built a graph
+// This await flushes the pipeline
+const result = await deployed
 ```
 
-## Promise Pipelining
+The variable `spec` isn't the specification—it's a **promise** of a specification. When you pass it to Ralph, you're saying "when you have the spec, use it to build." The system understands this dependency.
 
-When you chain calls, the server can start processing the next step before sending the previous result back:
+### Dependency Graph
+
+The code above creates this graph:
+
+```
+┌─────────────────┐
+│  priya(prompt)  │
+└────────┬────────┘
+         │ spec
+         ▼
+┌─────────────────┐
+│  ralph(spec)    │
+└────────┬────────┘
+         │ app
+         ▼
+┌─────────────────┐
+│  tom(app)       │
+└────────┬────────┘
+         │ deployed
+         ▼
+      [return]
+```
+
+This entire graph is serialized and sent in one request. The server walks the graph, executing each node and passing results to dependents.
+
+## Parallel Branches
+
+Pipelines aren't just linear chains. Independent calls execute in parallel:
 
 ```typescript
-// Server processes getUser, then immediately processes getPosts
-// without sending user data back first
-const posts = await rpc.getUser('alice').getPosts()
+// These three are independent - they run in parallel
+const spec = priya`define the MVP`
+const marketing = mark`draft launch plan`
+const sales = sally`identify first prospects`
+
+// Ralph depends on spec, but runs in parallel with mark/sally
+const app = ralph`build ${spec}`
+
+// Tom needs all four
+const launch = await tom`coordinate launch: ${app}, ${marketing}, ${sales}`
 ```
 
-## Batching Independent Calls
+Graph visualization:
 
-Use `Promise.all` to batch independent operations:
+```
+                    ┌─────────────┐
+              ┌─────│   priya()   │
+              │     └──────┬──────┘
+              │            │
+              │     ┌──────▼──────┐
+              │     │   ralph()   │
+              │     └──────┬──────┘
+              │            │
+┌─────────────┼────────────┼─────────────┐
+│             │            │             │
+▼             ▼            ▼             ▼
+        ┌──────────┐  ┌──────────┐
+        │  mark()  │  │  sally() │
+        └────┬─────┘  └────┬─────┘
+             │             │
+             └──────┬──────┘
+                    │
+             ┌──────▼──────┐
+             │    tom()    │
+             └─────────────┘
+```
+
+The server executes priya, mark, and sally in parallel. Ralph waits for priya. Tom waits for all four.
+
+<Callout type="info" title="Automatic Parallelization">
+You don't need to specify parallel execution. The system infers it from the dependency graph. Independent nodes run concurrently.
+</Callout>
+
+## Batching at Await
+
+Pipelines flush when you `await`:
 
 ```typescript
-// Single round-trip for all three
-const [a, b, c] = await Promise.all([rpc.operationA(), rpc.operationB(), rpc.operationC()])
+const a = priya`task A`
+const b = ralph`task B`
+const c = tom`task C using ${a}`
+
+// All three batch together here
+const resultC = await c
+// a and b have also resolved (they were part of the batch)
 ```
+
+Even if you await just `c`, all pending calls (`a`, `b`, and `c`) are sent together. The server executes them, and all results are cached locally.
+
+```typescript
+// These are already resolved - no network call
+const resultA = await a  // Instant
+const resultB = await b  // Instant
+```
+
+## Multiple Awaits, Multiple Batches
+
+Each `await` potentially creates a new batch:
+
+```typescript
+// Batch 1
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const result1 = await app  // Sends batch 1
+
+// Batch 2 (new calls after first await)
+const feedback = quinn`test ${result1}`
+const improved = ralph`improve ${result1} based on ${feedback}`
+const result2 = await improved  // Sends batch 2
+```
+
+This is still more efficient than awaiting every call, but you've introduced an unnecessary round trip. Better:
+
+```typescript
+// Single batch - pass RpcPromises, not resolved values
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const feedback = quinn`test ${app}`        // app is RpcPromise
+const improved = ralph`improve ${app} based on ${feedback}`
+const result = await improved  // ONE round trip
+```
+
+<Callout type="error" title="Premature Await Breaks Pipelining">
+When you `await` and then use the result in a new call, you've created two batches. Pass the RpcPromise directly to keep everything in one batch.
+</Callout>
+
+## Composing Pipelines
+
+Functions that return RpcPromises can be composed:
+
+```typescript
+function buildAndTest(hypothesis: string) {
+  const spec = priya`define MVP for ${hypothesis}`
+  const app = ralph`build ${spec}`
+  const tested = quinn`test ${app}`
+  return tested  // Return RpcPromise, don't await
+}
+
+function shipAndAnnounce(app: RpcPromise<App>) {
+  const deployed = tom`ship ${app}`
+  const announced = mark`announce ${deployed}`
+  return announced  // Return RpcPromise
+}
+
+// Compose them - still one round trip!
+const tested = buildAndTest('AI-powered todo list')
+const launched = shipAndAnnounce(tested)
+const result = await launched  // Everything executes here
+```
+
+The key is returning RpcPromises instead of awaiting. This lets callers compose pipelines without forcing batch boundaries.
+
+## Error Handling in Pipelines
+
+Errors propagate through the pipeline:
+
+```typescript
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`           // What if this fails?
+const deployed = tom`ship ${app}`
+
+try {
+  await deployed
+} catch (error) {
+  // Error includes the full pipeline context
+  console.log(error.pipelineStep)  // 'ralph'
+  console.log(error.message)       // 'Build failed: missing dependency'
+}
+```
+
+If Ralph fails, Tom never executes. The server returns an error response with context about where the pipeline broke.
+
+### Partial Results
+
+For pipelines with independent branches, you can get partial results:
+
+```typescript
+const spec = priya`define the MVP`
+const marketing = mark`draft launch plan`
+const app = ralph`build ${spec}`  // This might fail
+
+const results = await Promise.allSettled([app, marketing])
+
+// marketing succeeded even if app failed
+if (results[1].status === 'fulfilled') {
+  console.log('Marketing ready:', results[1].value)
+}
+```
+
+## Pipeline Inspection
+
+For debugging, you can inspect the pipeline before execution:
+
+```typescript
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const deployed = tom`ship ${app}`
+
+// Get the pipeline graph without executing
+console.log(deployed._pipeline)
+// {
+//   nodes: [
+//     { id: 0, agent: 'priya', prompt: 'define the MVP' },
+//     { id: 1, agent: 'ralph', prompt: 'build', deps: [0] },
+//     { id: 2, agent: 'tom', prompt: 'ship', deps: [1] }
+//   ],
+//   return: 2
+// }
+```
+
+## Real-World Example: Sprint Planning
+
+Here's a realistic pipeline for planning and executing a sprint:
+
+```typescript
+async function executeSprint(goals: string[]) {
+  // Phase 1: Planning (parallel)
+  const backlog = priya`prioritize ${goals} into sprint backlog`
+  const architecture = tom`design architecture for ${goals}`
+  const testPlan = quinn`create test plan for ${goals}`
+
+  // Phase 2: Implementation (sequential, depends on planning)
+  const implementation = ralph`implement ${backlog} following ${architecture}`
+
+  // Phase 3: Quality (parallel, depends on implementation)
+  const reviewed = tom`review ${implementation}`
+  const tested = quinn`execute ${testPlan} against ${implementation}`
+
+  // Phase 4: Ship (depends on quality)
+  const shipped = tom`ship ${reviewed} after ${tested} passes`
+
+  // ONE round trip for the entire sprint
+  return await shipped
+}
+```
+
+All the dependency relationships are explicit in the code. The server figures out what can run in parallel and what must be sequential.
+
+## Performance Tips
+
+1. **Return RpcPromises from functions** - Don't await inside helper functions unless you need the value for local logic.
+
+2. **Pass RpcPromises as arguments** - When calling another function that will make RPC calls, pass the promise, not the resolved value.
+
+3. **Await once at the end** - Build your entire pipeline, then await the final result.
+
+4. **Use Promise.all for parallel final results** - If you need multiple independent results:
+   ```typescript
+   const [users, posts, settings] = await Promise.all([
+     getUsers(),
+     getPosts(),
+     getSettings()
+   ])
+   ```
+
+5. **Profile your pipelines** - Use `._pipeline` to verify your code creates the graph you expect.
+
+## Summary
+
+| Do | Don't |
+|----|-------|
+| `ralph\`build ${spec}\`` (spec is RpcPromise) | `ralph\`build ${await spec}\`` |
+| Return RpcPromise from functions | Await inside every function |
+| Await once at the end | Await after every call |
+| Pass RpcPromises to other functions | Pass resolved values between functions |
+| Trust the dependency graph | Manually sequence with awaits |
+
+Pipeline by default. Await only when you must.

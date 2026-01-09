@@ -1,0 +1,603 @@
+---
+title: Events
+description: Subscribe to and emit domain events with $.on and $.emit
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Events
+
+Domain events are the backbone of reactive workflows in dotdo. Subscribe to any `Noun.verb` combination, emit events to trigger handlers, and build loosely-coupled systems that respond to business changes.
+
+```typescript
+// Subscribe - infinite Noun.verb combinations
+$.on.Customer.signup(handler)
+$.on.Payment.failed(handler)
+$.on.Order.shipped(handler)
+
+// Emit - trigger handlers across the system
+$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+```
+
+## The Two-Level Proxy Pattern
+
+The event DSL uses JavaScript's Proxy to enable dynamic property access. No class definitions, no schema files - just write the event name you want.
+
+```typescript
+// First Proxy: $.on returns an object where any property access returns another Proxy
+const customerProxy = $.on.Customer  // Proxy for Customer noun
+
+// Second Proxy: That Proxy returns a function for any verb
+const signupHandler = customerProxy.signup  // Function that accepts handler
+
+// Call it to register
+signupHandler(async (event) => {
+  console.log(event.data.email)
+})
+```
+
+This pattern means you can subscribe to **any** Noun.verb combination:
+
+```typescript
+$.on.Invoice.paid(handler)
+$.on.Inventory.low(handler)
+$.on.Report.generated(handler)
+$.on.Subscription.cancelled(handler)
+$.on.Deployment.completed(handler)
+$.on.AnyNoun.anyVerb(handler)  // Literally anything works
+```
+
+## Subscribing to Events
+
+### Basic Subscription
+
+Register a handler function that executes when matching events occur:
+
+```typescript
+$.on.Customer.created(async (event) => {
+  // event contains full context
+  const { id, verb, source, data, timestamp } = event
+
+  await sendWelcomeEmail(data.email)
+  await createOnboardingTasks(data.id)
+})
+
+$.on.Order.placed(async (event) => {
+  await notifyWarehouse(event.data)
+  await updateInventory(event.data.items)
+})
+
+$.on.Invoice.overdue(async (event) => {
+  await sendReminderEmail(event.data.customerEmail)
+  await escalateToCollections(event.data)
+})
+```
+
+### Multiple Handlers
+
+Register multiple handlers for the same event. All handlers execute (order determined by priority).
+
+```typescript
+// Analytics handler
+$.on.Payment.completed(async (event) => {
+  await trackRevenue(event.data.amount)
+})
+
+// Notification handler
+$.on.Payment.completed(async (event) => {
+  await sendReceipt(event.data.customerEmail, event.data)
+})
+
+// Fulfillment handler
+$.on.Payment.completed(async (event) => {
+  await startOrderFulfillment(event.data.orderId)
+})
+```
+
+### Wildcards
+
+Match patterns across nouns or verbs:
+
+```typescript
+// All 'created' events for any noun
+$.on['*'].created(async (event) => {
+  await logCreation(event.source, event.data)
+})
+
+// All events for Customer noun
+$.on.Customer['*'](async (event) => {
+  await trackCustomerActivity(event.verb, event.data)
+})
+
+// Global handler - ALL events
+$.on['*']['*'](async (event) => {
+  await auditLog(event)
+})
+```
+
+<Callout type="info">
+Wildcard handlers execute **after** specific handlers by default. Use `priority` option to change this.
+</Callout>
+
+## Handler Options
+
+Fine-tune handler behavior with the options parameter:
+
+```typescript
+$.on.Order.placed(
+  async (event) => {
+    await processHighValueOrder(event.data)
+  },
+  {
+    priority: 10,                          // Higher = runs first
+    filter: (e) => e.data.total > 1000,    // Only high-value orders
+    name: 'high-value-orders',             // For debugging
+    maxRetries: 5                          // DLQ retry attempts
+  }
+)
+```
+
+### HandlerOptions
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `priority` | `number` | 0 | Execution order (higher runs first) |
+| `filter` | `(event) => boolean` | - | Skip handler if returns false |
+| `name` | `string` | auto | Handler identifier for debugging |
+| `maxRetries` | `number` | 3 | Max DLQ retry attempts on failure |
+
+### Priority Ordering
+
+Handlers execute in priority order. Same priority maintains registration order.
+
+```typescript
+// Runs third (priority 0 - default)
+$.on.Event.occurred(async (e) => console.log('default'))
+
+// Runs first (priority 100)
+$.on.Event.occurred(async (e) => console.log('high'), { priority: 100 })
+
+// Runs second (priority 50)
+$.on.Event.occurred(async (e) => console.log('medium'), { priority: 50 })
+
+// Runs last (negative priority)
+$.on.Event.occurred(async (e) => console.log('cleanup'), { priority: -10 })
+```
+
+### Filtering Events
+
+Skip handler execution based on event data:
+
+```typescript
+// Only VIP customers
+$.on.Customer.created(
+  async (event) => {
+    await sendVIPWelcome(event.data)
+  },
+  {
+    filter: (e) => e.data.tier === 'vip'
+  }
+)
+
+// Only large orders
+$.on.Order.placed(
+  async (event) => {
+    await alertSalesTeam(event.data)
+  },
+  {
+    filter: (e) => e.data.total > 10000
+  }
+)
+
+// Async filters supported
+$.on.Request.submitted(
+  async (event) => {
+    await processApprovedRequest(event.data)
+  },
+  {
+    filter: async (e) => {
+      return await checkApprovalStatus(e.data.id)
+    }
+  }
+)
+```
+
+## Event Interface
+
+Every event includes full context:
+
+```typescript
+interface DomainEvent<TData = unknown> {
+  /** Unique event identifier */
+  id: string
+
+  /** The action/verb that occurred */
+  verb: string
+
+  /** URL of the source entity */
+  source: string
+
+  /** Event payload data */
+  data: TData
+
+  /** Related action ID (if from $.do) */
+  actionId?: string
+
+  /** When the event occurred */
+  timestamp: Date
+}
+```
+
+### Accessing Event Properties
+
+```typescript
+$.on.Customer.upgraded(async (event) => {
+  // All properties available
+  console.log(`Event ${event.id}`)
+  console.log(`Action: ${event.verb}`)
+  console.log(`Source: ${event.source}`)
+  console.log(`Time: ${event.timestamp}`)
+  console.log(`Data: ${JSON.stringify(event.data)}`)
+
+  // Type-safe data access (with typed events)
+  const { customerId, newPlan } = event.data
+})
+```
+
+## Emitting Events
+
+Trigger events that invoke registered handlers:
+
+```typescript
+// Basic emit
+$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+
+// After processing
+async function processOrder(order: Order) {
+  await saveOrder(order)
+  $.emit.Order.placed({
+    orderId: order.id,
+    customerId: order.customerId,
+    items: order.items,
+    total: order.total
+  })
+}
+
+// Status changes
+async function shipOrder(orderId: string, trackingNumber: string) {
+  await updateOrderStatus(orderId, 'shipped')
+  $.emit.Order.shipped({
+    orderId,
+    trackingNumber,
+    shippedAt: new Date()
+  })
+}
+```
+
+### Emit vs Send
+
+Both emit events, but with different guarantees:
+
+| Method | Blocking | Durable | Use Case |
+|--------|----------|---------|----------|
+| `$.emit` | Yes | Yes | Domain events that must be processed |
+| `$.send` | No | No | Analytics, logging, fire-and-forget |
+
+```typescript
+// $.emit - await confirmation, handlers guaranteed to run
+await $.emit.Payment.completed({ amount: 100 })
+
+// $.send - fire and forget, don't wait
+$.send('analytics.pageview', { path: '/checkout' })
+```
+
+## Typed Events
+
+Extend `EventPayloadMap` for compile-time type safety:
+
+```typescript
+// In your domain types file:
+declare module '@dotdo/types' {
+  interface EventPayloadMap {
+    'Customer.created': {
+      id: string
+      email: string
+      name: string
+    }
+    'Order.paid': {
+      orderId: string
+      amount: number
+      currency: string
+    }
+    'Invoice.sent': {
+      invoiceId: string
+      recipientEmail: string
+    }
+  }
+}
+
+// Now handlers are typed:
+$.on.Customer.created(async (event) => {
+  // event.data is { id: string; email: string; name: string }
+  const { id, email, name } = event.data
+  await createProfile(id, { email, name })
+})
+
+$.on.Order.paid(async (event) => {
+  // event.data is { orderId: string; amount: number; currency: string }
+  await recordRevenue(event.data.amount, event.data.currency)
+})
+```
+
+### TypedEventHandler
+
+For reusable handlers with explicit types:
+
+```typescript
+import type { TypedEventHandler, TypedDomainEvent } from '@dotdo/types'
+
+interface OrderShippedPayload {
+  orderId: string
+  trackingNumber: string
+  carrier: string
+}
+
+// Explicitly typed handler
+const handleOrderShipped: TypedEventHandler<OrderShippedPayload> = async (event) => {
+  const { orderId, trackingNumber, carrier } = event.data
+  await sendShippingNotification(orderId, trackingNumber, carrier)
+}
+
+$.on.Order.shipped(handleOrderShipped)
+```
+
+### Type Guards
+
+Validate event payloads at runtime:
+
+```typescript
+import { isTypedEvent, assertEventPayload } from '@dotdo/types'
+
+$.on['*']['*'](async (event) => {
+  // Type guard
+  if (isTypedEvent<CustomerCreatedPayload>(
+    event,
+    (data): data is CustomerCreatedPayload => 'customerId' in data
+  )) {
+    // event.data is typed as CustomerCreatedPayload
+    await handleCustomer(event.data.customerId)
+  }
+
+  // Assertion (use when you're certain)
+  const typedEvent = assertEventPayload<OrderPayload>(event)
+  await processOrder(typedEvent.data.orderId)
+})
+```
+
+## Error Handling
+
+Handler errors are isolated - one failure doesn't stop other handlers.
+
+```typescript
+// If this handler throws...
+$.on.Order.placed(async (event) => {
+  throw new Error('Payment processing failed')
+})
+
+// ...this handler still executes
+$.on.Order.placed(async (event) => {
+  await notifyWarehouse(event.data)  // Still runs!
+})
+```
+
+### DLQ Integration
+
+Failed handlers are automatically sent to the Dead Letter Queue for retry:
+
+```typescript
+$.on.Payment.failed(
+  async (event) => {
+    await retryPayment(event.data)  // Might fail
+  },
+  {
+    maxRetries: 5,  // Retry up to 5 times
+    name: 'payment-retry-handler'
+  }
+)
+
+// Access DLQ entries
+const failedEvents = await doInstance.dlq.list({ verb: 'Payment.failed' })
+for (const entry of failedEvents) {
+  console.log(`Failed: ${entry.verb}, retries: ${entry.retryCount}`)
+  await doInstance.dlq.replay(entry.id)  // Manual retry
+}
+```
+
+### Dispatch Result
+
+Event dispatch returns execution metadata:
+
+```typescript
+interface EnhancedDispatchResult {
+  /** Handlers that executed successfully */
+  handled: number
+
+  /** Errors from failed handlers */
+  errors: Error[]
+
+  /** DLQ entry IDs for failed handlers */
+  dlqEntries: string[]
+
+  /** Handlers skipped by filter */
+  filtered: number
+
+  /** Wildcard handler matches */
+  wildcardMatches: number
+}
+```
+
+## Handler Metadata
+
+Track handler registrations and execution:
+
+```typescript
+// Named handler for tracking
+$.on.Task.completed(
+  async (event) => {
+    await closeTask(event.data.taskId)
+  },
+  { name: 'task-closer' }
+)
+
+// Access metadata (on DO instance)
+const metadata = doInstance.getHandlerMetadata('Task.completed', 'task-closer')
+console.log(metadata)
+// {
+//   name: 'task-closer',
+//   priority: 0,
+//   registeredAt: 1699999999999,
+//   sourceNs: 'TaskManager/123',
+//   executionCount: 42,
+//   successCount: 40,
+//   failureCount: 2,
+//   lastExecutedAt: 1700000000000
+// }
+
+// List all handlers
+const allHandlers = doInstance.listAllHandlers()
+// Map<string, HandlerRegistration[]>
+```
+
+### HandlerRegistration
+
+```typescript
+interface HandlerRegistration {
+  /** Handler name */
+  name: string
+
+  /** Execution priority */
+  priority: number
+
+  /** Registration timestamp (epoch ms) */
+  registeredAt: number
+
+  /** Source DO namespace */
+  sourceNs: string
+
+  /** The handler function */
+  handler: EventHandler
+
+  /** Filter predicate */
+  filter?: EventFilter
+
+  /** Max DLQ retries */
+  maxRetries: number
+
+  /** Last execution time */
+  lastExecutedAt?: number
+
+  /** Total executions */
+  executionCount: number
+
+  /** Successful executions */
+  successCount: number
+
+  /** Failed executions */
+  failureCount: number
+}
+```
+
+## Unregistering Handlers
+
+Remove handlers when no longer needed:
+
+```typescript
+const handler = async (event) => {
+  await processEvent(event)
+}
+
+// Register
+$.on.Subscription.cancelled(handler)
+
+// Later, unregister
+doInstance.unregisterEventHandler('Subscription.cancelled', handler)
+```
+
+## Best Practices
+
+### Use Descriptive Nouns and Verbs
+
+```typescript
+// Good - clear domain language
+$.on.Customer.upgraded(handler)
+$.on.Invoice.overdue(handler)
+$.on.Inventory.depleted(handler)
+
+// Avoid - too generic
+$.on.Thing.happened(handler)
+$.on.Data.changed(handler)
+```
+
+### Keep Handlers Focused
+
+```typescript
+// Good - single responsibility
+$.on.Order.placed(async (e) => await notifyWarehouse(e.data))
+$.on.Order.placed(async (e) => await updateInventory(e.data))
+$.on.Order.placed(async (e) => await sendConfirmation(e.data))
+
+// Avoid - doing too much
+$.on.Order.placed(async (e) => {
+  await notifyWarehouse(e.data)
+  await updateInventory(e.data)
+  await sendConfirmation(e.data)
+  await updateReports(e.data)
+  await syncWithERP(e.data)
+})
+```
+
+### Use Priorities for Dependencies
+
+```typescript
+// Validation must run first
+$.on.Order.placed(
+  async (e) => {
+    if (!isValid(e.data)) throw new Error('Invalid order')
+  },
+  { priority: 100, name: 'validation' }
+)
+
+// Processing runs after validation
+$.on.Order.placed(
+  async (e) => await processOrder(e.data),
+  { priority: 50, name: 'processing' }
+)
+
+// Notifications run last
+$.on.Order.placed(
+  async (e) => await sendNotifications(e.data),
+  { priority: -10, name: 'notifications' }
+)
+```
+
+### Filter Early
+
+```typescript
+// Good - filter prevents handler from running
+$.on.Order.placed(
+  async (e) => await processVIPOrder(e.data),
+  { filter: (e) => e.data.customerTier === 'vip' }
+)
+
+// Avoid - checking inside handler
+$.on.Order.placed(async (e) => {
+  if (e.data.customerTier !== 'vip') return
+  await processVIPOrder(e.data)
+})
+```
+
+## Related
+
+- [Concepts: Events](/docs/concepts/events) - 5W+H event model
+- [WorkflowContext](/docs/sdk/workflow-context) - The $ proxy
+- [RPC Pipelines](/docs/rpc/pipelines) - Cross-DO communication

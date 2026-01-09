@@ -1,0 +1,518 @@
+---
+title: generate
+description: Generate agents, entities, and project scaffolding
+---
+
+# dotdo generate
+
+Generate boilerplate code for agents, entities, and other project components. Save time, follow conventions.
+
+## Usage
+
+```bash
+npx dotdo generate <type> <name> [options]
+```
+
+## Types
+
+| Type | Description |
+|------|-------------|
+| `agent` | Generate a custom AI agent |
+| `entity` | Generate a Durable Object entity |
+| `workflow` | Generate a workflow handler |
+| `event` | Generate an event handler |
+
+## Generate Agent
+
+Create a custom AI agent with role-specific configuration.
+
+### Usage
+
+```bash
+npx dotdo generate agent <name> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--role <role>` | Agent's role description | Based on name |
+| `--model <model>` | Default model to use | `claude-3-sonnet` |
+| `--dir <path>` | Output directory | `src/agents` |
+
+### Example
+
+```bash
+npx dotdo generate agent sales-rep --role "Handles customer outreach and demo scheduling"
+```
+
+Output:
+
+```
+Generated agent: sales-rep
+
+  Created src/agents/sales-rep.ts
+  Updated src/agents/index.ts
+
+Next steps:
+  1. Edit src/agents/sales-rep.ts to customize behavior
+  2. Import in your startup: import { salesRep } from './agents'
+```
+
+### Generated Code
+
+```typescript title="src/agents/sales-rep.ts"
+import { Agent } from 'dotdo'
+
+export const salesRep = new Agent({
+  name: 'sales-rep',
+  role: 'Handles customer outreach and demo scheduling',
+  model: 'claude-3-sonnet',
+
+  // System prompt defining the agent's personality and constraints
+  system: `You are a sales representative for a startup.
+Your responsibilities:
+- Respond to inbound leads
+- Schedule product demos
+- Follow up with prospects
+- Track deal progress
+
+Communication style:
+- Professional but friendly
+- Concise and clear
+- Focus on customer needs
+- Never be pushy`,
+
+  // Tools this agent can use
+  tools: [
+    'calendar.schedule',
+    'crm.createLead',
+    'crm.updateDeal',
+    'email.send',
+  ],
+
+  // When to escalate to humans
+  escalation: {
+    trigger: 'deal_value > $50000',
+    to: 'sales-manager',
+    sla: '4 hours',
+  },
+})
+```
+
+### Using the Agent
+
+```typescript title="src/startup.ts"
+import { Startup } from 'dotdo'
+import { salesRep } from './agents'
+
+export class MyStartup extends Startup {
+  async handleLead(lead: Lead) {
+    await salesRep`qualify and respond to ${lead}`
+  }
+}
+```
+
+## Generate Entity
+
+Create a Durable Object entity with typed state and methods.
+
+### Usage
+
+```bash
+npx dotdo generate entity <name> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--fields <fields>` | Comma-separated field definitions | - |
+| `--dir <path>` | Output directory | `src/entities` |
+
+### Example
+
+```bash
+npx dotdo generate entity Customer --fields "name:string,email:string,plan:string,createdAt:Date"
+```
+
+Output:
+
+```
+Generated entity: Customer
+
+  Created src/entities/customer.ts
+  Updated src/entities/index.ts
+  Updated wrangler.toml
+
+Next steps:
+  1. Edit src/entities/customer.ts to add methods
+  2. Run npx dotdo dev to test
+```
+
+### Generated Code
+
+```typescript title="src/entities/customer.ts"
+import { Entity } from 'dotdo'
+
+interface CustomerState {
+  name: string
+  email: string
+  plan: string
+  createdAt: Date
+}
+
+export class Customer extends Entity<CustomerState> {
+  // Default state for new customers
+  static defaults: CustomerState = {
+    name: '',
+    email: '',
+    plan: 'free',
+    createdAt: new Date(),
+  }
+
+  // Actions
+  async updatePlan(plan: string) {
+    this.state.plan = plan
+    await this.save()
+    $.emit.Customer.planChanged({ id: this.id, plan })
+  }
+
+  async getProfile() {
+    return {
+      id: this.id,
+      name: this.state.name,
+      email: this.state.email,
+      plan: this.state.plan,
+      memberSince: this.state.createdAt,
+    }
+  }
+
+  // Event handlers
+  static events = {
+    'Customer.signup': async (event, ctx) => {
+      const customer = await ctx.Customer(event.id)
+      await customer.sendWelcomeEmail()
+    },
+  }
+
+  private async sendWelcomeEmail() {
+    // Implementation
+  }
+}
+```
+
+### Auto-Updated wrangler.toml
+
+```toml title="wrangler.toml"
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" }
+]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
+```
+
+## Generate Workflow
+
+Create a durable workflow with retry logic.
+
+### Usage
+
+```bash
+npx dotdo generate workflow <name> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--steps <steps>` | Comma-separated step names | - |
+| `--dir <path>` | Output directory | `src/workflows` |
+
+### Example
+
+```bash
+npx dotdo generate workflow onboarding --steps "createAccount,sendWelcome,scheduleDemo"
+```
+
+Output:
+
+```
+Generated workflow: onboarding
+
+  Created src/workflows/onboarding.ts
+  Updated src/workflows/index.ts
+```
+
+### Generated Code
+
+```typescript title="src/workflows/onboarding.ts"
+import { Workflow } from 'dotdo'
+
+export const onboardingWorkflow = new Workflow({
+  name: 'onboarding',
+
+  steps: {
+    createAccount: {
+      handler: async (ctx, input) => {
+        const { email, name } = input
+        const customer = await $.Customer.create({ email, name })
+        return { customerId: customer.id }
+      },
+      retry: { maxAttempts: 3, backoff: 'exponential' },
+    },
+
+    sendWelcome: {
+      handler: async (ctx, { customerId }) => {
+        const customer = await $.Customer(customerId)
+        await customer.sendWelcomeEmail()
+        return { emailSent: true }
+      },
+      retry: { maxAttempts: 3, backoff: 'exponential' },
+    },
+
+    scheduleDemo: {
+      handler: async (ctx, { customerId }) => {
+        const customer = await $.Customer(customerId)
+        const demo = await $.Calendar.scheduleDemoFor(customer)
+        return { demoId: demo.id, scheduledFor: demo.time }
+      },
+      retry: { maxAttempts: 3, backoff: 'exponential' },
+    },
+  },
+
+  // Run steps sequentially by default
+  flow: ['createAccount', 'sendWelcome', 'scheduleDemo'],
+})
+```
+
+### Using the Workflow
+
+```typescript
+import { onboardingWorkflow } from './workflows'
+
+// Start the workflow
+const run = await onboardingWorkflow.start({
+  email: 'alice@example.com',
+  name: 'Alice',
+})
+
+// Check status
+const status = await run.status()
+// { step: 'sendWelcome', progress: 2/3, ... }
+
+// Wait for completion
+const result = await run.result()
+// { customerId: '...', emailSent: true, demoId: '...', scheduledFor: '...' }
+```
+
+## Generate Event
+
+Create an event handler for the `$.on` pattern.
+
+### Usage
+
+```bash
+npx dotdo generate event <Noun.verb> [options]
+```
+
+### Example
+
+```bash
+npx dotdo generate event Payment.failed
+```
+
+Output:
+
+```
+Generated event handler: Payment.failed
+
+  Created src/events/payment-failed.ts
+  Updated src/events/index.ts
+```
+
+### Generated Code
+
+```typescript title="src/events/payment-failed.ts"
+import { EventHandler } from 'dotdo'
+
+export const onPaymentFailed: EventHandler<'Payment.failed'> = {
+  event: 'Payment.failed',
+
+  handler: async (event, ctx) => {
+    const { customerId, amount, reason } = event
+
+    // Get the customer
+    const customer = await ctx.Customer(customerId)
+
+    // Notify the customer
+    await customer.notify({
+      subject: 'Payment failed',
+      body: `Your payment of $${amount} failed: ${reason}`,
+    })
+
+    // Log for analytics
+    await ctx.Analytics.track('payment_failed', {
+      customerId,
+      amount,
+      reason,
+    })
+
+    // Escalate if large amount
+    if (amount > 1000) {
+      await ctx.escalate({
+        to: 'finance-team',
+        priority: 'high',
+        context: event,
+      })
+    }
+  },
+
+  // Retry configuration
+  retry: {
+    maxAttempts: 3,
+    backoff: 'exponential',
+  },
+}
+```
+
+### Register the Handler
+
+```typescript title="src/startup.ts"
+import { onPaymentFailed } from './events'
+
+export class MyStartup extends Startup {
+  async init() {
+    $.on.Payment.failed(onPaymentFailed.handler)
+  }
+}
+```
+
+## Batch Generation
+
+Generate multiple items at once:
+
+```bash
+# Generate common entities
+npx dotdo generate entity Customer --fields "name:string,email:string"
+npx dotdo generate entity Order --fields "customerId:string,total:number,status:string"
+npx dotdo generate entity Product --fields "name:string,price:number,stock:number"
+
+# Generate agents for a team
+npx dotdo generate agent support --role "Customer support specialist"
+npx dotdo generate agent analyst --role "Data analyst for business insights"
+```
+
+## Templates
+
+### List Available Templates
+
+```bash
+npx dotdo generate --list-templates
+```
+
+Output:
+
+```
+Available templates:
+
+Agents:
+  sales       - Sales representative
+  support     - Customer support
+  marketing   - Marketing specialist
+  analyst     - Data analyst
+
+Entities:
+  user        - User account
+  customer    - Customer profile
+  order       - E-commerce order
+  product     - Product catalog
+
+Workflows:
+  onboarding  - Customer onboarding
+  checkout    - E-commerce checkout
+  approval    - Multi-step approval
+```
+
+### Use a Template
+
+```bash
+npx dotdo generate agent --template sales
+npx dotdo generate entity --template customer
+npx dotdo generate workflow --template onboarding
+```
+
+## Configuration
+
+### Custom Templates
+
+Create your own templates in `.dotdo/templates/`:
+
+```
+.dotdo/
+  templates/
+    agent/
+      custom-agent.ts.hbs
+    entity/
+      custom-entity.ts.hbs
+```
+
+Template format (Handlebars):
+
+```handlebars title=".dotdo/templates/agent/custom-agent.ts.hbs"
+import { Agent } from 'dotdo'
+
+export const {{camelCase name}} = new Agent({
+  name: '{{kebabCase name}}',
+  role: '{{role}}',
+  model: '{{model}}',
+  system: `{{system}}`,
+})
+```
+
+Use your template:
+
+```bash
+npx dotdo generate agent my-agent --template custom-agent
+```
+
+## Troubleshooting
+
+### "File already exists"
+
+The generator won't overwrite existing files:
+
+```bash
+# Force overwrite
+npx dotdo generate entity Customer --force
+
+# Or rename
+npx dotdo generate entity CustomerV2
+```
+
+### "Unknown type"
+
+Check available types:
+
+```bash
+npx dotdo generate --help
+```
+
+### "Failed to update wrangler.toml"
+
+Ensure your `wrangler.toml` is valid:
+
+```bash
+# Validate config
+npx wrangler deploy --dry-run
+```
+
+## Next Steps
+
+- [Custom Agents](/docs/agents/custom-agents) - Deep dive into agent configuration
+- [Things](/docs/sdk/thing) - Entity types and patterns
+- [Workflow Context](/docs/sdk/workflow-context) - The $ DSL

@@ -16,6 +16,7 @@ The following core types form the foundation of the dotdo SDK:
 - **[Thing](/docs/sdk/thing)** - Base entity type with URL-based identity
 - **[Things](/docs/sdk/things)** - Collection interface for managing Things
 - **[WorkflowContext](/docs/sdk/workflow-context)** - The unified interface for all DO operations
+- **[Events](/docs/sdk/events)** - Domain event subscription and emission via `$.on` and `$.emit`
 
 ## Capabilities
 
@@ -37,4 +38,6 @@ Capability modules provide domain-specific functionality:
 | `ThingData` | Data portion of a Thing |
 | `ThingDO` | Thing promoted to a Durable Object |
 | `WorkflowContext` | Workflow execution context ($) |
+| `DomainEvent` | Event payload with verb, source, data |
+| `EventHandler` | Handler function for domain events |
 | `DOFunction` | Generic function type for DO methods |

@@ -1,0 +1,883 @@
+---
+title: Content Site
+description: Build an AI-powered content site with MDX, automated generation, and SEO optimization in 20 minutes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Build a Content Site in 20 Minutes
+
+MDX pages. AI-generated content. SEO optimization. Mark handles your marketing copy while you focus on strategy.
+
+By the end, you'll have a deployed content site where Mark writes blog posts and the AI keeps your SEO fresh.
+
+---
+
+<Steps>
+
+<Step>
+
+## Create the Project
+
+```bash
+npx dotdo init my-blog --template content
+cd my-blog
+npm install
+```
+
+You get:
+- MDX rendering pipeline
+- Content generation framework
+- SEO utilities
+- Mark configured for your brand voice
+
+</Step>
+
+<Step>
+
+## Configure Environment
+
+```bash title=".env"
+# AI Provider (uses agents.do by default)
+OPENAI_API_KEY=sk-...  # Optional - for custom models
+
+# Analytics (optional)
+PLAUSIBLE_DOMAIN=yourdomain.com
+
+# Search (optional - for content indexing)
+ALGOLIA_APP_ID=...
+ALGOLIA_API_KEY=...
+```
+
+<Callout type="info">
+Most features work without additional API keys. The named agents (`mark`, `priya`, etc.) use agents.do infrastructure.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Define Your Content Strategy
+
+Create `src/content.ts`:
+
+```typescript title="src/content.ts"
+import { Startup } from 'dotdo'
+import { priya, mark, tom } from 'agents.do'
+
+export class MyBlog extends Startup {
+  hypothesis = 'Developers want practical AI tutorials'
+
+  async launch() {
+    // Priya defines the content strategy
+    const strategy = priya`
+      create a content strategy for ${this.hypothesis}
+      include: topics, posting schedule, target keywords
+    `
+
+    // Mark creates the initial content
+    let content = mark`create launch content based on ${strategy}`
+
+    // Tom reviews for quality
+    do {
+      content = mark`improve ${content} per ${tom}`
+    } while (!await tom.approve(content))
+
+    // Publish
+    await this.publishContent(content)
+
+    // Fire-and-forget: announce
+    mark`announce blog launch on social media`
+  }
+
+  async publishContent(content: Content) {
+    for (const post of content.posts) {
+      await $.do('publishPost', post)
+    }
+  }
+}
+```
+
+</Step>
+
+<Step>
+
+## Build the Content Engine
+
+Create `src/engine.ts` for AI-powered content generation:
+
+```typescript title="src/engine.ts"
+import { DO } from 'dotdo'
+import { mark, priya } from 'agents.do'
+
+interface Post {
+  slug: string
+  title: string
+  description: string
+  content: string
+  tags: string[]
+  publishedAt?: Date
+  seoMeta: {
+    title: string
+    description: string
+    keywords: string[]
+  }
+}
+
+export class ContentEngine extends DO {
+  async init() {
+    // Generate new content weekly
+    $.every.monday.at9am(async () => {
+      await this.generateWeeklyContent()
+    })
+
+    // Refresh SEO monthly
+    $.every('first day of month', async () => {
+      await this.refreshSEO()
+    })
+
+    // Track content performance
+    $.on.Post.viewed(async (event) => {
+      const { slug, source } = event.data
+      await this.trackView(slug, source)
+    })
+  }
+
+  async generatePost(topic: string): Promise<Post> {
+    // Mark writes the content
+    const draft = await mark`
+      write a blog post about: ${topic}
+
+      requirements:
+      - practical, tutorial style
+      - include code examples
+      - 1500-2000 words
+      - engaging but not clickbaity
+    `
+
+    // Generate SEO metadata
+    const seo = await this.generateSEO(draft)
+
+    // Create the post
+    const post: Post = {
+      slug: this.slugify(draft.title),
+      title: draft.title,
+      description: draft.summary,
+      content: draft.body,
+      tags: draft.tags ?? [],
+      seoMeta: seo
+    }
+
+    return post
+  }
+
+  async generateSEO(content: { title: string; body: string }) {
+    // Use AI to optimize SEO
+    const seoTitle = await $.ai`
+      write an SEO-optimized title for: ${content.title}
+      max 60 characters, include primary keyword
+    `
+
+    const seoDescription = await $.ai`
+      write a meta description for:
+      ${content.body.slice(0, 500)}
+
+      max 155 characters, include call to action
+    `
+
+    const keywords = await $.list`
+      list 5-10 SEO keywords for this content:
+      ${content.title}
+      ${content.body.slice(0, 1000)}
+    `
+
+    return {
+      title: seoTitle,
+      description: seoDescription,
+      keywords
+    }
+  }
+
+  async publishPost(post: Post) {
+    post.publishedAt = new Date()
+
+    // Store in database - must succeed
+    await $.do('savePost', post)
+
+    // Fire-and-forget: index for search
+    $.send('post.published', { post })
+
+    // Fire-and-forget: social media
+    mark`
+      create social media posts for: ${post.title}
+      platforms: twitter, linkedin
+      include link to ${post.slug}
+    `
+
+    return post
+  }
+
+  async generateWeeklyContent() {
+    // Priya picks topics based on trends and gaps
+    const topics = await priya`
+      suggest 3 blog topics for this week
+      consider:
+      - current trends in AI development
+      - gaps in our existing content
+      - high-search-volume keywords
+    `
+
+    // Generate posts for each topic
+    for (const topic of topics) {
+      const post = await this.generatePost(topic)
+
+      // Draft - don't publish automatically
+      await $.do('saveDraft', post)
+
+      $.log('Draft created', { title: post.title })
+    }
+  }
+
+  async refreshSEO() {
+    // Get all published posts
+    const posts = await $.query('posts', { publishedAt: { $exists: true } })
+
+    for (const post of posts) {
+      // Check if SEO needs refresh (old or underperforming)
+      const performance = await this.getPerformance(post.slug)
+
+      if (performance.views < 100 || performance.ctr < 0.02) {
+        // Refresh SEO metadata
+        const newSeo = await this.generateSEO(post)
+
+        await $.do('updatePost', {
+          slug: post.slug,
+          seoMeta: newSeo
+        })
+
+        $.log('SEO refreshed', { slug: post.slug })
+      }
+    }
+  }
+
+  private async trackView(slug: string, source: string) {
+    await $.do('incrementViews', { slug, source })
+  }
+
+  private async getPerformance(slug: string) {
+    const stats = await $.query('post_stats', { slug })
+    return stats[0] ?? { views: 0, ctr: 0 }
+  }
+
+  private slugify(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+  }
+}
+```
+
+</Step>
+
+<Step>
+
+## Build the MDX Renderer
+
+Create `src/mdx.ts`:
+
+```typescript title="src/mdx.ts"
+import { DO } from 'dotdo'
+
+interface MDXPage {
+  slug: string
+  frontmatter: {
+    title: string
+    description: string
+    publishedAt: string
+    tags: string[]
+  }
+  content: string
+  html?: string
+}
+
+export class MDXRenderer extends DO {
+  async init() {
+    // Re-render on content update
+    $.on.Post.updated(async (event) => {
+      const { slug } = event.data
+      await this.render(slug)
+    })
+  }
+
+  async render(slug: string): Promise<string> {
+    const post = await $.query('posts', { slug }).then(r => r[0])
+
+    if (!post) {
+      throw new Error(`Post ${slug} not found`)
+    }
+
+    // Convert MDX to HTML
+    const html = await this.compileMDX(post.content)
+
+    // Cache the rendered HTML
+    await $.do('cacheRenderedPost', {
+      slug,
+      html,
+      renderedAt: new Date()
+    })
+
+    return html
+  }
+
+  async getPage(slug: string): Promise<MDXPage | null> {
+    const post = await $.query('posts', { slug }).then(r => r[0])
+
+    if (!post) {
+      return null
+    }
+
+    // Check cache first
+    const cached = await $.query('rendered_posts', { slug }).then(r => r[0])
+
+    let html: string
+    if (cached && cached.renderedAt > post.updatedAt) {
+      html = cached.html
+    } else {
+      html = await this.render(slug)
+    }
+
+    return {
+      slug: post.slug,
+      frontmatter: {
+        title: post.title,
+        description: post.description,
+        publishedAt: post.publishedAt,
+        tags: post.tags
+      },
+      content: post.content,
+      html
+    }
+  }
+
+  async listPages(): Promise<Array<{ slug: string; title: string; publishedAt: Date }>> {
+    const posts = await $.query('posts', {
+      publishedAt: { $exists: true }
+    }, {
+      orderBy: 'publishedAt',
+      desc: true
+    })
+
+    return posts.map(p => ({
+      slug: p.slug,
+      title: p.title,
+      publishedAt: p.publishedAt
+    }))
+  }
+
+  private async compileMDX(content: string): Promise<string> {
+    // Use the built-in MDX compiler
+    return await $.do('compileMDX', { content })
+  }
+}
+```
+
+</Step>
+
+<Step>
+
+## Build the API and Pages
+
+Create `src/api.ts`:
+
+```typescript title="src/api.ts"
+import { Hono } from 'hono'
+import { ContentEngine } from './engine'
+import { MDXRenderer } from './mdx'
+
+const app = new Hono()
+
+// Blog listing
+app.get('/blog', async (c) => {
+  const renderer = await MDXRenderer.get('default')
+  const posts = await renderer.listPages()
+
+  // Return JSON for API, or render HTML
+  if (c.req.header('Accept')?.includes('application/json')) {
+    return c.json(posts)
+  }
+
+  return c.html(renderBlogList(posts))
+})
+
+// Individual post
+app.get('/blog/:slug', async (c) => {
+  const renderer = await MDXRenderer.get('default')
+  const page = await renderer.getPage(c.req.param('slug'))
+
+  if (!page) {
+    return c.json({ error: 'Not found' }, 404)
+  }
+
+  // Track view - fire and forget
+  $.send('Post.viewed', {
+    slug: page.slug,
+    source: c.req.header('Referer') ?? 'direct'
+  })
+
+  if (c.req.header('Accept')?.includes('application/json')) {
+    return c.json(page)
+  }
+
+  return c.html(renderPost(page))
+})
+
+// Generate new post (admin)
+app.post('/admin/posts/generate', async (c) => {
+  const { topic } = await c.req.json()
+  const engine = await ContentEngine.get('default')
+  const post = await engine.generatePost(topic)
+  return c.json(post)
+})
+
+// Publish draft (admin)
+app.post('/admin/posts/:slug/publish', async (c) => {
+  const engine = await ContentEngine.get('default')
+  const draft = await $.query('drafts', { slug: c.req.param('slug') }).then(r => r[0])
+
+  if (!draft) {
+    return c.json({ error: 'Draft not found' }, 404)
+  }
+
+  const published = await engine.publishPost(draft)
+  return c.json(published)
+})
+
+// RSS feed
+app.get('/rss.xml', async (c) => {
+  const renderer = await MDXRenderer.get('default')
+  const posts = await renderer.listPages()
+
+  const rss = generateRSS(posts)
+  return c.text(rss, 200, { 'Content-Type': 'application/xml' })
+})
+
+// Sitemap
+app.get('/sitemap.xml', async (c) => {
+  const renderer = await MDXRenderer.get('default')
+  const posts = await renderer.listPages()
+
+  const sitemap = generateSitemap(posts)
+  return c.text(sitemap, 200, { 'Content-Type': 'application/xml' })
+})
+
+// Helper functions
+function renderBlogList(posts: Array<{ slug: string; title: string; publishedAt: Date }>) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Blog</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body>
+      <h1>Blog</h1>
+      <ul>
+        ${posts.map(p => `
+          <li>
+            <a href="/blog/${p.slug}">${p.title}</a>
+            <time>${p.publishedAt.toLocaleDateString()}</time>
+          </li>
+        `).join('')}
+      </ul>
+    </body>
+    </html>
+  `
+}
+
+function renderPost(page: MDXPage) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${page.frontmatter.title}</title>
+      <meta name="description" content="${page.frontmatter.description}">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body>
+      <article>
+        <h1>${page.frontmatter.title}</h1>
+        <time>${new Date(page.frontmatter.publishedAt).toLocaleDateString()}</time>
+        <div class="tags">
+          ${page.frontmatter.tags.map(t => `<span class="tag">${t}</span>`).join('')}
+        </div>
+        <div class="content">
+          ${page.html}
+        </div>
+      </article>
+    </body>
+    </html>
+  `
+}
+
+function generateRSS(posts: Array<{ slug: string; title: string; publishedAt: Date }>) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>My Blog</title>
+    <link>https://yourdomain.com/blog</link>
+    <description>AI tutorials and insights</description>
+    ${posts.slice(0, 20).map(p => `
+    <item>
+      <title>${p.title}</title>
+      <link>https://yourdomain.com/blog/${p.slug}</link>
+      <pubDate>${p.publishedAt.toUTCString()}</pubDate>
+    </item>
+    `).join('')}
+  </channel>
+</rss>`
+}
+
+function generateSitemap(posts: Array<{ slug: string; publishedAt: Date }>) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://yourdomain.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://yourdomain.com/blog</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  ${posts.map(p => `
+  <url>
+    <loc>https://yourdomain.com/blog/${p.slug}</loc>
+    <lastmod>${p.publishedAt.toISOString().split('T')[0]}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  `).join('')}
+</urlset>`
+}
+
+export default app
+```
+
+</Step>
+
+<Step>
+
+## Add Content Scheduling
+
+Create `src/scheduler.ts` for automated publishing:
+
+```typescript title="src/scheduler.ts"
+import { DO } from 'dotdo'
+import { mark, priya } from 'agents.do'
+
+export class ContentScheduler extends DO {
+  async init() {
+    // Check for scheduled posts every hour
+    $.every.hour(async () => {
+      await this.publishScheduled()
+    })
+
+    // Weekly content planning
+    $.every.sunday.at6pm(async () => {
+      await this.planWeek()
+    })
+
+    // Monthly performance review
+    $.every('last day of month', async () => {
+      await this.reviewPerformance()
+    })
+  }
+
+  async schedulePost(slug: string, publishAt: Date) {
+    await $.do('schedulePost', {
+      slug,
+      publishAt,
+      status: 'scheduled'
+    })
+
+    $.log('Post scheduled', { slug, publishAt })
+  }
+
+  async publishScheduled() {
+    const now = new Date()
+
+    const scheduled = await $.query('scheduled_posts', {
+      publishAt: { $lte: now },
+      status: 'scheduled'
+    })
+
+    for (const item of scheduled) {
+      const draft = await $.query('drafts', { slug: item.slug }).then(r => r[0])
+
+      if (draft) {
+        // Publish the post
+        await $.ContentEngine('default').publishPost(draft)
+
+        // Update schedule status
+        await $.do('updateSchedule', {
+          slug: item.slug,
+          status: 'published'
+        })
+
+        $.log('Scheduled post published', { slug: item.slug })
+      }
+    }
+  }
+
+  async planWeek() {
+    // Get content gaps and performance data
+    const recentPosts = await $.query('posts', {
+      publishedAt: { $gte: thirtyDaysAgo() }
+    })
+
+    const topPerforming = await $.query('post_stats', {}, {
+      orderBy: 'views',
+      desc: true,
+      limit: 10
+    })
+
+    // Priya analyzes and plans
+    const plan = await priya`
+      create a content plan for next week
+
+      recent posts: ${recentPosts.map(p => p.title)}
+      top performing: ${topPerforming.map(p => p.slug)}
+
+      suggest:
+      - 3 new post topics
+      - 2 posts to update/refresh
+      - best publishing times
+    `
+
+    // Save the plan
+    $.state.weeklyPlan = {
+      plan,
+      createdAt: new Date()
+    }
+
+    // Notify (fire-and-forget)
+    mark`summarize the content plan for the team: ${plan}`
+  }
+
+  async reviewPerformance() {
+    const stats = await $.query('post_stats', {
+      period: 'month'
+    })
+
+    const analysis = await priya`
+      analyze this month's content performance:
+      ${JSON.stringify(stats, null, 2)}
+
+      provide:
+      - top performing content and why
+      - underperforming content and suggestions
+      - recommendations for next month
+    `
+
+    $.state.monthlyReview = {
+      analysis,
+      reviewedAt: new Date()
+    }
+
+    // Fire-and-forget: create report
+    mark`create a monthly content report from: ${analysis}`
+  }
+}
+
+const thirtyDaysAgo = () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+```
+
+</Step>
+
+<Step>
+
+## Test Locally
+
+```bash
+npm run dev
+```
+
+Test content generation:
+
+```bash
+# Generate a post
+curl -X POST http://localhost:8787/admin/posts/generate \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"Getting started with AI agents"}'
+
+# List posts
+curl http://localhost:8787/blog
+
+# View a post
+curl http://localhost:8787/blog/getting-started-with-ai-agents
+
+# Get RSS
+curl http://localhost:8787/rss.xml
+
+# Get sitemap
+curl http://localhost:8787/sitemap.xml
+```
+
+</Step>
+
+<Step>
+
+## Deploy to Production
+
+```bash
+npm run deploy
+```
+
+Set production secrets (if using external services):
+
+```bash
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put ALGOLIA_API_KEY
+```
+
+Your content site is live at `my-blog.workers.dev`.
+
+</Step>
+
+</Steps>
+
+---
+
+## What You Built
+
+In 20 minutes, you've deployed a content site with:
+
+| Feature | Implementation |
+|---------|----------------|
+| MDX rendering | Compile and cache MDX to HTML |
+| AI content generation | Mark writes posts on demand |
+| SEO optimization | Auto-generated meta tags, refreshed monthly |
+| Content scheduling | Plan ahead, publish automatically |
+| Performance tracking | View counts, CTR analysis |
+| RSS + Sitemap | Generated automatically |
+
+And it runs itself:
+- Mark writes new posts weekly
+- Priya plans content strategy
+- SEO refreshes automatically for underperforming posts
+- Posts publish on schedule without intervention
+
+---
+
+## Key Patterns Used
+
+### AI-Powered Content Generation
+
+```typescript
+const post = await mark`
+  write a blog post about: ${topic}
+  requirements: practical, tutorial style, include code examples
+`
+```
+
+Mark writes. You review. Ship.
+
+### Scheduled Content Operations
+
+```typescript
+// Weekly content generation
+$.every.monday.at9am(async () => {
+  await this.generateWeeklyContent()
+})
+
+// Monthly SEO refresh
+$.every('first day of month', async () => {
+  await this.refreshSEO()
+})
+```
+
+### Fire-and-Forget for Announcements
+
+```typescript
+// Don't block for social media
+mark`announce blog launch on social media`
+
+// Don't block for view tracking
+$.send('Post.viewed', { slug, source })
+```
+
+### SEO as Code
+
+```typescript
+const seo = await this.generateSEO(content)
+// { title, description, keywords } - all AI-optimized
+```
+
+---
+
+## Extending Your Site
+
+### Add Comments
+
+```typescript
+$.on.Comment.posted(async (event) => {
+  const { postSlug, author, content } = event.data
+
+  // Moderate with AI
+  const isSpam = await $.is`is this comment spam? ${content}`
+
+  if (!isSpam) {
+    await $.do('saveComment', { postSlug, author, content })
+  }
+})
+```
+
+### Add Newsletter
+
+```typescript
+$.on.Post.published(async (event) => {
+  const { post } = event.data
+
+  // Mark writes the newsletter
+  const newsletter = await mark`
+    write a newsletter announcing: ${post.title}
+    include a teaser and link
+  `
+
+  // Send to subscribers
+  await $.do('sendNewsletter', newsletter)
+})
+```
+
+### Add Search
+
+```typescript
+$.on.Post.published(async (event) => {
+  const { post } = event.data
+
+  // Index for search
+  await $.do('indexPost', {
+    objectID: post.slug,
+    title: post.title,
+    content: post.content,
+    tags: post.tags
+  })
+})
+```
+
+---
+
+## Next Steps
+
+Your content site is live. Explore:
+
+- [Custom agents](/docs/agents/custom-agents) - Train Mark's voice
+- [SaaS tutorial](/docs/tutorials/saas-starter) - Add subscriptions
+- [Humans](/docs/humans) - Route drafts for human review
+- [Deployment](/docs/deployment) - Custom domain setup
+
+---
+
+**You built a content site. Mark's writing posts. SEO updates itself. Go write your launch post.**

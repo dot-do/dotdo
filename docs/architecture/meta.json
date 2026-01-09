@@ -1,0 +1,11 @@
+{
+  "title": "Architecture",
+  "description": "Technical deep dive into dotdo internals",
+  "root": true,
+  "pages": [
+    "index",
+    "do-hierarchy",
+    "bundle-optimization",
+    "data-model"
+  ]
+}

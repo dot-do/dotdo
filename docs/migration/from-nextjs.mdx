@@ -1,0 +1,709 @@
+---
+title: From Next.js
+description: Migrate your Next.js app to dotdo. API routes, server components, and data fetching patterns.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Migrating from Next.js
+
+You've built with Next.js. The file-based routing, API routes, server-side rendering - you know it well. Here's how those patterns translate to dotdo.
+
+## Architecture Comparison
+
+| Next.js | dotdo |
+|---------|-------|
+| API routes (`/pages/api/*`) | Hono routes |
+| Server Components | TanStack Start + DO fetch |
+| `getServerSideProps` | DO data loading |
+| Prisma/Drizzle | Things store or compat SDK |
+| Vercel deployment | Cloudflare Workers |
+| Edge functions | Everything is edge |
+
+## API Routes Migration
+
+Next.js API routes map directly to Hono handlers.
+
+### Basic Route Handler
+
+```typescript
+// Next.js - pages/api/users.ts
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method === 'GET') {
+    const users = await prisma.user.findMany()
+    return res.json(users)
+  }
+
+  if (req.method === 'POST') {
+    const user = await prisma.user.create({ data: req.body })
+    return res.status(201).json(user)
+  }
+
+  res.status(405).json({ error: 'Method not allowed' })
+}
+```
+
+```typescript
+// dotdo - src/routes/users.ts
+import { Hono } from 'hono'
+
+const users = new Hono()
+
+users.get('/', async (c) => {
+  const users = await $.things.list('User')
+  return c.json(users)
+})
+
+users.post('/', async (c) => {
+  const body = await c.req.json()
+  const user = await $.things.create('User', body)
+  return c.json(user, 201)
+})
+
+export default users
+```
+
+### App Router Route Handlers
+
+```typescript
+// Next.js 13+ - app/api/users/route.ts
+import { NextResponse } from 'next/server'
+
+export async function GET() {
+  const users = await prisma.user.findMany()
+  return NextResponse.json(users)
+}
+
+export async function POST(request: Request) {
+  const body = await request.json()
+  const user = await prisma.user.create({ data: body })
+  return NextResponse.json(user, { status: 201 })
+}
+```
+
+```typescript
+// dotdo - same Hono pattern
+import { Hono } from 'hono'
+
+const users = new Hono()
+
+users.get('/', async (c) => {
+  const users = await $.things.list('User')
+  return c.json(users)
+})
+
+users.post('/', async (c) => {
+  const body = await c.req.json()
+  const user = await $.things.create('User', body)
+  return c.json(user, 201)
+})
+
+export default users
+```
+
+### Dynamic Routes
+
+```typescript
+// Next.js - pages/api/users/[id].ts
+export default async function handler(req, res) {
+  const { id } = req.query
+
+  if (req.method === 'GET') {
+    const user = await prisma.user.findUnique({ where: { id } })
+    if (!user) return res.status(404).json({ error: 'Not found' })
+    return res.json(user)
+  }
+
+  if (req.method === 'PUT') {
+    const user = await prisma.user.update({
+      where: { id },
+      data: req.body
+    })
+    return res.json(user)
+  }
+
+  if (req.method === 'DELETE') {
+    await prisma.user.delete({ where: { id } })
+    return res.status(204).end()
+  }
+}
+```
+
+```typescript
+// dotdo
+users.get('/:id', async (c) => {
+  const { id } = c.req.param()
+  const user = await $.things.get('User', id)
+  if (!user) return c.json({ error: 'Not found' }, 404)
+  return c.json(user)
+})
+
+users.put('/:id', async (c) => {
+  const { id } = c.req.param()
+  const body = await c.req.json()
+  const user = await $.things.update('User', id, body)
+  return c.json(user)
+})
+
+users.delete('/:id', async (c) => {
+  const { id } = c.req.param()
+  await $.things.delete('User', id)
+  return c.body(null, 204)
+})
+```
+
+## Server-Side Data Fetching
+
+Next.js has `getServerSideProps` and Server Components. dotdo uses Durable Objects for server-side state.
+
+### getServerSideProps Pattern
+
+```typescript
+// Next.js - pages/dashboard.tsx
+export async function getServerSideProps(context) {
+  const session = await getSession(context)
+  if (!session) {
+    return { redirect: { destination: '/login', permanent: false } }
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    include: { projects: true }
+  })
+
+  return {
+    props: { user }
+  }
+}
+
+export default function Dashboard({ user }) {
+  return (
+    <div>
+      <h1>Welcome, {user.name}</h1>
+      <ProjectList projects={user.projects} />
+    </div>
+  )
+}
+```
+
+```typescript
+// dotdo - using TanStack Start
+// src/routes/dashboard.tsx
+import { createFileRoute } from '@tanstack/react-router'
+
+export const Route = createFileRoute('/dashboard')({
+  beforeLoad: async ({ context }) => {
+    const session = await context.getSession()
+    if (!session) {
+      throw redirect({ to: '/login' })
+    }
+    return { session }
+  },
+  loader: async ({ context }) => {
+    const user = await $.things.get('User', context.session.userId)
+    const projects = await $.things.list('Project', {
+      where: { userId: user.id }
+    })
+    return { user, projects }
+  },
+  component: Dashboard
+})
+
+function Dashboard() {
+  const { user, projects } = Route.useLoaderData()
+  return (
+    <div>
+      <h1>Welcome, {user.name}</h1>
+      <ProjectList projects={projects} />
+    </div>
+  )
+}
+```
+
+### Server Components Pattern
+
+```typescript
+// Next.js 13+ - app/dashboard/page.tsx
+import { getSession } from '@/lib/auth'
+import { redirect } from 'next/navigation'
+
+export default async function Dashboard() {
+  const session = await getSession()
+  if (!session) redirect('/login')
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    include: { projects: true }
+  })
+
+  return (
+    <div>
+      <h1>Welcome, {user.name}</h1>
+      <Suspense fallback={<Loading />}>
+        <ProjectList userId={user.id} />
+      </Suspense>
+    </div>
+  )
+}
+
+// Async server component
+async function ProjectList({ userId }) {
+  const projects = await prisma.project.findMany({
+    where: { userId }
+  })
+
+  return (
+    <ul>
+      {projects.map(p => <li key={p.id}>{p.name}</li>)}
+    </ul>
+  )
+}
+```
+
+```typescript
+// dotdo - TanStack Start with streaming
+// src/routes/dashboard.tsx
+export const Route = createFileRoute('/dashboard')({
+  loader: async ({ context }) => {
+    const session = await context.getSession()
+    if (!session) throw redirect({ to: '/login' })
+
+    const user = await $.things.get('User', session.userId)
+
+    // Defer projects for streaming
+    const projectsPromise = $.things.list('Project', {
+      where: { userId: user.id }
+    })
+
+    return {
+      user,
+      projects: projectsPromise  // Streamed to client
+    }
+  },
+  component: Dashboard
+})
+
+function Dashboard() {
+  const { user, projects } = Route.useLoaderData()
+
+  return (
+    <div>
+      <h1>Welcome, {user.name}</h1>
+      <Suspense fallback={<Loading />}>
+        <Await resolve={projects}>
+          {(resolvedProjects) => (
+            <ul>
+              {resolvedProjects.map(p => <li key={p.id}>{p.name}</li>)}
+            </ul>
+          )}
+        </Await>
+      </Suspense>
+    </div>
+  )
+}
+```
+
+## Database Migration
+
+Next.js typically uses Prisma. dotdo has multiple options.
+
+### Option 1: Things Store (Recommended)
+
+```typescript
+// Prisma
+const user = await prisma.user.create({
+  data: { name: 'Alice', email: 'alice@example.com' }
+})
+
+const users = await prisma.user.findMany({
+  where: { role: 'admin' },
+  orderBy: { createdAt: 'desc' }
+})
+
+// Things store
+const user = await $.things.create('User', {
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+
+const users = await $.things.list('User', {
+  where: { role: 'admin' },
+  orderBy: { field: 'createdAt', direction: 'desc' }
+})
+```
+
+### Option 2: Compat SDK
+
+Keep your Prisma-like syntax with `@dotdo/postgres`:
+
+```typescript
+import { createClient } from '@dotdo/postgres'
+
+const db = createClient(env.DATABASE_URL)
+
+// Raw SQL still works
+const users = await db.query('SELECT * FROM users WHERE role = $1', ['admin'])
+```
+
+### Option 3: External Database
+
+Connect to your existing Postgres, Supabase, or PlanetScale:
+
+```typescript
+// Keep using Prisma with external database
+import { PrismaClient } from '@prisma/client'
+
+const prisma = new PrismaClient()
+
+// Works in dotdo Workers runtime
+const users = await prisma.user.findMany()
+```
+
+<Callout type="warn">
+External database connections add latency (your DB is in one region). Consider migrating to Things store for full edge performance.
+</Callout>
+
+## Middleware Migration
+
+Next.js middleware runs on the edge. dotdo middleware runs on Workers.
+
+```typescript
+// Next.js - middleware.ts
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get('token')
+
+  if (!token && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: '/dashboard/:path*'
+}
+```
+
+```typescript
+// dotdo - src/middleware/auth.ts
+import { createMiddleware } from 'hono/factory'
+
+export const requireAuth = createMiddleware(async (c, next) => {
+  const token = c.req.header('Cookie')?.match(/token=([^;]+)/)?.[1]
+
+  if (!token) {
+    return c.redirect('/login')
+  }
+
+  // Verify and attach user
+  const user = await verifyToken(token)
+  c.set('user', user)
+  await next()
+})
+
+// Apply to routes
+app.use('/dashboard/*', requireAuth)
+```
+
+## Environment Variables
+
+```typescript
+// Next.js
+// .env.local
+DATABASE_URL=postgres://...
+NEXT_PUBLIC_API_URL=https://api.example.com
+
+// Access
+const db = process.env.DATABASE_URL
+const apiUrl = process.env.NEXT_PUBLIC_API_URL
+
+// dotdo
+// wrangler.toml
+[vars]
+API_URL = "https://api.example.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "my-db"
+database_id = "xxx"
+
+// Access in handlers
+app.get('/config', (c) => {
+  const apiUrl = c.env.API_URL
+  const db = c.env.DB
+  // ...
+})
+```
+
+## Complete Migration Example
+
+### Before: Next.js E-commerce API
+
+```typescript
+// pages/api/products/index.ts
+import { prisma } from '@/lib/prisma'
+import { getSession } from 'next-auth/react'
+
+export default async function handler(req, res) {
+  const session = await getSession({ req })
+
+  if (req.method === 'GET') {
+    const { category, minPrice, maxPrice } = req.query
+
+    const products = await prisma.product.findMany({
+      where: {
+        ...(category && { category }),
+        ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
+        ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
+      },
+      include: { reviews: { take: 3 } }
+    })
+
+    return res.json(products)
+  }
+
+  if (req.method === 'POST') {
+    if (!session?.user?.isAdmin) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const product = await prisma.product.create({
+      data: req.body
+    })
+
+    return res.status(201).json(product)
+  }
+
+  res.status(405).json({ error: 'Method not allowed' })
+}
+```
+
+```typescript
+// pages/api/products/[id].ts
+export default async function handler(req, res) {
+  const { id } = req.query
+
+  if (req.method === 'GET') {
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: {
+        reviews: true,
+        relatedProducts: { take: 4 }
+      }
+    })
+
+    if (!product) return res.status(404).json({ error: 'Not found' })
+    return res.json(product)
+  }
+
+  // ... PUT, DELETE handlers
+}
+```
+
+### After: dotdo E-commerce API
+
+```typescript
+// src/routes/products.ts
+import { Hono } from 'hono'
+
+const products = new Hono()
+
+// List products with filters
+products.get('/', async (c) => {
+  const { category, minPrice, maxPrice } = c.req.query()
+
+  const filters = {
+    ...(category && { category }),
+    ...(minPrice && { price: { $gte: parseFloat(minPrice) } }),
+    ...(maxPrice && { price: { $lte: parseFloat(maxPrice) } }),
+  }
+
+  const products = await $.things.list('Product', {
+    where: filters,
+    include: ['reviews']
+  })
+
+  return c.json(products)
+})
+
+// Get single product
+products.get('/:id', async (c) => {
+  const { id } = c.req.param()
+
+  const product = await $.things.get('Product', id)
+  if (!product) return c.json({ error: 'Not found' }, 404)
+
+  // Fetch related data
+  const reviews = await $.things.list('Review', {
+    where: { productId: id }
+  })
+
+  const relatedProducts = await $.things.list('Product', {
+    where: { category: product.category, id: { $ne: id } },
+    limit: 4
+  })
+
+  return c.json({
+    ...product,
+    reviews,
+    relatedProducts
+  })
+})
+
+// Create product (admin only)
+products.post('/', requireAdmin, async (c) => {
+  const body = await c.req.json()
+  const product = await $.things.create('Product', body)
+  return c.json(product, 201)
+})
+
+// Update product
+products.put('/:id', requireAdmin, async (c) => {
+  const { id } = c.req.param()
+  const body = await c.req.json()
+  const product = await $.things.update('Product', id, body)
+  return c.json(product)
+})
+
+// Delete product
+products.delete('/:id', requireAdmin, async (c) => {
+  const { id } = c.req.param()
+  await $.things.delete('Product', id)
+  return c.body(null, 204)
+})
+
+export default products
+```
+
+```typescript
+// src/index.ts
+import { Hono } from 'hono'
+import products from './routes/products'
+import { auth, requireAdmin } from './middleware/auth'
+
+const app = new Hono()
+
+app.use('/api/*', auth)
+app.route('/api/products', products)
+
+export default app
+```
+
+## What You Gain
+
+| Aspect | Next.js (Vercel) | dotdo |
+|--------|------------------|-------|
+| Cold starts | 50-250ms | 0ms |
+| Regions | 1-few | 300+ cities |
+| Edge functions | Separate | Everything |
+| Database | External only | Built-in DO state |
+| WebSocket | Limited | Native |
+| AI agents | Retrofit | Native |
+| Pricing | Request-based | More predictable |
+
+## Step-by-Step Migration
+
+<Steps>
+
+<Step>
+
+### Create dotdo project
+
+```bash
+npx dotdo init my-app
+cd my-app
+npm install
+```
+
+</Step>
+
+<Step>
+
+### Migrate API routes
+
+For each file in `pages/api/` or `app/api/`:
+
+1. Create corresponding Hono route
+2. Convert `req`/`res` to `c`
+3. Update database calls
+
+</Step>
+
+<Step>
+
+### Migrate pages to TanStack Start
+
+For pages with server-side data:
+
+1. Convert `getServerSideProps` to route loaders
+2. Update component to use `useLoaderData()`
+
+</Step>
+
+<Step>
+
+### Migrate middleware
+
+Convert `middleware.ts` to Hono middleware.
+
+</Step>
+
+<Step>
+
+### Update environment variables
+
+Move from `.env.local` to `wrangler.toml`.
+
+</Step>
+
+<Step>
+
+### Test and deploy
+
+```bash
+npm run dev     # Test locally
+npm run deploy  # Deploy to edge
+```
+
+</Step>
+
+</Steps>
+
+## Keeping Next.js Frontend
+
+You can keep your Next.js frontend and only migrate the API:
+
+```typescript
+// next.config.js
+module.exports = {
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'https://your-dotdo-app.workers.dev/api/:path*'
+      }
+    ]
+  }
+}
+```
+
+This lets you migrate gradually - API first, then frontend when ready.
+
+## Next Steps
+
+- [Workflow Context ($)](/docs/sdk/workflow-context) - Event handling and scheduling
+- [Things Store](/docs/sdk/things) - Data persistence patterns
+- [Named Agents](/docs/agents/named-agents) - Add AI to your app
+- [Deployment](/docs/deployment) - Production configuration
+
+---
+
+**You built with Next.js. You can build with dotdo. Same skills, new superpowers.**

@@ -1,0 +1,606 @@
+---
+title: From Express
+description: Migrate your Express/Node.js app to dotdo. Same patterns, new runtime.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Migrating from Express
+
+You know Express. The callback patterns, the middleware chain, the request/response flow. All of that transfers to dotdo - with Hono as the HTTP layer instead of Express.
+
+## The Quick Version
+
+```typescript
+// Before (Express)
+import express from 'express'
+const app = express()
+
+app.post('/users', async (req, res) => {
+  const user = await db.users.create(req.body)
+  res.json(user)
+})
+
+app.listen(3000)
+```
+
+```typescript
+// After (dotdo)
+import { Hono } from 'hono'
+const app = new Hono()
+
+app.post('/users', async (c) => {
+  const user = $.things.create('User', await c.req.json())
+  return c.json(user)
+})
+
+export default app
+```
+
+That's it. Same pattern, different syntax.
+
+## Route Mapping
+
+Every Express route has a direct Hono equivalent.
+
+### Basic Routes
+
+```typescript
+// Express
+app.get('/users', handler)
+app.post('/users', handler)
+app.put('/users/:id', handler)
+app.delete('/users/:id', handler)
+
+// dotdo (Hono)
+app.get('/users', handler)
+app.post('/users', handler)
+app.put('/users/:id', handler)
+app.delete('/users/:id', handler)
+```
+
+### Route Parameters
+
+```typescript
+// Express
+app.get('/users/:id', (req, res) => {
+  const { id } = req.params
+  // ...
+})
+
+// dotdo
+app.get('/users/:id', (c) => {
+  const { id } = c.req.param()
+  // ...
+})
+```
+
+### Query Parameters
+
+```typescript
+// Express
+app.get('/search', (req, res) => {
+  const { q, page } = req.query
+  // ...
+})
+
+// dotdo
+app.get('/search', (c) => {
+  const { q, page } = c.req.query()
+  // ...
+})
+```
+
+### Request Body
+
+```typescript
+// Express
+app.use(express.json())
+app.post('/users', (req, res) => {
+  const { name, email } = req.body
+  // ...
+})
+
+// dotdo (no middleware needed)
+app.post('/users', async (c) => {
+  const { name, email } = await c.req.json()
+  // ...
+})
+```
+
+## Middleware Migration
+
+Express middleware patterns map directly to Hono.
+
+### Basic Middleware
+
+```typescript
+// Express
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`)
+  next()
+})
+
+// dotdo
+app.use(async (c, next) => {
+  console.log(`${c.req.method} ${c.req.path}`)
+  await next()
+})
+```
+
+### Authentication Middleware
+
+```typescript
+// Express
+const auth = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) return res.status(401).json({ error: 'Unauthorized' })
+
+  try {
+    const user = await verifyToken(token)
+    req.user = user
+    next()
+  } catch {
+    res.status(401).json({ error: 'Invalid token' })
+  }
+}
+
+app.use('/api/*', auth)
+
+// dotdo
+const auth = async (c, next) => {
+  const token = c.req.header('Authorization')?.split(' ')[1]
+  if (!token) return c.json({ error: 'Unauthorized' }, 401)
+
+  try {
+    const user = await verifyToken(token)
+    c.set('user', user)
+    await next()
+  } catch {
+    return c.json({ error: 'Invalid token' }, 401)
+  }
+}
+
+app.use('/api/*', auth)
+```
+
+### Error Handling Middleware
+
+```typescript
+// Express
+app.use((err, req, res, next) => {
+  console.error(err.stack)
+  res.status(500).json({ error: 'Something went wrong' })
+})
+
+// dotdo
+app.onError((err, c) => {
+  console.error(err.stack)
+  return c.json({ error: 'Something went wrong' }, 500)
+})
+```
+
+### CORS Middleware
+
+```typescript
+// Express
+import cors from 'cors'
+app.use(cors({ origin: 'https://example.com' }))
+
+// dotdo
+import { cors } from 'hono/cors'
+app.use('/*', cors({ origin: 'https://example.com' }))
+```
+
+## Database Access
+
+This is where dotdo shines. No connection pools. No ORM complexity.
+
+### Before: Typical Express + PostgreSQL
+
+```typescript
+// Express with pg
+import { Pool } from 'pg'
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20  // Connection pool limit
+})
+
+app.get('/users', async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const { rows } = await client.query('SELECT * FROM users')
+    res.json(rows)
+  } finally {
+    client.release()  // Must release connection
+  }
+})
+
+app.post('/users', async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const { rows } = await client.query(
+      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+      [req.body.name, req.body.email]
+    )
+    res.json(rows[0])
+  } finally {
+    client.release()
+  }
+})
+```
+
+### After: dotdo Things Store
+
+```typescript
+// dotdo - no connection management
+app.get('/users', async (c) => {
+  const users = await $.things.list('User')
+  return c.json(users)
+})
+
+app.post('/users', async (c) => {
+  const body = await c.req.json()
+  const user = await $.things.create('User', {
+    name: body.name,
+    email: body.email
+  })
+  return c.json(user)
+})
+```
+
+### Or Keep SQL with Compat Layer
+
+```typescript
+// If you want to keep SQL syntax
+import { createClient } from '@dotdo/postgres'
+
+const db = createClient(env.DATABASE_URL)
+
+app.get('/users', async (c) => {
+  const { rows } = await db.query('SELECT * FROM users')
+  return c.json(rows)
+})
+```
+
+<Callout type="info">
+The compat layer handles connection management automatically. No pools, no connection limits, no "too many connections" errors.
+</Callout>
+
+## Response Methods
+
+Direct mapping from Express to Hono.
+
+```typescript
+// Express                          // dotdo
+res.json({ data })                   return c.json({ data })
+res.send('text')                     return c.text('text')
+res.status(201).json(data)           return c.json(data, 201)
+res.redirect('/new-url')             return c.redirect('/new-url')
+res.sendFile(path)                   return c.body(fileBuffer)
+res.set('X-Custom', 'value')         c.header('X-Custom', 'value')
+```
+
+## Complete Migration Example
+
+Here's a full Express app migrated to dotdo.
+
+### Before: Express App
+
+```typescript title="express-app/index.js"
+import express from 'express'
+import cors from 'cors'
+import { Pool } from 'pg'
+
+const app = express()
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+
+// Middleware
+app.use(cors())
+app.use(express.json())
+
+// Auth middleware
+const auth = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) return res.status(401).json({ error: 'Unauthorized' })
+
+  const { rows } = await pool.query(
+    'SELECT * FROM users WHERE token = $1',
+    [token]
+  )
+  if (!rows[0]) return res.status(401).json({ error: 'Invalid token' })
+
+  req.user = rows[0]
+  next()
+}
+
+// Routes
+app.get('/api/users', auth, async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM users')
+  res.json(rows)
+})
+
+app.get('/api/users/:id', auth, async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM users WHERE id = $1',
+    [req.params.id]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+  res.json(rows[0])
+})
+
+app.post('/api/users', auth, async (req, res) => {
+  const { name, email } = req.body
+  const { rows } = await pool.query(
+    'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+    [name, email]
+  )
+  res.status(201).json(rows[0])
+})
+
+app.put('/api/users/:id', auth, async (req, res) => {
+  const { name, email } = req.body
+  const { rows } = await pool.query(
+    'UPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *',
+    [name, email, req.params.id]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+  res.json(rows[0])
+})
+
+app.delete('/api/users/:id', auth, async (req, res) => {
+  const { rowCount } = await pool.query(
+    'DELETE FROM users WHERE id = $1',
+    [req.params.id]
+  )
+  if (rowCount === 0) return res.status(404).json({ error: 'Not found' })
+  res.status(204).send()
+})
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err)
+  res.status(500).json({ error: 'Internal server error' })
+})
+
+app.listen(3000, () => console.log('Server running on port 3000'))
+```
+
+### After: dotdo App
+
+```typescript title="dotdo-app/src/index.ts"
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+
+const app = new Hono()
+
+// Middleware
+app.use('/*', cors())
+
+// Auth middleware
+const auth = async (c, next) => {
+  const token = c.req.header('Authorization')?.split(' ')[1]
+  if (!token) return c.json({ error: 'Unauthorized' }, 401)
+
+  const user = await $.things.find('User', { token })
+  if (!user) return c.json({ error: 'Invalid token' }, 401)
+
+  c.set('user', user)
+  await next()
+}
+
+// Routes
+app.get('/api/users', auth, async (c) => {
+  const users = await $.things.list('User')
+  return c.json(users)
+})
+
+app.get('/api/users/:id', auth, async (c) => {
+  const { id } = c.req.param()
+  const user = await $.things.get('User', id)
+  if (!user) return c.json({ error: 'Not found' }, 404)
+  return c.json(user)
+})
+
+app.post('/api/users', auth, async (c) => {
+  const { name, email } = await c.req.json()
+  const user = await $.things.create('User', { name, email })
+  return c.json(user, 201)
+})
+
+app.put('/api/users/:id', auth, async (c) => {
+  const { id } = c.req.param()
+  const { name, email } = await c.req.json()
+  const user = await $.things.update('User', id, { name, email })
+  if (!user) return c.json({ error: 'Not found' }, 404)
+  return c.json(user)
+})
+
+app.delete('/api/users/:id', auth, async (c) => {
+  const { id } = c.req.param()
+  const deleted = await $.things.delete('User', id)
+  if (!deleted) return c.json({ error: 'Not found' }, 404)
+  return c.body(null, 204)
+})
+
+// Error handling
+app.onError((err, c) => {
+  console.error(err)
+  return c.json({ error: 'Internal server error' }, 500)
+})
+
+export default app
+```
+
+## What You Gain
+
+After migrating from Express to dotdo:
+
+| Aspect | Express | dotdo |
+|--------|---------|-------|
+| Cold starts | 100ms-2s | 0ms |
+| Connection management | Manual pooling | Automatic |
+| Regions | 1 (your server) | 300+ cities |
+| Scaling | Add servers | Automatic |
+| State management | External DB only | Built-in DO state |
+| AI integration | Retrofit | Native |
+
+## Step-by-Step Migration
+
+<Steps>
+
+<Step>
+
+### Set up dotdo project
+
+```bash
+npx dotdo init my-app
+cd my-app
+npm install
+```
+
+</Step>
+
+<Step>
+
+### Copy your routes
+
+Move your route handlers to `src/routes/`. Change `req`/`res` to `c`.
+
+```typescript
+// src/routes/users.ts
+import { Hono } from 'hono'
+
+const users = new Hono()
+
+users.get('/', async (c) => {
+  // Your existing logic, adapted
+})
+
+export default users
+```
+
+</Step>
+
+<Step>
+
+### Migrate middleware
+
+Convert your Express middleware to Hono format.
+
+```typescript
+// src/middleware/auth.ts
+export const auth = async (c, next) => {
+  // Your existing auth logic
+  await next()
+}
+```
+
+</Step>
+
+<Step>
+
+### Update database calls
+
+Replace pool queries with Things store or compat SDK.
+
+```typescript
+// Before
+const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id])
+
+// After (Things)
+const user = await $.things.get('User', id)
+
+// After (Compat)
+const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id])
+```
+
+</Step>
+
+<Step>
+
+### Test locally
+
+```bash
+npm run dev
+```
+
+Run your existing test suite against `localhost:8787`.
+
+</Step>
+
+<Step>
+
+### Deploy
+
+```bash
+npm run deploy
+```
+
+Your Express app is now running on the edge.
+
+</Step>
+
+</Steps>
+
+## Common Gotchas
+
+### Body Parsing
+
+Express needs middleware. Hono parses on demand.
+
+```typescript
+// Express requires this
+app.use(express.json())
+
+// dotdo - just call it when needed
+const body = await c.req.json()
+```
+
+### Response Chaining
+
+Express modifies `res`. Hono returns new responses.
+
+```typescript
+// Express - mutate then send
+res.status(201)
+res.set('X-Request-Id', id)
+res.json(data)
+
+// dotdo - return the response
+c.header('X-Request-Id', id)
+return c.json(data, 201)
+```
+
+### Async Middleware
+
+Express doesn't handle async errors well. Hono does.
+
+```typescript
+// Express - need try/catch or express-async-errors
+app.get('/data', async (req, res, next) => {
+  try {
+    const data = await fetchData()
+    res.json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// dotdo - errors propagate automatically
+app.get('/data', async (c) => {
+  const data = await fetchData()  // Errors go to onError
+  return c.json(data)
+})
+```
+
+## Next Steps
+
+- [Workflow Context ($)](/docs/sdk/workflow-context) - Use dotdo's unique capabilities
+- [Things Store](/docs/sdk/things) - Data persistence patterns
+- [Named Agents](/docs/agents/named-agents) - Add AI teammates to your app
+
+---
+
+**You wrote Express. You can write dotdo. Same patterns, better runtime.**

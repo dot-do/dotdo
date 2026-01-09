@@ -1,0 +1,597 @@
+---
+title: Response Formats
+description: API response formats, status codes, and streaming protocols
+---
+
+# Response Formats
+
+This reference covers all response formats used by the dotdo API, including JSON responses, streaming, and real-time protocols.
+
+## JSON Responses
+
+All REST API endpoints return JSON by default.
+
+### Success Response
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "$id": "thing:123e4567-e89b-12d3-a456-426614174000",
+  "$type": "thing",
+  "name": "Example Thing",
+  "data": { "key": "value" },
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### List Response
+
+```json
+[
+  { "id": "...", "name": "Thing 1" },
+  { "id": "...", "name": "Thing 2" }
+]
+```
+
+Some endpoints return paginated responses:
+
+```json
+{
+  "events": [...],
+  "total": 150,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+---
+
+## HTTP Status Codes
+
+### Success Codes
+
+| Status | Description | When Used |
+|--------|-------------|-----------|
+| 200 OK | Request succeeded | GET, PUT operations |
+| 201 Created | Resource created | POST operations |
+| 204 No Content | Success, no body | DELETE operations |
+
+### Client Error Codes
+
+| Status | Description | Error Code |
+|--------|-------------|------------|
+| 400 Bad Request | Malformed request | `BAD_REQUEST` |
+| 401 Unauthorized | Auth required | `UNAUTHORIZED` |
+| 403 Forbidden | Access denied | `FORBIDDEN` |
+| 404 Not Found | Resource missing | `NOT_FOUND` |
+| 405 Method Not Allowed | Wrong HTTP method | `METHOD_NOT_ALLOWED` |
+| 409 Conflict | Resource conflict | `CONFLICT` |
+| 422 Unprocessable Entity | Validation failed | `UNPROCESSABLE_ENTITY` |
+| 429 Too Many Requests | Rate limited | `RATE_LIMITED` |
+
+### Server Error Codes
+
+| Status | Description | Error Code |
+|--------|-------------|------------|
+| 500 Internal Server Error | Server error | `INTERNAL_SERVER_ERROR` |
+
+---
+
+## Error Response Format
+
+All errors follow this structure:
+
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable description",
+    "details": {},
+    "requestId": "req-uuid"
+  }
+}
+```
+
+### Error Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | string | Machine-readable error code |
+| `message` | string | Human-readable message |
+| `details` | object | Field-specific errors (422 only) |
+| `requestId` | string | Correlation ID for debugging |
+| `stack` | string | Stack trace (development only) |
+
+### 400 Bad Request
+
+Invalid JSON or request format:
+
+```json
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid JSON body"
+  }
+}
+```
+
+Missing required header:
+
+```json
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Content-Type must be application/json"
+  }
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Authentication required"
+  }
+}
+```
+
+Expired token:
+
+```json
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Token expired"
+  }
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Access denied - admin permission required"
+  }
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Thing not found"
+  }
+}
+```
+
+Route not found:
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Not found: /api/unknown"
+  }
+}
+```
+
+### 405 Method Not Allowed
+
+```json
+{
+  "error": {
+    "code": "METHOD_NOT_ALLOWED",
+    "message": "Method not allowed. Allowed: GET, POST"
+  }
+}
+```
+
+Response includes `Allow` header:
+
+```http
+HTTP/1.1 405 Method Not Allowed
+Allow: GET, POST
+Content-Type: application/json
+```
+
+### 409 Conflict
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Browser session is stopped"
+  }
+}
+```
+
+### 422 Unprocessable Entity
+
+Validation errors include field-specific details:
+
+```json
+{
+  "error": {
+    "code": "UNPROCESSABLE_ENTITY",
+    "message": "Validation failed: email is required",
+    "details": {
+      "email": ["Email is required", "Invalid email format"],
+      "name": ["Name must be at least 2 characters"]
+    }
+  }
+}
+```
+
+### 429 Too Many Requests
+
+```json
+{
+  "error": "Too many requests - rate limit exceeded",
+  "remaining": 0
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": {
+    "code": "INTERNAL_SERVER_ERROR",
+    "message": "An unexpected error occurred",
+    "requestId": "req-uuid"
+  }
+}
+```
+
+Development mode includes stack trace:
+
+```json
+{
+  "error": {
+    "code": "INTERNAL_SERVER_ERROR",
+    "message": "An unexpected error occurred",
+    "stack": "Error: ...\n    at handler (/src/routes/api.ts:42:7)"
+  }
+}
+```
+
+---
+
+## Response Headers
+
+### Standard Headers
+
+```http
+Content-Type: application/json
+X-Request-ID: req-uuid
+```
+
+### Rate Limit Headers
+
+```http
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+```
+
+### CORS Headers
+
+```http
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key
+```
+
+### Caching Headers
+
+For immutable traces:
+
+```http
+Cache-Control: public, max-age=3600
+```
+
+For dynamic content:
+
+```http
+Cache-Control: no-cache
+```
+
+---
+
+## Streaming Responses
+
+### Server-Sent Events (SSE)
+
+Used for real-time updates from browser sessions and observability.
+
+```http
+GET /api/browsers/:id/events
+Accept: text/event-stream
+```
+
+Response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+Event format:
+
+```
+event: connected
+data: {"status":"connected"}
+
+event: action
+data: {"type":"click","target":"#button"}
+
+event: navigation
+data: {"url":"https://example.com/page"}
+
+: ping
+
+```
+
+### Event Types
+
+| Event | Description |
+|-------|-------------|
+| `connected` | Initial connection established |
+| `action` | Browser action completed |
+| `navigation` | Page navigation |
+| `screenshot` | Screenshot captured |
+| `error` | Error occurred |
+| `: ping` | Keep-alive (comment) |
+
+### Client Example
+
+```typescript
+const events = new EventSource('/api/browsers/session-123/events')
+
+events.addEventListener('connected', (e) => {
+  console.log('Connected:', JSON.parse(e.data))
+})
+
+events.addEventListener('action', (e) => {
+  const action = JSON.parse(e.data)
+  console.log('Action:', action.type)
+})
+
+events.addEventListener('error', (e) => {
+  console.error('Error:', e)
+})
+
+// Clean up
+events.close()
+```
+
+---
+
+## WebSocket Responses
+
+### RPC WebSocket
+
+```http
+GET /rpc
+Connection: Upgrade
+Upgrade: websocket
+```
+
+Connection acknowledgment:
+
+```json
+{
+  "type": "connected",
+  "sessionId": "session_1234567890_abc123"
+}
+```
+
+### JSON-RPC 2.0 Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": { "id": "user-123", "name": "John" }
+}
+```
+
+### JSON-RPC 2.0 Error
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32601,
+    "message": "Method not found"
+  }
+}
+```
+
+### Standard JSON-RPC Error Codes
+
+| Code | Message | Description |
+|------|---------|-------------|
+| -32700 | Parse error | Invalid JSON |
+| -32600 | Invalid Request | Not a valid request object |
+| -32601 | Method not found | Method does not exist |
+| -32602 | Invalid params | Invalid method parameters |
+| -32603 | Internal error | Internal JSON-RPC error |
+
+### Capnweb Batch Response
+
+```json
+{
+  "id": "req-1",
+  "type": "batch",
+  "results": [
+    { "promiseId": "p1", "type": "value", "value": { "id": "user-123" } },
+    { "promiseId": "p2", "type": "value", "value": [{ "title": "Post 1" }] },
+    { "promiseId": "p3", "type": "error", "error": { "code": "NOT_FOUND", "message": "User not found" } }
+  ]
+}
+```
+
+### Server Notifications
+
+The server can push notifications to WebSocket clients:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "userUpdated",
+  "params": { "userId": "user-123", "changes": { "name": "Jane" } }
+}
+```
+
+### Observability Events
+
+```json
+{
+  "type": "events",
+  "data": [
+    {
+      "id": "event-uuid",
+      "type": "log",
+      "level": "info",
+      "timestamp": 1704067200000,
+      "message": ["Request started"]
+    }
+  ]
+}
+```
+
+---
+
+## Binary Responses
+
+### Screenshot
+
+```http
+GET /api/browsers/:id/screenshot
+```
+
+Response (JSON with base64):
+
+```json
+{
+  "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg..."
+}
+```
+
+### File Downloads
+
+When downloading files, the response includes:
+
+```http
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="export.json"
+```
+
+---
+
+## Pagination
+
+List endpoints support pagination:
+
+```http
+GET /api/things?limit=10&offset=20
+```
+
+### Query Parameters
+
+| Parameter | Type | Default | Max |
+|-----------|------|---------|-----|
+| `limit` | integer | 100 | 1000 |
+| `offset` | integer | 0 | - |
+
+### Paginated Response
+
+For endpoints that include totals:
+
+```json
+{
+  "events": [...],
+  "total": 1500,
+  "limit": 100,
+  "offset": 100
+}
+```
+
+Calculate pages:
+
+```typescript
+const totalPages = Math.ceil(response.total / response.limit)
+const currentPage = Math.floor(response.offset / response.limit) + 1
+const hasNextPage = response.offset + response.limit < response.total
+```
+
+---
+
+## Content Negotiation
+
+### Accept Header
+
+The API primarily returns JSON, but some endpoints support additional formats:
+
+| Accept Header | Format |
+|---------------|--------|
+| `application/json` | JSON (default) |
+| `text/event-stream` | SSE stream |
+| `text/html` | HTML pages (admin routes) |
+
+### Content-Type Requirements
+
+POST/PUT requests must include:
+
+```http
+Content-Type: application/json
+```
+
+Missing or incorrect Content-Type returns 400:
+
+```json
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Content-Type must be application/json"
+  }
+}
+```
+
+---
+
+## Timestamps
+
+All timestamps use ISO 8601 format in UTC:
+
+```
+2024-01-01T00:00:00.000Z
+```
+
+Observability events use Unix timestamps (milliseconds):
+
+```json
+{
+  "timestamp": 1704067200000
+}
+```
+
+Convert between formats:
+
+```typescript
+// ISO to Unix ms
+const unixMs = new Date('2024-01-01T00:00:00.000Z').getTime()
+
+// Unix ms to ISO
+const iso = new Date(1704067200000).toISOString()
+```

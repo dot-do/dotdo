@@ -1,0 +1,208 @@
+---
+title: Architecture Overview
+description: Technical deep dive into dotdo's internal architecture
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Architecture Overview
+
+dotdo is a Business-as-Code framework built on Cloudflare's V8 Isolates and Durable Objects. This section provides a technical deep dive into the internal architecture for advanced users building on the platform.
+
+## Core Philosophy
+
+### V8 Isolates as Virtual Chrome Tabs
+
+dotdo treats each Durable Object as a **virtual Chrome tab** with persistent state. Just as Chrome isolates tabs for security and performance, V8 Isolates provide:
+
+| Property | Description |
+|----------|-------------|
+| **Memory isolation** | Each DO runs in its own V8 isolate |
+| **State persistence** | SQLite storage survives across requests |
+| **Concurrent execution** | Millions of DOs can run simultaneously |
+| **Actor model** | Single-threaded execution eliminates race conditions |
+
+```typescript
+// Each DO is like a persistent browser tab
+class MyStartup extends DO {
+  // State lives in SQLite, survives restarts
+  async fetch(request: Request) {
+    const data = await this.db.select().from(things)
+    return Response.json(data)
+  }
+}
+```
+
+### Edge-First Architecture
+
+Cloudflare Workers + Durable Objects run on **300+ cities globally**:
+
+- **~0ms cold starts** (when warm) - V8 Isolates spin up in microseconds
+- **~50ms cold starts** - When loading new isolate with SQLite state
+- **Single-digit latency** - Code runs close to users
+- **Automatic failover** - Cloudflare handles regional redundancy
+
+### SQLite as Universal Storage Layer
+
+Every DO has a built-in SQLite database via Drizzle ORM:
+
+```typescript
+// Initialize Drizzle with DO storage
+this.db = drizzle(ctx.storage, { schema })
+
+// Type-safe queries
+const startups = await this.db
+  .select()
+  .from(things)
+  .where(eq(things.type, startupFK))
+```
+
+SQLite provides:
+- **ACID transactions** - Consistent state within each DO
+- **JSON columns** - Flexible schema with `json_extract()` queries
+- **Full-text search** - FTS5 for text search
+- **Vector storage** - 128-dim MRL embeddings for semantic search
+
+## Package Structure
+
+```
+dotdo/
+├── do/                    # Entry points (tiny, index, full)
+│   ├── index.ts           # Default export (all capabilities)
+│   ├── tiny.ts            # Minimal DO (~15KB)
+│   ├── fs.ts              # DO + filesystem
+│   ├── git.ts             # DO + filesystem + git
+│   ├── bash.ts            # DO + filesystem + bash
+│   └── full.ts            # DO + all capabilities (~120KB)
+│
+├── objects/               # DO classes
+│   ├── DO.ts              # Base class (identity, storage, $)
+│   ├── Worker.ts          # Execution context
+│   ├── Entity.ts          # Data entity (Customer, Invoice)
+│   ├── Agent.ts           # AI agent
+│   ├── Human.ts           # Human actor
+│   ├── Business.ts        # Business organization
+│   ├── App.ts             # Application
+│   ├── Site.ts            # Website/docs
+│   ├── Collection.ts      # Entity collection
+│   ├── Directory.ts       # Entity directory
+│   └── lifecycle/         # Lifecycle modules
+│       ├── Clone.ts       # DO cloning
+│       ├── Branch.ts      # Git-style branching
+│       ├── Compact.ts     # State compaction
+│       ├── Promote.ts     # Entity -> DO promotion
+│       └── Shard.ts       # Horizontal sharding
+│
+├── db/                    # Database layer
+│   ├── stores.ts          # Store accessors
+│   ├── things.ts          # Things table (entities)
+│   ├── relationships.ts   # Relationships table (edges)
+│   ├── actions.ts         # Actions table (audit log)
+│   ├── events.ts          # Events table (domain events)
+│   ├── search.ts          # Search index (FTS + vector)
+│   └── compat/            # Database compatibility layers
+│
+├── workflows/             # $ context DSL
+│   ├── proxy.ts           # Pipeline proxy
+│   ├── on.ts              # Event subscription DSL
+│   └── schedule-builder.ts # Cron scheduling
+│
+├── agents/                # Agent SDK
+│   ├── Agent.ts           # Multi-provider agent
+│   ├── Tool.ts            # Tool definitions
+│   └── Providers/         # LLM providers
+│
+└── app/                   # Frontend
+    └── components/        # TanStack Start + MDXUI
+```
+
+## Key Abstractions
+
+### Three-Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     WorkflowContext ($)                     │
+│   $.send() │ $.try() │ $.do() │ $.on │ $.every │ $.ai      │
+├─────────────────────────────────────────────────────────────┤
+│                         Stores                              │
+│   things │ rels │ actions │ events │ search │ objects │ dlq │
+├─────────────────────────────────────────────────────────────┤
+│                      SQLite (Drizzle)                       │
+│                   Durable Object Storage                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+1. **WorkflowContext ($)** - The primary API for workflow operations
+2. **Stores** - Typed accessors for different data categories
+3. **SQLite** - The persistence layer via Drizzle ORM
+
+### Execution Flow
+
+```
+Request → Worker → Durable Object → WorkflowContext → Stores → SQLite
+                                   ↓
+                             Event Pipeline
+                                   ↓
+                              R2 Parquet
+```
+
+Every operation flows through the WorkflowContext, which handles durability, event emission, and cross-DO communication.
+
+## Key Design Decisions
+
+### Why SQLite?
+
+1. **Zero network hops** - Data is co-located with compute
+2. **ACID guarantees** - No distributed transaction complexity
+3. **JSON support** - Flexible schema without migration overhead
+4. **Built-in FTS** - Full-text search without external services
+5. **Single file** - Easy backup, replication, and debugging
+
+### Why Append-Only?
+
+The Things store uses append-only inserts for updates:
+
+```typescript
+// Each update creates a new row with higher rowid
+await this.db.insert(things).values({
+  id,           // Same ID
+  version: ++v, // Incrementing version
+  data: newData,
+})
+```
+
+Benefits:
+- Full audit trail for free
+- Time-travel queries via version
+- No locking contention
+- Branch/merge support
+
+### Why Lazy Loading?
+
+Stores are initialized on first access:
+
+```typescript
+get things(): ThingsStore {
+  if (!this._things) {
+    this._things = new ThingsStore(this.getStoreContext())
+  }
+  return this._things
+}
+```
+
+This minimizes cold start impact - you only pay for what you use.
+
+## Further Reading
+
+<Cards>
+  <Card title="DO Class Hierarchy" href="/docs/architecture/do-hierarchy">
+    Understand the three-tier bundle system and capability composition.
+  </Card>
+  <Card title="Bundle Optimization" href="/docs/architecture/bundle-optimization">
+    Strategies for minimizing bundle size and cold start latency.
+  </Card>
+  <Card title="Data Model" href="/docs/architecture/data-model">
+    Deep dive into Things, Actions, Events, and Relationships.
+  </Card>
+</Cards>

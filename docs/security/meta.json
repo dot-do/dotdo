@@ -1,0 +1,14 @@
+{
+  "title": "Security",
+  "description": "Identity, authorization, and secure credential management",
+  "root": true,
+  "pages": [
+    "index",
+    "---Identity---",
+    "authentication",
+    "---Access Control---",
+    "authorization",
+    "---Secrets---",
+    "vault"
+  ]
+}

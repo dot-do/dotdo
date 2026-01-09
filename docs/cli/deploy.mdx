@@ -1,0 +1,469 @@
+---
+title: deploy
+description: Deploy your startup to Cloudflare Workers
+---
+
+# dotdo deploy
+
+Deploy your startup to Cloudflare's global edge network. 300+ cities. 0ms cold starts. Infinite scale.
+
+## Usage
+
+```bash
+npx dotdo deploy [options]
+```
+
+## Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--env <name>` | Deploy to a specific environment | `production` |
+| `--dry-run` | Show what would be deployed without deploying | `false` |
+| `--minify` | Minify the bundle | `true` |
+| `--no-bundle` | Skip bundling (use pre-built) | `false` |
+| `--outdir <path>` | Output directory for build artifacts | `.wrangler/dist` |
+
+## Basic Deployment
+
+```bash
+npx dotdo deploy
+```
+
+Expected output:
+
+```
+Authenticating...
+Logged in as nathan@example.com
+
+Building...
+  Bundle size: 142 KB (gzipped: 48 KB)
+
+Deploying to Cloudflare Workers...
+  Uploading...
+  Configuring Durable Objects...
+  Running migrations...
+
+Deployed successfully!
+
+  URL: https://my-startup.workers.dev
+  Dashboard: https://dash.cloudflare.com/workers/my-startup
+```
+
+## What Happens on Deploy
+
+1. **Authentication** - Verifies your dotdo and Cloudflare credentials
+2. **Build** - Bundles your TypeScript with esbuild
+3. **Upload** - Pushes the bundle to Cloudflare
+4. **Migrations** - Runs Durable Object migrations if needed
+5. **DNS** - Configures routes and custom domains
+
+## Environments
+
+### Production (Default)
+
+```bash
+npx dotdo deploy
+```
+
+Uses settings from `wrangler.toml`.
+
+### Staging
+
+```bash
+npx dotdo deploy --env staging
+```
+
+Requires environment configuration in `wrangler.toml`:
+
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
+
+# Staging environment
+[env.staging]
+name = "my-startup-staging"
+vars = { ENVIRONMENT = "staging" }
+```
+
+### Preview
+
+```bash
+npx dotdo deploy --env preview
+```
+
+Creates a unique preview URL for testing.
+
+## Configuration
+
+### wrangler.toml
+
+The primary configuration file:
+
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Account settings (optional, uses wrangler login)
+# account_id = "your-account-id"
+
+# Durable Objects
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" },
+  { name = "CUSTOMER", class_name = "Customer" }
+]
+
+# Migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "CACHE"
+id = "abc123"
+
+# R2 Buckets
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "my-startup-storage"
+
+# D1 Databases
+[[d1_databases]]
+binding = "DB"
+database_name = "my-startup-db"
+database_id = "xyz789"
+
+# Environment variables (non-secret)
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+```
+
+### Secrets
+
+Set secrets via Wrangler (never in config files):
+
+```bash
+# Set a secret
+npx wrangler secret put OPENAI_API_KEY
+# Prompts for value
+
+# List secrets
+npx wrangler secret list
+
+# Delete a secret
+npx wrangler secret delete OPENAI_API_KEY
+```
+
+<Callout type="error">
+Never commit secrets to git. Use `wrangler secret put` for all sensitive values.
+</Callout>
+
+## Custom Domains
+
+### Configure in wrangler.toml
+
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+
+routes = [
+  { pattern = "app.mystartup.com", custom_domain = true },
+  { pattern = "api.mystartup.com/*", custom_domain = true }
+]
+```
+
+### DNS Setup
+
+Point your domain to Cloudflare:
+
+1. Add your domain to Cloudflare
+2. Update nameservers at your registrar
+3. Deploy - Cloudflare handles SSL automatically
+
+## Durable Object Migrations
+
+When you change DO classes, you need migrations:
+
+### Adding a New Class
+
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v2"
+new_classes = ["Customer"]
+```
+
+### Renaming a Class
+
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v3"
+renamed_classes = [
+  { from = "OldName", to = "NewName" }
+]
+```
+
+### Deleting a Class
+
+```toml title="wrangler.toml"
+[[migrations]]
+tag = "v4"
+deleted_classes = ["DeprecatedClass"]
+```
+
+<Callout type="warn">
+Deleting a class permanently removes all its data. Back up first.
+</Callout>
+
+## Deployment Strategies
+
+### Preview Before Production
+
+```bash
+# Deploy to preview
+npx dotdo deploy --env preview
+
+# Test the preview URL
+curl https://my-startup-preview.workers.dev/health
+
+# If good, deploy to production
+npx dotdo deploy
+```
+
+### Dry Run
+
+See what would be deployed:
+
+```bash
+npx dotdo deploy --dry-run
+```
+
+Output:
+
+```
+Dry run - no changes will be made
+
+Would deploy:
+  Bundle: src/index.ts (142 KB)
+  Durable Objects: MyStartup, Customer
+  Migrations: v1 -> v2 (new_classes: Customer)
+  Routes: my-startup.workers.dev
+
+Secrets required:
+  - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY
+```
+
+### CI/CD Deployment
+
+For automated deployments:
+
+```yaml title=".github/workflows/deploy.yml"
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy
+        run: npx dotdo deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DO_TOKEN: ${{ secrets.DO_TOKEN }}
+```
+
+## Monitoring Deployments
+
+### Check Deployment Status
+
+```bash
+npx wrangler deployments list
+```
+
+### View Logs
+
+```bash
+npx wrangler tail
+```
+
+Real-time logs from your production worker.
+
+### Rollback
+
+```bash
+# List recent deployments
+npx wrangler deployments list
+
+# Rollback to previous
+npx wrangler rollback
+```
+
+## Bundle Size Optimization
+
+### Check Bundle Size
+
+```bash
+npx dotdo deploy --dry-run
+```
+
+Shows bundle size before deploying.
+
+### Reduce Size
+
+1. **Tree shaking** - Only import what you need
+
+```typescript
+// Good
+import { Startup } from 'dotdo'
+
+// Avoid
+import * as dotdo from 'dotdo'
+```
+
+2. **Dynamic imports** - Split code
+
+```typescript
+const { heavyModule } = await import('./heavy-module')
+```
+
+3. **External deps** - Use Worker-compatible packages
+
+## Troubleshooting
+
+### "Authentication failed"
+
+Re-authenticate with both services:
+
+```bash
+npx dotdo logout
+npx dotdo login
+npx wrangler login
+```
+
+### "Migration conflict"
+
+Migrations must be sequential. Check your tags:
+
+```toml
+[[migrations]]
+tag = "v1"  # Must be unique and ordered
+```
+
+### "Script too large"
+
+Bundle exceeds the 10MB limit:
+
+```bash
+# Check what's included
+npx wrangler deploy --dry-run --outdir ./dist
+
+# Analyze the bundle
+ls -la ./dist
+```
+
+Reduce size by:
+- Removing unused dependencies
+- Using lighter alternatives
+- Lazy loading heavy modules
+
+### "Durable Object class not found"
+
+Ensure you export the class:
+
+```typescript title="src/index.ts"
+export { MyStartup } from './startup'
+```
+
+And list it in `wrangler.toml`:
+
+```toml
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+```
+
+### "Rate limited"
+
+Cloudflare API rate limits. Wait a few minutes and try again, or use exponential backoff in CI:
+
+```yaml
+- name: Deploy with retry
+  uses: nick-fields/retry@v2
+  with:
+    timeout_minutes: 10
+    max_attempts: 3
+    command: npx dotdo deploy
+```
+
+## Advanced Usage
+
+### Multi-Region Deployment
+
+Durable Objects automatically geo-replicate. For static assets:
+
+```toml title="wrangler.toml"
+[site]
+bucket = "./public"
+```
+
+### Gradual Rollout
+
+Use Cloudflare's traffic splitting:
+
+```bash
+# Deploy to 10% of traffic
+npx wrangler versions upload
+npx wrangler versions deploy --percentage 10
+```
+
+### Blue-Green Deployment
+
+Maintain two environments:
+
+```bash
+# Deploy to blue
+npx dotdo deploy --env blue
+
+# Test blue
+curl https://my-startup-blue.workers.dev/health
+
+# Flip traffic to blue
+npx wrangler routing edit --route "mystartup.com/*" --worker my-startup-blue
+```
+
+## Next Steps
+
+- [Monitor with logs](/docs/guides/advanced/deployment) - Production logging
+- [Custom domains](/docs/deployment) - Set up your domain
+- [Scaling](/docs/deployment/sharding) - Shard for millions of users

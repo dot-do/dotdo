@@ -1,0 +1,13 @@
+{
+  "title": "Migration",
+  "description": "Move your existing apps to dotdo with confidence",
+  "root": true,
+  "pages": [
+    "index",
+    "---From Frameworks---",
+    "from-express",
+    "from-nextjs",
+    "---From Services---",
+    "from-supabase"
+  ]
+}

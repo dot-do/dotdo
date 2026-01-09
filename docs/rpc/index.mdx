@@ -1,17 +1,205 @@
 ---
-title: RPC.do
-description: Remote Procedure Calls with promise pipelining
+title: Cap'n Web RPC
+description: Object-capability RPC with promise pipelining - the foundation of dotdo's performance
 ---
 
-# RPC.do
+import { Callout } from 'fumadocs-ui/components/callout'
 
-RPC.do provides a powerful RPC system with promise pipelining, allowing you to chain method calls without waiting for each to resolve.
+# Cap'n Web RPC
+
+This is how dotdo achieves impossible performance. Cap'n Web is an object-capability RPC protocol with **promise pipelining**—the ability to pass unawaited promises as parameters, batching entire call graphs into single network round trips.
+
+```typescript
+const spec = priya`define the MVP`           // RpcPromise (not awaited)
+const app = ralph`build ${spec}`              // spec passed as promise
+const deployed = tom`ship ${app}`             // app passed as promise
+// ONE network round trip when we finally await
+```
+
+Three agent calls. One round trip. The entire pipeline executes on the server.
+
+## Why This Matters
+
+Traditional RPC forces a round trip per call:
+
+```typescript title="Traditional RPC - 3 Round Trips"
+const spec = await priya`define the MVP`     // Round trip 1
+const app = await ralph`build ${spec}`        // Round trip 2
+const deployed = await tom`ship ${app}`       // Round trip 3
+```
+
+Each `await` waits for the response before sending the next request. Three operations equals three round trips, with latency compounding at each step.
+
+Cap'n Web eliminates this:
+
+```typescript title="Cap'n Web - 1 Round Trip"
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const deployed = await tom`ship ${app}`
+```
+
+When you pass `spec` to Ralph without awaiting, the system doesn't need to send it back to the client. Instead, it builds a **pipeline graph** and sends it all at once.
+
+<Callout type="info" title="The Core Insight">
+A promise is just a reference to a future value. If the server knows what to do with that value, why send it back to the client first?
+</Callout>
+
+## RpcPromise vs Promise
+
+Agent calls don't return regular JavaScript Promises. They return `RpcPromise`—a special type that acts as both a promise and a proxy.
+
+```typescript
+const spec = priya`define the MVP`  // Type: RpcPromise<Spec>
+
+// You can await it like a promise
+const result = await spec
+
+// Or you can pass it to another call without awaiting
+const app = ralph`build ${spec}`
+
+// Or you can call methods on it (proxy behavior)
+const summary = spec.summarize()
+
+// Or access properties
+const title = spec.title
+
+// All without resolving the promise!
+```
+
+This dual nature is what makes pipelining possible. An RpcPromise is a **stub**—a local representative of a remote value that doesn't exist yet.
+
+## How Pipelines Execute
+
+When you write pipelined code, the client builds a graph:
+
+```typescript
+const spec = priya`define the MVP`
+const app = ralph`build ${spec}`
+const deployed = tom`ship ${app}`
+await deployed
+```
+
+The client constructs:
+
+```
+Graph:
+  0: priya("define the MVP")
+  1: ralph("build", $0)      // Reference to result 0
+  2: tom("ship", $1)         // Reference to result 1
+
+Return: $2
+```
+
+This entire graph is sent in **one request**. The server:
+
+1. Executes node 0 (Priya), stores result
+2. Executes node 1 (Ralph) with the stored result
+3. Executes node 2 (Tom) with that result
+4. Returns only the final result to the client
+
+No intermediate values cross the network.
 
 ## Key Concepts
 
-- **[Proxy Chaining](/docs/rpc/proxy-chaining)** - Chain method calls on remote objects
-- **[Pipelines](/docs/rpc/pipelines)** - Batch multiple operations into single round-trips
-- **[Magic Map](/docs/rpc/magic-map)** - Transform collections without awaiting
-- **[Await Patterns](/docs/rpc/await-patterns)** - When to await vs when to pipeline
+<Cards>
+  <Card title="Promise Pipelining" href="/docs/rpc/pipelines">
+    Deep dive into how pipelines batch multiple calls into single round trips.
+  </Card>
+  <Card title="Magic Map" href="/docs/rpc/magic-map">
+    The .map() that runs on the server—transform collections without awaiting.
+  </Card>
+  <Card title="Await Patterns" href="/docs/rpc/await-patterns">
+    When to await and when to pipeline. The rules are simple once you know them.
+  </Card>
+  <Card title="Proxy Chaining" href="/docs/rpc/proxy-chaining">
+    Method chaining on RpcPromises—call methods on values that don't exist yet.
+  </Card>
+</Cards>
 
-{/* This file will be auto-generated from RPC.do method definitions */}
+## The Signature Pattern
+
+This is the canonical dotdo startup launch:
+
+```typescript title="One Round Trip Startup"
+import { Startup } from 'dotdo'
+import { priya, ralph, tom, mark, sally } from 'agents.do'
+
+export class MyStartup extends Startup {
+  async launch() {
+    // Build the pipeline - no awaits!
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    const app = ralph`build ${spec}`
+    const deployed = tom`ship ${app}`
+    const announced = mark`announce ${deployed}`
+    const selling = sally`start selling ${announced}`
+
+    // ONE round trip executes the entire chain
+    return await selling
+  }
+}
+```
+
+Five agent calls. One network round trip. The entire pipeline executes on the server in sequence.
+
+<Callout type="warn" title="Don't Await Until You Need To">
+Every `await` is a potential pipeline flush. If you don't need the value for local computation (branching, loops, display), don't await it.
+</Callout>
+
+## When Pipelining Breaks
+
+Pipelining works when the server knows what to do with results. It breaks when you need local decisions:
+
+```typescript title="Await Required for Branching"
+const analysis = await priya`analyze the market`
+
+// We need the actual value to branch
+if (analysis.opportunity === 'high') {
+  const spec = priya`define aggressive MVP`
+  return await ralph`build ${spec}`
+} else {
+  const spec = priya`define lean experiment`
+  return await ralph`build ${spec}`
+}
+```
+
+Here the `await` is necessary—the client needs to inspect `analysis.opportunity` to decide which branch to take. The server can't know this in advance.
+
+See [Await Patterns](/docs/rpc/await-patterns) for the complete rules.
+
+## Object Capabilities
+
+Cap'n Web is built on the **object-capability model**. Every RpcPromise is a capability—a reference that grants specific permissions to act on a remote object.
+
+```typescript
+// Get a capability to a Customer DO
+const customer = $.Customer('cus_123')
+
+// The capability lets you call methods
+await customer.notify({ message: 'Welcome!' })
+await customer.updateProfile({ name: 'Alice' })
+
+// But not methods you don't have access to
+// await customer.deleteAccount()  // Would fail if not authorized
+```
+
+Capabilities are:
+- **Unforgeable** - You can't create a reference you weren't given
+- **Attenuated** - You can delegate with reduced permissions
+- **Revocable** - Capabilities can be invalidated
+
+This provides fine-grained security without authentication headers or tokens.
+
+## Performance Characteristics
+
+| Pattern | Round Trips | Latency (200ms RTT) |
+|---------|-------------|---------------------|
+| 5 awaited calls | 5 | 1000ms |
+| 5 pipelined calls | 1 | 200ms |
+| 5 parallel + pipeline | 1 | 200ms |
+| Mixed (3 await, 2 pipeline) | 3 | 600ms |
+
+Pipeline aggressively. Your users will thank you.
+
+## Next Steps
+
+Start with [Promise Pipelining](/docs/rpc/pipelines) for the deep dive, or jump to [Await Patterns](/docs/rpc/await-patterns) if you want the practical rules immediately.

@@ -1,6 +1,12 @@
 {
   "title": "API Reference",
-  "description": "REST API documentation",
+  "description": "Complete REST API documentation",
   "root": true,
-  "pages": ["index", "authentication"]
+  "pages": [
+    "index",
+    "routes",
+    "authentication",
+    "middleware",
+    "responses"
+  ]
 }

@@ -1,0 +1,393 @@
+---
+title: Unit Testing
+description: Unit testing Durable Objects with mocked infrastructure
+---
+
+# Unit Testing Durable Objects
+
+Unit tests run in Node.js environment with mocked Cloudflare infrastructure. This provides fast feedback during development without the overhead of the Workers runtime.
+
+## Mock Infrastructure
+
+Create mock implementations for DurableObjectState:
+
+```typescript title="tests/helpers/mocks.ts"
+import { vi } from 'vitest'
+
+/**
+ * Mock KV storage for Durable Object state
+ */
+export function createMockKvStorage() {
+  const storage = new Map<string, unknown>()
+
+  return {
+    get: vi.fn(async <T = unknown>(key: string | string[]) => {
+      if (Array.isArray(key)) {
+        const result = new Map<string, T>()
+        for (const k of key) {
+          const value = storage.get(k)
+          if (value !== undefined) result.set(k, value as T)
+        }
+        return result
+      }
+      return storage.get(key) as T | undefined
+    }),
+    put: vi.fn(async <T>(key: string | Record<string, T>, value?: T) => {
+      if (typeof key === 'object') {
+        for (const [k, v] of Object.entries(key)) {
+          storage.set(k, v)
+        }
+      } else {
+        storage.set(key, value)
+      }
+    }),
+    delete: vi.fn(async (key: string | string[]) => {
+      if (Array.isArray(key)) {
+        let count = 0
+        for (const k of key) if (storage.delete(k)) count++
+        return count
+      }
+      return storage.delete(key)
+    }),
+    list: vi.fn(async <T = unknown>(options?: { prefix?: string }) => {
+      const result = new Map<string, T>()
+      for (const [key, value] of storage) {
+        if (!options?.prefix || key.startsWith(options.prefix)) {
+          result.set(key, value as T)
+        }
+      }
+      return result
+    }),
+    _storage: storage, // For test inspection
+  }
+}
+
+/**
+ * Mock SQL storage for SQLite operations
+ */
+export function createMockSqlStorage() {
+  const tables = new Map<string, unknown[]>()
+
+  return {
+    exec(query: string, ...params: unknown[]) {
+      return {
+        toArray: () => [],
+        one: () => undefined,
+        raw: () => [],
+      }
+    },
+    _tables: tables,
+  }
+}
+
+/**
+ * Create a complete mock DurableObjectState
+ */
+export function createMockState(idName = 'test-id') {
+  const kvStorage = createMockKvStorage()
+  const sqlStorage = createMockSqlStorage()
+
+  return {
+    id: {
+      toString: () => idName,
+      equals: (other: { toString(): string }) => other.toString() === idName,
+      name: idName,
+    },
+    storage: {
+      ...kvStorage,
+      sql: sqlStorage,
+    },
+    waitUntil: vi.fn(),
+    blockConcurrencyWhile: vi.fn(async <T>(cb: () => Promise<T>) => cb()),
+  }
+}
+
+/**
+ * Create a mock environment
+ */
+export function createMockEnv() {
+  return {
+    AI: undefined,
+    PIPELINE: undefined,
+    DO: undefined,
+  }
+}
+```
+
+## Testing DO Methods
+
+Test Durable Object methods with the mocked state:
+
+```typescript title="objects/tests/Startup.test.ts"
+import { describe, it, expect, vi } from 'vitest'
+import { createMockState, createMockEnv } from '../../tests/helpers/mocks'
+
+describe('Startup', () => {
+  describe('Service Binding', () => {
+    it('binds services and retrieves them', async () => {
+      const { Startup } = await import('../Startup')
+      const state = createMockState()
+      const env = createMockEnv()
+      const startup = new Startup(state, env)
+
+      await startup.bindService({
+        serviceId: 'tax-service',
+        name: 'Tax Filing Service',
+        config: { region: 'US' },
+      })
+
+      const services = await startup.getServices()
+
+      expect(services).toHaveLength(1)
+      expect(services[0].name).toBe('Tax Filing Service')
+    })
+
+    it('emits service.bound event', async () => {
+      const { Startup } = await import('../Startup')
+      const state = createMockState()
+      const startup = new Startup(state, createMockEnv())
+      const emitSpy = vi.spyOn(startup, 'emit')
+
+      await startup.bindService({
+        serviceId: 'new-service',
+        name: 'New Service',
+      })
+
+      expect(emitSpy).toHaveBeenCalledWith('service.bound',
+        expect.objectContaining({ serviceId: 'new-service' })
+      )
+    })
+  })
+})
+```
+
+## Testing Event Handlers
+
+Test the `$.on.Noun.verb` event handler pattern:
+
+```typescript title="objects/tests/do-on-handlers.test.ts"
+import { describe, it, expect, vi } from 'vitest'
+import { createMockState, createMockEnv } from '../../tests/helpers/mocks'
+
+describe('Event Handlers ($.on.Noun.verb)', () => {
+  it('registers Customer.created handler', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    const handler = vi.fn()
+    startup.$.on.Customer.created(handler)
+
+    // Handler registered but not yet called
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('triggers handler when event fires', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    const handler = vi.fn()
+    startup.$.on.Payment.received(handler)
+
+    // Simulate event
+    await startup.$.emit('Payment.received', {
+      amount: 100,
+      customerId: 'cust-123',
+    })
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 100 })
+    )
+  })
+})
+```
+
+## Testing Workflow Context ($)
+
+Test the `$` workflow context DSL:
+
+```typescript title="objects/tests/do-workflow-context.test.ts"
+import { describe, it, expect, vi } from 'vitest'
+import { createMockState, createMockEnv } from '../../tests/helpers/mocks'
+
+describe('Workflow Context ($)', () => {
+  it('$.do executes with retries', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    let attempts = 0
+    const action = vi.fn(async () => {
+      attempts++
+      if (attempts < 2) throw new Error('Temporary failure')
+      return { success: true }
+    })
+
+    const result = await startup.$.do(action)
+
+    expect(result).toEqual({ success: true })
+    expect(attempts).toBe(2)
+  })
+
+  it('$.send is fire-and-forget', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    // Should not throw even if underlying action fails
+    await expect(
+      startup.$.send({ type: 'notification', data: {} })
+    ).resolves.not.toThrow()
+  })
+
+  it('$.try executes single attempt', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    const action = vi.fn(async () => {
+      throw new Error('Single failure')
+    })
+
+    await expect(startup.$.try(action)).rejects.toThrow('Single failure')
+    expect(action).toHaveBeenCalledTimes(1)
+  })
+})
+```
+
+## Testing HTTP Endpoints
+
+Test DO fetch handlers with mock requests:
+
+```typescript title="objects/tests/do-http.test.ts"
+import { describe, it, expect } from 'vitest'
+import { createMockState, createMockEnv } from '../../tests/helpers/mocks'
+
+describe('HTTP Endpoints', () => {
+  it('GET /config returns configuration', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    await startup.configure({
+      name: 'TestStartup',
+      slug: 'test-startup',
+    })
+
+    const request = new Request('http://localhost/config')
+    const response = await startup.fetch(request)
+
+    expect(response.status).toBe(200)
+
+    const data = await response.json()
+    expect(data.name).toBe('TestStartup')
+  })
+
+  it('POST /escalate triggers escalation', async () => {
+    const { Startup } = await import('../Startup')
+    const startup = new Startup(createMockState(), createMockEnv())
+
+    await startup.setEscalationPolicy({
+      rules: [{
+        trigger: 'large-refund',
+        escalateTo: 'human',
+        priority: 'high',
+      }],
+    })
+
+    const request = new Request('http://localhost/escalate', {
+      method: 'POST',
+      body: JSON.stringify({
+        trigger: 'large-refund',
+        context: { amount: 5000 },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const response = await startup.fetch(request)
+
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.escalatedTo).toBe('human')
+  })
+})
+```
+
+## Testing Subclasses
+
+Test that subclasses inherit DO behavior:
+
+```typescript title="objects/tests/subclass.test.ts"
+import { describe, it, expect } from 'vitest'
+import { createMockState, createMockEnv } from '../../tests/helpers/mocks'
+
+describe('Subclass Pattern', () => {
+  it('custom Startup extends base functionality', async () => {
+    const { Startup } = await import('../Startup')
+
+    class AcmeTax extends Startup {
+      static override readonly $type = 'AcmeTax'
+
+      async calculateTax(income: number): Promise<number> {
+        return income * 0.25
+      }
+    }
+
+    const acmeTax = new AcmeTax(createMockState(), createMockEnv())
+
+    // Inherited methods work
+    expect(typeof acmeTax.bindService).toBe('function')
+    expect(typeof acmeTax.bindAgent).toBe('function')
+
+    // Custom methods work
+    expect(await acmeTax.calculateTax(1000)).toBe(250)
+  })
+})
+```
+
+## Testing TDD Style (RED Phase)
+
+Write failing tests first to define the API:
+
+```typescript title="objects/tests/new-feature.test.ts"
+import { describe, it, expect } from 'vitest'
+
+describe('New Feature (RED Phase)', () => {
+  it('defines expected API before implementation', async () => {
+    // This test FAILS until the feature is implemented
+    const { DO } = await import('../DO')
+    const state = createMockState()
+    const obj = new DO(state, {})
+
+    // Define expected behavior
+    expect(typeof obj.newFeature).toBe('function')
+
+    const result = await obj.newFeature({ input: 'test' })
+    expect(result).toHaveProperty('output')
+  })
+})
+```
+
+## Best Practices
+
+1. **Mock at boundaries** - Mock storage and external services, not internal logic
+2. **Test behavior, not implementation** - Focus on what methods return, not how
+3. **Use descriptive test names** - `it('binds service and emits event')` not `it('works')`
+4. **Isolate tests** - Each test should create fresh state
+5. **Test error cases** - Verify error handling and edge cases
+
+```typescript
+// Good: Tests behavior
+it('rejects invalid configuration', async () => {
+  const startup = new Startup(createMockState(), createMockEnv())
+
+  await expect(
+    startup.configure({ name: '' }) // Empty name
+  ).rejects.toThrow('Name is required')
+})
+
+// Bad: Tests implementation details
+it('calls storage.put with correct key', async () => {
+  // Too coupled to internal implementation
+})
+```
+
+## Next Steps
+
+- [Integration Testing](/guides/testing/integration-tests) - Test with real Workers runtime
+- [Agent Testing](/guides/testing/agent-tests) - Mock providers for deterministic tests

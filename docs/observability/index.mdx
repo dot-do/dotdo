@@ -1,0 +1,193 @@
+---
+title: Observability
+description: Debug production issues with structured logging, metrics, and distributed tracing across Durable Objects and AI agents
+---
+
+# Observability
+
+When you're running 10,000 AI agents across 300+ edge locations, "add some console.logs" doesn't cut it. dotdo provides structured observability built into the `$` context.
+
+## The Problem
+
+Distributed systems fail in distributed ways:
+
+- An agent in Frankfurt times out waiting for a DO in Virginia
+- A payment handler runs but the webhook never fires
+- Tom's code review takes 45 seconds on Tuesdays
+
+Traditional logging gives you a wall of text. You need structured data, correlated across requests, with automatic context propagation.
+
+## Built-in Observability
+
+Every `$` context automatically captures:
+
+| Field | Description |
+|-------|-------------|
+| `doId` | Durable Object identifier |
+| `requestId` | Unique per-request trace ID |
+| `agent` | Agent name (priya, ralph, tom, etc.) |
+| `colo` | Cloudflare datacenter (SFO, FRA, NRT) |
+| `timestamp` | ISO 8601 with microseconds |
+| `duration` | Time since request start |
+
+You don't configure this. It's there.
+
+## Core APIs
+
+<Cards>
+  <Card title="Logging" href="/docs/observability/logging">
+    Structured logs with automatic context. info, warn, error, debug levels.
+  </Card>
+  <Card title="Metrics" href="/docs/observability/metrics">
+    Counters, gauges, histograms. HUNCH metrics for product-market fit.
+  </Card>
+  <Card title="Tracing" href="/docs/observability/tracing">
+    Distributed traces across DOs and agent calls. OpenTelemetry-compatible.
+  </Card>
+  <Card title="Dashboards" href="/docs/observability/dashboards">
+    Cloudflare Analytics, custom dashboards, and alerting.
+  </Card>
+</Cards>
+
+## Quick Example
+
+```typescript
+export class OrderProcessor extends DO {
+  async processOrder(orderId: string) {
+    // Structured logging with automatic context
+    $.log.info('Processing order', { orderId, customerId: this.customerId })
+
+    // Metrics for business events
+    $.metrics.increment('orders.processing')
+
+    // Tracing for performance
+    const span = $.trace.span('validate-payment')
+    try {
+      const payment = await this.validatePayment(orderId)
+      span.setAttribute('payment.method', payment.method)
+      span.end()
+    } catch (error) {
+      span.recordException(error)
+      span.end()
+      $.log.error('Payment validation failed', { orderId, error })
+      throw error
+    }
+
+    $.metrics.increment('orders.completed')
+    $.log.info('Order processed', { orderId, duration: $.duration })
+  }
+}
+```
+
+This single request generates:
+- 3 structured log entries with full context
+- 2 counter increments
+- 1 trace span with attributes and timing
+
+All automatically correlated by `requestId`.
+
+## Agent Observability
+
+Agent calls are automatically instrumented:
+
+```typescript
+const spec = await priya`define the MVP`
+// Creates span: agent:priya
+// Logs: agent.start, agent.complete
+// Metrics: agent.calls, agent.duration, agent.tokens
+
+const code = await ralph`build ${spec}`
+// Creates span: agent:ralph (child of current request)
+// Parent-child relationship preserved across DOs
+```
+
+You get visibility into:
+- Which agents are slow
+- Token consumption per agent
+- Error rates by agent and task type
+- Cross-agent request flows
+
+## Debugging Production Issues
+
+### "The webhook never fired"
+
+```typescript
+// Search logs by event type and time window
+const logs = await $.logs.search({
+  event: 'webhook.sent',
+  orderId: 'ord_123',
+  timeRange: { last: '1h' }
+})
+
+// Found: webhook.sent at 14:32:01, response: 503
+// Root cause: downstream service was down
+```
+
+### "Payments are slow on Tuesdays"
+
+```typescript
+// Query histogram percentiles by time
+const p99 = await $.metrics.query({
+  metric: 'payment.duration',
+  percentile: 99,
+  groupBy: 'dayOfWeek'
+})
+
+// Result: Tuesday p99 = 4200ms, other days = 800ms
+// Correlation: Bank batch processing window
+```
+
+### "Agent calls are timing out"
+
+```typescript
+// Get traces for failed agent calls
+const traces = await $.trace.search({
+  'agent.status': 'timeout',
+  minDuration: '30s'
+})
+
+// Trace shows: priya waiting on ralph, ralph waiting on external API
+// Root cause: Anthropic rate limiting during peak hours
+```
+
+## Performance Overhead
+
+Observability has cost. We minimize it:
+
+| Operation | Overhead |
+|-----------|----------|
+| Log entry | ~50 microseconds |
+| Metric increment | ~10 microseconds |
+| Span creation | ~100 microseconds |
+| Context propagation | ~5 microseconds |
+
+Logs and metrics are buffered and flushed asynchronously. Traces use sampling in high-volume scenarios.
+
+## Configuration
+
+```typescript
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  observability = {
+    logging: {
+      level: 'info',           // debug, info, warn, error
+      structured: true,         // JSON output
+    },
+    metrics: {
+      prefix: 'myapp',         // Metric namespace
+      flushInterval: 10000,    // 10 seconds
+    },
+    tracing: {
+      sampleRate: 0.1,         // 10% of requests
+      propagation: 'w3c',      // W3C Trace Context
+    }
+  }
+}
+```
+
+## Next Steps
+
+- [Logging](/docs/observability/logging) - Structured logging with automatic context
+- [Metrics](/docs/observability/metrics) - Counters, gauges, and HUNCH metrics
+- [Tracing](/docs/observability/tracing) - Distributed tracing across the edge

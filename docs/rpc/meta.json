@@ -1,6 +1,12 @@
 {
-  "title": "RPC Reference",
-  "description": "RPC.do - Remote Procedure Calls with promise pipelining",
+  "title": "Cap'n Web RPC",
+  "description": "Object-capability RPC with promise pipelining",
   "root": true,
-  "pages": ["index", "proxy-chaining", "pipelines", "magic-map", "await-patterns"]
+  "pages": [
+    "index",
+    "pipelines",
+    "magic-map",
+    "await-patterns",
+    "proxy-chaining"
+  ]
 }

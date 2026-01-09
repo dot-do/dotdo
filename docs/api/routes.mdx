@@ -1,0 +1,543 @@
+---
+title: Route Patterns
+description: HTTP route patterns and endpoint specifications
+---
+
+# Route Patterns
+
+This reference documents all available HTTP routes, their parameters, and expected request/response formats.
+
+## Things API
+
+The core REST API for managing Things.
+
+### List Things
+
+```http
+GET /api/things
+```
+
+Query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 100 | Maximum items to return (max 1000) |
+| `offset` | integer | 0 | Number of items to skip |
+
+Response:
+
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "$id": "thing:123e4567-e89b-12d3-a456-426614174000",
+    "$type": "thing",
+    "name": "Example Thing",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+]
+```
+
+### Create Thing
+
+```http
+POST /api/things
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "name": "My New Thing",
+  "$type": "thing",
+  "data": {
+    "key": "value"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name (1-10000 chars) |
+| `$type` | string | No | Type URL or "thing" |
+| `data` | object | No | Arbitrary JSON data |
+
+Response (201 Created):
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "$id": "thing:123e4567-e89b-12d3-a456-426614174000",
+  "$type": "thing",
+  "name": "My New Thing",
+  "data": { "key": "value" },
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### Get Thing
+
+```http
+GET /api/things/:id
+```
+
+Path parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | UUID | Thing identifier |
+
+Response:
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "$id": "thing:123e4567-e89b-12d3-a456-426614174000",
+  "$type": "thing",
+  "name": "Example Thing",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### Update Thing
+
+```http
+PUT /api/things/:id
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "name": "Updated Name",
+  "data": { "updated": true }
+}
+```
+
+All fields are optional. Only provided fields are updated.
+
+### Delete Thing
+
+```http
+DELETE /api/things/:id
+```
+
+Response: 204 No Content
+
+---
+
+## Browser API
+
+Manage browser automation sessions via Durable Objects.
+
+### List Sessions
+
+```http
+GET /api/browsers
+```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Filter by status: `idle`, `active`, `paused`, `stopped` |
+| `limit` | integer | Maximum items (default 100) |
+| `offset` | integer | Skip items (default 0) |
+
+Response:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "session-uuid",
+      "status": "active",
+      "provider": "cloudflare",
+      "currentUrl": "https://example.com",
+      "liveViewUrl": "https://...",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Create Session
+
+```http
+POST /api/browsers
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "provider": "cloudflare",
+  "liveView": true,
+  "viewport": { "width": 1920, "height": 1080 },
+  "stealth": false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | string | `cloudflare` | Browser provider: `cloudflare` or `browserbase` |
+| `liveView` | boolean | false | Enable live view URL |
+| `viewport` | object | - | Browser viewport dimensions |
+| `stealth` | boolean | false | Enable stealth mode |
+
+Response (201 Created):
+
+```json
+{
+  "id": "session-uuid",
+  "sessionId": "internal-session-id",
+  "provider": "cloudflare",
+  "liveViewUrl": "https://..."
+}
+```
+
+### Get Session State
+
+```http
+GET /api/browsers/:id/state
+```
+
+### Navigate to URL
+
+```http
+POST /api/browsers/:id/browse
+Content-Type: application/json
+```
+
+```json
+{
+  "url": "https://example.com"
+}
+```
+
+### Execute Action
+
+```http
+POST /api/browsers/:id/act
+Content-Type: application/json
+```
+
+```json
+{
+  "instruction": "Click the login button"
+}
+```
+
+### Extract Data
+
+```http
+POST /api/browsers/:id/extract
+Content-Type: application/json
+```
+
+```json
+{
+  "instruction": "Get all product prices",
+  "schema": {
+    "type": "array",
+    "items": { "type": "number" }
+  }
+}
+```
+
+### Observe Actions
+
+```http
+POST /api/browsers/:id/observe
+Content-Type: application/json
+```
+
+```json
+{
+  "instruction": "What actions are available?"
+}
+```
+
+### Stop Session
+
+```http
+POST /api/browsers/:id/stop
+```
+
+### Take Screenshot
+
+```http
+GET /api/browsers/:id/screenshot?fullPage=true
+```
+
+Query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `fullPage` | boolean | false | Capture full page |
+
+### Event Stream (SSE)
+
+```http
+GET /api/browsers/:id/events
+Accept: text/event-stream
+```
+
+### Live View Redirect
+
+```http
+GET /api/browsers/:id/live
+```
+
+Redirects to the live view URL (302 Found).
+
+---
+
+## Observability API
+
+Query observability events and traces.
+
+### Query Events
+
+```http
+GET /api/obs/events
+```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `level` | string | Filter by level: `debug`, `info`, `warn`, `error` |
+| `type` | string | Filter by type: `log`, `exception`, `request`, `do_method` |
+| `script` | string | Filter by script name |
+| `requestId` | string | Filter by request ID |
+| `doName` | string | Filter by Durable Object name |
+| `from` | integer | Start timestamp (milliseconds) |
+| `to` | integer | End timestamp (milliseconds) |
+| `limit` | integer | Maximum items (default 100, max 1000) |
+| `offset` | integer | Skip items (default 0) |
+
+Response:
+
+```json
+{
+  "events": [
+    {
+      "id": "event-uuid",
+      "type": "log",
+      "level": "info",
+      "script": "api-worker",
+      "timestamp": 1704067200000,
+      "requestId": "req-uuid",
+      "message": ["Request started"]
+    }
+  ],
+  "total": 150,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+### Get Request Trace
+
+```http
+GET /api/obs/trace/:requestId
+```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | string[] | Filter by event types (can repeat) |
+| `limit` | integer | Maximum events to return |
+
+Response:
+
+```json
+{
+  "requestId": "req-uuid",
+  "events": [
+    {
+      "id": "event-uuid",
+      "type": "request",
+      "timestamp": 1704067200000,
+      "requestId": "req-uuid",
+      "data": {
+        "method": "GET",
+        "url": "/api/things",
+        "status": 200,
+        "duration": 50
+      }
+    }
+  ],
+  "startedAt": 1704067200000,
+  "endedAt": 1704067200500,
+  "duration": 500
+}
+```
+
+---
+
+## RPC Endpoint
+
+WebSocket and HTTP RPC with promise pipelining.
+
+### HTTP Batch Mode
+
+```http
+POST /rpc
+Content-Type: application/json
+```
+
+Request body (Capnweb format):
+
+```json
+{
+  "id": "req-1",
+  "type": "batch",
+  "calls": [
+    {
+      "promiseId": "p1",
+      "target": { "type": "root" },
+      "method": "getUser",
+      "args": [{ "type": "value", "value": "user-123" }]
+    },
+    {
+      "promiseId": "p2",
+      "target": { "type": "promise", "promiseId": "p1" },
+      "method": "getPosts",
+      "args": []
+    }
+  ]
+}
+```
+
+Response:
+
+```json
+{
+  "id": "req-1",
+  "type": "batch",
+  "results": [
+    { "promiseId": "p1", "type": "value", "value": { "id": "user-123", "name": "John" } },
+    { "promiseId": "p2", "type": "value", "value": [{ "id": "post-1", "title": "Hello" }] }
+  ]
+}
+```
+
+### WebSocket Streaming
+
+```http
+GET /rpc
+Connection: Upgrade
+Upgrade: websocket
+```
+
+Supports JSON-RPC 2.0 protocol:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getUser",
+  "params": { "id": "user-123" }
+}
+```
+
+Available RPC methods:
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `echo` | `value: any` | Echo back the value |
+| `add` | `a: number, b: number` | Add two numbers |
+| `multiply` | `a: number, b: number` | Multiply two numbers |
+| `ping` | - | Health check |
+| `getUser` | `id: string` | Get user by ID |
+| `getPosts` | - | Get all posts |
+| `getData` | - | Get sample data |
+
+---
+
+## Durable Object Routes
+
+Direct access to Durable Object instances.
+
+```http
+/:doClass/:id/*
+```
+
+Path parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `doClass` | DO namespace binding name (e.g., `DO`, `BROWSER_DO`) |
+| `id` | Instance identifier for `idFromName()` |
+
+Example:
+
+```http
+GET /DO/user-123/profile
+```
+
+This routes to the `DO` namespace, gets the instance with `idFromName('user-123')`, and forwards the request with path `/profile`.
+
+---
+
+## MCP Endpoint
+
+Model Context Protocol for AI tool integration.
+
+### JSON-RPC Request
+
+```http
+POST /mcp
+Content-Type: application/json
+Mcp-Session-Id: session-123
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {}
+}
+```
+
+### SSE Stream
+
+```http
+GET /mcp
+Mcp-Session-Id: session-123
+Accept: text/event-stream
+```
+
+### Terminate Session
+
+```http
+DELETE /mcp
+Mcp-Session-Id: session-123
+```
+
+---
+
+## Admin Routes
+
+Administrative endpoints (HTML pages).
+
+| Route | Description |
+|-------|-------------|
+| `/admin` | Dashboard |
+| `/admin/login` | Login page |
+| `/admin/users` | User management |
+| `/admin/workflows` | Workflow management |
+| `/admin/integrations` | Integration settings |
+| `/admin/settings` | Account settings |
+| `/admin/activity` | Activity log |

@@ -1,10 +1,197 @@
 ---
 title: CLI Reference
-description: Command-line interface for do.md
+description: Command-line interface for dotdo - build your 1-Person Unicorn
 ---
 
 # CLI Reference
 
-Auto-generated CLI documentation.
+The `dotdo` CLI is your interface for creating, developing, and deploying AI-powered startups. Every command you need, from `init` to `deploy`.
 
-{/* This file will be auto-generated from CLI command definitions */}
+## Installation
+
+The CLI comes bundled with the `dotdo` package:
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+  <Tab value="npm">
+```bash
+npm install -g dotdo
+```
+  </Tab>
+  <Tab value="pnpm">
+```bash
+pnpm add -g dotdo
+```
+  </Tab>
+  <Tab value="yarn">
+```bash
+yarn global add dotdo
+```
+  </Tab>
+  <Tab value="bun">
+```bash
+bun add -g dotdo
+```
+  </Tab>
+</Tabs>
+
+Or use directly with `npx`:
+
+```bash
+npx dotdo <command>
+```
+
+## Commands Overview
+
+| Command | Description |
+|---------|-------------|
+| [`init`](/docs/cli/init) | Initialize a new dotdo project |
+| [`dev`](/docs/cli/dev) | Start local development server |
+| [`deploy`](/docs/cli/deploy) | Deploy to Cloudflare Workers |
+| [`generate`](/docs/cli/generate) | Generate agents, entities, and scaffolding |
+| `login` | Authenticate with your account |
+| `logout` | Sign out of your account |
+| `build` | Build the project for production |
+
+## Quick Reference
+
+```bash title="Common workflows"
+# Start a new project
+npx dotdo init my-startup
+cd my-startup
+
+# Develop locally
+npx dotdo dev
+
+# Deploy to production
+npx dotdo deploy
+
+# Generate new agent
+npx dotdo generate agent sales-rep
+
+# Generate new entity
+npx dotdo generate entity Customer
+```
+
+## Global Options
+
+These options work with any command:
+
+| Option | Description |
+|--------|-------------|
+| `-h, --help` | Show help for the command |
+| `-v, --version` | Show CLI version |
+| `--verbose` | Enable verbose output |
+| `--no-color` | Disable colored output |
+
+## AI Fallback
+
+Any unrecognized command is passed to the AI fallback for natural language processing:
+
+```bash
+# These work too
+npx dotdo "add a signup form to the landing page"
+npx dotdo "fix the bug in customer onboarding"
+npx dotdo "deploy the latest changes to staging"
+```
+
+The AI interprets your intent and executes the appropriate actions.
+
+## Authentication
+
+Most commands require authentication. The CLI uses device flow OAuth via `oauth.do`:
+
+```bash
+# Log in (opens browser for authentication)
+npx dotdo login
+
+# Check current session
+npx dotdo whoami
+
+# Log out
+npx dotdo logout
+```
+
+<Callout type="info">
+The `dev` and `deploy` commands automatically prompt for login if you're not authenticated. You don't need to run `login` separately.
+</Callout>
+
+## Environment Variables
+
+Configure the CLI behavior with environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DO_TOKEN` | Authentication token (set automatically after login) | - |
+| `DO_API_URL` | Custom API endpoint | `https://api.do.md` |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for deployment | - |
+
+## Configuration Files
+
+The CLI reads configuration from multiple sources:
+
+### Project Configuration
+
+```typescript title="dotdo.config.ts"
+import { defineConfig } from 'dotdo'
+
+export default defineConfig({
+  name: 'my-startup',
+
+  // Agent configuration
+  agents: {
+    priya: { model: 'claude-3-opus' },
+    ralph: { model: 'claude-3-sonnet' },
+  },
+
+  // Deployment settings
+  deploy: {
+    workers: true,
+    regions: ['auto'],
+  },
+})
+```
+
+### Wrangler Configuration
+
+```toml title="wrangler.toml"
+name = "my-startup"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "STARTUP", class_name = "MyStartup" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyStartup"]
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Command not found |
+| `3` | Authentication required |
+| `4` | Network error |
+| `5` | Configuration error |
+
+## Command Reference
+
+<Cards>
+  <Card title="init" href="/docs/cli/init">
+    Initialize a new dotdo project with all the scaffolding you need.
+  </Card>
+  <Card title="dev" href="/docs/cli/dev">
+    Start local development with hot reload and agent simulation.
+  </Card>
+  <Card title="deploy" href="/docs/cli/deploy">
+    Deploy your startup to Cloudflare's global edge network.
+  </Card>
+  <Card title="generate" href="/docs/cli/generate">
+    Generate agents, entities, and other project scaffolding.
+  </Card>
+</Cards>

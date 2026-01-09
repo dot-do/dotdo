@@ -1,35 +1,359 @@
 ---
 title: Magic Map
-description: Transform collections without awaiting each element
+description: The .map() that runs on the server - transform collections without awaiting
 ---
+
+import { Callout } from 'fumadocs-ui/components/callout'
 
 # Magic Map
 
-Transform collections on the server without awaiting individual elements.
+When you call `.map()` on an RpcPromise, it doesn't execute locally. It **records** the callback, sends it to the server, and **replays** it there. The entire transformation happens where the data lives—in a single round trip.
 
 ```typescript
-// Transform each post without fetching them first
-const titles = await rpc.getPosts().map((post) => post.title)
+const users = sally`find all enterprise customers`
+const emails = users.map(u => u.email)
+await mark`send campaign to ${emails}`   // ONE round trip
 ```
+
+This isn't JavaScript's `Array.prototype.map()`. It's a recorded operation that becomes part of the pipeline.
+
+## Why Magic Map Exists
+
+Without Magic Map, you'd break the pipeline to transform data:
+
+```typescript title="The Problem - Breaks Pipeline"
+const users = await sally`find all enterprise customers`  // Round trip 1
+const emails = users.map(u => u.email)                    // Local transform
+await mark`send campaign to ${emails}`                     // Round trip 2
+```
+
+That `await` on line 1 forces the users array to come back to the client. Then you transform it locally. Then you send it back to the server for Mark. Two round trips.
+
+Magic Map keeps it in one:
+
+```typescript title="The Solution - Single Round Trip"
+const users = sally`find all enterprise customers`   // RpcPromise
+const emails = users.map(u => u.email)               // Recorded, not executed
+await mark`send campaign to ${emails}`               // ONE round trip
+```
+
+The `.map()` doesn't run until the server has the data. Then it transforms it there.
 
 ## How It Works
 
-The `.map()` call doesn't execute locally - it creates a pipeline instruction that runs on the server. The transformation happens where the data lives.
+When you call `.map()` on an RpcPromise:
 
-## Chaining Transforms
+1. **Recording**: The callback is serialized and attached to the pipeline graph
+2. **Transmission**: The graph (including the callback) is sent to the server
+3. **Replay**: Server executes the parent call, then replays the callback for each result
+4. **Continuation**: The transformed result feeds into the next pipeline step
 
 ```typescript
-const result = await rpc
-  .getUsers()
-  .filter((user) => user.active)
-  .map((user) => user.email)
-  .slice(0, 10)
+// What you write
+const emails = users.map(u => u.email)
+
+// What happens internally
+{
+  type: 'map',
+  parent: users._pipelineNode,
+  callback: 'u => u.email',  // Serialized!
+  result: new RpcPromise()
+}
 ```
+
+The callback is converted to a string, sent over the wire, and evaluated on the server in a sandboxed context.
+
+<Callout type="warn" title="Callbacks Must Be Serializable">
+Magic Map callbacks are converted to strings and executed on the server. They can't reference external variables, call imported functions, or use closures. Keep them simple.
+</Callout>
 
 ## Supported Operations
 
-- `.map(fn)` - Transform each element
-- `.filter(fn)` - Filter elements
-- `.slice(start, end)` - Take a subset
-- `.find(fn)` - Find first match
-- `.reduce(fn, initial)` - Reduce to single value
+Magic Map extends beyond just `.map()`. All these operations are recorded and replayed:
+
+### map
+
+Transform each element:
+
+```typescript
+const names = users.map(u => u.name)
+const formatted = orders.map(o => `Order #${o.id}: $${o.total}`)
+const active = accounts.map(a => ({ ...a, status: 'active' }))
+```
+
+### filter
+
+Keep elements matching a predicate:
+
+```typescript
+const active = users.filter(u => u.active)
+const highValue = orders.filter(o => o.total > 1000)
+const recent = posts.filter(p => p.createdAt > Date.now() - 86400000)
+```
+
+### find
+
+Get the first matching element:
+
+```typescript
+const admin = users.find(u => u.role === 'admin')
+const overdue = invoices.find(i => i.dueDate < Date.now())
+```
+
+### slice
+
+Take a subset:
+
+```typescript
+const top10 = users.slice(0, 10)
+const rest = users.slice(10)
+const page = orders.slice(offset, offset + limit)
+```
+
+### reduce
+
+Aggregate to a single value:
+
+```typescript
+const total = orders.reduce((sum, o) => sum + o.total, 0)
+const byStatus = tickets.reduce((acc, t) => {
+  acc[t.status] = (acc[t.status] || 0) + 1
+  return acc
+}, {})
+```
+
+### flatMap
+
+Map and flatten:
+
+```typescript
+const allTags = posts.flatMap(p => p.tags)
+const allItems = orders.flatMap(o => o.items)
+```
+
+### sort
+
+Order elements:
+
+```typescript
+const byDate = posts.sort((a, b) => b.createdAt - a.createdAt)
+const byName = users.sort((a, b) => a.name.localeCompare(b.name))
+```
+
+## Chaining Operations
+
+Operations chain together, all recorded:
+
+```typescript
+const result = sally`find all users`
+  .filter(u => u.active)
+  .filter(u => u.plan === 'enterprise')
+  .map(u => u.email)
+  .slice(0, 100)
+
+// Nothing has executed - just recorded
+await mark`send ${result} a discount offer`  // ONE round trip
+```
+
+The server receives the full chain:
+1. Find users
+2. Filter active
+3. Filter enterprise
+4. Extract emails
+5. Take first 100
+6. Pass to Mark
+
+All executed server-side.
+
+## Callback Limitations
+
+Because callbacks are serialized, they have restrictions:
+
+### Allowed
+
+```typescript
+// Property access
+users.map(u => u.email)
+
+// Simple operations
+orders.map(o => o.total * 1.1)
+
+// String operations
+names.map(n => n.toUpperCase())
+
+// Object literals
+users.map(u => ({ id: u.id, name: u.name }))
+
+// Ternary operators
+users.map(u => u.active ? 'Active' : 'Inactive')
+
+// Comparisons
+users.filter(u => u.age >= 18)
+
+// Logical operators
+users.filter(u => u.active && u.verified)
+```
+
+### Not Allowed
+
+```typescript
+// External variables (closure)
+const minAge = 18
+users.filter(u => u.age >= minAge)  // Error: minAge not defined
+
+// Imported functions
+import { isValid } from './utils'
+users.filter(u => isValid(u))  // Error: isValid not defined
+
+// Complex logic
+users.map(u => {
+  const result = someComplexCalculation(u)
+  return result
+})  // Error: someComplexCalculation not defined
+```
+
+<Callout type="info" title="Workaround for External Values">
+If you need external values in callbacks, embed them in the prompt instead:
+
+```typescript
+// Instead of closure
+const minAge = 18
+const adults = await users.filter(u => u.age >= minAge)  // Won't work
+
+// Embed in the query
+const adults = sally`find users where age >= ${minAge}`  // Works!
+```
+</Callout>
+
+## Nested Property Access
+
+Access deep properties safely:
+
+```typescript
+const cities = orders.map(o => o.shipping.address.city)
+const tags = posts.flatMap(p => p.metadata.tags)
+const totals = invoices.map(i => i.lineItems.reduce((s, l) => s + l.amount, 0))
+```
+
+The server handles null/undefined gracefully—missing paths return `undefined` rather than throwing.
+
+## Combining with Pipeline
+
+Magic Map integrates seamlessly with pipelining:
+
+```typescript
+// Find prospects, filter, transform, then use in campaign
+const prospects = sally`find prospects in ${segment}`
+const qualified = prospects.filter(p => p.score > 70)
+const contacts = qualified.map(p => ({ email: p.email, name: p.name }))
+const campaign = mark`create personalized campaign for ${contacts}`
+const sent = await mark`send ${campaign}`
+
+// Everything in one round trip
+```
+
+The dependency graph:
+
+```
+sally(find) → filter(score>70) → map(email,name) → mark(create) → mark(send)
+```
+
+Server executes the whole thing, returns just the final result.
+
+## Agent-Specific Map
+
+When mapping with agent calls, each element triggers an agent:
+
+```typescript
+const tasks = priya`break down ${spec} into tasks`
+const implementations = tasks.map(task => ralph`implement ${task}`)
+await quinn`test all: ${implementations}`
+```
+
+Here, `tasks.map(task => ralph\`implement ${task}\`)` creates N ralph calls—one per task. The server:
+
+1. Runs Priya, gets list of tasks
+2. For each task, runs Ralph (potentially in parallel)
+3. Collects all implementations
+4. Passes to Quinn
+
+Still one round trip from the client's perspective.
+
+<Callout type="warn" title="Parallelism Control">
+By default, mapped agent calls run in parallel. For sequential execution or rate limiting, use explicit options:
+
+```typescript
+const implementations = tasks.map(
+  task => ralph`implement ${task}`,
+  { concurrency: 3 }  // Max 3 parallel
+)
+```
+</Callout>
+
+## Inspecting Recorded Operations
+
+See what operations are queued:
+
+```typescript
+const pipeline = users
+  .filter(u => u.active)
+  .map(u => u.email)
+  .slice(0, 10)
+
+console.log(pipeline._operations)
+// [
+//   { type: 'filter', callback: 'u => u.active' },
+//   { type: 'map', callback: 'u => u.email' },
+//   { type: 'slice', args: [0, 10] }
+// ]
+```
+
+## When to Await Instead
+
+Sometimes you need to await before transforming:
+
+```typescript
+// When you need local logic in the callback
+const config = loadConfig()  // Local value
+const users = await sally`find users`  // Must await
+const filtered = users.filter(u => u.plan === config.targetPlan)
+
+// When you need to branch on length
+const items = await getItems()
+if (items.length > 100) {
+  // Different processing for large sets
+}
+
+// When you need complex transformations
+const users = await getUsers()
+const enriched = users.map(u => enrichWithExternalAPI(u))  // External call
+```
+
+The rule: if your callback needs something that can't be serialized, await first.
+
+## Performance Comparison
+
+| Approach | Round Trips | Data Transfer |
+|----------|-------------|---------------|
+| Await then map | 2 | Full array + transformed |
+| Magic Map | 1 | Only final result |
+| Await then filter then map | 2 | Full array + filtered + transformed |
+| Chain Magic operations | 1 | Only final result |
+
+For a 10,000-item array where you need 100 emails:
+- **Await approach**: Transfer 10,000 items, then 100 emails = 2 trips, ~1MB
+- **Magic Map**: Transfer 100 emails = 1 trip, ~10KB
+
+## Summary
+
+| Operation | Usage |
+|-----------|-------|
+| `.map(fn)` | Transform each element |
+| `.filter(fn)` | Keep matching elements |
+| `.find(fn)` | First matching element |
+| `.slice(start, end)` | Subset of elements |
+| `.reduce(fn, init)` | Aggregate to single value |
+| `.flatMap(fn)` | Map and flatten |
+| `.sort(fn)` | Order elements |
+
+Keep callbacks simple. Let the server do the work. One round trip.

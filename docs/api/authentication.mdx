@@ -1,30 +1,138 @@
 ---
 title: Authentication
-description: API authentication methods and security
+description: API authentication methods, tokens, and security best practices
 ---
 
 # Authentication
 
-Learn how to authenticate API requests to do.md.
+dotdo supports multiple authentication methods to secure your API requests. Choose the method that best fits your use case.
 
-## Overview
+## Authentication Methods
 
-do.md supports multiple authentication methods:
+| Method | Best For | Header |
+|--------|----------|--------|
+| [JWT Bearer Token](#jwt-bearer-token) | User sessions, frontend apps | `Authorization: Bearer <token>` |
+| [API Key](#api-keys) | Server-to-server, scripts | `X-API-Key: <key>` |
+| [Session Cookie](#session-cookies) | Web applications | `Cookie: session=<token>` |
 
-- **API Keys** - For server-to-server communication
-- **JWT Tokens** - For user sessions
-- **OAuth 2.0** - For third-party integrations
+---
+
+## JWT Bearer Token
+
+JSON Web Tokens for stateless authentication.
+
+### Request Format
+
+```http
+GET /api/things
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Token Structure
+
+```typescript
+interface JWTPayload {
+  sub: string           // User ID
+  email?: string        // User email
+  role?: 'admin' | 'user'
+  permissions?: string[]
+  iat?: number          // Issued at
+  exp?: number          // Expiration
+}
+```
+
+### Generate Tokens
+
+```typescript
+import { generateJWT } from 'dotdo/auth'
+
+const token = await generateJWT({
+  sub: 'user-123',
+  email: 'user@example.com',
+  role: 'user',
+  permissions: ['read', 'write'],
+}, process.env.JWT_SECRET, '24h')
+```
+
+### Verify Tokens
+
+Tokens are verified automatically by the auth middleware. Configure verification:
+
+```typescript
+import { authMiddleware } from 'dotdo/api/middleware/auth'
+
+// Symmetric secret (HS256)
+app.use('*', authMiddleware({
+  jwtSecret: env.JWT_SECRET,
+}))
+
+// JWKS endpoint (RS256, asymmetric)
+app.use('*', authMiddleware({
+  jwksUrl: 'https://auth.example.com/.well-known/jwks.json',
+}))
+```
+
+### Token Expiration
+
+```http
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Token expired"
+  }
+}
+```
+
+---
 
 ## API Keys
 
-Generate an API key from your dashboard:
+Static keys for machine-to-machine communication.
 
-```typescript
-// Using API key authentication
-const client = new DO({
-  apiKey: process.env.DO_API_KEY
-})
+### Request Format
+
+```http
+GET /api/things
+X-API-Key: prod-key-abc123
 ```
+
+### Key Configuration
+
+Configure API keys via environment variable:
+
+```json
+{
+  "prod-key-abc123": {
+    "userId": "service-account-1",
+    "role": "user",
+    "permissions": ["read", "write"],
+    "name": "Production Service"
+  },
+  "admin-key-xyz789": {
+    "userId": "admin-1",
+    "role": "admin",
+    "name": "Admin CLI"
+  }
+}
+```
+
+Set in `wrangler.toml`:
+
+```toml
+[vars]
+API_KEYS = '{"prod-key-abc123":{"userId":"service-account-1","role":"user"}}'
+```
+
+Or use Cloudflare secrets:
+
+```bash
+wrangler secret put API_KEYS
+```
+
+### Key Management Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -32,44 +140,343 @@ const client = new DO({
 | POST | `/api/keys` | Create new key |
 | DELETE | `/api/keys/:id` | Revoke a key |
 
-## JWT Authentication
+```bash
+# List keys
+curl https://api.dotdo.dev/api/keys \
+  -H "Authorization: Bearer ADMIN_TOKEN"
+
+# Create key
+curl -X POST https://api.dotdo.dev/api/keys \
+  -H "Authorization: Bearer ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Service", "permissions": ["read"]}'
+
+# Revoke key
+curl -X DELETE https://api.dotdo.dev/api/keys/key-id \
+  -H "Authorization: Bearer ADMIN_TOKEN"
+```
+
+### Runtime Key Registration
 
 ```typescript
-import { createToken, verifyToken } from 'dotdo/auth'
+import { registerApiKey, revokeApiKey, validateApiKey } from 'dotdo/api/middleware/auth'
 
-// Create a JWT token
-const token = await createToken({
-  userId: 'user_123',
-  permissions: ['read', 'write']
+// Register a new key
+registerApiKey('temp-key-123', {
+  userId: 'temp-user',
+  role: 'user',
+  permissions: ['read'],
+  name: 'Temporary Access',
 })
 
-// Verify token
-const payload = await verifyToken(token)
+// Validate a key
+const config = validateApiKey('temp-key-123')
+if (config) {
+  console.log('Key belongs to:', config.userId)
+}
+
+// Revoke a key
+revokeApiKey('temp-key-123')
 ```
 
-## Request Headers
+---
 
-Include authentication in your requests:
+## Session Cookies
 
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.do.md/things
+Cookie-based authentication for web applications.
+
+### Request Format
+
+```http
+GET /api/things
+Cookie: session=eyJzZXNzaW9uSWQiOiIxMjM...
 ```
+
+### Session Configuration
+
+```typescript
+import { authMiddleware, createSessionValidator } from 'dotdo/api/middleware/auth'
+
+// Custom session validator
+const validateSession = async (token: string) => {
+  const session = await db.query.sessions.findFirst({
+    where: (t, { eq }) => eq(t.token, token),
+  })
+
+  if (!session || session.expiresAt < new Date()) {
+    return null
+  }
+
+  const user = await db.query.users.findFirst({
+    where: (t, { eq }) => eq(t.id, session.userId),
+  })
+
+  return {
+    userId: user.id,
+    email: user.email,
+    role: user.role as 'admin' | 'user',
+    expiresAt: session.expiresAt,
+  }
+}
+
+app.use('*', authMiddleware({
+  cookieName: 'session',
+  validateSession,
+  sessionCache: env.KV,      // Cache validated sessions
+  sessionCacheTtl: 300,      // 5 minute TTL
+}))
+```
+
+### Drizzle ORM Integration
+
+```typescript
+import { createSessionValidator } from 'dotdo/api/middleware/auth'
+
+const db = drizzle(env.DB, { schema })
+const validateSession = createSessionValidator(db)
+
+app.use('*', authMiddleware({ validateSession }))
+```
+
+### Session Caching
+
+Sessions are cached in two layers for performance:
+
+1. **L1: Memory Cache** - In-process LRU cache
+2. **L2: KV Cache** - Cloudflare KV for cross-request persistence
+
+```typescript
+app.use('*', authMiddleware({
+  validateSession,
+  sessionCache: env.KV,
+  sessionCacheTtl: 300,
+  enableMemoryCache: true,
+  memoryCacheMaxSize: 1000,
+}))
+```
+
+Clear caches when sessions are invalidated:
+
+```typescript
+import { clearSessionMemoryCache } from 'dotdo/api/middleware/auth'
+
+// On logout
+clearSessionMemoryCache()
+await env.KV.delete(`session:${token}`)
+```
+
+---
+
+## Protected Routes
+
+### Require Authentication
+
+```typescript
+import { requireAuth } from 'dotdo/api/middleware/auth'
+
+app.use('/api/*', requireAuth())
+
+// Returns 401 if not authenticated
+app.get('/api/protected', (c) => {
+  const user = c.get('user')
+  return c.json({ message: `Hello, ${user.email}` })
+})
+```
+
+### Require Role
+
+```typescript
+import { requireRole } from 'dotdo/api/middleware/auth'
+
+// Admin only
+app.use('/admin/*', requireRole('admin'))
+
+// Returns 403 if role doesn't match
+```
+
+### Require Permission
+
+```typescript
+import { requirePermission } from 'dotdo/api/middleware/auth'
+
+app.delete('/api/things/:id',
+  requirePermission('delete'),
+  async (c) => {
+    // User has 'delete' permission
+  }
+)
+```
+
+---
+
+## Auth Context
+
+After authentication, access user info in handlers:
+
+```typescript
+app.get('/api/me', (c) => {
+  const auth = c.get('auth')
+  const user = c.get('user')
+  const session = c.get('session')
+
+  return c.json({
+    userId: auth.userId,
+    email: user.email,
+    role: auth.role,
+    permissions: auth.permissions,
+    method: auth.method, // 'jwt' | 'session' | 'apikey'
+  })
+})
+```
+
+### Types
+
+```typescript
+interface AuthContext {
+  userId: string
+  email?: string
+  role: 'admin' | 'user'
+  permissions?: string[]
+  method: 'jwt' | 'session' | 'apikey'
+}
+
+interface User {
+  id: string
+  email?: string
+  name?: string
+  role: 'admin' | 'user'
+  permissions?: string[]
+}
+
+interface Session {
+  id: string
+  userId: string
+  expiresAt: Date
+}
+```
+
+---
+
+## Public Paths
+
+Skip authentication for specific paths:
+
+```typescript
+app.use('*', authMiddleware({
+  publicPaths: [
+    '/health',
+    '/api/health',
+    '/public',
+    '/docs',
+  ],
+}))
+```
+
+---
 
 ## Rate Limiting
 
-API requests are rate limited:
+Rate limits vary by tier:
 
-1. Free tier: 100 requests/minute
-2. Pro tier: 1000 requests/minute
-3. Enterprise: Custom limits
+| Tier | Requests/Minute | Burst |
+|------|-----------------|-------|
+| Free | 100 | 20 |
+| Pro | 1,000 | 100 |
+| Enterprise | Custom | Custom |
+
+Rate limit headers:
+
+```http
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+```
+
+---
 
 ## Security Best Practices
 
-> **Warning**: Never expose your API keys in client-side code.
+### Never Expose Secrets
 
-- Rotate keys regularly
-- Use environment variables
-- Enable IP allowlisting
+```typescript
+// BAD - Never do this
+const client = new DO({ apiKey: 'sk-abc123' })
 
-See the [Guides](/docs/guides) for more security tips.
+// GOOD - Use environment variables
+const client = new DO({ apiKey: process.env.DO_API_KEY })
+```
+
+### Rotate Keys Regularly
+
+```bash
+# Generate new key
+curl -X POST https://api.dotdo.dev/api/keys \
+  -H "Authorization: Bearer ADMIN_TOKEN" \
+  -d '{"name": "Rotation Jan 2024"}'
+
+# Update your services...
+
+# Revoke old key
+curl -X DELETE https://api.dotdo.dev/api/keys/old-key-id \
+  -H "Authorization: Bearer ADMIN_TOKEN"
+```
+
+### Use Minimal Permissions
+
+```json
+{
+  "read-only-key": {
+    "userId": "service-1",
+    "role": "user",
+    "permissions": ["read"],
+    "name": "Read-Only Analytics"
+  }
+}
+```
+
+### IP Allowlisting
+
+Contact enterprise support to enable IP allowlisting for your API keys.
+
+### Audit Logging
+
+All authentication events are logged to the observability system:
+
+```http
+GET /api/obs/events?type=auth
+```
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Authentication required"
+  }
+}
+```
+
+Causes:
+- No authentication header
+- Invalid or expired token
+- Invalid API key
+
+### 403 Forbidden
+
+```json
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Access denied - admin permission required"
+  }
+}
+```
+
+Causes:
+- Insufficient role
+- Missing required permission
+- Resource access denied
