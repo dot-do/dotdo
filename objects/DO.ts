@@ -13,8 +13,8 @@
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { drizzle } from 'drizzle-orm/d1'
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
+import { drizzle } from 'drizzle-orm/durable-sqlite'
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import { Hono } from 'hono'
 import type { Context as HonoContext } from 'hono'
 import * as schema from '../db'
@@ -273,7 +273,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // STORAGE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  protected db: DrizzleD1Database<typeof schema>
+  protected db: DrizzleSqliteDODatabase<typeof schema>
 
   // ═══════════════════════════════════════════════════════════════════════════
   // STORE ACCESSORS
@@ -522,9 +522,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     // Initialize namespace from storage or derive from ID
     this.ns = '' // Will be set during initialization
 
-    // Initialize Drizzle with SQLite
-    // @ts-expect-error - SqlStorage is compatible with D1Database for Drizzle
-    this.db = drizzle(ctx.storage.sql, { schema })
+    // Initialize Drizzle with SQLite via durable-sqlite driver
+    this.db = drizzle(ctx.storage, { schema })
 
     // Initialize workflow context
     this.$ = this.createWorkflowContext()

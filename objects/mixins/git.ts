@@ -307,7 +307,9 @@ export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
       return this[GIT_CAPABILITY_CACHE]
     }
 
-    constructor(...args: ConstructorParameters<TBase>) {
+    // TypeScript requires any[] for mixin constructors (TS2545)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
       super(...args)
 
       // Extend $ to include git capability (preserving fs from parent)

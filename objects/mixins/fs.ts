@@ -177,7 +177,9 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
       return this[FS_CAPABILITY_CACHE]
     }
 
-    constructor(...args: ConstructorParameters<TBase>) {
+    // TypeScript requires any[] for mixin constructors (TS2545)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
       super(...args)
 
       // Extend $ to include fs capability
