@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EntityAccessor, createEntityAccessor, type NLQueryExecutor } from '../EntityAccessor'
-import type { ThingsStore, ThingEntity } from '../../db/stores'
+import type { ThingsStore, ThingEntity } from '../../stores'
 
 // ============================================================================
 // MOCK DATA

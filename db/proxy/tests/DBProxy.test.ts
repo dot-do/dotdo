@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createDBProxy } from '../DBProxy'
-import type { ThingsStore, ThingEntity } from '../../db/stores'
+import type { ThingsStore, ThingEntity } from '../../stores'
 
 // ============================================================================
 // MOCK DATA

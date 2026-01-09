@@ -101,8 +101,8 @@ export default defineWorkspace([
   // Evaluation storage tests
   createNodeWorkspace('evals', ['evals/tests/**/*.test.ts']),
 
-  // AI Database tests
-  createNodeWorkspace('ai-database', ['ai-database/tests/**/*.test.ts']),
+  // DB Proxy tests (fluent query builder)
+  createNodeWorkspace('db-proxy', ['db/proxy/tests/**/*.test.ts']),
 
   // TanStack Start / Fumadocs build tests
   createNodeWorkspace('app', ['app/tests/**/*.test.ts']),

@@ -694,7 +694,7 @@ export class VisibilityCache {
     let cleaned = 0
     const now = Date.now()
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       if (now > entry.expiresAt) {
         this.cache.delete(key)
         this.stats.entriesByVisibility[entry.visibility]--

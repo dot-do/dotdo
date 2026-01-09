@@ -11,7 +11,7 @@ export interface NounData {
 }
 
 export interface NounSchema {
-  // Field definitions using ai-database syntax
+  // Field definitions using db/proxy syntax
   // e.g., { name: 'string', stage: 'string', icp: '->ICP' }
   [field: string]: string | FieldDefinition
 }
@@ -22,7 +22,7 @@ export interface FieldDefinition {
   required?: boolean
   default?: unknown
 
-  // Relationship operators (ai-database)
+  // Relationship operators (db/proxy)
   operator?: '->' | '~>' | '<-' | '<~'
   targetType?: string // For relationships
   prompt?: string // AI generation prompt

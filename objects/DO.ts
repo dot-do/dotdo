@@ -2086,6 +2086,497 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // CLONE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Custom conflict resolver functions keyed by clone ID
+   * (Cannot be stored in durable storage, so kept in memory)
+   */
+  private _conflictResolvers: Map<string, (conflict: ConflictInfo) => Promise<unknown>> = new Map()
+
+  /**
+   * Clone the DO to a new namespace
+   *
+   * Supports multiple modes:
+   * - atomic: All-or-nothing clone (default)
+   * - staged: Two-phase commit with prepare/commit
+   * - eventual: Background async clone with eventual consistency
+   * - resumable: Checkpoint-based clone that can be resumed
+   *
+   * @param target - Target namespace URL
+   * @param options - Clone options including mode
+   * @returns Clone result or EventualCloneHandle for eventual mode
+   */
+  async clone(target: string, options?: CloneOptions): Promise<CloneResult | EventualCloneHandle> {
+    const mode = options?.mode ?? 'atomic'
+
+    // Handle eventual mode specially
+    if (mode === 'eventual') {
+      return this.initiateEventualClone(target, options as CloneOptions & { mode: 'eventual' })
+    }
+
+    // For other modes, perform synchronous clone
+    return this.performSynchronousClone(target, options)
+  }
+
+  /**
+   * Perform a synchronous clone (atomic, staged, or resumable)
+   */
+  private async performSynchronousClone(target: string, options?: CloneOptions): Promise<CloneResult> {
+    const mode = options?.mode ?? 'atomic'
+
+    // Validate target namespace URL
+    try {
+      new URL(target)
+    } catch {
+      throw new Error(`Invalid namespace URL: ${target}`)
+    }
+
+    // Get current state
+    const things = await this.db.select().from(schema.things)
+    const cloneBranch = options?.branch || this.currentBranch
+    const branchFilter = cloneBranch === 'main' ? null : cloneBranch
+    const branchThings = things.filter(t => t.branch === branchFilter && !t.deleted)
+
+    if (branchThings.length === 0) {
+      throw new Error('No state to clone')
+    }
+
+    // Get latest version of each thing
+    const latestVersions = new Map<string, typeof things[0]>()
+    for (const thing of branchThings) {
+      const existing = latestVersions.get(thing.id)
+      if (!existing) {
+        latestVersions.set(thing.id, thing)
+      }
+    }
+
+    // Emit clone.initiated event
+    await this.emitEvent('clone.initiated', { target, mode, thingsCount: latestVersions.size })
+
+    // Create new DO at target namespace
+    if (!this.env.DO) {
+      throw new Error('DO namespace not configured')
+    }
+    const doId = this.env.DO.idFromName(target)
+    const stub = this.env.DO.get(doId)
+
+    // Send state to new DO
+    await stub.fetch(new Request(`https://${target}/init`, {
+      method: 'POST',
+      body: JSON.stringify({
+        things: Array.from(latestVersions.values()).map(t => ({
+          id: t.id,
+          type: t.type,
+          branch: null,
+          name: t.name,
+          data: t.data,
+          deleted: false,
+        })),
+      }),
+    }))
+
+    // Emit clone.completed event
+    await this.emitEvent('clone.active', { target, doId: doId.toString(), mode })
+
+    return {
+      ns: target,
+      doId: doId.toString(),
+      mode,
+    }
+  }
+
+  /**
+   * Initiate an eventual clone operation
+   * Returns immediately with a handle for monitoring/controlling the clone
+   */
+  private async initiateEventualClone(
+    target: string,
+    options: CloneOptions & { mode: 'eventual' }
+  ): Promise<EventualCloneHandle> {
+    // Validate target namespace URL
+    try {
+      new URL(target)
+    } catch {
+      throw new Error(`Invalid namespace URL: ${target}`)
+    }
+
+    // Generate unique clone ID
+    const id = crypto.randomUUID()
+
+    // Get initial thing count for progress tracking
+    const things = await this.db.select().from(schema.things)
+    const cloneBranch = options?.branch || this.currentBranch
+    const branchFilter = cloneBranch === 'main' ? null : cloneBranch
+    const branchThings = things.filter(t => t.branch === branchFilter && !t.deleted)
+    const totalItems = branchThings.length
+
+    // Extract options with defaults
+    const syncInterval = (options as Record<string, unknown>)?.syncInterval as number ?? 5000
+    const maxDivergence = (options as Record<string, unknown>)?.maxDivergence as number ?? 100
+    const conflictResolution = ((options as Record<string, unknown>)?.conflictResolution as ConflictResolution) ?? 'last-write-wins'
+    const chunked = (options as Record<string, unknown>)?.chunked as boolean ?? false
+    const chunkSize = (options as Record<string, unknown>)?.chunkSize as number ?? 1000
+    const rateLimit = (options as Record<string, unknown>)?.rateLimit as number | null ?? null
+
+    // Store custom resolver if provided
+    const customResolver = (options as Record<string, unknown>)?.conflictResolver as ((conflict: ConflictInfo) => Promise<unknown>) | undefined
+    if (customResolver) {
+      this._conflictResolvers.set(id, customResolver)
+    }
+
+    // Create initial state
+    const state: EventualCloneState = {
+      id,
+      targetNs: target,
+      status: 'pending',
+      progress: 0,
+      phase: 'initial',
+      itemsSynced: 0,
+      totalItems,
+      itemsRemaining: totalItems,
+      lastSyncAt: null,
+      divergence: totalItems, // Initially all items need syncing
+      maxDivergence,
+      syncInterval,
+      errorCount: 0,
+      lastError: null,
+      conflictResolution: customResolver ? 'custom' : conflictResolution,
+      hasCustomResolver: !!customResolver,
+      chunked,
+      chunkSize,
+      rateLimit,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastSyncedVersion: 0,
+    }
+
+    // Store clone operation state
+    await this.ctx.storage.put(`eventual:${id}`, state)
+
+    // Emit clone.initiated event
+    await this.emitEvent('clone.initiated', { id, target, mode: 'eventual' })
+
+    // Schedule initial sync via alarm (100ms delay to allow immediate return)
+    const currentAlarm = await this.ctx.storage.getAlarm()
+    if (!currentAlarm || currentAlarm > Date.now() + 100) {
+      await this.ctx.storage.setAlarm(Date.now() + 100)
+    }
+
+    // Return handle
+    return this.createEventualHandle(id, state)
+  }
+
+  /**
+   * Create an EventualCloneHandle for controlling a clone operation
+   */
+  private createEventualHandle(id: string, initialState: EventualCloneState): EventualCloneHandle {
+    const self = this
+
+    // Create a mutable status property that updates when handle methods are called
+    let currentStatus: CloneStatus = initialState.status
+
+    const handle: EventualCloneHandle = {
+      id,
+      get status() {
+        return currentStatus
+      },
+
+      async getProgress(): Promise<number> {
+        const state = await self.getEventualCloneState(id)
+        if (state) {
+          currentStatus = state.status
+        }
+        return state?.progress ?? 0
+      },
+
+      async getSyncStatus(): Promise<SyncStatus> {
+        const state = await self.getEventualCloneState(id)
+        if (state) {
+          currentStatus = state.status
+        }
+        return {
+          phase: state?.phase ?? 'initial',
+          itemsSynced: state?.itemsSynced ?? 0,
+          totalItems: state?.totalItems ?? 0,
+          lastSyncAt: state?.lastSyncAt ? new Date(state.lastSyncAt) : null,
+          divergence: state?.divergence ?? 0,
+          maxDivergence: state?.maxDivergence ?? 100,
+          syncInterval: state?.syncInterval ?? 5000,
+          errorCount: state?.errorCount ?? 0,
+          lastError: state?.lastError ? new Error(state.lastError) : null,
+        }
+      },
+
+      async pause(): Promise<void> {
+        const state = await self.getEventualCloneState(id)
+        if (!state) {
+          throw new Error(`Clone operation not found: ${id}`)
+        }
+        state.status = 'paused'
+        state.updatedAt = new Date().toISOString()
+        await self.ctx.storage.put(`eventual:${id}`, state)
+        currentStatus = 'paused'
+        await self.emitEvent('clone.paused', { id })
+      },
+
+      async resume(): Promise<void> {
+        const state = await self.getEventualCloneState(id)
+        if (!state) {
+          throw new Error(`Clone operation not found: ${id}`)
+        }
+        state.status = state.phase === 'delta' || state.phase === 'catchup' ? 'active' : 'syncing'
+        state.updatedAt = new Date().toISOString()
+        await self.ctx.storage.put(`eventual:${id}`, state)
+        currentStatus = state.status
+        await self.emitEvent('clone.resumed', { id })
+
+        // Schedule immediate sync
+        const currentAlarm = await self.ctx.storage.getAlarm()
+        if (!currentAlarm || currentAlarm > Date.now() + 100) {
+          await self.ctx.storage.setAlarm(Date.now() + 100)
+        }
+      },
+
+      async sync(): Promise<SyncResult> {
+        return self.performEventualSync(id)
+      },
+
+      async cancel(): Promise<void> {
+        const state = await self.getEventualCloneState(id)
+        if (!state) {
+          throw new Error(`Clone operation not found: ${id}`)
+        }
+        state.status = 'cancelled'
+        state.updatedAt = new Date().toISOString()
+        await self.ctx.storage.put(`eventual:${id}`, state)
+        currentStatus = 'cancelled'
+        await self.emitEvent('clone.cancelled', { id })
+      },
+    }
+
+    return handle
+  }
+
+  /**
+   * Get the current state of an eventual clone operation
+   */
+  private async getEventualCloneState(id: string): Promise<EventualCloneState | null> {
+    return await this.ctx.storage.get(`eventual:${id}`) as EventualCloneState | null
+  }
+
+  /**
+   * Perform a sync operation for an eventual clone
+   */
+  private async performEventualSync(id: string): Promise<SyncResult> {
+    const startTime = Date.now()
+    const state = await this.getEventualCloneState(id)
+    if (!state) {
+      throw new Error(`Clone operation not found: ${id}`)
+    }
+
+    // Skip if cancelled or paused
+    if (state.status === 'cancelled' || state.status === 'paused') {
+      return { itemsSynced: 0, duration: 0, conflicts: [] }
+    }
+
+    const conflicts: ConflictInfo[] = []
+    let itemsSynced = 0
+
+    try {
+      // Update status to syncing
+      if (state.status === 'pending') {
+        state.status = 'syncing'
+        state.phase = 'bulk'
+        await this.ctx.storage.put(`eventual:${id}`, state)
+        await this.emitEvent('clone.syncing', { id, progress: state.progress })
+      }
+
+      // Get things to sync
+      const things = await this.db.select().from(schema.things)
+      const cloneBranch = 'main' // Default to main for now
+      const branchFilter = cloneBranch === 'main' ? null : cloneBranch
+      const branchThings = things.filter(t => t.branch === branchFilter && !t.deleted)
+
+      // Get latest version of each thing
+      const latestVersions = new Map<string, typeof things[0]>()
+      for (const thing of branchThings) {
+        latestVersions.set(thing.id, thing)
+      }
+
+      // Calculate items to sync based on phase
+      let itemsToSync: Array<typeof things[0]> = []
+      if (state.phase === 'bulk' || state.phase === 'initial') {
+        // Bulk transfer: send all items
+        itemsToSync = Array.from(latestVersions.values())
+      } else {
+        // Delta sync: only send items changed since last sync
+        itemsToSync = Array.from(latestVersions.values()).filter((_, idx) => idx >= state.lastSyncedVersion)
+      }
+
+      // Apply chunking if enabled
+      if (state.chunked && itemsToSync.length > state.chunkSize) {
+        itemsToSync = itemsToSync.slice(0, state.chunkSize)
+      }
+
+      // Apply rate limiting if configured
+      if (state.rateLimit && itemsToSync.length > state.rateLimit) {
+        itemsToSync = itemsToSync.slice(0, state.rateLimit)
+      }
+
+      // Send items to target DO
+      if (this.env.DO && itemsToSync.length > 0) {
+        const doId = this.env.DO.idFromName(state.targetNs)
+        const stub = this.env.DO.get(doId)
+
+        // Attempt to send data to target
+        const response = await stub.fetch(new Request(`https://${state.targetNs}/sync`, {
+          method: 'POST',
+          body: JSON.stringify({
+            cloneId: id,
+            things: itemsToSync.map(t => ({
+              id: t.id,
+              type: t.type,
+              branch: null,
+              name: t.name,
+              data: t.data,
+              deleted: false,
+              version: things.indexOf(t) + 1, // Simulate version
+            })),
+          }),
+        }))
+
+        if (response.ok) {
+          itemsSynced = itemsToSync.length
+
+          // Check for conflicts in response
+          try {
+            const responseData = await response.json() as { conflicts?: Array<{ thingId: string; sourceVersion: number; targetVersion: number }> }
+            if (responseData.conflicts && Array.isArray(responseData.conflicts)) {
+              for (const conflict of responseData.conflicts) {
+                const resolution = state.hasCustomResolver ? 'custom' : state.conflictResolution
+                const conflictInfo: ConflictInfo = {
+                  thingId: conflict.thingId,
+                  sourceVersion: conflict.sourceVersion,
+                  targetVersion: conflict.targetVersion,
+                  resolution,
+                  resolvedAt: new Date(),
+                }
+                conflicts.push(conflictInfo)
+
+                // Emit conflict event
+                await this.emitEvent('clone.conflict', { id, ...conflictInfo })
+              }
+            }
+          } catch {
+            // Response may not be JSON, that's ok
+          }
+        }
+      } else if (itemsToSync.length === 0) {
+        // Nothing to sync
+        itemsSynced = 0
+      }
+
+      // Update state
+      state.itemsSynced += itemsSynced
+      state.lastSyncedVersion += itemsSynced
+      state.lastSyncAt = new Date().toISOString()
+      state.itemsRemaining = Math.max(0, state.totalItems - state.itemsSynced)
+      state.progress = state.totalItems > 0 ? Math.floor((state.itemsSynced / state.totalItems) * 100) : 100
+      state.divergence = state.itemsRemaining
+      state.errorCount = 0 // Reset error count on success
+      state.lastError = null
+      state.updatedAt = new Date().toISOString()
+
+      // Transition phases
+      if (state.progress >= 100) {
+        state.status = 'active'
+        state.phase = 'delta'
+        await this.emitEvent('clone.active', { id, target: state.targetNs })
+      } else if (state.itemsSynced > 0 && state.phase === 'bulk') {
+        // Still in bulk phase but making progress
+        state.phase = state.progress >= 80 ? 'catchup' : 'bulk'
+      }
+
+      await this.ctx.storage.put(`eventual:${id}`, state)
+
+      const duration = Date.now() - startTime
+      await this.emitEvent('clone.sync.completed', { id, itemsSynced, duration })
+
+      return { itemsSynced, duration, conflicts }
+    } catch (error) {
+      // Handle errors with backoff
+      state.errorCount++
+      state.lastError = (error as Error).message
+      state.updatedAt = new Date().toISOString()
+
+      // If too many errors, transition to error state
+      if (state.errorCount >= 10) {
+        state.status = 'error'
+        await this.emitEvent('clone.error', { id, error: state.lastError })
+      }
+
+      await this.ctx.storage.put(`eventual:${id}`, state)
+
+      const duration = Date.now() - startTime
+      return { itemsSynced: 0, duration, conflicts: [] }
+    }
+  }
+
+  /**
+   * Handle eventual clone syncing in the alarm handler
+   */
+  private async handleEventualCloneAlarms(): Promise<void> {
+    // Find all active eventual clones
+    const keys = await this.ctx.storage.list({ prefix: 'eventual:' })
+
+    let nextAlarmTime: number | null = null
+
+    for (const [key, value] of keys) {
+      const state = value as EventualCloneState
+
+      // Skip cancelled, paused, or error states
+      if (state.status === 'cancelled' || state.status === 'paused' || state.status === 'error') {
+        continue
+      }
+
+      // Check if sync is due
+      const lastSync = state.lastSyncAt ? new Date(state.lastSyncAt).getTime() : 0
+      const now = Date.now()
+      const nextSync = lastSync + state.syncInterval
+
+      // Check for divergence threshold trigger
+      const needsSync = now >= nextSync || state.divergence > state.maxDivergence
+
+      if (needsSync || state.status === 'pending') {
+        // Perform sync
+        await this.performEventualSync(state.id)
+
+        // Refresh state after sync
+        const updatedState = await this.getEventualCloneState(state.id)
+        if (updatedState && updatedState.status !== 'active' && updatedState.status !== 'cancelled' && updatedState.status !== 'error') {
+          // Schedule next sync
+          const nextSyncTime = Date.now() + updatedState.syncInterval
+          if (!nextAlarmTime || nextSyncTime < nextAlarmTime) {
+            nextAlarmTime = nextSyncTime
+          }
+        }
+      } else {
+        // Schedule alarm for when sync is due
+        if (!nextAlarmTime || nextSync < nextAlarmTime) {
+          nextAlarmTime = nextSync
+        }
+      }
+    }
+
+    // Set next alarm if needed
+    if (nextAlarmTime) {
+      await this.ctx.storage.setAlarm(nextAlarmTime)
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // RESOLUTION
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2845,6 +3336,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * ```
    */
   async alarm(): Promise<void> {
+    // Handle eventual clone syncing
+    await this.handleEventualCloneAlarms()
+
     // Delegate to schedule manager to handle scheduled tasks
     if (this._scheduleManager) {
       await this._scheduleManager.handleAlarm()

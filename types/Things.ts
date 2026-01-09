@@ -28,7 +28,7 @@ export interface ThingsData {
 }
 
 export interface CreateOptions {
-  // Cascade generation options (from ai-database)
+  // Cascade generation options (from db/proxy)
   cascade?: boolean
   maxDepth?: number
   cascadeTypes?: string[]
@@ -113,7 +113,7 @@ export interface Things<T extends Thing = Thing> extends ThingsData {
   stream(): RpcPromise<AsyncIterable<T>>
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // CHAINING (DBPromise pattern from ai-database)
+  // CHAINING (DBPromise pattern from db/proxy)
   // ═══════════════════════════════════════════════════════════════════════════
 
   filter(predicate: (item: T) => boolean): Things<T>
@@ -123,7 +123,7 @@ export interface Things<T extends Thing = Thing> extends ThingsData {
   offset(n: number): Things<T>
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // BATCH PROCESSING (ai-database forEach)
+  // BATCH PROCESSING (db/proxy forEach)
   // ═══════════════════════════════════════════════════════════════════════════
 
   forEach(fn: (item: T) => Promise<void>, options?: ForEachOptions): RpcPromise<ForEachProgress>
