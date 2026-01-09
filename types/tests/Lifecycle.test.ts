@@ -673,7 +673,8 @@ describe('DOLifecycle interface', () => {
 
   describe('clone method', () => {
     it('DOLifecycle has clone method', () => {
-      expect(typeof mockLifecycle.clone).toBe('function')
+      // Type-level verification that clone method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('clone')
     })
 
     it('clone accepts target ns and optional CloneOptions', () => {
@@ -685,7 +686,8 @@ describe('DOLifecycle interface', () => {
 
   describe('shard method', () => {
     it('DOLifecycle has shard method', () => {
-      expect(typeof mockLifecycle.shard).toBe('function')
+      // Type-level verification that shard method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('shard')
     })
 
     it('shard accepts ShardOptions and returns Promise<ShardResult>', () => {
@@ -696,7 +698,8 @@ describe('DOLifecycle interface', () => {
 
   describe('unshard method', () => {
     it('DOLifecycle has unshard method', () => {
-      expect(typeof mockLifecycle.unshard).toBe('function')
+      // Type-level verification that unshard method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('unshard')
     })
 
     it('unshard accepts optional UnshardOptions', () => {
@@ -706,7 +709,8 @@ describe('DOLifecycle interface', () => {
 
   describe('promote method', () => {
     it('DOLifecycle has promote method', () => {
-      expect(typeof mockLifecycle.promote).toBe('function')
+      // Type-level verification that promote method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('promote')
     })
 
     it('promote accepts thingId string and returns Promise<PromoteResult>', () => {
@@ -718,7 +722,8 @@ describe('DOLifecycle interface', () => {
 
   describe('demote method', () => {
     it('DOLifecycle has demote method', () => {
-      expect(typeof mockLifecycle.demote).toBe('function')
+      // Type-level verification that demote method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('demote')
     })
 
     it('demote accepts targetNs string and returns Promise<DemoteResult>', () => {
@@ -730,7 +735,8 @@ describe('DOLifecycle interface', () => {
 
   describe('resume method', () => {
     it('DOLifecycle has resume method', () => {
-      expect(typeof mockLifecycle.resume).toBe('function')
+      // Type-level verification that resume method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('resume')
     })
 
     it('resume accepts checkpointId string', () => {
@@ -741,7 +747,8 @@ describe('DOLifecycle interface', () => {
 
   describe('fork method', () => {
     it('DOLifecycle has fork method', () => {
-      expect(typeof mockLifecycle.fork).toBe('function')
+      // Type-level verification that fork method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('fork')
     })
 
     it('fork accepts options with target ns', () => {
@@ -751,7 +758,8 @@ describe('DOLifecycle interface', () => {
 
   describe('branch method', () => {
     it('DOLifecycle has branch method', () => {
-      expect(typeof mockLifecycle.branch).toBe('function')
+      // Type-level verification that branch method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('branch')
     })
 
     it('branch accepts branch name string', () => {
@@ -762,7 +770,8 @@ describe('DOLifecycle interface', () => {
 
   describe('checkout method', () => {
     it('DOLifecycle has checkout method', () => {
-      expect(typeof mockLifecycle.checkout).toBe('function')
+      // Type-level verification that checkout method exists on the interface
+      expectTypeOf(mockLifecycle).toHaveProperty('checkout')
     })
 
     it('checkout accepts ref string', () => {

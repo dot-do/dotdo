@@ -13,7 +13,7 @@
  */
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
-import type { DO, Env } from '../DO'
+import type { DO, Env } from '../../objects/DO'
 
 // ============================================================================
 // CAPABILITY TYPES

@@ -107,6 +107,8 @@ export interface MockVaultStorage {
   oauthTokens: Map<string, OAuthTokens>
   oauthConfigs: Map<string, OAuthConfig>
   oauthStates: Map<string, { userId: string; provider: string; codeVerifier?: string }>
+  /** Consumed OAuth states - allows tests to read state data after callback without breaking one-time use */
+  _consumedStates: Map<string, { userId: string; provider: string; codeVerifier?: string }>
 }
 
 /**
@@ -431,8 +433,9 @@ function createOAuthInstance(
         throw new Error('Invalid client credentials')
       }
 
-      // Remove state (one-time use)
+      // Remove state (one-time use) and store in consumed states for test access
       storage.oauthStates.delete(state)
+      storage._consumedStates.set(state, stateData)
 
       // Generate tokens
       const now = new Date()
@@ -450,9 +453,6 @@ function createOAuthInstance(
 
       // Also store by provider alone for backward compatibility
       storage.oauthTokens.set(stateData.provider, tokens)
-
-      // Re-add state data for test access (tests read it after callback)
-      storage.oauthStates.set(state, stateData)
 
       return tokens
     },
@@ -581,6 +581,7 @@ export function createMockVaultContext(): VaultContext {
     oauthTokens: new Map(),
     oauthConfigs: new Map(),
     oauthStates: new Map(),
+    _consumedStates: new Map(),
   }
 
   const events: TokenRefreshEvent[] = []

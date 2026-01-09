@@ -630,9 +630,6 @@ describe('QueryBuilder visibility methods', () => {
 describe('ClickHouseCache visibility in cache keys', () => {
   describe('cache key generation', () => {
     it('should include visibility in cache key', () => {
-      // @ts-expect-error - Class not yet implemented
-      const { ClickHouseCache, createCacheKey } = require('../../sandbox/clickhouse')
-
       const key1 = createCacheKey('SELECT * FROM things', { visibility: 'public' })
       const key2 = createCacheKey('SELECT * FROM things', { visibility: 'org' })
 
@@ -642,9 +639,6 @@ describe('ClickHouseCache visibility in cache keys', () => {
     })
 
     it('should include context in cache key for non-public visibility', () => {
-      // @ts-expect-error - Class not yet implemented
-      const { createCacheKey } = require('../../sandbox/clickhouse')
-
       const key1 = createCacheKey('SELECT * FROM things', {
         visibility: 'org',
         context: { orgId: 'org-1' },
@@ -658,9 +652,6 @@ describe('ClickHouseCache visibility in cache keys', () => {
     })
 
     it('should generate same key for public queries regardless of context', () => {
-      // @ts-expect-error - Class not yet implemented
-      const { createCacheKey } = require('../../sandbox/clickhouse')
-
       const key1 = createCacheKey('SELECT * FROM things', {
         visibility: 'public',
         context: { userId: 'user-1' },
@@ -677,8 +668,6 @@ describe('ClickHouseCache visibility in cache keys', () => {
 
   describe('cache isolation', () => {
     it('should not return cached private data for different users', async () => {
-      // @ts-expect-error - Class not yet implemented
-      const { ClickHouseCache } = require('../../sandbox/clickhouse')
       const cache = new ClickHouseCache()
 
       const query = 'SELECT * FROM things'
@@ -698,8 +687,6 @@ describe('ClickHouseCache visibility in cache keys', () => {
     })
 
     it('should not return cached org data for different orgs', async () => {
-      // @ts-expect-error - Class not yet implemented
-      const { ClickHouseCache } = require('../../sandbox/clickhouse')
       const cache = new ClickHouseCache()
 
       const query = 'SELECT * FROM things'
@@ -719,8 +706,6 @@ describe('ClickHouseCache visibility in cache keys', () => {
     })
 
     it('should share cached public data across all users', async () => {
-      // @ts-expect-error - Class not yet implemented
-      const { ClickHouseCache } = require('../../sandbox/clickhouse')
       const cache = new ClickHouseCache()
 
       const query = 'SELECT * FROM things WHERE visibility = ?'
