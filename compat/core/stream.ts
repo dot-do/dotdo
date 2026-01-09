@@ -23,8 +23,41 @@
  * await stream.flush()
  * ```
  */
-import type { StreamConfig, StreamSink } from './types'
-import { DEFAULT_STREAM_CONFIG } from './types'
+// Stream config types - will be moved to streaming/core in a future task
+// For now, define locally to avoid circular dependency with db/core
+
+/**
+ * Analytics sink format
+ * - iceberg: Apache Iceberg tables
+ * - parquet: Parquet files
+ * - json: JSON lines
+ */
+export type StreamSink = 'iceberg' | 'parquet' | 'json'
+
+/**
+ * Configuration for Cloudflare Pipelines integration
+ */
+export interface StreamConfig {
+  /** Pipeline binding name */
+  pipeline?: string
+  /** Output format/sink */
+  sink: StreamSink
+  /** Transform function applied before sending */
+  transform?: (event: unknown) => unknown
+  /** Batch size before flush */
+  batchSize?: number
+  /** Flush interval in ms */
+  flushInterval?: number
+}
+
+/**
+ * Default stream configuration
+ */
+export const DEFAULT_STREAM_CONFIG: Pick<StreamConfig, 'sink' | 'batchSize' | 'flushInterval'> = {
+  sink: 'iceberg',
+  batchSize: 1000,
+  flushInterval: 60000,
+}
 
 // ============================================================================
 // STREAM EVENT TYPES

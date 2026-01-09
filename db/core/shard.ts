@@ -41,9 +41,91 @@ function fnv1a(str: string): number {
   return hash
 }
 
+// ============================================================================
+// CACHED CONSISTENT HASH RING
+// ============================================================================
+
+/**
+ * Cached hash ring for O(log n) lookups after initial build
+ * Keyed by (count, virtualNodes) tuple
+ */
+interface CachedRing {
+  hashes: Uint32Array // Sorted hash values
+  shards: Uint8Array  // Corresponding shard indices (supports up to 256 shards)
+}
+
+/**
+ * Ring cache keyed by "count-virtualNodes" string
+ */
+const ringCache = new Map<string, CachedRing>()
+
+/**
+ * Build and cache the consistent hash ring for given config
+ * @internal
+ */
+function getOrBuildRing(count: number, virtualNodes: number): CachedRing {
+  const cacheKey = `${count}-${virtualNodes}`
+
+  let cached = ringCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  // Build ring of virtual nodes
+  const totalNodes = count * virtualNodes
+  const nodes: Array<{ hash: number; shard: number }> = []
+
+  for (let shard = 0; shard < count; shard++) {
+    for (let vn = 0; vn < virtualNodes; vn++) {
+      const hash = fnv1a(`shard-${shard}-vn-${vn}`)
+      nodes.push({ hash, shard })
+    }
+  }
+
+  // Sort by hash value
+  nodes.sort((a, b) => a.hash - b.hash)
+
+  // Pack into typed arrays for memory efficiency and fast binary search
+  const hashes = new Uint32Array(totalNodes)
+  const shards = new Uint8Array(totalNodes)
+
+  for (let i = 0; i < totalNodes; i++) {
+    hashes[i] = nodes[i].hash
+    shards[i] = nodes[i].shard
+  }
+
+  cached = { hashes, shards }
+  ringCache.set(cacheKey, cached)
+
+  return cached
+}
+
+/**
+ * Binary search for the first hash >= target in sorted array
+ * @returns Index of first element >= target, or array length if none found
+ */
+function binarySearchGe(hashes: Uint32Array, target: number): number {
+  let lo = 0
+  let hi = hashes.length
+
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (hashes[mid] < target) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+
+  return lo
+}
+
 /**
  * Consistent hash using virtual nodes for better distribution
  * Minimizes key redistribution when shard count changes
+ *
+ * Uses cached ring for O(log n) lookup after first call.
+ * Ring is built once per (count, virtualNodes) configuration.
  *
  * @param key - The key to hash
  * @param count - Number of shards
@@ -55,29 +137,26 @@ export function consistentHash(
   count: number,
   virtualNodes = 150
 ): number {
-  // Build ring of virtual nodes
-  const ring: Array<{ hash: number; shard: number }> = []
-
-  for (let shard = 0; shard < count; shard++) {
-    for (let vn = 0; vn < virtualNodes; vn++) {
-      const hash = fnv1a(`shard-${shard}-vn-${vn}`)
-      ring.push({ hash, shard })
-    }
-  }
-
-  // Sort ring by hash
-  ring.sort((a, b) => a.hash - b.hash)
-
-  // Find first node with hash >= key hash
+  const ring = getOrBuildRing(count, virtualNodes)
   const keyHash = fnv1a(key)
-  for (const node of ring) {
-    if (node.hash >= keyHash) {
-      return node.shard
-    }
+
+  // Binary search for first node with hash >= keyHash
+  const idx = binarySearchGe(ring.hashes, keyHash)
+
+  // Wrap around if keyHash is greater than all nodes
+  if (idx >= ring.hashes.length) {
+    return ring.shards[0]
   }
 
-  // Wrap around to first node
-  return ring[0].shard
+  return ring.shards[idx]
+}
+
+/**
+ * Clear the ring cache (useful for testing or config changes)
+ * @internal
+ */
+export function clearRingCache(): void {
+  ringCache.clear()
 }
 
 /**

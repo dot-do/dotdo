@@ -295,9 +295,9 @@ export class VectorizeEngine extends BaseVectorEngine {
 // ============================================================================
 
 interface ClickHouseClient {
-  query(sql: string): Promise<{ rows: unknown[] }>
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>
   insert(table: string, rows: unknown[]): Promise<{ success: boolean }>
-  command(sql: string): Promise<{ success: boolean }>
+  command(sql: string, params?: unknown[]): Promise<{ success: boolean }>
 }
 
 export class ClickHouseEngine extends BaseVectorEngine {
@@ -362,19 +362,21 @@ export class ClickHouseEngine extends BaseVectorEngine {
     const distanceFunc =
       this.metric === 'euclidean' ? 'L2Distance' : 'cosineDistance'
 
+    const params: unknown[] = []
     let sql = `
       SELECT id, ${distanceFunc}(vector, [${queryVector.join(',')}]) as distance, metadata
       FROM ${this.tableName}
     `
 
-    // Support hybrid search
+    // Support hybrid search with parameterized query
     if ((options as any).hybridQuery) {
-      sql += ` WHERE multiSearchAny(text, ['${(options as any).hybridQuery}'])`
+      sql += ` WHERE multiSearchAny(text, [?])`
+      params.push((options as any).hybridQuery)
     }
 
     sql += ` ORDER BY distance LIMIT ${options.limit ?? 10}`
 
-    const result = await this.client.query(sql)
+    const result = await this.client.query(sql, params)
     return result.rows.map((row: any) => ({
       id: row.id,
       score: 1 - (row.distance ?? 0), // Convert distance to similarity
@@ -383,7 +385,7 @@ export class ClickHouseEngine extends BaseVectorEngine {
   }
 
   async delete(id: string): Promise<boolean> {
-    await this.client.command(`ALTER TABLE ${this.tableName} DELETE WHERE id = '${id}'`)
+    await this.client.command(`ALTER TABLE ${this.tableName} DELETE WHERE id = ?`, [id])
     return true
   }
 
@@ -398,8 +400,8 @@ export class ClickHouseEngine extends BaseVectorEngine {
 // ============================================================================
 
 interface R2SqlClient {
-  query(sql: string): Promise<{ rows: unknown[] }>
-  execute(sql: string): Promise<{ success: boolean }>
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>
+  execute(sql: string, params?: unknown[]): Promise<{ success: boolean }>
 }
 
 interface IcebergOptions {
@@ -458,25 +460,28 @@ export class IcebergEngine extends BaseVectorEngine {
     this.validateDimensions(vector)
     const lsh = this.computeLSH(vector)
     await this.client.execute(
-      `INSERT INTO ${this.tableName} (id, vector, lsh, metadata) VALUES ('${id}', ARRAY[${vector.join(',')}], ${lsh}, '${JSON.stringify(metadata)}')`
+      `INSERT INTO ${this.tableName} (id, vector, lsh, metadata) VALUES (?, ARRAY[${vector.join(',')}], ?, ?)`,
+      [id, lsh, JSON.stringify(metadata)]
     )
   }
 
   async search(queryVector: number[], options: SearchOptions): Promise<VectorHit[]> {
     const lsh = this.computeLSH(queryVector)
+    const params: unknown[] = [lsh]
     let sql = `
       SELECT id, vector, metadata
       FROM ${this.tableName}
-      WHERE lsh = ${lsh}
+      WHERE lsh = ?
     `
 
     if ((options as any).cluster) {
-      sql += ` AND cluster = '${(options as any).cluster}'`
+      sql += ` AND cluster = ?`
+      params.push((options as any).cluster)
     }
 
     sql += ` LIMIT ${options.limit ?? 10}`
 
-    const result = await this.client.query(sql)
+    const result = await this.client.query(sql, params)
     return result.rows.map((row: any) => ({
       id: row.id,
       score: row.score ?? 0.85,
@@ -485,7 +490,7 @@ export class IcebergEngine extends BaseVectorEngine {
   }
 
   async delete(id: string): Promise<boolean> {
-    await this.client.execute(`DELETE FROM ${this.tableName} WHERE id = '${id}'`)
+    await this.client.execute(`DELETE FROM ${this.tableName} WHERE id = ?`, [id])
     return true
   }
 

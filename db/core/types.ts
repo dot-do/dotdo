@@ -146,7 +146,29 @@ export const JURISDICTION_REGIONS: Record<Jurisdiction, Region[]> = {
 
 const VALID_JURISDICTIONS = new Set<string>(['eu', 'us', 'fedramp'])
 const VALID_REGIONS = new Set<string>(Object.keys(REGION_TO_COLO))
-const VALID_CITIES = new Set<string>(Object.values(REGION_TO_COLO))
+
+/**
+ * All valid IATA city codes from the City type
+ * This is the single source of truth for city validation
+ */
+const VALID_CITIES = new Set<string>([
+  // US cities
+  'iad', 'dfw', 'sea', 'lax', 'sfo', 'ord', 'atl', 'mia', 'den', 'bos', 'ewr',
+  // European cities
+  'lhr', 'cdg', 'fra', 'ams', 'dub', 'mad', 'mxp', 'zrh', 'arn', 'hel', 'waw',
+  // Asian cities
+  'nrt', 'hnd', 'sin', 'hkg', 'icn',
+  // Australian cities
+  'syd', 'mel',
+  // Indian cities
+  'bom', 'del',
+  // South American cities
+  'gru',
+  // African cities
+  'jnb',
+  // Middle Eastern cities
+  'dxb', 'tlv',
+])
 
 /**
  * Validate jurisdiction
@@ -166,9 +188,7 @@ export function isValidRegion(value: unknown): value is Region {
  * Validate city (3-letter IATA codes)
  */
 export function isValidCity(value: unknown): value is City {
-  if (typeof value !== 'string') return false
-  if (value.length !== 3) return false
-  return VALID_CITIES.has(value)
+  return typeof value === 'string' && VALID_CITIES.has(value)
 }
 
 // ============================================================================

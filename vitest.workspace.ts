@@ -81,6 +81,9 @@ export default defineWorkspace([
   // EdgeVec vector index persistence tests
   createNodeWorkspace('edgevec', ['db/edgevec/**/*.test.ts']),
 
+  // Parquet writer/reader tests
+  createNodeWorkspace('parquet', ['db/parquet/**/*.test.ts']),
+
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
@@ -202,6 +205,9 @@ export default defineWorkspace([
 
   // Compat layer tests (API-compatible SDKs backed by DO)
   createNodeWorkspace('compat', ['compat/**/*.test.ts']),
+
+  // Database core tests (sharding, replication, tiering, vectors)
+  createNodeWorkspace('db-core', ['db/core/**/*.test.ts']),
 
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),

@@ -400,14 +400,16 @@ describe('ClickHouseEngine', () => {
       const e = new ClickHouseEngine(config, { CLICKHOUSE: mockClient })
       await e.search(testVector(768), { limit: 10 })
       expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining('L2Distance')
+        expect.stringContaining('L2Distance'),
+        expect.any(Array)
       )
     })
 
     it('should use cosineDistance for cosine metric', async () => {
       await engine.search(testVector(768), { limit: 10 })
       expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining('cosineDistance')
+        expect.stringContaining('cosineDistance'),
+        expect.any(Array)
       )
     })
 
@@ -417,7 +419,8 @@ describe('ClickHouseEngine', () => {
         hybridQuery: 'machine learning',
       } as any)
       expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining('multiSearchAny')
+        expect.stringContaining('multiSearchAny'),
+        expect.arrayContaining(['machine learning'])
       )
     })
   })
@@ -470,7 +473,8 @@ describe('IcebergEngine', () => {
         cluster: 'cluster-1',
       } as any)
       expect(mockR2Sql.query).toHaveBeenCalledWith(
-        expect.stringContaining('cluster')
+        expect.stringContaining('cluster'),
+        expect.arrayContaining(['cluster-1'])
       )
     })
   })
@@ -542,5 +546,130 @@ describe('Engine integration', () => {
     const results = await hot.search(testVector(128), { limit: 1 })
     expect(results.length).toBe(1)
     expect(results[0].metadata.tier).toBe('hot')
+  })
+})
+
+// ============================================================================
+// SQL INJECTION SECURITY TESTS
+// ============================================================================
+
+describe('SQL Injection Prevention', () => {
+  describe('ClickHouseEngine', () => {
+    let mockClient: any
+    let engine: ClickHouseEngine
+
+    beforeEach(() => {
+      mockClient = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        insert: vi.fn().mockResolvedValue({ success: true }),
+        command: vi.fn().mockResolvedValue({ success: true }),
+      }
+      const config: VectorTierConfig = { engine: 'clickhouse', dimensions: 768 }
+      engine = new ClickHouseEngine(config, { CLICKHOUSE: mockClient })
+    })
+
+    it('should safely handle SQL injection in delete()', async () => {
+      const maliciousId = "'; DROP TABLE vectors; --"
+      await engine.delete(maliciousId)
+
+      // Verify the command was called with parameterized query, not string interpolation
+      const [sql, params] = mockClient.command.mock.calls[0]
+
+      // The SQL should use a parameter placeholder, not the raw malicious string
+      expect(sql).not.toContain("DROP TABLE")
+      expect(sql).not.toContain(maliciousId)
+      expect(sql).toContain('?')
+      expect(params).toContain(maliciousId)
+    })
+
+    it('should safely handle SQL injection in hybrid search', async () => {
+      const maliciousQuery = "test'); DELETE FROM vectors; --"
+      await engine.search(testVector(768), {
+        limit: 10,
+        hybridQuery: maliciousQuery,
+      } as any)
+
+      // Verify the query was called with parameterized query
+      const [sql, params] = mockClient.query.mock.calls[0]
+
+      // The SQL should use a parameter placeholder
+      expect(sql).not.toContain("DELETE FROM")
+      expect(sql).not.toContain(maliciousQuery)
+      expect(sql).toContain('?')
+      expect(params).toContain(maliciousQuery)
+    })
+  })
+
+  describe('IcebergEngine', () => {
+    let mockR2Sql: any
+    let engine: IcebergEngine
+
+    beforeEach(() => {
+      mockR2Sql = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        execute: vi.fn().mockResolvedValue({ success: true }),
+      }
+      const config: VectorTierConfig = { engine: 'iceberg', dimensions: 1536 }
+      engine = new IcebergEngine(config, { R2_SQL: mockR2Sql })
+    })
+
+    it('should safely handle SQL injection in insert()', async () => {
+      const maliciousId = "'; DROP TABLE vectors_iceberg; --"
+      await engine.insert(maliciousId, testVector(1536), { label: 'test' })
+
+      // Verify the execute was called with parameterized query
+      const [sql, params] = mockR2Sql.execute.mock.calls[0]
+
+      // The SQL should use parameter placeholders
+      expect(sql).not.toContain("DROP TABLE")
+      expect(sql).not.toContain(maliciousId)
+      expect(sql).toContain('?')
+      expect(params).toContain(maliciousId)
+    })
+
+    it('should safely handle SQL injection in delete()', async () => {
+      const maliciousId = "'; DROP TABLE vectors_iceberg; --"
+      await engine.delete(maliciousId)
+
+      // Verify the execute was called with parameterized query
+      const [sql, params] = mockR2Sql.execute.mock.calls[0]
+
+      // The SQL should use a parameter placeholder
+      expect(sql).not.toContain("DROP TABLE")
+      expect(sql).not.toContain(maliciousId)
+      expect(sql).toContain('?')
+      expect(params).toContain(maliciousId)
+    })
+
+    it('should safely handle SQL injection in search cluster parameter', async () => {
+      const maliciousCluster = "cluster-1'; DELETE FROM vectors_iceberg; --"
+      await engine.search(testVector(1536), {
+        limit: 10,
+        cluster: maliciousCluster,
+      } as any)
+
+      // Verify the query was called with parameterized query
+      const [sql, params] = mockR2Sql.query.mock.calls[0]
+
+      // The SQL should use a parameter placeholder
+      expect(sql).not.toContain("DELETE FROM")
+      expect(sql).not.toContain(maliciousCluster)
+      expect(sql).toContain('?')
+      expect(params).toContain(maliciousCluster)
+    })
+
+    it('should safely handle SQL injection in insert metadata', async () => {
+      const maliciousMetadata = { key: "value'); DROP TABLE vectors_iceberg; --" }
+      await engine.insert('vec-1', testVector(1536), maliciousMetadata)
+
+      // Verify the execute was called with parameterized query
+      const [sql, params] = mockR2Sql.execute.mock.calls[0]
+
+      // The SQL should use parameter placeholders for metadata
+      expect(sql).not.toContain("DROP TABLE")
+      expect(sql).toContain('?')
+      // The stringified metadata should be in params, not in the SQL
+      expect(params).toContainEqual(expect.stringContaining('DROP TABLE'))
+    })
   })
 })

@@ -17,6 +17,7 @@ import {
   rangeHash,
   simpleHash,
   extractShardKey,
+  clearRingCache,
 } from './shard'
 
 // ============================================================================
@@ -448,6 +449,104 @@ describe('ShardRouter', () => {
 
       expect(router.shardKey).toBe('org_id')
     })
+  })
+})
+
+// ============================================================================
+// BENCHMARK TESTS - RING CACHING
+// ============================================================================
+
+describe('consistentHash performance', () => {
+  beforeEach(() => {
+    // Clear cache between tests for isolation
+    clearRingCache()
+  })
+
+  it('should have O(log n) lookup time after ring is cached', () => {
+    // First call builds the ring - may be slower
+    const firstStart = performance.now()
+    consistentHash('warmup-key', 16)
+    const firstTime = performance.now() - firstStart
+
+    // Subsequent calls should use cached ring and be fast
+    const times: number[] = []
+    for (let i = 0; i < 100; i++) {
+      const start = performance.now()
+      consistentHash(`key-${i}`, 16)
+      times.push(performance.now() - start)
+    }
+
+    // Average lookup time should be under 1ms (typically < 0.1ms with cache)
+    const avgTime = times.reduce((a, b) => a + b, 0) / times.length
+    expect(avgTime).toBeLessThan(1)
+
+    // All subsequent lookups should be fast (using cached ring)
+    expect(times.every((t) => t < 2)).toBe(true)
+
+    // Log for visibility during development
+    console.log(`First call: ${firstTime.toFixed(3)}ms, Avg subsequent: ${avgTime.toFixed(3)}ms`)
+  })
+
+  it('should not rebuild ring for same config', () => {
+    // Warm up with first call
+    consistentHash('warmup', 8, 100)
+
+    // Time many lookups - should all be fast if ring is cached
+    const lookupTimes: number[] = []
+    for (let i = 0; i < 1000; i++) {
+      const start = performance.now()
+      consistentHash(`tenant-${i}`, 8, 100)
+      lookupTimes.push(performance.now() - start)
+    }
+
+    // If ring is rebuilt each time, we'd see O(n*virtualNodes) = O(800) operations per lookup
+    // With caching, we should see O(log n) = O(log 800) ~ 10 operations per lookup
+    // This should translate to < 0.1ms per lookup on average
+    const avg = lookupTimes.reduce((a, b) => a + b, 0) / lookupTimes.length
+    expect(avg).toBeLessThan(0.5) // Much faster with caching
+
+    // Verify consistency is maintained
+    const result1 = consistentHash('test-key', 8, 100)
+    const result2 = consistentHash('test-key', 8, 100)
+    expect(result1).toBe(result2)
+  })
+
+  it('should build separate rings for different configs', () => {
+    // Different counts should produce different rings that are both cached
+    const result4 = consistentHash('same-key', 4)
+    const result8 = consistentHash('same-key', 8)
+    // Results might be same or different depending on hash distribution
+    // but both should be valid (in range)
+    expect(result4).toBeGreaterThanOrEqual(0)
+    expect(result4).toBeLessThan(4)
+    expect(result8).toBeGreaterThanOrEqual(0)
+    expect(result8).toBeLessThan(8)
+  })
+
+  it('should clear cache properly', () => {
+    // Build some cached rings
+    consistentHash('key1', 4)
+    consistentHash('key2', 8)
+
+    // Clear cache
+    clearRingCache()
+
+    // After clearing, results should still be consistent (just rebuilt)
+    const result1 = consistentHash('key1', 4)
+    const result2 = consistentHash('key1', 4)
+    expect(result1).toBe(result2)
+  })
+
+  it('should cache rings per virtualNodes parameter', () => {
+    // Same count, different virtualNodes should get different cached rings
+    const result100 = consistentHash('test-key', 4, 100)
+    const result200 = consistentHash('test-key', 4, 200)
+
+    // Both should be valid results
+    expect(result100).toBeGreaterThanOrEqual(0)
+    expect(result100).toBeLessThan(4)
+    expect(result200).toBeGreaterThanOrEqual(0)
+    expect(result200).toBeLessThan(4)
   })
 })
 
