@@ -165,7 +165,9 @@ export interface WithGitContext extends WithFsContext {
 // MIXIN TYPE
 // ============================================================================
 
-type Constructor<T = {}> = new (...args: unknown[]) => T
+// Note: TypeScript requires any[] for mixin constructor patterns (TS2545)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Constructor<T = {}> = new (...args: any[]) => T
 
 // Type that requires $.fs to exist on the base class
 type DOWithFsConstructor<E extends Env = Env> = Constructor<DO<E> & { $: WithFsContext }> & typeof DO<E>

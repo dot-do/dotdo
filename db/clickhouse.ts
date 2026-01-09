@@ -540,6 +540,486 @@ export const ANALYTICS_SETTINGS: ClickHouseSettings = {
 }
 
 // ============================================================================
+// Anonymous User & GET HTTP Interface
+// ============================================================================
+
+/**
+ * Anonymous client configuration for public read-only queries
+ */
+export interface AnonymousConfig {
+  /** ClickHouse HTTP(S) URL */
+  url: string
+  /** Default database */
+  database?: string
+  /** Default settings for anonymous queries */
+  settings?: ClickHouseSettings
+}
+
+/**
+ * Create an anonymous (read-only) client
+ *
+ * Uses the 'default' user with no password for public data access.
+ * Should only be used with tables that have appropriate row policies.
+ */
+export function createAnonymousClient(config: AnonymousConfig): ClickHouseClient {
+  return createClient({
+    url: config.url,
+    username: 'default',
+    password: '',
+    database: config.database,
+    application: 'dotdo-anonymous',
+    clickhouse_settings: {
+      readonly: 1,
+      max_execution_time: 10,
+      max_result_rows: 1000,
+      ...config.settings,
+    },
+  })
+}
+
+/**
+ * Build a GET URL for cacheable ClickHouse queries
+ *
+ * ClickHouse supports queries via GET requests with the query in the URL.
+ * This enables CDN caching for read-only queries.
+ *
+ * @example
+ * ```typescript
+ * const url = buildGetUrl({
+ *   baseUrl: 'https://clickhouse.example.com:8443',
+ *   sql: "SELECT * FROM events WHERE date = {date:Date}",
+ *   params: { date: '2025-01-09' },
+ *   format: 'JSONEachRow',
+ * })
+ * ```
+ */
+export function buildGetUrl(options: {
+  baseUrl: string
+  sql: string
+  params?: Record<string, unknown>
+  format?: QueryFormat
+  database?: string
+  settings?: Record<string, string | number>
+}): string {
+  const url = new URL(options.baseUrl)
+
+  // Substitute parameters into query
+  let query = options.sql
+  if (options.params) {
+    for (const [name, value] of Object.entries(options.params)) {
+      const placeholder = new RegExp(`\\{${name}:\\w+\\}`, 'g')
+      const formatted = formatParamValue(value)
+      query = query.replace(placeholder, formatted)
+    }
+  }
+
+  url.searchParams.set('query', query.trim())
+
+  if (options.format) {
+    url.searchParams.set('default_format', options.format)
+  }
+
+  if (options.database) {
+    url.searchParams.set('database', options.database)
+  }
+
+  // Add settings as URL params
+  if (options.settings) {
+    for (const [key, value] of Object.entries(options.settings)) {
+      url.searchParams.set(key, String(value))
+    }
+  }
+
+  // Always set readonly for GET requests
+  url.searchParams.set('readonly', '1')
+
+  return url.toString()
+}
+
+function formatParamValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'NULL'
+  }
+  if (typeof value === 'string') {
+    return `'${value.replace(/'/g, "''")}'`
+  }
+  if (typeof value === 'number') {
+    return String(value)
+  }
+  if (value instanceof Date) {
+    return `'${value.toISOString().split('T')[0]}'`
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(formatParamValue).join(', ')}]`
+  }
+  return String(value)
+}
+
+// ============================================================================
+// SWR-Style Cache with Cloudflare Cache API
+// ============================================================================
+
+/**
+ * Cache configuration for SWR-style caching
+ */
+export interface CacheConfig {
+  /** Time-to-live for fresh data (seconds) */
+  ttl: number
+  /** Stale-while-revalidate window (seconds) */
+  swr: number
+  /** Cache key prefix */
+  prefix?: string
+  /** Tags for cache invalidation */
+  tags?: string[]
+}
+
+/**
+ * Cached query result
+ */
+export interface CachedResult<T> {
+  data: T[]
+  /** Whether the data came from cache */
+  cached: boolean
+  /** Whether revalidation is happening in background */
+  revalidating: boolean
+  /** Cache age in seconds */
+  age?: number
+  /** When the cache entry expires */
+  expires?: Date
+}
+
+/**
+ * Default cache configuration
+ */
+export const DEFAULT_CACHE_CONFIG: CacheConfig = {
+  ttl: 60, // 1 minute fresh
+  swr: 3600, // 1 hour stale-while-revalidate
+  prefix: 'ch:',
+}
+
+/**
+ * SWR-style cached query executor
+ *
+ * Uses Cloudflare's Cache API for edge caching with stale-while-revalidate.
+ *
+ * @example
+ * ```typescript
+ * const cache = new ClickHouseCache({
+ *   baseUrl: env.CLICKHOUSE_URL,
+ *   database: 'analytics',
+ * })
+ *
+ * // First call fetches from ClickHouse
+ * const result1 = await cache.query({
+ *   sql: "SELECT count() FROM events",
+ *   cache: { ttl: 60, swr: 300 },
+ * })
+ *
+ * // Second call returns cached data
+ * const result2 = await cache.query({
+ *   sql: "SELECT count() FROM events",
+ *   cache: { ttl: 60, swr: 300 },
+ * })
+ * ```
+ */
+export class ClickHouseCache {
+  private baseUrl: string
+  private database?: string
+  private defaultSettings: Record<string, string | number>
+  private cache: Cache | null = null
+
+  constructor(options: {
+    baseUrl: string
+    database?: string
+    settings?: Record<string, string | number>
+  }) {
+    this.baseUrl = options.baseUrl
+    this.database = options.database
+    this.defaultSettings = {
+      readonly: 1,
+      max_execution_time: 30,
+      max_result_rows: 10000,
+      ...options.settings,
+    }
+  }
+
+  /**
+   * Execute a cached query with SWR semantics
+   */
+  async query<T = Record<string, unknown>>(options: {
+    sql: string
+    params?: Record<string, unknown>
+    format?: QueryFormat
+    cache?: Partial<CacheConfig>
+    /** Force bypass cache and fetch fresh */
+    bypass?: boolean
+    /** Execution context for waitUntil */
+    ctx?: ExecutionContext
+  }): Promise<CachedResult<T>> {
+    const cacheConfig = { ...DEFAULT_CACHE_CONFIG, ...options.cache }
+    const format = options.format ?? 'JSONEachRow'
+
+    // Build the GET URL (this is our cache key)
+    const url = buildGetUrl({
+      baseUrl: this.baseUrl,
+      sql: options.sql,
+      params: options.params,
+      format,
+      database: this.database,
+      settings: this.defaultSettings,
+    })
+
+    // Create cache key with prefix
+    const cacheKey = new Request(`https://cache.local/${cacheConfig.prefix}${encodeURIComponent(url)}`)
+
+    // Get the cache instance
+    if (!this.cache) {
+      this.cache = await caches.open('clickhouse')
+    }
+
+    // Check cache unless bypassing
+    if (!options.bypass) {
+      const cached = await this.cache.match(cacheKey)
+
+      if (cached) {
+        const age = this.getCacheAge(cached)
+        const isStale = age > cacheConfig.ttl
+        const isExpired = age > cacheConfig.ttl + cacheConfig.swr
+
+        if (!isExpired) {
+          const data = await this.parseResponse<T>(cached.clone(), format)
+
+          // If stale, revalidate in background
+          if (isStale && options.ctx) {
+            options.ctx.waitUntil(this.revalidate(url, cacheKey, cacheConfig))
+          }
+
+          return {
+            data,
+            cached: true,
+            revalidating: isStale,
+            age,
+            expires: new Date(Date.now() + (cacheConfig.ttl + cacheConfig.swr - age) * 1000),
+          }
+        }
+      }
+    }
+
+    // Fetch fresh data
+    const response = await this.fetchFromClickHouse(url)
+    const data = await this.parseResponse<T>(response.clone(), format)
+
+    // Store in cache
+    await this.cacheResponse(cacheKey, response, cacheConfig)
+
+    return {
+      data,
+      cached: false,
+      revalidating: false,
+    }
+  }
+
+  /**
+   * Execute a query with Cloudflare fetch cache (cf.cacheTtl)
+   *
+   * Uses Cloudflare's built-in fetch caching via the cf object.
+   * Simpler than Cache API but less control.
+   */
+  async queryWithFetchCache<T = Record<string, unknown>>(options: {
+    sql: string
+    params?: Record<string, unknown>
+    format?: QueryFormat
+    /** Cache TTL in seconds */
+    cacheTtl?: number
+    /** Cache everything including errors */
+    cacheEverything?: boolean
+  }): Promise<T[]> {
+    const format = options.format ?? 'JSONEachRow'
+
+    const url = buildGetUrl({
+      baseUrl: this.baseUrl,
+      sql: options.sql,
+      params: options.params,
+      format,
+      database: this.database,
+      settings: this.defaultSettings,
+    })
+
+    const response = await fetch(url, {
+      cf: {
+        cacheTtl: options.cacheTtl ?? 60,
+        cacheEverything: options.cacheEverything ?? true,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`ClickHouse error: ${error}`)
+    }
+
+    return this.parseResponse<T>(response, format)
+  }
+
+  /**
+   * Invalidate cached queries by prefix/pattern
+   */
+  async invalidate(pattern?: string): Promise<void> {
+    if (!this.cache) {
+      this.cache = await caches.open('clickhouse')
+    }
+
+    // Note: Cache API doesn't support pattern matching
+    // For full invalidation, you'd need to track keys separately
+    // This is a simplified version that clears by exact key
+    if (pattern) {
+      const cacheKey = new Request(`https://cache.local/${DEFAULT_CACHE_CONFIG.prefix}${pattern}`)
+      await this.cache.delete(cacheKey)
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Private Helpers
+  // --------------------------------------------------------------------------
+
+  private async fetchFromClickHouse(url: string): Promise<Response> {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept-Encoding': 'gzip',
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`ClickHouse error: ${error}`)
+    }
+
+    return response
+  }
+
+  private async parseResponse<T>(
+    response: Response,
+    format: QueryFormat
+  ): Promise<T[]> {
+    const text = await response.text()
+
+    if (!text.trim()) {
+      return []
+    }
+
+    if (format === 'JSONEachRow' || format === 'JSONCompactEachRow') {
+      return text
+        .trim()
+        .split('\n')
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line) as T)
+    }
+
+    if (format === 'JSON') {
+      const parsed = JSON.parse(text)
+      return (parsed.data ?? parsed) as T[]
+    }
+
+    // For non-JSON formats, return raw text wrapped
+    return [{ raw: text } as unknown as T]
+  }
+
+  private async cacheResponse(
+    cacheKey: Request,
+    response: Response,
+    config: CacheConfig
+  ): Promise<void> {
+    if (!this.cache) return
+
+    const headers = new Headers(response.headers)
+    headers.set('Cache-Control', `max-age=${config.ttl + config.swr}`)
+    headers.set('X-Cache-Date', new Date().toISOString())
+
+    if (config.tags?.length) {
+      headers.set('Cache-Tag', config.tags.join(','))
+    }
+
+    const cachedResponse = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+
+    await this.cache.put(cacheKey, cachedResponse)
+  }
+
+  private getCacheAge(response: Response): number {
+    const cacheDate = response.headers.get('X-Cache-Date')
+    if (!cacheDate) return Infinity
+
+    const cached = new Date(cacheDate).getTime()
+    return Math.floor((Date.now() - cached) / 1000)
+  }
+
+  private async revalidate(
+    url: string,
+    cacheKey: Request,
+    config: CacheConfig
+  ): Promise<void> {
+    try {
+      const response = await this.fetchFromClickHouse(url)
+      await this.cacheResponse(cacheKey, response, config)
+    } catch (error) {
+      // Revalidation failed, keep stale data
+      console.error('Cache revalidation failed:', error)
+    }
+  }
+}
+
+// ============================================================================
+// Factory Functions for Cached Queries
+// ============================================================================
+
+/**
+ * Create a cached ClickHouse query function
+ *
+ * @example
+ * ```typescript
+ * const cachedQuery = createCachedQuery({
+ *   baseUrl: env.CLICKHOUSE_URL,
+ *   database: 'analytics',
+ * })
+ *
+ * // In your handler
+ * const events = await cachedQuery<Event>({
+ *   sql: "SELECT * FROM events WHERE date = today()",
+ *   cache: { ttl: 60, swr: 300 },
+ *   ctx: ctx, // ExecutionContext for background revalidation
+ * })
+ * ```
+ */
+export function createCachedQuery(options: {
+  baseUrl: string
+  database?: string
+  settings?: Record<string, string | number>
+}): ClickHouseCache['query'] {
+  const cache = new ClickHouseCache(options)
+  return cache.query.bind(cache)
+}
+
+/**
+ * Create an anonymous cached query function for public data
+ */
+export function createPublicQuery(options: {
+  baseUrl: string
+  database?: string
+}): ClickHouseCache {
+  return new ClickHouseCache({
+    ...options,
+    settings: {
+      readonly: 1,
+      max_execution_time: 5,
+      max_result_rows: 100,
+    },
+  })
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

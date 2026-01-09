@@ -10,8 +10,7 @@
  * - ObjectsStore (this.objects)
  */
 
-import type { DrizzleD1Database } from 'drizzle-orm/d1'
-import type * as schema from '../../db'
+import type { DODatabase, AppSchema } from '../../types/drizzle'
 
 // ============================================================================
 // STORE CONTEXT
@@ -21,7 +20,7 @@ import type * as schema from '../../db'
  * Context passed to stores for initialization
  */
 export interface StoreContext {
-  db: DrizzleD1Database<typeof schema>
+  db: DODatabase<AppSchema>
   ns: string
   currentBranch: string
   env: {

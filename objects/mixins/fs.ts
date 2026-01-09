@@ -70,7 +70,9 @@ export interface WithFsContext extends WorkflowContext {
 // MIXIN TYPE
 // ============================================================================
 
-type Constructor<T = {}> = new (...args: unknown[]) => T
+// Note: TypeScript requires any[] for mixin constructor patterns (TS2545)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Constructor<T = {}> = new (...args: any[]) => T
 
 type DOConstructor<E extends Env = Env> = Constructor<DO<E>> & typeof DO<E>
 
