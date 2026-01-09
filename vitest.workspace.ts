@@ -113,6 +113,18 @@ export default defineWorkspace([
   // App hooks tests (file structure verification for TDD)
   createNodeWorkspace('app-hooks', ['app/lib/hooks/**/*.test.ts']),
 
+  // App React component tests (jsdom environment for React testing)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'app-components',
+      include: ['app/tests/**/*.test.tsx'],
+      exclude: defaultExcludes,
+      environment: 'jsdom' as const,
+    },
+    resolve: nodeResolveConfig,
+  },
+
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
 
@@ -198,6 +210,9 @@ export default defineWorkspace([
 
   // TypeScript compilation tests (RED TDD - verify type safety)
   createNodeWorkspace('typescript', ['tests/typescript/**/*.test.ts']),
+
+  // Agents SDK tests (Tool, Agent, Providers)
+  createNodeWorkspace('agents', ['agents/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests

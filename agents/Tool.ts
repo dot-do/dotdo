@@ -68,41 +68,40 @@ export function tool<TInput, TOutput>(
 
 /**
  * Convert a Zod schema to JSON Schema
+ *
+ * Supports Zod 4 which uses _def.type instead of typeName
  */
 export function zodToJsonSchema(schema: z.ZodType<unknown>): JsonSchema {
-  // Use zod's built-in toJsonSchema if available (Zod 4+)
-  if ('_def' in schema && schema._def) {
-    return zodDefToJsonSchema(schema._def)
+  const def = schema._def as {
+    type?: string
+    shape?: Record<string, z.ZodType<unknown>>
+    element?: z.ZodType<unknown>
+    entries?: Record<string, string>
+    innerType?: z.ZodType<unknown>
+    defaultValue?: unknown
   }
 
-  // Fallback for older Zod versions
-  return { type: 'object' }
-}
+  // Get description from schema object (Zod 4 puts it on the schema, not _def)
+  const description = (schema as { description?: string }).description
 
-function zodDefToJsonSchema(def: z.ZodTypeDef): JsonSchema {
-  const typeName = (def as { typeName?: string }).typeName
+  const zodType = def.type
 
-  switch (typeName) {
-    case 'ZodString':
-      return { type: 'string', description: (def as { description?: string }).description }
-    case 'ZodNumber':
-      return { type: 'number', description: (def as { description?: string }).description }
-    case 'ZodBoolean':
-      return { type: 'boolean', description: (def as { description?: string }).description }
-    case 'ZodArray': {
-      const arrayDef = def as { type?: z.ZodTypeDef }
+  switch (zodType) {
+    case 'string':
+      return { type: 'string', description }
+    case 'number':
+      return { type: 'number', description }
+    case 'boolean':
+      return { type: 'boolean', description }
+    case 'array': {
       return {
         type: 'array',
-        items: arrayDef.type ? zodDefToJsonSchema(arrayDef.type) : {},
-        description: (def as { description?: string }).description,
+        items: def.element ? zodToJsonSchema(def.element) : {},
+        description,
       }
     }
-    case 'ZodObject': {
-      const objectDef = def as {
-        shape?: () => Record<string, z.ZodType<unknown>>
-        description?: string
-      }
-      const shape = objectDef.shape?.() ?? {}
+    case 'object': {
+      const shape = def.shape ?? {}
       const properties: Record<string, JsonSchema> = {}
       const required: string[] = []
 
@@ -117,42 +116,42 @@ function zodDefToJsonSchema(def: z.ZodTypeDef): JsonSchema {
         type: 'object',
         properties,
         required: required.length > 0 ? required : undefined,
-        description: objectDef.description,
+        description,
       }
     }
-    case 'ZodEnum': {
-      const enumDef = def as { values?: string[]; description?: string }
+    case 'enum': {
+      // Zod 4 uses entries object { a: 'a', b: 'b' }
+      const values = def.entries ? Object.values(def.entries) : []
       return {
         type: 'string',
-        enum: enumDef.values,
-        description: enumDef.description,
+        enum: values,
+        description,
       }
     }
-    case 'ZodOptional':
-    case 'ZodNullable': {
-      const innerDef = def as { innerType?: z.ZodType<unknown> }
-      if (innerDef.innerType) {
-        return zodToJsonSchema(innerDef.innerType)
+    case 'optional':
+    case 'nullable': {
+      if (def.innerType) {
+        return zodToJsonSchema(def.innerType)
       }
       return { type: 'string' }
     }
-    case 'ZodDefault': {
-      const defaultDef = def as { innerType?: z.ZodType<unknown>; defaultValue?: () => unknown }
-      if (defaultDef.innerType) {
-        const schema = zodToJsonSchema(defaultDef.innerType)
-        schema.default = defaultDef.defaultValue?.()
-        return schema
+    case 'default': {
+      if (def.innerType) {
+        const jsonSchema = zodToJsonSchema(def.innerType)
+        jsonSchema.default = def.defaultValue
+        return jsonSchema
       }
       return { type: 'string' }
     }
     default:
+      // Fallback - try to get type from schema itself for unknown types
       return { type: 'string' }
   }
 }
 
 function isOptional(schema: z.ZodType<unknown>): boolean {
-  const def = schema._def as { typeName?: string }
-  return def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault'
+  const def = schema._def as { type?: string }
+  return def.type === 'optional' || def.type === 'default'
 }
 
 /**
