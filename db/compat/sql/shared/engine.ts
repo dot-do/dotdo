@@ -677,17 +677,18 @@ export class InMemorySQLEngine implements SQLEngine {
     const schema = this.getTableOrThrow(tableName)
     const tableData = this.data.get(tableName) ?? []
 
-    // Parse SET clause
-    const setAssignments = parseSetClause(setPart, params, this.dialect)
+    // Parse SET clause - returns assignments and count of params consumed
+    const { assignments: setAssignments, paramsConsumed } = parseSetClause(setPart, params, this.dialect)
 
     // Apply WHERE filter
-    // For indexed params ($1, $2), pass full params array
-    // For positional params (?), we'd need to count SET params
+    // For indexed params ($1, $2), pass full params array - the parser handles $N directly
+    // For positional params (?), we need to slice params to skip those consumed by SET
     let toUpdate = [...tableData]
     if (wherePart) {
-      // PostgreSQL uses indexed params, so always pass full params array
-      // The WHERE parser handles $N references directly
-      toUpdate = this.applyWhere(toUpdate, wherePart, params)
+      const whereParams = this.dialect.parameterStyle === 'positional'
+        ? params.slice(paramsConsumed)
+        : params
+      toUpdate = this.applyWhere(toUpdate, wherePart, whereParams)
     }
 
     // Apply updates
@@ -955,12 +956,174 @@ export class InMemorySQLEngine implements SQLEngine {
 }
 
 // ============================================================================
+// EXTERNAL PARSER INTEGRATION
+// ============================================================================
+
+/**
+ * External SQL parser interface for advanced parsing.
+ * When configured, this parser is used for SQL validation and AST analysis
+ * while the engine still handles execution with its internal parser.
+ *
+ * This allows using high-performance parsers like pgsql-parser for validation
+ * without changing the execution behavior.
+ */
+export interface ExternalSQLParser {
+  validate(sql: string, dialect?: string): { valid: boolean; issues: Array<{ message: string }> }
+  parse?(sql: string, options?: { dialect?: string }): unknown
+}
+
+/**
+ * Engine configuration options
+ */
+export interface SQLEngineOptions {
+  /** Dialect configuration */
+  dialect?: DialectConfig
+
+  /**
+   * Optional external SQL parser for validation.
+   *
+   * When provided, the engine will use this parser to validate SQL before
+   * execution. This is useful for catching syntax errors early with a
+   * more accurate parser (like pgsql-parser).
+   *
+   * @example
+   * ```typescript
+   * import { createSQLParser } from 'lib/sql'
+   *
+   * const parser = createSQLParser({ adapter: 'pgsql-parser' })
+   * const engine = createSQLEngine({
+   *   dialect: POSTGRES_DIALECT,
+   *   parser,
+   * })
+   *
+   * // SQL will be validated by pgsql-parser before execution
+   * engine.execute('SELECT * FROM users')
+   * ```
+   */
+  parser?: ExternalSQLParser
+
+  /**
+   * Whether to validate SQL before execution.
+   * Default: false (for backward compatibility)
+   */
+  validateBeforeExecute?: boolean
+}
+
+// ============================================================================
 // FACTORY FUNCTION
 // ============================================================================
 
 /**
  * Create a new SQL engine with the specified dialect
+ *
+ * @param dialectOrOptions - Dialect config or full options object
+ * @returns SQL engine instance
+ *
+ * @example
+ * ```typescript
+ * // Simple usage with dialect
+ * const engine = createSQLEngine(POSTGRES_DIALECT)
+ *
+ * // With external parser for validation
+ * import { createSQLParser } from 'lib/sql'
+ *
+ * const parser = createSQLParser({ adapter: 'pgsql-parser' })
+ * const engine = createSQLEngine({
+ *   dialect: POSTGRES_DIALECT,
+ *   parser,
+ *   validateBeforeExecute: true,
+ * })
+ * ```
  */
-export function createSQLEngine(dialect?: DialectConfig): SQLEngine {
-  return new InMemorySQLEngine(dialect)
+export function createSQLEngine(dialectOrOptions?: DialectConfig | SQLEngineOptions): SQLEngine {
+  // Handle both old (dialect only) and new (options object) signatures
+  if (!dialectOrOptions) {
+    return new InMemorySQLEngine()
+  }
+
+  // Check if it's an options object (has parser or validateBeforeExecute)
+  if ('parser' in dialectOrOptions || 'validateBeforeExecute' in dialectOrOptions || 'dialect' in dialectOrOptions) {
+    const options = dialectOrOptions as SQLEngineOptions
+    return new InMemorySQLEngineWithParser(options)
+  }
+
+  // Legacy: dialect config only
+  return new InMemorySQLEngine(dialectOrOptions)
+}
+
+/**
+ * Extended InMemorySQLEngine with optional external parser integration.
+ * This class wraps the base engine to add validation capabilities.
+ */
+class InMemorySQLEngineWithParser implements SQLEngine {
+  private baseEngine: InMemorySQLEngine
+  private parser?: ExternalSQLParser
+  private validateBeforeExecute: boolean
+
+  constructor(options: SQLEngineOptions) {
+    this.baseEngine = new InMemorySQLEngine(options.dialect)
+    this.parser = options.parser
+    this.validateBeforeExecute = options.validateBeforeExecute ?? false
+  }
+
+  getDialect(): DialectConfig {
+    return this.baseEngine.getDialect()
+  }
+
+  execute(sql: string, params: SQLValue[] = []): ExecutionResult {
+    // Optionally validate before execution
+    if (this.validateBeforeExecute && this.parser) {
+      const dialect = this.baseEngine.getDialect().dialect
+      const validation = this.parser.validate(sql, dialect)
+
+      if (!validation.valid && validation.issues.length > 0) {
+        const firstIssue = validation.issues[0]
+        throw new SQLParseError(firstIssue.message || 'SQL validation failed')
+      }
+    }
+
+    return this.baseEngine.execute(sql, params)
+  }
+
+  beginTransaction(mode?: TransactionMode): void {
+    return this.baseEngine.beginTransaction(mode)
+  }
+
+  commitTransaction(): void {
+    return this.baseEngine.commitTransaction()
+  }
+
+  rollbackTransaction(): void {
+    return this.baseEngine.rollbackTransaction()
+  }
+
+  isInTransaction(): boolean {
+    return this.baseEngine.isInTransaction()
+  }
+
+  /**
+   * Validate SQL without executing it.
+   * Requires an external parser to be configured.
+   *
+   * @param sql - SQL to validate
+   * @returns Validation result
+   */
+  validate(sql: string): { valid: boolean; issues: Array<{ message: string }> } {
+    if (!this.parser) {
+      // Without external parser, we can only try to parse internally
+      try {
+        // Just detect the command - if this works, basic syntax is ok
+        const translatedSql = translateDialect(sql, this.baseEngine.getDialect())
+        detectCommand(translatedSql)
+        return { valid: true, issues: [] }
+      } catch (error) {
+        return {
+          valid: false,
+          issues: [{ message: error instanceof Error ? error.message : String(error) }],
+        }
+      }
+    }
+
+    return this.parser.validate(sql, this.baseEngine.getDialect().dialect)
+  }
 }

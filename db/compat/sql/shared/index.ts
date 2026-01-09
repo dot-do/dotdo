@@ -105,6 +105,7 @@ export type {
   ParsedCondition,
   OrderByClause,
   SetAssignment,
+  ParseSetClauseResult,
 } from './parser'
 
 // ============================================================================

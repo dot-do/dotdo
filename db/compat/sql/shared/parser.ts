@@ -550,14 +550,20 @@ export interface SetAssignment {
   }
 }
 
+export interface ParseSetClauseResult {
+  assignments: SetAssignment[]
+  paramsConsumed: number
+}
+
 /**
  * Parse SET clause for UPDATE statement
+ * Returns assignments and count of params consumed (for positional ? params)
  */
 export function parseSetClause(
   setPart: string,
   params: SQLValue[],
   dialect: DialectConfig
-): SetAssignment[] {
+): ParseSetClauseResult {
   const assignments: SetAssignment[] = []
   const parts = splitValues(setPart)
   const paramIndex = { current: 0 }
@@ -600,5 +606,5 @@ export function parseSetClause(
     }
   }
 
-  return assignments
+  return { assignments, paramsConsumed: paramIndex.current }
 }

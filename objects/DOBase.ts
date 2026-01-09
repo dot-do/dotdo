@@ -37,6 +37,7 @@
 
 import { DO as DOTiny, type Env } from './DOTiny'
 import { eq, sql } from 'drizzle-orm'
+import { Hono } from 'hono'
 import * as schema from '../db'
 import { isValidNounName } from '../db/nouns'
 import type {
@@ -115,6 +116,16 @@ export interface RelationshipRecord {
 // ============================================================================
 
 export class DO<E extends Env = Env> extends DOTiny<E> {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HONO APP (for HTTP routing)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Optional Hono app for HTTP routing.
+   * Subclasses can create and configure this for custom routes.
+   */
+  protected app?: Hono
+
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTOR CONTEXT
   // ═══════════════════════════════════════════════════════════════════════════

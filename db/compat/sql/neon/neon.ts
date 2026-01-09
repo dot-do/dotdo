@@ -5,6 +5,10 @@
  * This in-memory implementation matches the Neon serverless driver API.
  * Production version routes to Durable Objects based on config.
  *
+ * REFACTORED: Now uses the shared SQL engine infrastructure at
+ * db/compat/sql/shared/ instead of duplicating SQL parsing/execution.
+ * This reduces ~850 lines of duplicated code.
+ *
  * @see https://neon.tech/docs/serverless/serverless-driver
  */
 import type {
@@ -21,34 +25,100 @@ import type {
 import { NeonDbError, ConnectionError, types } from './types'
 import { EventEmitter } from '../../../../compat/shared/event-emitter'
 
+// Import the shared SQL engine infrastructure
+import {
+  createSQLEngine,
+  POSTGRES_DIALECT,
+  type SQLEngine,
+  type SQLValue,
+  type ExecutionResult,
+  SQLError as BaseSQLError,
+  TableNotFoundError,
+  TableExistsError,
+  UniqueConstraintError,
+  SQLParseError,
+} from '../shared'
+
 // ============================================================================
-// IN-MEMORY SQLITE (for testing)
+// ERROR MAPPING
 // ============================================================================
 
-interface TableSchema {
-  name: string
-  columns: string[]
-  columnTypes: string[]
-  primaryKey?: string
-  uniqueConstraints: string[]
-  autoIncrement?: string
+/**
+ * Map shared SQL errors to Neon NeonDbError format
+ */
+function mapToNeonError(error: unknown): NeonDbError {
+  if (error instanceof BaseSQLError) {
+    let code = '42601'
+
+    if (error instanceof TableNotFoundError) {
+      code = '42P01'
+    } else if (error instanceof TableExistsError) {
+      code = '42P07'
+    } else if (error instanceof UniqueConstraintError) {
+      code = '23505'
+    } else if (error instanceof SQLParseError) {
+      code = '42601'
+    }
+
+    return new NeonDbError(error.message, code, 'ERROR')
+  }
+
+  if (error instanceof Error) {
+    return new NeonDbError(error.message, '42601')
+  }
+
+  return new NeonDbError(String(error), '42601')
 }
 
-interface StoredRow {
-  rowid: number
-  values: Map<string, any>
+// ============================================================================
+// RESULT TRANSFORMATION
+// ============================================================================
+
+/**
+ * Transform shared engine result to Neon QueryResult format
+ */
+function transformToQueryResult<R>(result: ExecutionResult): QueryResult<R> {
+  const fields: FieldDef[] = result.columns.map((name, i) => ({
+    name,
+    tableID: 0,
+    columnID: i,
+    dataTypeID: types.TEXT,
+    dataTypeSize: -1,
+    dataTypeModifier: -1,
+    format: 'text',
+  }))
+
+  const rows = result.rows.map((row) => {
+    const obj: Record<string, unknown> = {}
+    for (let i = 0; i < result.columns.length; i++) {
+      obj[result.columns[i]] = row[i]
+    }
+    return obj as R
+  })
+
+  return {
+    fields,
+    rows,
+    rowCount: result.affectedRows || result.rows.length,
+    command: result.command,
+    oid: 0,
+  }
 }
+
+// ============================================================================
+// GLOBAL DATABASE INSTANCES
+// ============================================================================
 
 // Global shared database for all connections
 // Each unique connection string gets its own database instance
-const dbInstances = new Map<string, InMemorySQLite>()
+const dbInstances = new Map<string, SQLEngine>()
 
-function getGlobalDb(connectionString?: string): InMemorySQLite {
+function getGlobalDb(connectionString?: string): SQLEngine {
   // Use a default key for tests without connection string
   const key = connectionString || 'default'
 
   if (!dbInstances.has(key)) {
-    dbInstances.set(key, new InMemorySQLite())
+    dbInstances.set(key, createSQLEngine(POSTGRES_DIALECT))
   }
   return dbInstances.get(key)!
 }
@@ -59,809 +129,6 @@ export function resetDatabase(connectionString?: string): void {
     dbInstances.delete(connectionString)
   } else {
     dbInstances.clear()
-  }
-}
-
-class InMemorySQLite {
-  private tables = new Map<string, TableSchema>()
-  private data = new Map<string, StoredRow[]>()
-  private lastRowId = 0
-  private inTransaction = false
-  private transactionSnapshot: Map<string, StoredRow[]> | null = null
-
-  execute(sql: string, params: any[] = []): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const normalizedSql = sql.trim()
-    const upperSql = normalizedSql.toUpperCase()
-
-    if (upperSql.startsWith('CREATE TABLE')) {
-      return this.executeCreateTable(normalizedSql)
-    }
-
-    if (upperSql.startsWith('CREATE INDEX') || upperSql.startsWith('CREATE UNIQUE INDEX')) {
-      return this.executeCreateIndex(normalizedSql)
-    }
-
-    if (upperSql.startsWith('DROP TABLE')) {
-      return this.executeDropTable(normalizedSql)
-    }
-
-    if (upperSql.startsWith('INSERT')) {
-      return this.executeInsert(normalizedSql, params)
-    }
-
-    if (upperSql.startsWith('SELECT')) {
-      return this.executeSelect(normalizedSql, params)
-    }
-
-    if (upperSql.startsWith('UPDATE')) {
-      return this.executeUpdate(normalizedSql, params)
-    }
-
-    if (upperSql.startsWith('DELETE')) {
-      return this.executeDelete(normalizedSql, params)
-    }
-
-    if (upperSql.startsWith('BEGIN') || upperSql === 'START TRANSACTION') {
-      return this.executeBegin()
-    }
-
-    if (upperSql.startsWith('COMMIT')) {
-      return this.executeCommit()
-    }
-
-    if (upperSql.startsWith('ROLLBACK')) {
-      return this.executeRollback()
-    }
-
-    if (upperSql.startsWith('SAVEPOINT')) {
-      return { columns: [], rows: [], rowCount: 0, command: 'SAVEPOINT' }
-    }
-
-    if (upperSql.startsWith('RELEASE')) {
-      return { columns: [], rows: [], rowCount: 0, command: 'RELEASE' }
-    }
-
-    if (upperSql.startsWith('SET ')) {
-      return { columns: [], rows: [], rowCount: 0, command: 'SET' }
-    }
-
-    if (upperSql.startsWith('SHOW ')) {
-      return this.executeShow(normalizedSql)
-    }
-
-    throw new NeonDbError(`Unsupported SQL: ${sql}`, '42601', 'ERROR')
-  }
-
-  beginTransaction(): void {
-    this.inTransaction = true
-    this.transactionSnapshot = new Map()
-    for (const [table, rows] of this.data) {
-      this.transactionSnapshot.set(
-        table,
-        rows.map((r) => ({ rowid: r.rowid, values: new Map(r.values) }))
-      )
-    }
-  }
-
-  commitTransaction(): void {
-    this.inTransaction = false
-    this.transactionSnapshot = null
-  }
-
-  rollbackTransaction(): void {
-    if (this.transactionSnapshot) {
-      this.data = this.transactionSnapshot
-    }
-    this.inTransaction = false
-    this.transactionSnapshot = null
-  }
-
-  get isInTransaction(): boolean {
-    return this.inTransaction
-  }
-
-  private executeCreateTable(sql: string): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const ifNotExists = /IF\s+NOT\s+EXISTS/i.test(sql)
-    const match = sql.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|(\w+))\s*\(([^)]+)\)/i)
-    if (!match) {
-      throw new NeonDbError('Invalid CREATE TABLE syntax', '42601', 'ERROR')
-    }
-
-    const tableName = (match[1] || match[2]).toLowerCase()
-    const columnDefs = this.splitColumnDefs(match[3])
-
-    // Parse new columns first to check for schema mismatch
-    const newColumns: string[] = []
-    for (const def of columnDefs) {
-      const trimmed = def.trim()
-      if (/^(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT)/i.test(trimmed)) {
-        continue
-      }
-      const parts = trimmed.split(/\s+/)
-      const colName = parts[0].replace(/"/g, '').toLowerCase()
-      newColumns.push(colName)
-    }
-
-    if (this.tables.has(tableName)) {
-      if (ifNotExists) {
-        // For testing convenience: if table exists with different columns, drop and recreate
-        const existingSchema = this.tables.get(tableName)!
-        const columnsMatch =
-          existingSchema.columns.length === newColumns.length &&
-          existingSchema.columns.every((col) => newColumns.includes(col))
-
-        if (columnsMatch) {
-          return { columns: [], rows: [], rowCount: 0, command: 'CREATE TABLE' }
-        }
-
-        // Schema mismatch - drop and recreate for testing convenience
-        this.tables.delete(tableName)
-        this.data.delete(tableName)
-      } else {
-        throw new NeonDbError(`Table "${tableName}" already exists`, '42P07', 'ERROR')
-      }
-    }
-
-    const columns: string[] = []
-    const columnTypes: string[] = []
-    const uniqueConstraints: string[] = []
-    let primaryKey: string | undefined
-    let autoIncrement: string | undefined
-
-    for (const def of columnDefs) {
-      const trimmed = def.trim()
-
-      if (/^(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT)/i.test(trimmed)) {
-        const pkMatch = trimmed.match(/PRIMARY\s+KEY\s*\(([^)]+)\)/i)
-        if (pkMatch) {
-          primaryKey = pkMatch[1].split(',')[0].trim().toLowerCase()
-        }
-        continue
-      }
-
-      const parts = trimmed.split(/\s+/)
-      const colName = parts[0].replace(/"/g, '').toLowerCase()
-      const colType = parts[1]?.toUpperCase() ?? 'TEXT'
-
-      columns.push(colName)
-      columnTypes.push(colType)
-
-      const upperDef = trimmed.toUpperCase()
-      if (upperDef.includes('PRIMARY KEY')) {
-        primaryKey = colName
-        uniqueConstraints.push(colName)
-      }
-      if (upperDef.includes('UNIQUE') && !uniqueConstraints.includes(colName)) {
-        uniqueConstraints.push(colName)
-      }
-      if (upperDef.includes('SERIAL') || upperDef.includes('BIGSERIAL')) {
-        autoIncrement = colName
-        if (!primaryKey) primaryKey = colName
-      }
-    }
-
-    this.tables.set(tableName, {
-      name: tableName,
-      columns,
-      columnTypes,
-      primaryKey,
-      uniqueConstraints,
-      autoIncrement,
-    })
-    this.data.set(tableName, [])
-
-    return { columns: [], rows: [], rowCount: 0, command: 'CREATE TABLE' }
-  }
-
-  private splitColumnDefs(defs: string): string[] {
-    const result: string[] = []
-    let current = ''
-    let depth = 0
-
-    for (const char of defs) {
-      if (char === '(') depth++
-      if (char === ')') depth--
-      if (char === ',' && depth === 0) {
-        result.push(current.trim())
-        current = ''
-      } else {
-        current += char
-      }
-    }
-    if (current.trim()) {
-      result.push(current.trim())
-    }
-    return result
-  }
-
-  private executeCreateIndex(_sql: string): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    return { columns: [], rows: [], rowCount: 0, command: 'CREATE INDEX' }
-  }
-
-  private executeDropTable(sql: string): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const match = sql.match(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|(\w+))/i)
-    if (!match) {
-      throw new NeonDbError('Invalid DROP TABLE syntax', '42601', 'ERROR')
-    }
-
-    const tableName = (match[1] || match[2]).toLowerCase()
-    const ifExists = /IF\s+EXISTS/i.test(sql)
-
-    if (!this.tables.has(tableName)) {
-      if (ifExists) {
-        return { columns: [], rows: [], rowCount: 0, command: 'DROP TABLE' }
-      }
-      throw new NeonDbError(`Table "${tableName}" does not exist`, '42P01', 'ERROR')
-    }
-
-    this.tables.delete(tableName)
-    this.data.delete(tableName)
-
-    return { columns: [], rows: [], rowCount: 0, command: 'DROP TABLE' }
-  }
-
-  private executeInsert(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const match = sql.match(
-      /INSERT\s+INTO\s+(?:"([^"]+)"|(\w+))\s*(?:\(([^)]+)\))?\s*VALUES\s*\(([^)]+)\)(?:\s*RETURNING\s+(.+))?/i
-    )
-    if (!match) {
-      throw new NeonDbError('Invalid INSERT syntax', '42601', 'ERROR')
-    }
-
-    const tableName = (match[1] || match[2]).toLowerCase()
-    const schema = this.tables.get(tableName)
-    if (!schema) {
-      throw new NeonDbError(`Table "${tableName}" does not exist`, '42P01', 'ERROR')
-    }
-
-    const specifiedCols = match[3]
-      ? match[3].split(',').map((c) => c.trim().replace(/"/g, '').toLowerCase())
-      : schema.columns
-
-    const valuesPart = match[4]
-    const returningCols = match[5]
-      ? match[5].split(',').map((c) => c.trim().replace(/"/g, '').toLowerCase())
-      : null
-
-    const insertValues = this.parseValues(valuesPart, params)
-
-    const values = new Map<string, any>()
-    for (let i = 0; i < specifiedCols.length; i++) {
-      values.set(specifiedCols[i], insertValues[i] ?? null)
-    }
-
-    if (schema.autoIncrement && !values.has(schema.autoIncrement)) {
-      values.set(schema.autoIncrement, this.lastRowId + 1)
-    } else if (schema.autoIncrement && values.get(schema.autoIncrement) === undefined) {
-      values.set(schema.autoIncrement, this.lastRowId + 1)
-    }
-
-    const tableData = this.data.get(tableName) ?? []
-    for (const constraint of schema.uniqueConstraints) {
-      const newValue = values.get(constraint)
-      for (const row of tableData) {
-        if (row.values.get(constraint) === newValue && newValue !== null && newValue !== undefined) {
-          throw new NeonDbError(
-            `duplicate key value violates unique constraint "${tableName}_${constraint}_key"`,
-            '23505',
-            'ERROR'
-          )
-        }
-      }
-    }
-
-    const rowid = ++this.lastRowId
-    tableData.push({ rowid, values })
-
-    if (returningCols) {
-      const returnRow: any[] = []
-      for (const col of returningCols) {
-        if (col === '*') {
-          returnRow.push(...schema.columns.map((c) => values.get(c)))
-        } else {
-          returnRow.push(values.get(col))
-        }
-      }
-      return {
-        columns: returningCols.includes('*') ? schema.columns : returningCols,
-        rows: [returnRow],
-        rowCount: 1,
-        command: 'INSERT',
-      }
-    }
-
-    return { columns: [], rows: [], rowCount: 1, command: 'INSERT' }
-  }
-
-  private parseValues(valuesPart: string, params: any[]): any[] {
-    const values: any[] = []
-    const parts = this.splitValues(valuesPart)
-
-    for (const part of parts) {
-      const trimmed = part.trim()
-
-      const paramMatch = trimmed.match(/^\$(\d+)$/)
-      if (paramMatch) {
-        const index = parseInt(paramMatch[1], 10) - 1
-        values.push(params[index])
-        continue
-      }
-
-      if (trimmed.toUpperCase() === 'DEFAULT') {
-        values.push(undefined)
-        continue
-      }
-
-      if (
-        (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
-        (trimmed.startsWith('"') && trimmed.endsWith('"'))
-      ) {
-        values.push(trimmed.slice(1, -1))
-        continue
-      }
-
-      if (trimmed.toUpperCase() === 'NULL') {
-        values.push(null)
-        continue
-      }
-
-      if (/^-?\d+$/.test(trimmed)) {
-        values.push(parseInt(trimmed, 10))
-        continue
-      }
-      if (/^-?\d+\.\d+$/.test(trimmed)) {
-        values.push(parseFloat(trimmed))
-        continue
-      }
-
-      if (trimmed.toUpperCase() === 'TRUE') {
-        values.push(true)
-        continue
-      }
-      if (trimmed.toUpperCase() === 'FALSE') {
-        values.push(false)
-        continue
-      }
-
-      values.push(trimmed)
-    }
-
-    return values
-  }
-
-  private splitValues(valuesPart: string): string[] {
-    const parts: string[] = []
-    let current = ''
-    let inString = false
-    let stringChar = ''
-    let depth = 0
-
-    for (const char of valuesPart) {
-      if (!inString && (char === "'" || char === '"')) {
-        inString = true
-        stringChar = char
-        current += char
-      } else if (inString && char === stringChar) {
-        inString = false
-        current += char
-      } else if (!inString && char === '(') {
-        depth++
-        current += char
-      } else if (!inString && char === ')') {
-        depth--
-        current += char
-      } else if (!inString && depth === 0 && char === ',') {
-        parts.push(current)
-        current = ''
-      } else {
-        current += char
-      }
-    }
-
-    if (current.length > 0) {
-      parts.push(current)
-    }
-
-    return parts
-  }
-
-  private executeSelect(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const normalized = sql.replace(/\s+/g, ' ').trim()
-
-    if (/SELECT\s+\d+/i.test(normalized) && !/FROM/i.test(normalized)) {
-      const match = normalized.match(/SELECT\s+(.+?)(?:\s+as\s+(\w+))?$/i)
-      if (match) {
-        const expr = match[1].trim()
-        const alias = match[2] || '?column?'
-        if (/^\d+$/.test(expr)) {
-          return { columns: [alias], rows: [[parseInt(expr, 10)]], rowCount: 0, command: 'SELECT' }
-        }
-        if (/^'[^']*'$/.test(expr)) {
-          return { columns: [alias], rows: [[expr.slice(1, -1)]], rowCount: 0, command: 'SELECT' }
-        }
-        return { columns: [alias], rows: [['PostgreSQL 15.0 (dotdo compat)']], rowCount: 0, command: 'SELECT' }
-      }
-    }
-
-    const fromMatch = normalized.match(/SELECT\s+(.+?)\s+FROM\s+(?:"([^"]+)"|(\w+))/i)
-    if (!fromMatch) {
-      throw new NeonDbError('Invalid SELECT syntax', '42601', 'ERROR')
-    }
-
-    const columnsPart = fromMatch[1]
-    const mainTable = (fromMatch[2] || fromMatch[3]).toLowerCase()
-
-    const sqlKeywords = 'WHERE|ORDER|LIMIT|OFFSET|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|ON|GROUP|HAVING|UNION'
-    const afterTablePattern = new RegExp(
-      `FROM\\s+(?:"${mainTable}"|${mainTable})(?:\\s+(?:AS\\s+)?(?!${sqlKeywords}\\b)(\\w+))?(.*)$`,
-      'i'
-    )
-    const afterTableMatch = normalized.match(afterTablePattern)
-    const tableAlias = afterTableMatch?.[1]?.toLowerCase()
-    const restOfQuery = afterTableMatch?.[2]?.trim() ?? ''
-
-    const schema = this.tables.get(mainTable)
-    if (!schema) {
-      throw new NeonDbError(`Table "${mainTable}" does not exist`, '42P01', 'ERROR')
-    }
-
-    let tableData = [...(this.data.get(mainTable) ?? [])]
-
-    let selectedColumns: string[]
-    if (columnsPart.trim() === '*') {
-      selectedColumns = [...schema.columns]
-    } else {
-      selectedColumns = columnsPart.split(',').map((c) => {
-        const col = c.trim()
-        if (col.includes('.')) {
-          return col.split('.')[1].replace(/"/g, '').toLowerCase()
-        }
-        const asMatch = col.match(/(.+?)\s+AS\s+(\w+)/i)
-        if (asMatch) {
-          return asMatch[2].trim().toLowerCase()
-        }
-        return col.replace(/"/g, '').toLowerCase()
-      })
-    }
-
-    const whereMatch = restOfQuery.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|\s+OFFSET|\s*$)/i)
-    if (whereMatch) {
-      const condition = whereMatch[1].trim()
-      tableData = this.applyWhere(tableData, condition, params, tableAlias)
-    }
-
-    const orderMatch = restOfQuery.match(/ORDER\s+BY\s+(.+?)(?:\s+LIMIT|\s+OFFSET|\s*$)/i)
-    if (orderMatch) {
-      const orderBy = orderMatch[1].trim()
-      tableData = this.applyOrderBy(tableData, orderBy)
-    }
-
-    const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
-    if (limitMatch) {
-      tableData = tableData.slice(0, parseInt(limitMatch[1], 10))
-    }
-
-    const offsetMatch = restOfQuery.match(/OFFSET\s+(\d+)/i)
-    if (offsetMatch) {
-      const offset = parseInt(offsetMatch[1], 10)
-      tableData = tableData.slice(offset)
-    }
-
-    // Get actual columns for rows
-    const actualColumns = columnsPart.trim() === '*' ? schema.columns : columnsPart.split(',').map((c) => {
-      const col = c.trim()
-      if (col.includes('.')) {
-        return col.split('.')[1].replace(/"/g, '').toLowerCase()
-      }
-      const asMatch = col.match(/(.+?)\s+AS\s+\w+/i)
-      if (asMatch) {
-        return asMatch[1].trim().replace(/"/g, '').toLowerCase()
-      }
-      return col.replace(/"/g, '').toLowerCase()
-    })
-
-    const rows = tableData.map((row) =>
-      actualColumns.map((col) => row.values.get(col) ?? null)
-    )
-
-    return {
-      columns: selectedColumns,
-      rows,
-      rowCount: rows.length,
-      command: 'SELECT',
-    }
-  }
-
-  private applyWhere(data: StoredRow[], condition: string, params: any[], _alias?: string): StoredRow[] {
-    const andParts = condition.split(/\s+AND\s+/i)
-    let result = data
-
-    for (const part of andParts) {
-      result = this.applySingleCondition(result, part.trim(), params)
-    }
-
-    return result
-  }
-
-  private applySingleCondition(data: StoredRow[], condition: string, params: any[]): StoredRow[] {
-    const gteMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*>=\s*(.+)/i)
-    if (gteMatch) {
-      const colName = gteMatch[1].toLowerCase()
-      const valuePart = gteMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => (row.values.get(colName) ?? 0) >= value)
-    }
-
-    const lteMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*<=\s*(.+)/i)
-    if (lteMatch) {
-      const colName = lteMatch[1].toLowerCase()
-      const valuePart = lteMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => (row.values.get(colName) ?? 0) <= value)
-    }
-
-    const neqMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*(?:!=|<>)\s*(.+)/i)
-    if (neqMatch) {
-      const colName = neqMatch[1].toLowerCase()
-      const valuePart = neqMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => row.values.get(colName) !== value)
-    }
-
-    const gtMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*>\s*(.+)/i)
-    if (gtMatch) {
-      const colName = gtMatch[1].toLowerCase()
-      const valuePart = gtMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => (row.values.get(colName) ?? 0) > value)
-    }
-
-    const ltMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*<\s*(.+)/i)
-    if (ltMatch) {
-      const colName = ltMatch[1].toLowerCase()
-      const valuePart = ltMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => (row.values.get(colName) ?? 0) < value)
-    }
-
-    const eqMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s*=\s*(.+)/i)
-    if (eqMatch) {
-      const colName = eqMatch[1].toLowerCase()
-      const valuePart = eqMatch[2].trim()
-      const value = this.resolveValue(valuePart, params)
-      return data.filter((row) => row.values.get(colName) === value)
-    }
-
-    const isNullMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s+IS\s+NULL/i)
-    if (isNullMatch) {
-      const colName = isNullMatch[1].toLowerCase()
-      return data.filter((row) => row.values.get(colName) === null)
-    }
-
-    const isNotNullMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s+IS\s+NOT\s+NULL/i)
-    if (isNotNullMatch) {
-      const colName = isNotNullMatch[1].toLowerCase()
-      return data.filter((row) => row.values.get(colName) !== null)
-    }
-
-    const likeMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s+LIKE\s+(.+)/i)
-    if (likeMatch) {
-      const colName = likeMatch[1].toLowerCase()
-      const pattern = this.resolveValue(likeMatch[2].trim(), params) as string
-      const regex = new RegExp('^' + pattern.replace(/%/g, '.*').replace(/_/g, '.') + '$')
-      return data.filter((row) => regex.test(String(row.values.get(colName) ?? '')))
-    }
-
-    const ilikeMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s+ILIKE\s+(.+)/i)
-    if (ilikeMatch) {
-      const colName = ilikeMatch[1].toLowerCase()
-      const pattern = this.resolveValue(ilikeMatch[2].trim(), params) as string
-      const regex = new RegExp('^' + pattern.replace(/%/g, '.*').replace(/_/g, '.') + '$', 'i')
-      return data.filter((row) => regex.test(String(row.values.get(colName) ?? '')))
-    }
-
-    const inMatch = condition.match(/(?:[\w.]+\.)?(\w+)\s+IN\s*\(([^)]+)\)/i)
-    if (inMatch) {
-      const colName = inMatch[1].toLowerCase()
-      const valuesPart = inMatch[2]
-      const values = valuesPart.split(',').map((v) => this.resolveValue(v.trim(), params))
-      return data.filter((row) => values.includes(row.values.get(colName)))
-    }
-
-    return data
-  }
-
-  private resolveValue(valuePart: string, params: any[]): any {
-    const paramMatch = valuePart.match(/^\$(\d+)$/)
-    if (paramMatch) {
-      return params[parseInt(paramMatch[1], 10) - 1]
-    }
-
-    if (
-      (valuePart.startsWith("'") && valuePart.endsWith("'")) ||
-      (valuePart.startsWith('"') && valuePart.endsWith('"'))
-    ) {
-      return valuePart.slice(1, -1)
-    }
-
-    if (valuePart.toUpperCase() === 'NULL') {
-      return null
-    }
-
-    if (valuePart.toUpperCase() === 'TRUE') return true
-    if (valuePart.toUpperCase() === 'FALSE') return false
-
-    if (/^-?\d+$/.test(valuePart)) return parseInt(valuePart, 10)
-    if (/^-?\d+\.\d+$/.test(valuePart)) return parseFloat(valuePart)
-
-    return valuePart
-  }
-
-  private applyOrderBy(data: StoredRow[], orderBy: string): StoredRow[] {
-    const parts = orderBy.split(',').map((p) => {
-      const trimmed = p.trim()
-      const descMatch = trimmed.match(/(.+?)\s+DESC/i)
-      const ascMatch = trimmed.match(/(.+?)\s+ASC/i)
-      const col = (descMatch?.[1] || ascMatch?.[1] || trimmed).replace(/"/g, '').toLowerCase()
-      const desc = !!descMatch
-      return { col, desc }
-    })
-
-    return [...data].sort((a, b) => {
-      for (const { col, desc } of parts) {
-        const aVal = a.values.get(col)
-        const bVal = b.values.get(col)
-        if (aVal === bVal) continue
-        if (aVal === null) return desc ? -1 : 1
-        if (bVal === null) return desc ? 1 : -1
-        if (aVal < bVal) return desc ? 1 : -1
-        if (aVal > bVal) return desc ? -1 : 1
-      }
-      return 0
-    })
-  }
-
-  private executeUpdate(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const match = sql.match(
-      /UPDATE\s+(?:"([^"]+)"|(\w+))\s+SET\s+(.+?)(?:\s+WHERE\s+(.+?))?(?:\s+RETURNING\s+(.+))?$/i
-    )
-    if (!match) {
-      throw new NeonDbError('Invalid UPDATE syntax', '42601', 'ERROR')
-    }
-
-    const tableName = (match[1] || match[2]).toLowerCase()
-    const setPart = match[3]
-    const wherePart = match[4]
-    const returningCols = match[5]
-      ? match[5].split(',').map((c) => c.trim().replace(/"/g, '').toLowerCase())
-      : null
-
-    const schema = this.tables.get(tableName)
-    if (!schema) {
-      throw new NeonDbError(`Table "${tableName}" does not exist`, '42P01', 'ERROR')
-    }
-
-    let tableData = this.data.get(tableName) ?? []
-
-    let toUpdate = [...tableData]
-    if (wherePart) {
-      toUpdate = this.applyWhere(toUpdate, wherePart, params)
-    }
-
-    const assignments = this.parseSetClause(setPart, params)
-
-    const updatedRows: any[][] = []
-    for (const row of toUpdate) {
-      for (const [col, value] of assignments) {
-        row.values.set(col, value)
-      }
-      if (returningCols) {
-        const returnRow = returningCols.includes('*')
-          ? schema.columns.map((c) => row.values.get(c))
-          : returningCols.map((c) => row.values.get(c))
-        updatedRows.push(returnRow)
-      }
-    }
-
-    if (returningCols) {
-      return {
-        columns: returningCols.includes('*') ? schema.columns : returningCols,
-        rows: updatedRows,
-        rowCount: toUpdate.length,
-        command: 'UPDATE',
-      }
-    }
-
-    return { columns: [], rows: [], rowCount: toUpdate.length, command: 'UPDATE' }
-  }
-
-  private parseSetClause(setPart: string, params: any[]): Map<string, any> {
-    const assignments = new Map<string, any>()
-    const parts = this.splitValues(setPart)
-
-    for (const part of parts) {
-      const match = part.match(/(?:"([^"]+)"|(\w+))\s*=\s*(.+)/i)
-      if (match) {
-        const col = (match[1] || match[2]).toLowerCase()
-        const value = this.resolveValue(match[3].trim(), params)
-        assignments.set(col, value)
-      }
-    }
-
-    return assignments
-  }
-
-  private executeDelete(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    const match = sql.match(
-      /DELETE\s+FROM\s+(?:"([^"]+)"|(\w+))(?:\s+WHERE\s+(.+?))?(?:\s+RETURNING\s+(.+))?$/i
-    )
-    if (!match) {
-      throw new NeonDbError('Invalid DELETE syntax', '42601', 'ERROR')
-    }
-
-    const tableName = (match[1] || match[2]).toLowerCase()
-    const wherePart = match[3]
-    const returningCols = match[4]
-      ? match[4].split(',').map((c) => c.trim().replace(/"/g, '').toLowerCase())
-      : null
-
-    const schema = this.tables.get(tableName)
-    if (!schema) {
-      throw new NeonDbError(`Table "${tableName}" does not exist`, '42P01', 'ERROR')
-    }
-
-    const tableData = this.data.get(tableName) ?? []
-
-    let toDelete = [...tableData]
-    if (wherePart) {
-      toDelete = this.applyWhere(toDelete, wherePart, params)
-    }
-
-    const deletedRows: any[][] = []
-    if (returningCols) {
-      for (const row of toDelete) {
-        const returnRow = returningCols.includes('*')
-          ? schema.columns.map((c) => row.values.get(c))
-          : returningCols.map((c) => row.values.get(c))
-        deletedRows.push(returnRow)
-      }
-    }
-
-    const toDeleteRowIds = new Set(toDelete.map((r) => r.rowid))
-    this.data.set(
-      tableName,
-      tableData.filter((r) => !toDeleteRowIds.has(r.rowid))
-    )
-
-    if (returningCols) {
-      return {
-        columns: returningCols.includes('*') ? schema.columns : returningCols,
-        rows: deletedRows,
-        rowCount: toDelete.length,
-        command: 'DELETE',
-      }
-    }
-
-    return { columns: [], rows: [], rowCount: toDelete.length, command: 'DELETE' }
-  }
-
-  private executeBegin(): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    this.beginTransaction()
-    return { columns: [], rows: [], rowCount: 0, command: 'BEGIN' }
-  }
-
-  private executeCommit(): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    this.commitTransaction()
-    return { columns: [], rows: [], rowCount: 0, command: 'COMMIT' }
-  }
-
-  private executeRollback(): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    this.rollbackTransaction()
-    return { columns: [], rows: [], rowCount: 0, command: 'ROLLBACK' }
-  }
-
-  private executeShow(_sql: string): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    return { columns: ['setting'], rows: [['on']], rowCount: 1, command: 'SHOW' }
   }
 }
 
@@ -887,19 +154,19 @@ export const neonConfig: NeonConfig = {
  * Create a SQL function for executing queries via HTTP
  */
 export function neon(connectionString: string, options?: NeonOptions): NeonSqlFunction {
-  const db = getGlobalDb(connectionString)
+  const engine = getGlobalDb(connectionString)
   const fullResults = options?.fullResults ?? false
   const arrayMode = options?.arrayMode ?? false
 
   // SQL template tag and function call handler
-  function sql(stringsOrText: TemplateStringsArray | string, ...valuesOrParams: any[]): Promise<any> {
+  function sql(stringsOrText: TemplateStringsArray | string, ...valuesOrParams: unknown[]): Promise<unknown> {
     let text: string
-    let params: any[]
+    let params: unknown[]
 
     if (typeof stringsOrText === 'string') {
       // Called as sql('SELECT ...', [params])
       text = stringsOrText
-      params = valuesOrParams[0] ?? []
+      params = (valuesOrParams[0] as unknown[]) ?? []
     } else {
       // Called as sql`SELECT ...`
       const strings = stringsOrText as TemplateStringsArray
@@ -912,35 +179,35 @@ export function neon(connectionString: string, options?: NeonOptions): NeonSqlFu
       }
     }
 
-    return executeQuery(db, text, params, fullResults, arrayMode)
+    return executeQuery(engine, text, params, fullResults, arrayMode)
   }
 
   // Add transaction support
-  sql.transaction = async function <T = any>(
-    queriesOrCallback: Promise<any>[] | TransactionCallback<T>
-  ): Promise<any> {
+  sql.transaction = async function <T = unknown>(
+    queriesOrCallback: Promise<unknown>[] | TransactionCallback<T>
+  ): Promise<unknown> {
     if (typeof queriesOrCallback === 'function') {
       // Callback style transaction
       const callback = queriesOrCallback as TransactionCallback<T>
-      db.beginTransaction()
+      engine.beginTransaction()
       try {
         const result = await callback(sql as NeonSqlFunction)
-        db.commitTransaction()
+        engine.commitTransaction()
         return result
       } catch (e) {
-        db.rollbackTransaction()
+        engine.rollbackTransaction()
         throw e
       }
     } else {
       // Array of queries style
-      const queries = queriesOrCallback as Promise<any>[]
-      db.beginTransaction()
+      const queries = queriesOrCallback as Promise<unknown>[]
+      engine.beginTransaction()
       try {
         const results = await Promise.all(queries)
-        db.commitTransaction()
+        engine.commitTransaction()
         return results
       } catch (e) {
-        db.rollbackTransaction()
+        engine.rollbackTransaction()
         throw e
       }
     }
@@ -950,14 +217,14 @@ export function neon(connectionString: string, options?: NeonOptions): NeonSqlFu
 }
 
 async function executeQuery(
-  db: InMemorySQLite,
+  engine: SQLEngine,
   text: string,
-  params: any[],
+  params: unknown[],
   fullResults: boolean,
   arrayMode: boolean
-): Promise<any> {
+): Promise<unknown> {
   try {
-    const result = db.execute(text, params)
+    const result = engine.execute(text, params as SQLValue[])
     const fields: FieldDef[] = result.columns.map((name, i) => ({
       name,
       tableID: 0,
@@ -974,7 +241,7 @@ async function executeQuery(
         return {
           fields,
           rows: result.rows,
-          rowCount: result.rowCount,
+          rowCount: result.affectedRows || result.rows.length,
           command: result.command,
           oid: 0,
         }
@@ -984,7 +251,7 @@ async function executeQuery(
 
     // Convert rows to objects
     const rows = result.rows.map((row) => {
-      const obj: any = {}
+      const obj: Record<string, unknown> = {}
       for (let i = 0; i < result.columns.length; i++) {
         obj[result.columns[i]] = row[i]
       }
@@ -995,7 +262,7 @@ async function executeQuery(
       return {
         fields,
         rows,
-        rowCount: result.rowCount,
+        rowCount: result.affectedRows || result.rows.length,
         command: result.command,
         oid: 0,
       }
@@ -1006,7 +273,7 @@ async function executeQuery(
     if (e instanceof NeonDbError) {
       throw e
     }
-    throw new NeonDbError((e as Error).message, '42601')
+    throw mapToNeonError(e)
   }
 }
 
@@ -1015,7 +282,7 @@ async function executeQuery(
 // ============================================================================
 
 export class NeonClient extends EventEmitter {
-  private db: InMemorySQLite
+  private engine: SQLEngine
   private config: ClientConfig
   private connected = false
   private _processID = Math.floor(Math.random() * 100000)
@@ -1024,7 +291,7 @@ export class NeonClient extends EventEmitter {
   constructor(config?: string | ClientConfig) {
     super()
     this.config = this.parseConfig(config)
-    this.db = getGlobalDb()
+    this.engine = getGlobalDb()
   }
 
   private parseConfig(config?: string | ClientConfig): ClientConfig {
@@ -1069,39 +336,15 @@ export class NeonClient extends EventEmitter {
     }
   }
 
-  async query<R = any>(text: string, values?: any[]): Promise<QueryResult<R>> {
+  async query<R = unknown>(text: string, values?: unknown[]): Promise<QueryResult<R>> {
     try {
-      const result = this.db.execute(text, values ?? [])
-      const fields: FieldDef[] = result.columns.map((name, i) => ({
-        name,
-        tableID: 0,
-        columnID: i,
-        dataTypeID: types.TEXT,
-        dataTypeSize: -1,
-        dataTypeModifier: -1,
-        format: 'text',
-      }))
-
-      const rows = result.rows.map((row) => {
-        const obj: any = {}
-        for (let i = 0; i < result.columns.length; i++) {
-          obj[result.columns[i]] = row[i]
-        }
-        return obj as R
-      })
-
-      return {
-        fields,
-        rows,
-        rowCount: result.rowCount,
-        command: result.command,
-        oid: 0,
-      }
+      const result = this.engine.execute(text, (values ?? []) as SQLValue[])
+      return transformToQueryResult<R>(result)
     } catch (e) {
       if (e instanceof NeonDbError) {
         throw e
       }
-      throw new NeonDbError((e as Error).message, '42601')
+      throw mapToNeonError(e)
     }
   }
 
@@ -1197,7 +440,7 @@ export class NeonPool extends EventEmitter {
     return this._ended
   }
 
-  async query<R = any>(text: string, values?: any[]): Promise<QueryResult<R>> {
+  async query<R = unknown>(text: string, values?: unknown[]): Promise<QueryResult<R>> {
     const client = await this.connect()
     try {
       const result = await client.query<R>(text, values)

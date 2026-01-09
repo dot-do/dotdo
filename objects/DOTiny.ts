@@ -15,6 +15,7 @@
  * - Scheduling ($.every, alarm)
  * - Lifecycle operations (fork, clone, compact, move)
  * - Sharding, branching, promotion
+ * - Built-in Hono routing (import Hono yourself if needed)
  *
  * @example
  * ```typescript
@@ -31,8 +32,9 @@
 import { DurableObject } from 'cloudflare:workers'
 import { drizzle } from 'drizzle-orm/durable-sqlite'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
-import { Hono } from 'hono'
-import * as schema from '../db'
+
+// Minimal schema - only objects table for parent relationships
+import * as schema from '../db/schema-minimal'
 
 // Import unified CloudflareEnv from types/CloudflareBindings
 import type { CloudflareEnv } from '../types/CloudflareBindings'
@@ -143,7 +145,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   // STORAGE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  protected db: DrizzleSqliteDODatabase<typeof schema>
+  // Use 'any' for schema type to allow subclasses to use extended schemas
+  // DOBase overrides this with the full schema type
+  protected db: DrizzleSqliteDODatabase<any>
 
   /**
    * Access to the raw DurableObjectStorage
@@ -151,16 +155,6 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   protected get storage(): DurableObjectStorage {
     return this.ctx.storage
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // HONO APP (for subclass routing)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Optional Hono app for HTTP routing.
-   * Subclasses can create and configure this for custom routes.
-   */
-  protected app?: Hono
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CONSTRUCTOR
@@ -196,12 +190,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     // If has parent, record the relationship
     if (config.parent) {
-      // @ts-expect-error - Schema field names may differ
       await this.db.insert(schema.objects).values({
         ns: config.parent,
-        doId: this.ctx.id.toString(),
-        doClass: this.constructor.name,
-        relationType: 'parent',
+        id: this.ctx.id.toString(),
+        class: this.constructor.name,
+        relation: 'parent',
         createdAt: new Date(),
       })
     }
@@ -233,46 +226,27 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   /**
    * Handle incoming HTTP requests.
-   *
-   * If a Hono app is configured, it delegates to the app first.
-   * Falls back to built-in routes (/health) if not handled by app.
+   * Delegates to handleFetch which can be overridden by subclasses.
    */
   async fetch(request: Request): Promise<Response> {
     return this.handleFetch(request)
   }
 
   /**
-   * Core fetch handler that integrates with Hono.
-   *
-   * Order of handling:
-   * 1. Built-in routes (/health)
-   * 2. Hono app routes (if configured)
-   * 3. 404 Not Found
+   * Core fetch handler - override in subclasses for custom routing.
+   * DOBase overrides this to add /resolve endpoint and Hono routing.
    */
   protected async handleFetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
-    // Built-in routes always handled first
+    // Built-in /health endpoint
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', ns: this.ns })
-    }
-
-    // Delegate to Hono app if configured
-    if (this.app) {
-      const response = await this.app.fetch(request, this.env)
-      return response
+      return Response.json({ status: 'ok', ns: this.ns, $type: this.$type })
     }
 
     // Default: 404 Not Found
+    // Override handleFetch() in subclasses for custom routes
     return new Response('Not Found', { status: 404 })
-  }
-
-  /**
-   * Create a default Hono app with common middleware.
-   * Subclasses can call this and extend with their own routes.
-   */
-  protected createDefaultApp(): Hono {
-    return new Hono()
   }
 }
 
