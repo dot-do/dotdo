@@ -157,17 +157,10 @@ export type SessionEvent = z.infer<typeof SessionEventSchema>
  * ```
  */
 export function validateSessionEvent(event: unknown): boolean {
-  // Handle non-object inputs
+  // Handle non-object inputs - let Zod's parse handle this
   if (event === null || event === undefined || typeof event !== 'object' || Array.isArray(event)) {
-    throw new z.ZodError([
-      {
-        code: z.ZodIssueCode.invalid_type,
-        expected: 'object',
-        received: event === null ? 'null' : Array.isArray(event) ? 'array' : typeof event,
-        path: [],
-        message: 'Expected object, received ' + (event === null ? 'null' : Array.isArray(event) ? 'array' : typeof event),
-      },
-    ])
+    // Use Zod's built-in validation which handles error creation properly
+    SessionEventSchema.parse(event) // This will throw appropriate ZodError
   }
 
   // Parse and validate - this throws on error
@@ -197,17 +190,10 @@ export function validateSessionEvent(event: unknown): boolean {
  * ```
  */
 export function parseSessionEvent(event: unknown): SessionEvent {
-  // Handle non-object inputs
+  // Handle non-object inputs - let Zod's parse handle this
   if (event === null || event === undefined || typeof event !== 'object' || Array.isArray(event)) {
-    throw new z.ZodError([
-      {
-        code: z.ZodIssueCode.invalid_type,
-        expected: 'object',
-        received: event === null ? 'null' : Array.isArray(event) ? 'array' : typeof event,
-        path: [],
-        message: 'Expected object, received ' + (event === null ? 'null' : Array.isArray(event) ? 'array' : typeof event),
-      },
-    ])
+    // Use Zod's built-in validation which handles error creation properly
+    SessionEventSchema.parse(event) // This will throw appropriate ZodError
   }
 
   return SessionEventSchema.parse(event)
@@ -229,7 +215,7 @@ export function parseSessionEvent(event: unknown): SessionEvent {
  * }
  * ```
  */
-export function safeValidateSessionEvent(event: unknown): z.SafeParseReturnType<unknown, SessionEvent> {
+export function safeValidateSessionEvent(event: unknown): ReturnType<typeof SessionEventSchema.safeParse> {
   return SessionEventSchema.safeParse(event)
 }
 

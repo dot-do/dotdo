@@ -149,11 +149,11 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
     ])
   }
 
-  select<K extends keyof T>(...fields: K[]): DBPromise<Pick<T, K>> {
-    return new DBPromise<Pick<T, K>>(this.dataSource, [
+  select<K extends keyof T>(...fields: K[]): DBPromise<T> {
+    return new DBPromise<T>(this.dataSource, [
       ...this.operations,
       { type: 'select', fields: fields as string[] },
-    ]) as DBPromise<Pick<T, K>>
+    ])
   }
 
   expand(..._relations: string[]): DBPromise<T> {
@@ -443,14 +443,14 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
         case 'where':
           results = results.filter((item) => {
             const data = item.data as Record<string, unknown> | undefined
-            return data?.[op.field] === op.value || (item as Record<string, unknown>)[op.field] === op.value
+            return data?.[op.field] === op.value || (item as unknown as Record<string, unknown>)[op.field] === op.value
           })
           break
 
         case 'whereOp':
           results = results.filter((item) => {
             const data = item.data as Record<string, unknown> | undefined
-            const fieldValue = data?.[op.field] ?? (item as Record<string, unknown>)[op.field]
+            const fieldValue = data?.[op.field] ?? (item as unknown as Record<string, unknown>)[op.field]
             return this.evaluateOp(fieldValue, op.op, op.value)
           })
           break
@@ -463,9 +463,9 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
           results = results.map((item) => {
             const selected: Record<string, unknown> = {}
             for (const field of op.fields) {
-              selected[field] = (item as Record<string, unknown>)[field]
+              selected[field] = (item as unknown as Record<string, unknown>)[field]
             }
-            return selected as ThingEntity
+            return selected as unknown as ThingEntity
           })
           break
 
@@ -477,12 +477,12 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
           results = [...results].sort((a, b) => {
             const aData = a.data as Record<string, unknown> | undefined
             const bData = b.data as Record<string, unknown> | undefined
-            const aVal = aData?.[op.field] ?? (a as Record<string, unknown>)[op.field]
-            const bVal = bData?.[op.field] ?? (b as Record<string, unknown>)[op.field]
+            const aVal = aData?.[op.field] ?? (a as unknown as Record<string, unknown>)[op.field]
+            const bVal = bData?.[op.field] ?? (b as unknown as Record<string, unknown>)[op.field]
 
             if (aVal === bVal) return 0
-            if (aVal === undefined) return op.direction === 'asc' ? 1 : -1
-            if (bVal === undefined) return op.direction === 'asc' ? -1 : 1
+            if (aVal === undefined || aVal === null) return op.direction === 'asc' ? 1 : -1
+            if (bVal === undefined || bVal === null) return op.direction === 'asc' ? -1 : 1
             if (aVal < bVal) return op.direction === 'asc' ? -1 : 1
             return op.direction === 'asc' ? 1 : -1
           })

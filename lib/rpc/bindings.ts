@@ -120,8 +120,8 @@ export interface ServiceBinding {
  * Method definition for type-safe RPC
  */
 export interface MethodDefinition<TParams = unknown, TResult = unknown> {
-  /** Method name */
-  name: string
+  /** Method name (optional when used as record value, key serves as name) */
+  name?: string
   /** Parameter type (for documentation) */
   params?: TParams
   /** Result type (for documentation) */
@@ -309,7 +309,8 @@ function sleep(ms: number): Promise<void> {
  * ```
  */
 export class RPCBinding<
-  TMethods extends Record<string, MethodDefinition> = Record<string, MethodDefinition>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TMethods = Record<string, MethodDefinition<any, any>>
 > {
   private binding: ServiceBinding | null
   private config: Required<RPCBindingConfig>

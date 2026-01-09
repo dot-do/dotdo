@@ -33,6 +33,7 @@ import {
   ObjectsStore,
   DLQStore,
   type StoreContext,
+  type ThingEntity,
 } from '../db/stores'
 import { parseNounId, formatNounId } from '../lib/noun-id'
 import {
@@ -69,7 +70,10 @@ import type {
   ResumableCloneState,
   CloneLockState,
   CloneLockInfo,
+  MoveResult,
 } from '../types/Lifecycle'
+import type { ColoCode, ColoCity, Region } from '../types/Location'
+import { normalizeLocation, coloRegion, cityToCode } from '../types/Location'
 
 // ============================================================================
 // COLLECTION & RELATIONSHIP TYPES
@@ -171,17 +175,11 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   static readonly $type: string = 'DO'
 
   /**
-   * Static initializer to protect $type on the prototype
+   * Instance getter that delegates to the static $type property.
+   * This allows TypeScript to recognize `this.$type` on instances.
    */
-  static {
-    // Make the $type getter non-configurable and non-writable on the prototype
-    Object.defineProperty(DO.prototype, '$type', {
-      get() {
-        return (this.constructor as typeof DO).$type
-      },
-      configurable: false,
-      enumerable: true,
-    })
+  get $type(): string {
+    return (this.constructor as typeof DO).$type
   }
 
   /**
@@ -1547,7 +1545,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     // Handle staged mode (two-phase commit)
     if (mode === 'staged') {
-      return this.prepareStagedClone(target, options as typeof options & { mode: 'staged' })
+      return this.prepareStagedClone(target, options as typeof options & { mode: 'staged' }) as unknown as ReturnType<typeof this.clone>
     }
 
     // Handle resumable mode (checkpoint-based)
@@ -1598,9 +1596,21 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     // Validate version if specified
     if (targetVersion !== undefined) {
+      // First, check if version is a positive number
+      if (targetVersion < 0 || !Number.isInteger(targetVersion)) {
+        throw new Error(`Invalid version: ${targetVersion}`)
+      }
+
+      // Get branches and find the main branch
       const branches = await this.db.select().from(schema.branches)
       const mainBranch = branches.find(b => b.name === 'main' || b.name === null)
-      if (!mainBranch || (mainBranch.head !== null && targetVersion > mainBranch.head)) {
+
+      // Get the max version from things table as fallback
+      const allThings = await this.db.select().from(schema.things)
+      const maxVersion = Math.max(allThings.length, mainBranch?.head ?? 0)
+
+      // Version must exist (not exceed max known version)
+      if (targetVersion > maxVersion) {
         throw new Error(`Version not found: ${targetVersion}`)
       }
     }
@@ -1655,6 +1665,10 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
           // Check for non-2xx/non-OK responses (404 is acceptable for new DOs)
           if (!healthResponse.ok && healthResponse.status !== 404) {
+            // 409 Conflict means target already exists
+            if (healthResponse.status === 409) {
+              throw new Error('Target already exists: conflict detected')
+            }
             throw new Error(`Target health check failed: ${healthResponse.status}`)
           }
         } catch (e) {
@@ -1670,36 +1684,40 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           throw e
         }
 
-        // Get latest version of each thing (by id)
+        // Get latest version of each thing (by id) - skip if includeState is false
         const latestVersions = new Map<string, (typeof things)[0]>()
-        for (const thing of nonDeletedThings) {
-          const existing = latestVersions.get(thing.id)
-          if (!existing) {
-            latestVersions.set(thing.id, thing)
+        if (includeState) {
+          for (const thing of nonDeletedThings) {
+            const existing = latestVersions.get(thing.id)
+            if (!existing) {
+              latestVersions.set(thing.id, thing)
+            }
           }
         }
 
-        // Prepare data for transfer
-        const thingsToClone = Array.from(latestVersions.values()).map((t) => ({
-          id: t.id,
-          type: t.type,
-          branch: t.branch,
-          name: t.name,
-          data: t.data,
-          deleted: false,
-          createdAt: t.createdAt,
-          updatedAt: t.updatedAt,
-        }))
+        // Prepare data for transfer (empty if includeState is false)
+        const thingsToClone = includeState
+          ? Array.from(latestVersions.values()).map((t) => ({
+              id: t.id,
+              type: t.type,
+              branch: t.branch,
+              name: t.name,
+              data: t.data,
+              deleted: false,
+            }))
+          : []
 
-        // Clone relationships
-        const relationshipsToClone = relationships.map((r) => ({
-          id: r.id,
-          verb: r.verb,
-          from: r.from,
-          to: r.to,
-          data: r.data,
-          createdAt: r.createdAt,
-        }))
+        // Clone relationships (skip if shallow mode)
+        const relationshipsToClone = shallow
+          ? []
+          : relationships.map((r) => ({
+              id: r.id,
+              verb: r.verb,
+              from: r.from,
+              to: r.to,
+              data: r.data,
+              createdAt: r.createdAt,
+            }))
 
         // If includeHistory is true, get actions and events
         let actionsToClone: unknown[] = []
@@ -1713,14 +1731,89 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           eventsToClone = events
         }
 
-        // Transfer to target with timeout
-        const transferPromise = stub.fetch(
+        // Apply transform function if provided
+        let finalThingsToClone = thingsToClone
+        let finalRelationshipsToClone = relationshipsToClone
+
+        if (transform) {
+          try {
+            // Build state object for transform
+            const stateForTransform = {
+              things: thingsToClone.map((t) => ({
+                id: t.id,
+                type: t.type as number,
+                branch: t.branch,
+                name: t.name,
+                data: t.data as Record<string, unknown>,
+                deleted: t.deleted,
+              })),
+              relationships: relationshipsToClone.map((r) => ({
+                id: r.id,
+                verb: r.verb,
+                from: r.from,
+                to: r.to,
+                data: r.data,
+              })),
+            }
+
+            // Call transform (may be async)
+            const transformedState = await Promise.resolve(transform(stateForTransform))
+
+            // Use transformed data
+            finalThingsToClone = transformedState.things.map((t) => ({
+              id: t.id,
+              type: t.type,
+              branch: t.branch,
+              name: t.name,
+              data: t.data,
+              deleted: t.deleted,
+            }))
+
+            finalRelationshipsToClone = (transformedState.relationships || []).map((r) => ({
+              id: r.id,
+              verb: r.verb,
+              from: r.from,
+              to: r.to,
+              data: r.data,
+              createdAt: new Date().toISOString(),
+            }))
+          } catch (transformError) {
+            throw new Error(`Transform error: ${(transformError as Error).message}`)
+          }
+        }
+
+        // Step 1: Initialize target
+        const initPromise = stub.fetch(
           new Request(`${targetUrl.origin}/init`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              things: thingsToClone,
-              relationships: relationshipsToClone,
+              correlationId,
+              mode: 'atomic',
+            }),
+          })
+        )
+
+        const initResponse = await Promise.race([
+          initPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Clone timeout after ${timeout}ms`)), timeout)
+          ),
+        ])
+
+        // Check init response
+        if (!initResponse.ok) {
+          throw new Error(`Init failed: ${initResponse.status} ${initResponse.statusText}`)
+        }
+
+        // Step 2: Transfer data to target
+        const transferPromise = stub.fetch(
+          new Request(`${targetUrl.origin}/transfer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              things: finalThingsToClone,
+              relationships: finalRelationshipsToClone,
               actions: includeHistory ? actionsToClone : undefined,
               events: includeHistory ? eventsToClone : undefined,
               correlationId,
@@ -1735,7 +1828,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           ),
         ])
 
-        // Check response
+        // Check transfer response
         if (!response.ok) {
           throw new Error(`Transfer failed: ${response.status} ${response.statusText}`)
         }
@@ -1747,7 +1840,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           target,
           doId: doId.toString(),
           correlationId,
-          thingsCount: latestVersions.size,
+          thingsCount: finalThingsToClone.length,
           duration,
         })
 
@@ -1756,8 +1849,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
           ns: target,
           doId: doId.toString(),
           mode: 'atomic' as const,
-          thingsCloned: latestVersions.size,
-          relationshipsCloned: relationshipsToClone.length,
+          thingsCloned: finalThingsToClone.length,
+          relationshipsCloned: finalRelationshipsToClone.length,
           duration,
           historyIncluded: includeHistory,
         }
@@ -1914,7 +2007,8 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     if (!this.env.DO) {
       throw new Error('DO namespace not configured')
     }
-    const newDoId = this.env.DO.newUniqueId({ locationHint: colo })
+    // Use type assertion for locationHint which is a valid Cloudflare option not in types
+    const newDoId = this.env.DO.newUniqueId({ locationHint: colo } as DurableObjectNamespaceNewUniqueIdOptions)
     const stub = this.env.DO.get(newDoId)
 
     // Transfer state to new DO
@@ -2401,7 +2495,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
       branch: t.branch,
       name: t.name,
       data: t.data,
-      deleted: t.deleted,
+      deleted: t.deleted ?? false,
     }))
 
     // Store staging data (compute hash on the mapped data that will be stored)
@@ -2925,16 +3019,17 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     const branchThings = things.filter(t => t.branch === branchFilter && !t.deleted)
     const totalItems = branchThings.length
 
-    // Extract options with defaults
-    const syncInterval = (options as Record<string, unknown>)?.syncInterval as number ?? 5000
-    const maxDivergence = (options as Record<string, unknown>)?.maxDivergence as number ?? 100
-    const conflictResolution = ((options as Record<string, unknown>)?.conflictResolution as ConflictResolution) ?? 'last-write-wins'
-    const chunked = (options as Record<string, unknown>)?.chunked as boolean ?? false
-    const chunkSize = (options as Record<string, unknown>)?.chunkSize as number ?? 1000
-    const rateLimit = (options as Record<string, unknown>)?.rateLimit as number | null ?? null
+    // Extract options with defaults (use unknown cast to access eventual-specific options)
+    const eventualOptions = options as unknown as Record<string, unknown>
+    const syncInterval = eventualOptions?.syncInterval as number ?? 5000
+    const maxDivergence = eventualOptions?.maxDivergence as number ?? 100
+    const conflictResolution = (eventualOptions?.conflictResolution as ConflictResolution) ?? 'last-write-wins'
+    const chunked = eventualOptions?.chunked as boolean ?? false
+    const chunkSize = eventualOptions?.chunkSize as number ?? 1000
+    const rateLimit = eventualOptions?.rateLimit as number | null ?? null
 
     // Store custom resolver if provided
-    const customResolver = (options as Record<string, unknown>)?.conflictResolver as ((conflict: ConflictInfo) => Promise<unknown>) | undefined
+    const customResolver = eventualOptions?.conflictResolver as ((conflict: ConflictInfo) => Promise<unknown>) | undefined
     if (customResolver) {
       this._conflictResolvers.set(id, customResolver)
     }
@@ -4828,7 +4923,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * }
    * ```
    */
-  protected canViewThing(thing: Thing | null | undefined): boolean {
+  protected canViewThing(thing: Thing | ThingEntity | null | undefined): boolean {
     if (!thing) {
       return false
     }
@@ -4843,14 +4938,16 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
     // Org visibility requires matching orgId
     if (visibility === 'org') {
-      const thingOrgId = (thing.data as Record<string, unknown>)?.meta?.orgId as string | undefined ??
-                          (thing.data as Record<string, unknown>)?.orgId as string | undefined
+      const dataObj = thing.data as Record<string, unknown> | undefined
+      const metaObj = dataObj?.meta as Record<string, unknown> | undefined
+      const thingOrgId = (metaObj?.orgId as string | undefined) ?? (dataObj?.orgId as string | undefined)
       return !!actor.orgId && actor.orgId === thingOrgId
     }
 
     // User visibility requires matching ownerId
-    const thingOwnerId = (thing.data as Record<string, unknown>)?.meta?.ownerId as string | undefined ??
-                          (thing.data as Record<string, unknown>)?.ownerId as string | undefined
+    const dataObj = thing.data as Record<string, unknown> | undefined
+    const metaObj = dataObj?.meta as Record<string, unknown> | undefined
+    const thingOwnerId = (metaObj?.ownerId as string | undefined) ?? (dataObj?.ownerId as string | undefined)
     return !!actor.userId && actor.userId === thingOwnerId
   }
 
@@ -4868,7 +4965,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * return thing
    * ```
    */
-  protected assertCanView(thing: Thing | null | undefined, message?: string): void {
+  protected assertCanView(thing: Thing | ThingEntity | null | undefined, message?: string): void {
     if (!thing) {
       throw new Error(message ?? 'Thing not found')
     }
@@ -4902,7 +4999,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * return this.filterVisibleThings(allThings)
    * ```
    */
-  protected filterVisibleThings<T extends Thing>(things: T[]): T[] {
+  protected filterVisibleThings<T extends Thing | ThingEntity>(things: T[]): T[] {
     return things.filter((thing) => this.canViewThing(thing))
   }
 
@@ -4921,7 +5018,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * }
    * ```
    */
-  protected async getVisibleThing(id: string): Promise<Thing | null> {
+  protected async getVisibleThing(id: string): Promise<ThingEntity | null> {
     const thing = await this.things.get(id)
     if (!thing) {
       return null
@@ -4935,7 +5032,7 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * @param thing - The thing to check
    * @returns The visibility level ('public', 'unlisted', 'org', 'user')
    */
-  protected getVisibility(thing: Thing | null | undefined): 'public' | 'unlisted' | 'org' | 'user' {
+  protected getVisibility(thing: Thing | ThingEntity | null | undefined): 'public' | 'unlisted' | 'org' | 'user' {
     if (!thing) {
       return 'user'
     }
@@ -4948,13 +5045,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * @param thing - The thing to check ownership of
    * @returns true if the current actor is the owner
    */
-  protected isOwner(thing: Thing | null | undefined): boolean {
+  protected isOwner(thing: Thing | ThingEntity | null | undefined): boolean {
     if (!thing) {
       return false
     }
 
-    const thingOwnerId = (thing.data as Record<string, unknown>)?.meta?.ownerId as string | undefined ??
-                          (thing.data as Record<string, unknown>)?.ownerId as string | undefined
+    const dataObj = thing.data as Record<string, unknown> | undefined
+    const metaObj = dataObj?.meta as Record<string, unknown> | undefined
+    const thingOwnerId = (metaObj?.ownerId as string | undefined) ?? (dataObj?.ownerId as string | undefined)
 
     const actor = this._currentActorContext
     return !!actor.userId && actor.userId === thingOwnerId
@@ -4966,13 +5064,14 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    * @param thing - The thing to check org membership for
    * @returns true if the current actor is in the thing's org
    */
-  protected isInThingOrg(thing: Thing | null | undefined): boolean {
+  protected isInThingOrg(thing: Thing | ThingEntity | null | undefined): boolean {
     if (!thing) {
       return false
     }
 
-    const thingOrgId = (thing.data as Record<string, unknown>)?.meta?.orgId as string | undefined ??
-                        (thing.data as Record<string, unknown>)?.orgId as string | undefined
+    const dataObj = thing.data as Record<string, unknown> | undefined
+    const metaObj = dataObj?.meta as Record<string, unknown> | undefined
+    const thingOrgId = (metaObj?.orgId as string | undefined) ?? (dataObj?.orgId as string | undefined)
 
     const actor = this._currentActorContext
     return !!actor.orgId && actor.orgId === thingOrgId

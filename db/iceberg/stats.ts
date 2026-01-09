@@ -35,7 +35,7 @@ export const ENTRY_STATUS = {
 export type ColumnType = 'string' | 'int' | 'long' | 'boolean' | 'binary'
 
 /** Primitive value types supported for column statistics */
-export type PrimitiveValue = string | number | bigint | boolean
+export type PrimitiveValue = string | number | bigint | boolean | Uint8Array
 
 /**
  * Column statistics from a manifest entry

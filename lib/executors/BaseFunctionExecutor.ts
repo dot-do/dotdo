@@ -538,13 +538,9 @@ export abstract class BaseFunctionExecutor<TOptions extends BaseExecutorOptions>
    * Estimate current memory usage
    */
   protected estimateMemoryUsage(): number {
-    if (
-      typeof globalThis !== 'undefined' &&
-      'performance' in globalThis &&
-      (globalThis.performance as { memory?: { usedJSHeapSize: number } }).memory
-    ) {
-      return (globalThis.performance as { memory: { usedJSHeapSize: number } })
-        .memory.usedJSHeapSize
+    const perf = (globalThis as unknown as { performance?: { memory?: { usedJSHeapSize: number } } }).performance
+    if (perf?.memory) {
+      return perf.memory.usedJSHeapSize
     }
     return 1024 * 1024 // 1MB placeholder
   }

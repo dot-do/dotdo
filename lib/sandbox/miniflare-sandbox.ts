@@ -13,6 +13,66 @@
  * In production, it uses Miniflare. For testing, it uses a simulated environment.
  */
 
+// Type declaration for Workers globals on globalThis
+// These are provided by @cloudflare/workers-types but TypeScript doesn't see them on globalThis
+// We use a typed reference to access them safely
+interface WorkersGlobalThis {
+  crypto: Crypto
+  Headers: typeof Headers
+  URL: typeof URL
+  URLSearchParams: typeof URLSearchParams
+  TextEncoder: typeof TextEncoder
+  TextDecoder: typeof TextDecoder
+  AbortController: typeof AbortController
+  AbortSignal: typeof AbortSignal
+  ReadableStream: typeof ReadableStream
+  WritableStream: typeof WritableStream
+  TransformStream: typeof TransformStream
+  Blob: typeof Blob
+  File: typeof File
+  FormData: typeof FormData
+  WebSocket: typeof WebSocket
+  Request: typeof Request
+  Response: typeof Response
+  setTimeout: typeof setTimeout
+  clearTimeout: typeof clearTimeout
+  setInterval: typeof setInterval
+  clearInterval: typeof clearInterval
+  Date: typeof Date
+  Promise: typeof Promise
+  Object: typeof Object
+  Array: typeof Array
+  JSON: typeof JSON
+  Math: typeof Math
+  Number: typeof Number
+  String: typeof String
+  Boolean: typeof Boolean
+  Symbol: typeof Symbol
+  Map: typeof Map
+  Set: typeof Set
+  WeakMap: typeof WeakMap
+  WeakSet: typeof WeakSet
+  Error: typeof Error
+  TypeError: typeof TypeError
+  ReferenceError: typeof ReferenceError
+  SyntaxError: typeof SyntaxError
+  RangeError: typeof RangeError
+  Uint8Array: typeof Uint8Array
+  Int8Array: typeof Int8Array
+  Uint16Array: typeof Uint16Array
+  Int16Array: typeof Int16Array
+  Uint32Array: typeof Uint32Array
+  Int32Array: typeof Int32Array
+  Float32Array: typeof Float32Array
+  Float64Array: typeof Float64Array
+  ArrayBuffer: typeof ArrayBuffer
+  DataView: typeof DataView
+  addEventListener?: typeof addEventListener
+  removeEventListener?: typeof removeEventListener
+}
+
+const workersGlobal = globalThis as unknown as WorkersGlobalThis
+
 // ============================================================================
 // ERROR CLASSES
 // ============================================================================
@@ -588,8 +648,8 @@ export class MiniflareSandbox {
     }
 
     // Add listeners for both environments
-    if (typeof globalThis.addEventListener === 'function') {
-      globalThis.addEventListener('unhandledrejection', browserRejectionHandler as EventListener)
+    if (typeof workersGlobal.addEventListener === 'function') {
+      workersGlobal.addEventListener('unhandledrejection', browserRejectionHandler as EventListener)
     }
     if (typeof process !== 'undefined' && typeof process.on === 'function') {
       process.on('unhandledRejection', nodeRejectionHandler)
@@ -636,8 +696,8 @@ export class MiniflareSandbox {
       const cpuTime = Math.max(1, totalTime - estimatedSleepTime)
 
       // Remove rejection handlers
-      if (typeof globalThis.removeEventListener === 'function') {
-        globalThis.removeEventListener('unhandledrejection', browserRejectionHandler as EventListener)
+      if (typeof workersGlobal.removeEventListener === 'function') {
+        workersGlobal.removeEventListener('unhandledrejection', browserRejectionHandler as EventListener)
       }
       if (typeof process !== 'undefined' && typeof process.off === 'function') {
         process.off('unhandledRejection', nodeRejectionHandler)
@@ -661,8 +721,8 @@ export class MiniflareSandbox {
       if (timeoutId) clearTimeout(timeoutId)
 
       // Remove rejection handlers
-      if (typeof globalThis.removeEventListener === 'function') {
-        globalThis.removeEventListener('unhandledrejection', browserRejectionHandler as EventListener)
+      if (typeof workersGlobal.removeEventListener === 'function') {
+        workersGlobal.removeEventListener('unhandledrejection', browserRejectionHandler as EventListener)
       }
       if (typeof process !== 'undefined' && typeof process.off === 'function') {
         process.off('unhandledRejection', nodeRejectionHandler)
@@ -786,7 +846,7 @@ export class MiniflareSandbox {
     for (const key of Object.getOwnPropertyNames(Array.prototype)) {
       if (!nativeArrayProps.has(key)) {
         try {
-          delete (Array.prototype as Record<string, unknown>)[key]
+          delete (Array.prototype as unknown as Record<string, unknown>)[key]
         } catch {
           // Some properties may be non-configurable
         }
@@ -1135,79 +1195,79 @@ export class MiniflareSandbox {
 
     // Sandboxed globalThis - limited
     const sandboxedGlobalThis = {
-      crypto: globalThis.crypto,
-      Response: globalThis.Response,
-      Request: globalThis.Request,
-      Headers: globalThis.Headers,
-      URL: globalThis.URL,
-      URLSearchParams: globalThis.URLSearchParams,
-      TextEncoder: globalThis.TextEncoder,
-      TextDecoder: globalThis.TextDecoder,
-      AbortController: globalThis.AbortController,
-      AbortSignal: globalThis.AbortSignal,
-      ReadableStream: globalThis.ReadableStream,
-      WritableStream: globalThis.WritableStream,
-      TransformStream: globalThis.TransformStream,
+      crypto: workersGlobal.crypto,
+      Response: workersGlobal.Response,
+      Request: workersGlobal.Request,
+      Headers: workersGlobal.Headers,
+      URL: workersGlobal.URL,
+      URLSearchParams: workersGlobal.URLSearchParams,
+      TextEncoder: workersGlobal.TextEncoder,
+      TextDecoder: workersGlobal.TextDecoder,
+      AbortController: workersGlobal.AbortController,
+      AbortSignal: workersGlobal.AbortSignal,
+      ReadableStream: workersGlobal.ReadableStream,
+      WritableStream: workersGlobal.WritableStream,
+      TransformStream: workersGlobal.TransformStream,
       fetch: sandboxedFetch,
       console: consoleOverride,
-      WebSocket: globalThis.WebSocket,
+      WebSocket: workersGlobal.WebSocket,
       WebSocketPair: WebSocketPairMock,
     }
 
     return {
       console: consoleOverride,
       fetch: sandboxedFetch,
-      Request: globalThis.Request,
-      Response: globalThis.Response,
-      Headers: globalThis.Headers,
-      URL: globalThis.URL,
-      URLSearchParams: globalThis.URLSearchParams,
-      TextEncoder: globalThis.TextEncoder,
-      TextDecoder: globalThis.TextDecoder,
-      crypto: globalThis.crypto,
-      AbortController: globalThis.AbortController,
-      AbortSignal: globalThis.AbortSignal,
-      ReadableStream: globalThis.ReadableStream,
-      WritableStream: globalThis.WritableStream,
-      TransformStream: globalThis.TransformStream,
-      WebSocket: globalThis.WebSocket,
+      Request: workersGlobal.Request,
+      Response: workersGlobal.Response,
+      Headers: workersGlobal.Headers,
+      URL: workersGlobal.URL,
+      URLSearchParams: workersGlobal.URLSearchParams,
+      TextEncoder: workersGlobal.TextEncoder,
+      TextDecoder: workersGlobal.TextDecoder,
+      crypto: workersGlobal.crypto,
+      AbortController: workersGlobal.AbortController,
+      AbortSignal: workersGlobal.AbortSignal,
+      ReadableStream: workersGlobal.ReadableStream,
+      WritableStream: workersGlobal.WritableStream,
+      TransformStream: workersGlobal.TransformStream,
+      WebSocket: workersGlobal.WebSocket,
       WebSocketPair: WebSocketPairMock,
-      setTimeout: globalThis.setTimeout,
-      clearTimeout: globalThis.clearTimeout,
-      setInterval: globalThis.setInterval,
-      clearInterval: globalThis.clearInterval,
-      Date: globalThis.Date,
-      Promise: globalThis.Promise,
-      Object: globalThis.Object,
-      Array: globalThis.Array,
-      JSON: globalThis.JSON,
-      Math: globalThis.Math,
-      Number: globalThis.Number,
-      String: globalThis.String,
-      Boolean: globalThis.Boolean,
-      Symbol: globalThis.Symbol,
-      Map: globalThis.Map,
-      Set: globalThis.Set,
-      WeakMap: globalThis.WeakMap,
-      WeakSet: globalThis.WeakSet,
-      Error: globalThis.Error,
-      TypeError: globalThis.TypeError,
-      ReferenceError: globalThis.ReferenceError,
-      SyntaxError: globalThis.SyntaxError,
-      RangeError: globalThis.RangeError,
-      Uint8Array: globalThis.Uint8Array,
-      Int8Array: globalThis.Int8Array,
-      Uint16Array: globalThis.Uint16Array,
-      Int16Array: globalThis.Int16Array,
-      Uint32Array: globalThis.Uint32Array,
-      Int32Array: globalThis.Int32Array,
-      Float32Array: globalThis.Float32Array,
-      Float64Array: globalThis.Float64Array,
-      ArrayBuffer: globalThis.ArrayBuffer,
-      DataView: globalThis.DataView,
-      Blob: globalThis.Blob,
-      File: globalThis.File,
-      FormData: globalThis.FormData,
+      setTimeout: workersGlobal.setTimeout,
+      clearTimeout: workersGlobal.clearTimeout,
+      setInterval: workersGlobal.setInterval,
+      clearInterval: workersGlobal.clearInterval,
+      Date: workersGlobal.Date,
+      Promise: workersGlobal.Promise,
+      Object: workersGlobal.Object,
+      Array: workersGlobal.Array,
+      JSON: workersGlobal.JSON,
+      Math: workersGlobal.Math,
+      Number: workersGlobal.Number,
+      String: workersGlobal.String,
+      Boolean: workersGlobal.Boolean,
+      Symbol: workersGlobal.Symbol,
+      Map: workersGlobal.Map,
+      Set: workersGlobal.Set,
+      WeakMap: workersGlobal.WeakMap,
+      WeakSet: workersGlobal.WeakSet,
+      Error: workersGlobal.Error,
+      TypeError: workersGlobal.TypeError,
+      ReferenceError: workersGlobal.ReferenceError,
+      SyntaxError: workersGlobal.SyntaxError,
+      RangeError: workersGlobal.RangeError,
+      Uint8Array: workersGlobal.Uint8Array,
+      Int8Array: workersGlobal.Int8Array,
+      Uint16Array: workersGlobal.Uint16Array,
+      Int16Array: workersGlobal.Int16Array,
+      Uint32Array: workersGlobal.Uint32Array,
+      Int32Array: workersGlobal.Int32Array,
+      Float32Array: workersGlobal.Float32Array,
+      Float64Array: workersGlobal.Float64Array,
+      ArrayBuffer: workersGlobal.ArrayBuffer,
+      DataView: workersGlobal.DataView,
+      Blob: workersGlobal.Blob,
+      File: workersGlobal.File,
+      FormData: workersGlobal.FormData,
       process: sandboxedProcess,
       require: sandboxedRequire,
       globalThis: sandboxedGlobalThis,

@@ -41,8 +41,10 @@ interface PromoteOptions {
   linkParent?: boolean
   /** What kind of DO to create (default: inferred from Thing.$type) */
   type?: string
-  /** Target colo/region for the new DO */
+  /** Target colo for the new DO (e.g., 'ewr', 'lax') */
   colo?: string
+  /** Target region for the new DO (e.g., 'enam', 'wnam', 'weur', 'apac') */
+  region?: string
 }
 
 /**
@@ -304,6 +306,25 @@ describe('DO promote() Operation', () => {
 
       expect(promoteResult).toBeDefined()
       // Location hint should be passed to newUniqueId
+    })
+
+    it('supports options.region for geographic targeting', async () => {
+      const promoteResult = await result.instance.promote('thing-001', {
+        region: 'wnam',
+      })
+
+      expect(promoteResult).toBeDefined()
+      // Region hint should be passed to newUniqueId for western North America
+    })
+
+    it('supports both colo and region together', async () => {
+      const promoteResult = await result.instance.promote('thing-001', {
+        colo: 'lax',
+        region: 'wnam',
+      })
+
+      expect(promoteResult).toBeDefined()
+      // Both location hints should be considered
     })
 
     it('infers DO type from Thing.$type when options.type not specified', async () => {
@@ -1014,6 +1035,7 @@ describe('PromoteOptions Type', () => {
     const options4: PromoteOptions = { linkParent: false }
     const options5: PromoteOptions = { type: 'Customer' }
     const options6: PromoteOptions = { colo: 'ewr' }
+    const options7: PromoteOptions = { region: 'wnam' }
 
     expect(options1).toBeDefined()
     expect(options2.newId).toBe('custom')
@@ -1021,6 +1043,7 @@ describe('PromoteOptions Type', () => {
     expect(options4.linkParent).toBe(false)
     expect(options5.type).toBe('Customer')
     expect(options6.colo).toBe('ewr')
+    expect(options7.region).toBe('wnam')
   })
 
   it('accepts all options together', () => {
@@ -1030,6 +1053,7 @@ describe('PromoteOptions Type', () => {
       linkParent: true,
       type: 'Customer',
       colo: 'lax',
+      region: 'wnam',
     }
 
     expect(fullOptions.newId).toBe('my-custom-id')
@@ -1037,5 +1061,6 @@ describe('PromoteOptions Type', () => {
     expect(fullOptions.linkParent).toBe(true)
     expect(fullOptions.type).toBe('Customer')
     expect(fullOptions.colo).toBe('lax')
+    expect(fullOptions.region).toBe('wnam')
   })
 })

@@ -34,10 +34,11 @@ export interface NLQueryExecutor {
 /**
  * EntityAccessor provides CRUD operations for a specific entity type.
  * Supports natural language queries via template literal syntax.
+ * Note: This class doesn't directly implement IEntityAccessor since that interface
+ * includes a callable signature. Use createEntityAccessor() which wraps this class
+ * with a callable function to get a proper IEntityAccessor.
  */
-export class EntityAccessor<T extends ThingEntity = ThingEntity>
-  implements IEntityAccessor<T>
-{
+export class EntityAccessor<T extends ThingEntity = ThingEntity> {
   private entityType: string
   private store: ThingsStore
   private nlExecutor?: NLQueryExecutor

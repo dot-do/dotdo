@@ -5,7 +5,7 @@
  */
 
 import { TypeRegistry, type DOClass } from './TypeRegistry'
-import type { Env } from './DO'
+import type { Env } from '../objects/DO'
 
 /**
  * Parsed DO ID components

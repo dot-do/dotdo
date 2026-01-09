@@ -60,7 +60,7 @@ export { Package, type PackageVersion, type PackageConfig } from './Package'
 export { Product, type ProductVariant, type ProductConfig } from './Product'
 
 // Execution units
-export { Function, type FunctionConfig, type FunctionInvocation } from './Function'
+export { Function, type FunctionConfig as FunctionDOConfig, type FunctionInvocation } from './Function'
 export { Workflow, type WorkflowStep, type WorkflowConfig, type WorkflowStepDefinition, type WorkflowInstance } from './Workflow'
 
 // Factory functions

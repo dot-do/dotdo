@@ -53,19 +53,26 @@ export interface CodeContextOptions {
   timeout?: number
 }
 
+// ExecutionResult type - matches @cloudflare/sandbox internal type
+// The SDK uses this type but doesn't export it from the main entry point
 export interface ExecutionResult {
   code: string
   logs: { stdout: string[]; stderr: string[] }
+  error?: { name: string; value: string; traceback: string[]; lineNumber?: number }
+  executionCount?: number
   results: Array<{
     text?: string
     html?: string
     png?: string
+    jpeg?: string
+    svg?: string
+    latex?: string
+    markdown?: string
+    javascript?: string
     json?: unknown
     chart?: unknown
+    data?: unknown
   }>
-  error?: { name: string; message: string; traceback?: string }
-  success: boolean
-  executionCount: number
 }
 
 export interface StreamEvent {
@@ -97,10 +104,10 @@ export interface SandboxEnv {
  * Wrapper around Cloudflare Sandbox providing a simplified API
  */
 export class DotdoSandbox {
-  private sandbox: CloudflareSandbox
+  private sandbox: DurableObjectStub<CloudflareSandbox>
   private hostname: string
 
-  constructor(sandbox: CloudflareSandbox, hostname: string) {
+  constructor(sandbox: DurableObjectStub<CloudflareSandbox>, hostname: string) {
     this.sandbox = sandbox
     this.hostname = hostname
   }
@@ -119,7 +126,7 @@ export class DotdoSandbox {
   /**
    * Execute a command with streaming output
    */
-  async execStream(command: string): AsyncGenerator<StreamEvent> {
+  async execStream(command: string): Promise<AsyncIterable<StreamEvent>> {
     const stream = await this.sandbox.execStream(command)
     return parseSSEStream(stream)
   }
@@ -172,9 +179,15 @@ export class DotdoSandbox {
 
   /**
    * Check if a file or directory exists
+   * Uses readFile to check existence since exists() is not in the Sandbox API
    */
   async exists(path: string): Promise<{ exists: boolean }> {
-    return this.sandbox.exists(path)
+    try {
+      await this.sandbox.readFile(path)
+      return { exists: true }
+    } catch {
+      return { exists: false }
+    }
   }
 
   /**
@@ -202,13 +215,16 @@ export class DotdoSandbox {
    */
   async runCode(
     code: string,
-    options: {
-      context: string
-      stream?: boolean
-      onStdout?: (data: string) => void
-      onStderr?: (data: string) => void
-      onResult?: (result: unknown) => void
-      onError?: (error: unknown) => void
+    options?: {
+      context?: { id: string; language: string; cwd: string; createdAt: Date; lastUsed: Date }
+      language?: 'python' | 'javascript' | 'typescript'
+      envVars?: Record<string, string>
+      timeout?: number
+      signal?: AbortSignal
+      onStdout?: (output: { text: string; timestamp: number }) => void | Promise<void>
+      onStderr?: (output: { text: string; timestamp: number }) => void | Promise<void>
+      onResult?: (result: unknown) => void | Promise<void>
+      onError?: (error: { name: string; value: string; traceback: string[]; lineNumber?: number }) => void | Promise<void>
     }
   ): Promise<ExecutionResult> {
     return this.sandbox.runCode(code, options)
@@ -243,14 +259,14 @@ export class DotdoSandbox {
       hostname: this.hostname,
       ...options,
     })
-    return { port, exposedAt: result.exposedAt, name: options?.name }
+    return { port, exposedAt: result.url, name: options?.name }
   }
 
   /**
    * List all exposed ports
    */
   async getExposedPorts(): Promise<ExposedPort[]> {
-    return this.sandbox.getExposedPorts()
+    return this.sandbox.getExposedPorts(this.hostname)
   }
 
   /**
@@ -291,12 +307,9 @@ export function getSandbox(
   hostname: string,
   config?: SandboxConfig
 ): DotdoSandbox {
-  const cfSandbox = getCloudfareSandbox(namespace, sandboxId, {
-    sleepAfter: config?.sleepAfter ?? '10m',
-    keepAlive: config?.keepAlive ?? false,
-    normalizeId: config?.normalizeId ?? true,
-    containerTimeouts: config?.containerTimeouts,
-  })
+  // Note: config options like sleepAfter are set on the Sandbox DO itself
+  // The getSandbox function from @cloudflare/sandbox only takes namespace and id
+  const cfSandbox = getCloudfareSandbox(namespace, sandboxId)
 
   return new DotdoSandbox(cfSandbox, hostname)
 }
@@ -350,7 +363,11 @@ export async function executeCode(
       timeout: options.timeout ?? 30000,
     })
 
-    return await sandbox.runCode(code, { context: context.id })
+    return await sandbox.runCode(code, {
+      context: context as any, // Context returned has id, language, cwd, createdAt, lastUsed
+      language: options.language,
+      timeout: options.timeout
+    })
   } finally {
     // Cleanup temp sandboxes
     if (!options.sandboxId) {

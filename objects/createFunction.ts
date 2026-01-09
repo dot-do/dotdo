@@ -8,22 +8,8 @@
  * - HumanFunction: queues tasks for human input
  */
 
-// Type declaration for DurableObjectState (from Cloudflare Workers)
-interface DurableObjectStorage {
-  get: (key: string) => Promise<unknown>
-  put: (key: string, value: unknown) => Promise<void>
-  delete: (key: string) => Promise<boolean>
-  list: (options?: { prefix?: string }) => Promise<Map<string, unknown>>
-}
-
-declare global {
-  interface DurableObjectState {
-    id: { toString: () => string }
-    storage: DurableObjectStorage
-    waitUntil: (promise: Promise<unknown>) => void
-    blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>
-  }
-}
+// Use Cloudflare's DurableObjectState type from @cloudflare/workers-types
+// No need to redeclare - it's provided by the ambient types
 
 // ============================================================================
 // ERROR CLASSES

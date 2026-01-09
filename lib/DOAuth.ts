@@ -32,7 +32,7 @@ import { Hono } from 'hono'
 import type { Context as HonoContext, MiddlewareHandler } from 'hono'
 import { auth as authFederation } from '../api/middleware/auth-federation'
 import { authMiddleware, requireAuth, requireRole } from '../api/middleware/auth'
-import type { DO } from './DO'
+import type { DO } from '../objects/DO'
 
 // ============================================================================
 // Hono App Type with Variables

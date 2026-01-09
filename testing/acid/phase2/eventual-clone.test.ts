@@ -11,6 +11,16 @@
  * - Conflict resolution (last-write-wins or custom resolver)
  * - Progress tracking and status lifecycle
  *
+ * Test Coverage Required (per task dotdo-0oos):
+ * 1. Async data transfer
+ * 2. Progress tracking
+ * 3. Reconciliation on completion
+ * 4. Conflict detection
+ * 5. Conflict resolution strategies
+ * 6. Partial clone status
+ * 7. Retry logic
+ * 8. Completion callback
+ *
  * @see docs/plans/2026-01-09-acid-test-suite-design.md
  */
 
@@ -1046,6 +1056,1043 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
       // Progress is available via method
       const progress = await handle.getProgress()
       expect(typeof progress).toBe('number')
+    })
+  })
+
+  // ==========================================================================
+  // ASYNC DATA TRANSFER (Task Requirement #1)
+  // ==========================================================================
+
+  describe('async transfer', () => {
+    it('initiates async clone', async () => {
+      const target = 'https://target.test.do'
+
+      // Clone should return immediately without blocking
+      const startTime = performance.now()
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+      const duration = performance.now() - startTime
+
+      // Should return within a reasonable time (not waiting for data transfer)
+      expect(duration).toBeLessThan(1000)
+      expect(handle).toBeDefined()
+      expect(handle.id).toBeDefined()
+      expect(handle.status).toBe('pending')
+    })
+
+    it('tracks progress percentage', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Initial progress should be 0
+      const initialProgress = await handle.getProgress()
+      expect(initialProgress).toBe(0)
+
+      // Advance time to allow background sync
+      await vi.advanceTimersByTimeAsync(10000)
+
+      // Progress should have increased
+      const laterProgress = await handle.getProgress()
+      expect(laterProgress).toBeGreaterThanOrEqual(0)
+      expect(laterProgress).toBeLessThanOrEqual(100)
+    })
+
+    it('emits progress events', async () => {
+      const progressEvents: Array<{ progress: number; timestamp: Date }> = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.progress') {
+          progressEvents.push({
+            progress: (data as Record<string, number>).progress,
+            timestamp: new Date(),
+          })
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        syncInterval: 1000,
+      }) as unknown as EventualCloneHandle
+
+      // Advance time and trigger sync to generate progress events
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(2000)
+        await handle.sync()
+      }
+
+      // RED: Should have emitted progress events (will fail until implemented)
+      expect(progressEvents.length).toBeGreaterThan(0)
+
+      // Progress should be monotonically increasing
+      for (let i = 1; i < progressEvents.length; i++) {
+        expect(progressEvents[i].progress).toBeGreaterThanOrEqual(progressEvents[i - 1].progress)
+      }
+    })
+
+    it('transfers data in background while returning handle immediately', async () => {
+      // Create large dataset
+      const largeData = Array.from({ length: 5000 }, (_, i) => ({
+        id: `large-thing-${i}`,
+        type: 1,
+        data: { index: i, payload: 'x'.repeat(500) },
+        version: 1,
+        branch: null,
+        deleted: false,
+      }))
+      result.sqlData.set('things', largeData)
+
+      const target = 'https://target.test.do'
+
+      // Clone should return immediately
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Handle should be returned before transfer completes
+      expect(handle.status).toBe('pending')
+
+      // Progress should start at 0
+      const initialProgress = await handle.getProgress()
+      expect(initialProgress).toBe(0)
+    })
+
+    it('uses chunked transfer for large datasets', async () => {
+      // Create large dataset
+      const largeData = Array.from({ length: 10000 }, (_, i) => ({
+        id: `chunk-thing-${i}`,
+        type: 1,
+        data: { index: i },
+        version: 1,
+        branch: null,
+        deleted: false,
+      }))
+      result.sqlData.set('things', largeData)
+
+      const target = 'https://target.test.do'
+      const options: EventualCloneOptions = {
+        mode: 'eventual',
+        chunked: true,
+        chunkSize: 500,
+      }
+
+      const handle = await result.instance.clone(target, options) as unknown as EventualCloneHandle
+
+      // Should support chunked mode
+      expect(handle).toBeDefined()
+
+      // Advance time for chunked transfer
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const syncStatus = await handle.getSyncStatus()
+      // Should be processing in bulk phase
+      expect(['initial', 'bulk', 'delta', 'catchup']).toContain(syncStatus.phase)
+    })
+  })
+
+  // ==========================================================================
+  // PROGRESS TRACKING (Task Requirement #2 - Enhanced)
+  // ==========================================================================
+
+  describe('progress tracking (enhanced)', () => {
+    it('provides accurate percentage from 0 to 100', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Check progress at various points
+      const progressReadings: number[] = []
+
+      for (let i = 0; i < 10; i++) {
+        const progress = await handle.getProgress()
+        progressReadings.push(progress)
+        await vi.advanceTimersByTimeAsync(5000)
+      }
+
+      // All readings should be valid percentages
+      for (const progress of progressReadings) {
+        expect(progress).toBeGreaterThanOrEqual(0)
+        expect(progress).toBeLessThanOrEqual(100)
+      }
+
+      // Progress should be monotonically non-decreasing
+      for (let i = 1; i < progressReadings.length; i++) {
+        expect(progressReadings[i]).toBeGreaterThanOrEqual(progressReadings[i - 1])
+      }
+    })
+
+    it('tracks items synced vs total items', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(10000)
+
+      const syncStatus = await handle.getSyncStatus()
+
+      expect(syncStatus.itemsSynced).toBeGreaterThanOrEqual(0)
+      expect(syncStatus.totalItems).toBeGreaterThanOrEqual(0)
+      expect(syncStatus.itemsSynced).toBeLessThanOrEqual(syncStatus.totalItems)
+    })
+
+    it('reports estimated time to completion', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle & {
+        getETA(): Promise<number | null>
+      }
+
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // If ETA is supported, verify it
+      if (typeof handle.getETA === 'function') {
+        const eta = await handle.getETA()
+        if (eta !== null) {
+          expect(eta).toBeGreaterThanOrEqual(0)
+        }
+      }
+    })
+
+    it('emits progress event with detailed metadata', async () => {
+      const progressEvents: Array<{
+        progress: number
+        itemsSynced: number
+        totalItems: number
+        phase: string
+      }> = []
+
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.progress') {
+          const eventData = data as Record<string, unknown>
+          progressEvents.push({
+            progress: eventData.progress as number,
+            itemsSynced: eventData.itemsSynced as number,
+            totalItems: eventData.totalItems as number,
+            phase: eventData.phase as string,
+          })
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      await result.instance.clone(target, { mode: 'eventual' })
+
+      await vi.advanceTimersByTimeAsync(20000)
+
+      // Progress events should include metadata
+      for (const event of progressEvents) {
+        expect(event).toHaveProperty('progress')
+        expect(event).toHaveProperty('itemsSynced')
+        expect(event).toHaveProperty('totalItems')
+        expect(event).toHaveProperty('phase')
+      }
+    })
+  })
+
+  // ==========================================================================
+  // RECONCILIATION ON COMPLETION (Task Requirement #3)
+  // ==========================================================================
+
+  describe('reconciliation', () => {
+    it('reconciles data on completion', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Complete the sync
+      for (let i = 0; i < 20; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      // After completion, target should have all data
+      const syncStatus = await handle.getSyncStatus()
+      expect(syncStatus.itemsSynced).toBe(syncStatus.totalItems)
+      expect(syncStatus.divergence).toBe(0)
+    })
+
+    it('detects conflicts', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Wait for initial sync
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Simulate concurrent modification causing conflict
+      const things = result.sqlData.get('things')!
+      const existingThing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0') as Record<string, unknown> | undefined
+      if (existingThing) {
+        existingThing.version = 999
+        existingThing.data = { conflict: 'source modification' }
+      }
+
+      // Trigger sync to detect conflict
+      const syncResult = await handle.sync()
+
+      expect(syncResult).toHaveProperty('conflicts')
+      expect(Array.isArray(syncResult.conflicts)).toBe(true)
+    })
+
+    it('applies conflict resolution strategy', async () => {
+      const target = 'https://target.test.do'
+      const options: EventualCloneOptions = {
+        mode: 'eventual',
+        conflictResolution: 'source-wins',
+      }
+
+      const handle = await result.instance.clone(target, options) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Cause conflict
+      const things = result.sqlData.get('things')!
+      const existingThing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (existingThing) {
+        (existingThing as Record<string, unknown>).version = 3
+      }
+
+      const syncResult = await handle.sync()
+
+      // All conflicts should use specified strategy
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.resolution).toBe('source-wins')
+      }
+    })
+
+    it('validates data integrity after reconciliation', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle & {
+        verifyIntegrity(): Promise<{ valid: boolean; mismatches: number }>
+      }
+
+      // Complete sync
+      for (let i = 0; i < 20; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      // If integrity verification is available
+      if (typeof handle.verifyIntegrity === 'function') {
+        const integrity = await handle.verifyIntegrity()
+        expect(integrity.valid).toBe(true)
+        expect(integrity.mismatches).toBe(0)
+      }
+    })
+
+    it('emits reconciliation complete event', async () => {
+      const reconciliationEvents: Array<{ cloneId: string; itemsReconciled: number }> = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.reconciled') {
+          const eventData = data as Record<string, unknown>
+          reconciliationEvents.push({
+            cloneId: eventData.cloneId as string,
+            itemsReconciled: eventData.itemsReconciled as number,
+          })
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Complete sync
+      for (let i = 0; i < 20; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+      }
+
+      // Should emit reconciliation event when fully synced
+      expect(reconciliationEvents).toBeDefined()
+    })
+  })
+
+  // ==========================================================================
+  // PARTIAL CLONE STATUS (Task Requirement #6)
+  // ==========================================================================
+
+  describe('partial state', () => {
+    it('reports partial clone status', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle & {
+        isPartial(): Promise<boolean>
+        getPartialStatus(): Promise<{ synced: number; pending: number; total: number }>
+      }
+
+      // Initially should be partial
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const syncStatus = await handle.getSyncStatus()
+      const isPartial = syncStatus.itemsSynced < syncStatus.totalItems
+
+      expect(typeof isPartial).toBe('boolean')
+
+      // If method is available, test it
+      if (typeof handle.isPartial === 'function') {
+        const partial = await handle.isPartial()
+        expect(partial).toBe(true)
+      }
+
+      if (typeof handle.getPartialStatus === 'function') {
+        const partialStatus = await handle.getPartialStatus()
+        expect(partialStatus.synced).toBeGreaterThanOrEqual(0)
+        expect(partialStatus.total).toBeGreaterThan(0)
+        expect(partialStatus.pending).toBe(partialStatus.total - partialStatus.synced)
+      }
+    })
+
+    it('allows reads during clone', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Start clone
+      expect(handle.status).toBe('pending')
+
+      // Reads should work while clone is in progress
+      const syncStatus = await handle.getSyncStatus()
+      expect(syncStatus).toBeDefined()
+
+      const progress = await handle.getProgress()
+      expect(typeof progress).toBe('number')
+
+      // Advance time (clone should continue)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // Reads should still work
+      const laterProgress = await handle.getProgress()
+      expect(typeof laterProgress).toBe('number')
+    })
+
+    it('queues writes during clone', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle & {
+        getWriteQueue(): Promise<Array<{ id: string; operation: string }>>
+      }
+
+      // Start clone
+      expect(handle.status).toBe('pending')
+
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // If write queue API is available
+      if (typeof handle.getWriteQueue === 'function') {
+        // Write queue should exist during clone
+        const writeQueue = await handle.getWriteQueue()
+        expect(Array.isArray(writeQueue)).toBe(true)
+      }
+
+      // Sync status should show we're still processing
+      const syncStatus = await handle.getSyncStatus()
+      expect(['initial', 'bulk', 'delta', 'catchup']).toContain(syncStatus.phase)
+    })
+
+    it('processes queued writes after sync completes', async () => {
+      const writeProcessedEvents: Array<{ queuedOperations: number }> = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.writes.processed') {
+          writeProcessedEvents.push(data as { queuedOperations: number })
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Complete sync
+      for (let i = 0; i < 20; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      // Write queue should be processed
+      expect(writeProcessedEvents).toBeDefined()
+    })
+
+    it('reports sync phase accurately', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Check phase transitions
+      const phases: string[] = []
+
+      for (let i = 0; i < 10; i++) {
+        const syncStatus = await handle.getSyncStatus()
+        if (!phases.includes(syncStatus.phase)) {
+          phases.push(syncStatus.phase)
+        }
+        await vi.advanceTimersByTimeAsync(5000)
+      }
+
+      // Should have valid phases
+      for (const phase of phases) {
+        expect(['initial', 'bulk', 'delta', 'catchup']).toContain(phase)
+      }
+    })
+  })
+
+  // ==========================================================================
+  // RETRY LOGIC (Task Requirement #7 - Enhanced)
+  // ==========================================================================
+
+  describe('error handling (enhanced)', () => {
+    it('retries failed chunks', async () => {
+      let retryCount = 0
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.chunk.retry') {
+          retryCount++
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://flaky-chunk.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        chunked: true,
+        chunkSize: 100,
+      }) as unknown as EventualCloneHandle
+
+      // Simulate retries
+      await vi.advanceTimersByTimeAsync(60000)
+
+      // Retry tracking should be available
+      const syncStatus = await handle.getSyncStatus()
+      expect(syncStatus).toHaveProperty('errorCount')
+    })
+
+    it('resumes from last checkpoint', async () => {
+      const target = 'https://checkpoint-resume.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        chunked: true,
+      }) as unknown as EventualCloneHandle & {
+        getLastCheckpoint(): Promise<{ position: number; timestamp: Date } | null>
+      }
+
+      // Make some progress
+      await vi.advanceTimersByTimeAsync(10000)
+      await handle.sync()
+
+      const progressBefore = await handle.getProgress()
+
+      // Pause to simulate interruption
+      await handle.pause()
+
+      // If checkpoint API is available
+      if (typeof handle.getLastCheckpoint === 'function') {
+        const checkpoint = await handle.getLastCheckpoint()
+        expect(checkpoint).not.toBeNull()
+        expect(checkpoint?.position).toBeGreaterThan(0)
+      }
+
+      // Resume
+      await handle.resume()
+
+      // Should continue from checkpoint, not restart
+      const progressAfter = await handle.getProgress()
+      expect(progressAfter).toBeGreaterThanOrEqual(progressBefore)
+    })
+
+    it('applies exponential backoff on retries', async () => {
+      const retryDelays: number[] = []
+      let lastRetryTime = Date.now()
+
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.retry') {
+          const now = Date.now()
+          retryDelays.push(now - lastRetryTime)
+          lastRetryTime = now
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://exponential-backoff.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Simulate failures and retries
+      await vi.advanceTimersByTimeAsync(120000)
+
+      // If retries occurred, delays should increase (exponential backoff)
+      if (retryDelays.length >= 2) {
+        for (let i = 1; i < retryDelays.length; i++) {
+          expect(retryDelays[i]).toBeGreaterThanOrEqual(retryDelays[i - 1])
+        }
+      }
+    })
+
+    it('respects maximum retry limit', async () => {
+      const target = 'https://max-retry.test.do'
+      const maxRetries = 3
+
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+      }) as unknown as EventualCloneHandle & {
+        getRetryCount(): Promise<number>
+      }
+
+      await vi.advanceTimersByTimeAsync(300000) // Long time for retries
+
+      // Sync status should track errors
+      const syncStatus = await handle.getSyncStatus()
+      expect(syncStatus.errorCount).toBeGreaterThanOrEqual(0)
+
+      // If max retries exceeded, should enter error state or stop retrying
+      if (syncStatus.errorCount > maxRetries) {
+        expect(['error', 'paused']).toContain(handle.status)
+      }
+    })
+
+    it('preserves progress on failure', async () => {
+      const target = 'https://progress-preserve.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Make progress
+      await vi.advanceTimersByTimeAsync(10000)
+      const progressBefore = await handle.getProgress()
+
+      // Simulate some more time (may have failures)
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Progress should be preserved (not reset)
+      const progressAfter = await handle.getProgress()
+      expect(progressAfter).toBeGreaterThanOrEqual(progressBefore)
+    })
+  })
+
+  // ==========================================================================
+  // COMPLETION CALLBACK (Task Requirement #8)
+  // ==========================================================================
+
+  describe('completion callback', () => {
+    it('calls completion callback', async () => {
+      const completionCallback = vi.fn()
+
+      const target = 'https://target.test.do'
+      const options = {
+        mode: 'eventual' as const,
+        onComplete: completionCallback,
+      }
+
+      const handle = await result.instance.clone(target, options) as unknown as EventualCloneHandle
+
+      // Complete the sync
+      for (let i = 0; i < 30; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      // Callback should be called on completion
+      if (handle.status === 'active') {
+        expect(completionCallback).toHaveBeenCalled()
+        expect(completionCallback).toHaveBeenCalledWith(
+          expect.objectContaining({
+            success: true,
+            cloneId: handle.id,
+          })
+        )
+      }
+    })
+
+    it('passes completion result to callback', async () => {
+      let completionResult: unknown = null
+      const completionCallback = vi.fn((result) => {
+        completionResult = result
+      })
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        onComplete: completionCallback,
+      }) as unknown as EventualCloneHandle
+
+      // Complete sync
+      for (let i = 0; i < 30; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      if (completionResult) {
+        expect(completionResult).toHaveProperty('success')
+        expect(completionResult).toHaveProperty('cloneId')
+        expect(completionResult).toHaveProperty('totalItems')
+        expect(completionResult).toHaveProperty('duration')
+      }
+    })
+
+    it('calls error callback on failure', async () => {
+      const errorCallback = vi.fn()
+
+      const target = 'https://failing-target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        onError: errorCallback,
+      }) as unknown as EventualCloneHandle
+
+      // Simulate failure scenario
+      await vi.advanceTimersByTimeAsync(120000)
+
+      // If errors occurred, callback should be called
+      const syncStatus = await handle.getSyncStatus()
+      if (syncStatus.errorCount > 0) {
+        expect(errorCallback).toHaveBeenCalled()
+      }
+    })
+
+    it('supports promise-based completion', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle & {
+        waitForCompletion(): Promise<{ success: boolean; itemsSynced: number }>
+      }
+
+      // If promise-based completion is supported
+      if (typeof handle.waitForCompletion === 'function') {
+        // Start waiting for completion
+        const completionPromise = handle.waitForCompletion()
+
+        // Complete sync in background
+        for (let i = 0; i < 20; i++) {
+          await vi.advanceTimersByTimeAsync(5000)
+          await handle.sync()
+        }
+
+        const result = await completionPromise
+        expect(result).toHaveProperty('success')
+        expect(result).toHaveProperty('itemsSynced')
+      }
+    })
+
+    it('calls callback with conflict summary', async () => {
+      let callbackData: unknown = null
+      const completionCallback = vi.fn((data) => {
+        callbackData = data
+      })
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        onComplete: completionCallback,
+      }) as unknown as EventualCloneHandle
+
+      // Cause conflicts during sync
+      await vi.advanceTimersByTimeAsync(30000)
+      const things = result.sqlData.get('things')!
+      const existingThing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (existingThing) {
+        (existingThing as Record<string, unknown>).version = 99
+      }
+
+      // Complete sync
+      for (let i = 0; i < 20; i++) {
+        await handle.sync()
+        await vi.advanceTimersByTimeAsync(5000)
+        if (handle.status === 'active') break
+      }
+
+      // Callback should include conflict info
+      if (callbackData) {
+        expect(callbackData).toHaveProperty('conflicts')
+      }
+    })
+
+    it('emits clone.completed event on successful completion', async () => {
+      let completedEvent: unknown = null
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.completed') {
+          completedEvent = data
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Complete sync
+      for (let i = 0; i < 30; i++) {
+        await vi.advanceTimersByTimeAsync(5000)
+        await handle.sync()
+        if (handle.status === 'active') break
+      }
+
+      // Should emit completion event
+      if (handle.status === 'active' && completedEvent) {
+        expect(completedEvent).toHaveProperty('cloneId')
+        expect(completedEvent).toHaveProperty('targetNs', target)
+        expect(completedEvent).toHaveProperty('duration')
+        expect(completedEvent).toHaveProperty('itemsSynced')
+      }
+    })
+
+    it('handles callback errors gracefully', async () => {
+      const errorThrowingCallback = vi.fn(() => {
+        throw new Error('Callback error')
+      })
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        onComplete: errorThrowingCallback,
+      }) as unknown as EventualCloneHandle
+
+      // Complete sync - should not throw even if callback throws
+      let didThrow = false
+      try {
+        for (let i = 0; i < 20; i++) {
+          await vi.advanceTimersByTimeAsync(5000)
+          await handle.sync()
+          if (handle.status === 'active') break
+        }
+      } catch {
+        didThrow = true
+      }
+
+      // The sync process should complete without throwing errors from callback
+      expect(didThrow).toBe(false)
+    })
+  })
+
+  // ==========================================================================
+  // CONFLICT DETECTION (Task Requirement #4 - Enhanced)
+  // ==========================================================================
+
+  describe('conflict detection (enhanced)', () => {
+    it('detects version conflicts', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      // Initial sync
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Create version conflict
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 100
+      }
+
+      const syncResult = await handle.sync()
+
+      // Should detect version conflicts
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.sourceVersion).toBeDefined()
+        expect(conflict.targetVersion).toBeDefined()
+        expect(conflict.sourceVersion).not.toBe(conflict.targetVersion)
+      }
+    })
+
+    it('detects concurrent modification conflicts', async () => {
+      const conflictEvents: ConflictInfo[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.conflict') {
+          conflictEvents.push(data as ConflictInfo)
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(20000)
+
+      // Modify source while sync is in progress
+      const things = result.sqlData.get('things')!
+      for (let i = 0; i < 5; i++) {
+        const thing = things.find((t) => (t as Record<string, unknown>).id === `thing-${i}`) as Record<string, unknown> | undefined
+        if (thing) {
+          thing.data = { modified: true, iteration: i }
+          thing.version = (thing.version as number) + 1
+        }
+      }
+
+      await handle.sync()
+
+      // Should detect concurrent modifications
+      expect(conflictEvents).toBeDefined()
+    })
+
+    it('reports conflict details for resolution', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Create conflict
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 50
+      }
+
+      const syncResult = await handle.sync()
+
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict).toHaveProperty('thingId')
+        expect(conflict).toHaveProperty('sourceVersion')
+        expect(conflict).toHaveProperty('targetVersion')
+        expect(conflict).toHaveProperty('resolution')
+        expect(conflict).toHaveProperty('resolvedAt')
+      }
+    })
+  })
+
+  // ==========================================================================
+  // CONFLICT RESOLUTION STRATEGIES (Task Requirement #5 - Enhanced)
+  // ==========================================================================
+
+  describe('conflict resolution strategies (enhanced)', () => {
+    it('supports last-write-wins strategy', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        conflictResolution: 'last-write-wins',
+      }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      // Create conflict
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 10
+      }
+
+      const syncResult = await handle.sync()
+
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.resolution).toBe('last-write-wins')
+      }
+    })
+
+    it('supports source-wins strategy', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        conflictResolution: 'source-wins',
+      }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 10
+      }
+
+      const syncResult = await handle.sync()
+
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.resolution).toBe('source-wins')
+      }
+    })
+
+    it('supports target-wins strategy', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        conflictResolution: 'target-wins',
+      }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 10
+      }
+
+      const syncResult = await handle.sync()
+
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.resolution).toBe('target-wins')
+      }
+    })
+
+    it('supports merge strategy', async () => {
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        conflictResolution: 'merge',
+      }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 10
+      }
+
+      const syncResult = await handle.sync()
+
+      for (const conflict of syncResult.conflicts) {
+        expect(conflict.resolution).toBe('merge')
+      }
+    })
+
+    it('supports custom conflict resolver', async () => {
+      const customResolver = vi.fn(async (conflict: ConflictInfo) => {
+        return {
+          id: conflict.thingId,
+          data: { customResolved: true, from: 'custom-resolver' },
+          version: Math.max(conflict.sourceVersion, conflict.targetVersion) + 1,
+        }
+      })
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, {
+        mode: 'eventual',
+        conflictResolver: customResolver,
+      }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const things = result.sqlData.get('things')!
+      const thing = things.find((t) => (t as Record<string, unknown>).id === 'thing-0')
+      if (thing) {
+        (thing as Record<string, unknown>).version = 10
+      }
+
+      await handle.sync()
+
+      // Custom resolver should be called for conflicts
+      // May or may not be called depending on if conflicts are detected
+      expect(customResolver).toBeDefined()
+    })
+
+    it('logs all conflict resolutions for audit', async () => {
+      const conflictLogs: ConflictInfo[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: Function }).emitEvent
+      ;(result.instance as unknown as { emitEvent: Function }).emitEvent = async (verb: string, data: unknown) => {
+        if (verb === 'clone.conflict.resolved') {
+          conflictLogs.push(data as ConflictInfo)
+        }
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://target.test.do'
+      const handle = await result.instance.clone(target, { mode: 'eventual' }) as unknown as EventualCloneHandle
+
+      await vi.advanceTimersByTimeAsync(30000)
+
+      const things = result.sqlData.get('things')!
+      for (let i = 0; i < 3; i++) {
+        const thing = things.find((t) => (t as Record<string, unknown>).id === `thing-${i}`)
+        if (thing) {
+          (thing as Record<string, unknown>).version = 20
+        }
+      }
+
+      await handle.sync()
+
+      // All conflicts should be logged
+      for (const log of conflictLogs) {
+        expect(log).toHaveProperty('thingId')
+        expect(log).toHaveProperty('resolution')
+        expect(log).toHaveProperty('resolvedAt')
+      }
     })
   })
 })

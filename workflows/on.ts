@@ -309,7 +309,8 @@ type DomainCallable = {
  */
 export function Domain(name: string, handlers: Record<string, Function>): DomainCallable {
   // Register with base domain system
-  const domainObj = BaseDomain(name, handlers)
+  // Cast to HandlerMap since we're accepting more flexible function types
+  const domainObj = BaseDomain(name, handlers as any)
   baseRegisterDomain(domainObj)
 
   // Create callable that returns a proxy for method access

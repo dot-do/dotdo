@@ -209,7 +209,7 @@ export async function query<T = Record<string, unknown>>(
   const resultSet = await client.query({
     query: options.sql,
     format: options.format ?? 'JSONEachRow',
-    query_params: options.params as unknown as QueryParams,
+    query_params: options.params,
     clickhouse_settings: options.settings,
     abort_signal: options.signal,
   })
@@ -241,7 +241,7 @@ export async function* queryStream<T = Record<string, unknown>>(
   const resultSet = await client.query({
     query: options.sql,
     format: options.format ?? 'JSONEachRow',
-    query_params: options.params as unknown as QueryParams,
+    query_params: options.params,
     clickhouse_settings: options.settings,
     abort_signal: options.signal,
   })
@@ -506,7 +506,7 @@ export async function countRows(
  * Read-only settings for safe tenant queries
  */
 export const READ_ONLY_SETTINGS: ClickHouseSettings = {
-  readonly: 1,
+  readonly: '1',
   max_execution_time: 30,
   max_result_rows: '10000',
 }
@@ -515,7 +515,7 @@ export const READ_ONLY_SETTINGS: ClickHouseSettings = {
  * Strict resource limits for untrusted queries
  */
 export const STRICT_LIMITS: ClickHouseSettings = {
-  readonly: 1,
+  readonly: '1',
   max_execution_time: 5,
   max_memory_usage: '100000000', // 100MB
   max_result_rows: '1000',
@@ -655,7 +655,7 @@ export class ClickHouseCache {
     this.baseUrl = options.baseUrl
     this.database = options.database
     this.defaultSettings = {
-      readonly: 1,
+      readonly: '1',
       max_execution_time: 30,
       max_result_rows: '10000',
       ...options.settings,
@@ -1217,7 +1217,7 @@ export async function queryWithVisibility<T = Record<string, unknown>>(
   const resultSet = await client.query({
     query: sql,
     format: options.format ?? 'JSONEachRow',
-    query_params: options.params as unknown as QueryParams,
+    query_params: options.params,
     clickhouse_settings: options.settings,
     abort_signal: options.signal,
   })
@@ -1260,7 +1260,7 @@ export function createAnonymousClient(config: AnonymousConfig): AnonymousClientW
     database: config.database,
     application: 'dotdo-anonymous',
     clickhouse_settings: {
-      readonly: 1,
+      readonly: '1',
       max_execution_time: 10,
       max_result_rows: '1000',
       ...config.settings,
@@ -1292,7 +1292,7 @@ export function createAnonymousClient(config: AnonymousConfig): AnonymousClientW
     const resultSet = await baseClient.query({
       query: sql,
       format: 'JSONEachRow',
-      query_params: options.params as unknown as QueryParams,
+      query_params: options.params,
     })
 
     const data = (await resultSet.json()) as T[]
@@ -1424,7 +1424,7 @@ export class ClickHouseVisibilityCache {
     this.baseUrl = options.baseUrl
     this.database = options.database
     this.defaultSettings = {
-      readonly: 1,
+      readonly: '1',
       max_execution_time: 30,
       max_result_rows: '10000',
       ...options.settings,

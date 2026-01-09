@@ -6,6 +6,9 @@
  * - $.git - Git version control
  * - $.bash - Shell execution
  *
+ * Note: The bash capability uses a stub executor by default.
+ * Override by providing a custom executor in your subclass.
+ *
  * @example
  * ```typescript
  * import { DO } from 'dotdo/full'
@@ -23,9 +26,27 @@
  */
 
 import { DO as BaseDO } from './objects/DO'
-import { withFs, withGit, withBash } from './lib/mixins'
+import { withFs, withGit, withBash, type BashExecutor } from './lib/mixins'
 
-export const DO = withBash(withGit(withFs(BaseDO)))
+/**
+ * Stub executor that throws when used.
+ * Users should configure a real executor via environment bindings.
+ */
+const stubExecutor: BashExecutor = {
+  async execute(command: string, args?: string[]) {
+    throw new Error(
+      `Bash execution not configured. ` +
+      `Attempted to run: ${command} ${args?.join(' ') ?? ''}\n` +
+      `Configure a real executor (e.g., Cloudflare Container, RPC) in your DO class.`
+    )
+  }
+}
+
+const DOWithFsGit = withGit(withFs(BaseDO))
+
+export const DO = withBash(DOWithFsGit, {
+  executor: () => stubExecutor
+})
 
 /**
  * Capabilities included in this entry point

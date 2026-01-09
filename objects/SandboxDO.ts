@@ -33,6 +33,7 @@ import {
   type SandboxConfig,
   type ExecResult,
   type ExposedPort,
+  type Sandbox as CloudflareSandbox,
 } from '../sandbox'
 
 // ============================================================================
@@ -61,7 +62,7 @@ export interface CreateSessionOptions {
 }
 
 export interface SandboxEnv extends Env {
-  Sandbox?: DurableObjectNamespace
+  Sandbox: DurableObjectNamespace<CloudflareSandbox>
 }
 
 // ============================================================================
@@ -202,7 +203,7 @@ export class SandboxDO extends DO<SandboxEnv> {
 
     // Create the underlying sandbox
     this.sandbox = getSandbox(
-      this.env.Sandbox as unknown as DurableObjectNamespace,
+      this.env.Sandbox,
       sandboxId,
       'sandbox.do',
       {
@@ -377,7 +378,7 @@ export class SandboxDO extends DO<SandboxEnv> {
       // Recreate sandbox instance if session is running
       if (stored.status === 'running' && this.env.Sandbox) {
         this.sandbox = getSandbox(
-          this.env.Sandbox as unknown as DurableObjectNamespace,
+          this.env.Sandbox,
           stored.sandboxId,
           'sandbox.do',
           stored.config
@@ -433,31 +434,18 @@ export class SandboxDO extends DO<SandboxEnv> {
       return c.json({ error: err.message || 'Internal server error' }, 500)
     })
 
-    // JSON body validation middleware for POST requests
-    app.use('*', async (c, next) => {
-      if (c.req.method === 'POST') {
+    // Helper function to safely get JSON body
+    const getJsonBody = async <T = unknown>(c: any): Promise<T> => {
+      try {
         const contentType = c.req.header('content-type')
         if (contentType?.includes('application/json')) {
-          try {
-            // Try to parse JSON body
-            const text = await c.req.text()
-            if (text) {
-              try {
-                const body = JSON.parse(text)
-                c.set('body', body)
-              } catch {
-                return c.json({ error: 'Invalid JSON body' }, 400)
-              }
-            } else {
-              c.set('body', {})
-            }
-          } catch {
-            return c.json({ error: 'Failed to read request body' }, 400)
-          }
+          return await c.req.json() as T
         }
+        return {} as T
+      } catch {
+        return {} as T
       }
-      await next()
-    })
+    }
 
     // GET /health - Health check
     app.get('/health', (c) => {
@@ -471,7 +459,7 @@ export class SandboxDO extends DO<SandboxEnv> {
     // POST /session - Create sandbox session (new API)
     app.post('/session', async (c) => {
       try {
-        const body = c.get('body') as CreateSessionOptions || {}
+        const body = await getJsonBody<Partial<CreateSessionOptions>>(c)
         // Use provided sandboxId or generate one
         const options: CreateSessionOptions = {
           sandboxId: body.sandboxId || crypto.randomUUID(),
@@ -515,7 +503,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json({ error: 'Session already exists' }, 409)
       }
 
-      const body = c.get('body') as CreateRequest || {}
+      const body = await getJsonBody<CreateRequest>(c)
       const config: ExtendedSandboxConfig = {
         sleepAfter: body.sleepAfter,
         keepAlive: body.keepAlive,
@@ -526,7 +514,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         const hostname = new URL(c.req.url).hostname
 
         this.sandbox = getSandbox(
-          this.env.Sandbox as unknown as DurableObjectNamespace,
+          this.env.Sandbox,
           sandboxId,
           hostname,
           config
@@ -563,7 +551,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json({ error: 'No active session' }, 400)
       }
 
-      const body = c.get('body') as ExecRequest || {}
+      const body = await getJsonBody<ExecRequest>(c)
       if (!body.command) {
         return c.json({ error: 'Missing required field: command' }, 400)
       }
@@ -583,7 +571,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json({ error: 'No active session' }, 400)
       }
 
-      const body = c.get('body') as ExecRequest || {}
+      const body = await getJsonBody<ExecRequest>(c)
       if (!body.command) {
         return c.json({ error: 'Missing required field: command' }, 400)
       }
@@ -625,7 +613,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json({ error: 'No active session' }, 400)
       }
 
-      const body = c.get('body') as WriteFileRequest || {}
+      const body = await getJsonBody<WriteFileRequest>(c)
       if (!body.path) {
         return c.json({ error: 'Missing required field: path' }, 400)
       }
@@ -671,7 +659,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json({ error: 'No active session' }, 400)
       }
 
-      const body = c.get('body') as ExposePortRequest || {}
+      const body = await getJsonBody<ExposePortRequest>(c)
       if (body.port === undefined || body.port === null) {
         return c.json({ error: 'Missing required field: port' }, 400)
       }

@@ -13,7 +13,7 @@
  * - Method metadata (parameters, return types, descriptions) can be extracted
  */
 
-import type { DO } from './DO'
+import type { DO } from '../objects/DO'
 
 // ============================================================================
 // TYPES

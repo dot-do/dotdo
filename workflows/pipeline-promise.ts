@@ -73,11 +73,11 @@ export function createPipelinePromise<T = unknown>(expr: PipelineExpression, opt
       onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
     ): PipelinePromise<TResult1 | TResult2> {
       // When awaited, trigger execution
-      const resultPromise = execute(expr).then(onFulfilled as any, onRejected)
+      const resultPromise = execute(expr).then(onFulfilled as any, onRejected) as Promise<TResult1 | TResult2>
 
       // Wrap the result in a PipelinePromise for chaining
       // This creates a "resolved" pipeline promise
-      return createResolvedPipelinePromise(resultPromise, options)
+      return createResolvedPipelinePromise<TResult1 | TResult2>(resultPromise, options)
     },
 
     catch<TResult = never>(onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): PipelinePromise<T | TResult> {
@@ -152,8 +152,8 @@ function createResolvedPipelinePromise<T>(resultPromise: Promise<T>, options: Wo
       onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
       onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
     ): PipelinePromise<TResult1 | TResult2> {
-      const nextPromise = resultPromise.then(onFulfilled as any, onRejected)
-      return createResolvedPipelinePromise(nextPromise, options)
+      const nextPromise = resultPromise.then(onFulfilled as any, onRejected) as Promise<TResult1 | TResult2>
+      return createResolvedPipelinePromise<TResult1 | TResult2>(nextPromise, options)
     },
 
     catch<TResult = never>(onRejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): PipelinePromise<T | TResult> {

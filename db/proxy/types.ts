@@ -61,8 +61,9 @@ export interface DBPromise<T extends ThingEntity = ThingEntity> extends Promise<
 
   /**
    * Select specific fields
+   * Note: Returns DBPromise<T> instead of DBPromise<Pick<T, K>> due to ThingEntity constraint
    */
-  select<K extends keyof T>(...fields: K[]): DBPromise<Pick<T, K>>
+  select<K extends keyof T>(...fields: K[]): DBPromise<T>
 
   /**
    * Expand relationships

@@ -399,15 +399,12 @@ export function injectCorrelationHeaders(request: Request, ctx: CorrelationConte
   headers.set(DOTDO_REQUEST_HEADER, createDotdoRequestHeader(propagationCtx))
 
   // Create new request with updated headers
+  // Note: Cloudflare Request type doesn't support mode, credentials, cache, referrer
   return new Request(request.url, {
     method: request.method,
     headers,
     body: request.body,
-    mode: request.mode,
-    credentials: request.credentials,
-    cache: request.cache,
     redirect: request.redirect,
-    referrer: request.referrer,
     integrity: request.integrity,
   })
 }

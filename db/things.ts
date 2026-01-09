@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
-import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql, inArray, type SQL } from 'drizzle-orm'
 
 // ============================================================================
 // VISIBILITY TYPE
@@ -138,7 +138,7 @@ export async function getCurrentThing(
   const { visibility } = options
 
   // Build conditions array
-  const conditions: unknown[] = [eq(things.id, id)]
+  const conditions: SQL[] = [eq(things.id, id)]
 
   if (branch === null) {
     conditions.push(isNull(things.branch))
@@ -155,7 +155,7 @@ export async function getCurrentThing(
     }
   }
 
-  const condition = and(...conditions as [unknown, unknown, ...unknown[]])
+  const condition = and(...conditions)
 
   const results = await db
     .select()
@@ -270,7 +270,7 @@ export async function getCurrentThings(
   const { type, branch = null, includeDeleted = false, limit = 100, visibility } = options
 
   // Build conditions array
-  const conditions: unknown[] = []
+  const conditions: SQL[] = []
 
   if (branch === null) {
     conditions.push(isNull(things.branch))
@@ -295,12 +295,12 @@ export async function getCurrentThings(
     }
   }
 
-  const condition = conditions.length > 1 ? and(...conditions as [unknown, unknown, ...unknown[]]) : conditions[0]
+  const condition = conditions.length > 1 ? and(...conditions) : conditions[0]
 
   const results = await db
     .select()
     .from(things)
-    .where(condition as ReturnType<typeof eq>)
+    .where(condition)
     .orderBy(desc(things.id))
     .limit(limit)
 

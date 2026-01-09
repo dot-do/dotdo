@@ -89,8 +89,8 @@ export function createDBProxy(options: CreateDBProxyOptions): IDBProxy {
   // Create NL executor if AI is available
   const nlExecutor = options.nlExecutor ?? (ai ? createAINLExecutor(ai, store) : undefined)
 
-  // Create proxy
-  return new Proxy({} as IDBProxy, {
+  // Create proxy handler
+  const handler: ProxyHandler<IDBProxy> = {
     get(_target, prop: string) {
       // Return cached accessor if available
       if (accessorCache.has(prop)) {
@@ -125,13 +125,16 @@ export function createDBProxy(options: CreateDBProxyOptions): IDBProxy {
 
     getOwnPropertyDescriptor(_target, prop: string) {
       return {
-        value: this.get!(_target, prop, {} as IDBProxy),
+        value: handler.get!(_target, prop, _target),
         writable: false,
         enumerable: true,
         configurable: true,
       }
     },
-  })
+  }
+
+  // Create proxy
+  return new Proxy({} as IDBProxy, handler)
 }
 
 // ============================================================================

@@ -51,15 +51,9 @@ import type { BrowserConfig, BrowserProvider, BrowserStatus } from '../types/Bro
 
 /**
  * Environment bindings for Browser DO
+ * Note: Extends Env which already includes BROWSER, BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID
  */
-export interface BrowserEnv extends Env {
-  /** Cloudflare Browser binding */
-  BROWSER?: unknown
-  /** Browserbase API key */
-  BROWSERBASE_API_KEY?: string
-  /** Browserbase project ID */
-  BROWSERBASE_PROJECT_ID?: string
-}
+export type BrowserEnv = Env
 
 /**
  * Options for starting a browser session
@@ -881,7 +875,6 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
 
     return new Response(null, {
       status: 101,
-      // @ts-expect-error - webSocket is a Cloudflare-specific Response property
       webSocket: client,
     })
   }

@@ -5,7 +5,7 @@
  */
 
 import { TypeRegistry } from './TypeRegistry'
-import type { Env } from './DO'
+import type { Env } from '../objects/DO'
 
 /**
  * Result of resolving a request to a DO

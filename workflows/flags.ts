@@ -145,7 +145,7 @@ function matchFilter(filter: Filter, context: EvaluationContext): boolean {
       if (!Array.isArray(filterValue)) {
         return false
       }
-      return filterValue.includes(propValue as string | number)
+      return (filterValue as Array<string | number>).includes(propValue as string | number)
 
     case 'contains':
       if (typeof propValue !== 'string' || typeof filterValue !== 'string') {

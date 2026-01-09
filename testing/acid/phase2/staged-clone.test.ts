@@ -1567,4 +1567,1042 @@ describe('Staged Clone Mode (Two-Phase Commit)', () => {
       }
     })
   })
+
+  // ==========================================================================
+  // TWO-PHASE COMMIT COORDINATOR ROLE
+  // ==========================================================================
+
+  describe('Coordinator Role', () => {
+    it('should act as coordinator when initiating staged clone', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // The source DO should be the coordinator
+      const doWithCoordinator = result.instance as unknown as {
+        isCoordinator: (token: string) => Promise<boolean>
+        getCoordinatorInfo: (token: string) => Promise<CoordinatorInfo>
+      }
+
+      if (doWithCoordinator.isCoordinator) {
+        const isCoord = await doWithCoordinator.isCoordinator(prepareResult.token)
+        expect(isCoord).toBe(true)
+      }
+    })
+
+    it('should track transaction state in coordinator log', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const doWithCoordinator = result.instance as unknown as {
+        getTransactionLog: (token: string) => Promise<TransactionLogEntry[]>
+      }
+
+      if (doWithCoordinator.getTransactionLog) {
+        const log = await doWithCoordinator.getTransactionLog(prepareResult.token)
+
+        expect(log.length).toBeGreaterThan(0)
+        // Should have a prepare entry
+        const prepareEntry = log.find(e => e.phase === 'prepare')
+        expect(prepareEntry).toBeDefined()
+        expect(prepareEntry?.status).toBe('completed')
+      }
+    })
+
+    it('should persist coordinator decision to durable storage', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Commit to make a decision
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await doWithCommit.commitClone(prepareResult.token)
+
+      // Decision should be persisted
+      const decisionKey = `2pc:decision:${prepareResult.token}`
+      const storedDecision = await result.storage.get(decisionKey)
+
+      expect(storedDecision).toBeDefined()
+      expect((storedDecision as Record<string, unknown>)?.decision).toBe('commit')
+    })
+
+    it('should broadcast commit decision to all participants', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Track coordinator communications
+      const communications: Array<{ type: string; target: string }> = []
+      const doWithBroadcast = result.instance as unknown as {
+        _onBroadcast: (callback: (type: string, target: string) => void) => void
+      }
+
+      if (doWithBroadcast._onBroadcast) {
+        doWithBroadcast._onBroadcast((type, target) => {
+          communications.push({ type, target })
+        })
+      }
+
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await doWithCommit.commitClone(prepareResult.token)
+
+      // Should have broadcast commit to target
+      const commitBroadcast = communications.find(c => c.type === 'commit')
+      expect(commitBroadcast).toBeDefined()
+      expect(commitBroadcast?.target).toBe(target)
+    })
+
+    it('should broadcast abort decision to all participants', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const communications: Array<{ type: string; target: string }> = []
+      const doWithBroadcast = result.instance as unknown as {
+        _onBroadcast: (callback: (type: string, target: string) => void) => void
+      }
+
+      if (doWithBroadcast._onBroadcast) {
+        doWithBroadcast._onBroadcast((type, target) => {
+          communications.push({ type, target })
+        })
+      }
+
+      const doWithAbort = result.instance as unknown as { abortClone: (token: string, reason?: string) => Promise<StagedAbortResult> }
+      await doWithAbort.abortClone(prepareResult.token, 'User cancelled')
+
+      // Should have broadcast abort to target
+      const abortBroadcast = communications.find(c => c.type === 'abort')
+      expect(abortBroadcast).toBeDefined()
+      expect(abortBroadcast?.target).toBe(target)
+    })
+
+    it('should enforce coordinator timeout for participant responses', async () => {
+      const target = 'https://slow-participant.test.do'
+      const coordinatorTimeout = 5000 // 5 seconds
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        coordinatorTimeout,
+      } as StagedCloneOptions & { coordinatorTimeout: number }
+
+      // Start prepare but participant is slow
+      const preparePromise = result.instance.clone(target, options)
+
+      // Advance time past coordinator timeout
+      await vi.advanceTimersByTimeAsync(coordinatorTimeout + 1000)
+
+      // Should timeout waiting for participant prepare acknowledgment
+      await expect(preparePromise).rejects.toThrow(/timeout|participant.*not.*respond/i)
+    })
+
+    it('should handle multiple participants in single transaction', async () => {
+      const targets = [
+        'https://target1.test.do',
+        'https://target2.test.do',
+        'https://target3.test.do',
+      ]
+
+      const doWithMultiClone = result.instance as unknown as {
+        cloneToMultiple: (targets: string[], options: StagedCloneOptions) => Promise<MultiStagedPrepareResult>
+      }
+
+      if (doWithMultiClone.cloneToMultiple) {
+        const prepareResult = await doWithMultiClone.cloneToMultiple(targets, { mode: 'staged' })
+
+        expect(prepareResult.participants).toHaveLength(3)
+        expect(prepareResult.allPrepared).toBe(true)
+        for (const participant of prepareResult.participants) {
+          expect(participant.status).toBe('prepared')
+        }
+      }
+    })
+
+    it('should abort all participants if any participant fails prepare', async () => {
+      const targets = [
+        'https://target1.test.do',
+        'https://failing-target.test.do', // This one will fail
+        'https://target3.test.do',
+      ]
+
+      const doWithMultiClone = result.instance as unknown as {
+        cloneToMultiple: (targets: string[], options: StagedCloneOptions) => Promise<MultiStagedPrepareResult>
+      }
+
+      if (doWithMultiClone.cloneToMultiple) {
+        // Mock one participant failing
+        const mockNamespace = result.env.DO!
+        mockNamespace.stubFactory = (id) => ({
+          id,
+          fetch: vi.fn().mockImplementation(async (req: Request) => {
+            if (id.toString().includes('failing')) {
+              return new Response('Prepare failed', { status: 500 })
+            }
+            return new Response('OK')
+          }),
+        })
+
+        await expect(
+          doWithMultiClone.cloneToMultiple(targets, { mode: 'staged' })
+        ).rejects.toThrow(/participant.*failed|prepare.*failed/i)
+
+        // All participants should have received abort
+        const stubs = Array.from(mockNamespace.stubs.values())
+        for (const stub of stubs) {
+          // Each stub should have received an abort call
+          const fetchCalls = (stub.fetch as ReturnType<typeof vi.fn>).mock.calls
+          const hasAbort = fetchCalls.some(call => {
+            const url = call[0] instanceof Request ? call[0].url : call[0]
+            return url.includes('abort')
+          })
+          expect(hasAbort || id.toString().includes('failing')).toBe(true)
+        }
+      }
+    })
+  })
+
+  // ==========================================================================
+  // PARTICIPANT ACKNOWLEDGMENT
+  // ==========================================================================
+
+  describe('Participant Acknowledgment', () => {
+    it('should return prepare acknowledgment from participant', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // The prepare should include participant acknowledgment
+      expect(prepareResult.participantAck).toBeDefined()
+      expect(prepareResult.participantAck?.target).toBe(target)
+      expect(prepareResult.participantAck?.status).toBe('ready')
+      expect(prepareResult.participantAck?.timestamp).toBeInstanceOf(Date)
+    })
+
+    it('should include participant vote in acknowledgment', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Participant should vote 'yes' to proceed
+      expect(prepareResult.participantAck?.vote).toBe('yes')
+    })
+
+    it('should abort if participant votes no', async () => {
+      const target = 'https://voting-no.test.do'
+
+      // Mock participant that votes no
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async () => {
+          return new Response(JSON.stringify({
+            vote: 'no',
+            reason: 'Resource unavailable'
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }),
+      })
+
+      await expect(
+        result.instance.clone(target, { mode: 'staged' })
+      ).rejects.toThrow(/participant.*voted.*no|resource.*unavailable/i)
+    })
+
+    it('should wait for acknowledgment from all participants', async () => {
+      const targets = [
+        'https://fast-target.test.do',
+        'https://slow-target.test.do',
+      ]
+
+      const doWithMultiClone = result.instance as unknown as {
+        cloneToMultiple: (targets: string[], options: StagedCloneOptions) => Promise<MultiStagedPrepareResult>
+      }
+
+      if (doWithMultiClone.cloneToMultiple) {
+        let slowTargetResponded = false
+
+        // Mock participants with different response times
+        const mockNamespace = result.env.DO!
+        mockNamespace.stubFactory = (id) => ({
+          id,
+          fetch: vi.fn().mockImplementation(async () => {
+            if (id.toString().includes('slow')) {
+              await new Promise(resolve => setTimeout(resolve, 100))
+              slowTargetResponded = true
+            }
+            return new Response(JSON.stringify({ vote: 'yes' }))
+          }),
+        })
+
+        const prepareResult = await doWithMultiClone.cloneToMultiple(targets, { mode: 'staged' })
+
+        // Should have waited for slow participant
+        expect(slowTargetResponded).toBe(true)
+        expect(prepareResult.allPrepared).toBe(true)
+      }
+    })
+
+    it('should collect commit acknowledgments from all participants', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const doWithCommit = result.instance as unknown as {
+        commitClone: (token: string) => Promise<StagedCommitResult & { participantAcks: ParticipantAck[] }>
+      }
+      const commitResult = await doWithCommit.commitClone(prepareResult.token)
+
+      // Should have commit acknowledgment from participant
+      expect(commitResult.participantAcks).toBeDefined()
+      expect(commitResult.participantAcks.length).toBeGreaterThanOrEqual(1)
+      expect(commitResult.participantAcks[0].status).toBe('committed')
+    })
+
+    it('should collect abort acknowledgments from all participants', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const doWithAbort = result.instance as unknown as {
+        abortClone: (token: string, reason?: string) => Promise<StagedAbortResult & { participantAcks: ParticipantAck[] }>
+      }
+      const abortResult = await doWithAbort.abortClone(prepareResult.token)
+
+      // Should have abort acknowledgment from participant
+      expect(abortResult.participantAcks).toBeDefined()
+      expect(abortResult.participantAcks.length).toBeGreaterThanOrEqual(1)
+      expect(abortResult.participantAcks[0].status).toBe('aborted')
+    })
+
+    it('should handle participant acknowledgment timeout', async () => {
+      const target = 'https://unresponsive.test.do'
+      const ackTimeout = 1000 // 1 second
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        participantAckTimeout: ackTimeout,
+      } as StagedCloneOptions & { participantAckTimeout: number }
+
+      // Mock unresponsive participant
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async () => {
+          // Never respond (simulate timeout)
+          await new Promise(() => {}) // Infinite wait
+        }),
+      })
+
+      const preparePromise = result.instance.clone(target, options)
+
+      // Advance time past ack timeout
+      await vi.advanceTimersByTimeAsync(ackTimeout + 1000)
+
+      await expect(preparePromise).rejects.toThrow(/timeout|acknowledgment/i)
+    })
+
+    it('should retry participant acknowledgment on transient failure', async () => {
+      const target = 'https://flaky-target.test.do'
+      let attemptCount = 0
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async () => {
+          attemptCount++
+          if (attemptCount < 3) {
+            throw new Error('Network error')
+          }
+          return new Response(JSON.stringify({ vote: 'yes' }))
+        }),
+      })
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        maxAckRetries: 5,
+      } as StagedCloneOptions & { maxAckRetries: number }
+
+      const prepareResult = await result.instance.clone(target, options) as unknown as StagedPrepareResult
+
+      // Should have succeeded after retries
+      expect(prepareResult.phase).toBe('prepared')
+      expect(attemptCount).toBe(3)
+    })
+  })
+
+  // ==========================================================================
+  // COORDINATOR FAILURE RECOVERY
+  // ==========================================================================
+
+  describe('Recovery from Coordinator Failure', () => {
+    it('should persist prepare decision before sending to participants', async () => {
+      const target = 'https://target.test.do'
+
+      // Start prepare
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Decision should be persisted
+      const decisionKey = `2pc:prepare:${prepareResult.token}`
+      const storedDecision = await result.storage.get(decisionKey)
+
+      expect(storedDecision).toBeDefined()
+      expect((storedDecision as Record<string, unknown>)?.phase).toBe('prepared')
+    })
+
+    it('should allow new coordinator to recover transaction state', async () => {
+      const target = 'https://target.test.do'
+
+      // Prepare on original coordinator
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Simulate coordinator crash and recovery by creating new instance
+      const newResult = createMockDO(DO, {
+        ns: 'https://source.test.do',
+        sqlData: result.sqlData,
+        storage: result.storage.data, // Preserve storage (contains transaction state)
+      })
+
+      // New coordinator should be able to recover transaction
+      const doWithRecover = newResult.instance as unknown as {
+        recoverTransaction: (token: string) => Promise<RecoveredTransactionState>
+      }
+
+      if (doWithRecover.recoverTransaction) {
+        const recovered = await doWithRecover.recoverTransaction(prepareResult.token)
+
+        expect(recovered.found).toBe(true)
+        expect(recovered.phase).toBe('prepared')
+        expect(recovered.target).toBe(target)
+        expect(recovered.canComplete).toBe(true)
+      }
+    })
+
+    it('should complete commit after coordinator recovery', async () => {
+      const target = 'https://target.test.do'
+
+      // Prepare on original coordinator
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Simulate coordinator crash and recovery
+      const newResult = createMockDO(DO, {
+        ns: 'https://source.test.do',
+        sqlData: result.sqlData,
+        storage: result.storage.data,
+      })
+
+      // Complete commit on recovered coordinator
+      const doWithCommit = newResult.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      const commitResult = await doWithCommit.commitClone(prepareResult.token)
+
+      expect(commitResult.phase).toBe('committed')
+    })
+
+    it('should complete abort after coordinator recovery', async () => {
+      const target = 'https://target.test.do'
+
+      // Prepare on original coordinator
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Simulate coordinator crash and recovery
+      const newResult = createMockDO(DO, {
+        ns: 'https://source.test.do',
+        sqlData: result.sqlData,
+        storage: result.storage.data,
+      })
+
+      // Complete abort on recovered coordinator
+      const doWithAbort = newResult.instance as unknown as { abortClone: (token: string, reason?: string) => Promise<StagedAbortResult> }
+      const abortResult = await doWithAbort.abortClone(prepareResult.token, 'Recovery abort')
+
+      expect(abortResult.phase).toBe('aborted')
+    })
+
+    it('should resume commit-in-progress after coordinator recovery', async () => {
+      const target = 'https://target.test.do'
+
+      // Prepare on original coordinator
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Simulate commit started but not completed (crash mid-commit)
+      const commitDecisionKey = `2pc:decision:${prepareResult.token}`
+      await result.storage.put(commitDecisionKey, {
+        decision: 'commit',
+        startedAt: new Date(),
+        completedAt: null, // Not completed
+      })
+
+      // Recover coordinator
+      const newResult = createMockDO(DO, {
+        ns: 'https://source.test.do',
+        sqlData: result.sqlData,
+        storage: result.storage.data,
+      })
+
+      // Should detect incomplete commit and resume
+      const doWithResume = newResult.instance as unknown as {
+        resumeIncompleteTransactions: () => Promise<ResumedTransaction[]>
+      }
+
+      if (doWithResume.resumeIncompleteTransactions) {
+        const resumed = await doWithResume.resumeIncompleteTransactions()
+
+        expect(resumed.length).toBeGreaterThanOrEqual(1)
+        expect(resumed[0].token).toBe(prepareResult.token)
+        expect(resumed[0].action).toBe('commit')
+      }
+    })
+
+    it('should timeout prepared transactions without coordinator decision', async () => {
+      const target = 'https://target.test.do'
+      const prepareTimeout = 30000 // 30 seconds
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        prepareTimeout,
+      } as StagedCloneOptions & { prepareTimeout: number }
+
+      const prepareResult = await result.instance.clone(target, options) as unknown as StagedPrepareResult
+
+      // Advance time past prepare timeout without coordinator decision
+      await vi.advanceTimersByTimeAsync(prepareTimeout + 1000)
+
+      // Transaction should be auto-aborted due to timeout
+      const doWithGetTokenStatus = result.instance as unknown as {
+        getCloneTokenStatus: (token: string) => Promise<{ valid: boolean; status: string }>
+      }
+
+      if (doWithGetTokenStatus.getCloneTokenStatus) {
+        const status = await doWithGetTokenStatus.getCloneTokenStatus(prepareResult.token)
+        expect(status.status).toBe('aborted')
+      }
+    })
+
+    it('should log coordinator decisions for audit', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await doWithCommit.commitClone(prepareResult.token)
+
+      // Check audit log
+      const auditKey = `2pc:audit:${prepareResult.token}`
+      const auditLog = await result.storage.get(auditKey) as TransactionAuditLog
+
+      expect(auditLog).toBeDefined()
+      expect(auditLog.events).toContainEqual(expect.objectContaining({
+        type: 'prepare',
+        status: 'completed',
+      }))
+      expect(auditLog.events).toContainEqual(expect.objectContaining({
+        type: 'commit',
+        status: 'completed',
+      }))
+    })
+  })
+
+  // ==========================================================================
+  // PARTICIPANT FAILURE RECOVERY
+  // ==========================================================================
+
+  describe('Recovery from Participant Failure', () => {
+    it('should handle participant crash during prepare', async () => {
+      const target = 'https://crashing.test.do'
+      let prepareAttempted = false
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async (req: Request) => {
+          if (req.url.includes('prepare')) {
+            prepareAttempted = true
+            throw new Error('Participant crashed')
+          }
+          return new Response('OK')
+        }),
+      })
+
+      await expect(
+        result.instance.clone(target, { mode: 'staged' })
+      ).rejects.toThrow(/participant.*crashed|prepare.*failed/i)
+
+      expect(prepareAttempted).toBe(true)
+    })
+
+    it('should handle participant crash during commit', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Mock participant crashing during commit
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async (req: Request) => {
+          if (req.url.includes('commit')) {
+            throw new Error('Participant crashed during commit')
+          }
+          return new Response(JSON.stringify({ status: 'ok' }))
+        }),
+      })
+
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+
+      // Commit should fail but track the need for recovery
+      await expect(doWithCommit.commitClone(prepareResult.token)).rejects.toThrow()
+
+      // Transaction should be marked for recovery
+      const recoveryKey = `2pc:recovery:${prepareResult.token}`
+      const recoveryState = await result.storage.get(recoveryKey)
+
+      expect(recoveryState).toBeDefined()
+      expect((recoveryState as Record<string, unknown>)?.needsRecovery).toBe(true)
+    })
+
+    it('should retry commit to failed participant', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      let commitAttempts = 0
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = (id) => ({
+        id,
+        fetch: vi.fn().mockImplementation(async (req: Request) => {
+          if (req.url.includes('commit')) {
+            commitAttempts++
+            if (commitAttempts < 3) {
+              throw new Error('Temporary failure')
+            }
+          }
+          return new Response(JSON.stringify({ status: 'ok' }))
+        }),
+      })
+
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      const commitResult = await doWithCommit.commitClone(prepareResult.token)
+
+      expect(commitResult.phase).toBe('committed')
+      expect(commitAttempts).toBe(3)
+    })
+
+    it('should allow participant to query transaction status from coordinator', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Commit the transaction
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await doWithCommit.commitClone(prepareResult.token)
+
+      // Participant should be able to query coordinator for decision
+      const doWithQueryDecision = result.instance as unknown as {
+        getDecision: (token: string) => Promise<{ decision: 'commit' | 'abort' | 'pending' }>
+      }
+
+      if (doWithQueryDecision.getDecision) {
+        const decision = await doWithQueryDecision.getDecision(prepareResult.token)
+        expect(decision.decision).toBe('commit')
+      }
+    })
+
+    it('should handle participant recovery after crash with prepared state', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Simulate participant having prepared state but uncertain about decision
+      // (participant crashed after prepare but before receiving commit)
+      const doWithParticipantRecovery = result.instance as unknown as {
+        handleParticipantRecoveryQuery: (participantNs: string, token: string) => Promise<ParticipantRecoveryResponse>
+      }
+
+      if (doWithParticipantRecovery.handleParticipantRecoveryQuery) {
+        // Before commit, participant should wait
+        const recoveryBeforeCommit = await doWithParticipantRecovery.handleParticipantRecoveryQuery(
+          target,
+          prepareResult.token
+        )
+        expect(recoveryBeforeCommit.action).toBe('wait')
+
+        // Commit the transaction
+        const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+        await doWithCommit.commitClone(prepareResult.token)
+
+        // After commit, participant should complete commit
+        const recoveryAfterCommit = await doWithParticipantRecovery.handleParticipantRecoveryQuery(
+          target,
+          prepareResult.token
+        )
+        expect(recoveryAfterCommit.action).toBe('commit')
+      }
+    })
+
+    it('should handle permanent participant failure with manual intervention', async () => {
+      const target = 'https://permanently-dead.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Mock permanent failure
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = () => ({
+        id: { toString: () => 'dead-id', equals: () => false },
+        fetch: vi.fn().mockRejectedValue(new Error('Participant permanently unavailable')),
+      })
+
+      // Attempt commit fails
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await expect(doWithCommit.commitClone(prepareResult.token)).rejects.toThrow()
+
+      // Manual intervention to force complete
+      const doWithForce = result.instance as unknown as {
+        forceCompleteTransaction: (token: string, decision: 'commit' | 'abort') => Promise<void>
+      }
+
+      if (doWithForce.forceCompleteTransaction) {
+        await doWithForce.forceCompleteTransaction(prepareResult.token, 'abort')
+
+        // Transaction should now be marked as complete
+        const doWithGetTokenStatus = result.instance as unknown as {
+          getCloneTokenStatus: (token: string) => Promise<{ valid: boolean; status: string }>
+        }
+
+        if (doWithGetTokenStatus.getCloneTokenStatus) {
+          const status = await doWithGetTokenStatus.getCloneTokenStatus(prepareResult.token)
+          expect(status.status).toBe('force_aborted')
+        }
+      }
+    })
+
+    it('should track participant state transitions for debugging', async () => {
+      const target = 'https://target.test.do'
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      const doWithCommit = result.instance as unknown as { commitClone: (token: string) => Promise<StagedCommitResult> }
+      await doWithCommit.commitClone(prepareResult.token)
+
+      // Get participant state history
+      const doWithHistory = result.instance as unknown as {
+        getParticipantHistory: (token: string, participantNs: string) => Promise<ParticipantStateHistory>
+      }
+
+      if (doWithHistory.getParticipantHistory) {
+        const history = await doWithHistory.getParticipantHistory(prepareResult.token, target)
+
+        expect(history.transitions).toContainEqual(expect.objectContaining({
+          from: 'initial',
+          to: 'prepared',
+        }))
+        expect(history.transitions).toContainEqual(expect.objectContaining({
+          from: 'prepared',
+          to: 'committed',
+        }))
+      }
+    })
+
+    it('should emit events for participant failures', async () => {
+      const events: StagedCloneEvent[] = []
+      const originalEmit = (result.instance as unknown as { emitEvent: (verb: string, data: unknown) => Promise<void> }).emitEvent
+      ;(result.instance as unknown as { emitEvent: (verb: string, data: unknown) => Promise<void> }).emitEvent = async (verb: string, data: unknown) => {
+        events.push({ type: verb as StagedCloneEventType, timestamp: new Date(), data })
+        return originalEmit?.call(result.instance, verb, data)
+      }
+
+      const target = 'https://failing.test.do'
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = () => ({
+        id: { toString: () => 'fail-id', equals: () => false },
+        fetch: vi.fn().mockRejectedValue(new Error('Participant failed')),
+      })
+
+      await expect(
+        result.instance.clone(target, { mode: 'staged' })
+      ).rejects.toThrow()
+
+      const failureEvents = events.filter(e =>
+        e.type === 'clone.participant.failed' as unknown as StagedCloneEventType
+      )
+      expect(failureEvents.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ==========================================================================
+  // TIMEOUT HANDLING
+  // ==========================================================================
+
+  describe('Timeout Handling', () => {
+    it('should timeout prepare phase if participant does not respond', async () => {
+      const target = 'https://slow-target.test.do'
+      const prepareTimeout = 2000 // 2 seconds
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = () => ({
+        id: { toString: () => 'slow-id', equals: () => false },
+        fetch: vi.fn().mockImplementation(async () => {
+          // Simulate very slow participant
+          await new Promise(resolve => setTimeout(resolve, 10000))
+          return new Response('OK')
+        }),
+      })
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        prepareTimeout,
+      } as StagedCloneOptions & { prepareTimeout: number }
+
+      const preparePromise = result.instance.clone(target, options)
+
+      // Advance time past prepare timeout
+      await vi.advanceTimersByTimeAsync(prepareTimeout + 1000)
+
+      await expect(preparePromise).rejects.toThrow(/timeout|prepare/i)
+    })
+
+    it('should timeout commit phase if participant does not acknowledge', async () => {
+      const target = 'https://target.test.do'
+      const commitTimeout = 2000 // 2 seconds
+
+      const prepareResult = await result.instance.clone(target, { mode: 'staged' }) as unknown as StagedPrepareResult
+
+      // Mock slow commit acknowledgment
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = () => ({
+        id: { toString: () => 'slow-commit-id', equals: () => false },
+        fetch: vi.fn().mockImplementation(async (req: Request) => {
+          if (req.url.includes('commit')) {
+            await new Promise(resolve => setTimeout(resolve, 10000))
+          }
+          return new Response(JSON.stringify({ status: 'ok' }))
+        }),
+      })
+
+      const doWithCommit = result.instance as unknown as {
+        commitClone: (token: string, options?: { timeout?: number }) => Promise<StagedCommitResult>
+      }
+
+      const commitPromise = doWithCommit.commitClone(prepareResult.token, { timeout: commitTimeout })
+
+      // Advance time past commit timeout
+      await vi.advanceTimersByTimeAsync(commitTimeout + 1000)
+
+      await expect(commitPromise).rejects.toThrow(/timeout|commit/i)
+    })
+
+    it('should respect per-phase timeout configuration', async () => {
+      const target = 'https://target.test.do'
+
+      const options: StagedCloneOptions & {
+        prepareTimeout: number
+        commitTimeout: number
+        abortTimeout: number
+      } = {
+        mode: 'staged',
+        prepareTimeout: 5000,
+        commitTimeout: 10000,
+        abortTimeout: 3000,
+      }
+
+      const prepareResult = await result.instance.clone(target, options) as unknown as StagedPrepareResult
+
+      // Verify the timeouts are stored with the transaction
+      const txKey = `2pc:config:${prepareResult.token}`
+      const txConfig = await result.storage.get(txKey) as Record<string, unknown>
+
+      expect(txConfig).toBeDefined()
+      expect(txConfig.prepareTimeout).toBe(5000)
+      expect(txConfig.commitTimeout).toBe(10000)
+      expect(txConfig.abortTimeout).toBe(3000)
+    })
+
+    it('should trigger abort on prepare timeout', async () => {
+      const target = 'https://timeout-target.test.do'
+      const prepareTimeout = 1000
+
+      const mockNamespace = result.env.DO!
+      mockNamespace.stubFactory = () => ({
+        id: { toString: () => 'timeout-id', equals: () => false },
+        fetch: vi.fn().mockImplementation(async () => {
+          await new Promise(resolve => setTimeout(resolve, 5000))
+          return new Response('OK')
+        }),
+      })
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        prepareTimeout,
+      } as StagedCloneOptions & { prepareTimeout: number }
+
+      const preparePromise = result.instance.clone(target, options)
+
+      await vi.advanceTimersByTimeAsync(prepareTimeout + 500)
+
+      await expect(preparePromise).rejects.toThrow(/timeout/i)
+
+      // Transaction should be aborted
+      const txKey = `2pc:state:timeout-target.test.do`
+      const txState = await result.storage.get(txKey)
+      if (txState) {
+        expect((txState as Record<string, unknown>).status).toBe('aborted')
+      }
+    })
+
+    it('should extend timeout on progress', async () => {
+      const target = 'https://target.test.do'
+      const baseTimeout = 5000
+
+      const options: StagedCloneOptions = {
+        mode: 'staged',
+        dynamicTimeout: true,
+        baseTimeout,
+      } as StagedCloneOptions & { dynamicTimeout: boolean; baseTimeout: number }
+
+      // Start prepare with dynamic timeout
+      const preparePromise = result.instance.clone(target, options)
+
+      // Simulate progress being made
+      await vi.advanceTimersByTimeAsync(baseTimeout - 1000)
+
+      // Transaction should still be active if progress is being made
+      const doWithGetProgress = result.instance as unknown as {
+        getTransactionProgress: (target: string) => Promise<{ active: boolean }>
+      }
+
+      if (doWithGetProgress.getTransactionProgress) {
+        const progress = await doWithGetProgress.getTransactionProgress(target)
+        expect(progress.active).toBe(true)
+      }
+
+      await preparePromise
+    })
+  })
 })
+
+// ==========================================================================
+// ADDITIONAL TYPE DEFINITIONS FOR NEW TESTS
+// ==========================================================================
+
+/**
+ * Coordinator information
+ */
+interface CoordinatorInfo {
+  /** Coordinator namespace */
+  ns: string
+  /** Whether this DO is the coordinator */
+  isCoordinator: boolean
+  /** Transaction token */
+  token: string
+  /** Participants in the transaction */
+  participants: string[]
+}
+
+/**
+ * Transaction log entry
+ */
+interface TransactionLogEntry {
+  /** Phase of the transaction */
+  phase: 'prepare' | 'commit' | 'abort'
+  /** Status of the phase */
+  status: 'pending' | 'completed' | 'failed'
+  /** Timestamp */
+  timestamp: Date
+  /** Additional data */
+  data?: unknown
+}
+
+/**
+ * Result of multi-target staged prepare
+ */
+interface MultiStagedPrepareResult {
+  /** Overall transaction token */
+  token: string
+  /** Whether all participants are prepared */
+  allPrepared: boolean
+  /** Individual participant results */
+  participants: Array<{
+    target: string
+    status: 'prepared' | 'failed'
+    token?: string
+    error?: string
+  }>
+}
+
+/**
+ * Participant acknowledgment
+ */
+interface ParticipantAck {
+  /** Target namespace */
+  target: string
+  /** Status of the acknowledgment */
+  status: 'ready' | 'prepared' | 'committed' | 'aborted' | 'failed'
+  /** Participant's vote */
+  vote?: 'yes' | 'no'
+  /** Timestamp */
+  timestamp: Date
+  /** Reason if failed or voting no */
+  reason?: string
+}
+
+/**
+ * Extended StagedPrepareResult with participant ack
+ */
+interface ExtendedStagedPrepareResult extends StagedPrepareResult {
+  participantAck?: ParticipantAck
+}
+
+/**
+ * Recovered transaction state
+ */
+interface RecoveredTransactionState {
+  /** Whether transaction was found */
+  found: boolean
+  /** Phase of the transaction */
+  phase: 'prepared' | 'committing' | 'aborting' | 'committed' | 'aborted'
+  /** Target namespace */
+  target: string
+  /** Whether transaction can be completed */
+  canComplete: boolean
+  /** Original prepare metadata */
+  metadata?: unknown
+}
+
+/**
+ * Resumed transaction info
+ */
+interface ResumedTransaction {
+  /** Transaction token */
+  token: string
+  /** Action taken */
+  action: 'commit' | 'abort' | 'retry'
+  /** Result of the action */
+  result: 'success' | 'pending' | 'failed'
+}
+
+/**
+ * Transaction audit log
+ */
+interface TransactionAuditLog {
+  /** Transaction token */
+  token: string
+  /** Events in the transaction */
+  events: Array<{
+    type: 'prepare' | 'commit' | 'abort'
+    status: 'started' | 'completed' | 'failed'
+    timestamp: Date
+    details?: unknown
+  }>
+}
+
+/**
+ * Participant recovery response
+ */
+interface ParticipantRecoveryResponse {
+  /** Action for participant to take */
+  action: 'commit' | 'abort' | 'wait' | 'retry'
+  /** Additional info */
+  details?: unknown
+}
+
+/**
+ * Participant state history
+ */
+interface ParticipantStateHistory {
+  /** Participant namespace */
+  participant: string
+  /** State transitions */
+  transitions: Array<{
+    from: string
+    to: string
+    timestamp: Date
+    trigger: string
+  }>
+}

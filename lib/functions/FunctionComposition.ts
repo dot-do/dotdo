@@ -360,11 +360,11 @@ export function parallel(
 
     for (let i = 0; i < functions.length; i++) {
       const fn = functions[i]
-      const promise = fn(input, context)
-        .then((result) => {
+      const promise = Promise.resolve(fn(input, context))
+        .then((result: unknown) => {
           results[i] = result
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           if (stopOnFirstError) {
             throw error
           }
@@ -632,8 +632,8 @@ export function mapOver<TItem, TOutput>(
         const executing: Set<Promise<void>> = new Set()
 
         for (let i = 0; i < input.length; i++) {
-          const promise = fn(input[i], context)
-            .then((result) => {
+          const promise = Promise.resolve(fn(input[i], context))
+            .then((result: TOutput) => {
               results[i] = result
             }) as unknown as Promise<void>
 

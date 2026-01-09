@@ -106,7 +106,11 @@ export class Worker extends DO {
       const duration = Date.now() - startTime
       const errorMessage = error instanceof Error ? error.message : String(error)
 
-      await this.failAction(action.id, { error: errorMessage, duration })
+      await this.failAction(action.id, {
+        message: errorMessage,
+        name: error instanceof Error ? error.name : 'Error',
+        stack: error instanceof Error ? error.stack : undefined
+      })
       await this.emit('task.failed', { taskId: task.id, error: errorMessage, duration })
 
       return { success: false, error: errorMessage, duration }

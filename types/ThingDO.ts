@@ -282,7 +282,7 @@ export function createThingDO(
           const all = await thingDO.list(type)
           return all.filter((item) => {
             for (const [key, value] of Object.entries(query)) {
-              if ((item as Record<string, unknown>)[key] !== value) {
+              if ((item as unknown as Record<string, unknown>)[key] !== value) {
                 return false
               }
             }

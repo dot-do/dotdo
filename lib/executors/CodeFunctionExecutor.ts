@@ -940,7 +940,7 @@ export class CodeFunctionExecutor {
     context: ExecutionContext,
     options: ExecutionOptions,
     signal: AbortSignal
-  ): Promise<TOutput> {
+  ): Promise<{ result: TOutput; cpuTime: number }> {
     // Check memory limit before execution
     const maxMemory =
       options.resourceLimits?.maxMemory || CodeFunctionExecutor.DEFAULT_MEMORY_LIMIT
@@ -1033,9 +1033,9 @@ export class CodeFunctionExecutor {
       const result = await Promise.race([
         (async () => {
           // Intercept console calls by wrapping handler execution
-          const originalConsole = globalThis.console
+          const originalConsole = (globalThis as unknown as { console: Console }).console
           try {
-            ;(globalThis as { console: Console }).console = sandboxedConsole
+            ;(globalThis as unknown as { console: Console }).console = sandboxedConsole
 
             // Call handler and immediately capture sync execution time
             const handlerResult = handler(input, context)
@@ -1068,7 +1068,7 @@ export class CodeFunctionExecutor {
 
             return resolved
           } finally {
-            ;(globalThis as { console: Console }).console = originalConsole
+            ;(globalThis as unknown as { console: Console }).console = originalConsole
           }
         })(),
         new Promise<never>((_, reject) => {
@@ -1116,7 +1116,7 @@ export class CodeFunctionExecutor {
     input: TInput,
     context: ExecutionContext,
     signal: AbortSignal
-  ): Promise<{ result: TOutput; cpuTime: number }> {
+  ): Promise<{ result: Awaited<TOutput>; cpuTime: number }> {
     const startTime = performance.now()
 
     // Call handler and capture sync execution time
@@ -1210,13 +1210,9 @@ export class CodeFunctionExecutor {
   private estimateMemoryUsage(): number {
     // In a real implementation, this would use performance.memory or similar
     // For now, return a rough estimate based on heap info if available
-    if (
-      typeof globalThis !== 'undefined' &&
-      'performance' in globalThis &&
-      (globalThis.performance as { memory?: { usedJSHeapSize: number } }).memory
-    ) {
-      return (globalThis.performance as { memory: { usedJSHeapSize: number } })
-        .memory.usedJSHeapSize
+    const perf = (globalThis as unknown as { performance?: { memory?: { usedJSHeapSize: number } } }).performance
+    if (perf?.memory) {
+      return perf.memory.usedJSHeapSize
     }
     // Return a nominal value for environments without memory API
     return 1024 * 1024 // 1MB placeholder

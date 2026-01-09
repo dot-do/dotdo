@@ -157,14 +157,14 @@ function createModifierInstance(state: ModifierState): Modifier {
       return createModifierInstance({
         ...state,
         inputTransformers: [...state.inputTransformers, fn],
-      })
+      }) as Modifier<unknown, TNewOut>
     },
 
     output<TNewOut>(fn: OutputModifierFunction<unknown, unknown, TNewOut>): Modifier<unknown, TNewOut> {
       return createModifierInstance({
         ...state,
         outputTransformers: [...state.outputTransformers, fn],
-      })
+      }) as Modifier<unknown, TNewOut>
     },
 
     when(condition: ConditionFunction): Modifier {
@@ -269,7 +269,7 @@ export function modifier(config?: ModifierConfig): Modifier {
 export function inputModifier<TIn = unknown, TOut = unknown>(
   fn: InputModifierFunction<TIn, TOut>
 ): Modifier<TIn, TOut> {
-  return modifier().input(fn) as Modifier<TIn, TOut>
+  return modifier().input(fn as InputModifierFunction<unknown, TOut>) as Modifier<TIn, TOut>
 }
 
 /**
@@ -286,7 +286,7 @@ export function inputModifier<TIn = unknown, TOut = unknown>(
 export function outputModifier<TResult = unknown, TOut = unknown>(
   fn: OutputModifierFunction<TResult, unknown, TOut>
 ): Modifier<unknown, TOut> {
-  return modifier().output(fn)
+  return modifier().output(fn as OutputModifierFunction<unknown, unknown, TOut>)
 }
 
 /**
