@@ -80,9 +80,6 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
-  // Objects testing infrastructure tests
-  createNodeWorkspace('objects-testing', ['objects/testing/tests/**/*.test.ts']),
-
   // Library utility tests (sqids, mixins, executors, etc.)
   createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts']),
 
