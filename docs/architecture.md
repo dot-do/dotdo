@@ -115,7 +115,7 @@ search
 
 ### 3. Actions (Functions)
 
-Four function types with different execution characteristics:
+**Function<Output, Input, Options>** is implementation-agnostic. Four types with different execution characteristics:
 
 ```
 +------------------------------------------------------------------------------+
@@ -137,6 +137,34 @@ Four function types with different execution characteristics:
 +------------------------------------------------------------------------------+
 ```
 
+**Natural Expression:**
+
+```typescript
+// Code - just write code
+export const sum = (a, b) => a + b
+
+// Generative - ai.* template
+const brand = ai.storyBrand({ hero: customer, problem: pain })
+
+// Agentic - amy template literal
+const research = amy`research ${competitor} market position`
+
+// Human - user template literal
+const approval = user`please review ${expense} for ${amount}`
+```
+
+**Cascade Pattern** (try simpler/cheaper first):
+
+```
+Code (fastest, cheapest, deterministic)
+  ↓ fails
+Generative (AI inference, single call)
+  ↓ fails
+Agentic (AI + tools, multi-step)
+  ↓ fails
+Human (slowest, most expensive, guaranteed judgment)
+```
+
 **Execution Durability Spectrum:**
 
 ```typescript
@@ -144,6 +172,8 @@ $.send(event, data) // Fire-and-forget (non-blocking, non-durable)
 $.try(action, data) // Quick attempt (blocking, non-durable)
 $.do(action, data) // Durable execution (blocking, retries, guaranteed)
 ```
+
+See [Functions Concept](/docs/concepts/functions) for details.
 
 ---
 
@@ -238,6 +268,68 @@ await do.branch('experiment')              // Create branch
 await do.checkout('@v1234')                // Switch to version/branch
 await do.merge('experiment')               // Merge branch
 ```
+
+---
+
+## Experiments
+
+**Branches ARE Variants.** Every Thing has a `branch` field (default: `main`). Experiments compare branches with traffic allocation.
+
+### Experiment Schema
+
+```typescript
+Experiment: {
+  thing: string           // 'qualifyLead'
+  branches: string[]      // ['main', 'ai-experiment']
+  traffic: number         // 0-1, percentage in experiment
+  metric: string          // 'Sales.qualified'
+  status: 'draft' | 'running' | 'completed'
+  winner?: string         // Winning branch
+}
+```
+
+### Deterministic Assignment
+
+```typescript
+function resolveBranch(userId: string, thingId: string): string {
+  const experiment = getActiveExperiment(thingId)
+  if (!experiment) return 'main'
+
+  const trafficHash = hash(`${userId}:${experiment.id}`)
+  if (trafficHash % 10000 > experiment.traffic * 10000) {
+    return 'main'
+  }
+
+  const branchHash = hash(`${userId}:${experiment.id}:branch`)
+  return experiment.branches[branchHash % experiment.branches.length]
+}
+```
+
+### Git Semantics
+
+```typescript
+await $.Function('qualifyLead').branch('ai-experiment')    // Create variant
+await $.Function('qualifyLead@ai-experiment').update(...)  // Edit variant
+await $.Function('qualifyLead').merge('ai-experiment')     // Winner → main
+await $.Function('qualifyLead').diff('main', 'ai-v1')      // Compare
+```
+
+### Three Layers of Making Things Deterministic
+
+1. **is\` assertions** - `is\`${output} valid JSON?\`` → boolean
+2. **LLM-as-judge** - `prefer\`${A} vs ${B}\`` → arena-style ranking
+3. **Real-world experiments** - A/B test → conversions → deterministic winner
+
+### Feature Flags
+
+Feature flags are simple experiments:
+
+```typescript
+const enabled = await $.flag('new-checkout').isEnabled(userId)
+// Just: does branch exist + is user assigned to it
+```
+
+See [Experiments Concept](/docs/concepts/experiments) for details.
 
 ---
 
@@ -568,7 +660,11 @@ async requestApproval(request: ApprovalRequest): Promise<void> {
 
 ---
 
-## Event Streaming
+## 5W+H Events
+
+Every event captures the universal **5W+H** questions: WHO, WHAT, WHEN, WHERE, WHY, and HOW.
+
+### Event Flow
 
 ```
 +------------------------------------------------------------------+
@@ -583,32 +679,99 @@ async requestApproval(request: ApprovalRequest): Promise<void> {
 |                           |                                       |
 |                           v                                       |
 |  Cloudflare          +----+-----+                                |
-|  Pipeline            | Pipeline |                                |
+|  Pipeline            | do_events|                                |
 |                      +----+-----+                                |
 |                           |                                       |
 |                           v                                       |
 |  R2 Storage          +----+-----+      +------------+            |
-|                      | Iceberg  | ---> |   R2 SQL   |            |
-|                      |  tables  |      |  queries   |            |
+|                      | Parquet  | ---> | /api/search|            |
+|                      |  tables  |      |  + EPCIS   |            |
 |                      +----------+      +------------+            |
 |                                                                   |
 +------------------------------------------------------------------+
 ```
 
+### 5W+H Schema
+
+| Question | Field(s) | Description |
+|----------|----------|-------------|
+| **WHO** | actor, source, destination | Who did it |
+| **WHAT** | object, type, quantity | What was affected |
+| **WHEN** | timestamp, recorded | When it happened |
+| **WHERE** | ns, location, readPoint | Where it happened |
+| **WHY** | verb, disposition, reason | Why it happened |
+| **HOW** | method, branch, model, tools, channel | How it happened |
+
 ### Event Schema
 
 ```typescript
-events = {
-  id: UUID,
-  verb: 'created' | 'updated' | 'deleted' | ...,
-  source: 'startups.studio/Startup/acme',  // URL
-  data: { ... },                            // Payload
-  actionId: UUID,                           // Related action
-  sequence: number,                         // Ordering
-  streamed: boolean,                        // Sent to Pipeline?
-  createdAt: timestamp
+Event: {
+  // WHO
+  actor: string              // User/Agent performing action
+  source?: string            // Origin location/system
+  destination?: string       // Target location/system
+
+  // WHAT
+  object: string             // Sqid / Thing ID
+  type: string               // Noun type
+  quantity?: number          // Amount (for countable events)
+
+  // WHEN
+  timestamp: datetime        // When it happened
+  recorded: datetime         // When we recorded it
+
+  // WHERE
+  ns: string                 // Namespace (DO identity)
+  location?: string          // Physical/logical location
+  readPoint?: string         // Capture point (sensor, API, etc.)
+
+  // WHY
+  verb: string               // Action taken
+  disposition?: string       // State after event
+  reason?: string            // Business reason
+
+  // HOW
+  method?: 'code' | 'generative' | 'agentic' | 'human'
+  branch?: string            // Which variant/experiment
+  model?: string             // Which AI model (if AI)
+  tools?: string[]           // Which tools (if agentic)
+  channel?: string           // Which channel (if human)
+  cascade?: json             // Cascade path taken
+  transaction?: string       // Business transaction ID
+  context?: json             // Additional data
 }
 ```
+
+### EPCIS Compatibility
+
+Our 5W+H model maps 1:1 to [EPCIS 2.0](https://www.gs1.org/epcis):
+
+| 5W+H | EPCIS Field |
+|------|-------------|
+| WHO | source, destination |
+| WHAT | epcList, parentID |
+| WHEN | eventTime, recordTime |
+| WHERE | readPoint, bizLocation |
+| WHY | bizStep, disposition |
+| HOW | bizTransaction |
+
+Query via `/api/search` with EPCIS query params:
+
+```
+GET /api/search?eventType=ObjectEvent&bizStep=shipping&MATCH_epc=urn:epc:id:sgtin:...
+```
+
+### Events Endpoint
+
+All events flow through `/e` → `do_events` pipeline → R2 Parquet:
+
+```typescript
+// POST /e - accepts any format, normalizes to 5W+H
+const events = normalize(body)  // Detects: internal, EPCIS, evalite
+await env.DO_EVENTS.send(events)
+```
+
+See [Events Concept](/docs/concepts/events) for details.
 
 ---
 

@@ -1,0 +1,179 @@
+---
+title: Experiments
+description: Branch-based A/B testing and feature flags using git semantics
+---
+
+# Experiments
+
+**Branches ARE Variants.** Every Thing has a `branch` field (default: `main`). Experiments compare branches with traffic allocation to determine winners through real-world data.
+
+## Core Insight
+
+Instead of building a separate experimentation system, we use the existing `branch` field in the things table:
+
+```sql
+things (
+  rowid INTEGER PRIMARY KEY,
+  id TEXT,
+  type TEXT,
+  branch TEXT DEFAULT 'main',  -- THIS IS THE KEY
+  data JSON,
+  ...
+)
+```
+
+## Experiment Schema
+
+```typescript
+Experiment: {
+  thing: string           // 'qualifyLead'
+  branches: string[]      // ['main', 'ai-experiment']
+  traffic: number         // 0-1, percentage in experiment
+  metric: string          // 'Sales.qualified'
+  status: 'draft' | 'running' | 'completed'
+  winner?: string         // Winning branch
+}
+```
+
+## Deterministic Assignment
+
+Users are assigned to branches deterministically via hash, ensuring consistent experience:
+
+```typescript
+function resolveBranch(userId: string, thingId: string): string {
+  const experiment = getActiveExperiment(thingId)
+  if (!experiment) return 'main'
+
+  // First check if user is in traffic allocation
+  const trafficHash = hash(`${userId}:${experiment.id}`)
+  if (trafficHash % 10000 > experiment.traffic * 10000) {
+    return 'main'  // Not in experiment
+  }
+
+  // Assign to branch
+  const branchHash = hash(`${userId}:${experiment.id}:branch`)
+  return experiment.branches[branchHash % experiment.branches.length]
+}
+```
+
+## Git Semantics
+
+Experiments use familiar git-like operations:
+
+```typescript
+// Create a variant
+await $.Function('qualifyLead').branch('ai-experiment')
+
+// Edit the variant
+await $.Function('qualifyLead@ai-experiment').update({
+  type: 'generative',
+  prompt: 'Qualify this lead using AI analysis...'
+})
+
+// Compare branches
+await $.Function('qualifyLead').diff('main', 'ai-experiment')
+
+// Merge winner to main
+await $.Function('qualifyLead').merge('ai-experiment')
+```
+
+## Three Layers of Determinism
+
+Building deterministic systems from non-deterministic components:
+
+### 1. is\` Assertions
+
+Simple boolean checks on outputs:
+
+```typescript
+const valid = is`${output} valid JSON?`
+const safe = is`${response} free of PII?`
+```
+
+### 2. LLM-as-Judge
+
+Arena-style preference ranking:
+
+```typescript
+const preferred = prefer`${responseA} vs ${responseB} for clarity`
+// Returns which response wins
+```
+
+### 3. Real-World Experiments
+
+A/B test with actual users, measure conversions, winner becomes deterministic:
+
+```typescript
+// Define experiment
+await $.Experiment.create({
+  thing: 'qualifyLead',
+  branches: ['main', 'ai-v1', 'ai-v2'],
+  traffic: 0.2,  // 20% in experiment
+  metric: 'Sales.qualified'
+})
+
+// Later, when we have data
+await $.Experiment('lead-qual-test').complete('ai-v1')
+// Winner merged to main
+```
+
+## Feature Flags
+
+Feature flags are simple experiments with boolean outcomes:
+
+```typescript
+const enabled = await $.flag('new-checkout').isEnabled(userId)
+// Just: does branch exist + is user assigned to it
+```
+
+### Creating Feature Flags
+
+```typescript
+// Create a flag
+await $.Flag.create({ id: 'new-checkout', traffic: 0.5 })
+
+// Check flag
+if (await $.flag('new-checkout').isEnabled(userId)) {
+  // New checkout flow
+} else {
+  // Old checkout flow
+}
+
+// Roll out to everyone
+await $.flag('new-checkout').enable()
+
+// Or roll back
+await $.flag('new-checkout').disable()
+```
+
+## Exposure Events
+
+Every branch assignment emits an exposure event for analytics:
+
+```typescript
+// Automatically recorded
+{
+  verb: 'exposed',
+  object: 'qualifyLead',
+  actor: userId,
+  branch: 'ai-experiment',
+  experiment: 'lead-qual-test'
+}
+```
+
+## Statistics
+
+Query experiment performance:
+
+```typescript
+const stats = await $.Experiment('lead-qual-test').stats()
+// {
+//   branches: {
+//     'main': { conversions: 120, total: 1000, rate: 0.12 },
+//     'ai-v1': { conversions: 180, total: 1000, rate: 0.18 },
+//     'ai-v2': { conversions: 150, total: 1000, rate: 0.15 }
+//   },
+//   significance: 0.95,
+//   recommendation: 'ai-v1'
+// }
+```

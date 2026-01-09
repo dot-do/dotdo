@@ -1,0 +1,184 @@
+---
+title: Events
+description: 5W+H event model with EPCIS compatibility
+---
+
+# 5W+H Events
+
+Every event captures the universal **5W+H** questions: WHO, WHAT, WHEN, WHERE, WHY, and HOW. This model maps 1:1 to EPCIS 2.0 for supply chain interoperability.
+
+## The Universal Event
+
+| Question | Field(s) | Description |
+|----------|----------|-------------|
+| **WHO** | actor, source, destination | Who did it |
+| **WHAT** | object, type, quantity | What was affected |
+| **WHEN** | timestamp, recorded | When it happened |
+| **WHERE** | ns, location, readPoint | Where it happened |
+| **WHY** | verb, disposition, reason | Why it happened |
+| **HOW** | method, branch, model, tools, channel | How it happened |
+
+## Event Schema
+
+```typescript
+Event: {
+  // WHO - Identity
+  actor: string              // User/Agent performing action
+  source?: string            // Origin location/system
+  destination?: string       // Target location/system
+
+  // WHAT - Objects
+  object: string             // Sqid / Thing ID
+  type: string               // Noun type
+  quantity?: number          // Amount (for countable events)
+
+  // WHEN - Time
+  timestamp: datetime        // When it happened (business time)
+  recorded: datetime         // When we recorded it (system time)
+
+  // WHERE - Location
+  ns: string                 // Namespace (DO identity)
+  location?: string          // Physical/logical location
+  readPoint?: string         // Capture point (sensor, API, etc.)
+
+  // WHY - Purpose
+  verb: string               // Action taken
+  disposition?: string       // State after event
+  reason?: string            // Business reason
+
+  // HOW - Method
+  method?: 'code' | 'generative' | 'agentic' | 'human'
+  branch?: string            // Which variant/experiment
+  model?: string             // Which AI model (if AI)
+  tools?: string[]           // Which tools (if agentic)
+  channel?: string           // Which channel (if human)
+  cascade?: json             // Cascade path taken
+  transaction?: string       // Business transaction ID
+  context?: json             // Additional data
+}
+```
+
+## Event Flow
+
+```
+DO Internal → Events Table → do_events Pipeline → R2 Parquet → /api/search
+```
+
+All events flow through a unified pipeline:
+
+1. **DO emits event** - Action completes, event recorded locally
+2. **Pipeline streams** - Events sent to `do_events` Cloudflare Pipeline
+3. **Parquet storage** - Events written to R2 in Parquet format
+4. **Query via search** - `/api/search` queries the Parquet tables
+
+## Events Endpoint
+
+The `/e` endpoint accepts events in any format:
+
+```typescript
+// POST /e - accepts any format, normalizes to 5W+H
+export default {
+  async fetch(request: Request, env: Env) {
+    const body = await request.json()
+    const events = normalize(body)  // Detects format
+    await env.DO_EVENTS.send(events)
+    return Response.json({ ok: true, count: events.length })
+  }
+}
+```
+
+### Supported Formats
+
+The normalizer detects and handles:
+
+- **Internal events** - Native 5W+H format
+- **EPCIS events** - GS1 supply chain events
+- **Evalite traces** - AI evaluation events
+- **Custom formats** - Via registered adapters
+
+## EPCIS Compatibility
+
+Our 5W+H model maps 1:1 to [EPCIS 2.0](https://www.gs1.org/epcis):
+
+| 5W+H | EPCIS Field |
+|------|-------------|
+| WHO | source, destination |
+| WHAT | epcList, parentID |
+| WHEN | eventTime, recordTime |
+| WHERE | readPoint, bizLocation |
+| WHY | bizStep, disposition |
+| HOW | bizTransaction |
+
+### EPCIS Query Support
+
+Query events using EPCIS query parameters via `/api/search`:
+
+```
+GET /api/search?eventType=ObjectEvent&bizStep=shipping&MATCH_epc=urn:epc:id:sgtin:...
+```
+
+### EPCIS Event Types
+
+| Event Type | Description |
+|------------|-------------|
+| ObjectEvent | Something happened to objects |
+| AggregationEvent | Objects grouped/ungrouped |
+| TransactionEvent | Objects linked to business transaction |
+| TransformationEvent | Inputs transformed to outputs |
+| AssociationEvent | Objects associated/disassociated |
+
+## Digital vs Physical Events
+
+EPCIS was designed for physical supply chains (shipping, receiving). Our 5W+H model extends this for digital events:
+
+| Physical (EPCIS) | Digital (5W+H) |
+|------------------|----------------|
+| readPoint: warehouse scanner | readPoint: API endpoint |
+| bizLocation: store #123 | ns: app.example.com |
+| bizStep: shipping | verb: deployed |
+| disposition: in_transit | disposition: active |
+
+## Subscription DSL
+
+Subscribe to events using the `$.on` syntax:
+
+```typescript
+// Subscribe to domain events
+$.on.Customer.created(async (event) => {
+  // event has full 5W+H context
+  console.log(event.actor, event.verb, event.object)
+})
+
+$.on.Invoice.paid(async (event) => {
+  // Handle payment
+})
+
+// Pattern matching
+$.on.*.failed(async (event) => {
+  // Handle any failure
+})
+```
+
+## Evals Integration
+
+Evalite traces are stored as events, enabling:
+
+- **Eval history** - Track all evaluation runs
+- **Regression detection** - Compare across model versions
+- **Cost analysis** - Track token usage over time
+
+```typescript
+// Evalite events flow through same pipeline
+{
+  type: 'eval',
+  verb: 'evaluated',
+  object: 'type-classifier',
+  branch: 'main',
+  model: 'claude-3-5-sonnet',
+  context: {
+    score: 0.92,
+    latency: 1200,
+    tokens: { input: 500, output: 100 }
+  }
+}
+```

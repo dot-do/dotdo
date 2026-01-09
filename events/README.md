@@ -1,6 +1,6 @@
 # Events, Analytics & Materialized Views
 
-> Brainstorming notes for the event streaming and analytics layer
+> Event streaming and analytics layer with 5W+H universal event model
 
 ## Overview
 
@@ -124,6 +124,90 @@ events = {
   streamedAt: integer?,
 }
 ```
+
+---
+
+## 5W+H Universal Event Model
+
+Every event captures the universal **5W+H** questions. This model maps 1:1 to EPCIS 2.0 for supply chain interoperability.
+
+| Question | Field(s) | Description |
+|----------|----------|-------------|
+| **WHO** | actor, source, destination | Who did it |
+| **WHAT** | object, type, quantity | What was affected |
+| **WHEN** | timestamp, recorded | When it happened |
+| **WHERE** | ns, location, readPoint | Where it happened |
+| **WHY** | verb, disposition, reason | Why it happened |
+| **HOW** | method, branch, model, tools, channel | How it happened |
+
+### Full 5W+H Event Schema
+
+```typescript
+Event: {
+  // WHO - Identity
+  actor: string              // User/Agent performing action
+  source?: string            // Origin location/system
+  destination?: string       // Target location/system
+
+  // WHAT - Objects
+  object: string             // Sqid / Thing ID
+  type: string               // Noun type
+  quantity?: number          // Amount (for countable events)
+
+  // WHEN - Time
+  timestamp: datetime        // When it happened (business time)
+  recorded: datetime         // When we recorded it (system time)
+
+  // WHERE - Location
+  ns: string                 // Namespace (DO identity)
+  location?: string          // Physical/logical location
+  readPoint?: string         // Capture point (sensor, API, etc.)
+
+  // WHY - Purpose
+  verb: string               // Action taken
+  disposition?: string       // State after event
+  reason?: string            // Business reason
+
+  // HOW - Method
+  method?: 'code' | 'generative' | 'agentic' | 'human'
+  branch?: string            // Which variant/experiment
+  model?: string             // Which AI model (if AI)
+  tools?: string[]           // Which tools (if agentic)
+  channel?: string           // Which channel (if human)
+  cascade?: json             // Cascade path taken
+  transaction?: string       // Business transaction ID
+  context?: json             // Additional data
+}
+```
+
+### EPCIS Compatibility
+
+| 5W+H | EPCIS Field |
+|------|-------------|
+| WHO | source, destination |
+| WHAT | epcList, parentID |
+| WHEN | eventTime, recordTime |
+| WHERE | readPoint, bizLocation |
+| WHY | bizStep, disposition |
+| HOW | bizTransaction |
+
+Query via `/api/search` with EPCIS query params:
+
+```
+GET /api/search?eventType=ObjectEvent&bizStep=shipping&MATCH_epc=urn:epc:id:sgtin:...
+```
+
+### Events Endpoint
+
+All events flow through `/e` → `do_events` pipeline → R2 Parquet:
+
+```typescript
+// POST /e - accepts any format, normalizes to 5W+H
+const events = normalize(body)  // Detects: internal, EPCIS, evalite
+await env.DO_EVENTS.send(events)
+```
+
+See [Events Concept](/docs/concepts/events) for full documentation.
 
 ---
 

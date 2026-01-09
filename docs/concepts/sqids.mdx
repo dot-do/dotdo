@@ -1,0 +1,201 @@
+---
+title: Sqids
+description: Tagged field convention for flexible, self-describing references
+---
+
+# Sqids Reference Convention
+
+Sqids provide compact, URL-safe identifiers for Things, Events, and References. Our convention uses tagged fields for flexibility and self-description.
+
+## Why Tagged Fields?
+
+Instead of fixed positions (which are brittle), we use tag + value pairs:
+
+```typescript
+// Fixed positions (fragile)
+sqids.encode([42, 7])  // What is 42? What is 7?
+
+// Tagged fields (self-describing)
+sqids.encode([THING, 42, BRANCH, 7])  // Clear meaning
+```
+
+## Field Tags
+
+Tags are small numbers (encoded efficiently by sqids):
+
+```typescript
+enum Tag {
+  // Core reference (1-10)
+  NS = 1,           // Namespace
+  TYPE = 2,         // Noun type
+  THING = 3,        // Thing ID (rowid)
+  BRANCH = 4,       // Branch name hash
+  VERSION = 5,      // Specific version
+
+  // 5W+H (11-20)
+  ACTOR = 11,       // WHO
+  VERB = 12,        // WHY
+  TIMESTAMP = 13,   // WHEN
+  LOCATION = 14,    // WHERE
+
+  // HOW details (21-30)
+  METHOD = 21,      // code | generative | agentic | human
+  MODEL = 22,       // AI model
+  CHANNEL = 23,     // Human channel
+  TOOL = 24,        // Tool used
+
+  // Experiment (31-40)
+  EXPERIMENT = 31,  // Experiment ID
+  VARIANT = 32,     // Variant assignment
+  METRIC = 33,      // Metric being measured
+}
+```
+
+## Encoding Examples
+
+```typescript
+import { sqids, Tag } from 'dotdo/sqids'
+const { THING, BRANCH, ACTOR, VERB, METHOD, TIMESTAMP } = Tag
+
+// Minimal thing reference
+sqids.encode([THING, 42])
+// → "K3m"
+
+// With branch
+sqids.encode([THING, 42, BRANCH, 7])
+// → "K3mR8"
+
+// Full 5W+H event reference
+sqids.encode([
+  ACTOR, 10,
+  VERB, 5,
+  THING, 42,
+  METHOD, 2,
+  TIMESTAMP, 1705312200
+])
+// → "xY7kM9pQ2r"
+```
+
+## Decoding
+
+Decoded values are self-describing:
+
+```typescript
+sqids.decode("K3mR8")
+// → { THING: 42, BRANCH: 7 }
+
+sqids.decode("xY7kM9pQ2r")
+// → { ACTOR: 10, VERB: 5, THING: 42, METHOD: 2, TIMESTAMP: 1705312200 }
+```
+
+## Semantic Structure
+
+References follow the pattern `ns.subject.action.object`:
+
+```
+namespace.type.thing.branch
+    │        │     │      │
+    │        │     │      └── The variant/action
+    │        │     └── What we're acting on
+    │        └── The noun/subject
+    └── The DO identity
+```
+
+## URL Mapping
+
+Sqids can represent URL paths compactly:
+
+```typescript
+// URL: https://startups.studio/Customer/acme@experiment
+// Sqid representation:
+sqids.encode([
+  NS, hash('startups.studio'),
+  TYPE, hash('Customer'),
+  THING, hash('acme'),
+  BRANCH, hash('experiment')
+])
+```
+
+## Use Cases
+
+### Thing References
+
+```typescript
+// Simple thing ID
+const ref = sqids.encode([THING, rowid])
+// Use in URLs: /api/things/K3m
+```
+
+### Event References
+
+```typescript
+// Full event context
+const eventRef = sqids.encode([
+  ACTOR, userId,
+  VERB, verbId,
+  THING, objectId,
+  TIMESTAMP, Date.now()
+])
+```
+
+### Experiment Assignment
+
+```typescript
+// Track experiment exposure
+const exposureRef = sqids.encode([
+  EXPERIMENT, experimentId,
+  VARIANT, variantIndex,
+  ACTOR, userId,
+  TIMESTAMP, Date.now()
+])
+```
+
+## String Values
+
+For string values (like branch names), hash to a number:
+
+```typescript
+function taggedEncode(pairs: [Tag, string | number][]) {
+  const values = pairs.flatMap(([tag, value]) => [
+    tag,
+    typeof value === 'string' ? hash(value) : value
+  ])
+  return sqids.encode(values)
+}
+
+// Usage
+taggedEncode([
+  [THING, 42],
+  [BRANCH, 'experiment']  // Hashed automatically
+])
+```
+
+## Collision Handling
+
+When using hashed strings:
+
+1. Primary lookup uses sqid
+2. On collision, verify against stored string
+3. Cache lookups for performance
+
+```typescript
+async function resolveThing(sqid: string) {
+  const decoded = sqids.decode(sqid)
+  const thing = await db.get(decoded.THING)
+
+  // Verify branch matches (in case of hash collision)
+  if (decoded.BRANCH && thing.branch !== expectedBranch) {
+    // Handle collision - rare but possible
+  }
+
+  return thing
+}
+```
+
+## Benefits
+
+1. **Compact** - Short URLs and storage
+2. **Self-describing** - Decoded values have meaning
+3. **Flexible** - Add fields without breaking existing sqids
+4. **URL-safe** - No encoding needed
+5. **Collision-resistant** - Full context reduces collisions
