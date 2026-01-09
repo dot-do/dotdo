@@ -52,9 +52,13 @@ let _client: AnalyticsClient | null = null
  * track('Button Clicked', { buttonId: 'submit' })
  * ```
  */
-export function init(_config: AnalyticsConfig): AnalyticsClient {
-  // TODO: Implement
-  throw new Error('Not implemented')
+export function init(config: AnalyticsConfig): AnalyticsClient {
+  // Destroy existing client if any
+  if (_client) {
+    _client.destroy()
+  }
+  _client = new AnalyticsClient(config)
+  return _client
 }
 
 /**
@@ -63,16 +67,46 @@ export function init(_config: AnalyticsConfig): AnalyticsClient {
  * @throws If init() hasn't been called
  */
 export function getClient(): AnalyticsClient {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  if (!_client) {
+    throw new Error('Analytics client not initialized. Call init() first.')
+  }
+  return _client
 }
 
 /**
  * Reset the client (useful for testing)
  */
 export function reset(): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  if (_client) {
+    _client.destroy()
+    _client = null
+  }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Check if a value is a SegmentOptions object
+ */
+function isSegmentOptions(value: unknown): value is SegmentOptions {
+  if (!value || typeof value !== 'object') return false
+  const keys = Object.keys(value)
+  const optionKeys = ['anonymousId', 'context', 'integrations', 'timestamp']
+  return keys.some(k => optionKeys.includes(k))
+}
+
+/**
+ * Build event base from options
+ */
+function buildEventBase(options?: SegmentOptions): Record<string, unknown> {
+  const base: Record<string, unknown> = {}
+  if (options?.anonymousId) base.anonymousId = options.anonymousId
+  if (options?.context) base.context = options.context
+  if (options?.integrations) base.integrations = options.integrations
+  if (options?.timestamp) base.timestamp = options.timestamp
+  return base
 }
 
 // ============================================================================
@@ -99,12 +133,38 @@ export function reset(): void {
  * ```
  */
 export function identify(
-  _userIdOrTraits: string | UserTraits,
-  _traitsOrOptions?: UserTraits | SegmentOptions,
-  _options?: SegmentOptions
+  userIdOrTraits: string | UserTraits,
+  traitsOrOptions?: UserTraits | SegmentOptions,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+
+  // Determine call signature
+  if (typeof userIdOrTraits === 'string') {
+    // identify(userId, traits?, options?)
+    const userId = userIdOrTraits
+    const traits = traitsOrOptions && !isSegmentOptions(traitsOrOptions)
+      ? traitsOrOptions as UserTraits
+      : undefined
+    const opts = isSegmentOptions(traitsOrOptions)
+      ? traitsOrOptions as SegmentOptions
+      : options
+
+    client.identify({
+      userId,
+      traits,
+      ...buildEventBase(opts),
+    } as any)
+  } else {
+    // identify(traits, options?)
+    const traits = userIdOrTraits
+    const opts = traitsOrOptions as SegmentOptions | undefined
+
+    client.identify({
+      traits,
+      ...buildEventBase(opts),
+    } as any)
+  }
 }
 
 /**
@@ -124,12 +184,16 @@ export function identify(
  * ```
  */
 export function track(
-  _event: string,
-  _properties?: Record<string, unknown>,
-  _options?: SegmentOptions
+  event: string,
+  properties?: Record<string, unknown>,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+  client.track({
+    event,
+    properties,
+    ...buildEventBase(options),
+  })
 }
 
 /**
@@ -153,13 +217,49 @@ export function track(
  * ```
  */
 export function page(
-  _categoryOrName?: string,
-  _nameOrProperties?: string | Record<string, unknown>,
-  _propertiesOrOptions?: Record<string, unknown> | SegmentOptions,
-  _options?: SegmentOptions
+  categoryOrName?: string,
+  nameOrProperties?: string | Record<string, unknown>,
+  propertiesOrOptions?: Record<string, unknown> | SegmentOptions,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+
+  // Determine call signature
+  if (categoryOrName === undefined) {
+    // page() - anonymous page view
+    client.page()
+    return
+  }
+
+  if (typeof nameOrProperties === 'string') {
+    // page(category, name, properties?, options?)
+    const category = categoryOrName
+    const name = nameOrProperties
+    const properties = propertiesOrOptions && !isSegmentOptions(propertiesOrOptions)
+      ? propertiesOrOptions as Record<string, unknown>
+      : undefined
+    const opts = isSegmentOptions(propertiesOrOptions)
+      ? propertiesOrOptions as SegmentOptions
+      : options
+
+    client.page({
+      category,
+      name,
+      properties,
+      ...buildEventBase(opts),
+    } as any)
+  } else {
+    // page(name, properties?, options?)
+    const name = categoryOrName
+    const properties = nameOrProperties as Record<string, unknown> | undefined
+    const opts = propertiesOrOptions as SegmentOptions | undefined
+
+    client.page({
+      name,
+      properties,
+      ...buildEventBase(opts),
+    } as any)
+  }
 }
 
 /**
@@ -177,12 +277,16 @@ export function page(
  * ```
  */
 export function screen(
-  _name: string,
-  _properties?: Record<string, unknown>,
-  _options?: SegmentOptions
+  name: string,
+  properties?: Record<string, unknown>,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+  client.screen({
+    name,
+    properties,
+    ...buildEventBase(options),
+  } as any)
 }
 
 /**
@@ -202,12 +306,16 @@ export function screen(
  * ```
  */
 export function group(
-  _groupId: string,
-  _traits?: Record<string, unknown>,
-  _options?: SegmentOptions
+  groupId: string,
+  traits?: Record<string, unknown>,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+  client.group({
+    groupId,
+    traits,
+    ...buildEventBase(options),
+  } as any)
 }
 
 /**
@@ -224,12 +332,16 @@ export function group(
  * ```
  */
 export function alias(
-  _userId: string,
-  _previousId: string,
-  _options?: SegmentOptions
+  userId: string,
+  previousId: string,
+  options?: SegmentOptions
 ): void {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+  client.alias({
+    userId,
+    previousId,
+    ...buildEventBase(options),
+  } as any)
 }
 
 /**
@@ -238,6 +350,6 @@ export function alias(
  * @returns Promise that resolves when flush completes
  */
 export async function flush(): Promise<void> {
-  // TODO: Implement
-  throw new Error('Not implemented')
+  const client = getClient()
+  await client.flush()
 }
