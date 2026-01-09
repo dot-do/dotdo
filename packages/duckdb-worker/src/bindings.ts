@@ -7,27 +7,22 @@
 
 import type { DuckDBInstance, DuckDBConfig, QueryResult, ColumnInfo } from './types.js'
 import type { DuckDBModule, DuckDBModuleConfig } from '../wasm/duckdb-worker.js'
-import {
-  registerFileBuffer as runtimeRegisterBuffer,
-  dropFile as runtimeDropFile,
-  clearAllFiles,
-} from './runtime.js'
+
+// Use Cloudflare-compatible loader (patched to not use import.meta.url)
+import createDuckDBLoader from '../wasm/duckdb-worker-cf.js'
+import { FileBufferRegistry } from './runtime.js'
 
 // ============================================================================
 // Types for Emscripten Module Interface
 // ============================================================================
 
 /**
- * Extended DuckDB module interface with optional Emscripten FS
+ * Extended DuckDB module interface
+ * Note: FILESYSTEM is disabled in Workers build (-sFILESYSTEM=0)
+ * All file operations go through runtime.ts in-memory buffers
  */
 interface EmscriptenModule extends DuckDBModule {
-  // Emscripten filesystem (if available)
-  FS?: {
-    mkdir(path: string): void
-    writeFile(path: string, data: Uint8Array): void
-    readFile(path: string): Uint8Array
-    unlink(path: string): void
-  }
+  // Note: No FS interface - disabled in Workers build
 }
 
 /**
@@ -147,21 +142,13 @@ export async function loadDuckDBModule(
   const opts: LoadDuckDBOptions =
     options instanceof ArrayBuffer ? { wasmBinary: options } : (options ?? {})
 
-  // Get the createDuckDB function from loader module or dynamic import
+  // Get the createDuckDB function from loader module or pre-imported loader
   if (opts.loaderModule?.default) {
     createDuckDBFn = opts.loaderModule.default
   } else if (!createDuckDBFn) {
-    // Dynamic import of the Emscripten loader
-    // In Workers, this should be bundled or statically imported
-    try {
-      const loader = await import('../wasm/duckdb-worker.js')
-      createDuckDBFn = loader.default
-    } catch (err) {
-      throw new Error(
-        `Failed to load DuckDB WASM loader: ${err instanceof Error ? err.message : String(err)}. ` +
-          'Ensure duckdb-worker.js is bundled with your Worker.'
-      )
-    }
+    // Use the statically imported CF-compatible loader
+    // This avoids dynamic import issues in Workers
+    createDuckDBFn = createDuckDBLoader
   }
 
   if (!createDuckDBFn) {
@@ -267,6 +254,9 @@ export function createInstanceFromModule(
   // Track if instance is closed
   let isClosed = false
 
+  // Instance-scoped file buffer registry (NOT global)
+  const fileRegistry = new FileBufferRegistry()
+
   // Apply configuration via PRAGMA statements
   const applyConfig = async () => {
     const pragmas: string[] = []
@@ -335,12 +325,30 @@ export function createInstanceFromModule(
       }
 
       // Extract row data
+      // Note: DuckDB C API uses idx_t (64-bit) for column and row indices.
+      // Without WASM_BIGINT, Emscripten "legalizes" 64-bit parameters by splitting
+      // them into two 32-bit values (low and high parts). We need to pass both parts.
       const rows: Record<string, unknown>[] = []
       for (let row = 0; row < rowCount; row++) {
         const rowData: Record<string, unknown> = {}
+        // Split row index into low and high 32-bit parts for 64-bit idx_t
+        const rowLo = row >>> 0
+        const rowHi = 0 // row indices fit in 32 bits
+
         for (let col = 0; col < columnCount; col++) {
           const colInfo = columns[col]!
-          const isNull = mod._duckdb_value_is_null(resultPtr, col, row)
+          // Split col index into low and high 32-bit parts for 64-bit idx_t
+          const colLo = col >>> 0
+          const colHi = 0 // column indices fit in 32 bits
+
+          // Call with 5 params: resultPtr, colLo, colHi, rowLo, rowHi
+          const isNull = (mod._duckdb_value_is_null as Function)(
+            resultPtr,
+            colLo,
+            colHi,
+            rowLo,
+            rowHi
+          )
 
           if (isNull) {
             rowData[colInfo.name] = null
@@ -354,8 +362,14 @@ export function createInstanceFromModule(
               case DuckDBType.UTINYINT:
               case DuckDBType.USMALLINT:
               case DuckDBType.UINTEGER: {
-                // Get as varchar and parse
-                const valPtr = mod._duckdb_value_varchar(resultPtr, col, row)
+                // Get as varchar and parse (5 params for legalized idx_t)
+                const valPtr = (mod._duckdb_value_varchar as Function)(
+                  resultPtr,
+                  colLo,
+                  colHi,
+                  rowLo,
+                  rowHi
+                )
                 const valStr = mod.UTF8ToString(valPtr)
                 mod._free(valPtr)
                 if (colInfo.typeCode === DuckDBType.BOOLEAN) {
@@ -369,8 +383,14 @@ export function createInstanceFromModule(
               case DuckDBType.UBIGINT:
               case DuckDBType.HUGEINT:
               case DuckDBType.UHUGEINT: {
-                // Preserve BigInt for large integers
-                const valPtr = mod._duckdb_value_varchar(resultPtr, col, row)
+                // Preserve BigInt for large integers (5 params for legalized idx_t)
+                const valPtr = (mod._duckdb_value_varchar as Function)(
+                  resultPtr,
+                  colLo,
+                  colHi,
+                  rowLo,
+                  rowHi
+                )
                 const valStr = mod.UTF8ToString(valPtr)
                 mod._free(valPtr)
                 rowData[colInfo.name] = BigInt(valStr)
@@ -379,13 +399,26 @@ export function createInstanceFromModule(
               case DuckDBType.FLOAT:
               case DuckDBType.DOUBLE:
               case DuckDBType.DECIMAL: {
-                const val = mod._duckdb_value_double(resultPtr, col, row)
+                // 5 params for legalized idx_t
+                const val = (mod._duckdb_value_double as Function)(
+                  resultPtr,
+                  colLo,
+                  colHi,
+                  rowLo,
+                  rowHi
+                )
                 rowData[colInfo.name] = val
                 break
               }
               default: {
-                // Default to varchar for everything else
-                const valPtr = mod._duckdb_value_varchar(resultPtr, col, row)
+                // Default to varchar for everything else (5 params for legalized idx_t)
+                const valPtr = (mod._duckdb_value_varchar as Function)(
+                  resultPtr,
+                  colLo,
+                  colHi,
+                  rowLo,
+                  rowHi
+                )
                 const valStr = mod.UTF8ToString(valPtr)
                 mod._free(valPtr)
                 rowData[colInfo.name] = valStr
@@ -437,42 +470,37 @@ export function createInstanceFromModule(
       if (isClosed) {
         throw new Error('Cannot register buffer on closed database')
       }
-      runtimeRegisterBuffer(name, buffer)
-
-      // If Emscripten FS is available, also write to virtual filesystem
-      if (mod.FS) {
-        try {
-          const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
-          mod.FS.writeFile(`/${name}`, data)
-        } catch {
-          // FS write failed, but runtime buffer is still registered
-        }
-      }
+      // All file operations go through instance-scoped registry
+      // FILESYSTEM is disabled in Workers build (-sFILESYSTEM=0)
+      fileRegistry.register(name, buffer)
     },
 
     dropFile(name: string): boolean {
       if (isClosed) {
         return false
       }
-      const result = runtimeDropFile(name)
+      // All file operations go through instance-scoped registry
+      return fileRegistry.drop(name)
+    },
 
-      // Also remove from Emscripten FS if available
-      if (mod.FS) {
-        try {
-          mod.FS.unlink(`/${name}`)
-        } catch {
-          // Ignore unlink errors
-        }
-      }
+    getFileBuffer(name: string): Uint8Array | undefined {
+      return fileRegistry.get(name)
+    },
 
-      return result
+    hasFile(name: string): boolean {
+      return fileRegistry.has(name)
+    },
+
+    listFiles(): string[] {
+      return fileRegistry.list()
     },
 
     async close(): Promise<void> {
       if (isClosed) return
 
       isClosed = true
-      clearAllFiles()
+      // Only clear this instance's files - NOT global
+      fileRegistry.clear()
 
       // Disconnect and close
       mod._duckdb_disconnect(instanceConnPtr)
