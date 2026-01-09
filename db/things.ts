@@ -1,5 +1,12 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
-import { eq, and, isNull, desc, sql } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm'
+
+// ============================================================================
+// VISIBILITY TYPE
+// ============================================================================
+
+/** Valid visibility values for things */
+export type Visibility = 'public' | 'unlisted' | 'org' | 'user'
 
 // ============================================================================
 // THINGS - Version Log (append-only)
@@ -33,12 +40,21 @@ export const things = sqliteTable(
 
     // Soft delete marker (version where thing was deleted)
     deleted: integer('deleted', { mode: 'boolean' }).default(false),
+
+    // Visibility controls who can see this thing
+    // 'public' - visible to everyone (including anonymous)
+    // 'unlisted' - not discoverable, but accessible with direct link
+    // 'org' - visible to organization members only
+    // 'user' - visible only to the owner (most restrictive - DEFAULT)
+    visibility: text('visibility').$type<Visibility>().default('user'),
   },
   (table) => [
     index('things_id_idx').on(table.id),
     index('things_type_idx').on(table.type),
     index('things_branch_idx').on(table.branch),
     index('things_id_branch_idx').on(table.id, table.branch),
+    index('things_visibility_idx').on(table.visibility),
+    index('things_visibility_type_idx').on(table.visibility, table.type),
   ],
 )
 

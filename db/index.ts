@@ -14,6 +14,7 @@ export * from './auth'
 export * from './exec'
 export * from './dlq'
 export * from './flags'
+export * from './vault'
 
 // Linked accounts query helpers and validation
 export * from './linked-accounts'
@@ -71,6 +72,7 @@ import {
 import { providers, accountTypes } from './integrations'
 import { dlq } from './dlq'
 import { flags } from './flags'
+import { vaultCredentials, vaultOAuthTokens, vaultOAuthStates } from './vault'
 
 export const schema = {
   // Core DO tables
@@ -140,4 +142,9 @@ export const schema = {
 
   // Feature Flags - A/B testing and feature rollouts
   flags,
+
+  // Vault - Secure credential storage
+  vaultCredentials,
+  vaultOAuthTokens,
+  vaultOAuthStates,
 }

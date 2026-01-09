@@ -1,6 +1,17 @@
 import type { RpcPromise } from 'capnweb'
 
 // ============================================================================
+// VISIBILITY - Access control for Things
+// ============================================================================
+
+export type Visibility = 'public' | 'unlisted' | 'org' | 'user'
+
+export interface Actor {
+  userId?: string
+  orgId?: string
+}
+
+// ============================================================================
 // THING - Base entity type (fully qualified URL identity)
 // ============================================================================
 
@@ -13,6 +24,7 @@ export interface ThingData {
   name?: string
   data?: Record<string, unknown>
   meta?: Record<string, unknown>
+  visibility?: Visibility
 
   // Git provenance (when synced from git)
   $source?: {

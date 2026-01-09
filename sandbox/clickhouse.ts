@@ -17,6 +17,38 @@
 // ============================================================================
 
 /**
+ * Visibility levels for Things
+ */
+export type Visibility = 'public' | 'unlisted' | 'org' | 'user'
+
+/**
+ * Valid visibility values for validation
+ */
+const VALID_VISIBILITY_VALUES: Visibility[] = ['public', 'unlisted', 'org', 'user']
+
+/**
+ * Query context for visibility-aware queries
+ */
+export interface QueryContext {
+  /** Current user ID (undefined for anonymous) */
+  userId?: string
+  /** Current organization ID */
+  orgId?: string
+  /** Whether to allow public access without auth */
+  allowPublic?: boolean
+}
+
+/**
+ * Options for visibility-filtered queries
+ */
+export interface VisibilityQueryOptions {
+  /** Visibility filter */
+  visibility?: Visibility | Visibility[]
+  /** Query context for access control */
+  context?: QueryContext
+}
+
+/**
  * Supported output formats for query results
  */
 export type OutputFormat =

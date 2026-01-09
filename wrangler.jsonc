@@ -40,7 +40,7 @@
     "bindings": [
       {
         "name": "DO",
-        "class_name": "DurableObject"
+        "class_name": "ThingsDO"
       },
       {
         "name": "TEST_DO",
@@ -62,6 +62,10 @@
     {
       "tag": "v2",
       "new_classes": ["Browser"]
+    },
+    {
+      "tag": "v3",
+      "renamed_classes": [{"from": "DurableObject", "to": "ThingsDO"}]
     }
   ]
 }

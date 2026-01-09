@@ -79,6 +79,9 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
+  // Objects testing infrastructure tests
+  createNodeWorkspace('objects-testing', ['objects/testing/tests/**/*.test.ts']),
+
   // Library utility tests (sqids, etc.)
   createNodeWorkspace('lib', ['lib/tests/**/*.test.ts']),
 
@@ -129,6 +132,9 @@ export default defineWorkspace([
 
   // Tests for types in tests/types directory
   createNodeWorkspace('tests-types', ['tests/types/**/*.test.ts']),
+
+  // Tail worker and other worker processing tests (non-runtime)
+  createNodeWorkspace('tests-workers', ['tests/workers/**/*.test.ts']),
 
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),

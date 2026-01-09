@@ -38,7 +38,7 @@ interface StoredThing {
 export class ThingsDO extends DurableObject {
   private app: Hono
 
-  constructor(ctx: DurableObjectState, env: unknown) {
+  constructor(ctx: DurableObjectState, env: Record<string, unknown>) {
     super(ctx, env)
     this.app = this.createApp()
   }

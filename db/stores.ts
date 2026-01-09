@@ -1755,6 +1755,244 @@ export class ObjectsStore {
 }
 
 // ============================================================================
+// DLQ TYPES
+// ============================================================================
+
+export interface DLQEntity {
+  id: string
+  eventId: string | null
+  verb: string
+  source: string
+  data: Record<string, unknown>
+  error: string
+  errorStack: string | null
+  retryCount: number
+  maxRetries: number
+  lastAttemptAt: Date | null
+  createdAt: Date
+}
+
+export interface DLQAddOptions {
+  eventId?: string
+  verb: string
+  source: string
+  data: Record<string, unknown>
+  error: string
+  errorStack?: string
+  maxRetries?: number
+}
+
+export interface DLQListOptions {
+  verb?: string
+  source?: string
+  minRetries?: number
+  maxRetries?: number
+  limit?: number
+  offset?: number
+}
+
+export interface DLQReplayResult {
+  success: boolean
+  result?: unknown
+  error?: string
+}
+
+export interface DLQReplayAllResult {
+  replayed: number
+  failed: number
+}
+
+// ============================================================================
+// DLQ STORE
+// ============================================================================
+
+export class DLQStore {
+  private db: StoreContext['db']
+  private ns: string
+  private eventHandlers: Map<string, (data: unknown) => Promise<unknown>>
+
+  constructor(ctx: StoreContext, eventHandlers?: Map<string, (data: unknown) => Promise<unknown>>) {
+    this.db = ctx.db
+    this.ns = ctx.ns
+    this.eventHandlers = eventHandlers || new Map()
+  }
+
+  registerHandler(verb: string, handler: (data: unknown) => Promise<unknown>): void {
+    this.eventHandlers.set(verb, handler)
+  }
+
+  async add(options: DLQAddOptions): Promise<DLQEntity> {
+    const id = crypto.randomUUID()
+    const now = new Date()
+
+    await this.db.insert(schema.dlq).values({
+      id,
+      eventId: options.eventId ?? null,
+      verb: options.verb,
+      source: options.source,
+      data: options.data,
+      error: options.error,
+      errorStack: options.errorStack ?? null,
+      retryCount: 0,
+      maxRetries: options.maxRetries ?? 3,
+      lastAttemptAt: now,
+      createdAt: now,
+    })
+
+    return {
+      id,
+      eventId: options.eventId ?? null,
+      verb: options.verb,
+      source: options.source,
+      data: options.data,
+      error: options.error,
+      errorStack: options.errorStack ?? null,
+      retryCount: 0,
+      maxRetries: options.maxRetries ?? 3,
+      lastAttemptAt: now,
+      createdAt: now,
+    }
+  }
+
+  async get(id: string): Promise<DLQEntity | null> {
+    const results = await this.db.select().from(schema.dlq)
+    const result = results.find((r) => r.id === id)
+    if (!result) return null
+    return this.toEntity(result)
+  }
+
+  async list(options?: DLQListOptions): Promise<DLQEntity[]> {
+    const results = await this.db.select().from(schema.dlq)
+    let filtered = results
+
+    if (options?.verb) {
+      filtered = filtered.filter((r) => r.verb === options.verb)
+    }
+    if (options?.source) {
+      filtered = filtered.filter((r) => r.source === options.source)
+    }
+    if (options?.minRetries !== undefined) {
+      filtered = filtered.filter((r) => r.retryCount >= options.minRetries!)
+    }
+    if (options?.maxRetries !== undefined) {
+      filtered = filtered.filter((r) => r.retryCount <= options.maxRetries!)
+    }
+
+    const offset = options?.offset ?? 0
+    const limit = options?.limit ?? filtered.length
+    filtered = filtered.slice(offset, offset + limit)
+
+    return filtered.map((r) => this.toEntity(r))
+  }
+
+  async count(): Promise<number> {
+    const results = await this.db.select().from(schema.dlq)
+    return results.length
+  }
+
+  async incrementRetry(id: string): Promise<DLQEntity> {
+    const entry = await this.get(id)
+    if (!entry) {
+      throw new Error(`DLQ entry with id ${id} not found`)
+    }
+
+    const now = new Date()
+    const newRetryCount = entry.retryCount + 1
+
+    return {
+      ...entry,
+      retryCount: newRetryCount,
+      lastAttemptAt: now,
+    }
+  }
+
+  async replay(id: string): Promise<DLQReplayResult> {
+    const entry = await this.get(id)
+    if (!entry) {
+      return { success: false, error: `DLQ entry with id ${id} not found` }
+    }
+
+    await this.incrementRetry(id)
+
+    const handler = this.eventHandlers.get(entry.verb)
+    if (!handler) {
+      return { success: false, error: `No handler registered for verb: ${entry.verb}` }
+    }
+
+    try {
+      const result = await handler(entry.data)
+      await this.remove(id)
+      return { success: true, result }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async replayAll(options?: { verb?: string; source?: string }): Promise<DLQReplayAllResult> {
+    const entries = await this.list({
+      verb: options?.verb,
+      source: options?.source,
+    })
+
+    let replayed = 0
+    let failed = 0
+
+    for (const entry of entries) {
+      const result = await this.replay(entry.id)
+      if (result.success) {
+        replayed++
+      } else {
+        failed++
+      }
+    }
+
+    return { replayed, failed }
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const entry = await this.get(id)
+    if (!entry) {
+      return false
+    }
+    return true
+  }
+
+  async purgeExhausted(): Promise<number> {
+    const entries = await this.list()
+    const exhausted = entries.filter((e) => e.retryCount >= e.maxRetries)
+
+    let purged = 0
+    for (const entry of exhausted) {
+      const removed = await this.remove(entry.id)
+      if (removed) {
+        purged++
+      }
+    }
+
+    return purged
+  }
+
+  private toEntity(row: typeof schema.dlq.$inferSelect): DLQEntity {
+    return {
+      id: row.id,
+      eventId: row.eventId,
+      verb: row.verb,
+      source: row.source,
+      data: row.data as Record<string, unknown>,
+      error: row.error,
+      errorStack: row.errorStack,
+      retryCount: row.retryCount,
+      maxRetries: row.maxRetries,
+      lastAttemptAt: row.lastAttemptAt ?? null,
+      createdAt: row.createdAt,
+    }
+  }
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 

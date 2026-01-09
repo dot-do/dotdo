@@ -41,8 +41,7 @@
     "snippets/**/*",
     "streams/**/*",
     "workflows/**/*",
-    "evals/**/*",
-    "test-mocks/**/*"
+    "evals/**/*"
   ],
   "exclude": [
     "node_modules",
@@ -53,8 +52,6 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**/*.ts",
-    "test-utils/**/*",
-    "test-mocks/**/*",
     "api/tests/**/*"
   ]
 }

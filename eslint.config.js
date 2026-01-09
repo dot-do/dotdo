@@ -11,7 +11,7 @@ export default [
       'app/**',
       '.wrangler/**',
       'playwright-report/**',
-      'test-results/**',
+      'tests/results/**',
       '*.d.ts',
       'worker.d.ts',
     ],
@@ -63,7 +63,7 @@ export default [
 
   // Test files - even more relaxed
   {
-    files: ['**/*.test.ts', '**/*.test.tsx', '**/tests/**/*.ts', 'test-utils/**/*.ts', 'test-mocks/**/*.ts'],
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/tests/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',
       'no-unused-expressions': 'off',

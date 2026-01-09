@@ -41,7 +41,7 @@ export default defineConfig({
     ? [
         ['github'],
         ['html', { open: 'never' }],
-        ['json', { outputFile: 'test-results/e2e-results.json' }],
+        ['json', { outputFile: 'tests/results/e2e-results.json' }],
       ]
     : [['html', { open: 'on-failure' }]],
 
@@ -120,7 +120,7 @@ export default defineConfig({
   ],
 
   /* Output directory for test artifacts */
-  outputDir: 'test-results/e2e',
+  outputDir: 'tests/results/e2e',
 
   /* Preserve output on failure */
   preserveOutput: 'failures-only',

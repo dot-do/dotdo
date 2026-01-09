@@ -37,7 +37,7 @@ id = "placeholder-test-kv-id"
 # Durable Objects
 [durable_objects]
 bindings = [
-  { name = "DO", class_name = "DurableObject" },
+  { name = "DO", class_name = "ThingsDO" },
   { name = "TEST_DO", class_name = "TestDurableObject" }
 ]
 
@@ -45,3 +45,7 @@ bindings = [
 [[migrations]]
 tag = "v1"
 new_classes = ["DurableObject", "TestDurableObject"]
+
+[[migrations]]
+tag = "v3"
+renamed_classes = [{ from = "DurableObject", to = "ThingsDO" }]

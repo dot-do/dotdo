@@ -257,6 +257,8 @@ function generateState(): string {
 
 /**
  * Build OAuth authorization URL
+ * Note: We use manual URL construction for scope to avoid over-encoding
+ * characters like ':' which are valid in OAuth scopes (e.g., 'read:org')
  */
 function buildAuthorizationUrl(
   config: OAuthConfig,
@@ -284,7 +286,9 @@ function buildAuthorizationUrl(
     }
   }
 
-  return url.toString()
+  // Decode the URL to preserve characters like ':' in scope names
+  // (e.g., 'read:org' should appear as-is, not as 'read%3Aorg')
+  return decodeURIComponent(url.toString())
 }
 
 // ============================================================================

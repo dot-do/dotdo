@@ -253,11 +253,11 @@ describe('DO.collection() Type FK Resolution', () => {
 
       expect(resolveNounToFK).toBeDefined()
 
-      // In mock environment, will throw DB error
+      // In mock environment, will throw DB error (res.raw(...).toArray is not a function)
       // In real environment with empty nouns table, would throw 'not found'
       await expect(
         resolveNounToFK.call(doInstance, 'UnregisteredNoun')
-      ).rejects.toThrow(/not found|not registered|unknown noun|raw|toArray|not a function/i)
+      ).rejects.toThrow(/not found|not registered|unknown noun|is not a function/i)
     })
   })
 
@@ -386,9 +386,11 @@ describe('DO.collection() Type FK Resolution', () => {
       } catch (error) {
         // Mock environment doesn't support full Drizzle SQL operations
         // The error is expected - verify the implementation attempts to resolve the noun
-        expect((error as Error).message).toMatch(/raw|toArray|not a function/)
+        expect((error as Error).message).toMatch(/is not a function/)
         // The implementation is correct - it attempts noun resolution
         // Full integration tests would verify cache population
+        // In mock environment, the cache won't be populated because the DB query fails
+        // before it can complete and cache the result
       }
     })
 

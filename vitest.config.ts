@@ -48,6 +48,7 @@ export default defineConfig({
       'tests/mocks/**/*.test.ts',
       'tests/flags/**/*.test.ts',
       'tests/rate-limit/**/*.test.ts',
+      'tests/workers/**/*.test.ts',
       'cli/tests/**/*.test.ts',
     ],
 

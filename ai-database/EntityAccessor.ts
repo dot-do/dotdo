@@ -5,7 +5,7 @@
  * Accessed via db.EntityName pattern.
  */
 
-import type { ThingEntity, ThingsStore } from '../db/stores/types'
+import type { ThingEntity, ThingsStore } from '../db/stores'
 import type { EntityAccessor as IEntityAccessor, ListOptions, SearchOptions, DBPromise as IDBPromise } from './types'
 import { DBPromise, type DBPromiseDataSource } from './DBPromise'
 

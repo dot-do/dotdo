@@ -31,9 +31,9 @@ import {
   EventsStore,
   SearchStore,
   ObjectsStore,
+  DLQStore,
   type StoreContext,
 } from '../db/stores'
-import { DLQStore } from '../db/stores/DLQStore'
 import { parseNounId, formatNounId } from '../lib/noun-id'
 
 // ============================================================================
@@ -347,8 +347,9 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   // Cross-DO resolution caches
-  private _stubCache: Map<string, { stub: DOStub; cachedAt: number }> = new Map()
-  private _circuitBreaker: Map<string, { failures: number; openUntil: number }> = new Map()
+  private _stubCache: Map<string, StubCacheEntry> = new Map()
+  private _circuitBreaker: Map<string, CircuitBreakerEntry> = new Map()
+  private _stubCacheMaxSize: number = CROSS_DO_CONFIG.STUB_CACHE_MAX_SIZE
 
   /**
    * ThingsStore - CRUD operations for Things
@@ -1579,14 +1580,51 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   protected async resolveCrossDO(ns: string, path: string, ref: string): Promise<Thing> {
-    // Check circuit breaker first
+    // Check circuit breaker state
     const circuitState = this._circuitBreaker.get(ns)
-    if (circuitState && Date.now() < circuitState.openUntil) {
-      throw new Error(`Circuit breaker open for namespace: ${ns}`)
+    if (circuitState) {
+      const now = Date.now()
+
+      if (circuitState.state === 'open') {
+        if (now >= circuitState.openUntil) {
+          // Transition to half-open state
+          circuitState.state = 'half-open'
+          circuitState.halfOpenTestInProgress = false
+          this._circuitBreaker.set(ns, circuitState)
+        } else {
+          throw new Error(`Circuit breaker open for namespace: ${ns}`)
+        }
+      }
+
+      if (circuitState.state === 'half-open') {
+        if (circuitState.halfOpenTestInProgress) {
+          // Another request is testing the circuit
+          throw new Error('Circuit breaker in half-open test')
+        }
+        // Mark that we're testing the circuit
+        circuitState.halfOpenTestInProgress = true
+        this._circuitBreaker.set(ns, circuitState)
+      }
     }
 
-    // Look up namespace in objects table
-    const obj = await this.objects.get(ns)
+    // Look up namespace in objects table (with R2 SQL fallback)
+    let obj = await this.objects.get(ns)
+    if (!obj) {
+      // Try R2 SQL global fallback if available
+      const objectsWithGlobal = this.objects as typeof this.objects & { getGlobal?: (ns: string) => Promise<unknown> }
+      if (typeof objectsWithGlobal.getGlobal === 'function') {
+        obj = await objectsWithGlobal.getGlobal(ns) as typeof obj
+
+        // Cache global result in local objects table
+        if (obj) {
+          const objectsWithRegister = this.objects as typeof this.objects & { register?: (data: unknown) => Promise<unknown> }
+          if (typeof objectsWithRegister.register === 'function') {
+            await objectsWithRegister.register(obj).catch(() => {}) // Best effort
+          }
+        }
+      }
+    }
+
     if (!obj) {
       throw new Error(`Unknown namespace: ${ns}`)
     }
@@ -1641,14 +1679,15 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   }
 
   /**
-   * Get a cached stub or create a new one
+   * Get a cached stub or create a new one (with LRU eviction)
    */
   private getOrCreateStub(ns: string, doId: string): DOStub {
     const now = Date.now()
     const cached = this._stubCache.get(ns)
 
-    // Return cached stub if still valid
+    // Return cached stub if still valid, updating lastUsed for LRU
     if (cached && now - cached.cachedAt < CROSS_DO_CONFIG.STUB_CACHE_TTL) {
+      cached.lastUsed = now
       return cached.stub
     }
 
@@ -1660,23 +1699,61 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     const id = doNamespace.idFromString(doId)
     const stub = doNamespace.get(id)
 
-    // Cache the stub
-    this._stubCache.set(ns, { stub, cachedAt: now })
+    // Evict LRU entries if cache is full
+    this.evictLRUStubs()
+
+    // Cache the stub with LRU tracking
+    this._stubCache.set(ns, { stub, cachedAt: now, lastUsed: now })
 
     return stub
+  }
+
+  /**
+   * Evict least recently used stubs if cache exceeds max size
+   */
+  private evictLRUStubs(): void {
+    while (this._stubCache.size >= this._stubCacheMaxSize) {
+      // Find the least recently used entry
+      let lruNs: string | null = null
+      let lruLastUsed = Infinity
+
+      for (const [ns, entry] of this._stubCache) {
+        if (entry.lastUsed < lruLastUsed) {
+          lruLastUsed = entry.lastUsed
+          lruNs = ns
+        }
+      }
+
+      if (lruNs) {
+        this._stubCache.delete(lruNs)
+      } else {
+        break // Safety: avoid infinite loop
+      }
+    }
   }
 
   /**
    * Record a failure for circuit breaker
    */
   private recordFailure(ns: string): void {
-    const state = this._circuitBreaker.get(ns) || { failures: 0, openUntil: 0 }
+    const state = this._circuitBreaker.get(ns) || { failures: 0, openUntil: 0, state: 'closed' as CircuitBreakerState }
     state.failures++
 
     if (state.failures >= CROSS_DO_CONFIG.CIRCUIT_BREAKER_THRESHOLD) {
       // Open the circuit
+      state.state = 'open'
       state.openUntil = Date.now() + CROSS_DO_CONFIG.CIRCUIT_BREAKER_TIMEOUT
       state.failures = 0 // Reset for next cycle
+
+      // Invalidate cached stub when circuit breaks
+      this._stubCache.delete(ns)
+    }
+
+    // If in half-open state and we got a failure, re-open the circuit
+    if (state.state === 'half-open') {
+      state.state = 'open'
+      state.openUntil = Date.now() + CROSS_DO_CONFIG.CIRCUIT_BREAKER_TIMEOUT
+      state.halfOpenTestInProgress = false
     }
 
     this._circuitBreaker.set(ns, state)

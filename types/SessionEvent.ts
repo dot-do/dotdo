@@ -95,13 +95,14 @@ const EventIdSchema = z
  * - Must be an object (not null, not array)
  */
 const EventDataSchema = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .refine((data) => data !== null && typeof data === 'object' && !Array.isArray(data), {
     message: 'data must be an object',
   })
 
 /**
  * Full SessionEvent Zod schema with all validations
+ * Uses passthrough-then-strip pattern to allow unknown fields to be stripped
  */
 export const SessionEventSchema = z.object({
   id: EventIdSchema,
@@ -111,7 +112,7 @@ export const SessionEventSchema = z.object({
   data: EventDataSchema,
   source: SessionEventSourceSchema.optional(),
   sequence: SequenceSchema.optional(),
-}).strict()
+})
 
 // ============================================================================
 // Types

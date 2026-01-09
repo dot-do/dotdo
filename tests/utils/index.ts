@@ -5,7 +5,7 @@
  * Import these in your test files to reduce boilerplate.
  *
  * @example
- * import { createMockRequest, assertResponse, waitFor } from '../../../test-utils'
+ * import { createMockRequest, assertResponse, waitFor } from 'tests/utils'
  */
 
 import { vi, expect } from 'vitest'

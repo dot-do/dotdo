@@ -8,7 +8,7 @@
  * - forEach with concurrency and crash recovery
  */
 
-import type { ThingEntity } from '../db/stores/types'
+import type { ThingEntity } from '../db/stores'
 
 // ============================================================================
 // DB PROMISE - Fluent Query Builder

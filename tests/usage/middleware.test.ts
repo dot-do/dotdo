@@ -192,6 +192,11 @@ describe('Captures request/response metrics', () => {
   })
 
   it('captures latency in milliseconds', async () => {
+    // Use real timers for this test since we need actual time to pass
+    // for the setTimeout in the slow handler to work
+    vi.useRealTimers()
+    pipeline = createUsagePipeline!()
+
     const app = createTestApp(pipeline)
 
     await app.request('/api/slow', { method: 'GET' })
@@ -199,6 +204,10 @@ describe('Captures request/response metrics', () => {
     const event = pipeline.events[0] as { latencyMs: number }
     expect(event.latencyMs).toBeGreaterThanOrEqual(50)
     expect(event.latencyMs).toBeLessThan(200) // Allow some overhead
+
+    // Restore fake timers for subsequent tests
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-09T12:00:00.000Z'))
   })
 
   it('captures request size from Content-Length header', async () => {

@@ -12,7 +12,7 @@ import type { UserConfig } from 'vitest/config'
 export const PROJECT_ROOT = resolve(__dirname)
 
 /** Cloudflare workers module mock path */
-export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'test-mocks/cloudflare-workers.ts')
+export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudflare-workers.ts')
 
 /**
  * Shared test configuration settings applied to all test workspaces
@@ -75,7 +75,7 @@ export const coverageConfig: UserConfig['test'] = {
       '**/dist/**',
       '**/*.test.ts',
       '**/tests/**',
-      '**/test-mocks/**',
+      '**/tests/mocks/**',
       '**/*.d.ts',
       '**/vitest.*.ts',
       'app/**', // App has its own test setup

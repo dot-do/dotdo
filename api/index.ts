@@ -15,6 +15,7 @@ import { landingPageHtml, docsPageHtml, adminDashboardHtml, adminLoginHtml, admi
 export { TestDurableObject } from './test-do'
 export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
+export { ThingsDO } from '../objects/ThingsDO'
 
 // Types for Cloudflare Workers bindings
 export interface Env {

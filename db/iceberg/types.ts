@@ -262,6 +262,27 @@ export interface IcebergMetadata {
 }
 
 /**
+ * Visibility levels for records.
+ * - 'public': Accessible without authentication
+ * - 'unlisted': Accessible by direct lookup only (no listing)
+ * - 'org': Accessible to organization members only
+ * - 'user': Accessible to the owning user only
+ */
+export type Visibility = 'public' | 'unlisted' | 'org' | 'user'
+
+/**
+ * Auth context for visibility checking.
+ */
+export interface AuthContext {
+  /** Current user ID */
+  userId?: string
+  /** Current organization ID */
+  orgId?: string
+  /** User roles */
+  roles?: string[]
+}
+
+/**
  * Partition specification for point lookups.
  * Used to filter manifest files and data files.
  */
@@ -270,6 +291,8 @@ export interface PartitionFilter {
   ns: string
   /** Resource type (e.g., 'Function', 'Schema', 'Event') */
   type: string
+  /** Visibility level filter */
+  visibility?: Visibility
 }
 
 /**

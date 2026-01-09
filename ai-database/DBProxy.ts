@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { ThingsStore, SearchStore } from '../db/stores/types'
+import type { ThingsStore, SearchStore } from '../db/stores'
 import type { DBProxy as IDBProxy, EntityAccessor as IEntityAccessor } from './types'
 import { createEntityAccessor, type NLQueryExecutor } from './EntityAccessor'
 

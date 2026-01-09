@@ -84,7 +84,7 @@ apiRoutes.patch('/things/:id', (c) => {
 })
 
 // List all things with pagination - returns array directly
-apiRoutes.get('/things', (c) => {
+apiRoutes.get('/things', async (c) => {
   const limitParam = c.req.query('limit')
   const offsetParam = c.req.query('offset')
 
@@ -103,13 +103,15 @@ apiRoutes.get('/things', (c) => {
     }
   }
 
-  const limit = limitParam ? parseInt(limitParam, 10) : 100
-  const offset = offsetParam ? parseInt(offsetParam, 10) : 0
+  // Forward to DO for storage
+  const stub = getThingsStub(c.env)
+  const url = new URL(c.req.url)
+  const doResponse = await stub.fetch(new Request(`http://do/things${url.search}`, {
+    method: 'GET',
+  }))
 
-  const allThings = Array.from(things.values())
-  const paginated = allThings.slice(offset, offset + limit)
-
-  return c.json(paginated)
+  const things = await doResponse.json()
+  return c.json(things, doResponse.status as 200)
 })
 
 // Create a new thing
@@ -239,43 +241,39 @@ apiRoutes.post('/things', async (c) => {
     )
   }
 
-  const id = crypto.randomUUID()
-  const now = new Date().toISOString()
-  const thing: Thing = {
-    id,
-    $id: `thing:${id}`,
-    $type: body.$type || 'thing',
-    name: body.name,
-    data: body.data,
-    createdAt: now,
-    updatedAt: now,
-  }
+  // Forward to DO for storage
+  const stub = getThingsStub(c.env)
+  const doResponse = await stub.fetch(new Request('http://do/things', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
 
-  things.set(id, thing)
-
-  return c.json(thing, 201)
+  const thing = await doResponse.json()
+  return c.json(thing, doResponse.status as 201 | 400 | 422)
 })
 
 // Get a specific thing
-apiRoutes.get('/things/:id', (c) => {
+apiRoutes.get('/things/:id', async (c) => {
   const id = c.req.param('id')
-  const thing = things.get(id)
 
-  if (!thing) {
+  // Forward to DO for storage
+  const stub = getThingsStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'GET',
+  }))
+
+  if (doResponse.status === 404) {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
+  const thing = await doResponse.json()
   return c.json(thing)
 })
 
 // Update a thing
 apiRoutes.put('/things/:id', async (c) => {
   const id = c.req.param('id')
-  const existing = things.get(id)
-
-  if (!existing) {
-    return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
-  }
 
   let body: { name?: string; data?: Record<string, unknown> }
 
@@ -290,24 +288,37 @@ apiRoutes.put('/things/:id', async (c) => {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid update data' } }, 400)
   }
 
-  const updated: Thing = {
-    ...existing,
-    name: body.name ?? existing.name,
-    data: body.data ?? existing.data,
-    updatedAt: new Date().toISOString(),
+  // Forward to DO for storage
+  const stub = getThingsStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+
+  if (doResponse.status === 404) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 
-  things.set(id, updated)
+  if (doResponse.status === 400) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid update data' } }, 400)
+  }
 
+  const updated = await doResponse.json()
   return c.json(updated)
 })
 
 // Delete a thing
-apiRoutes.delete('/things/:id', (c) => {
+apiRoutes.delete('/things/:id', async (c) => {
   const id = c.req.param('id')
-  const existed = things.delete(id)
 
-  if (!existed) {
+  // Forward to DO for storage
+  const stub = getThingsStub(c.env)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'DELETE',
+  }))
+
+  if (doResponse.status === 404) {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Thing not found' } }, 404)
   }
 

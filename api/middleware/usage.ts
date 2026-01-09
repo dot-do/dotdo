@@ -150,7 +150,10 @@ export function usageMiddleware(options: UsageMiddlewareOptions): MiddlewareHand
     }
 
     // Capture start time
+    // Use Date.now() for context (exposed to handlers) as epoch timestamp
+    // Use performance.now() for latency calculation (monotonic, not affected by fake timers)
     const startTime = Date.now()
+    const performanceStart = performance.now()
     const requestId = generateRequestId()
 
     // Get request size from Content-Length header
@@ -195,12 +198,25 @@ export function usageMiddleware(options: UsageMiddlewareOptions): MiddlewareHand
       return
     }
 
-    // Calculate latency
-    const latencyMs = Date.now() - startTime
+    // Calculate latency using performance.now() (monotonic clock)
+    const latencyMs = performance.now() - performanceStart
 
-    // Get response size
-    const responseSize = c.res.headers.get('Content-Length')
-    const responseSizeNum = responseSize ? parseInt(responseSize, 10) : undefined
+    // Get response size - try Content-Length header first, then calculate from body
+    let responseSizeNum: number | undefined
+    const responseSizeHeader = c.res.headers.get('Content-Length')
+    if (responseSizeHeader) {
+      responseSizeNum = parseInt(responseSizeHeader, 10)
+    } else {
+      // Try to calculate size from response body
+      // Clone the response to avoid consuming it
+      try {
+        const clonedRes = c.res.clone()
+        const body = await clonedRes.text()
+        responseSizeNum = new TextEncoder().encode(body).length
+      } catch {
+        // If we can't read the body, leave size undefined
+      }
+    }
 
     // Get Cloudflare metadata
     const cfRay = c.req.header('CF-Ray')

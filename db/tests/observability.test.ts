@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 
 /**
  * Observability Table Schema Tests
@@ -51,16 +51,26 @@ interface ObservabilityEvent {
 }
 
 // ============================================================================
-// Schema Imports (should fail until implemented)
+// Dynamic Import for RED Phase TDD
 // ============================================================================
 
-// Import the schema - this should FAIL because db/observability.ts doesn't exist
-// @ts-expect-error - Module not found (RED phase)
-import { observability } from '../observability'
+// These will be populated by dynamic import in beforeAll
+// They will be undefined until db/observability.ts is implemented
+let observability: Record<string, unknown> | undefined
+let deriveHour: ((timestamp: number) => string) | undefined
+let deriveSeverityBucket: ((level: string) => 'error' | 'normal') | undefined
 
-// Import helper functions - should FAIL
-// @ts-expect-error - Exports don't exist yet (RED phase)
-import { deriveHour, deriveSeverityBucket } from '../observability'
+beforeAll(async () => {
+  try {
+    const module = await import('../observability')
+    observability = module.observability
+    deriveHour = module.deriveHour
+    deriveSeverityBucket = module.deriveSeverityBucket
+  } catch {
+    // Module doesn't exist yet - this is expected in RED phase
+    // Tests will fail with clear messages about what's missing
+  }
+})
 
 // ============================================================================
 // Schema Table Definition Tests
@@ -69,10 +79,11 @@ import { deriveHour, deriveSeverityBucket } from '../observability'
 describe('Schema Table Definition', () => {
   describe('Table Export', () => {
     it('observability table is exported from db/observability.ts', () => {
-      expect(observability).toBeDefined()
+      expect(observability, 'observability table should be exported from db/observability.ts').toBeDefined()
     })
 
     it('table name is "do_observability"', () => {
+      expect(observability, 'observability table must exist').toBeDefined()
       // Drizzle tables have a _ property with table info
       const tableName = (observability as { _: { name: string } })._?.name ?? ''
       expect(tableName).toBe('do_observability')
@@ -81,80 +92,99 @@ describe('Schema Table Definition', () => {
 
   describe('Column Definitions', () => {
     it('has id column (text, primary key)', () => {
-      expect(observability.id).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.id).toBeDefined()
     })
 
     it('has type column (text, not null)', () => {
-      expect(observability.type).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.type).toBeDefined()
     })
 
     it('has level column (text, not null)', () => {
-      expect(observability.level).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.level).toBeDefined()
     })
 
     it('has script column (text, not null)', () => {
-      expect(observability.script).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.script).toBeDefined()
     })
 
     it('has timestamp column (integer, not null)', () => {
-      expect(observability.timestamp).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.timestamp).toBeDefined()
     })
 
     it('has request_id column (text, nullable)', () => {
-      expect(observability.request_id).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.request_id).toBeDefined()
     })
 
     it('has method column (text, nullable)', () => {
-      expect(observability.method).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.method).toBeDefined()
     })
 
     it('has url column (text, nullable)', () => {
-      expect(observability.url).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.url).toBeDefined()
     })
 
     it('has status column (integer, nullable)', () => {
-      expect(observability.status).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.status).toBeDefined()
     })
 
     it('has duration_ms column (integer, nullable)', () => {
-      expect(observability.duration_ms).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.duration_ms).toBeDefined()
     })
 
     it('has do_name column (text, nullable)', () => {
-      expect(observability.do_name).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.do_name).toBeDefined()
     })
 
     it('has do_id column (text, nullable)', () => {
-      expect(observability.do_id).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.do_id).toBeDefined()
     })
 
     it('has do_method column (text, nullable)', () => {
-      expect(observability.do_method).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.do_method).toBeDefined()
     })
 
     it('has message column (text/JSON array, nullable)', () => {
-      expect(observability.message).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.message).toBeDefined()
     })
 
     it('has stack column (text, nullable)', () => {
-      expect(observability.stack).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.stack).toBeDefined()
     })
 
     it('has metadata column (text/JSON, nullable)', () => {
-      expect(observability.metadata).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.metadata).toBeDefined()
     })
 
     it('has hour column (text, partition column)', () => {
-      expect(observability.hour).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.hour).toBeDefined()
     })
 
     it('has severity_bucket column (text, partition column)', () => {
-      expect(observability.severity_bucket).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
+      expect(observability!.severity_bucket).toBeDefined()
     })
   })
 
   describe('All Required Columns Present', () => {
     it('has all 18 required columns', () => {
+      expect(observability, 'observability table must exist').toBeDefined()
       const requiredColumns = [
         'id',
         'type',
@@ -178,7 +208,7 @@ describe('Schema Table Definition', () => {
 
       requiredColumns.forEach((col) => {
         expect(
-          (observability as Record<string, unknown>)[col],
+          observability![col],
           `Column ${col} should be defined`
         ).toBeDefined()
       })
@@ -193,30 +223,33 @@ describe('Schema Table Definition', () => {
 describe('deriveHour Helper Function', () => {
   describe('Basic Functionality', () => {
     it('deriveHour function is exported', () => {
-      expect(deriveHour).toBeDefined()
+      expect(deriveHour, 'deriveHour should be exported from db/observability.ts').toBeDefined()
       expect(typeof deriveHour).toBe('function')
     })
 
     it('converts timestamp to ISO hour string', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-01-15 14:30:45.123 UTC
       const timestamp = 1705329045123
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       // Should return the hour truncated to start of hour
       expect(result).toBe('2024-01-15T14:00:00Z')
     })
 
     it('returns ISO format with Z timezone', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       const timestamp = Date.now()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/)
     })
 
     it('truncates minutes, seconds, and milliseconds to zero', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-06-20 09:45:32.789 UTC
       const timestamp = new Date('2024-06-20T09:45:32.789Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-06-20T09:00:00Z')
     })
@@ -224,57 +257,64 @@ describe('deriveHour Helper Function', () => {
 
   describe('Edge Cases', () => {
     it('handles midnight correctly', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-01-15 00:30:00 UTC
       const timestamp = new Date('2024-01-15T00:30:00Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-01-15T00:00:00Z')
     })
 
     it('handles 23:00 hour correctly', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-01-15 23:59:59 UTC
       const timestamp = new Date('2024-01-15T23:59:59Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-01-15T23:00:00Z')
     })
 
     it('handles year boundary correctly', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2023-12-31 23:30:00 UTC
       const timestamp = new Date('2023-12-31T23:30:00Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2023-12-31T23:00:00Z')
     })
 
     it('handles new year correctly', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-01-01 00:15:00 UTC
       const timestamp = new Date('2024-01-01T00:15:00Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-01-01T00:00:00Z')
     })
 
     it('handles leap year February 29th', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // 2024 is a leap year
       const timestamp = new Date('2024-02-29T12:30:00Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-02-29T12:00:00Z')
     })
 
     it('handles timestamp at exact hour boundary', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for exactly 2024-01-15 10:00:00.000 UTC
       const timestamp = new Date('2024-01-15T10:00:00.000Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-01-15T10:00:00Z')
     })
 
     it('handles timestamp one millisecond before next hour', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Timestamp for 2024-01-15 10:59:59.999 UTC
       const timestamp = new Date('2024-01-15T10:59:59.999Z').getTime()
-      const result = deriveHour(timestamp)
+      const result = deriveHour!(timestamp)
 
       expect(result).toBe('2024-01-15T10:00:00Z')
     })
@@ -288,55 +328,62 @@ describe('deriveHour Helper Function', () => {
 describe('deriveSeverityBucket Helper Function', () => {
   describe('Basic Functionality', () => {
     it('deriveSeverityBucket function is exported', () => {
-      expect(deriveSeverityBucket).toBeDefined()
+      expect(deriveSeverityBucket, 'deriveSeverityBucket should be exported from db/observability.ts').toBeDefined()
       expect(typeof deriveSeverityBucket).toBe('function')
     })
 
     it('returns "error" for "error" level', () => {
-      const result = deriveSeverityBucket('error')
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+      const result = deriveSeverityBucket!('error')
       expect(result).toBe('error')
     })
 
     it('returns "error" for "warn" level', () => {
-      const result = deriveSeverityBucket('warn')
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+      const result = deriveSeverityBucket!('warn')
       expect(result).toBe('error')
     })
 
     it('returns "normal" for "info" level', () => {
-      const result = deriveSeverityBucket('info')
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+      const result = deriveSeverityBucket!('info')
       expect(result).toBe('normal')
     })
 
     it('returns "normal" for "debug" level', () => {
-      const result = deriveSeverityBucket('debug')
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
+      const result = deriveSeverityBucket!('debug')
       expect(result).toBe('normal')
     })
   })
 
   describe('Return Type Validation', () => {
     it('returns only "error" or "normal"', () => {
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
       const levels = ['debug', 'info', 'warn', 'error'] as const
 
       levels.forEach((level) => {
-        const result = deriveSeverityBucket(level)
+        const result = deriveSeverityBucket!(level)
         expect(['error', 'normal']).toContain(result)
       })
     })
 
     it('error levels map to "error" bucket', () => {
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
       const errorLevels = ['error', 'warn'] as const
 
       errorLevels.forEach((level) => {
-        const result = deriveSeverityBucket(level)
+        const result = deriveSeverityBucket!(level)
         expect(result).toBe('error')
       })
     })
 
     it('normal levels map to "normal" bucket', () => {
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
       const normalLevels = ['info', 'debug'] as const
 
       normalLevels.forEach((level) => {
-        const result = deriveSeverityBucket(level)
+        const result = deriveSeverityBucket!(level)
         expect(result).toBe('normal')
       })
     })
@@ -354,7 +401,7 @@ describe('Drizzle Query Usage', () => {
       // The actual query execution would require a database connection
 
       // Verify the table has the expected Drizzle table interface
-      expect(observability).toBeDefined()
+      expect(observability, 'observability table must exist').toBeDefined()
 
       // In Drizzle, tables have columns accessible as properties
       // and a special _ property with metadata
@@ -366,19 +413,20 @@ describe('Drizzle Query Usage', () => {
 
       // Check it has the Drizzle table marker
       const hasTableMarker =
-        (observability as Record<string, unknown>)._ !== undefined ||
+        observability!._ !== undefined ||
         Symbol.for('drizzle:Name') in (observability as object)
 
       expect(hasTableMarker).toBe(true)
     })
 
     it('can reference specific columns for select', () => {
+      expect(observability, 'observability table must exist').toBeDefined()
       // Verify we can access columns by name (for column selection)
-      expect(observability.id).toBeDefined()
-      expect(observability.type).toBeDefined()
-      expect(observability.level).toBeDefined()
-      expect(observability.timestamp).toBeDefined()
-      expect(observability.message).toBeDefined()
+      expect(observability!.id).toBeDefined()
+      expect(observability!.type).toBeDefined()
+      expect(observability!.level).toBeDefined()
+      expect(observability!.timestamp).toBeDefined()
+      expect(observability!.message).toBeDefined()
     })
   })
 
@@ -534,8 +582,9 @@ describe('Level Values', () => {
 describe('Partition Columns', () => {
   describe('hour partition column', () => {
     it('hour is derived from timestamp', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       const timestamp = new Date('2024-01-15T14:35:22Z').getTime()
-      const hour = deriveHour(timestamp)
+      const hour = deriveHour!(timestamp)
 
       const event: Partial<ObservabilityEvent> = {
         timestamp,
@@ -546,6 +595,7 @@ describe('Partition Columns', () => {
     })
 
     it('hour enables time-based partitioning', () => {
+      expect(deriveHour, 'deriveHour must be defined').toBeDefined()
       // Events from the same hour should have the same hour partition value
       const events: Partial<ObservabilityEvent>[] = [
         { timestamp: new Date('2024-01-15T14:00:00Z').getTime() },
@@ -554,7 +604,7 @@ describe('Partition Columns', () => {
       ]
 
       events.forEach((event) => {
-        const hour = deriveHour(event.timestamp!)
+        const hour = deriveHour!(event.timestamp!)
         expect(hour).toBe('2024-01-15T14:00:00Z')
       })
     })
@@ -562,23 +612,25 @@ describe('Partition Columns', () => {
 
   describe('severity_bucket partition column', () => {
     it('severity_bucket is derived from level', () => {
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
       const event: Partial<ObservabilityEvent> = {
         level: 'error',
-        severity_bucket: deriveSeverityBucket('error'),
+        severity_bucket: deriveSeverityBucket!('error'),
       }
 
       expect(event.severity_bucket).toBe('error')
     })
 
     it('separates error/warn from info/debug', () => {
+      expect(deriveSeverityBucket, 'deriveSeverityBucket must be defined').toBeDefined()
       const errorEvents: Partial<ObservabilityEvent>[] = [
-        { level: 'error', severity_bucket: deriveSeverityBucket('error') },
-        { level: 'warn', severity_bucket: deriveSeverityBucket('warn') },
+        { level: 'error', severity_bucket: deriveSeverityBucket!('error') },
+        { level: 'warn', severity_bucket: deriveSeverityBucket!('warn') },
       ]
 
       const normalEvents: Partial<ObservabilityEvent>[] = [
-        { level: 'info', severity_bucket: deriveSeverityBucket('info') },
-        { level: 'debug', severity_bucket: deriveSeverityBucket('debug') },
+        { level: 'info', severity_bucket: deriveSeverityBucket!('info') },
+        { level: 'debug', severity_bucket: deriveSeverityBucket!('debug') },
       ]
 
       errorEvents.forEach((event) => {
