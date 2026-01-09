@@ -612,22 +612,56 @@ export class EdgePostgres {
     `)
 
     for (const { tablename } of tablesResult.rows) {
-      // Get table schema
+      // Get table schema with full type info including vector dimensions
       const columnsResult = await this.pglite.query<{
         column_name: string
         data_type: string
+        udt_name: string
         column_default: string | null
         is_nullable: string
+        character_maximum_length: number | null
+        numeric_precision: number | null
       }>(`
-        SELECT column_name, data_type, column_default, is_nullable
+        SELECT column_name, data_type, udt_name, column_default, is_nullable,
+               character_maximum_length, numeric_precision
         FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = $1
         ORDER BY ordinal_position
       `, [tablename])
 
+      // Get vector column dimensions from pg_attribute
+      const vectorDimensions = new Map<string, number>()
+      const vectorColsResult = await this.pglite.query<{
+        attname: string
+        atttypmod: number
+      }>(`
+        SELECT a.attname, a.atttypmod
+        FROM pg_attribute a
+        JOIN pg_class c ON a.attrelid = c.oid
+        JOIN pg_type t ON a.atttypid = t.oid
+        WHERE c.relname = $1 AND t.typname = 'vector' AND a.attnum > 0
+      `, [tablename])
+
+      for (const { attname, atttypmod } of vectorColsResult.rows) {
+        // atttypmod contains the dimension for vector types
+        if (atttypmod > 0) {
+          vectorDimensions.set(attname, atttypmod)
+        }
+      }
+
       // Build CREATE TABLE statement
       const columns = columnsResult.rows.map((col) => {
-        let def = `${col.column_name} ${col.data_type.toUpperCase()}`
+        let dataType: string
+
+        // Handle USER-DEFINED types (like pgvector)
+        if (col.data_type === 'USER-DEFINED' && col.udt_name === 'vector') {
+          const dim = vectorDimensions.get(col.column_name)
+          dataType = dim ? `vector(${dim})` : 'vector'
+        } else {
+          dataType = col.data_type.toUpperCase()
+        }
+
+        let def = `${col.column_name} ${dataType}`
         if (col.column_default) {
           def += ` DEFAULT ${col.column_default}`
         }

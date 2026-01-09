@@ -1130,8 +1130,8 @@ describe('EdgePostgres pgvector Integration', () => {
       await db.exec(`
         CREATE TABLE dim_a (id TEXT, embedding vector(64));
         CREATE TABLE dim_b (id TEXT, embedding vector(128));
-        INSERT INTO dim_a VALUES ('a', ${JSON.stringify(randomVector(64))});
-        INSERT INTO dim_b VALUES ('b', ${JSON.stringify(randomVector(128))});
+        INSERT INTO dim_a VALUES ('a', '[${randomVector(64).join(',')}]'::vector);
+        INSERT INTO dim_b VALUES ('b', '[${randomVector(128).join(',')}]'::vector);
       `)
 
       await expect(
