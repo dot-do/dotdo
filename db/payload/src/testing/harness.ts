@@ -54,6 +54,58 @@ import {
   type DeleteManyArgs,
   type DeleteContext,
 } from '../adapter/operations/delete'
+import {
+  findGlobal as findGlobalOp,
+  updateGlobal as updateGlobalOp,
+  createGlobalVersion as createGlobalVersionOp,
+  findGlobalVersions as findGlobalVersionsOp,
+  restoreGlobalVersion as restoreGlobalVersionOp,
+  getGlobals as getGlobalsOp,
+  type FindGlobalArgs,
+  type UpdateGlobalArgs,
+  type CreateGlobalVersionArgs,
+  type FindGlobalVersionsArgs,
+  type RestoreGlobalVersionArgs,
+  type GlobalContext,
+} from '../adapter/operations/globals'
+import {
+  createTransactionManager,
+  type Transaction,
+  type Savepoint,
+  type TransactionManager,
+  type TransactionState_Internal,
+} from '../adapter/operations/transactions'
+import {
+  createMigrationStore,
+  registerMigrations,
+  migrate as migrateOp,
+  migrateStatus as migrateStatusOp,
+  migrateDown as migrateDownOp,
+  migrateRefresh as migrateRefreshOp,
+  migrateFresh as migrateFreshOp,
+  migrateCreate as migrateCreateOp,
+  getMigrationHistory,
+  getMigrationDir,
+  setMigrationDir,
+  getMigrationSearchPaths,
+  setMigrationFiles,
+  discoverMigrations,
+  initSchema,
+  isInTransaction,
+  setLockHeld,
+  on as onMigrationEvent,
+  setMode,
+  setSeedFunction,
+  push,
+  type Migration,
+  type MigrationStore,
+  type MigrateOptions,
+  type MigrateDownOptions,
+  type MigrateFreshOptions,
+  type MigrateCreateOptions,
+  type PushOptions,
+  type MigrationFileInfo,
+} from '../adapter/operations/migrations'
 
 // ============================================================================
 // TYPES
@@ -697,16 +749,22 @@ function createMockAdapter(
     },
   }
 
+  // Create transaction manager for this adapter instance
+  const txManager = createTransactionManager()
+
+  // Create migration store for this adapter instance
+  const migrationStore = createMigrationStore()
+
   // Alias methods to match Payload Local API style
   const adapterWithAliases = adapter as MockPayloadAdapter & {
-    create: (args: { collection: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
-    find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string; depth?: number }) => Promise<{ docs: Record<string, unknown>[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number; limit: number }>
-    findOne: (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number }) => Promise<Record<string, unknown> | null>
+    create: (args: { collection: string; data: Record<string, unknown>; transaction?: Transaction }) => Promise<PayloadDocument>
+    find: (args: { collection: string; where?: Record<string, unknown>; limit?: number; page?: number; sort?: string; depth?: number; transaction?: Transaction }) => Promise<{ docs: Record<string, unknown>[]; totalDocs: number; hasNextPage: boolean; hasPrevPage: boolean; page: number; totalPages: number; limit: number }>
+    findOne: (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number; transaction?: Transaction }) => Promise<Record<string, unknown> | null>
     update: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
-    updateOne: (args: { collection: string; id: string; data: Record<string, unknown> }) => Promise<PayloadDocument>
+    updateOne: (args: { collection: string; id: string; data: Record<string, unknown>; transaction?: Transaction }) => Promise<PayloadDocument>
     updateMany: (args: { collection: string; where?: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ updatedCount: number }>
     delete: (args: { collection: string; id: string }) => Promise<PayloadDocument>
-    deleteOne: (args: { collection: string; id: string }) => Promise<PayloadDocument>
+    deleteOne: (args: { collection: string; id: string; transaction?: Transaction }) => Promise<PayloadDocument>
     deleteMany: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ deletedCount: number }>
     count: (args: { collection: string; where?: Record<string, unknown> }) => Promise<{ totalDocs: number }>
     createVersion: (args: CreateVersionArgs) => Promise<any>
@@ -716,21 +774,74 @@ function createMockAdapter(
     deleteVersions: (args: DeleteVersionsArgs) => Promise<void>
     updateVersion: (args: any) => Promise<never>
     hooks?: any
+    // Globals methods
+    findGlobal: (args: FindGlobalArgs) => Promise<Record<string, unknown>>
+    updateGlobal: (args: UpdateGlobalArgs) => Promise<Record<string, unknown>>
+    createGlobalVersion: (args: CreateGlobalVersionArgs) => Promise<any>
+    findGlobalVersions: (args: FindGlobalVersionsArgs) => Promise<any>
+    restoreGlobalVersion: (args: RestoreGlobalVersionArgs) => Promise<Record<string, unknown>>
+    getGlobals: () => Promise<Array<{ slug: string } & Record<string, unknown>>>
+    // Transaction methods
+    activeTransaction: Transaction | undefined
+    beginTransaction: (options?: { timeout?: number }) => Promise<Transaction>
+    commitTransaction: (tx: Transaction) => Promise<void>
+    rollbackTransaction: (tx: Transaction) => Promise<void>
+    transaction: <T>(callback: (tx: Transaction) => Promise<T>) => Promise<T>
+    savepoint: (tx: Transaction, name: string) => Promise<Savepoint>
+    rollbackToSavepoint: (tx: Transaction, sp: Savepoint | string) => Promise<void>
+    releaseSavepoint: (tx: Transaction, sp: Savepoint | string) => Promise<void>
+    // Migration methods
+    registerMigrations: (migrations: Migration[]) => void
+    migrate: (options?: MigrateOptions) => Promise<any>
+    migrateStatus: () => Promise<any>
+    migrateDown: (options?: MigrateDownOptions) => Promise<any>
+    migrateRefresh: () => Promise<any>
+    migrateFresh: (options?: MigrateFreshOptions) => Promise<any>
+    migrateCreate: (options: MigrateCreateOptions) => Promise<any>
+    getMigrationHistory: () => Promise<any[]>
+    getMigrationDir: () => string
+    setMigrationDir: (dir: string) => void
+    getMigrationSearchPaths: () => string[]
+    setMigrationFiles: (files: MigrationFileInfo[]) => void
+    discoverMigrations: () => Promise<MigrationFileInfo[]>
+    initSchema: () => Promise<void>
+    isInTransaction: () => boolean
+    setLockHeld: (held: boolean) => void
+    on: (event: string, listener: (...args: any[]) => void) => void
+    setMode: (mode: 'development' | 'production') => void
+    setSeedFunction: (fn: () => Promise<void>) => void
+    push: (options: PushOptions) => Promise<any>
   }
 
   // Use the createOperation function for create
-  adapterWithAliases.create = async (args: { collection: string; data: Record<string, unknown> }) => {
+  adapterWithAliases.create = async (args: { collection: string; data: Record<string, unknown>; transaction?: Transaction }) => {
     const namespace = config.namespace ?? 'https://test.do'
 
     // Get fields schema for the collection (for now, use postFields as default schema)
     // In real implementation, this would be fetched from collection config
     const schema = getCollectionSchema(args.collection)
 
+    // Check if using an invalid/closed transaction
+    if (args.transaction && !txManager.isValidTransaction(args.transaction)) {
+      throw new Error('Cannot use transaction: transaction is invalid, expired, or already committed')
+    }
+
     // Build the context for create operation
     const ctx = {
       namespace,
-      things,
-      relationships,
+      things: args.transaction ? {
+        ...things,
+        create: (data: any) => {
+          txManager.addPendingThing(data.$id, data)
+          return data
+        },
+      } : things,
+      relationships: args.transaction ? {
+        ...relationships,
+        add: (rel: any) => {
+          txManager.addPendingRelationship({ action: 'add', ...rel })
+        },
+      } : relationships,
       nouns,
       schema,
       hooks: adapterWithAliases.hooks,
@@ -742,9 +853,22 @@ function createMockAdapter(
     // Call the create operation
     const doc = await createOperation(args, ctx)
 
-    // Store in collections map
-    const col = getCollection(args.collection)
-    col.set(doc.id, doc)
+    if (args.transaction) {
+      // Store in pending collection docs
+      txManager.addPendingCollectionDoc(args.collection, doc.id, doc)
+      // Record the operation in the transaction
+      txManager.recordOperation({
+        type: 'create',
+        collection: args.collection,
+        id: doc.id,
+        data: args.data,
+        timestamp: Date.now(),
+      })
+    } else {
+      // Store in collections map immediately
+      const col = getCollection(args.collection)
+      col.set(doc.id, doc)
+    }
 
     return doc
   }
@@ -791,8 +915,23 @@ function createMockAdapter(
     return result
   }
 
-  adapterWithAliases.findOne = async (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number }) => {
+  adapterWithAliases.findOne = async (args: { collection: string; id?: string; where?: Record<string, unknown>; depth?: number; transaction?: Transaction }) => {
     trackOperation('findOne', args.collection, { id: args.id, where: args.where })
+
+    // If within a transaction, check pending docs first
+    if (args.transaction && args.id) {
+      const pendingDoc = txManager.getPendingCollectionDoc(args.collection, args.id)
+      if (pendingDoc) {
+        if (pendingDoc.__deleted) {
+          return null
+        }
+        return pendingDoc
+      }
+      // Also check if deleted in transaction
+      if (txManager.isPendingDeleted(args.collection, args.id)) {
+        return null
+      }
+    }
 
     const ctx = buildFindContext()
     ctx.schema = getCollectionSchema(args.collection)
@@ -867,7 +1006,7 @@ function createMockAdapter(
   }
 
   // updateOne operation
-  adapterWithAliases.updateOne = async (args: { collection: string; id: string; data: Record<string, unknown> }) => {
+  adapterWithAliases.updateOne = async (args: { collection: string; id: string; data: Record<string, unknown>; transaction?: Transaction }) => {
     const namespace = config.namespace ?? 'https://test.do'
     const schema = getCollectionSchema(args.collection)
     const ctx = buildUpdateDeleteContext()
@@ -875,6 +1014,46 @@ function createMockAdapter(
 
     // Track the operation
     trackOperation('update', args.collection, { data: args.data, id: args.id })
+
+    if (args.transaction) {
+      // Check if transaction is valid
+      if (!txManager.isValidTransaction(args.transaction)) {
+        throw new Error('Cannot use transaction: transaction is invalid or already committed')
+      }
+
+      // Get the existing document (either from pending or from store)
+      let existingDoc = txManager.getPendingCollectionDoc(args.collection, args.id)
+      if (!existingDoc) {
+        const col = getCollection(args.collection)
+        existingDoc = col.get(args.id)
+      }
+
+      if (!existingDoc) {
+        throw new Error(`Document ${args.id} not found in collection ${args.collection}`)
+      }
+
+      // Create updated document
+      const now = new Date().toISOString()
+      const updatedDoc = {
+        ...existingDoc,
+        ...args.data,
+        id: args.id,
+        updatedAt: now,
+      }
+
+      // Store in pending
+      txManager.addPendingCollectionDoc(args.collection, args.id, updatedDoc)
+      txManager.recordOperation({
+        type: 'update',
+        collection: args.collection,
+        id: args.id,
+        data: args.data,
+        previousData: existingDoc,
+        timestamp: Date.now(),
+      })
+
+      return updatedDoc
+    }
 
     // Call the update operation
     const doc = await updateOneOperation({
@@ -911,7 +1090,7 @@ function createMockAdapter(
   }
 
   // deleteOne operation
-  adapterWithAliases.deleteOne = async (args: { collection: string; id: string }) => {
+  adapterWithAliases.deleteOne = async (args: { collection: string; id: string; transaction?: Transaction }) => {
     const namespace = config.namespace ?? 'https://test.do'
     const schema = getCollectionSchema(args.collection)
     const ctx = buildUpdateDeleteContext()
@@ -919,6 +1098,36 @@ function createMockAdapter(
 
     // Track the operation
     trackOperation('delete', args.collection, { id: args.id })
+
+    if (args.transaction) {
+      // Check if transaction is valid
+      if (!txManager.isValidTransaction(args.transaction)) {
+        throw new Error('Cannot use transaction: transaction is invalid or already committed')
+      }
+
+      // Get the existing document (either from pending or from store)
+      let existingDoc = txManager.getPendingCollectionDoc(args.collection, args.id)
+      if (!existingDoc) {
+        const col = getCollection(args.collection)
+        existingDoc = col.get(args.id)
+      }
+
+      if (!existingDoc) {
+        throw new Error(`Document ${args.id} not found in collection ${args.collection}`)
+      }
+
+      // Mark as deleted in pending
+      txManager.markPendingDeleted(args.collection, args.id)
+      txManager.recordOperation({
+        type: 'delete',
+        collection: args.collection,
+        id: args.id,
+        previousData: existingDoc,
+        timestamp: Date.now(),
+      })
+
+      return existingDoc
+    }
 
     // Call the delete operation
     const doc = await deleteOneOperation({
@@ -1010,6 +1219,304 @@ function createMockAdapter(
     await deleteAllVersions(args.collection, args.id, ctx)
     // Then delete the document
     return originalDelete(args)
+  }
+
+  // ============================================================================
+  // GLOBALS OPERATIONS
+  // ============================================================================
+
+  // Build global context helper
+  const buildGlobalContext = (): GlobalContext => {
+    const namespace = config.namespace ?? 'https://test.do'
+    return {
+      namespace,
+      things,
+      relationships,
+      hooks: adapterWithAliases.hooks,
+      schemas: new Map(Object.entries(collectionSchemas)),
+      getDocument: async (collection: string, id: string) => {
+        const col = getCollection(collection)
+        return col.get(id) ?? null
+      },
+    }
+  }
+
+  adapterWithAliases.findGlobal = async (args: FindGlobalArgs) => {
+    trackOperation('findGlobal' as any, args.slug, { id: args.slug })
+    const ctx = buildGlobalContext()
+    return findGlobalOp(args, ctx)
+  }
+
+  adapterWithAliases.updateGlobal = async (args: UpdateGlobalArgs) => {
+    trackOperation('updateGlobal' as any, args.slug, { data: args.data })
+    const ctx = buildGlobalContext()
+    return updateGlobalOp(args, ctx)
+  }
+
+  adapterWithAliases.createGlobalVersion = async (args: CreateGlobalVersionArgs) => {
+    trackOperation('createGlobalVersion' as any, args.slug, { id: args.slug })
+    const ctx = buildGlobalContext()
+    return createGlobalVersionOp(args, ctx)
+  }
+
+  adapterWithAliases.findGlobalVersions = async (args: FindGlobalVersionsArgs) => {
+    trackOperation('findGlobalVersions' as any, args.slug, { id: args.slug, where: args.where })
+    const ctx = buildGlobalContext()
+    return findGlobalVersionsOp(args, ctx)
+  }
+
+  adapterWithAliases.restoreGlobalVersion = async (args: RestoreGlobalVersionArgs) => {
+    trackOperation('restoreGlobalVersion' as any, args.slug, { id: args.slug })
+    const ctx = buildGlobalContext()
+    return restoreGlobalVersionOp(args, ctx)
+  }
+
+  adapterWithAliases.getGlobals = async () => {
+    const ctx = buildGlobalContext()
+    return getGlobalsOp(ctx)
+  }
+
+  // ============================================================================
+  // TRANSACTION OPERATIONS
+  // ============================================================================
+
+  // Getter for activeTransaction
+  Object.defineProperty(adapterWithAliases, 'activeTransaction', {
+    get: () => txManager.activeTransaction,
+  })
+
+  adapterWithAliases.beginTransaction = async (options?: { timeout?: number }) => {
+    return txManager.beginTransaction(options)
+  }
+
+  adapterWithAliases.commitTransaction = async (tx: Transaction) => {
+    return txManager.commitTransaction(tx, async (state: TransactionState_Internal) => {
+      // Apply all pending Things
+      for (const [id, thing] of state.pendingThings) {
+        things.create(thing)
+      }
+
+      // Apply all pending relationships
+      for (const rel of state.pendingRelationships) {
+        if (rel.action === 'add') {
+          relationships.add({ from: rel.from, to: rel.to, verb: rel.verb, data: rel.data })
+        } else {
+          relationships.remove(rel.from, rel.to, rel.verb)
+        }
+      }
+
+      // Apply all pending collection documents
+      const namespace = config.namespace ?? 'https://test.do'
+      for (const [collectionName, docs] of state.pendingCollectionDocs) {
+        const col = getCollection(collectionName)
+        for (const [id, doc] of docs) {
+          if (doc.__deleted) {
+            col.delete(id)
+            // Also delete from things store
+            const thingId = `${namespace}/${collectionName}/${id}`
+            things.delete(thingId)
+          } else {
+            col.set(id, doc)
+            // Also update in things store - convert doc to Thing format
+            const thingId = `${namespace}/${collectionName}/${id}`
+            const existingThing = things.get(thingId)
+            if (existingThing) {
+              // Update existing thing
+              const { id: docId, createdAt, updatedAt, ...rest } = doc
+              things.update(thingId, {
+                data: rest,
+                updatedAt: updatedAt ? new Date(updatedAt) : new Date(),
+              })
+            } else {
+              // Create new thing
+              const thing = adapter.documentToThing(collectionName, doc)
+              things.create(thing)
+            }
+          }
+        }
+      }
+    })
+  }
+
+  adapterWithAliases.rollbackTransaction = async (tx: Transaction) => {
+    return txManager.rollbackTransaction(tx)
+  }
+
+  adapterWithAliases.transaction = async <T>(callback: (tx: Transaction) => Promise<T>): Promise<T> => {
+    return txManager.transaction(callback, async (state: TransactionState_Internal) => {
+      // Apply all pending Things
+      for (const [id, thing] of state.pendingThings) {
+        things.create(thing)
+      }
+
+      // Apply all pending relationships
+      for (const rel of state.pendingRelationships) {
+        if (rel.action === 'add') {
+          relationships.add({ from: rel.from, to: rel.to, verb: rel.verb, data: rel.data })
+        } else {
+          relationships.remove(rel.from, rel.to, rel.verb)
+        }
+      }
+
+      // Apply all pending collection documents
+      const namespace = config.namespace ?? 'https://test.do'
+      for (const [collectionName, docs] of state.pendingCollectionDocs) {
+        const col = getCollection(collectionName)
+        for (const [id, doc] of docs) {
+          if (doc.__deleted) {
+            col.delete(id)
+            const thingId = `${namespace}/${collectionName}/${id}`
+            things.delete(thingId)
+          } else {
+            col.set(id, doc)
+            // Also update in things store - convert doc to Thing format
+            const thingId = `${namespace}/${collectionName}/${id}`
+            const existingThing = things.get(thingId)
+            if (existingThing) {
+              // Update existing thing
+              const { id: docId, createdAt, updatedAt, ...rest } = doc
+              things.update(thingId, {
+                data: rest,
+                updatedAt: updatedAt ? new Date(updatedAt) : new Date(),
+              })
+            } else {
+              // Create new thing
+              const thing = adapter.documentToThing(collectionName, doc)
+              things.create(thing)
+            }
+          }
+        }
+      }
+    })
+  }
+
+  adapterWithAliases.savepoint = async (tx: Transaction, name: string) => {
+    return txManager.savepoint(tx, name)
+  }
+
+  adapterWithAliases.rollbackToSavepoint = async (tx: Transaction, sp: Savepoint | string) => {
+    return txManager.rollbackToSavepoint(tx, sp)
+  }
+
+  adapterWithAliases.releaseSavepoint = async (tx: Transaction, sp: Savepoint | string) => {
+    return txManager.releaseSavepoint(tx, sp)
+  }
+
+  // ============================================================================
+  // MIGRATION OPERATIONS
+  // ============================================================================
+
+  adapterWithAliases.registerMigrations = (migrations: Migration[]) => {
+    registerMigrations(migrationStore, migrations)
+  }
+
+  adapterWithAliases.migrate = async (options?: MigrateOptions) => {
+    // Initialize schema hooks if defined
+    if (adapterWithAliases.hooks?.beforeSchemaInit || adapterWithAliases.hooks?.afterSchemaInit) {
+      migrationStore.hooks = {
+        beforeSchemaInit: adapterWithAliases.hooks?.beforeSchemaInit,
+        afterSchemaInit: adapterWithAliases.hooks?.afterSchemaInit,
+        beforeFresh: adapterWithAliases.hooks?.beforeFresh,
+      }
+      await initSchema(migrationStore)
+    }
+    const result = await migrateOp(migrationStore, options)
+    trackOperation('migrate' as any, 'migrations', { data: { migrations: Array.from(migrationStore.migrations.keys()) } })
+    return result
+  }
+
+  adapterWithAliases.migrateStatus = async () => {
+    return migrateStatusOp(migrationStore)
+  }
+
+  adapterWithAliases.migrateDown = async (options?: MigrateDownOptions) => {
+    trackOperation('migrateDown' as any, 'migrations', { data: options })
+    return migrateDownOp(migrationStore, options)
+  }
+
+  adapterWithAliases.migrateRefresh = async () => {
+    return migrateRefreshOp(migrationStore)
+  }
+
+  adapterWithAliases.migrateFresh = async (options?: MigrateFreshOptions) => {
+    // Copy hooks from adapter to migration store
+    if (adapterWithAliases.hooks) {
+      migrationStore.hooks = {
+        beforeSchemaInit: adapterWithAliases.hooks.beforeSchemaInit,
+        afterSchemaInit: adapterWithAliases.hooks.afterSchemaInit,
+        beforeFresh: adapterWithAliases.hooks.beforeFresh,
+      }
+    }
+    return migrateFreshOp(migrationStore, options, () => {
+      // Clear all collections
+      collections.clear()
+      things.clear()
+      relationships.clear()
+      nouns.clear()
+    })
+  }
+
+  adapterWithAliases.migrateCreate = async (options: MigrateCreateOptions) => {
+    return migrateCreateOp(migrationStore, options)
+  }
+
+  adapterWithAliases.getMigrationHistory = async () => {
+    return getMigrationHistory(migrationStore)
+  }
+
+  adapterWithAliases.getMigrationDir = () => {
+    return getMigrationDir(migrationStore)
+  }
+
+  adapterWithAliases.setMigrationDir = (dir: string) => {
+    setMigrationDir(migrationStore, dir)
+  }
+
+  adapterWithAliases.getMigrationSearchPaths = () => {
+    return getMigrationSearchPaths()
+  }
+
+  adapterWithAliases.setMigrationFiles = (files: MigrationFileInfo[]) => {
+    setMigrationFiles(migrationStore, files)
+  }
+
+  adapterWithAliases.discoverMigrations = async () => {
+    return discoverMigrations(migrationStore)
+  }
+
+  adapterWithAliases.initSchema = async () => {
+    if (adapterWithAliases.hooks) {
+      migrationStore.hooks = {
+        beforeSchemaInit: adapterWithAliases.hooks.beforeSchemaInit,
+        afterSchemaInit: adapterWithAliases.hooks.afterSchemaInit,
+        beforeFresh: adapterWithAliases.hooks.beforeFresh,
+      }
+    }
+    return initSchema(migrationStore)
+  }
+
+  adapterWithAliases.isInTransaction = () => {
+    return isInTransaction(migrationStore)
+  }
+
+  adapterWithAliases.setLockHeld = (held: boolean) => {
+    setLockHeld(migrationStore, held)
+  }
+
+  adapterWithAliases.on = (event: string, listener: (...args: any[]) => void) => {
+    onMigrationEvent(migrationStore, event, listener)
+  }
+
+  adapterWithAliases.setMode = (mode: 'development' | 'production') => {
+    setMode(migrationStore, mode)
+  }
+
+  adapterWithAliases.setSeedFunction = (fn: () => Promise<void>) => {
+    setSeedFunction(migrationStore, fn)
+  }
+
+  adapterWithAliases.push = async (options: PushOptions) => {
+    return push(migrationStore, options)
   }
 
   return adapterWithAliases as MockPayloadAdapter
