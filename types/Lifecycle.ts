@@ -72,6 +72,170 @@ export interface CloneResult {
 }
 
 // ============================================================================
+// Eventual Clone Types
+// ============================================================================
+
+/**
+ * Clone operation status lifecycle
+ */
+export type CloneStatus = 'pending' | 'syncing' | 'active' | 'paused' | 'error' | 'cancelled'
+
+/**
+ * Sync phase for eventual clone
+ */
+export type SyncPhase = 'initial' | 'bulk' | 'delta' | 'catchup'
+
+/**
+ * Detailed sync status information
+ */
+export interface SyncStatus {
+  /** Current sync phase */
+  phase: SyncPhase
+  /** Number of items synced */
+  itemsSynced: number
+  /** Total items to sync (may increase during delta phase) */
+  totalItems: number
+  /** Time of last successful sync */
+  lastSyncAt: Date | null
+  /** Current divergence from source (in items or versions behind) */
+  divergence: number
+  /** Maximum allowed divergence before forcing sync */
+  maxDivergence: number
+  /** Sync interval in milliseconds */
+  syncInterval: number
+  /** Number of consecutive errors */
+  errorCount: number
+  /** Last error if any */
+  lastError: Error | null
+}
+
+/**
+ * Result of a sync operation
+ */
+export interface SyncResult {
+  /** Items synced in this batch */
+  itemsSynced: number
+  /** Time taken for sync in ms */
+  duration: number
+  /** Any conflicts encountered */
+  conflicts: ConflictInfo[]
+}
+
+/**
+ * Conflict resolution strategy
+ */
+export type ConflictResolution = 'last-write-wins' | 'source-wins' | 'target-wins' | 'merge' | 'custom'
+
+/**
+ * Conflict information
+ */
+export interface ConflictInfo {
+  /** ID of the conflicted thing */
+  thingId: string
+  /** Source version */
+  sourceVersion: number
+  /** Target version */
+  targetVersion: number
+  /** Resolution strategy used */
+  resolution: ConflictResolution
+  /** Timestamp of conflict resolution */
+  resolvedAt: Date
+}
+
+/**
+ * Clone handle returned from eventual clone initiation
+ */
+export interface EventualCloneHandle {
+  /** Unique identifier for this clone operation */
+  id: string
+  /** Current status of the clone */
+  status: CloneStatus
+  /** Get current progress (0-100) */
+  getProgress(): Promise<number>
+  /** Get detailed sync status */
+  getSyncStatus(): Promise<SyncStatus>
+  /** Pause the sync operation */
+  pause(): Promise<void>
+  /** Resume a paused sync operation */
+  resume(): Promise<void>
+  /** Trigger a manual sync */
+  sync(): Promise<SyncResult>
+  /** Cancel the clone operation */
+  cancel(): Promise<void>
+}
+
+/**
+ * Options specific to eventual clone mode
+ */
+export interface EventualCloneOptions extends CloneOptions {
+  mode: 'eventual'
+  /** Sync interval in milliseconds (default: 5000) */
+  syncInterval?: number
+  /** Maximum divergence before forcing sync (default: 100 items) */
+  maxDivergence?: number
+  /** Conflict resolution strategy */
+  conflictResolution?: 'last-write-wins' | 'source-wins' | 'target-wins' | 'merge'
+  /** Custom conflict resolver function */
+  conflictResolver?: (conflict: ConflictInfo) => Promise<unknown>
+  /** Enable chunked transfer for large states */
+  chunked?: boolean
+  /** Chunk size for bulk transfer (default: 1000 items) */
+  chunkSize?: number
+  /** Rate limit for sync operations (ops/second) */
+  rateLimit?: number
+}
+
+/**
+ * Internal state for an eventual clone operation
+ */
+export interface EventualCloneState {
+  /** Clone operation ID */
+  id: string
+  /** Target namespace */
+  targetNs: string
+  /** Current status */
+  status: CloneStatus
+  /** Current progress (0-100) */
+  progress: number
+  /** Current sync phase */
+  phase: SyncPhase
+  /** Number of items synced */
+  itemsSynced: number
+  /** Total items to sync */
+  totalItems: number
+  /** Number of items remaining */
+  itemsRemaining: number
+  /** Last sync timestamp */
+  lastSyncAt: string | null
+  /** Current divergence */
+  divergence: number
+  /** Maximum divergence threshold */
+  maxDivergence: number
+  /** Sync interval in milliseconds */
+  syncInterval: number
+  /** Error count */
+  errorCount: number
+  /** Last error message */
+  lastError: string | null
+  /** Conflict resolution strategy */
+  conflictResolution: ConflictResolution
+  /** Custom conflict resolver (stored as serialized reference) */
+  hasCustomResolver: boolean
+  /** Enable chunked transfer */
+  chunked: boolean
+  /** Chunk size */
+  chunkSize: number
+  /** Rate limit */
+  rateLimit: number | null
+  /** Created timestamp */
+  createdAt: string
+  /** Last updated timestamp */
+  updatedAt: string
+  /** Last synced version (for delta sync) */
+  lastSyncedVersion: number
+}
+
+// ============================================================================
 // Shard Types
 // ============================================================================
 

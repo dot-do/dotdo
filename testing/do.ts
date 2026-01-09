@@ -342,10 +342,15 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
  * Create a mock SQL cursor
  */
 function createMockCursor<T>(data: T[]): MockSqlStorageCursor<T> {
+  const rawData = data.map((row) => Object.values(row as Record<string, unknown>))
   return {
     toArray: () => [...data],
     one: () => data[0],
-    raw: () => data.map((row) => Object.values(row as Record<string, unknown>)),
+    // Drizzle's durable-sqlite driver expects raw() to return an object with toArray()
+    raw: () => ({
+      toArray: () => rawData,
+      columnNames: data.length > 0 ? Object.keys(data[0] as Record<string, unknown>) : [],
+    }),
     [Symbol.iterator]: function* () {
       for (const item of data) {
         yield item

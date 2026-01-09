@@ -253,7 +253,7 @@ export function buildCacheKey(
 /**
  * Parse a cache key to extract components
  *
- * Key format: {poolPrefix?}:{visPrefix}:{visibility}:{contextHash}:{key}
+ * Key format: {poolPrefix?:}{visPrefix}:{visibility}:{contextHash}:{key}
  * Examples:
  * - pub:public::products:featured
  * - org:org:o:org-123:customers:list
@@ -265,8 +265,26 @@ export function parseCacheKey(
 ): { visibility: Visibility; contextHash: string; key: string } | null {
   const parts = fullKey.split(':')
 
-  // Find visibility in parts (it should be one of the known values)
-  const visIndex = parts.findIndex((p) => validateVisibility(p))
+  // Find visibility in parts by looking for known prefixes
+  // The visibility is always right after the prefix (pub, unl, org, usr)
+  let visIndex = -1
+  for (let i = 0; i < parts.length; i++) {
+    // Check if this is a visibility prefix followed by a visibility value
+    if (i + 1 < parts.length) {
+      const prefix = parts[i]
+      const maybeVis = parts[i + 1]
+      if (
+        (prefix === 'pub' && maybeVis === 'public') ||
+        (prefix === 'unl' && maybeVis === 'unlisted') ||
+        (prefix === 'org' && maybeVis === 'org') ||
+        (prefix === 'usr' && maybeVis === 'user')
+      ) {
+        visIndex = i + 1
+        break
+      }
+    }
+  }
+
   if (visIndex === -1) return null
 
   const visibility = parts[visIndex] as Visibility
@@ -485,7 +503,7 @@ export class VisibilityCache {
         ? buildCacheKey(options.key, options.visibility, options.context, this.poolPrefix)
         : options.key
 
-      for (const [key, entry] of this.cache.entries()) {
+      for (const [key, entry] of Array.from(this.cache.entries())) {
         if (key.startsWith(prefixKey)) {
           this.cache.delete(key)
           this.stats.entriesByVisibility[entry.visibility]--
@@ -522,7 +540,7 @@ export class VisibilityCache {
   async invalidateByVisibility(visibility: Visibility): Promise<number> {
     let invalidated = 0
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       if (entry.visibility === visibility) {
         this.cache.delete(key)
         this.stats.entriesByVisibility[visibility]--
@@ -541,7 +559,7 @@ export class VisibilityCache {
     let invalidated = 0
     const orgContextHash = `o:${orgId}`
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       if (entry.contextHash?.includes(orgContextHash)) {
         this.cache.delete(key)
         this.stats.entriesByVisibility[entry.visibility]--
@@ -560,7 +578,7 @@ export class VisibilityCache {
     let invalidated = 0
     const userContextHash = `u:${userId}`
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       if (entry.contextHash?.includes(userContextHash)) {
         this.cache.delete(key)
         this.stats.entriesByVisibility[entry.visibility]--

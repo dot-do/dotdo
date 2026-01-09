@@ -559,6 +559,10 @@ export class SandboxDO extends DO<SandboxEnv> {
 
     // POST /exec - Execute command (uses new API internally)
     app.post('/exec', async (c) => {
+      if (!this.sandbox) {
+        return c.json({ error: 'No active session' }, 400)
+      }
+
       const body = c.get('body') as ExecRequest || {}
       if (!body.command) {
         return c.json({ error: 'Missing required field: command' }, 400)
@@ -569,7 +573,7 @@ export class SandboxDO extends DO<SandboxEnv> {
         return c.json(result)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Execution failed'
-        return c.json({ error: message }, 400)
+        return c.json({ error: message }, 500)
       }
     })
 

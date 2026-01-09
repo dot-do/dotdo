@@ -35,6 +35,18 @@ import {
   type StoreContext,
 } from '../db/stores'
 import { parseNounId, formatNounId } from '../lib/noun-id'
+import type {
+  CloneOptions,
+  CloneResult,
+  EventualCloneHandle,
+  EventualCloneState,
+  SyncStatus,
+  SyncResult,
+  ConflictInfo,
+  ConflictResolution,
+  CloneStatus,
+  SyncPhase,
+} from '../types/Lifecycle'
 
 // ============================================================================
 // COLLECTION & RELATIONSHIP TYPES
@@ -1372,6 +1384,247 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     await this.emitEvent('fork.completed', { targetNs, doId: doId.toString() })
 
     return { ns: targetNs, doId: doId.toString() }
+  }
+
+  /**
+   * Clone current state to a new DO with configurable modes.
+   *
+   * Atomic mode provides all-or-nothing semantics:
+   * - Uses blockConcurrencyWhile for exclusive lock
+   * - On failure, target has no partial state
+   * - Source remains unchanged regardless of outcome
+   *
+   * @param target - Target namespace URL
+   * @param options - Clone options (mode, includeHistory, timeout, correlationId)
+   * @returns CloneResult with stats about the cloned data
+   */
+  async clone(
+    target: string,
+    options: {
+      mode: 'atomic' | 'staged' | 'eventual' | 'resumable'
+      includeHistory?: boolean
+      timeout?: number
+      correlationId?: string
+    }
+  ): Promise<{
+    success: boolean
+    ns: string
+    doId: string
+    mode: 'atomic' | 'staged' | 'eventual' | 'resumable'
+    thingsCloned: number
+    relationshipsCloned: number
+    duration: number
+    historyIncluded: boolean
+    staged?: unknown
+    checkpoint?: unknown
+  }> {
+    const {
+      mode,
+      includeHistory = false,
+      timeout = 30000,
+      correlationId = crypto.randomUUID(),
+    } = options
+
+    // For now, only atomic mode is implemented
+    if (mode !== 'atomic') {
+      throw new Error(`Clone mode '${mode}' not yet implemented`)
+    }
+
+    const startTime = Date.now()
+
+    // === VALIDATION ===
+
+    // Validate options
+    if (typeof timeout !== 'number' || timeout < 0) {
+      throw new Error('Invalid timeout: must be a non-negative number')
+    }
+
+    // Validate target namespace URL format
+    try {
+      const url = new URL(target)
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Invalid namespace URL: must use http or https protocol')
+      }
+    } catch (e) {
+      if ((e as Error).message?.includes('Invalid namespace URL')) {
+        throw e
+      }
+      throw new Error(`Invalid namespace URL: ${target}`)
+    }
+
+    // Prevent cloning to same namespace
+    if (target === this.ns) {
+      throw new Error('Cannot clone to same namespace')
+    }
+
+    // Get things to validate source has state
+    const things = await this.db.select().from(schema.things)
+    const nonDeletedThings = things.filter((t) => !t.deleted)
+
+    if (nonDeletedThings.length === 0) {
+      throw new Error('No state to clone: source is empty')
+    }
+
+    // Get relationships
+    const relationships = await this.db.select().from(schema.relationships)
+
+    // Acquire exclusive lock using blockConcurrencyWhile
+    return this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        // Emit clone.started event
+        await this.emitEvent('clone.started', {
+          target,
+          mode,
+          correlationId,
+          thingsCount: nonDeletedThings.length,
+        })
+
+        // Validate DO namespace is configured
+        if (!this.env.DO) {
+          throw new Error('DO namespace not configured')
+        }
+
+        // Create target DO and check reachability via health check
+        const doId = this.env.DO.idFromName(target)
+        const stub = this.env.DO.get(doId)
+
+        // Health check - validate target is reachable
+        try {
+          const healthResponse = await Promise.race([
+            stub.fetch(new Request(`https://${target}/health`)),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Health check timeout')), Math.min(timeout, 5000))
+            ),
+          ])
+
+          // Check for non-2xx/non-OK responses (404 is acceptable for new DOs)
+          if (!healthResponse.ok && healthResponse.status !== 404) {
+            throw new Error(`Target health check failed: ${healthResponse.status}`)
+          }
+        } catch (e) {
+          const errorMessage = (e as Error).message || String(e)
+          if (
+            errorMessage.includes('Connection refused') ||
+            errorMessage.includes('unreachable') ||
+            errorMessage.includes('Health check')
+          ) {
+            throw new Error(`Target unreachable: health check failed - ${errorMessage}`)
+          }
+          // Re-throw other errors
+          throw e
+        }
+
+        // Get latest version of each thing (by id)
+        const latestVersions = new Map<string, (typeof things)[0]>()
+        for (const thing of nonDeletedThings) {
+          const existing = latestVersions.get(thing.id)
+          if (!existing) {
+            latestVersions.set(thing.id, thing)
+          }
+        }
+
+        // Prepare data for transfer
+        const thingsToClone = Array.from(latestVersions.values()).map((t) => ({
+          id: t.id,
+          type: t.type,
+          branch: t.branch,
+          name: t.name,
+          data: t.data,
+          deleted: false,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        }))
+
+        // Clone relationships
+        const relationshipsToClone = relationships.map((r) => ({
+          id: r.id,
+          verb: r.verb,
+          from: r.from,
+          to: r.to,
+          data: r.data,
+          createdAt: r.createdAt,
+        }))
+
+        // If includeHistory is true, get actions and events
+        let actionsToClone: unknown[] = []
+        let eventsToClone: unknown[] = []
+
+        if (includeHistory) {
+          const actions = await this.db.select().from(schema.actions)
+          actionsToClone = actions
+
+          const events = await this.db.select().from(schema.events)
+          eventsToClone = events
+        }
+
+        // Transfer to target with timeout
+        const transferPromise = stub.fetch(
+          new Request(`https://${target}/init`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              things: thingsToClone,
+              relationships: relationshipsToClone,
+              actions: includeHistory ? actionsToClone : undefined,
+              events: includeHistory ? eventsToClone : undefined,
+              correlationId,
+            }),
+          })
+        )
+
+        const response = await Promise.race([
+          transferPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Clone timeout after ${timeout}ms`)), timeout)
+          ),
+        ])
+
+        // Check response
+        if (!response.ok) {
+          throw new Error(`Transfer failed: ${response.status} ${response.statusText}`)
+        }
+
+        const duration = Date.now() - startTime
+
+        // Emit clone.completed event
+        await this.emitEvent('clone.completed', {
+          target,
+          doId: doId.toString(),
+          correlationId,
+          thingsCount: latestVersions.size,
+          duration,
+        })
+
+        return {
+          success: true,
+          ns: target,
+          doId: doId.toString(),
+          mode: 'atomic' as const,
+          thingsCloned: latestVersions.size,
+          relationshipsCloned: relationshipsToClone.length,
+          duration,
+          historyIncluded: includeHistory,
+        }
+      } catch (error) {
+        const errorMessage = (error as Error).message || String(error)
+
+        // Emit clone.failed event
+        await this.emitEvent('clone.failed', {
+          target,
+          error: errorMessage,
+          correlationId,
+        })
+
+        // Emit clone.rollback event
+        await this.emitEvent('clone.rollback', {
+          target,
+          reason: errorMessage,
+          correlationId,
+        })
+
+        throw error
+      }
+    })
   }
 
   /**
