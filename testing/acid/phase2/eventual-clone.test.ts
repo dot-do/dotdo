@@ -516,7 +516,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
         result.sqlData.get('things')!.push({
           id: `thing-${i}`,
           type: 1,
-          data: JSON.stringify({ index: i }),
+          data: { index: i },
           version: 1,
           branch: null,
           deleted: false,
@@ -734,7 +734,7 @@ describe('Eventual Clone Mode (Async Reconciliation)', () => {
       const largeData = Array.from({ length: 10000 }, (_, i) => ({
         id: `large-thing-${i}`,
         type: 1,
-        data: JSON.stringify({ index: i, payload: 'x'.repeat(100) }),
+        data: { index: i, payload: 'x'.repeat(100) },
         version: 1,
         branch: null,
         deleted: false,

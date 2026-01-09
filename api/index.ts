@@ -18,6 +18,7 @@ export { TestDurableObject } from './test-do'
 export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
 export { ThingsDO } from '../objects/ThingsDO'
+export { SandboxDO } from '../objects/SandboxDO'
 export { ObservabilityBroadcaster } from '../objects/ObservabilityBroadcaster'
 
 // Import and re-export the unified CloudflareEnv type
