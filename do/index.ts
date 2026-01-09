@@ -3,18 +3,35 @@
  *
  * A comprehensive framework for building applications with Cloudflare Durable Objects.
  *
- * The default export includes all capabilities (fs, git, bash).
- * For tree-shakeable imports, use:
- * - dotdo/tiny - Minimal DO (no capabilities)
- * - dotdo/fs   - DO with filesystem
- * - dotdo/git  - DO with filesystem + git
- * - dotdo/bash - DO with filesystem + bash
- * - dotdo/full - DO with all capabilities (same as default)
+ * ## DO Class Hierarchy
+ *
+ * ```
+ * DOTiny (~15KB)        - Identity, db, fetch, toJSON
+ *    |
+ *    v
+ * DO (~80KB)            - + WorkflowContext, stores, events, scheduling
+ *    |
+ *    v
+ * DOFull (~120KB)       - + Lifecycle, sharding, branching, promotion
+ * ```
+ *
+ * ## Entry Points (by size)
+ *
+ * - `dotdo/tiny` - Minimal DO (DOTiny, ~15KB)
+ * - `dotdo/base` - Core DO with workflow context (DO, ~80KB)
+ * - `dotdo`      - Full DO with fs/git/bash mixins (DOFull + mixins)
+ * - `dotdo/full` - Same as default (all capabilities)
  *
  * @example
  * ```ts
+ * // Full capabilities (default)
  * import { DO, Agent, Workflow } from 'dotdo'
- * import { Thing, Noun, Verb } from 'dotdo/types'
+ *
+ * // Minimal footprint
+ * import { DO } from 'dotdo/tiny'
+ *
+ * // Core without lifecycle ops
+ * import { DO } from 'dotdo/base'
  * ```
  */
 

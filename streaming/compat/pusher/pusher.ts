@@ -109,75 +109,10 @@ function generateSocketId(): string {
 // EVENT EMITTER BASE CLASS
 // ============================================================================
 
-/**
- * Simple EventEmitter implementation
- */
-class EventEmitter {
-  protected _listeners: Map<string, Set<EventHandler>> = new Map()
-  protected _globalListeners: Set<GlobalEventHandler> = new Set()
+import { PusherEventEmitter } from '../../../compat/shared/event-emitter'
 
-  bind(event: string, callback: EventHandler): this {
-    if (!this._listeners.has(event)) {
-      this._listeners.set(event, new Set())
-    }
-    this._listeners.get(event)!.add(callback)
-    return this
-  }
-
-  unbind(event?: string, callback?: EventHandler): this {
-    if (event === undefined) {
-      // Unbind all
-      this._listeners.clear()
-    } else if (callback === undefined) {
-      // Unbind all for event
-      this._listeners.delete(event)
-    } else {
-      // Unbind specific callback
-      const listeners = this._listeners.get(event)
-      if (listeners) {
-        listeners.delete(callback)
-      }
-    }
-    return this
-  }
-
-  bind_global(callback: GlobalEventHandler): this {
-    this._globalListeners.add(callback)
-    return this
-  }
-
-  unbind_global(callback?: GlobalEventHandler): this {
-    if (callback === undefined) {
-      this._globalListeners.clear()
-    } else {
-      this._globalListeners.delete(callback)
-    }
-    return this
-  }
-
-  protected _emit(event: string, data?: unknown): void {
-    // Call specific event listeners
-    const listeners = this._listeners.get(event)
-    if (listeners) {
-      for (const callback of listeners) {
-        try {
-          callback(data)
-        } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error)
-        }
-      }
-    }
-
-    // Call global listeners
-    for (const callback of this._globalListeners) {
-      try {
-        callback(event, data)
-      } catch (error) {
-        console.error(`Error in global event handler:`, error)
-      }
-    }
-  }
-}
+// Re-export PusherEventEmitter as EventEmitter for Pusher-style bind/unbind
+class EventEmitter extends PusherEventEmitter {}
 
 // ============================================================================
 // CONNECTION IMPLEMENTATION

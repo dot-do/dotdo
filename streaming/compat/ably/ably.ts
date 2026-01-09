@@ -137,76 +137,10 @@ function generateMessageId(): string {
 // EVENT EMITTER BASE CLASS
 // ============================================================================
 
-type ListenerEntry<T> = {
-  callback: (data: T) => void
-  once: boolean
-}
+import { TypedEventEmitter } from '../../../compat/shared/event-emitter'
 
-/**
- * Simple EventEmitter implementation for Ably-style on/once/off
- */
-class EventEmitter<T> {
-  protected _listeners: Map<string, Set<ListenerEntry<T>>> = new Map()
-
-  on(event: string | string[], listener: (data: T) => void): void {
-    const events = Array.isArray(event) ? event : [event]
-    for (const e of events) {
-      if (!this._listeners.has(e)) {
-        this._listeners.set(e, new Set())
-      }
-      this._listeners.get(e)!.add({ callback: listener, once: false })
-    }
-  }
-
-  once(event: string | string[], listener: (data: T) => void): void {
-    const events = Array.isArray(event) ? event : [event]
-    for (const e of events) {
-      if (!this._listeners.has(e)) {
-        this._listeners.set(e, new Set())
-      }
-      this._listeners.get(e)!.add({ callback: listener, once: true })
-    }
-  }
-
-  off(event?: string | string[], listener?: (data: T) => void): void {
-    if (event === undefined) {
-      this._listeners.clear()
-      return
-    }
-
-    const events = Array.isArray(event) ? event : [event]
-    for (const e of events) {
-      if (listener === undefined) {
-        this._listeners.delete(e)
-      } else {
-        const listeners = this._listeners.get(e)
-        if (listeners) {
-          for (const entry of listeners) {
-            if (entry.callback === listener) {
-              listeners.delete(entry)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  protected _emit(event: string, data: T): void {
-    const listeners = this._listeners.get(event)
-    if (listeners) {
-      for (const entry of listeners) {
-        try {
-          entry.callback(data)
-        } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error)
-        }
-        if (entry.once) {
-          listeners.delete(entry)
-        }
-      }
-    }
-  }
-}
+// Re-export TypedEventEmitter as EventEmitter for Ably-style generic events
+class EventEmitter<T> extends TypedEventEmitter<T> {}
 
 // ============================================================================
 // CONNECTION IMPLEMENTATION

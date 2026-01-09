@@ -7,7 +7,7 @@
  *
  * @see https://cloud.google.com/pubsub/docs/reference/libraries
  */
-import { EventEmitter } from 'events'
+import { EventEmitter } from '../../../compat/shared/event-emitter'
 import type {
   PubSubConfig,
   ExtendedPubSubConfig,

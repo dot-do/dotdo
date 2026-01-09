@@ -1,7 +1,13 @@
 /**
  * dotdo/full - DO with All Capabilities
  *
- * Exports a DO class with all available capabilities:
+ * Exports a DO class (~120KB) with all available capabilities:
+ * - WorkflowContext ($) with event handlers, scheduling
+ * - Stores (things, rels, actions, events, search, objects, dlq)
+ * - Lifecycle (fork, clone, compact, move)
+ * - Sharding (shard, unshard, routing)
+ * - Branching (branch, checkout, merge)
+ * - Promotion (promote, demote)
  * - $.fs - Filesystem operations
  * - $.git - Git version control
  * - $.bash - Shell execution
@@ -21,11 +27,17 @@
  *     await this.$.git.push()
  *     await this.$.bash.run('npm run deploy')
  *   }
+ *
+ *   async backup() {
+ *     // Full lifecycle operations available
+ *     await this.clone('https://backup.example.com')
+ *     await this.branch('feature-x')
+ *   }
  * }
  * ```
  */
 
-import { DO as BaseDO } from '../objects/DO'
+import { DO as BaseDO } from '../objects/DOFull'
 import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from '../lib/mixins'
 
 /**

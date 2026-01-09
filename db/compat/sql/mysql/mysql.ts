@@ -22,53 +22,7 @@ import type {
   PreparedStatementInfo,
 } from './types'
 import { MySQLError, ConnectionError, Types } from './types'
-
-// ============================================================================
-// EVENT EMITTER (minimal implementation)
-// ============================================================================
-
-type EventHandler = (...args: any[]) => void
-
-class EventEmitter {
-  private handlers = new Map<string, Set<EventHandler>>()
-
-  on(event: string, handler: EventHandler): this {
-    if (!this.handlers.has(event)) {
-      this.handlers.set(event, new Set())
-    }
-    this.handlers.get(event)!.add(handler)
-    return this
-  }
-
-  off(event: string, handler: EventHandler): this {
-    this.handlers.get(event)?.delete(handler)
-    return this
-  }
-
-  emit(event: string, ...args: any[]): boolean {
-    const handlers = this.handlers.get(event)
-    if (!handlers || handlers.size === 0) return false
-    for (const handler of handlers) {
-      try {
-        handler(...args)
-      } catch (e) {
-        if (event !== 'error') {
-          this.emit('error', e)
-        }
-      }
-    }
-    return true
-  }
-
-  removeAllListeners(event?: string): this {
-    if (event) {
-      this.handlers.delete(event)
-    } else {
-      this.handlers.clear()
-    }
-    return this
-  }
-}
+import { EventEmitter } from '../../../../compat/shared/event-emitter'
 
 // ============================================================================
 // IN-MEMORY SQLITE (for testing)
