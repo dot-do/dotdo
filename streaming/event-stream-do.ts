@@ -264,6 +264,22 @@ export interface EventStreamConfig {
     messagesPerSecond: number
     burstSize: number
   }
+  /** Message coalescing configuration for high-frequency events */
+  coalescing?: {
+    /** Enable message coalescing */
+    enabled: boolean
+    /** Maximum time to wait before flushing coalesced messages (ms) */
+    maxDelayMs: number
+    /** Maximum events per coalesced batch */
+    maxBatchSize: number
+  }
+  /** Fan-out batching configuration for large subscriber counts */
+  fanOut?: {
+    /** Batch size for fan-out (subscribers per batch) */
+    batchSize: number
+    /** Yield interval between batches (ms) to prevent blocking */
+    yieldIntervalMs: number
+  }
 }
 
 /**
@@ -282,6 +298,15 @@ export interface ResolvedEventStreamConfig {
   readonly rateLimit?: {
     messagesPerSecond: number
     burstSize: number
+  }
+  readonly coalescing?: {
+    enabled: boolean
+    maxDelayMs: number
+    maxBatchSize: number
+  }
+  readonly fanOut: {
+    batchSize: number
+    yieldIntervalMs: number
   }
 }
 
@@ -354,6 +379,24 @@ interface TopicStats {
   messageCount: number
   lastMessageAt?: number
   emptyAt?: number
+}
+
+/**
+ * Coalesced message for batching
+ */
+interface CoalescedMessage {
+  events: BroadcastEvent[]
+  topic: string
+  scheduledAt: number
+}
+
+/**
+ * Fan-out batch configuration
+ */
+interface FanOutBatch {
+  connectionIds: string[]
+  eventJson: string
+  startIndex: number
 }
 
 /**
@@ -663,6 +706,10 @@ const DEFAULT_CONFIG: ResolvedEventStreamConfig = {
   topicTTL: 0, // No TTL by default
   requireAuth: false,
   tokenTTL: 3600,
+  fanOut: {
+    batchSize: 1000, // Process 1000 subscribers per batch
+    yieldIntervalMs: 0, // No yield by default for max throughput
+  },
 }
 
 // ============================================================================
@@ -724,6 +771,9 @@ export class EventStreamDO extends DurableObject {
   private connections: Map<string, ConnectionInfo> = new Map()
   private clientToConnId: Map<WebSocket, string> = new Map() // client socket -> connectionId
   private topicSubscribers: Map<string, Set<string>> = new Map() // topic -> Set<connectionId>
+  // Optimized subscriber index: topic pattern -> array of connectionIds (for fast iteration in fan-out)
+  private subscriberArrayCache: Map<string, string[]> = new Map()
+  private subscriberArrayDirty: Set<string> = new Set() // topics that need array rebuild
   private liveQueries: Map<string, { sql: string; params?: unknown[]; callback: (result: QueryResult) => void }> =
     new Map()
   private deduplicationCache: Map<string, Map<string, number>> = new Map() // topic -> (eventId -> timestamp)
@@ -735,12 +785,16 @@ export class EventStreamDO extends DurableObject {
     errorCount: number
     latencies: number[]
     lastSecondMessages: number[]
+    coalescedBatches: number
+    fanOutBatches: number
   } = {
     totalConnections: 0,
     messagesSent: 0,
     errorCount: 0,
     latencies: [],
     lastSecondMessages: [],
+    coalescedBatches: 0,
+    fanOutBatches: 0,
   }
   private tokenValidator?: TokenValidator
   private _isShutdown = false
@@ -748,6 +802,9 @@ export class EventStreamDO extends DurableObject {
   private shutdownResolve?: () => void
   private cleanupAlarmSet = false
   private _state: any
+  // Message coalescing state
+  private coalescingBuffers: Map<string, CoalescedMessage> = new Map() // topic -> pending coalesced message
+  private coalescingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map() // topic -> flush timer
 
   constructor(state: DurableObjectState | any, envOrConfig?: unknown | EventStreamConfig, config?: EventStreamConfig) {
     super(state, envOrConfig as Record<string, unknown>)
@@ -783,6 +840,8 @@ export class EventStreamDO extends DurableObject {
       requireAuth: resolvedConfig?.requireAuth ?? DEFAULT_CONFIG.requireAuth,
       tokenTTL: resolvedConfig?.tokenTTL ?? DEFAULT_CONFIG.tokenTTL,
       rateLimit: resolvedConfig?.rateLimit,
+      coalescing: resolvedConfig?.coalescing,
+      fanOut: resolvedConfig?.fanOut ?? DEFAULT_CONFIG.fanOut,
     }
 
     // Initialize PGLite
@@ -1252,6 +1311,8 @@ export class EventStreamDO extends DurableObject {
       })
     }
     this.topicSubscribers.get(topic)!.add(connectionId)
+    // Invalidate array cache for this topic
+    this.subscriberArrayDirty.add(topic)
 
     const stats = this.topicStats.get(topic)
     if (stats) {
@@ -1264,6 +1325,9 @@ export class EventStreamDO extends DurableObject {
     const subscribers = this.topicSubscribers.get(topic)
     if (subscribers) {
       subscribers.delete(connectionId)
+      // Invalidate array cache for this topic
+      this.subscriberArrayDirty.add(topic)
+
       const stats = this.topicStats.get(topic)
       if (stats) {
         stats.subscribers = Math.max(0, stats.subscribers - 1)
@@ -1273,11 +1337,30 @@ export class EventStreamDO extends DurableObject {
       }
       if (subscribers.size === 0) {
         this.topicSubscribers.delete(topic)
+        this.subscriberArrayCache.delete(topic)
+        this.subscriberArrayDirty.delete(topic)
         if (this._config.topicTTL === 0) {
           this.topicStats.delete(topic)
         }
       }
     }
+  }
+
+  /**
+   * Get cached subscriber array for efficient iteration.
+   * Rebuilds the array only if the subscriber set has changed.
+   */
+  private getSubscriberArray(topic: string): string[] {
+    if (this.subscriberArrayDirty.has(topic)) {
+      const set = this.topicSubscribers.get(topic)
+      if (set) {
+        this.subscriberArrayCache.set(topic, Array.from(set))
+      } else {
+        this.subscriberArrayCache.delete(topic)
+      }
+      this.subscriberArrayDirty.delete(topic)
+    }
+    return this.subscriberArrayCache.get(topic) || []
   }
 
   private removeConnection(connectionId: string): void {
@@ -1367,18 +1450,139 @@ export class EventStreamDO extends DurableObject {
       stats.lastMessageAt = Date.now()
     }
 
+    // Check if coalescing is enabled
+    if (this._config.coalescing?.enabled) {
+      this.coalesceEvent(topic, event)
+      return
+    }
+
+    // Direct broadcast with fan-out optimization
+    await this.fanOutToSubscribers(topic, event)
+
+    // Notify live query subscribers
+    await this.notifyLiveQuerySubscribers(event)
+  }
+
+  /**
+   * Coalesce events for high-frequency scenarios.
+   * Buffers events and flushes them as a batch after maxDelayMs or when maxBatchSize is reached.
+   */
+  private coalesceEvent(topic: string, event: BroadcastEvent): void {
+    const config = this._config.coalescing!
+
+    let buffer = this.coalescingBuffers.get(topic)
+    if (!buffer) {
+      buffer = {
+        events: [],
+        topic,
+        scheduledAt: Date.now(),
+      }
+      this.coalescingBuffers.set(topic, buffer)
+    }
+
+    buffer.events.push(event)
+
+    // Flush immediately if batch size reached
+    if (buffer.events.length >= config.maxBatchSize) {
+      this.flushCoalescedBuffer(topic)
+      return
+    }
+
+    // Schedule flush timer if not already set
+    if (!this.coalescingTimers.has(topic)) {
+      const timer = setTimeout(() => {
+        this.flushCoalescedBuffer(topic)
+      }, config.maxDelayMs)
+      this.coalescingTimers.set(topic, timer)
+    }
+  }
+
+  /**
+   * Flush coalesced events for a topic.
+   */
+  private async flushCoalescedBuffer(topic: string): Promise<void> {
+    const buffer = this.coalescingBuffers.get(topic)
+    if (!buffer || buffer.events.length === 0) return
+
+    // Clear timer
+    const timer = this.coalescingTimers.get(topic)
+    if (timer) {
+      clearTimeout(timer)
+      this.coalescingTimers.delete(topic)
+    }
+
+    // Get events and clear buffer
+    const events = buffer.events
+    this.coalescingBuffers.delete(topic)
+
+    this.metrics.coalescedBatches++
+
+    // Send coalesced batch
+    if (events.length === 1) {
+      await this.fanOutToSubscribers(topic, events[0])
+    } else {
+      // Send as a batch message
+      const batchEvent: BroadcastEvent = {
+        id: generateId(),
+        type: 'batch',
+        topic,
+        payload: { events },
+        timestamp: Date.now(),
+      }
+      await this.fanOutToSubscribers(topic, batchEvent)
+    }
+
+    // Notify live query subscribers for all events
+    for (const event of events) {
+      await this.notifyLiveQuerySubscribers(event)
+    }
+  }
+
+  /**
+   * Flush all pending coalesced buffers (used during shutdown).
+   */
+  async flushAllCoalescedBuffers(): Promise<void> {
+    const topics = Array.from(this.coalescingBuffers.keys())
+    for (const topic of topics) {
+      await this.flushCoalescedBuffer(topic)
+    }
+  }
+
+  /**
+   * Optimized fan-out to subscribers with batching for large subscriber counts.
+   * Uses cached arrays for efficient iteration and yields periodically to prevent blocking.
+   */
+  private async fanOutToSubscribers(topic: string, event: BroadcastEvent): Promise<void> {
     // Get all matching subscribers (including wildcards)
-    const subscribers = this.getMatchingSubscribers(topic)
+    const subscribers = this.getMatchingSubscribersOptimized(topic)
 
     const startTime = Date.now()
     const eventJson = JSON.stringify(event)
+    const batchSize = this._config.fanOut.batchSize
+    const yieldInterval = this._config.fanOut.yieldIntervalMs
 
-    for (const connId of subscribers) {
+    let processed = 0
+    let batchCount = 0
+
+    for (let i = 0; i < subscribers.length; i++) {
+      const connId = subscribers[i]
       const conn = this.connections.get(connId)
       if (!conn) continue
+
       // Check rate limiting and backpressure before sending
       if (!this.shouldSendToConnection(conn, event)) continue
       this.sendToConnection(conn, eventJson)
+      processed++
+
+      // Yield control periodically for large fan-outs to prevent blocking
+      if (yieldInterval > 0 && processed % batchSize === 0) {
+        batchCount++
+        await new Promise(resolve => setTimeout(resolve, yieldInterval))
+      }
+    }
+
+    if (batchCount > 0) {
+      this.metrics.fanOutBatches += batchCount
     }
 
     this.metrics.messagesSent++
@@ -1386,9 +1590,42 @@ export class EventStreamDO extends DurableObject {
     if (this.metrics.latencies.length > 1000) {
       this.metrics.latencies.shift()
     }
+  }
 
-    // Notify live query subscribers
-    await this.notifyLiveQuerySubscribers(event)
+  /**
+   * Optimized version of getMatchingSubscribers that uses cached arrays.
+   * Returns a flat array of connection IDs for efficient iteration.
+   */
+  private getMatchingSubscribersOptimized(topic: string): string[] {
+    // For exact topic match, use the cached array directly
+    const exactSubscribers = this.getSubscriberArray(topic)
+
+    // Check for wildcard patterns
+    let hasWildcardMatches = false
+    for (const pattern of this.topicSubscribers.keys()) {
+      if (pattern !== topic && matchTopicPattern(pattern, topic)) {
+        hasWildcardMatches = true
+        break
+      }
+    }
+
+    // Fast path: no wildcards, return exact match array
+    if (!hasWildcardMatches) {
+      return exactSubscribers
+    }
+
+    // Slow path: combine exact and wildcard matches using Set for deduplication
+    const result = new Set<string>(exactSubscribers)
+
+    for (const [pattern, subscribers] of this.topicSubscribers) {
+      if (pattern !== topic && matchTopicPattern(pattern, topic)) {
+        for (const sub of subscribers) {
+          result.add(sub)
+        }
+      }
+    }
+
+    return Array.from(result)
   }
 
   async broadcastBatch(events: BroadcastEvent[]): Promise<void> {
@@ -1400,9 +1637,9 @@ export class EventStreamDO extends DurableObject {
     })
     this._db.insertBatch(nonDupEvents)
 
-    // Broadcast each event (broadcastToTopic handles dedup and sends)
+    // Group events by topic for more efficient fan-out
+    const eventsByTopic = new Map<string, BroadcastEvent[]>()
     for (const event of nonDupEvents) {
-      // Manually broadcast without double-dedup
       const topic = event.topic
 
       // Add to dedup cache
@@ -1419,23 +1656,44 @@ export class EventStreamDO extends DurableObject {
         stats.lastMessageAt = Date.now()
       }
 
-      // Get all matching subscribers (including wildcards)
-      const subscribers = this.getMatchingSubscribers(topic)
-
-      const eventJson = JSON.stringify(event)
-
-      for (const connId of subscribers) {
-        const conn = this.connections.get(connId)
-        if (!conn) continue
-        // Check rate limiting and backpressure before sending
-        if (!this.shouldSendToConnection(conn, event)) continue
-        this.sendToConnection(conn, eventJson)
+      // Group by topic
+      if (!eventsByTopic.has(topic)) {
+        eventsByTopic.set(topic, [])
       }
+      eventsByTopic.get(topic)!.push(event)
+    }
 
-      this.metrics.messagesSent++
+    // Fan-out per topic
+    for (const [topic, topicEvents] of eventsByTopic) {
+      // Get subscribers once per topic (optimized)
+      const subscribers = this.getMatchingSubscribersOptimized(topic)
+      const batchSize = this._config.fanOut.batchSize
+      const yieldInterval = this._config.fanOut.yieldIntervalMs
 
-      // Notify live query subscribers
-      await this.notifyLiveQuerySubscribers(event)
+      for (const event of topicEvents) {
+        const eventJson = JSON.stringify(event)
+        let processed = 0
+
+        for (let i = 0; i < subscribers.length; i++) {
+          const connId = subscribers[i]
+          const conn = this.connections.get(connId)
+          if (!conn) continue
+          // Check rate limiting and backpressure before sending
+          if (!this.shouldSendToConnection(conn, event)) continue
+          this.sendToConnection(conn, eventJson)
+          processed++
+
+          // Yield control periodically for large fan-outs
+          if (yieldInterval > 0 && processed % batchSize === 0) {
+            await new Promise(resolve => setTimeout(resolve, yieldInterval))
+          }
+        }
+
+        this.metrics.messagesSent++
+
+        // Notify live query subscribers
+        await this.notifyLiveQuerySubscribers(event)
+      }
     }
   }
 
@@ -1760,6 +2018,9 @@ export class EventStreamDO extends DurableObject {
   async gracefulShutdown(options?: { drainTimeout?: number }): Promise<void> {
     this.initiateShutdown()
 
+    // Flush any pending coalesced messages before shutdown
+    await this.flushAllCoalescedBuffers()
+
     const drainTimeout = options?.drainTimeout ?? 5000
 
     // Wait for connections to drain or timeout
@@ -1773,6 +2034,13 @@ export class EventStreamDO extends DurableObject {
       new Promise<void>((resolve) => setTimeout(resolve, drainTimeout)),
     ])
 
+    // Clear all coalescing timers
+    for (const timer of this.coalescingTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.coalescingTimers.clear()
+    this.coalescingBuffers.clear()
+
     // Force close remaining connections
     for (const [_, conn] of this.connections) {
       try {
@@ -1783,5 +2051,30 @@ export class EventStreamDO extends DurableObject {
     }
 
     this.connections.clear()
+  }
+
+  /**
+   * Get coalescing statistics for monitoring
+   */
+  getCoalescingStats(): { pendingTopics: number; pendingEvents: number; coalescedBatches: number } {
+    let pendingEvents = 0
+    for (const buffer of this.coalescingBuffers.values()) {
+      pendingEvents += buffer.events.length
+    }
+    return {
+      pendingTopics: this.coalescingBuffers.size,
+      pendingEvents,
+      coalescedBatches: this.metrics.coalescedBatches,
+    }
+  }
+
+  /**
+   * Get fan-out statistics for monitoring
+   */
+  getFanOutStats(): { fanOutBatches: number; subscriberArrayCacheSize: number } {
+    return {
+      fanOutBatches: this.metrics.fanOutBatches,
+      subscriberArrayCacheSize: this.subscriberArrayCache.size,
+    }
   }
 }

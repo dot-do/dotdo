@@ -16,6 +16,26 @@
 
 import { PGlite } from '@electric-sql/pglite'
 import { vector } from '@electric-sql/pglite/vector'
+import {
+  ClosedError,
+  QueryTimeoutError,
+  CheckpointError,
+} from './errors'
+
+// Re-export error classes for consumers
+export {
+  EdgePostgresError,
+  ClosedError,
+  QueryTimeoutError,
+  QueryExecutionError,
+  CheckpointError,
+  StorageError,
+  TransactionError,
+  InitializationError,
+  isEdgePostgresError,
+  isClosedError,
+  isTimeoutError,
+} from './errors'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -170,6 +190,104 @@ const STORAGE_KEYS = {
 } as const
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Convert a parameter value for PGLite
+ *
+ * Handles special types like arrays (vectors and text arrays)
+ */
+function convertParam(param: unknown): unknown {
+  if (!Array.isArray(param)) {
+    return param
+  }
+
+  // Check if this looks like a vector (all numbers)
+  const isVector = param.every((item) => typeof item === 'number')
+  if (isVector) {
+    // For pgvector types, use bracket notation: [1,2,3]
+    return `[${param.join(',')}]`
+  } else {
+    // For Postgres TEXT[] arrays, use curly brace notation: {a,b,c}
+    return `{${param.join(',')}}`
+  }
+}
+
+/**
+ * Convert an array of parameters for PGLite
+ */
+function convertParams(params?: unknown[]): unknown[] | undefined {
+  return params?.map(convertParam)
+}
+
+/**
+ * Check if a SQL statement is a write operation (INSERT/UPDATE/DELETE)
+ */
+function isWriteOperation(sql: string): boolean {
+  const upperSql = sql.trim().toUpperCase()
+  return (
+    upperSql.startsWith('INSERT') ||
+    upperSql.startsWith('UPDATE') ||
+    upperSql.startsWith('DELETE')
+  )
+}
+
+/**
+ * Convert numeric strings to numbers in a row
+ *
+ * PGLite returns DECIMAL/NUMERIC as strings to preserve precision,
+ * but for most use cases, users expect JavaScript numbers.
+ * Only converts if the string represents a valid number without precision loss.
+ */
+function processRowValues<T>(row: Record<string, unknown>): T {
+  const processed: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(row)) {
+    if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
+      const num = Number(value)
+      // Only convert if it's a valid number and doesn't lose precision
+      if (!isNaN(num) && String(num) === value) {
+        processed[key] = num
+      } else {
+        processed[key] = value
+      }
+    } else {
+      processed[key] = value
+    }
+  }
+
+  return processed as T
+}
+
+/**
+ * Process all rows in a result set
+ */
+function processRows<T>(rows: T[]): T[] {
+  return rows.map((row) => processRowValues<T>(row as Record<string, unknown>))
+}
+
+/**
+ * Escape a SQL string value for use in generated SQL
+ */
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''")
+}
+
+/**
+ * Convert a value to its SQL representation
+ */
+function valueToSql(value: unknown): string {
+  if (value === null) return 'NULL'
+  if (typeof value === 'string') return `'${escapeSqlString(value)}'`
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return String(value)
+  if (value instanceof Date) return `'${value.toISOString()}'`
+  if (Array.isArray(value)) return `'[${value.join(',')}]'`
+  return `'${escapeSqlString(JSON.stringify(value))}'`
+}
+
+// ============================================================================
 // EDGEPOSTGRES CLASS
 // ============================================================================
 
@@ -225,10 +343,16 @@ export class EdgePostgres {
 
   /**
    * Get or create the PGLite instance (lazy singleton pattern)
+   *
+   * Uses a singleton pattern with deferred initialization to avoid
+   * loading WASM until the first query. The initialization promise
+   * is cached to prevent duplicate initialization from concurrent calls.
+   *
+   * @throws {ClosedError} If the instance has been closed
    */
   private async getPGLite(): Promise<PGlite> {
     if (this.closed) {
-      throw new Error('EdgePostgres is closed or terminated')
+      throw new ClosedError()
     }
 
     // Return existing instance
@@ -321,6 +445,9 @@ export class EdgePostgres {
    * @param options - Query options (timeout, tier, sessionToken)
    * @returns Query result with rows
    *
+   * @throws {ClosedError} If the instance has been closed
+   * @throws {QueryTimeoutError} If the query exceeds the specified timeout
+   *
    * @example
    * ```typescript
    * const result = await db.query(
@@ -340,7 +467,10 @@ export class EdgePostgres {
     // Handle timeout if specified
     if (options?.timeout) {
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Query timeout')), options.timeout)
+        setTimeout(
+          () => reject(new QueryTimeoutError(options.timeout!)),
+          options.timeout
+        )
       })
 
       const queryPromise = this.executeQuery<T>(pg, sql, params)
@@ -372,65 +502,29 @@ export class EdgePostgres {
 
   /**
    * Execute a query and process the result
+   *
+   * This is the core query execution method that:
+   * 1. Converts parameters to PGLite format
+   * 2. Executes the query
+   * 3. Tracks dirty state for writes
+   * 4. Processes result rows (numeric string conversion)
    */
   private async executeQuery<T>(
     pg: PGlite,
     sql: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
-    // Convert params for PGLite
-    const processedParams = params?.map((p) => {
-      if (Array.isArray(p)) {
-        // Check if this looks like a vector (all numbers)
-        const isVector = p.every((item) => typeof item === 'number')
-        if (isVector) {
-          // For pgvector types, use bracket notation: [1,2,3]
-          return `[${p.join(',')}]`
-        } else {
-          // For Postgres TEXT[] arrays, use curly brace notation: {a,b,c}
-          return `{${p.join(',')}}`
-        }
-      }
-      return p
-    })
-
+    const processedParams = convertParams(params)
     const result = await pg.query<T>(sql, processedParams)
 
     // Track writes for checkpoint threshold
-    const isWrite =
-      sql.trim().toUpperCase().startsWith('INSERT') ||
-      sql.trim().toUpperCase().startsWith('UPDATE') ||
-      sql.trim().toUpperCase().startsWith('DELETE')
-
-    if (isWrite) {
+    if (isWriteOperation(sql)) {
       this.dirty = true
       this.writeCount++
     }
 
-    // Convert numeric strings to numbers for better DX
-    // PGLite returns DECIMAL/NUMERIC as strings to preserve precision,
-    // but for most use cases, users expect JavaScript numbers
-    const processedRows = result.rows.map((row) => {
-      const processedRow: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
-        if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
-          // Looks like a numeric string - convert to number
-          const num = Number(value)
-          // Only convert if it's a valid number and doesn't lose precision
-          if (!isNaN(num) && String(num) === value) {
-            processedRow[key] = num
-          } else {
-            processedRow[key] = value
-          }
-        } else {
-          processedRow[key] = value
-        }
-      }
-      return processedRow as T extends Record<string, unknown> ? T : T
-    })
-
     return {
-      rows: processedRows as T[],
+      rows: processRows<T>(result.rows),
       affectedRows: result.affectedRows,
     }
   }
@@ -473,6 +567,8 @@ export class EdgePostgres {
    * @param callback - Async function receiving a Transaction object
    * @returns The value returned by the callback
    *
+   * @throws {ClosedError} If the instance has been closed
+   *
    * @example
    * ```typescript
    * await db.transaction(async (tx) => {
@@ -488,51 +584,18 @@ export class EdgePostgres {
 
     // PGLite has a transaction method we can use
     return await pg.transaction(async (pgliteTx) => {
-      // Create our transaction wrapper
+      // Create our transaction wrapper using shared helper functions
       const tx: Transaction = {
         query: async <R = Record<string, unknown>>(
           sql: string,
           params?: unknown[],
           _options?: QueryOptions
         ): Promise<QueryResult<R>> => {
-          // Convert params for PGLite
-          const processedParams = params?.map((p) => {
-            if (Array.isArray(p)) {
-              // Check if this looks like a vector (all numbers)
-              const isVector = p.every((item) => typeof item === 'number')
-              if (isVector) {
-                // For pgvector types, use bracket notation: [1,2,3]
-                return `[${p.join(',')}]`
-              } else {
-                // For Postgres TEXT[] arrays, use curly brace notation: {a,b,c}
-                return `{${p.join(',')}}`
-              }
-            }
-            return p
-          })
-
+          const processedParams = convertParams(params)
           const result = await pgliteTx.query<R>(sql, processedParams)
 
-          // Convert numeric strings to numbers for consistency with query()
-          const processedRows = result.rows.map((row) => {
-            const processedRow: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
-              if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
-                const num = Number(value)
-                if (!isNaN(num) && String(num) === value) {
-                  processedRow[key] = num
-                } else {
-                  processedRow[key] = value
-                }
-              } else {
-                processedRow[key] = value
-              }
-            }
-            return processedRow as R extends Record<string, unknown> ? R : R
-          })
-
           return {
-            rows: processedRows as R[],
+            rows: processRows<R>(result.rows),
             affectedRows: result.affectedRows,
           }
         },
@@ -564,6 +627,8 @@ export class EdgePostgres {
    * Creates a checkpoint of the current database state that can be
    * restored on cold start.
    *
+   * @throws {CheckpointError} If the checkpoint fails to save
+   *
    * @example
    * ```typescript
    * await db.query('INSERT INTO users VALUES ($1, $2)', ['user-1', 'Alice'])
@@ -576,23 +641,29 @@ export class EdgePostgres {
       return
     }
 
-    // Export the database state as SQL
-    // For GREEN phase, we'll use a simple approach: dump all data as INSERT statements
-    const checkpointSql = await this.generateCheckpointSql()
+    try {
+      // Export the database state as SQL
+      const checkpointSql = await this.generateCheckpointSql()
 
-    // Save to FSX storage
-    await this.ctx.storage.put(STORAGE_KEYS.CHECKPOINT, checkpointSql)
+      // Save to FSX storage
+      await this.ctx.storage.put(STORAGE_KEYS.CHECKPOINT, checkpointSql)
 
-    // Increment and save version
-    this.checkpointVersion++
-    await this.ctx.storage.put(
-      STORAGE_KEYS.CHECKPOINT_VERSION,
-      this.checkpointVersion
-    )
+      // Increment and save version
+      this.checkpointVersion++
+      await this.ctx.storage.put(
+        STORAGE_KEYS.CHECKPOINT_VERSION,
+        this.checkpointVersion
+      )
 
-    // Reset dirty flag and write count
-    this.dirty = false
-    this.writeCount = 0
+      // Reset dirty flag and write count
+      this.dirty = false
+      this.writeCount = 0
+    } catch (error) {
+      throw new CheckpointError(
+        error instanceof Error ? error.message : 'Unknown error',
+        error instanceof Error ? error : undefined
+      )
+    }
   }
 
   /**
@@ -712,15 +783,7 @@ export class EdgePostgres {
 
       for (const row of dataResult.rows) {
         const cols = Object.keys(row as object)
-        const vals = Object.values(row as object).map((v) => {
-          if (v === null) return 'NULL'
-          if (typeof v === 'string') return `'${v.replace(/'/g, "''")}'`
-          if (typeof v === 'boolean') return v ? 'true' : 'false'
-          if (typeof v === 'number') return String(v)
-          if (v instanceof Date) return `'${v.toISOString()}'`
-          if (Array.isArray(v)) return `'[${v.join(',')}]'`
-          return `'${JSON.stringify(v).replace(/'/g, "''")}'`
-        })
+        const vals = Object.values(row as object).map(valueToSql)
 
         statements.push(
           `INSERT INTO ${tablename} (${cols.join(', ')}) VALUES (${vals.join(', ')}) ON CONFLICT DO NOTHING;`
