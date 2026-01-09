@@ -8,12 +8,15 @@ import { priya, ralph, tom, mark, sally } from 'agents.do'
 
 export class MyStartup extends Startup {
   async launch() {
-    const spec = await priya`define the MVP for ${this.hypothesis}`
-    const app = await ralph`build ${spec}`
-    const reviewed = await tom`ship ${app}`
+    const spec = priya`define the MVP for ${this.hypothesis}`
+    let app = ralph`build ${spec}`
 
-    await mark`announce the launch`
-    await sally`start selling`
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    mark`announce the launch`
+    sally`start selling`
 
     // Your business is running. Go back to bed.
   }
@@ -31,11 +34,13 @@ It's Tuesday. You're one person.
 dotdo is built on [Cap'n Web](https://github.com/cloudflare/capnweb), an object-capability RPC system with promise pipelining. When you write:
 
 ```typescript
-const spec = await priya`define the MVP`
+const spec = priya`define the MVP`
 const app = await ralph`build ${spec}`
 ```
 
-You're not making two network round trips. The promise from `priya` is passed directly to `ralph`—the server receives the entire pipeline and executes it in one pass. This is **Promise Pipelining**.
+You're making **one** network round trip, not two. The unawaited promise from `priya` is passed directly to `ralph`—the server receives the entire pipeline and executes it in one pass. This is **Promise Pipelining**.
+
+If you `await` each step, you force separate round trips. Only await what you actually need.
 
 The template literal syntax (`priya\`...\``) isn't string interpolation—it's a remote procedure call. The agent receives your intent, executes with its tools, and returns structured output.
 
