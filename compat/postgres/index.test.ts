@@ -90,12 +90,14 @@ describe('Client', () => {
       await client.end()
     })
 
-    it('should connect with callback', (done) => {
+    it('should connect with callback', async () => {
       const client = new Client()
-      client.connect((err) => {
-        expect(err).toBeUndefined()
-        expect(client.processID).not.toBeNull()
-        client.end(() => done())
+      await new Promise<void>((resolve) => {
+        client.connect((err) => {
+          expect(err).toBeUndefined()
+          expect(client.processID).not.toBeNull()
+          client.end(() => resolve())
+        })
       })
     })
 
@@ -116,12 +118,14 @@ describe('Client', () => {
       await client.end()
     })
 
-    it('should end with callback', (done) => {
+    it('should end with callback', async () => {
       const client = new Client()
-      client.connect(() => {
-        client.end((err) => {
-          expect(err).toBeUndefined()
-          done()
+      await new Promise<void>((resolve) => {
+        client.connect(() => {
+          client.end((err) => {
+            expect(err).toBeUndefined()
+            resolve()
+          })
         })
       })
     })
@@ -192,11 +196,13 @@ describe('query', () => {
       expect(result.oid).toBeDefined()
     })
 
-    it('should execute with callback', (done) => {
-      client.query('SELECT 1', (err, result) => {
-        expect(err).toBeNull()
-        expect(result.rows[0]['?column?']).toBe(1)
-        done()
+    it('should execute with callback', async () => {
+      await new Promise<void>((resolve) => {
+        client.query('SELECT 1', (err, result) => {
+          expect(err).toBeNull()
+          expect(result.rows[0]['?column?']).toBe(1)
+          resolve()
+        })
       })
     })
   })
@@ -856,10 +862,12 @@ describe('error handling', () => {
     }
   })
 
-  it('should call error callback', (done) => {
-    client.query('INVALID SQL', (err, result) => {
-      expect(err).toBeInstanceOf(DatabaseError)
-      done()
+  it('should call error callback', async () => {
+    await new Promise<void>((resolve) => {
+      client.query('INVALID SQL', (err, result) => {
+        expect(err).toBeInstanceOf(DatabaseError)
+        resolve()
+      })
     })
   })
 })

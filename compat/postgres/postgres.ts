@@ -312,9 +312,9 @@ class InMemorySQLite {
   }
 
   private executeInsert(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
-    // Parse INSERT INTO table [(cols)] VALUES ($1, $2, ...) [RETURNING ...]
+    // Parse INSERT INTO table [(cols)] VALUES (...), (...), ... [RETURNING ...]
     const match = sql.match(
-      /INSERT\s+INTO\s+(?:"([^"]+)"|(\w+))\s*(?:\(([^)]+)\))?\s*VALUES\s*\(([^)]+)\)(?:\s*RETURNING\s+(.+))?/i
+      /INSERT\s+INTO\s+(?:"([^"]+)"|(\w+))\s*(?:\(([^)]+)\))?\s*VALUES\s+(.+?)(?:\s+RETURNING\s+(.+))?$/i
     )
     if (!match) {
       throw new DatabaseError('Invalid INSERT syntax', '42601', 'ERROR')
@@ -335,59 +335,110 @@ class InMemorySQLite {
       ? match[5].split(',').map((c) => c.trim().replace(/"/g, '').toLowerCase())
       : null
 
-    // Parse values - handle $1, $2, etc. or inline values
-    const insertValues = this.parseValues(valuesPart, params)
-
-    // Build row values map
-    const values = new Map<string, any>()
-    for (let i = 0; i < specifiedCols.length; i++) {
-      values.set(specifiedCols[i], insertValues[i] ?? null)
-    }
-
-    // Handle auto-increment (SERIAL)
-    if (schema.autoIncrement && !values.has(schema.autoIncrement)) {
-      values.set(schema.autoIncrement, this.lastRowId + 1)
-    } else if (schema.autoIncrement && values.get(schema.autoIncrement) === undefined) {
-      values.set(schema.autoIncrement, this.lastRowId + 1)
-    }
-
-    // Check unique constraints
+    // Parse multiple value sets: (1, 2), (3, 4) -> [['1', '2'], ['3', '4']]
+    const valueSets = this.parseMultipleValueSets(valuesPart)
     const tableData = this.data.get(tableName) ?? []
-    for (const constraint of schema.uniqueConstraints) {
-      const newValue = values.get(constraint)
-      for (const row of tableData) {
-        if (row.values.get(constraint) === newValue && newValue !== null && newValue !== undefined) {
-          throw new DatabaseError(
-            `duplicate key value violates unique constraint "${tableName}_${constraint}_key"`,
-            '23505',
-            'ERROR'
-          )
+    const insertedRows: any[][] = []
+    let totalRowCount = 0
+
+    for (const valueSet of valueSets) {
+      // Parse values - handle $1, $2, etc. or inline values
+      const insertValues = this.parseValues(valueSet, params)
+
+      // Build row values map
+      const values = new Map<string, any>()
+      for (let i = 0; i < specifiedCols.length; i++) {
+        values.set(specifiedCols[i], insertValues[i] ?? null)
+      }
+
+      // Handle auto-increment (SERIAL)
+      if (schema.autoIncrement && !values.has(schema.autoIncrement)) {
+        values.set(schema.autoIncrement, this.lastRowId + 1)
+      } else if (schema.autoIncrement && values.get(schema.autoIncrement) === undefined) {
+        values.set(schema.autoIncrement, this.lastRowId + 1)
+      }
+
+      // Check unique constraints
+      for (const constraint of schema.uniqueConstraints) {
+        const newValue = values.get(constraint)
+        for (const row of tableData) {
+          if (row.values.get(constraint) === newValue && newValue !== null && newValue !== undefined) {
+            throw new DatabaseError(
+              `duplicate key value violates unique constraint "${tableName}_${constraint}_key"`,
+              '23505',
+              'ERROR'
+            )
+          }
         }
       }
-    }
 
-    const rowid = ++this.lastRowId
-    tableData.push({ rowid, values })
+      const rowid = ++this.lastRowId
+      tableData.push({ rowid, values })
+      totalRowCount++
+
+      // Build returning row if needed
+      if (returningCols) {
+        const returnRow: any[] = []
+        for (const col of returningCols) {
+          if (col === '*') {
+            returnRow.push(...schema.columns.map((c) => values.get(c)))
+          } else {
+            returnRow.push(values.get(col))
+          }
+        }
+        insertedRows.push(returnRow)
+      }
+    }
 
     // Handle RETURNING
     if (returningCols) {
-      const returnRow: any[] = []
-      for (const col of returningCols) {
-        if (col === '*') {
-          returnRow.push(...schema.columns.map((c) => values.get(c)))
-        } else {
-          returnRow.push(values.get(col))
-        }
-      }
       return {
         columns: returningCols.includes('*') ? schema.columns : returningCols,
-        rows: [returnRow],
-        rowCount: 1,
+        rows: insertedRows,
+        rowCount: totalRowCount,
         command: 'INSERT',
       }
     }
 
-    return { columns: [], rows: [], rowCount: 1, command: 'INSERT' }
+    return { columns: [], rows: [], rowCount: totalRowCount, command: 'INSERT' }
+  }
+
+  private parseMultipleValueSets(valuesPart: string): string[] {
+    // Parse (val1, val2), (val3, val4) into ['val1, val2', 'val3, val4']
+    const valueSets: string[] = []
+    let current = ''
+    let depth = 0
+    let inString = false
+    let stringChar = ''
+
+    for (const char of valuesPart) {
+      if (!inString && (char === "'" || char === '"')) {
+        inString = true
+        stringChar = char
+        current += char
+      } else if (inString && char === stringChar) {
+        inString = false
+        current += char
+      } else if (!inString && char === '(') {
+        if (depth > 0) {
+          current += char
+        }
+        depth++
+      } else if (!inString && char === ')') {
+        depth--
+        if (depth === 0) {
+          valueSets.push(current.trim())
+          current = ''
+        } else {
+          current += char
+        }
+      } else if (depth > 0) {
+        current += char
+      }
+      // Skip commas and whitespace between value sets (when depth == 0)
+    }
+
+    return valueSets
   }
 
   private parseValues(valuesPart: string, params: any[]): any[] {
@@ -569,17 +620,17 @@ class InMemorySQLite {
       tableData = this.applyOrderBy(tableData, orderBy)
     }
 
-    // Apply LIMIT
-    const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
-    if (limitMatch) {
-      tableData = tableData.slice(0, parseInt(limitMatch[1], 10))
-    }
-
-    // Apply OFFSET
+    // Apply OFFSET first (skip rows), then LIMIT (take rows)
     const offsetMatch = restOfQuery.match(/OFFSET\s+(\d+)/i)
     if (offsetMatch) {
       const offset = parseInt(offsetMatch[1], 10)
       tableData = tableData.slice(offset)
+    }
+
+    // Apply LIMIT after OFFSET
+    const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
+    if (limitMatch) {
+      tableData = tableData.slice(0, parseInt(limitMatch[1], 10))
     }
 
     // Build result
@@ -790,13 +841,14 @@ class InMemorySQLite {
       toUpdate = this.applyWhere(toUpdate, wherePart, params)
     }
 
-    // Parse SET assignments
-    const assignments = this.parseSetClause(setPart, params)
+    // Parse SET assignments (as expressions that may reference columns)
+    const assignmentExprs = this.parseSetClauseExpressions(setPart)
 
     // Apply updates
     const updatedRows: any[][] = []
     for (const row of toUpdate) {
-      for (const [col, value] of assignments) {
+      for (const { col, expr } of assignmentExprs) {
+        const value = this.evaluateSetExpression(expr, params, row)
         row.values.set(col, value)
       }
       if (returningCols) {
@@ -833,6 +885,48 @@ class InMemorySQLite {
     }
 
     return assignments
+  }
+
+  private parseSetClauseExpressions(setPart: string): Array<{ col: string; expr: string }> {
+    const assignments: Array<{ col: string; expr: string }> = []
+    const parts = this.splitValues(setPart)
+
+    for (const part of parts) {
+      const match = part.match(/(?:"([^"]+)"|(\w+))\s*=\s*(.+)/i)
+      if (match) {
+        const col = (match[1] || match[2]).toLowerCase()
+        const expr = match[3].trim()
+        assignments.push({ col, expr })
+      }
+    }
+
+    return assignments
+  }
+
+  private evaluateSetExpression(expr: string, params: any[], row: StoredRow): any {
+    // Handle simple expressions: col + $1, col - $1, col * $1, col / $1
+    const arithMatch = expr.match(/^(\w+)\s*([+\-*/])\s*(.+)$/i)
+    if (arithMatch) {
+      const colName = arithMatch[1].toLowerCase()
+      const operator = arithMatch[2]
+      const operandExpr = arithMatch[3].trim()
+      const currentValue = row.values.get(colName) ?? 0
+      const operand = this.resolveValue(operandExpr, params)
+
+      switch (operator) {
+        case '+':
+          return currentValue + operand
+        case '-':
+          return currentValue - operand
+        case '*':
+          return currentValue * operand
+        case '/':
+          return currentValue / operand
+      }
+    }
+
+    // Fall back to simple value resolution
+    return this.resolveValue(expr, params)
   }
 
   private executeDelete(sql: string, params: any[]): { columns: string[]; rows: any[][]; rowCount: number; command: string } {
@@ -919,16 +1013,16 @@ class InMemorySQLite {
 // ============================================================================
 
 class PostgresClient extends EventEmitter implements IClient {
-  private db: InMemorySQLite
+  protected db: InMemorySQLite
   private config: ExtendedPostgresConfig
   private connected = false
   private _processID = Math.floor(Math.random() * 100000)
   private _secretKey = Math.floor(Math.random() * 1000000)
 
-  constructor(config?: string | ClientConfig | ExtendedPostgresConfig) {
+  constructor(config?: string | ClientConfig | ExtendedPostgresConfig, sharedDb?: InMemorySQLite) {
     super()
     this.config = this.parseConfig(config)
-    this.db = new InMemorySQLite()
+    this.db = sharedDb ?? new InMemorySQLite()
   }
 
   private parseConfig(config?: string | ClientConfig | ExtendedPostgresConfig): ExtendedPostgresConfig {
@@ -1112,10 +1206,12 @@ class PostgresPool extends EventEmitter implements IPool {
     reject: (err: Error) => void
   }> = []
   private _ended = false
+  private sharedDb: InMemorySQLite
 
   constructor(config?: string | PoolConfig | ExtendedPostgresConfig) {
     super()
     this.config = this.parseConfig(config)
+    this.sharedDb = new InMemorySQLite()
   }
 
   private parseConfig(config?: string | PoolConfig | ExtendedPostgresConfig): ExtendedPostgresConfig {
@@ -1179,7 +1275,7 @@ class PostgresPool extends EventEmitter implements IPool {
     // Create new client if under max
     const max = this.config.max ?? 10
     if (this.clients.size < max) {
-      const client = new PostgresPoolClient(this.config, this)
+      const client = new PostgresPoolClient(this.config, this, this.sharedDb)
       this.clients.add(client)
       await client.connect()
       this.emit('connect', client)
@@ -1257,8 +1353,8 @@ class PostgresPool extends EventEmitter implements IPool {
 class PostgresPoolClient extends PostgresClient implements PoolClient {
   private pool: PostgresPool
 
-  constructor(config: ExtendedPostgresConfig, pool: PostgresPool) {
-    super(config)
+  constructor(config: ExtendedPostgresConfig, pool: PostgresPool, sharedDb: InMemorySQLite) {
+    super(config, sharedDb)
     this.pool = pool
   }
 
