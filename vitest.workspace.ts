@@ -14,6 +14,10 @@
  * - types: Type definition tests
  * - evals: Evaluation storage tests
  * - app: TanStack Start / Fumadocs build tests
+ * - utils: Utility tests (hash, etc.)
+ * - mocks: Test mocks infrastructure
+ * - flags: Feature flags tests
+ * - rate-limit: Rate limit binding tests
  *
  * Workers Environment:
  * - workers: Runtime integration tests (uses @cloudflare/vitest-pool-workers)
@@ -90,8 +94,23 @@ export default defineWorkspace([
   // Evaluation storage tests
   createNodeWorkspace('evals', ['evals/tests/**/*.test.ts']),
 
+  // AI Database tests
+  createNodeWorkspace('ai-database', ['ai-database/tests/**/*.test.ts']),
+
   // TanStack Start / Fumadocs build tests
   createNodeWorkspace('app', ['app/tests/**/*.test.ts']),
+
+  // Utility tests (hash, etc.)
+  createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
+
+  // Test mocks infrastructure
+  createNodeWorkspace('mocks', ['tests/mocks/**/*.test.ts']),
+
+  // Feature flags tests
+  createNodeWorkspace('flags', ['tests/flags/**/*.test.ts']),
+
+  // Rate limit binding tests
+  createNodeWorkspace('rate-limit', ['tests/rate-limit/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
