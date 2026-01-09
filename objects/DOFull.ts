@@ -29,6 +29,8 @@
 import { DO as DOBase, type Env } from './DOBase'
 import * as schema from '../db'
 import type { Thing } from '../types/Thing'
+import type { ShardOptions, ShardResult, ShardStrategy, UnshardOptions } from '../types/Lifecycle'
+import { createShardModule, ShardModule } from './lifecycle/Shard'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -337,6 +339,28 @@ export class DO<E extends Env = Env> extends DOBase<E> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   protected currentVersion: number | null = null
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIFECYCLE MODULES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _shardModule?: ShardModule
+
+  protected get shardModule(): ShardModule {
+    if (!this._shardModule) {
+      this._shardModule = createShardModule()
+      this._shardModule.initialize({
+        ns: this.ns,
+        currentBranch: this.currentBranch,
+        db: this.db,
+        env: this.env as unknown as import('../types/CloudflareBindings').CloudflareEnv,
+        ctx: this.ctx,
+        emitEvent: (verb: string, data?: unknown) => this.emitEvent(verb, data),
+        log: (message: string, data?: unknown) => console.log(`[${this.ns}] ${message}`, data),
+      })
+    }
+    return this._shardModule
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CROSS-DO CACHES
@@ -2212,6 +2236,157 @@ export class DO<E extends Env = Env> extends DOBase<E> {
         // Best-effort streaming
       }
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHARD OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Shard this DO into multiple DOs for horizontal scaling
+   *
+   * @param options Sharding configuration
+   * @returns Shard result with shard endpoints and distribution stats
+   */
+  async shard(
+    options: ShardOptions & {
+      correlationId?: string
+      timeout?: number
+      keyExtractor?: (thing: {
+        id: string
+        type: unknown
+        branch: string | null
+        name: string
+        data: Record<string, unknown>
+        deleted: boolean
+      }) => string
+      includeMetadata?: boolean
+      targetShards?: string[]
+    }
+  ): Promise<
+    ShardResult & {
+      duration: number
+      registry: {
+        id: string
+        shardKey: string
+        shardCount: number
+        strategy: ShardStrategy
+        createdAt: Date
+        endpoints: Array<{
+          shardIndex: number
+          ns: string
+          doId: string
+          status: 'active' | 'inactive' | 'rebalancing'
+        }>
+      }
+      stats: {
+        totalThings: number
+        minPerShard: number
+        maxPerShard: number
+        avgPerShard: number
+        stdDev: number
+        skewRatio: number
+      }
+    }
+  > {
+    return this.shardModule.shard(options)
+  }
+
+  /**
+   * Unshard (merge) sharded DOs back into one
+   *
+   * @param options Unshard configuration
+   */
+  async unshard(options?: UnshardOptions): Promise<void> {
+    return this.shardModule.unshard(options)
+  }
+
+  /**
+   * Check if this DO is sharded
+   *
+   * @returns True if the DO is sharded
+   */
+  async isSharded(): Promise<boolean> {
+    return this.shardModule.isSharded()
+  }
+
+  /**
+   * Discover shards in this shard set
+   *
+   * @returns Registry and health status of all shards
+   */
+  async discoverShards(): Promise<{
+    registry: {
+      id: string
+      shardKey: string
+      shardCount: number
+      strategy: ShardStrategy
+      createdAt: Date
+      endpoints: Array<{
+        shardIndex: number
+        ns: string
+        doId: string
+        status: 'active' | 'inactive' | 'rebalancing'
+      }>
+    }
+    health: Array<{
+      shardIndex: number
+      healthy: boolean
+      lastCheck: Date
+      responseTime?: number
+    }>
+  }> {
+    return this.shardModule.discoverShards()
+  }
+
+  /**
+   * Query across all shards
+   *
+   * @param options Query configuration
+   * @returns Aggregated results from all shards
+   */
+  async queryShards<T = unknown>(options: {
+    query: string
+    aggregation?: 'merge' | 'concat' | 'sum' | 'count' | 'avg'
+    timeout?: number
+    continueOnError?: boolean
+  }): Promise<{
+    data: T[]
+    shardResults: Array<{
+      shardIndex: number
+      itemCount: number
+      duration: number
+      error?: string
+    }>
+    totalItems: number
+  }> {
+    return this.shardModule.queryShards<T>(options)
+  }
+
+  /**
+   * Rebalance shards (add/remove shards or redistribute data)
+   *
+   * @param options Rebalance configuration
+   * @returns Rebalance result with stats
+   */
+  async rebalanceShards(options: {
+    targetCount?: number
+    maxSkew?: number
+    strategy?: 'incremental' | 'full'
+  }): Promise<{
+    itemsMoved: number
+    newStats: {
+      totalThings: number
+      minPerShard: number
+      maxPerShard: number
+      avgPerShard: number
+      stdDev: number
+      skewRatio: number
+    }
+    modifiedShards: number[]
+    duration: number
+  }> {
+    return this.shardModule.rebalanceShards(options)
   }
 }
 
