@@ -6,6 +6,7 @@ import { mcpRoutes } from './routes/mcp'
 import { rpcRoutes } from './routes/rpc'
 import { doRoutes } from './routes/do'
 import { browsersRoutes } from './routes/browsers'
+import { obsRoutes } from './routes/obs'
 import { getOpenAPIDocument } from './routes/openapi'
 import { errorHandler } from './middleware/error-handling'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -16,6 +17,7 @@ export { TestDurableObject } from './test-do'
 export { DurableObject } from 'cloudflare:workers'
 export { Browser } from '../objects/Browser'
 export { ThingsDO } from '../objects/ThingsDO'
+export { ObservabilityBroadcaster } from '../objects/ObservabilityBroadcaster'
 
 // Import and re-export the unified CloudflareEnv type
 import type { CloudflareEnv } from '../types/CloudflareBindings'
@@ -38,6 +40,8 @@ export interface Env extends CloudflareEnv {
   DO: DurableObjectNamespace
   /** Browser Durable Object namespace */
   BROWSER_DO: DurableObjectNamespace
+  /** Observability Broadcaster DO namespace */
+  OBS_BROADCASTER: DurableObjectNamespace
   /** Test KV namespace (dev/test only) */
   TEST_KV: KVNamespace
   /** Test DO namespace (dev/test only) */
@@ -162,6 +166,9 @@ app.route('/api', apiRoutes)
 
 // Mount Browser API routes
 app.route('/api/browsers', browsersRoutes)
+
+// Mount Observability API routes
+app.route('/api/obs', obsRoutes)
 
 // Mount MCP routes
 app.route('/mcp', mcpRoutes)

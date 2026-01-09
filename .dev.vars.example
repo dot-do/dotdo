@@ -1,0 +1,94 @@
+# dotdo Local Development Secrets
+# Copy this file to .dev.vars and fill in your values
+# See https://developers.cloudflare.com/workers/configuration/secrets/
+
+# ============================================================================
+# AUTHENTICATION
+# ============================================================================
+
+# Better Auth secret for session signing
+# Generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET=your-auth-secret-here
+
+# OAuth Provider Credentials (optional - enable as needed)
+# GitHub OAuth
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Google OAuth
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Discord OAuth
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+
+# ============================================================================
+# DATABASE
+# ============================================================================
+
+# Hyperdrive connection string (PostgreSQL)
+# Used for external database connections accelerated via Hyperdrive
+# Format: postgresql://user:password@host:port/database
+HYPERDRIVE_CONNECTION_STRING=
+
+# ============================================================================
+# AI & ML
+# ============================================================================
+
+# OpenAI API Key (for external AI calls)
+OPENAI_API_KEY=
+
+# Anthropic API Key
+ANTHROPIC_API_KEY=
+
+# ============================================================================
+# EXTERNAL SERVICES
+# ============================================================================
+
+# Stripe API Keys
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# SendGrid / Email
+SENDGRID_API_KEY=
+
+# Twilio / SMS
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+
+# Slack Integration
+SLACK_BOT_TOKEN=
+SLACK_SIGNING_SECRET=
+
+# ============================================================================
+# OBSERVABILITY
+# ============================================================================
+
+# Sentry DSN for error tracking
+SENTRY_DSN=
+
+# Axiom API Token for logging
+AXIOM_TOKEN=
+AXIOM_DATASET=
+
+# ============================================================================
+# ENCRYPTION
+# ============================================================================
+
+# Encryption key for sensitive data at rest
+# Generate with: openssl rand -base64 32
+ENCRYPTION_KEY=
+
+# ============================================================================
+# FEATURE FLAGS
+# ============================================================================
+
+# Enable debug mode (set to "true" to enable)
+DEBUG=false
+
+# Enable AI features
+AI_ENABLED=true
+
+# Enable browser rendering
+BROWSER_ENABLED=false

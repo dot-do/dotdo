@@ -48,8 +48,21 @@ export interface DurableObjectBindings {
 
   /**
    * Workflow Durable Object namespace for durable execution
+   * @see Workflow
    */
-  WORKFLOW?: DurableObjectNamespace
+  WORKFLOW_DO?: DurableObjectNamespace
+
+  /**
+   * Integrations Durable Object namespace for OAuth and webhooks
+   * @see IntegrationsDO
+   */
+  INTEGRATIONS_DO?: DurableObjectNamespace
+
+  /**
+   * Sandbox Durable Object namespace for code execution
+   * @see SandboxDO
+   */
+  SANDBOX_DO?: DurableObjectNamespace
 
   /**
    * Identity Durable Object namespace (id.org.ai)
@@ -60,6 +73,12 @@ export interface DurableObjectBindings {
    * Payments Durable Object namespace (payments.do)
    */
   PAYMENTS_DO?: DurableObjectNamespace
+
+  /**
+   * Legacy: Workflow binding (deprecated, use WORKFLOW_DO)
+   * @deprecated Use WORKFLOW_DO instead
+   */
+  WORKFLOW?: DurableObjectNamespace
 }
 
 // ============================================================================
@@ -294,13 +313,28 @@ export interface AssetsBindings {
 }
 
 /**
+ * Analytics Engine bindings
+ *
+ * Provides analytics data collection and querying.
+ */
+export interface AnalyticsBindings {
+  /**
+   * Analytics Engine dataset binding
+   *
+   * @see https://developers.cloudflare.com/analytics/analytics-engine/
+   */
+  ANALYTICS?: AnalyticsEngineDataset
+}
+
+/**
  * Combined advanced feature bindings
  */
 export interface AdvancedBindings
   extends HyperdriveBindings,
     RateLimitBindings,
     BrowserBindings,
-    AssetsBindings {}
+    AssetsBindings,
+    AnalyticsBindings {}
 
 // ============================================================================
 // SECRET BINDINGS
@@ -457,6 +491,13 @@ export function hasAssets(env: CloudflareEnv): env is CloudflareEnv & { ASSETS: 
   return env.ASSETS !== undefined
 }
 
+/**
+ * Check if Analytics Engine binding is available
+ */
+export function hasAnalytics(env: CloudflareEnv): env is CloudflareEnv & { ANALYTICS: AnalyticsEngineDataset } {
+  return env.ANALYTICS !== undefined
+}
+
 // ============================================================================
 // BINDING BUILDER PATTERN
 // ============================================================================
@@ -540,6 +581,8 @@ export type CloudflareHyperdrive = Hyperdrive
 export type CloudflareRateLimit = RateLimit
 /** Fetcher binding type - HTTP client for service bindings */
 export type CloudflareFetcher = Fetcher
+/** Analytics Engine dataset binding type */
+export type CloudflareAnalytics = AnalyticsEngineDataset
 
 // ============================================================================
 // LEGACY COMPATIBILITY

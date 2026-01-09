@@ -83,8 +83,11 @@ export default defineWorkspace([
   // Objects testing infrastructure tests
   createNodeWorkspace('objects-testing', ['objects/testing/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts']),
+
+  // Cloudflare integration tests (Workflows, etc.)
+  createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
 
   // Event normalizer tests
   createNodeWorkspace('snippets', ['snippets/tests/**/*.test.ts']),
@@ -162,6 +165,9 @@ export default defineWorkspace([
 
   // API generators tests (MCP tools, etc.)
   createNodeWorkspace('generators', ['api/generators/tests/**/*.test.ts']),
+
+  // API routes tests (Node environment, for isolated route testing)
+  createNodeWorkspace('api-routes', ['api/routes/tests/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests

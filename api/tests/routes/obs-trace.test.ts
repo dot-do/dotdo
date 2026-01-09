@@ -10,13 +10,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-
-// Import the app for testing
-import { app } from '../../index'
+import { Hono } from 'hono'
 
 // This import will fail until api/routes/obs.ts is created
-// Uncommenting this will cause the test to fail at import time
-// import { obsRoutes } from '../../routes/obs'
+// This is the RED phase - tests fail because the implementation doesn't exist
+import { obsRoutes } from '../../routes/obs'
 
 // ============================================================================
 // Test Types
@@ -125,6 +123,14 @@ interface ErrorResponse {
     details?: Record<string, unknown>
   }
 }
+
+// ============================================================================
+// Test App Setup
+// ============================================================================
+
+// Create a test app with the obs routes mounted
+const app = new Hono()
+app.route('/api/obs', obsRoutes)
 
 // ============================================================================
 // Helper Functions

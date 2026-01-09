@@ -49,6 +49,10 @@
       {
         "name": "BROWSER_DO",
         "class_name": "Browser"
+      },
+      {
+        "name": "OBS_BROADCASTER",
+        "class_name": "ObservabilityBroadcaster"
       }
     ]
   },
@@ -66,6 +70,10 @@
     {
       "tag": "v3",
       "renamed_classes": [{"from": "DurableObject", "to": "ThingsDO"}]
+    },
+    {
+      "tag": "v4",
+      "new_classes": ["ObservabilityBroadcaster"]
     }
   ]
 }

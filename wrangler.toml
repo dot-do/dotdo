@@ -6,8 +6,10 @@ main = "api/index.ts"
 compatibility_date = "2026-01-08"
 compatibility_flags = ["nodejs_compat"]
 
-# Static assets configuration
+# ============================================================================
+# STATIC ASSETS
 # See https://developers.cloudflare.com/workers/static-assets/
+# ============================================================================
 [assets]
 directory = "./dist"
 binding = "ASSETS"
@@ -25,23 +27,44 @@ not_found_handling = "single-page-application"
 # Static routes (/, /docs/*, /admin/*) are served directly from ./dist
 run_worker_first = ["/api/*", "/mcp", "/rpc/*"]
 
-# KV namespaces
+# ============================================================================
+# KV NAMESPACES
+# See https://developers.cloudflare.com/kv/
+# ============================================================================
 [[kv_namespaces]]
 binding = "KV"
 id = "placeholder-kv-id"
 
-[[kv_namespaces]]
-binding = "TEST_KV"
-id = "placeholder-test-kv-id"
+# ============================================================================
+# R2 OBJECT STORAGE
+# See https://developers.cloudflare.com/r2/
+# ============================================================================
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "dotdo-storage"
 
-# Durable Objects
+# ============================================================================
+# D1 DATABASE
+# See https://developers.cloudflare.com/d1/
+# ============================================================================
+[[d1_databases]]
+binding = "DB"
+database_name = "dotdo"
+database_id = "placeholder-d1-id"
+
+# ============================================================================
+# DURABLE OBJECTS
+# See https://developers.cloudflare.com/durable-objects/
+# ============================================================================
 [durable_objects]
 bindings = [
   { name = "DO", class_name = "ThingsDO" },
-  { name = "TEST_DO", class_name = "TestDurableObject" }
+  { name = "WORKFLOW_DO", class_name = "Workflow" },
+  { name = "INTEGRATIONS_DO", class_name = "IntegrationsDO" },
+  { name = "SANDBOX_DO", class_name = "SandboxDO" },
 ]
 
-# Migrations
+# DO Migrations
 [[migrations]]
 tag = "v1"
 new_classes = ["DurableObject", "TestDurableObject"]
@@ -49,3 +72,157 @@ new_classes = ["DurableObject", "TestDurableObject"]
 [[migrations]]
 tag = "v3"
 renamed_classes = [{ from = "DurableObject", to = "ThingsDO" }]
+
+[[migrations]]
+tag = "v4"
+new_classes = ["Workflow", "IntegrationsDO", "SandboxDO"]
+
+# ============================================================================
+# QUEUES
+# See https://developers.cloudflare.com/queues/
+# ============================================================================
+[[queues.producers]]
+binding = "QUEUE"
+queue = "dotdo-events"
+
+[[queues.consumers]]
+queue = "dotdo-events"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dotdo-events-dlq"
+
+# Dead letter queue for failed messages
+[[queues.producers]]
+binding = "DLQ"
+queue = "dotdo-events-dlq"
+
+# ============================================================================
+# AI BINDINGS
+# See https://developers.cloudflare.com/workers-ai/
+# ============================================================================
+[ai]
+binding = "AI"
+
+# ============================================================================
+# VECTORIZE
+# See https://developers.cloudflare.com/vectorize/
+# ============================================================================
+[[vectorize]]
+binding = "VECTORS"
+index_name = "dotdo-things"
+
+# ============================================================================
+# WORKFLOWS
+# See https://developers.cloudflare.com/workflows/
+# ============================================================================
+[[workflows]]
+name = "dotdo-workflow"
+binding = "WORKFLOW"
+class_name = "WorkflowRuntime"
+
+# ============================================================================
+# HYPERDRIVE (PostgreSQL Acceleration)
+# See https://developers.cloudflare.com/hyperdrive/
+# ============================================================================
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "placeholder-hyperdrive-id"
+
+# ============================================================================
+# BROWSER RENDERING
+# See https://developers.cloudflare.com/browser-rendering/
+# ============================================================================
+[browser]
+binding = "BROWSER"
+
+# ============================================================================
+# ANALYTICS ENGINE
+# See https://developers.cloudflare.com/analytics/analytics-engine/
+# ============================================================================
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "dotdo_events"
+
+# ============================================================================
+# ENVIRONMENT: STAGING
+# ============================================================================
+[env.staging]
+name = "dotdo-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "KV"
+id = "placeholder-staging-kv-id"
+
+[[env.staging.r2_buckets]]
+binding = "R2"
+bucket_name = "dotdo-storage-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "dotdo-staging"
+database_id = "placeholder-staging-d1-id"
+
+[[env.staging.queues.producers]]
+binding = "QUEUE"
+queue = "dotdo-events-staging"
+
+[[env.staging.queues.consumers]]
+queue = "dotdo-events-staging"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+
+[[env.staging.vectorize]]
+binding = "VECTORS"
+index_name = "dotdo-things-staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "dotdo_events_staging"
+
+# ============================================================================
+# ENVIRONMENT: PRODUCTION
+# ============================================================================
+[env.production]
+name = "dotdo"
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "placeholder-production-kv-id"
+
+[[env.production.r2_buckets]]
+binding = "R2"
+bucket_name = "dotdo-storage-production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "dotdo-production"
+database_id = "placeholder-production-d1-id"
+
+[[env.production.queues.producers]]
+binding = "QUEUE"
+queue = "dotdo-events-production"
+
+[[env.production.queues.consumers]]
+queue = "dotdo-events-production"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dotdo-events-production-dlq"
+
+[[env.production.queues.producers]]
+binding = "DLQ"
+queue = "dotdo-events-production-dlq"
+
+[[env.production.vectorize]]
+binding = "VECTORS"
+index_name = "dotdo-things-production"
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "placeholder-production-hyperdrive-id"
+
+[[env.production.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "dotdo_events_production"

@@ -308,3 +308,6 @@ export {
   type TraceSink,
   type TracingOptions,
 } from '../lib/functions/FunctionMiddleware'
+
+// Sandbox - Code Execution Environment
+export { SandboxDO } from './SandboxDO'

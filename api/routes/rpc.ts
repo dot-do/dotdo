@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
+import { ObsFilterSchema, validateObsFilter, matchesFilter } from '../../types/observability'
+import type { ObsFilter, ObservabilityEvent } from '../../types/observability'
 
 /**
  * RPC.do WebSocket Route Handler
@@ -183,6 +185,121 @@ class SubscriptionManager {
   clear(): void {
     this.subscriptions.clear()
     this.eventSubscriptions.clear()
+  }
+}
+
+// ============================================================================
+// Observability Subscription Manager
+// ============================================================================
+
+/**
+ * Manages observability event subscriptions for a WebSocket connection.
+ * Each subscription has a unique ID and filter for event routing.
+ */
+interface ObsSubscription {
+  id: string
+  filter: ObsFilter
+  broadcasterWs?: WebSocket  // Connection to ObservabilityBroadcaster DO
+}
+
+class ObsSubscriptionManager {
+  private subscriptions = new Map<string, ObsSubscription>()
+  private sendToClient: (message: unknown) => void
+
+  constructor(sendToClient: (message: unknown) => void) {
+    this.sendToClient = sendToClient
+  }
+
+  /**
+   * Create a new observability subscription
+   */
+  subscribe(filter: ObsFilter): { subscriptionId: string; filter: ObsFilter } {
+    const subscriptionId = `obs_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    this.subscriptions.set(subscriptionId, { id: subscriptionId, filter })
+    return { subscriptionId, filter }
+  }
+
+  /**
+   * Remove a subscription
+   */
+  unsubscribe(subscriptionId: string): boolean {
+    const sub = this.subscriptions.get(subscriptionId)
+    if (!sub) return false
+
+    // Close broadcaster WebSocket if exists
+    if (sub.broadcasterWs) {
+      try {
+        sub.broadcasterWs.close()
+      } catch {
+        // Ignore close errors
+      }
+    }
+
+    this.subscriptions.delete(subscriptionId)
+    return true
+  }
+
+  /**
+   * Update filter for an existing subscription
+   */
+  updateFilter(subscriptionId: string, newFilter: ObsFilter): boolean {
+    const sub = this.subscriptions.get(subscriptionId)
+    if (!sub) return false
+
+    sub.filter = newFilter
+    return true
+  }
+
+  /**
+   * Get a subscription by ID
+   */
+  get(subscriptionId: string): ObsSubscription | undefined {
+    return this.subscriptions.get(subscriptionId)
+  }
+
+  /**
+   * Check if a subscription exists
+   */
+  has(subscriptionId: string): boolean {
+    return this.subscriptions.has(subscriptionId)
+  }
+
+  /**
+   * Broadcast events to all subscriptions based on their filters
+   */
+  broadcastEvents(events: ObservabilityEvent[]): void {
+    for (const [_, sub] of this.subscriptions) {
+      const matchingEvents = events.filter(event => matchesFilter(event, sub.filter))
+      if (matchingEvents.length > 0) {
+        this.sendToClient({
+          type: 'events',
+          data: matchingEvents,
+        })
+      }
+    }
+  }
+
+  /**
+   * Clean up all subscriptions
+   */
+  clear(): void {
+    for (const [_, sub] of this.subscriptions) {
+      if (sub.broadcasterWs) {
+        try {
+          sub.broadcasterWs.close()
+        } catch {
+          // Ignore close errors
+        }
+      }
+    }
+    this.subscriptions.clear()
+  }
+
+  /**
+   * Get all subscription IDs
+   */
+  getAllIds(): string[] {
+    return Array.from(this.subscriptions.keys())
   }
 }
 
@@ -710,9 +827,9 @@ rpcRoutes.post('/', async (c) => {
   }
   ctx.rootObject = createRootObject(ctx)
 
-  let request: RPCRequest
+  let request: unknown
   try {
-    request = (await c.req.json()) as RPCRequest
+    request = await c.req.json()
   } catch {
     return c.json(
       {
@@ -724,7 +841,24 @@ rpcRoutes.post('/', async (c) => {
     )
   }
 
-  if (!request.id) {
+  // Check if this is a JSON-RPC 2.0 request for obs methods (which require WebSocket)
+  if (request && typeof request === 'object' && 'jsonrpc' in request && (request as JSONRPCRequest).jsonrpc === '2.0') {
+    const jsonRpcRequest = request as JSONRPCRequest
+    if (jsonRpcRequest.method?.startsWith('obs.')) {
+      return c.json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32600,
+          message: 'obs.subscribe requires WebSocket connection. Upgrade to WebSocket protocol.',
+        },
+        id: jsonRpcRequest.id ?? null,
+      } satisfies JSONRPCResponse)
+    }
+  }
+
+  const rpcRequest = request as RPCRequest
+
+  if (!rpcRequest.id) {
     return c.json(
       {
         id: '',
@@ -735,7 +869,7 @@ rpcRoutes.post('/', async (c) => {
     )
   }
 
-  const response = await executeRequest(request, ctx)
+  const response = await executeRequest(rpcRequest, ctx)
   return c.json(response)
 })
 
