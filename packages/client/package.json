@@ -2,13 +2,64 @@
   "name": "@dotdo/client",
   "version": "0.1.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js",
+      "require": "./dist/utils.cjs"
+    },
+    "./transports": {
+      "types": "./dist/transports/index.d.ts",
+      "import": "./dist/transports/index.js",
+      "require": "./dist/transports/index.cjs"
+    },
+    "./transports/websocket": {
+      "types": "./dist/transports/websocket.d.ts",
+      "import": "./dist/transports/websocket.js",
+      "require": "./dist/transports/websocket.cjs"
+    },
+    "./transports/http": {
+      "types": "./dist/transports/http.d.ts",
+      "import": "./dist/transports/http.js",
+      "require": "./dist/transports/http.cjs"
+    },
+    "./features/reconnection": {
+      "types": "./dist/features/reconnection.d.ts",
+      "import": "./dist/features/reconnection.js",
+      "require": "./dist/features/reconnection.cjs"
+    },
+    "./features/subscriptions": {
+      "types": "./dist/features/subscriptions.d.ts",
+      "import": "./dist/features/subscriptions.js",
+      "require": "./dist/features/subscriptions.cjs"
+    },
+    "./features/offline": {
+      "types": "./dist/features/offline.d.ts",
+      "import": "./dist/features/offline.js",
+      "require": "./dist/features/offline.cjs"
+    },
+    "./features/batching": {
+      "types": "./dist/features/batching.d.ts",
+      "import": "./dist/features/batching.js",
+      "require": "./dist/features/batching.cjs"
+    },
+    "./features/retry": {
+      "types": "./dist/features/retry.d.ts",
+      "import": "./dist/features/retry.js",
+      "require": "./dist/features/retry.cjs"
     }
   },
   "files": [
@@ -16,13 +67,17 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
+    "build:analyze": "tsup && node scripts/analyze-bundle.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "vitest": "^2.0.0"
-  }
+  },
+  "sideEffects": false
 }

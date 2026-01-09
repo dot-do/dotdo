@@ -1280,3 +1280,170 @@ export function applyRpcIntegration(doInstance: any, config?: RPCServerConfig): 
 }
 
 export default RPCServer
+
+// ============================================================================
+// RPC HANDLER - TransportHandler Implementation
+// ============================================================================
+
+import type {
+  TransportHandler,
+  HandlerContext,
+  CanHandleResult,
+  HandlerOptions,
+} from './handler'
+import {
+  buildJsonResponse,
+  buildErrorResponse,
+} from './shared'
+
+/**
+ * RPC Handler options
+ */
+export interface RpcHandlerOptions extends HandlerOptions {
+  /** Path for RPC endpoint (default: /rpc) */
+  path?: string
+  /** Maximum pipeline depth */
+  maxPipelineDepth?: number
+  /** Methods to explicitly expose */
+  exposedMethods?: string[]
+  /** Methods to explicitly block */
+  blockedMethods?: string[]
+}
+
+/**
+ * Cache for RPC servers per DO instance
+ */
+const rpcServerCache = new WeakMap<object, RPCServer>()
+
+/**
+ * RPC Handler implementing TransportHandler interface
+ *
+ * Provides Cap'n Web RPC functionality:
+ * - Promise pipelining
+ * - JSON-RPC 2.0 support
+ * - WebSocket streaming RPC
+ * - Method discovery and invocation
+ *
+ * @example
+ * ```typescript
+ * const rpcHandler = new RpcHandler({
+ *   path: '/rpc',
+ *   maxPipelineDepth: 20,
+ * })
+ *
+ * // Use in handler chain
+ * chain.use(rpcHandler, 40)
+ * ```
+ */
+export class RpcHandler implements TransportHandler {
+  readonly name = 'rpc'
+  private options: RpcHandlerOptions
+  private server: RPCServer | null = null
+
+  constructor(options: RpcHandlerOptions = {}) {
+    this.options = {
+      path: '/rpc',
+      maxPipelineDepth: 20,
+      ...options,
+    }
+  }
+
+  /**
+   * Check if this handler can process the request
+   * RPC handler processes requests to the /rpc endpoint
+   */
+  canHandle(request: Request): CanHandleResult {
+    const url = new URL(request.url)
+    const rpcPath = this.options.path || '/rpc'
+
+    // Check if request is to RPC endpoint
+    if (url.pathname === rpcPath) {
+      // RPC handler has medium-high priority
+      return {
+        canHandle: true,
+        priority: 40,
+      }
+    }
+
+    return { canHandle: false, reason: 'Path does not match RPC endpoint' }
+  }
+
+  /**
+   * Handle the RPC request
+   */
+  async handle(request: Request, context: HandlerContext): Promise<Response> {
+    // Get or create RPC server for this instance
+    const server = this.getOrCreateServer(context.instance)
+
+    // Check for WebSocket upgrade
+    const upgradeHeader = request.headers.get('upgrade')
+    const connectionHeader = request.headers.get('connection')?.toLowerCase() || ''
+    const hasConnectionUpgrade = connectionHeader.includes('upgrade')
+
+    if (upgradeHeader?.toLowerCase() === 'websocket' && hasConnectionUpgrade) {
+      return server.handleWebSocketRpc()
+    }
+
+    // Handle HTTP methods
+    if (request.method === 'POST') {
+      return server.handleRpcRequest(request)
+    }
+
+    if (request.method === 'GET') {
+      // Return RPC info
+      return buildJsonResponse({
+        message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
+        methods: server.methods,
+      })
+    }
+
+    return buildErrorResponse(
+      { message: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
+      405,
+      { headers: { 'Allow': 'GET, POST' } }
+    )
+  }
+
+  /**
+   * Get or create RPC server for an instance
+   */
+  private getOrCreateServer(instance: Record<string, unknown>): RPCServer {
+    // Check cache
+    if (rpcServerCache.has(instance)) {
+      return rpcServerCache.get(instance)!
+    }
+
+    // Create new server
+    const server = new RPCServer(instance, {
+      maxPipelineDepth: this.options.maxPipelineDepth,
+      exposedMethods: this.options.exposedMethods,
+      blockedMethods: this.options.blockedMethods,
+    })
+
+    rpcServerCache.set(instance, server)
+    this.server = server
+
+    return server
+  }
+
+  /**
+   * Get current RPC server
+   */
+  getServer(): RPCServer | null {
+    return this.server
+  }
+
+  /**
+   * Clear server cache for an instance
+   */
+  static clearCache(instance: object): void {
+    rpcServerCache.delete(instance)
+  }
+
+  /**
+   * Dispose handler resources
+   */
+  dispose(): void {
+    this.server = null
+  }
+}

@@ -247,7 +247,7 @@ function createPipelineProxyWithThen(
           return createPipelineProxyWithThen(client, newSteps, state)
         }
       }
-      return (target as Record<string, unknown>)[prop as string]
+      return (target as Record<string, unknown>)[prop as unknown as string]
     },
   }) as unknown
 }

@@ -842,3 +842,166 @@ export function hasMcpConfig(DOClass: DOClass): boolean {
     (DOClass.$mcp.resources !== undefined && DOClass.$mcp.resources.length > 0)
   )
 }
+
+// ============================================================================
+// MCP HANDLER - TransportHandler Implementation
+// ============================================================================
+
+import type {
+  TransportHandler,
+  HandlerContext,
+  CanHandleResult,
+  HandlerOptions,
+} from './handler'
+import {
+  parseJsonBody,
+  buildJsonResponse,
+  buildErrorResponse,
+} from './shared'
+
+/**
+ * MCP Handler options
+ */
+export interface McpHandlerOptions extends HandlerOptions {
+  /** Path prefix for MCP endpoint (default: /mcp) */
+  path?: string
+}
+
+/**
+ * Cache for MCP tools per DO class
+ */
+const mcpToolsCache = new Map<Function, McpTool[]>()
+
+/**
+ * MCP (Model Context Protocol) Handler implementing TransportHandler interface
+ *
+ * Provides JSON-RPC 2.0 based MCP support:
+ * - Tool discovery and invocation
+ * - Resource listing and reading
+ * - Session management
+ * - SSE streaming for notifications
+ *
+ * @example
+ * ```typescript
+ * const mcpHandler = new McpHandler({
+ *   path: '/mcp',
+ *   debug: true,
+ * })
+ *
+ * // Use in handler chain (higher priority than REST)
+ * chain.use(mcpHandler, 50)
+ * ```
+ */
+export class McpHandler implements TransportHandler {
+  readonly name = 'mcp'
+  private options: McpHandlerOptions
+  private sessions: Map<string, McpSession> = new Map()
+  private handler: ((instance: DOInstance, request: Request, sessions: Map<string, McpSession>) => Promise<Response>) | null = null
+  private DOClass: DOClass | null = null
+
+  constructor(options: McpHandlerOptions = {}) {
+    this.options = {
+      path: '/mcp',
+      ...options,
+    }
+  }
+
+  /**
+   * Check if this handler can process the request
+   * MCP handler processes requests to the /mcp endpoint
+   */
+  canHandle(request: Request): CanHandleResult {
+    const url = new URL(request.url)
+    const mcpPath = this.options.path || '/mcp'
+
+    // Check if request is to MCP endpoint
+    if (url.pathname === mcpPath || url.pathname.startsWith(`${mcpPath}/`)) {
+      // MCP handler has higher priority than REST
+      return {
+        canHandle: true,
+        priority: 50,
+      }
+    }
+
+    return { canHandle: false, reason: 'Path does not match MCP endpoint' }
+  }
+
+  /**
+   * Handle the MCP request
+   */
+  async handle(request: Request, context: HandlerContext): Promise<Response> {
+    // Initialize handler if needed
+    if (!this.handler || this.needsHandlerRefresh(context)) {
+      this.initializeHandler(context)
+    }
+
+    if (!this.handler) {
+      return buildErrorResponse(
+        { message: 'MCP handler not initialized', code: 'HANDLER_NOT_INITIALIZED' },
+        500
+      )
+    }
+
+    const instance = context.instance as DOInstance
+    return this.handler(instance, request, this.sessions)
+  }
+
+  /**
+   * Check if handler needs refresh
+   */
+  private needsHandlerRefresh(context: HandlerContext): boolean {
+    if (!this.DOClass) return true
+    return this.DOClass !== context.instance.constructor
+  }
+
+  /**
+   * Initialize the MCP handler from context
+   */
+  private initializeHandler(context: HandlerContext): void {
+    this.DOClass = context.instance.constructor as DOClass
+    this.handler = createMcpHandler(this.DOClass)
+  }
+
+  /**
+   * Get cached tools for a DO class
+   */
+  static getCachedTools(DOClass: DOClass): McpTool[] {
+    if (mcpToolsCache.has(DOClass)) {
+      return mcpToolsCache.get(DOClass)!
+    }
+
+    const tools = getMcpTools(DOClass)
+    mcpToolsCache.set(DOClass, tools)
+    return tools
+  }
+
+  /**
+   * Clear tools cache
+   */
+  static clearCache(): void {
+    mcpToolsCache.clear()
+  }
+
+  /**
+   * Get active sessions
+   */
+  getSessions(): Map<string, McpSession> {
+    return this.sessions
+  }
+
+  /**
+   * Clear all sessions
+   */
+  clearSessions(): void {
+    this.sessions.clear()
+  }
+
+  /**
+   * Dispose handler resources
+   */
+  dispose(): void {
+    this.sessions.clear()
+    this.handler = null
+    this.DOClass = null
+  }
+}

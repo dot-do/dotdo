@@ -1960,3 +1960,164 @@ export function createRestRouter(
     getOpenAPISpec,
   }
 }
+
+// ============================================================================
+// REST HANDLER - TransportHandler Implementation
+// ============================================================================
+
+import type {
+  TransportHandler,
+  HandlerContext,
+  CanHandleResult,
+  HandlerOptions,
+  BaseHandler,
+} from './handler'
+import {
+  parseJsonBody,
+  buildJsonResponse,
+  buildErrorResponse,
+  validateSchema as validateSchemaShared,
+  createRequestTimer,
+} from './shared'
+
+/**
+ * REST Handler options
+ */
+export interface RestHandlerOptions extends HandlerOptions {
+  /** Base path prefix for all routes */
+  basePath?: string
+  /** API prefix */
+  apiPrefix?: string
+  /** CORS configuration */
+  cors?: CorsConfig
+  /** Authentication handler */
+  authHandler?: (req: Request) => Promise<AuthContext | null>
+}
+
+/**
+ * Cache for discovered routes per DO class
+ */
+const routeDiscoveryCache = new Map<Function, RestRouteConfig[]>()
+
+/**
+ * REST API Handler implementing TransportHandler interface
+ *
+ * Provides REST API functionality with:
+ * - Automatic route discovery from DO class $rest config
+ * - HTTP method mapping (GET, POST, PUT, DELETE, PATCH)
+ * - Request/response serialization
+ * - Schema validation
+ * - Rate limiting
+ * - CORS support
+ *
+ * @example
+ * ```typescript
+ * const restHandler = new RestHandler({
+ *   basePath: '/api',
+ *   debug: true,
+ * })
+ *
+ * // Use in handler chain
+ * chain.use(restHandler, 50)
+ * ```
+ */
+export class RestHandler implements TransportHandler {
+  readonly name = 'rest'
+  private options: RestHandlerOptions
+  private router: RestRouter | null = null
+  private DOClass: (new (...args: unknown[]) => unknown) | null = null
+
+  constructor(options: RestHandlerOptions = {}) {
+    this.options = options
+  }
+
+  /**
+   * Check if this handler can process the request
+   * REST handler can handle requests that match configured routes
+   */
+  canHandle(request: Request): CanHandleResult {
+    const url = new URL(request.url)
+    const basePath = this.options.basePath || this.options.apiPrefix || ''
+
+    // Quick check: does the path start with our base path?
+    if (basePath && !url.pathname.startsWith(basePath)) {
+      return { canHandle: false, reason: 'Path does not match base path' }
+    }
+
+    // REST handler has lower priority than protocol-specific handlers
+    return {
+      canHandle: true,
+      priority: 30,
+    }
+  }
+
+  /**
+   * Handle the REST request
+   */
+  async handle(request: Request, context: HandlerContext): Promise<Response> {
+    // Initialize router if not already done
+    if (!this.router || this.needsRouterRefresh(context)) {
+      this.initializeRouter(context)
+    }
+
+    if (!this.router) {
+      return buildErrorResponse(
+        { message: 'REST router not initialized', code: 'ROUTER_NOT_INITIALIZED' },
+        500
+      )
+    }
+
+    return this.router.fetch(request)
+  }
+
+  /**
+   * Check if router needs to be refreshed (e.g., different DO class)
+   */
+  private needsRouterRefresh(context: HandlerContext): boolean {
+    if (!this.DOClass) return true
+    return this.DOClass !== context.instance.constructor
+  }
+
+  /**
+   * Initialize the REST router from context
+   */
+  private initializeRouter(context: HandlerContext): void {
+    this.DOClass = context.instance.constructor as new (...args: unknown[]) => unknown
+
+    this.router = createRestRouter(this.DOClass, {
+      basePath: this.options.basePath,
+      apiPrefix: this.options.apiPrefix,
+      cors: this.options.cors,
+      authHandler: this.options.authHandler,
+      debug: this.options.debug,
+    })
+  }
+
+  /**
+   * Get cached routes for a DO class
+   */
+  static getCachedRoutes(DOClass: new (...args: unknown[]) => unknown): RestRouteConfig[] {
+    if (routeDiscoveryCache.has(DOClass)) {
+      return routeDiscoveryCache.get(DOClass)!
+    }
+
+    const routes = getRestRoutes(DOClass)
+    routeDiscoveryCache.set(DOClass, routes)
+    return routes
+  }
+
+  /**
+   * Clear route cache
+   */
+  static clearCache(): void {
+    routeDiscoveryCache.clear()
+  }
+
+  /**
+   * Dispose handler resources
+   */
+  dispose(): void {
+    this.router = null
+    this.DOClass = null
+  }
+}

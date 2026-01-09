@@ -18,17 +18,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { DO, type Env } from '../../DO'
-
-// ============================================================================
-// FUTURE IMPORTS (will be implemented)
-// ============================================================================
-
-// Future: import { DOFull, AuthConfig, AuthLayer } from '../DOFull'
-// Future: import { createAuthMiddleware } from '../transport/auth'
-// Future: import { JWTValidator, APIKeyValidator, OAuthValidator } from '../transport/validators'
-// Future: import { RateLimiter } from '../transport/rate-limiter'
-// Future: import { SessionManager } from '../transport/session'
-// Future: import { RequestSigner } from '../transport/signing'
+import { withAuth, createAuthMiddleware, type AuthContext as ImportedAuthContext } from '../../transport/auth-layer'
 
 // ============================================================================
 // TYPE DEFINITIONS (future implementation)
@@ -331,14 +321,23 @@ class AuthTestDO extends DO {
   }
 }
 
+// Apply auth layer to DO class
+const AuthEnabledDO = withAuth(AuthTestDO, {
+  jwtSecret: 'test-jwt-secret',
+  trustedIssuers: ['https://id.org.ai'],
+  audience: 'dotdo',
+  signingSecret: 'test-signing-secret',
+  defaultRequireAuth: true,
+})
+
 /**
- * Create a test DO instance
+ * Create a test DO instance with auth layer
  */
-function createTestDO(): AuthTestDO {
+function createTestDO(): InstanceType<typeof AuthEnabledDO> {
   const state = createMockDOState()
   const env = createMockEnv()
   // @ts-expect-error - Mock state doesn't have all properties
-  return new AuthTestDO(state, env)
+  return new AuthEnabledDO(state, env)
 }
 
 // ============================================================================
@@ -347,9 +346,9 @@ function createTestDO(): AuthTestDO {
 
 /**
  * Create a mock JWT token for testing.
- * In production, this would be a real JWT.
+ * Signs with 'test-jwt-secret' to match the auth layer config.
  */
-function createMockJWT(payload: {
+async function createMockJWT(payload: {
   sub: string
   roles?: string[]
   permissions?: string[]
@@ -357,7 +356,7 @@ function createMockJWT(payload: {
   iss?: string
   aud?: string
   org?: string
-}): string {
+}): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' }
   const now = Math.floor(Date.now() / 1000)
   const claims = {
@@ -370,10 +369,34 @@ function createMockJWT(payload: {
     aud: payload.aud || 'dotdo',
     org: payload.org,
   }
-  // Mock JWT - in reality this would be properly signed
-  const b64Header = btoa(JSON.stringify(header))
-  const b64Payload = btoa(JSON.stringify(claims))
-  const signature = 'mock-signature'
+
+  // Base64url encode (no padding, replace + with -, / with _)
+  function base64UrlEncode(str: string): string {
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+
+  const b64Header = base64UrlEncode(JSON.stringify(header))
+  const b64Payload = base64UrlEncode(JSON.stringify(claims))
+  const signatureInput = `${b64Header}.${b64Payload}`
+
+  // Sign with HMAC-SHA256 using the test secret
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode('test-jwt-secret'),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  const signatureBuffer = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(signatureInput)
+  )
+
+  const signature = base64UrlEncode(String.fromCharCode(...new Uint8Array(signatureBuffer)))
+
   return `${b64Header}.${b64Payload}.${signature}`
 }
 
@@ -403,7 +426,7 @@ describe('Auth Layer', () => {
   describe('Token Validation', () => {
     describe('JWT Tokens', () => {
       it('validates a valid JWT token', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'user-123',
           roles: ['user'],
           permissions: ['read'],
@@ -425,7 +448,7 @@ describe('Auth Layer', () => {
       })
 
       it('rejects expired JWT tokens', async () => {
-        const expiredToken = createMockJWT({
+        const expiredToken = await createMockJWT({
           sub: 'user-123',
           roles: ['user'],
           exp: Math.floor(Date.now() / 1000) - 3600, // Expired 1 hour ago
@@ -464,7 +487,7 @@ describe('Auth Layer', () => {
       })
 
       it('rejects tokens with invalid signature', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'user-123',
           roles: ['admin'],
         })
@@ -487,7 +510,7 @@ describe('Auth Layer', () => {
       })
 
       it('validates issuer (iss) claim', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'user-123',
           iss: 'https://malicious-issuer.com',
         })
@@ -508,7 +531,7 @@ describe('Auth Layer', () => {
       })
 
       it('validates audience (aud) claim', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'user-123',
           aud: 'wrong-audience',
         })
@@ -649,7 +672,7 @@ describe('Auth Layer', () => {
   describe('Authorization', () => {
     describe('Role-Based Access Control', () => {
       it('allows access with correct role', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'admin-user',
           roles: ['admin'],
         })
@@ -670,7 +693,7 @@ describe('Auth Layer', () => {
       })
 
       it('denies access without required role', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'regular-user',
           roles: ['user'],
         })
@@ -691,7 +714,7 @@ describe('Auth Layer', () => {
       })
 
       it('allows access when user has any of multiple allowed roles', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'mod-user',
           roles: ['moderator'],
         })
@@ -742,7 +765,7 @@ describe('Auth Layer', () => {
 
     describe('Permission-Based Access Control', () => {
       it('allows access with required permission', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'secrets-reader',
           permissions: ['secrets:read'],
         })
@@ -763,7 +786,7 @@ describe('Auth Layer', () => {
       })
 
       it('denies access without required permission', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'regular-user',
           permissions: ['read'],
         })
@@ -785,7 +808,7 @@ describe('Auth Layer', () => {
 
       it('requires all permissions when multiple are specified', async () => {
         // User has only one of two required permissions
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'partial-user',
           permissions: ['users:read'], // Missing users:write
         })
@@ -806,7 +829,7 @@ describe('Auth Layer', () => {
       })
 
       it('allows access when user has all required permissions', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'user-manager',
           permissions: ['users:read', 'users:write', 'users:delete'],
         })
@@ -829,7 +852,7 @@ describe('Auth Layer', () => {
 
     describe('Organization Scoping', () => {
       it('restricts access to org-specific resources', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'org-user',
           org: 'org-123',
           permissions: ['org:access'],
@@ -849,7 +872,7 @@ describe('Auth Layer', () => {
       })
 
       it('denies access to resources from different organization', async () => {
-        const token = createMockJWT({
+        const token = await createMockJWT({
           sub: 'org-user',
           org: 'org-different',
           permissions: ['org:access'],
@@ -880,7 +903,7 @@ describe('Auth Layer', () => {
 
   describe('Rate Limiting', () => {
     it('rate limits by identity', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'rate-limited-user',
         roles: ['user'],
       })
@@ -905,7 +928,7 @@ describe('Auth Layer', () => {
     })
 
     it('returns 429 when limit exceeded', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'rate-limited-user-2',
         roles: ['user'],
       })
@@ -931,7 +954,7 @@ describe('Auth Layer', () => {
     })
 
     it('includes rate limit headers in response', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'rate-limited-user-3',
         roles: ['user'],
       })
@@ -953,7 +976,7 @@ describe('Auth Layer', () => {
     })
 
     it('resets rate limit after window expires', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'rate-limited-user-4',
         roles: ['user'],
       })
@@ -1211,7 +1234,7 @@ describe('Auth Layer', () => {
     })
 
     it('expires sessions after timeout', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'session-user',
         exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour
       })
@@ -1269,7 +1292,7 @@ describe('Auth Layer', () => {
     })
 
     it('tracks concurrent sessions per user', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'multi-session-user',
         roles: ['user'],
       })
@@ -1348,7 +1371,7 @@ describe('Auth Layer', () => {
     })
 
     it('syncs organization membership from org.ai', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'org-ai-user',
         iss: 'https://id.org.ai',
         org: 'org-123',
@@ -1372,7 +1395,7 @@ describe('Auth Layer', () => {
 
     it('validates tokens against org.ai public keys', async () => {
       // Token signed by org.ai
-      const orgAiToken = createMockJWT({
+      const orgAiToken = await createMockJWT({
         sub: 'org-ai-user',
         iss: 'https://id.org.ai',
       })
@@ -1392,7 +1415,7 @@ describe('Auth Layer', () => {
     })
 
     it('caches org.ai JWKS for performance', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'org-ai-user',
         iss: 'https://id.org.ai',
       })
@@ -1430,7 +1453,7 @@ describe('Auth Layer', () => {
     })
 
     it('applies auth config based on method name', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'user',
         roles: ['user'],
       })
@@ -1463,7 +1486,7 @@ describe('Auth Layer', () => {
     })
 
     it('provides auth context to method handlers', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'user-with-context',
         roles: ['user', 'premium'],
       })
@@ -1548,7 +1571,7 @@ describe('Auth Layer', () => {
       expect(invalidTokenResponse.status).toBe(401)
 
       // Valid token, wrong role
-      const wrongRoleToken = createMockJWT({ sub: 'user', roles: ['user'] })
+      const wrongRoleToken = await createMockJWT({ sub: 'user', roles: ['user'] })
       const forbiddenRequest = new Request('https://example.com/rpc/adminOnly', {
         method: 'POST',
         headers: {
@@ -1562,7 +1585,7 @@ describe('Auth Layer', () => {
     })
 
     it('includes helpful error messages', async () => {
-      const token = createMockJWT({ sub: 'user', roles: ['user'] })
+      const token = await createMockJWT({ sub: 'user', roles: ['user'] })
 
       const request = new Request('https://example.com/rpc/adminOnly', {
         method: 'POST',
@@ -1629,7 +1652,7 @@ describe('Auth Layer', () => {
 
   describe('WebSocket Authentication', () => {
     it('authenticates WebSocket upgrade requests', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'websocket-user',
         roles: ['user'],
       })
@@ -1662,7 +1685,7 @@ describe('Auth Layer', () => {
     })
 
     it('supports token in query parameter for WebSocket', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'websocket-user',
         roles: ['user'],
       })
@@ -1686,7 +1709,7 @@ describe('Auth Layer', () => {
 
   describe('Audit Logging', () => {
     it('logs successful authentication', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'audit-user',
         roles: ['user'],
       })
@@ -1711,7 +1734,7 @@ describe('Auth Layer', () => {
     })
 
     it('logs authorization decisions', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'audit-user',
         roles: ['user'],
       })
@@ -1739,7 +1762,7 @@ describe('Auth Layer', () => {
     })
 
     it('includes request metadata in logs', async () => {
-      const token = createMockJWT({
+      const token = await createMockJWT({
         sub: 'audit-user',
         roles: ['admin'],
       })

@@ -1586,3 +1586,361 @@ export {
   validateOAuthToken,
   parseWindowToMs,
 }
+
+// ============================================================================
+// AUTH HANDLER - TransportHandler Implementation
+// ============================================================================
+
+import type {
+  TransportHandler,
+  HandlerContext,
+  CanHandleResult,
+  HandlerOptions,
+  MiddlewareHandler,
+  AuthContext as HandlerAuthContext,
+} from './handler'
+import {
+  buildJsonResponse,
+  buildErrorResponse,
+} from './shared'
+
+/**
+ * Auth Handler options
+ */
+export interface AuthHandlerOptions extends AuthMiddlewareOptions, HandlerOptions {
+  /** Routes that bypass auth (e.g., health checks) */
+  publicRoutes?: string[]
+  /** Routes where auth is required */
+  protectedRoutes?: string[]
+  /** Path prefix for auth endpoints (default: /api/auth) */
+  authPath?: string
+}
+
+/**
+ * Auth Handler implementing TransportHandler interface
+ *
+ * Provides authentication and authorization as middleware:
+ * - Token validation (JWT, API keys, OAuth)
+ * - Role-based access control
+ * - Permission checking
+ * - Rate limiting per identity
+ * - Request signing validation
+ *
+ * Can be used as:
+ * 1. Standalone handler for auth routes (/api/auth/*)
+ * 2. Middleware wrapping other handlers
+ *
+ * @example
+ * ```typescript
+ * const authHandler = new AuthHandler({
+ *   jwtSecret: 'secret',
+ *   publicRoutes: ['/health', '/api/public'],
+ * })
+ *
+ * // Use as middleware (highest priority)
+ * chain.use(authHandler, 100)
+ *
+ * // Or wrap specific handlers
+ * const protectedRest = wrapWithMiddleware(authHandler, restHandler)
+ * chain.use(protectedRest, 50)
+ * ```
+ */
+export class AuthHandler implements TransportHandler, MiddlewareHandler {
+  readonly name = 'auth'
+  private options: AuthHandlerOptions
+  private middleware: ReturnType<typeof createAuthMiddleware>
+  private _wrapped: TransportHandler | null = null
+
+  constructor(options: AuthHandlerOptions = {}) {
+    this.options = {
+      authPath: '/api/auth',
+      publicRoutes: [],
+      protectedRoutes: [],
+      ...options,
+    }
+
+    this.middleware = createAuthMiddleware(this.options)
+  }
+
+  /**
+   * Get the wrapped handler
+   */
+  get wrapped(): TransportHandler {
+    if (!this._wrapped) {
+      throw new Error('No wrapped handler set')
+    }
+    return this._wrapped
+  }
+
+  /**
+   * Set the handler to wrap
+   */
+  setWrapped(handler: TransportHandler): void {
+    this._wrapped = handler
+  }
+
+  /**
+   * Check if this handler can process the request
+   *
+   * Auth handler:
+   * - Always handles /api/auth/* routes
+   * - Can optionally intercept all routes for auth checking
+   */
+  canHandle(request: Request): CanHandleResult {
+    const url = new URL(request.url)
+    const authPath = this.options.authPath || '/api/auth'
+
+    // Auth-specific routes are always handled
+    if (url.pathname.startsWith(authPath)) {
+      return {
+        canHandle: true,
+        priority: 100, // Highest priority for auth routes
+      }
+    }
+
+    // If we have a wrapped handler, we can handle anything it can handle
+    if (this._wrapped) {
+      const wrappedResult = this._wrapped.canHandle(request)
+      if (wrappedResult.canHandle) {
+        return {
+          canHandle: true,
+          priority: 100, // Auth middleware runs first
+        }
+      }
+    }
+
+    // Check if route is in protected routes
+    if (this.options.protectedRoutes?.length) {
+      const isProtected = this.options.protectedRoutes.some((route) =>
+        url.pathname.startsWith(route)
+      )
+      if (isProtected) {
+        return {
+          canHandle: true,
+          priority: 100,
+        }
+      }
+    }
+
+    return { canHandle: false, reason: 'No auth required for this route' }
+  }
+
+  /**
+   * Handle the request with authentication
+   */
+  async handle(request: Request, context: HandlerContext): Promise<Response> {
+    const url = new URL(request.url)
+    const authPath = this.options.authPath || '/api/auth'
+
+    // Handle auth-specific routes directly
+    if (url.pathname.startsWith(authPath)) {
+      return this.handleAuthRoute(request, context)
+    }
+
+    // Check if route is public
+    if (this.isPublicRoute(url.pathname)) {
+      // Pass through to wrapped handler without auth
+      if (this._wrapped) {
+        return this._wrapped.handle(request, context)
+      }
+      return buildErrorResponse(
+        { message: 'No handler for this route', code: 'NO_HANDLER' },
+        404
+      )
+    }
+
+    // Authenticate the request
+    const authResult = await this.middleware.authenticate(request)
+
+    // If authentication failed with an explicit error, return it
+    if (!authResult.success && authResult.error) {
+      return buildErrorResponse(
+        { message: authResult.error, code: 'AUTH_FAILED' },
+        authResult.statusCode || 401
+      )
+    }
+
+    // Update context with auth info
+    if (authResult.context) {
+      context.auth = this.convertAuthContext(authResult.context)
+    }
+
+    // Pass to wrapped handler
+    if (this._wrapped) {
+      return this._wrapped.handle(request, context)
+    }
+
+    // No wrapped handler
+    return buildErrorResponse(
+      { message: 'Authentication successful but no handler configured', code: 'NO_HANDLER' },
+      500
+    )
+  }
+
+  /**
+   * Check if a route is public (bypasses auth)
+   */
+  private isPublicRoute(pathname: string): boolean {
+    if (!this.options.publicRoutes) return false
+    return this.options.publicRoutes.some((route) => pathname.startsWith(route))
+  }
+
+  /**
+   * Handle auth-specific routes
+   */
+  private async handleAuthRoute(request: Request, context: HandlerContext): Promise<Response> {
+    const url = new URL(request.url)
+    const authPath = this.options.authPath || '/api/auth'
+    const path = url.pathname.replace(authPath, '')
+
+    // Login
+    if (path === '/login' && request.method === 'POST') {
+      return this.handleLogin(request)
+    }
+
+    // Logout
+    if (path === '/logout' && request.method === 'POST') {
+      return this.handleLogout(request)
+    }
+
+    // Refresh token
+    if (path === '/refresh' && request.method === 'POST') {
+      return this.handleRefresh(request)
+    }
+
+    // Get current user
+    if (path === '/me' && request.method === 'GET') {
+      return this.handleGetMe(request)
+    }
+
+    // Not found
+    return buildErrorResponse(
+      { message: 'Auth endpoint not found', code: 'NOT_FOUND' },
+      404
+    )
+  }
+
+  /**
+   * Handle login request
+   */
+  private async handleLogin(request: Request): Promise<Response> {
+    try {
+      const body = await request.json() as Record<string, unknown>
+      const email = body.email as string
+      const password = body.password as string
+
+      // In production, validate credentials against database
+      // For now, accept any login
+      const sessionId = crypto.randomUUID()
+      const accessToken = crypto.randomUUID()
+      const refreshToken = crypto.randomUUID()
+
+      return buildJsonResponse({
+        session_id: sessionId,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: 3600,
+      })
+    } catch {
+      return buildErrorResponse(
+        { message: 'Login failed', code: 'LOGIN_FAILED' },
+        401
+      )
+    }
+  }
+
+  /**
+   * Handle logout request
+   */
+  private async handleLogout(request: Request): Promise<Response> {
+    // Invalidate session
+    return buildJsonResponse({ success: true })
+  }
+
+  /**
+   * Handle token refresh request
+   */
+  private async handleRefresh(request: Request): Promise<Response> {
+    try {
+      const body = await request.json() as { refresh_token: string }
+
+      // In production, validate refresh token
+      const accessToken = crypto.randomUUID()
+      const newRefreshToken = crypto.randomUUID()
+
+      return buildJsonResponse({
+        access_token: accessToken,
+        refresh_token: newRefreshToken,
+        expires_in: 3600,
+      })
+    } catch {
+      return buildErrorResponse(
+        { message: 'Refresh failed', code: 'REFRESH_FAILED' },
+        401
+      )
+    }
+  }
+
+  /**
+   * Handle get current user request
+   */
+  private async handleGetMe(request: Request): Promise<Response> {
+    const authResult = await this.middleware.authenticate(request)
+
+    if (!authResult.success || !authResult.context?.authenticated) {
+      return buildErrorResponse(
+        { message: 'Not authenticated', code: 'UNAUTHORIZED' },
+        401
+      )
+    }
+
+    return buildJsonResponse({ user: authResult.context.user })
+  }
+
+  /**
+   * Convert internal AuthContext to handler AuthContext
+   */
+  private convertAuthContext(internal: AuthContext): HandlerAuthContext {
+    return {
+      authenticated: internal.authenticated,
+      user: internal.user ? {
+        id: internal.user.id,
+        email: internal.user.email,
+        name: internal.user.name,
+        roles: internal.user.roles,
+        permissions: internal.user.permissions,
+        organizationId: internal.user.organizationId,
+      } : undefined,
+      session: internal.session ? {
+        id: internal.session.id,
+        createdAt: internal.session.createdAt,
+        expiresAt: internal.session.expiresAt,
+      } : undefined,
+      apiKey: internal.apiKey ? {
+        id: internal.apiKey.id,
+        name: internal.apiKey.name,
+        scopes: internal.apiKey.scopes,
+      } : undefined,
+      token: internal.token ? {
+        type: internal.token.type,
+        issuer: internal.token.issuer,
+        expiresAt: internal.token.expiresAt,
+      } : undefined,
+    }
+  }
+
+  /**
+   * Get the underlying middleware for advanced use
+   */
+  getMiddleware(): ReturnType<typeof createAuthMiddleware> {
+    return this.middleware
+  }
+
+  /**
+   * Dispose handler resources
+   */
+  dispose(): void {
+    this.middleware.clearRateLimitState()
+    this._wrapped = null
+  }
+}
