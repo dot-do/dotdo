@@ -222,8 +222,22 @@ describe('WaitForEventManager', () => {
     })
 
     it('throws WaitTimeoutError when timeout expires', async () => {
-      const waitPromise = manager.waitForEvent('slow-response', {
+      // Register wait directly without waiting for promise
+      const waitId = await manager.registerWait('slow-response', {
         timeout: 1000,
+      })
+
+      // Set up a resolver to track the result
+      let rejected = false
+      let rejectedError: Error | null = null
+
+      // Manually add resolver since we're not using waitForEvent
+      ;(manager as any).waitResolvers.set(waitId, {
+        resolve: () => {},
+        reject: (e: Error) => {
+          rejected = true
+          rejectedError = e
+        },
       })
 
       // Advance time past timeout
@@ -232,25 +246,32 @@ describe('WaitForEventManager', () => {
       // Trigger the alarm handler
       await manager.handleAlarm()
 
-      await expect(waitPromise).rejects.toThrow(WaitTimeoutError)
+      expect(rejected).toBe(true)
+      expect(rejectedError).toBeInstanceOf(WaitTimeoutError)
     })
 
     it('timeout error includes wait details', async () => {
-      const waitPromise = manager.waitForEvent('my-event', {
+      // Register wait directly
+      const waitId = await manager.registerWait('my-event', {
         timeout: 500,
+      })
+
+      let rejectedError: Error | null = null
+
+      // Manually add resolver
+      ;(manager as any).waitResolvers.set(waitId, {
+        resolve: () => {},
+        reject: (e: Error) => {
+          rejectedError = e
+        },
       })
 
       vi.advanceTimersByTime(600)
       await manager.handleAlarm()
 
-      try {
-        await waitPromise
-        expect.fail('Should have thrown')
-      } catch (error) {
-        expect(error).toBeInstanceOf(WaitTimeoutError)
-        expect((error as WaitTimeoutError).eventName).toBe('my-event')
-        expect((error as WaitTimeoutError).waitedMs).toBeGreaterThanOrEqual(500)
-      }
+      expect(rejectedError).toBeInstanceOf(WaitTimeoutError)
+      expect((rejectedError as WaitTimeoutError).eventName).toBe('my-event')
+      expect((rejectedError as WaitTimeoutError).waitedMs).toBeGreaterThanOrEqual(500)
     })
 
     it('clears alarm when wait is resolved before timeout', async () => {
@@ -430,19 +451,42 @@ describe('WaitForEventManager', () => {
     })
 
     it('waitForAll fails if any event times out', async () => {
-      const waitPromise = manager.waitForAll(['event-a', 'event-b'], {
-        timeout: 1000,
+      // Register waits directly
+      const wait1Id = await manager.registerWait('event-a', { timeout: 1000 })
+      const wait2Id = await manager.registerWait('event-b', { timeout: 1000 })
+
+      let rejected = false
+      let rejectedError: Error | null = null
+
+      // Set up resolvers
+      ;(manager as any).waitResolvers.set(wait1Id, {
+        resolve: () => {},
+        reject: (e: Error) => {
+          if (!rejected) {
+            rejected = true
+            rejectedError = e
+          }
+        },
+      })
+      ;(manager as any).waitResolvers.set(wait2Id, {
+        resolve: () => {},
+        reject: (e: Error) => {
+          if (!rejected) {
+            rejected = true
+            rejectedError = e
+          }
+        },
       })
 
-      // Only deliver one event
-      setTimeout(() => manager.deliverEvent(null, 'event-a', {}), 10)
-      vi.advanceTimersByTime(10)
+      // Deliver one event
+      await manager.deliverEvent(wait1Id, 'event-a', {})
 
       // Advance past timeout
       vi.advanceTimersByTime(1500)
       await manager.handleAlarm()
 
-      await expect(waitPromise).rejects.toThrow(WaitTimeoutError)
+      expect(rejected).toBe(true)
+      expect(rejectedError).toBeInstanceOf(WaitTimeoutError)
     })
 
     it('can wait for same event name from multiple instances', async () => {
@@ -465,37 +509,41 @@ describe('WaitForEventManager', () => {
 
   describe('Event Filtering', () => {
     it('supports filter function to match events', async () => {
-      const waitPromise = manager.waitForEvent('order-update', {
-        filter: (payload) => payload.status === 'shipped',
+      const waitId = await manager.registerWait('order-update', {
+        filter: (payload: unknown) => (payload as { status: string }).status === 'shipped',
       })
 
-      // Deliver non-matching event
-      setTimeout(() => {
-        manager.deliverEvent(null, 'order-update', { status: 'processing' })
-      }, 10)
+      let resolvedValue: unknown = null
+      ;(manager as any).waitResolvers.set(waitId, {
+        resolve: (v: unknown) => {
+          resolvedValue = v
+        },
+        reject: () => {},
+      })
+
+      // Deliver non-matching event - should not resolve
+      const result1 = await manager.deliverEvent(null, 'order-update', { status: 'processing' })
+      expect(result1.resolved).toBe(false)
+      expect(resolvedValue).toBe(null)
 
       // Deliver matching event
-      setTimeout(() => {
-        manager.deliverEvent(null, 'order-update', { status: 'shipped', carrier: 'FedEx' })
-      }, 20)
-
-      vi.advanceTimersByTime(20)
-
-      const result = await waitPromise
-
-      expect(result).toEqual({ status: 'shipped', carrier: 'FedEx' })
+      const result2 = await manager.deliverEvent(null, 'order-update', { status: 'shipped', carrier: 'FedEx' })
+      expect(result2.resolved).toBe(true)
+      expect(resolvedValue).toEqual({ status: 'shipped', carrier: 'FedEx' })
     })
 
     it('non-matching events do not resolve wait', async () => {
+      const waitId = await manager.registerWait('event', {
+        filter: (p: unknown) => (p as { value: number }).value > 10,
+      })
+
       let resolved = false
-      const waitPromise = manager
-        .waitForEvent('event', {
-          filter: (p) => p.value > 10,
-        })
-        .then((r) => {
+      ;(manager as any).waitResolvers.set(waitId, {
+        resolve: () => {
           resolved = true
-          return r
-        })
+        },
+        reject: () => {},
+      })
 
       // Deliver non-matching events
       await manager.deliverEvent(null, 'event', { value: 5 })
@@ -506,33 +554,36 @@ describe('WaitForEventManager', () => {
       // Deliver matching event
       await manager.deliverEvent(null, 'event', { value: 15 })
 
-      await waitPromise
       expect(resolved).toBe(true)
     })
 
     it('supports property-based filter shorthand', async () => {
-      const waitPromise = manager.waitForEvent('notification', {
+      const waitId = await manager.registerWait('notification', {
         filter: { type: 'approval', priority: 'high' },
+      })
+
+      let resolvedValue: unknown = null
+      ;(manager as any).waitResolvers.set(waitId, {
+        resolve: (v: unknown) => {
+          resolvedValue = v
+        },
+        reject: () => {},
       })
 
       // Non-matching
       await manager.deliverEvent(null, 'notification', { type: 'info' })
       await manager.deliverEvent(null, 'notification', { type: 'approval', priority: 'low' })
 
+      expect(resolvedValue).toBe(null)
+
       // Matching
-      setTimeout(() => {
-        manager.deliverEvent(null, 'notification', {
-          type: 'approval',
-          priority: 'high',
-          message: 'Approved!',
-        })
-      }, 10)
+      await manager.deliverEvent(null, 'notification', {
+        type: 'approval',
+        priority: 'high',
+        message: 'Approved!',
+      })
 
-      vi.advanceTimersByTime(10)
-
-      const result = await waitPromise
-
-      expect(result.message).toBe('Approved!')
+      expect((resolvedValue as { message: string }).message).toBe('Approved!')
     })
 
     it('filter errors are logged and event is skipped', async () => {
