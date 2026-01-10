@@ -136,6 +136,30 @@ export {
   type WorkflowStartOptions,
 } from './temporal'
 
+// Activity Router - Unified activity routing abstraction
+export {
+  // Router classes
+  WorkerActivityRouter,
+  DurableActivityRouter,
+  // Metrics
+  InMemoryActivityMetrics,
+  // Factory functions
+  createWorkerRouter,
+  createDurableRouter,
+  createMetricsCollector,
+  // Error types
+  ActivityTimeoutError,
+  TaskQueueNotRegisteredError,
+  // Types
+  type ActivityRouter,
+  type ActivityRouterOptions,
+  type ActivityRetryOptions,
+  type ActivityContext as ActivityRouterContext,
+  type WorkerHandler as ActivityRouterWorkerHandler,
+  type ActivityMetrics,
+  type ActivityMetricsCollector,
+} from './activity-router'
+
 // Unified Error Handling
 export {
   // Base error types

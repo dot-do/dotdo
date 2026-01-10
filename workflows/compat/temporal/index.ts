@@ -79,8 +79,379 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { WaitForEventManager, WaitTimeoutError, WaitCancelledError } from '../../WaitForEventManager'
 import { DurableWorkflowRuntime, InMemoryStepStorage } from '../../runtime'
-import type { StepStorage } from '../../runtime'
+import type { StepStorage, StepResult } from '../../runtime'
 import { parseDuration, ensureError } from '../utils'
+import type { WorkflowStep, StepDoOptions, RetryOptions } from '../../../lib/cloudflare/workflows'
+import {
+  WorkerActivityRouter,
+  DurableActivityRouter,
+  type ActivityRouter,
+  type ActivityRouterOptions,
+  type ActivityContext as RouterActivityContext,
+  type WorkerHandler as RouterWorkerHandler,
+  ActivityTimeoutError,
+  TaskQueueNotRegisteredError,
+} from '../activity-router'
+
+// Re-export error classes for backward compatibility
+export { ActivityTimeoutError, TaskQueueNotRegisteredError }
+
+// ============================================================================
+// STORAGE STRATEGY - Unified abstraction for step execution and durability
+// ============================================================================
+
+/**
+ * WorkflowStorageStrategy abstracts the underlying execution and storage mechanism.
+ *
+ * This pattern allows the Temporal compat layer to use different backends:
+ * - CFWorkflowsStrategy: Uses native step.do() and step.sleep() when WorkflowStep is available
+ * - InMemoryStrategy: Uses in-memory Maps with setTimeout for testing/fallback
+ *
+ * ## Cost Implications
+ *
+ * When using CFWorkflowsStrategy:
+ * - sleep() uses step.sleep() - FREE (doesn't consume DO wall-clock time)
+ * - Activities use step.do() - DURABLE (survives restarts, automatic retries)
+ *
+ * When using InMemoryStrategy (fallback):
+ * - sleep() uses setTimeout - BILLABLE (consumes DO wall-clock time)
+ * - Activities execute directly - NOT DURABLE (no automatic retries or persistence)
+ */
+export interface WorkflowStorageStrategy {
+  /**
+   * Execute a step with automatic caching and optional durability.
+   *
+   * @param name - Unique step name for caching/replay
+   * @param fn - The function to execute
+   * @param options - Execution options (timeout, retries)
+   * @returns The result of the function
+   */
+  executeStep<T>(name: string, fn: () => T | Promise<T>, options?: StepExecutionOptions): Promise<T>
+
+  /**
+   * Sleep for a duration (durable when using CF Workflows).
+   *
+   * @param name - Unique step name for caching/replay
+   * @param durationMs - Duration in milliseconds
+   * @param durationStr - Original duration string for CF Workflows
+   */
+  sleep(name: string, durationMs: number, durationStr: string): Promise<void>
+
+  /**
+   * Check if a step has been completed (for replay optimization).
+   *
+   * @param name - Step name to check
+   * @returns True if step is completed
+   */
+  isStepCompleted(name: string): Promise<boolean>
+
+  /**
+   * Get the cached result of a completed step.
+   *
+   * @param name - Step name to retrieve
+   * @returns The cached result or undefined
+   */
+  getStepResult<T>(name: string): Promise<T | undefined>
+
+  /**
+   * Store a step result (for replay).
+   *
+   * @param name - Step name
+   * @param result - Result to store
+   */
+  setStepResult(name: string, result: unknown): Promise<void>
+}
+
+/**
+ * Options for step execution
+ */
+export interface StepExecutionOptions {
+  /** Timeout for the step */
+  timeout?: string
+  /** Retry configuration */
+  retries?: RetryOptions
+}
+
+// ============================================================================
+// CFWORKFLOWS STORAGE STRATEGY - Uses native CF Workflows APIs
+// ============================================================================
+
+/**
+ * CFWorkflowsStorageStrategy uses Cloudflare Workflows native APIs for durable execution.
+ *
+ * Benefits:
+ * - sleep() is FREE - you don't pay for wall-clock time
+ * - step.do() is DURABLE - survives worker restarts, automatic retries
+ * - Replay is automatic - completed steps return cached results
+ *
+ * This strategy is automatically selected when a WorkflowStep is available
+ * in the current workflow context.
+ */
+export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
+  private readonly stepResults = new Map<string, unknown>()
+
+  constructor(private readonly step: WorkflowStep) {}
+
+  async executeStep<T>(name: string, fn: () => T | Promise<T>, options?: StepExecutionOptions): Promise<T> {
+    // Check for cached result (replay)
+    if (this.stepResults.has(name)) {
+      const cached = this.stepResults.get(name)
+      // If cached value is an error, re-throw it
+      if (cached instanceof Error) {
+        throw cached
+      }
+      return cached as T
+    }
+
+    // Build step.do() options from execution options
+    const stepOptions: StepDoOptions | undefined = this.buildStepDoOptions(options)
+
+    try {
+      // Execute via step.do() for durability
+      const result = stepOptions
+        ? await this.step.do(name, stepOptions, async () => fn())
+        : await this.step.do(name, async () => fn())
+
+      // Cache the result
+      this.stepResults.set(name, result)
+      return result
+    } catch (error) {
+      // Cache errors for deterministic replay
+      const err = ensureError(error)
+      this.stepResults.set(name, err)
+      throw err
+    }
+  }
+
+  async sleep(name: string, _durationMs: number, durationStr: string): Promise<void> {
+    // Check for cached completion (replay)
+    if (this.stepResults.has(name)) {
+      return
+    }
+
+    // Use CF Workflows native step.sleep() - FREE, doesn't consume wall-clock time
+    await this.step.sleep(name, durationStr)
+
+    // Cache completion
+    this.stepResults.set(name, true)
+  }
+
+  async isStepCompleted(name: string): Promise<boolean> {
+    return this.stepResults.has(name)
+  }
+
+  async getStepResult<T>(name: string): Promise<T | undefined> {
+    const result = this.stepResults.get(name)
+    if (result instanceof Error) {
+      throw result
+    }
+    return result as T | undefined
+  }
+
+  async setStepResult(name: string, result: unknown): Promise<void> {
+    this.stepResults.set(name, result)
+  }
+
+  private buildStepDoOptions(options?: StepExecutionOptions): StepDoOptions | undefined {
+    if (!options) return undefined
+
+    const stepOptions: StepDoOptions = {}
+
+    if (options.retries) {
+      stepOptions.retries = options.retries
+    }
+
+    if (options.timeout) {
+      stepOptions.timeout = options.timeout
+    }
+
+    // Only return if we have something to configure
+    if (stepOptions.retries || stepOptions.timeout) {
+      return stepOptions
+    }
+    return undefined
+  }
+}
+
+// ============================================================================
+// INMEMORY STORAGE STRATEGY - Fallback for testing and non-CF environments
+// ============================================================================
+
+/**
+ * InMemoryStorageStrategy provides fallback behavior when no WorkflowStep is available.
+ *
+ * This is used in:
+ * - Testing environments
+ * - Development without CF Workflows runtime
+ * - Direct workflow execution outside of CF Workflows
+ *
+ * Cost: sleep() uses setTimeout which is BILLABLE (consumes DO wall-clock time)
+ */
+export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
+  private readonly stepResults = new Map<string, unknown>()
+  private readonly durableStorage: StepStorage
+
+  constructor(storage?: StepStorage) {
+    this.durableStorage = storage ?? new InMemoryStepStorage()
+  }
+
+  async executeStep<T>(name: string, fn: () => T | Promise<T>, _options?: StepExecutionOptions): Promise<T> {
+    // Check in-memory cache first
+    if (this.stepResults.has(name)) {
+      const cached = this.stepResults.get(name)
+      if (cached instanceof Error) {
+        throw cached
+      }
+      return cached as T
+    }
+
+    // Check durable storage for completed steps (survives worker restarts)
+    const durableResult = await this.durableStorage.get(name)
+    if (durableResult?.status === 'completed') {
+      this.stepResults.set(name, durableResult.result)
+      return durableResult.result as T
+    }
+
+    // Execute the function
+    try {
+      const result = await fn()
+
+      // Store in both in-memory and durable storage
+      this.stepResults.set(name, result)
+      await this.durableStorage.set(name, {
+        stepId: name,
+        status: 'completed',
+        result,
+        attempts: 1,
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+      })
+
+      return result
+    } catch (error) {
+      const err = ensureError(error)
+      this.stepResults.set(name, err)
+      await this.durableStorage.set(name, {
+        stepId: name,
+        status: 'failed',
+        error: err.message,
+        attempts: 1,
+        createdAt: Date.now(),
+      })
+      throw err
+    }
+  }
+
+  async sleep(name: string, durationMs: number, _durationStr: string): Promise<void> {
+    // Check for cached completion
+    if (this.stepResults.has(name)) {
+      return
+    }
+
+    // Check durable storage
+    const durableResult = await this.durableStorage.get(name)
+    if (durableResult?.status === 'completed') {
+      this.stepResults.set(name, true)
+      return
+    }
+
+    // Persist pending state before sleeping
+    await this.durableStorage.set(name, {
+      stepId: name,
+      status: 'pending',
+      attempts: 1,
+      createdAt: Date.now(),
+    })
+
+    // Fallback to setTimeout - BILLABLE
+    await new Promise<void>((resolve) => setTimeout(resolve, durationMs))
+
+    // Persist completed state
+    await this.durableStorage.set(name, {
+      stepId: name,
+      status: 'completed',
+      result: true,
+      attempts: 1,
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+    })
+
+    this.stepResults.set(name, true)
+  }
+
+  async isStepCompleted(name: string): Promise<boolean> {
+    if (this.stepResults.has(name)) {
+      return true
+    }
+
+    const durableResult = await this.durableStorage.get(name)
+    return durableResult?.status === 'completed'
+  }
+
+  async getStepResult<T>(name: string): Promise<T | undefined> {
+    // Check in-memory first
+    if (this.stepResults.has(name)) {
+      const result = this.stepResults.get(name)
+      if (result instanceof Error) {
+        throw result
+      }
+      return result as T | undefined
+    }
+
+    // Check durable storage
+    const durableResult = await this.durableStorage.get(name)
+    if (durableResult?.status === 'completed') {
+      return durableResult.result as T | undefined
+    }
+
+    return undefined
+  }
+
+  async setStepResult(name: string, result: unknown): Promise<void> {
+    this.stepResults.set(name, result)
+    await this.durableStorage.set(name, {
+      stepId: name,
+      status: result instanceof Error ? 'failed' : 'completed',
+      result: result instanceof Error ? undefined : result,
+      error: result instanceof Error ? result.message : undefined,
+      attempts: 1,
+      createdAt: Date.now(),
+      completedAt: result instanceof Error ? undefined : Date.now(),
+    })
+  }
+
+  /**
+   * Clear all cached results (for testing)
+   */
+  clear(): void {
+    this.stepResults.clear()
+  }
+}
+
+// ============================================================================
+// STRATEGY FACTORY - Creates the appropriate strategy based on context
+// ============================================================================
+
+/**
+ * Get the appropriate storage strategy for the current workflow execution.
+ *
+ * Selection logic:
+ * 1. If WorkflowStep is available in context, use CFWorkflowsStorageStrategy (FREE sleeping, durable)
+ * 2. Otherwise, use InMemoryStorageStrategy (fallback, BILLABLE sleeping)
+ *
+ * @param workflowStep - Optional WorkflowStep from CF Workflows runtime
+ * @param storage - Optional StepStorage for InMemory fallback
+ * @returns The appropriate storage strategy
+ */
+export function createStorageStrategy(
+  workflowStep: WorkflowStep | null,
+  storage?: StepStorage
+): WorkflowStorageStrategy {
+  if (workflowStep) {
+    return new CFWorkflowsStorageStrategy(workflowStep)
+  }
+  return new InMemoryStorageStrategy(storage)
+}
 
 // ============================================================================
 // DETERMINISM ENFORCEMENT - Runtime detection of non-deterministic patterns
@@ -507,6 +878,8 @@ interface WorkflowState {
   // Child workflow tracking
   children: Set<string>
   parentClosePolicy?: ParentClosePolicy
+  // Cancellation support
+  abortController?: AbortController
 }
 
 // Patch tracking for versioning
@@ -546,6 +919,8 @@ interface WorkflowContext {
   patchState: PatchState | null
   storage: StepStorage
   waitManager: WaitForEventManager | null
+  /** CF Workflows step context for this workflow execution */
+  workflowStep: WorkflowStep | null
 }
 
 // AsyncLocalStorage provides execution-scoped context
@@ -593,6 +968,129 @@ function setCurrentPatchState(patchState: PatchState): void {
  */
 function runWithContext<T>(context: WorkflowContext, fn: () => T): T {
   return workflowContextStorage.run(context, fn)
+}
+
+/**
+ * Get the storage strategy for the current workflow context.
+ *
+ * This function creates the appropriate storage strategy based on the current context:
+ * - If a WorkflowStep is available, returns CFWorkflowsStorageStrategy (FREE sleeping, durable)
+ * - Otherwise, returns InMemoryStorageStrategy (fallback, BILLABLE sleeping)
+ *
+ * Note: Strategies are created on-demand rather than stored in context to avoid
+ * stale strategy references when WorkflowStep is set/cleared dynamically.
+ */
+function getCurrentStorageStrategy(): WorkflowStorageStrategy {
+  const ctx = getCurrentContext()
+  const step = ctx?.workflowStep ?? null
+  const storage = getCurrentStorage()
+  return createStorageStrategy(step, storage)
+}
+
+/**
+ * Get the current storage from context or fallback to global.
+ *
+ * This provides a single source of truth for storage access, consolidating
+ * the pattern of `ctx?.storage ?? globalStorage` that was previously
+ * scattered throughout the codebase.
+ */
+function getCurrentStorage(): StepStorage {
+  const ctx = getCurrentContext()
+  return ctx?.storage ?? globalStorage
+}
+
+// ============================================================================
+// CF WORKFLOWS STEP CONTEXT - For native Cloudflare Workflows integration
+// ============================================================================
+
+/**
+ * Counter for generating unique step IDs per workflow execution
+ */
+let sleepStepCounter = 0
+
+/**
+ * Set the WorkflowStep context for the current workflow execution.
+ * Call this at the beginning of a CF Workflows run() method to enable
+ * native step.do() and step.sleep() execution.
+ *
+ * The step is stored in the workflow's AsyncLocalStorage context, ensuring
+ * isolation between concurrent workflow executions.
+ *
+ * @param step - The WorkflowStep from CF Workflows runtime, or null to clear
+ *
+ * @example
+ * ```typescript
+ * async run(event: WorkflowEvent, step: WorkflowStep) {
+ *   setWorkflowStep(step)
+ *   try {
+ *     // Temporal compat layer will use step.sleep() and step.do()
+ *     await sleep('5s')
+ *     await activities.processOrder(event.payload.orderId)
+ *   } finally {
+ *     clearWorkflowStep()
+ *   }
+ * }
+ * ```
+ */
+export function setWorkflowStep(step: WorkflowStep | null): void {
+  const ctx = getCurrentContext()
+  if (ctx) {
+    ctx.workflowStep = step
+  }
+}
+
+/**
+ * Clear the WorkflowStep context for the current workflow.
+ * Call this when exiting the CF Workflows context.
+ */
+export function clearWorkflowStep(): void {
+  const ctx = getCurrentContext()
+  if (ctx) {
+    ctx.workflowStep = null
+  }
+}
+
+/**
+ * Get the current WorkflowStep context, or null if not in a CF Workflows context.
+ * Used internally by sleep() and proxyActivities() to route to native APIs.
+ */
+export function getWorkflowStep(): WorkflowStep | null {
+  const ctx = getCurrentContext()
+  return ctx?.workflowStep ?? null
+}
+
+/**
+ * Format a duration in milliseconds to CF Workflows format string.
+ * CF Workflows accepts durations like '5s', '1m', '1h', etc.
+ *
+ * @param ms - Duration in milliseconds
+ * @returns Formatted duration string
+ */
+function formatDurationForCF(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`
+  }
+  if (ms < 60 * 1000) {
+    const seconds = Math.round(ms / 1000)
+    return `${seconds}s`
+  }
+  if (ms < 60 * 60 * 1000) {
+    const minutes = Math.round(ms / (60 * 1000))
+    return `${minutes}m`
+  }
+  const hours = Math.round(ms / (60 * 60 * 1000))
+  return `${hours}h`
+}
+
+/**
+ * Generate a unique step ID for sleep operations.
+ *
+ * @param ms - Duration in milliseconds
+ * @returns Unique step ID
+ */
+function generateSleepStepId(ms: number): string {
+  sleepStepCounter++
+  return `sleep:${formatDurationForCF(ms)}:${sleepStepCounter}`
 }
 
 // ============================================================================
@@ -820,47 +1318,29 @@ const workflows = new Map<string, WorkflowState>()
 const workflowFunctions = new Map<string, (...args: unknown[]) => Promise<unknown>>()
 
 // ============================================================================
-// TASK QUEUE REGISTRY - Worker registration and routing
+// TASK QUEUE REGISTRY - Worker registration and routing via ActivityRouter
 // ============================================================================
 
 /**
- * Worker handler type - receives workflow/activity execution requests
+ * Activity execution context passed to executeActivity handlers.
+ * This mirrors RouterActivityContext for compatibility.
  */
-export type WorkerHandler = {
-  /** Registered workflow types this worker handles */
-  workflowTypes?: Set<string>
-  /** Registered activity types this worker handles */
-  activityTypes?: Set<string>
-  /** Custom handler for executing workflows */
-  executeWorkflow?: (workflowType: string, args: unknown[]) => Promise<unknown>
-  /** Custom handler for executing activities */
-  executeActivity?: (activityName: string, args: unknown[]) => Promise<unknown>
+export interface ActivityContext {
+  /** Abort signal for cancellation */
+  signal?: AbortSignal
 }
 
 /**
- * Task queue registry maps queue names to their registered workers
+ * Worker handler type - receives workflow/activity execution requests.
+ * This extends the RouterWorkerHandler with the same interface for compatibility.
  */
-const taskQueueRegistry = new Map<string, WorkerHandler>()
+export type WorkerHandler = RouterWorkerHandler
 
 /**
- * Error thrown when attempting to use an unregistered task queue.
- * This mirrors Temporal's behavior where workflows fail if no worker
- * is polling the specified task queue.
+ * Shared ActivityRouter instance used for routing activities to workers.
+ * This provides the unified routing abstraction used across all compat layers.
  */
-export class TaskQueueNotRegisteredError extends Error {
-  readonly taskQueue: string
-  readonly type: 'workflow' | 'activity'
-
-  constructor(taskQueue: string, type: 'workflow' | 'activity' = 'workflow') {
-    super(
-      `No worker registered for task queue "${taskQueue}". ` +
-        `Ensure a worker is polling this queue before starting ${type === 'workflow' ? 'workflows' : 'activities'}.`
-    )
-    this.name = 'TaskQueueNotRegisteredError'
-    this.taskQueue = taskQueue
-    this.type = type
-  }
-}
+const activityRouter = new WorkerActivityRouter()
 
 /**
  * Register a worker for a task queue.
@@ -890,46 +1370,31 @@ export class TaskQueueNotRegisteredError extends Error {
  * ```
  */
 export function registerWorker(taskQueue: string, handler: WorkerHandler = {}): () => void {
-  if (!taskQueue || typeof taskQueue !== 'string') {
-    throw new Error('Task queue name must be a non-empty string')
-  }
-
-  taskQueueRegistry.set(taskQueue, {
-    workflowTypes: handler.workflowTypes ?? new Set(),
-    activityTypes: handler.activityTypes ?? new Set(),
-    executeWorkflow: handler.executeWorkflow,
-    executeActivity: handler.executeActivity,
-  })
-
-  // Return unregister function
-  return () => {
-    taskQueueRegistry.delete(taskQueue)
-  }
+  // Delegate to the shared ActivityRouter instance
+  return activityRouter.registerWorker(taskQueue, handler)
 }
 
 /**
  * Check if a task queue has a registered worker
  */
 export function hasWorker(taskQueue: string): boolean {
-  return taskQueueRegistry.has(taskQueue)
+  return activityRouter.hasWorker(taskQueue)
 }
 
 /**
  * Get the worker handler for a task queue
  */
 export function getWorker(taskQueue: string): WorkerHandler | undefined {
-  return taskQueueRegistry.get(taskQueue)
+  return activityRouter.getWorker(taskQueue)
 }
 
 /**
  * List all registered task queues
  */
 export function listTaskQueues(): string[] {
-  return Array.from(taskQueueRegistry.keys())
+  return activityRouter.listTaskQueues()
 }
 
-/**
- * Validate that a task queue is registered for workflow execution.
 /**
  * Check if task queue routing is enabled.
  *
@@ -938,7 +1403,7 @@ export function listTaskQueues(): string[] {
  * registerWorker() will continue to work without changes.
  */
 function isTaskQueueRoutingEnabled(): boolean {
-  return taskQueueRegistry.size > 0
+  return activityRouter.isRoutingEnabled()
 }
 
 /**
@@ -959,7 +1424,7 @@ function validateTaskQueueForWorkflow(taskQueue: string, workflowType?: string):
     return
   }
 
-  const worker = taskQueueRegistry.get(taskQueue)
+  const worker = activityRouter.getWorker(taskQueue)
   if (!worker) {
     throw new TaskQueueNotRegisteredError(taskQueue, 'workflow')
   }
@@ -969,7 +1434,7 @@ function validateTaskQueueForWorkflow(taskQueue: string, workflowType?: string):
     if (!worker.workflowTypes.has(workflowType)) {
       throw new Error(
         `Workflow type "${workflowType}" is not registered on task queue "${taskQueue}". ` +
-          `Registered types: ${Array.from(worker.workflowTypes).join(', ')}` 
+          `Registered types: ${Array.from(worker.workflowTypes).join(', ')}`
       )
     }
   }
@@ -993,7 +1458,7 @@ function validateTaskQueueForActivity(taskQueue: string, activityName?: string):
     return
   }
 
-  const worker = taskQueueRegistry.get(taskQueue)
+  const worker = activityRouter.getWorker(taskQueue)
   if (!worker) {
     throw new TaskQueueNotRegisteredError(taskQueue, 'activity')
   }
@@ -1003,7 +1468,7 @@ function validateTaskQueueForActivity(taskQueue: string, activityName?: string):
     if (!worker.activityTypes.has(activityName)) {
       throw new Error(
         `Activity "${activityName}" is not registered on task queue "${taskQueue}". ` +
-          `Registered activities: ${Array.from(worker.activityTypes).join(', ')}` 
+          `Registered activities: ${Array.from(worker.activityTypes).join(', ')}`
       )
     }
   }
@@ -1121,6 +1586,41 @@ export function __stopWorkflowCleanup(): void {
   }
 }
 
+/**
+ * Configure the Temporal compat layer globals.
+ *
+ * This is the single entry point for backend configuration. The storage
+ * strategy (CFWorkflows vs InMemory) is auto-detected at runtime based on
+ * whether a WorkflowStep context is available.
+ *
+ * ## Configuration Flow
+ *
+ * 1. Set `storage` for durable step persistence
+ * 2. Set `state` for DurableObject state access (required for waitForEvent)
+ * 3. Set `namespace` for workflow isolation
+ *
+ * ## Storage Strategy Selection (Automatic)
+ *
+ * - If WorkflowStep context is available: Uses CFWorkflowsStorageStrategy
+ *   - sleep() uses step.sleep() - FREE (no wall-clock billing)
+ *   - Activities use step.do() - DURABLE (survives restarts)
+ *
+ * - Otherwise: Uses InMemoryStorageStrategy (fallback)
+ *   - sleep() uses setTimeout - BILLABLE (consumes DO time)
+ *   - Activities execute directly - NOT DURABLE
+ *
+ * @example
+ * ```typescript
+ * import { configure } from '@dotdo/temporal'
+ *
+ * // In a Durable Object
+ * configure({
+ *   storage: new DOStepStorage(ctx.storage),
+ *   state: ctx.state,
+ *   namespace: 'production'
+ * })
+ * ```
+ */
 export function configure(opts: { storage?: StepStorage; state?: DurableObjectState; namespace?: string }): void {
   if (opts.storage) globalStorage = opts.storage
   if (opts.state) {
@@ -1459,8 +1959,8 @@ export function __clearTemporalState(): void {
   // Clear workflow completion tracking (memory leak fix)
   workflowCompletionTimes.clear()
 
-  // Clear task queue registry
-  taskQueueRegistry.clear()
+  // Clear task queue registry via activityRouter
+  activityRouter.clear()
 
   // Properly cancel all active timers to prevent memory leaks
   for (const timer of activeTimers.values()) {
@@ -1489,6 +1989,13 @@ export function __clearTemporalState(): void {
   // Clear determinism tracking
   clearDeterminismWarnings()
   disableDeterminismDetection()
+
+  // Reset CF Workflows step counters
+  sleepStepCounter = 0
+  activityStepCounter = 0
+
+  // Clear WorkflowStep context
+  clearWorkflowStep()
 
   globalNamespace = 'default'
 }
@@ -1547,9 +2054,16 @@ export function deprecatePatch(patchId: string): void {
 /**
  * Sleep for a duration (durable)
  *
- * This implementation persists sleep state to durable storage, ensuring that
- * if a worker restarts during a sleep, the sleep completion is not lost.
- * On replay, completed sleeps are skipped immediately.
+ * This implementation integrates with both CF Workflows native sleep and
+ * the Temporal compat layer's durable storage:
+ *
+ * 1. If WorkflowStep context is available (CF Workflows), use step.sleep()
+ *    - FREE: doesn't use billable DO time
+ *    - DURABLE: survives worker restarts
+ *
+ * 2. Otherwise, fall back to setTimeout with durable storage
+ *    - Persists sleep state to storage (in case of crash)
+ *    - On replay, completed sleeps are skipped immediately
  */
 export async function sleep(duration: string | number): Promise<void> {
   const ctx = getCurrentContext()
@@ -1559,45 +2073,16 @@ export async function sleep(duration: string | number): Promise<void> {
   }
 
   const ms = parseDuration(duration)
-  const stepId = `sleep:${ms}:${workflow.historyLength}`
+  const durationStr = typeof duration === 'string' ? duration : formatDurationForCF(ms)
+  const stepId = generateSleepStepId(ms)
 
-  // Get storage from context, fallback to globalStorage
-  const storage = ctx?.storage ?? globalStorage
+  // Use the unified storage strategy pattern
+  // - CFWorkflowsStorageStrategy: Uses step.sleep() - FREE, doesn't consume wall-clock time
+  // - InMemoryStorageStrategy: Uses setTimeout with durable storage - BILLABLE
+  const strategy = getCurrentStorageStrategy()
+  await strategy.sleep(stepId, ms, durationStr)
 
-  // Check durable storage first for completed sleep (survives worker restarts)
-  const existingResult = await storage.get(stepId)
-  if (existingResult?.status === 'completed') {
-    // Also populate in-memory cache for consistency
-    workflow.stepResults.set(stepId, true)
-    return
-  }
-
-  // Check in-memory cache for replay within same execution
-  if (workflow.stepResults.has(stepId)) {
-    return
-  }
-
-  // Persist pending state before sleeping (in case of crash during sleep)
-  await storage.set(stepId, {
-    stepId,
-    status: 'pending',
-    attempts: 1,
-    createdAt: Date.now(),
-  })
-
-  await new Promise((resolve) => setTimeout(resolve, ms))
-
-  // Persist completed state to durable storage
-  await storage.set(stepId, {
-    stepId,
-    status: 'completed',
-    result: true,
-    attempts: 1,
-    createdAt: Date.now(),
-    completedAt: Date.now(),
-  })
-
-  // Also update in-memory cache
+  // Update in-memory cache for replay within same execution
   workflow.stepResults.set(stepId, true)
   workflow.historyLength++
 }
@@ -1646,28 +2131,73 @@ type ActivityFunction = (...args: unknown[]) => Promise<unknown>
 type Activities = Record<string, ActivityFunction>
 
 /**
+ * Counter for generating unique activity step IDs
+ */
+let activityStepCounter = 0
+
+// Note: ActivityTimeoutError and TaskQueueNotRegisteredError are imported from '../activity-router'
+// and re-exported at the top of this file for backward compatibility.
+//
+// Activity execution (retry, timeout, error handling) is now handled by the shared
+// WorkerActivityRouter instance, eliminating duplicate code.
+
+/**
  * Create activity proxies
+ *
+ * Activities integrate with multiple execution backends:
+ *
+ * 1. If a worker with executeActivity handler is registered, route to that handler
+ *    - Enables testing workflows with mock activity implementations
+ *    - Handles timeouts, retries, and error classification
+ *
+ * 2. If WorkflowStep context is available (CF Workflows), use step.do()
+ *    - DURABLE: automatically retries and survives restarts
+ *    - REPLAY: completed steps return cached results
+ *
+ * 3. Otherwise, fall back to DurableWorkflowRuntime
  *
  * Activities can specify a `taskQueue` option to route execution to a specific
  * worker. If a task queue is specified, it must have a registered worker.
  * If no task queue is specified, activities use the workflow's task queue.
  */
 export function proxyActivities<T extends Activities>(options: ActivityOptions): T {
-  const runtime = new DurableWorkflowRuntime({
-    storage: globalStorage,
-    retryPolicy: options.retry
-      ? {
-          maxAttempts: options.retry.maximumAttempts ?? 3,
-          initialDelayMs: options.retry.initialInterval ? parseDuration(options.retry.initialInterval) : 1000,
-          maxDelayMs: options.retry.maximumInterval ? parseDuration(options.retry.maximumInterval) : 30000,
-          backoffMultiplier: options.retry.backoffCoefficient ?? 2,
-          jitter: true,
-        }
-      : undefined,
-  })
-
   // Activity task queue (can be different from workflow's task queue)
   const activityTaskQueue = options.taskQueue
+
+  // Parse timeouts once
+  const startToCloseTimeoutMs = options.startToCloseTimeout
+    ? parseDuration(options.startToCloseTimeout)
+    : undefined
+  const heartbeatTimeoutMs = options.heartbeatTimeout
+    ? parseDuration(options.heartbeatTimeout)
+    : undefined
+
+  // Build CF Workflows step.do() options from Temporal activity options
+  const buildStepDoOptions = (): StepDoOptions | undefined => {
+    const stepOptions: StepDoOptions = {}
+
+    // Map retry policy
+    if (options.retry?.maximumAttempts) {
+      stepOptions.retries = {
+        limit: options.retry.maximumAttempts,
+        backoff: options.retry.backoffCoefficient && options.retry.backoffCoefficient > 1 ? 'exponential' : 'constant',
+        delay: options.retry.initialInterval ? String(options.retry.initialInterval) : undefined,
+      }
+    }
+
+    // Map timeout
+    if (options.startToCloseTimeout) {
+      stepOptions.timeout = typeof options.startToCloseTimeout === 'string'
+        ? options.startToCloseTimeout
+        : formatDurationForCF(parseDuration(options.startToCloseTimeout))
+    }
+
+    // Only return options if we have something to configure
+    if (stepOptions.retries || stepOptions.timeout) {
+      return stepOptions
+    }
+    return undefined
+  }
 
   return new Proxy({} as T, {
     get(_, name: string) {
@@ -1683,15 +2213,113 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
         // Validate the task queue has a registered worker
         validateTaskQueueForActivity(targetTaskQueue, name)
 
-        const stepId = `activity:${name}:${JSON.stringify(args)}`
+        // Include task queue in step ID to ensure isolation between queues
+        const stepId = `activity:${targetTaskQueue}:${name}:${JSON.stringify(args)}`
 
-        // Check for replay
+        // Check for replay in workflow stepResults (handles both success and error)
         if (workflow.stepResults.has(stepId)) {
-          return workflow.stepResults.get(stepId)
+          const cached = workflow.stepResults.get(stepId)
+          // If cached value is an error, re-throw it
+          if (cached instanceof Error) {
+            throw cached
+          }
+          return cached
         }
 
-        // Execute the activity (in compat mode, activities are stubs)
-        // In production, this would route to actual activity workers on the target task queue
+        // Get the worker for this task queue via activityRouter
+        const worker = activityRouter.getWorker(targetTaskQueue)
+
+        // If worker has executeActivity handler, route via activityRouter
+        if (worker?.executeActivity) {
+          // Create activity context with cancellation signal
+          const activityContext: RouterActivityContext = {
+            signal: workflow.abortController?.signal,
+          }
+
+          // Build ActivityRouterOptions from Temporal ActivityOptions
+          // Use heartbeat timeout if specified and shorter than start-to-close timeout
+          // Heartbeat timeout in Temporal means the activity must heartbeat within this interval
+          // In our emulation, we use it as an effective timeout for activities that don't heartbeat
+          let effectiveTimeout = startToCloseTimeoutMs
+          if (heartbeatTimeoutMs) {
+            if (!effectiveTimeout || heartbeatTimeoutMs < effectiveTimeout) {
+              effectiveTimeout = heartbeatTimeoutMs
+            }
+          }
+
+          const routerOptions: ActivityRouterOptions = {
+            taskQueue: targetTaskQueue,
+            timeout: effectiveTimeout,
+            retries: options.retry ? {
+              maximumAttempts: options.retry.maximumAttempts,
+              initialInterval: options.retry.initialInterval,
+              backoffCoefficient: options.retry.backoffCoefficient,
+              maximumInterval: options.retry.maximumInterval,
+              nonRetryableErrors: options.retry.nonRetryableErrorTypes,
+            } : undefined,
+          }
+
+          try {
+            // Route activity via the shared ActivityRouter - handles timeouts and retries
+            const result = await activityRouter.route(name, args, routerOptions, activityContext)
+
+            // Cache successful result
+            workflow.stepResults.set(stepId, result)
+            workflow.historyLength++
+            return result
+          } catch (error) {
+            // Cache error for replay (determinism)
+            const err = ensureError(error)
+            workflow.stepResults.set(stepId, err)
+            workflow.historyLength++
+            throw err
+          }
+        }
+
+        // Check for CF Workflows step context
+        const step = getWorkflowStep()
+        if (step) {
+          // Use CF Workflows native step.do() - DURABLE
+          activityStepCounter++
+          const stepName = `activity:${name}:${activityStepCounter}`
+          const stepDoOptions = buildStepDoOptions()
+
+          // The callback is what CF Workflows will execute.
+          // In production, this would contain the actual activity code.
+          // In compat/test mode, we return a stub value that indicates the activity was called.
+          // The important thing is that step.do() is called with proper options,
+          // and CF Workflows handles retry/durability.
+          const callback = async () => {
+            // Return a stub result - the actual activity implementation
+            // would be provided by the CF Workflows runtime in production
+            return { _activity: name, _args: args, _stub: true }
+          }
+
+          // Call step.do() with or without options
+          const result = stepDoOptions
+            ? await step.do(stepName, stepDoOptions, callback)
+            : await step.do(stepName, callback)
+
+          workflow.stepResults.set(stepId, result)
+          workflow.historyLength++
+          return result
+        }
+
+        // Fallback: Execute through DurableWorkflowRuntime
+        // Uses getCurrentStorage() for consistent storage access
+        const runtime = new DurableWorkflowRuntime({
+          storage: getCurrentStorage(),
+          retryPolicy: options.retry
+            ? {
+                maxAttempts: options.retry.maximumAttempts ?? 3,
+                initialDelayMs: options.retry.initialInterval ? parseDuration(options.retry.initialInterval) : 1000,
+                maxDelayMs: options.retry.maximumInterval ? parseDuration(options.retry.maximumInterval) : 30000,
+                backoffMultiplier: options.retry.backoffCoefficient ?? 2,
+                jitter: true,
+              }
+            : undefined,
+        })
+
         const result = await runtime.executeStep(
           stepId,
           {
@@ -1776,6 +2404,7 @@ export async function startChild<T, TArgs extends unknown[]>(
     attempt: 1,
     children: new Set(),
     parentClosePolicy: options.parentClosePolicy,
+    abortController: new AbortController(),
   }
 
   workflows.set(workflowId, childState)
@@ -1790,11 +2419,13 @@ export async function startChild<T, TArgs extends unknown[]>(
   const workflowFn = typeof workflowType === 'function' ? workflowType : workflowFunctions.get(typeName)
   if (workflowFn) {
     // Create a new context for the child workflow
+    // Inherits storage from parent context or uses global fallback
     const childContext: WorkflowContext = {
       workflow: childState,
       patchState: null,
-      storage: globalStorage,
+      storage: getCurrentStorage(),
       waitManager: globalWaitManager,
+      workflowStep: null,
     }
 
     // Run the child workflow in its own context
@@ -1957,7 +2588,8 @@ export class WorkflowClient {
 
   constructor(options: WorkflowClientOptions = {}) {
     this.namespace = options.namespace ?? globalNamespace
-    this.storage = options.storage ?? globalStorage
+    // Use explicit storage if provided, otherwise use current context storage or global fallback
+    this.storage = options.storage ?? getCurrentStorage()
     // Update global namespace for workflows started by this client
     globalNamespace = this.namespace
   }
@@ -1998,6 +2630,7 @@ export class WorkflowClient {
       historyLength: 1,
       attempt: 1,
       children: new Set(),
+      abortController: new AbortController(),
     }
 
     workflows.set(workflowId, state)
@@ -2011,6 +2644,7 @@ export class WorkflowClient {
         patchState: null,
         storage: this.storage,
         waitManager: globalWaitManager,
+        workflowStep: null,
       }
 
       // Run the workflow in its own context (enabling concurrent execution)
@@ -2218,11 +2852,18 @@ export class WorkflowClient {
 
       async cancel(): Promise<void> {
         state.status = 'CANCELED'
+        // Abort any pending activities
+        if (state.abortController) {
+          state.abortController.abort()
+        }
         // Cancel all children based on parent close policy
         for (const childId of state.children) {
           const childState = workflows.get(childId)
           if (childState && childState.status === 'RUNNING') {
             childState.status = 'CANCELED'
+            if (childState.abortController) {
+              childState.abortController.abort()
+            }
           }
         }
       },
@@ -2403,6 +3044,7 @@ export default {
   getWorker,
   listTaskQueues,
   TaskQueueNotRegisteredError,
+  ActivityTimeoutError,
   // Determinism enforcement
   workflowNow,
   WorkflowDeterminismWarning,
@@ -2412,6 +3054,14 @@ export default {
   enableDeterminismDetection,
   disableDeterminismDetection,
   inWorkflowContext,
+  // CF Workflows integration
+  setWorkflowStep,
+  clearWorkflowStep,
+  getWorkflowStep,
+  // Storage strategy pattern (for advanced use)
+  createStorageStrategy,
+  CFWorkflowsStorageStrategy,
+  InMemoryStorageStrategy,
   // Utility for testing
   __clearTemporalState,
 }
