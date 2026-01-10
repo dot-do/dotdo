@@ -154,10 +154,15 @@ export function getCurrentSession(): { token: string; userId: string } | null {
   if (storedSession) {
     try {
       const session = JSON.parse(storedSession)
-      // Validate the session exists in our session store
-      if (sessions.has(session.token)) {
-        return session
+      // Hydrate the sessions Map from storage if needed (e.g., after page refresh)
+      // This ensures session survives page refresh when JS context resets
+      if (!sessions.has(session.token)) {
+        sessions.set(session.token, {
+          userId: session.userId,
+          createdAt: new Date(),
+        })
       }
+      return session
     } catch {
       // Invalid stored session, clear it
       storage().delete(STORAGE_KEY)
@@ -165,12 +170,6 @@ export function getCurrentSession(): { token: string; userId: string } | null {
   }
 
   // No valid session exists
-  // In production mode, never return hardcoded test values
-  if (process.env.NODE_ENV === 'production') {
-    return null
-  }
-
-  // No session exists - return null
   return null
 }
 

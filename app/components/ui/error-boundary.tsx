@@ -16,6 +16,7 @@
  */
 
 import * as React from 'react'
+import { sanitizeErrorMessage } from '../../utils/error-sanitizer'
 
 // =============================================================================
 // Types
@@ -84,7 +85,7 @@ export function ErrorBoundaryFallback({
         data-slot="error-boundary-message"
         className="text-gray-500 mb-6"
       >
-        {error.message}
+        {sanitizeErrorMessage(error)}
       </p>
       <button
         type="button"

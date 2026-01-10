@@ -827,3 +827,152 @@ describe('Shell integration with ErrorBoundary', () => {
     })
   })
 })
+
+// =============================================================================
+// Error Message Sanitization Tests (TDD RED Phase)
+// @see dotdo-cvxzt - RED phase issue
+// =============================================================================
+
+describe('Error Message Sanitization', () => {
+  /**
+   * CRITICAL: Production should never show raw error messages
+   *
+   * Error messages can contain sensitive information:
+   * - File paths revealing server structure
+   * - Database connection strings with credentials
+   * - API keys and tokens
+   * - Internal service URLs
+   */
+  describe('production mode', () => {
+    const originalEnv = process.env.NODE_ENV
+
+    beforeEach(() => {
+      process.env.NODE_ENV = 'production'
+    })
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalEnv
+    })
+
+    it('should show generic message instead of raw error in production', () => {
+      const sensitiveError = new Error(
+        'Connection failed: postgres://admin:secret123@db.internal.company.com:5432/production'
+      )
+
+      render(
+        <ErrorBoundaryFallback
+          error={sensitiveError}
+          resetErrorBoundary={() => {}}
+        />
+      )
+
+      // Should NOT show the database connection string
+      expect(screen.queryByText(/postgres:/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/secret123/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/db\.internal/i)).not.toBeInTheDocument()
+
+      // Should show a generic message
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    })
+
+    it('should not leak file paths in production', () => {
+      const filePathError = new Error(
+        'Cannot find module \'/Users/developer/projects/dotdo/secrets/api-keys.ts\''
+      )
+
+      render(
+        <ErrorBoundaryFallback
+          error={filePathError}
+          resetErrorBoundary={() => {}}
+        />
+      )
+
+      // Should NOT show the file path
+      expect(screen.queryByText(/\/Users\//i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/secrets/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/api-keys/i)).not.toBeInTheDocument()
+    })
+
+    it('should not leak API keys in production', () => {
+      const apiKeyError = new Error(
+        'API request failed with key sk-ant-api03-xxxxxxxxxxxxxxxxxxxx'
+      )
+
+      render(
+        <ErrorBoundaryFallback
+          error={apiKeyError}
+          resetErrorBoundary={() => {}}
+        />
+      )
+
+      // Should NOT show the API key
+      expect(screen.queryByText(/sk-ant-api/i)).not.toBeInTheDocument()
+    })
+
+    it('should not leak internal URLs in production', () => {
+      const internalUrlError = new Error(
+        'Failed to connect to https://api.internal.company.com:8443/admin'
+      )
+
+      render(
+        <ErrorBoundaryFallback
+          error={internalUrlError}
+          resetErrorBoundary={() => {}}
+        />
+      )
+
+      // Should NOT show internal URLs
+      expect(screen.queryByText(/internal\.company/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/:8443/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('development mode', () => {
+    const originalEnv = process.env.NODE_ENV
+
+    beforeEach(() => {
+      process.env.NODE_ENV = 'development'
+    })
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalEnv
+    })
+
+    it('should show detailed error message in development', () => {
+      const detailedError = new Error('Component failed to render: missing prop "id"')
+
+      render(
+        <ErrorBoundaryFallback
+          error={detailedError}
+          resetErrorBoundary={() => {}}
+        />
+      )
+
+      // In development, show the full error for debugging
+      expect(screen.getByText(/Component failed to render/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('onError callback', () => {
+    it('should pass full error to onError callback for logging', () => {
+      const onError = vi.fn()
+      const sensitiveError = new Error('postgres://admin:secret@db:5432/app')
+
+      function ThrowSensitive() {
+        throw sensitiveError
+      }
+
+      render(
+        <ErrorBoundary onError={onError}>
+          <ThrowSensitive />
+        </ErrorBoundary>
+      )
+
+      // onError should receive the FULL error for logging/telemetry
+      expect(onError).toHaveBeenCalledWith(
+        sensitiveError,
+        expect.objectContaining({ componentStack: expect.any(String) })
+      )
+    })
+  })
+})
