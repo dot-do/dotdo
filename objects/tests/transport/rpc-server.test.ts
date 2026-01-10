@@ -239,8 +239,97 @@ function createMockEnv(overrides?: Partial<Env>): Env {
 /**
  * Test DO that extends DO with methods we want to expose via RPC
  */
+/**
+ * Mock Collection interface for testing RPC routing
+ * This provides a simple in-memory collection that mimics the real collection interface.
+ */
+interface MockCollectionItem {
+  $id: string
+  $type: string
+  $rowid: number
+  [key: string]: unknown
+}
+
+class MockCollection {
+  private items = new Map<string, MockCollectionItem>()
+  private nextRowid = 1
+  private noun: string
+
+  constructor(noun: string) {
+    this.noun = noun
+  }
+
+  async create(data: Record<string, unknown>): Promise<MockCollectionItem> {
+    const $id = (data.$id as string) || `${this.noun.toLowerCase()}-${crypto.randomUUID().slice(0, 8)}`
+    const $rowid = this.nextRowid++
+    const item: MockCollectionItem = {
+      ...data,
+      $id,
+      $type: this.noun,
+      $rowid,
+    }
+    this.items.set($id, item)
+    return item
+  }
+
+  async update(id: string, data: Record<string, unknown>): Promise<MockCollectionItem> {
+    const existing = this.items.get(id)
+    const $rowid = this.nextRowid++
+    const item: MockCollectionItem = {
+      ...existing,
+      ...data,
+      $id: id,
+      $type: this.noun,
+      $rowid,
+    }
+    this.items.set(id, item)
+    return item
+  }
+
+  async delete(id: string): Promise<MockCollectionItem> {
+    const existing = this.items.get(id)
+    this.items.delete(id)
+    const $rowid = this.nextRowid++
+    return {
+      $id: id,
+      $type: this.noun,
+      $rowid,
+      deleted: true,
+      ...existing,
+    }
+  }
+
+  async get(id: string): Promise<MockCollectionItem | null> {
+    return this.items.get(id) ?? null
+  }
+
+  async list(): Promise<MockCollectionItem[]> {
+    return Array.from(this.items.values())
+  }
+
+  async find(query: Record<string, unknown>): Promise<MockCollectionItem[]> {
+    return Array.from(this.items.values()).filter((item) => {
+      return Object.entries(query).every(([key, value]) => item[key] === value)
+    })
+  }
+}
+
 class RpcTestDO extends DO {
   static readonly $type = 'RpcTestDO'
+
+  // Mock collections for RPC testing (bypasses DB layer)
+  private _mockCollections = new Map<string, MockCollection>()
+
+  /**
+   * Override collection() to return mock collections for testing.
+   * This allows RPC collection routing tests to work without a real database.
+   */
+  collection(noun: string): MockCollection {
+    if (!this._mockCollections.has(noun)) {
+      this._mockCollections.set(noun, new MockCollection(noun))
+    }
+    return this._mockCollections.get(noun)!
+  }
 
   private _users: Map<string, { id: string; name: string; email: string }> = new Map([
     ['user-1', { id: 'user-1', name: 'Alice', email: 'alice@example.com' }],
@@ -2079,9 +2168,7 @@ describe('Collection RPC - Dynamic {Noun}.{method} routing', () => {
       const data = await response.json() as RPCResponse
 
       expect(data.type).toBe('batch')
-      // Result could be value (found) or null (not found)
-      expect(['value', 'error'].includes(data.results?.[0].type ?? '')).toBe(false)
-      // Should return the task object or null
+      // Result should be a value (get returns the item or null, not an error)
       expect(data.results?.[0].type).toBe('value')
     })
 

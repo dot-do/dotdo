@@ -47,6 +47,7 @@ import {
   type McpConfig,
 } from './transport/mcp-server'
 import { RPCServer, type RPCServerConfig } from './transport/rpc-server'
+import { SyncEngine } from './transport/sync-engine'
 import type {
   WorkflowContext,
   DomainProxy,
@@ -152,6 +153,8 @@ export interface ThingsCollection<T extends Thing = Thing> {
   list(): Promise<T[]>
   find(query: Record<string, unknown>): Promise<T[]>
   create(data: Partial<T>): Promise<T>
+  update(id: string, data: Partial<T>): Promise<T & { $rowid: number }>
+  delete(id: string): Promise<T & { $rowid: number }>
 }
 
 export interface RelationshipsAccessor {
@@ -252,6 +255,27 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    */
   isRpcExposed = (method: string): boolean => {
     return this.rpcServer.isRpcExposed(method)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SYNC ENGINE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * SyncEngine instance for WebSocket sync protocol support.
+   * Lazy-initialized on first access.
+   */
+  private _syncEngine?: SyncEngine
+
+  /**
+   * Get the SyncEngine instance.
+   * Creates the engine on first access.
+   */
+  get syncEngine(): SyncEngine {
+    if (!this._syncEngine) {
+      this._syncEngine = new SyncEngine(this.things)
+    }
+    return this._syncEngine
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1105,6 +1129,26 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         })
         self._typeCache.set(noun, typeFK)
         return { ...data, $id: id, $type: noun } as T
+      },
+      update: async (id: string, data: Partial<T>): Promise<T & { $rowid: number }> => {
+        const result = await self.things.update(id, {
+          data: data as Record<string, unknown>,
+        })
+        return {
+          $id: result.id,
+          $type: noun,
+          ...result.data,
+          $rowid: result.rowid,
+        } as T & { $rowid: number }
+      },
+      delete: async (id: string): Promise<T & { $rowid: number }> => {
+        const result = await self.things.delete(id)
+        return {
+          $id: result.id,
+          $type: noun,
+          ...result.data,
+          $rowid: result.rowid,
+        } as T & { $rowid: number }
       },
     }
   }
@@ -1965,6 +2009,48 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SYNC WEBSOCKET HANDLER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle WebSocket sync requests for TanStack DB integration.
+   * Returns 426 Upgrade Required for non-WebSocket requests.
+   *
+   * @param request - The incoming HTTP request
+   * @returns Response (101 for WebSocket upgrade, 426 for non-WebSocket)
+   */
+  protected handleSyncWebSocket(request: Request): Response {
+    // Check for WebSocket upgrade
+    const upgradeHeader = request.headers.get('upgrade')
+
+    if (upgradeHeader?.toLowerCase() !== 'websocket') {
+      return Response.json(
+        { error: 'WebSocket upgrade required for /sync endpoint' },
+        {
+          status: 426,
+          headers: { 'Upgrade': 'websocket' },
+        }
+      )
+    }
+
+    // Create WebSocket pair
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair)
+
+    // Accept the server side
+    server.accept()
+
+    // Register with sync engine
+    this.syncEngine.accept(server)
+
+    // Return the client side to the caller
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HTTP HANDLER (Extended from DOTiny)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2002,6 +2088,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         message: 'RPC endpoint - use POST for HTTP batch mode or WebSocket for streaming',
         methods: this.rpcServer.methods,
       }, { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    // Handle /sync endpoint for WebSocket sync protocol (TanStack DB)
+    if (url.pathname === '/sync') {
+      return this.handleSyncWebSocket(request)
     }
 
     // Handle /resolve endpoint for cross-DO resolution

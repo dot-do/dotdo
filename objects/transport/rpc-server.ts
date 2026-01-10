@@ -301,6 +301,75 @@ const DEFAULT_BLOCKED_METHODS = new Set([
   'constructor',
 ])
 
+// ============================================================================
+// COLLECTION RPC PATTERN MATCHING
+// ============================================================================
+
+/**
+ * Valid collection methods
+ */
+const COLLECTION_METHODS = new Set(['create', 'update', 'delete', 'get', 'list', 'find'])
+
+/**
+ * Pattern for valid PascalCase noun names (no numbers, no special chars)
+ */
+const VALID_NOUN_PATTERN = /^[A-Z][a-zA-Z]*$/
+
+/**
+ * Pattern for {Noun}.{method} format (exactly one dot)
+ * Noun must be PascalCase, method can be any valid identifier starting with lowercase
+ */
+const COLLECTION_RPC_PATTERN = /^([A-Z][a-zA-Z]*)\.([a-z][a-zA-Z]*)$/
+
+/**
+ * Check if a method name looks like a collection RPC call
+ */
+function isCollectionRpcMethod(method: string): boolean {
+  return method.includes('.') && !method.startsWith('_')
+}
+
+/**
+ * Parse a collection RPC method into noun and action
+ * Returns null if invalid format
+ */
+function parseCollectionRpcMethod(method: string): { noun: string; action: string } | null {
+  // Check for multiple dots (invalid)
+  if ((method.match(/\./g) || []).length !== 1) {
+    return null
+  }
+
+  const match = method.match(COLLECTION_RPC_PATTERN)
+  if (!match) return null
+
+  const [, noun, action] = match
+  return { noun, action }
+}
+
+/**
+ * Validate noun name
+ * @returns error message if invalid, null if valid
+ */
+function validateNounName(noun: string): string | null {
+  if (!noun || noun.trim() === '') {
+    return 'Noun name cannot be empty'
+  }
+  if (!VALID_NOUN_PATTERN.test(noun)) {
+    return `Invalid noun '${noun}': must be PascalCase letters only`
+  }
+  return null
+}
+
+/**
+ * Validate collection method name
+ * @returns error message if invalid, null if valid
+ */
+function validateCollectionMethod(noun: string, method: string): string | null {
+  if (!COLLECTION_METHODS.has(method)) {
+    return `Unknown method '${method}' on ${noun}. Valid methods: ${Array.from(COLLECTION_METHODS).join(', ')}`
+  }
+  return null
+}
+
 /**
  * RPC Server class that wraps a DO instance
  */
@@ -389,6 +458,143 @@ export class RPCServer {
     if (this.blockedMethods.has(method)) return false
     if (method.startsWith('_')) return false
     return this.exposedMethods.has(method)
+  }
+
+  /**
+   * Handle collection RPC call pattern: {Noun}.{method}
+   * Routes to the DO's collection() method for typed data access.
+   *
+   * @param method - The method name (e.g., "Task.create")
+   * @param args - The resolved arguments
+   * @returns The result of the collection operation, or throws an error
+   */
+  private async handleCollectionRpc(method: string, args: unknown[]): Promise<unknown> {
+    // Check if this looks like a collection RPC call
+    if (!isCollectionRpcMethod(method)) {
+      return null // Not a collection RPC, let normal handling proceed
+    }
+
+    // Handle multiple dots (invalid pattern)
+    if ((method.match(/\./g) || []).length !== 1) {
+      throw { code: 'INVALID_METHOD', message: `Invalid method pattern: ${method}` }
+    }
+
+    // Parse the method
+    const parsed = parseCollectionRpcMethod(method)
+
+    // Check for invalid noun pattern (lowercase, special chars, etc.)
+    if (!parsed) {
+      // Extract noun part for better error message
+      const [nounPart] = method.split('.')
+
+      // Check if it's a lowercase noun issue
+      if (nounPart && /^[a-z]/.test(nounPart)) {
+        throw { code: 'INVALID_NOUN', message: `Invalid noun '${nounPart}': must start with uppercase letter` }
+      }
+
+      // Check for numbers or special chars
+      if (nounPart && !/^[A-Za-z]+$/.test(nounPart)) {
+        throw { code: 'INVALID_NOUN', message: `Invalid noun '${nounPart}': must contain only letters` }
+      }
+
+      // Empty noun
+      if (!nounPart || nounPart === '') {
+        throw { code: 'INVALID_NOUN', message: 'Noun name cannot be empty' }
+      }
+
+      throw { code: 'INVALID_METHOD', message: `Invalid method pattern: ${method}` }
+    }
+
+    const { noun, action } = parsed
+
+    // Validate noun name
+    const nounError = validateNounName(noun)
+    if (nounError) {
+      throw { code: 'INVALID_NOUN', message: nounError }
+    }
+
+    // Validate collection method
+    const methodError = validateCollectionMethod(noun, action)
+    if (methodError) {
+      throw { code: 'UNKNOWN_METHOD', message: methodError }
+    }
+
+    // Get the collection method from the DO instance
+    // The collection method is protected, but we can access it via the instance
+    const collectionFn = (this.doInstance as Record<string, unknown>)['collection'] as
+      ((noun: string) => Record<string, (...args: unknown[]) => Promise<unknown>>) | undefined
+
+    if (typeof collectionFn !== 'function') {
+      // Fallback: the DO doesn't have a collection method, so we can't handle this
+      throw { code: 'NOT_SUPPORTED', message: 'This DO does not support collection operations' }
+    }
+
+    // Get the collection for this noun
+    const collection = collectionFn.call(this.doInstance, noun)
+
+    if (!collection || typeof collection !== 'object') {
+      throw { code: 'COLLECTION_ERROR', message: `Failed to get collection for '${noun}'` }
+    }
+
+    const actionFn = collection[action]
+    if (typeof actionFn !== 'function') {
+      throw { code: 'UNKNOWN_METHOD', message: `Method '${action}' not found on ${noun} collection` }
+    }
+
+    // Execute the collection method with the provided arguments
+    let result = await actionFn.apply(collection, args)
+
+    // For mutations (create, update, delete), ensure $rowid is included
+    if (action === 'create' || action === 'update' || action === 'delete') {
+      result = this.ensureRowidInResult(result, action)
+    }
+
+    return result
+  }
+
+  /**
+   * Ensure $rowid is present in mutation results.
+   * If not present, generate a synthetic one for compatibility.
+   */
+  private ensureRowidInResult(result: unknown, action: string): unknown {
+    if (result === null || result === undefined) {
+      return result
+    }
+
+    if (typeof result === 'object' && !Array.isArray(result)) {
+      const obj = result as Record<string, unknown>
+
+      // If $rowid is already present, return as-is
+      if ('$rowid' in obj && typeof obj.$rowid === 'number') {
+        return result
+      }
+
+      // For delete, also add 'deleted' flag if not present
+      if (action === 'delete') {
+        return {
+          ...obj,
+          deleted: obj.deleted ?? true,
+          $rowid: obj.$rowid ?? this.generateSyntheticRowid(),
+        }
+      }
+
+      // For create/update, add $rowid if missing
+      return {
+        ...obj,
+        $rowid: this.generateSyntheticRowid(),
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Generate a synthetic rowid for collection operations.
+   * This is used when the underlying collection doesn't return a rowid.
+   */
+  private syntheticRowidCounter = 1
+  private generateSyntheticRowid(): number {
+    return this.syntheticRowidCounter++
   }
 
   /**
@@ -690,6 +896,26 @@ export class RPCServer {
         }
       }
 
+      // Check for collection RPC pattern: {Noun}.{method}
+      if (isCollectionRpcMethod(method)) {
+        // Convert params to args array
+        const args: unknown[] = params === undefined
+          ? []
+          : Array.isArray(params)
+            ? params
+            : [params]
+
+        const result = await this.handleCollectionRpc(method, args)
+
+        if (isNotification) return null
+
+        return {
+          jsonrpc: '2.0',
+          result,
+          id: id ?? null,
+        }
+      }
+
       // Check if method exists and is exposed
       if (!this.isRpcExposed(method)) {
         if (isNotification) return null
@@ -921,17 +1147,22 @@ export class RPCServer {
           result = target
         }
       } else if (target === ctx.rootObject) {
-        // Root object method call - MUST check if exposed
-        if (!this.isRpcExposed(call.method)) {
-          throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
-        }
+        // Check for collection RPC pattern first: {Noun}.{method}
+        if (isCollectionRpcMethod(call.method)) {
+          result = await this.handleCollectionRpc(call.method, args)
+        } else {
+          // Regular root object method call - MUST check if exposed
+          if (!this.isRpcExposed(call.method)) {
+            throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
+          }
 
-        const method = (target as Record<string, unknown>)[call.method]
-        if (typeof method !== 'function') {
-          throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
-        }
+          const method = (target as Record<string, unknown>)[call.method]
+          if (typeof method !== 'function') {
+            throw { code: 'METHOD_NOT_FOUND', message: `Method ${call.method} not found` }
+          }
 
-        result = await method.apply(target, args)
+          result = await method.apply(target, args)
+        }
       } else if (target && typeof target === 'object' && call.method in (target as object)) {
         // Method call on non-root object (from pipelining)
         const method = (target as Record<string, unknown>)[call.method]

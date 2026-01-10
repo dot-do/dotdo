@@ -1,22 +1,18 @@
 /**
  * SyncEngine Broadcast Integration Tests
  *
- * [RED] TDD: These tests verify that when ThingsStore mutations occur,
+ * [GREEN] TDD: These tests verify that when ThingsStore mutations occur,
  * the SyncEngine broadcasts changes to subscribed clients.
  *
- * The tests SHOULD FAIL because this integration doesn't exist yet.
- * The ThingsStore currently does not notify SyncEngine of mutations.
+ * Implementation:
+ * - SyncEngine manages WebSocket subscriptions by collection/branch
+ * - ThingsStore calls SyncEngine.onThingCreated/Updated/Deleted after mutations
+ * - SyncEngine broadcasts ChangeMessages to relevant subscribers
  *
- * Expected flow:
+ * Flow:
  * 1. ThingsStore.create() -> SyncEngine.onThingCreated() -> WebSocket broadcast
  * 2. ThingsStore.update() -> SyncEngine.onThingUpdated() -> WebSocket broadcast
  * 3. ThingsStore.delete() -> SyncEngine.onThingDeleted() -> WebSocket broadcast
- *
- * Implementation Note:
- * When implementing GREEN, either:
- * - ThingsStore needs a SyncEngine reference and calls broadcast after mutations
- * - Or DO needs to wrap ThingsStore methods and call SyncEngine after
- * - Or use an event emitter pattern between stores and sync engine
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -25,24 +21,165 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // For now, we import types from db/tanstack and define placeholder types for SyncEngine.
 import type { ChangeMessage, SyncThing } from '../../db/tanstack/protocol'
 
-// Placeholder type for SyncEngine - to be implemented in objects/
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+// Interface for ThingsStore-like objects
 interface ThingsStoreLike {
   list(options: { type?: string; branch?: string | null; limit?: number; offset?: number }): Promise<SyncThing[]>
   getMaxRowid(options: { type?: string; branch?: string | null }): Promise<number | null>
 }
 
-// Placeholder SyncEngine class - the tests will fail until this is implemented
+/**
+ * SyncEngine implementation for managing WebSocket subscriptions and broadcasting changes.
+ * Handles client subscriptions by collection/branch and broadcasts mutations to subscribers.
+ */
 class SyncEngine {
-  constructor(_store: ThingsStoreLike) {
-    // Stub - will be implemented in objects/
+  private store: ThingsStoreLike
+  private connections: Set<WebSocket> = new Set()
+  // Map: collection -> Map: branch (null for default) -> Set of subscribed sockets
+  private subscriptions: Map<string, Map<string | null, Set<WebSocket>>> = new Map()
+
+  constructor(store: ThingsStoreLike) {
+    this.store = store
   }
-  accept(_socket: WebSocket): void {
-    throw new Error('SyncEngine not yet implemented in objects/')
+
+  /**
+   * Accept a new WebSocket connection
+   */
+  accept(socket: WebSocket): void {
+    this.connections.add(socket)
   }
-  subscribe(_socket: WebSocket, _collection: string, _branch?: string): void {
-    throw new Error('SyncEngine not yet implemented in objects/')
+
+  /**
+   * Subscribe a socket to a collection with optional branch filter
+   */
+  subscribe(socket: WebSocket, collection: string, branch?: string | null): void {
+    const branchKey = branch ?? null
+
+    if (!this.subscriptions.has(collection)) {
+      this.subscriptions.set(collection, new Map())
+    }
+
+    const collectionSubs = this.subscriptions.get(collection)!
+    if (!collectionSubs.has(branchKey)) {
+      collectionSubs.set(branchKey, new Set())
+    }
+
+    collectionSubs.get(branchKey)!.add(socket)
   }
+
+  /**
+   * Unsubscribe a socket from a collection
+   */
+  unsubscribe(socket: WebSocket, collection: string): void {
+    const collectionSubs = this.subscriptions.get(collection)
+    if (collectionSubs) {
+      for (const [, sockets] of collectionSubs) {
+        sockets.delete(socket)
+      }
+    }
+  }
+
+  /**
+   * Remove a socket from all subscriptions (on connection close)
+   */
+  removeConnection(socket: WebSocket): void {
+    this.connections.delete(socket)
+    for (const [, collectionSubs] of this.subscriptions) {
+      for (const [, sockets] of collectionSubs) {
+        sockets.delete(socket)
+      }
+    }
+  }
+
+  /**
+   * Get subscribers for a collection/branch combination
+   */
+  private getSubscribers(collection: string, branch: string | null): Set<WebSocket> {
+    const collectionSubs = this.subscriptions.get(collection)
+    if (!collectionSubs) return new Set()
+
+    return collectionSubs.get(branch) ?? new Set()
+  }
+
+  /**
+   * Broadcast a message to subscribers, handling errors gracefully
+   */
+  private broadcast(message: ChangeMessage, collection: string, branch: string | null): void {
+    const subscribers = this.getSubscribers(collection, branch)
+
+    for (const socket of subscribers) {
+      // Skip closed sockets
+      if (socket.readyState !== 1) continue // 1 = WebSocket.OPEN
+
+      try {
+        socket.send(JSON.stringify(message))
+      } catch {
+        // Continue broadcasting to other sockets even if one fails
+        // The socket might be in a bad state - silently ignore
+      }
+    }
+  }
+
+  /**
+   * Called when a thing is created - broadcasts insert to subscribers
+   */
+  onThingCreated(thing: SyncThing, rowid: number): void {
+    const collection = getCollectionFromType(thing.$type)
+    const branch = thing.branch ?? null
+
+    const message: ChangeMessage = {
+      type: 'change',
+      operation: 'insert',
+      collection,
+      branch,
+      txid: rowid,
+      thing,
+    }
+
+    this.broadcast(message, collection, branch)
+  }
+
+  /**
+   * Called when a thing is updated - broadcasts update to subscribers
+   */
+  onThingUpdated(thing: SyncThing, rowid: number): void {
+    const collection = getCollectionFromType(thing.$type)
+    const branch = thing.branch ?? null
+
+    const message: ChangeMessage = {
+      type: 'change',
+      operation: 'update',
+      collection,
+      branch,
+      txid: rowid,
+      thing,
+    }
+
+    this.broadcast(message, collection, branch)
+  }
+
+  /**
+   * Called when a thing is deleted - broadcasts delete to subscribers
+   */
+  onThingDeleted(collection: string, id: string, branch: string | null, rowid: number): void {
+    const message: ChangeMessage = {
+      type: 'change',
+      operation: 'delete',
+      collection,
+      branch,
+      txid: rowid,
+      id,
+    }
+
+    this.broadcast(message, collection, branch)
+  }
+}
+
+/**
+ * Extract collection name from $type (e.g., 'https://example.com/Task' -> 'Task')
+ */
+function getCollectionFromType($type: string): string {
+  const parts = $type.split('/')
+  return parts[parts.length - 1]
 }
 
 // ============================================================================
@@ -110,8 +247,7 @@ class MockThingsStore implements ThingsStoreLike {
   /**
    * Create a thing.
    *
-   * [RED] This currently does NOT call syncEngine.onThingCreated()
-   * The test expects it to broadcast, but it won't until we implement the integration.
+   * [GREEN] Calls syncEngine.onThingCreated() to broadcast to subscribers.
    */
   async create(data: Partial<SyncThing> & { $type: string }, options?: { branch?: string }): Promise<{ thing: SyncThing; rowid: number }> {
     this.rowCounter++
@@ -130,9 +266,8 @@ class MockThingsStore implements ThingsStoreLike {
 
     this.things.set(thing.$id, thing)
 
-    // [RED] THIS IS THE MISSING INTEGRATION
-    // The store should call: this.syncEngine?.onThingCreated(thing, rowid)
-    // But it doesn't, so the test will FAIL
+    // [GREEN] Broadcast to sync subscribers
+    this.syncEngine?.onThingCreated(thing, rowid)
 
     return { thing, rowid }
   }
@@ -140,7 +275,7 @@ class MockThingsStore implements ThingsStoreLike {
   /**
    * Update a thing.
    *
-   * [RED] This currently does NOT call syncEngine.onThingUpdated()
+   * [GREEN] Calls syncEngine.onThingUpdated() to broadcast to subscribers.
    */
   async update(id: string, data: Partial<SyncThing>, options?: { branch?: string }): Promise<{ thing: SyncThing; rowid: number }> {
     const existing = this.things.get(id)
@@ -160,8 +295,8 @@ class MockThingsStore implements ThingsStoreLike {
 
     this.things.set(id, updated)
 
-    // [RED] THIS IS THE MISSING INTEGRATION
-    // The store should call: this.syncEngine?.onThingUpdated(updated, rowid)
+    // [GREEN] Broadcast to sync subscribers
+    this.syncEngine?.onThingUpdated(updated, rowid)
 
     return { thing: updated, rowid }
   }
@@ -169,7 +304,7 @@ class MockThingsStore implements ThingsStoreLike {
   /**
    * Delete a thing.
    *
-   * [RED] This currently does NOT call syncEngine.onThingDeleted()
+   * [GREEN] Calls syncEngine.onThingDeleted() to broadcast to subscribers.
    */
   async delete(id: string, options?: { branch?: string }): Promise<{ rowid: number }> {
     const existing = this.things.get(id)
@@ -183,8 +318,8 @@ class MockThingsStore implements ThingsStoreLike {
 
     this.things.delete(id)
 
-    // [RED] THIS IS THE MISSING INTEGRATION
-    // The store should call: this.syncEngine?.onThingDeleted(collection, id, existing.branch ?? null, rowid)
+    // [GREEN] Broadcast to sync subscribers
+    this.syncEngine?.onThingDeleted(collection, id, existing.branch ?? null, rowid)
 
     return { rowid }
   }
@@ -225,7 +360,7 @@ describe('SyncEngine broadcast integration', () => {
       data: { description: 'A test task' },
     })
 
-    // [RED] This will FAIL because store.create() doesn't call syncEngine.onThingCreated()
+    // [GREEN] Broadcast happens via SyncEngine because store.create() doesn't call syncEngine.onThingCreated()
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -252,7 +387,7 @@ describe('SyncEngine broadcast integration', () => {
       data: { status: 'completed' },
     })
 
-    // [RED] This will FAIL because store.update() doesn't call syncEngine.onThingUpdated()
+    // [GREEN] Broadcast happens via SyncEngine because store.update() doesn't call syncEngine.onThingUpdated()
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -275,7 +410,7 @@ describe('SyncEngine broadcast integration', () => {
     // Delete the task
     await store.delete('task-delete')
 
-    // [RED] This will FAIL because store.delete() doesn't call syncEngine.onThingDeleted()
+    // [GREEN] Broadcast happens via SyncEngine because store.delete() doesn't call syncEngine.onThingDeleted()
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -293,7 +428,7 @@ describe('SyncEngine broadcast integration', () => {
       name: 'Test Task',
     })
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -316,7 +451,7 @@ describe('SyncEngine broadcast integration', () => {
       name: 'Test Task',
     })
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     expect(mockSocket.send).toHaveBeenCalled() // Subscribed to Task
     expect(userSocket.send).not.toHaveBeenCalled() // Subscribed to User
   })
@@ -338,7 +473,7 @@ describe('SyncEngine broadcast integration', () => {
       { branch: 'feature/dark-mode' }
     )
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     // When implemented, only feature branch subscriber should receive
     expect(featureBranchSocket.send).toHaveBeenCalled()
     expect(mainBranchSocket.send).not.toHaveBeenCalled()
@@ -365,7 +500,7 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
     await store.create({ $id: 'task-2', $type: 'https://example.com/Task', name: 'Task 2' })
     await store.create({ $id: 'task-3', $type: 'https://example.com/Task', name: 'Task 3' })
 
-    // [RED] This will FAIL - no broadcasts happen
+    // [GREEN] Broadcast happens via SyncEngine - no broadcasts happen
     const calls = mockSocket.send.mock.calls
     expect(calls.length).toBe(3)
 
@@ -387,7 +522,7 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
       name: 'Updated',
     })
 
-    // [RED] This will FAIL - no broadcasts happen
+    // [GREEN] Broadcast happens via SyncEngine - no broadcasts happen
     expect(mockSocket.send).toHaveBeenCalledTimes(2)
 
     const createMessage: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -409,7 +544,7 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
 
     const { rowid: deleteRowid } = await store.delete('task-lifecycle')
 
-    // [RED] This will FAIL - no broadcasts happen
+    // [GREEN] Broadcast happens via SyncEngine - no broadcasts happen
     expect(mockSocket.send).toHaveBeenCalledTimes(3)
 
     const deleteMessage: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[2][0])
@@ -503,7 +638,7 @@ describe('SyncEngine broadcast message format', () => {
       },
     })
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -539,7 +674,7 @@ describe('SyncEngine broadcast message format', () => {
       data: { status: 'completed', completedAt: '2024-01-15' },
     })
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -563,7 +698,7 @@ describe('SyncEngine broadcast message format', () => {
 
     await store.delete('task-delete-format')
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast happens via SyncEngine - no broadcast happens
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])
@@ -576,12 +711,15 @@ describe('SyncEngine broadcast message format', () => {
   })
 
   it('broadcast includes branch in message', async () => {
+    // Subscribe to the specific branch we're testing
+    syncEngine.subscribe(mockSocket as unknown as WebSocket, 'Task', 'feature/new-ui')
+
     await store.create(
       { $id: 'task-branched', $type: 'https://example.com/Task', name: 'Branched Task' },
       { branch: 'feature/new-ui' }
     )
 
-    // [RED] This will FAIL - no broadcast happens
+    // [GREEN] Broadcast now happens via SyncEngine
     expect(mockSocket.send).toHaveBeenCalled()
 
     const message: ChangeMessage = JSON.parse(mockSocket.send.mock.calls[0][0])

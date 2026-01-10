@@ -239,7 +239,11 @@ function createMockWebSocket(): MockWebSocket {
 
   const ws: MockWebSocket = {
     send: vi.fn(),
-    close: vi.fn(),
+    close: vi.fn(() => {
+      // When close() is called, trigger all close handlers
+      ws.readyState = 3 // WebSocket.CLOSED
+      closeHandlers.forEach((h) => h())
+    }),
     accept: vi.fn(),
     addEventListener: vi.fn((event: string, handler: (event: unknown) => void) => {
       if (event === 'message') {
@@ -258,6 +262,7 @@ function createMockWebSocket(): MockWebSocket {
       messageHandlers.forEach((h) => h(event))
     },
     simulateClose() {
+      ws.readyState = 3 // WebSocket.CLOSED
       closeHandlers.forEach((h) => h())
     },
   }
@@ -280,8 +285,101 @@ function createMockWebSocketPair(): [MockWebSocket, MockWebSocket] {
     client.simulateMessage(data)
   })
 
+  // Link close events - when one closes, the other should get notified
+  const originalClientClose = client.close
+  const originalServerClose = server.close
+  client.close = vi.fn(() => {
+    originalClientClose()
+    // Also trigger close on server
+    server.simulateClose()
+  })
+  server.close = vi.fn(() => {
+    originalServerClose()
+    // Also trigger close on client
+    client.simulateClose()
+  })
+
   return [client, server]
 }
+
+// ============================================================================
+// GLOBAL WEBSOCKETPAIR MOCK FOR CLOUDFLARE WORKERS RUNTIME
+// ============================================================================
+
+/**
+ * Mock WebSocketPair class that mimics Cloudflare Workers runtime
+ */
+class MockWebSocketPairClass {
+  0: MockWebSocket
+  1: MockWebSocket
+
+  constructor() {
+    const [client, server] = createMockWebSocketPair()
+    this[0] = client
+    this[1] = server
+  }
+
+  *[Symbol.iterator]() {
+    yield this[0]
+    yield this[1]
+  }
+}
+
+// Set up global WebSocketPair mock before tests run
+// Also override Response to support status 101 and webSocket property
+const OriginalResponse = globalThis.Response
+
+class MockWSResponse {
+  status: number
+  webSocket: MockWebSocket | undefined
+  headers: Headers
+  ok: boolean
+  statusText: string
+  body: ReadableStream | null = null
+
+  constructor(body: BodyInit | null, init?: ResponseInit & { webSocket?: MockWebSocket }) {
+    this.status = init?.status ?? 200
+    this.webSocket = init?.webSocket
+    this.headers = new Headers(init?.headers)
+    this.ok = this.status >= 200 && this.status < 300
+    this.statusText = init?.statusText ?? (this.status === 101 ? 'Switching Protocols' : 'OK')
+  }
+
+  json(): Promise<unknown> {
+    return Promise.resolve({})
+  }
+}
+
+beforeEach(() => {
+  ;(globalThis as any).WebSocketPair = MockWebSocketPairClass
+
+  // Override Response to support WebSocket upgrade responses
+  ;(globalThis as any).Response = class extends OriginalResponse {
+    webSocket?: MockWebSocket
+
+    constructor(body: BodyInit | null, init?: ResponseInit & { webSocket?: MockWebSocket }) {
+      // Use status 200 for the underlying Response if it's a WebSocket upgrade
+      const isWebSocketUpgrade = init?.status === 101
+      const adjustedInit = isWebSocketUpgrade ? { ...init, status: 200 } : init
+
+      super(body, adjustedInit)
+
+      if (isWebSocketUpgrade) {
+        // Override the status property
+        Object.defineProperty(this, 'status', { value: 101, writable: false })
+        Object.defineProperty(this, 'statusText', { value: 'Switching Protocols', writable: false })
+      }
+
+      if (init?.webSocket) {
+        this.webSocket = init.webSocket
+      }
+    }
+
+    static json(data: unknown, init?: ResponseInit): Response {
+      return OriginalResponse.json(data, init)
+    }
+  }
+})
 
 // ============================================================================
 // TEST DO CLASS - For testing sync functionality

@@ -1,11 +1,6 @@
 /**
  * SyncClient - WebSocket sync client for real-time updates
  *
- * STUB FILE - Implementation pending (see dotdo-i5oxh)
- *
- * This file provides type definitions for the SyncClient class.
- * The implementation will be completed in the GREEN phase.
- *
  * Wire Protocol Reference:
  *
  * Client -> Server:
@@ -66,6 +61,14 @@ export class SyncClient<T> {
   // Configuration
   private config: SyncClientConfig
 
+  // WebSocket instance
+  private ws: WebSocket | null = null
+
+  // Reconnection state
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private intentionalDisconnect = false
+
   // Callbacks (to be set by consumer)
 
   /**
@@ -100,8 +103,62 @@ export class SyncClient<T> {
    * exponential backoff on connection loss.
    */
   connect(): void {
-    // TODO: Implement in GREEN phase (dotdo-i5oxh)
-    throw new Error('SyncClient.connect() not implemented')
+    // Reset intentional disconnect flag when connecting
+    this.intentionalDisconnect = false
+
+    // Create WebSocket connection
+    const wsUrl = `${this.config.doUrl}/sync`
+    this.ws = new WebSocket(wsUrl)
+
+    this.ws.onopen = () => {
+      // Reset reconnect attempts on successful connection
+      this.reconnectAttempts = 0
+
+      // Send subscribe message
+      const subscribeMsg: Record<string, string> = {
+        type: 'subscribe',
+        collection: this.config.collection,
+      }
+
+      if (this.config.branch) {
+        subscribeMsg.branch = this.config.branch
+      }
+
+      this.ws!.send(JSON.stringify(subscribeMsg))
+    }
+
+    this.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+
+        if (msg.type === 'initial') {
+          this.onInitial(msg.data, msg.txid)
+        } else if (msg.type === 'insert' || msg.type === 'update') {
+          this.onChange(msg.type, msg.data, msg.txid)
+        } else if (msg.type === 'delete') {
+          // For delete, pass the data or construct an object with key info
+          const item = msg.data || { key: msg.key }
+          this.onChange('delete', item as T, msg.txid)
+        }
+        // Unknown message types are silently ignored
+      } catch {
+        // Malformed JSON - silently ignore
+      }
+    }
+
+    this.ws.onclose = () => {
+      this.onDisconnect()
+
+      // Only schedule reconnect if this wasn't an intentional disconnect
+      if (!this.intentionalDisconnect) {
+        this.scheduleReconnect()
+      }
+    }
+
+    this.ws.onerror = () => {
+      // Error handling - the onclose handler will fire after this
+      // and handle reconnection
+    }
   }
 
   /**
@@ -111,7 +168,40 @@ export class SyncClient<T> {
    * Cancels any pending reconnection attempts.
    */
   disconnect(): void {
-    // TODO: Implement in GREEN phase (dotdo-i5oxh)
-    throw new Error('SyncClient.disconnect() not implemented')
+    // Mark as intentional disconnect to prevent auto-reconnect
+    this.intentionalDisconnect = true
+
+    // Cancel any pending reconnection
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
+    if (this.ws) {
+      // Only send unsubscribe if socket is open
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'unsubscribe',
+          collection: this.config.collection,
+        }))
+      }
+
+      this.ws.close()
+      this.ws = null
+    }
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   */
+  private scheduleReconnect(): void {
+    // Calculate delay with exponential backoff, capped at 30 seconds
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
+    this.reconnectAttempts++
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect()
+    }, delay)
   }
 }

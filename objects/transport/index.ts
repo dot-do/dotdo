@@ -133,3 +133,13 @@ export type {
   RateLimitStorage,
   NonceStorage,
 } from './auth-layer'
+
+// Sync engine
+export { SyncEngine } from './sync-engine'
+export type {
+  SyncThing,
+  SubscribeMessage,
+  UnsubscribeMessage,
+  InitialMessage,
+  ChangeMessage,
+} from './sync-engine'
