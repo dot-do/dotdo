@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "my-jsonapi",
+  "main": "node_modules/dotdo/workers/jsonapi.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Your Durable Object
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DO",
+        "class_name": "MyApp",
+        "script_name": "my-jsonapi"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MyApp"]
+    }
+  ]
+}
