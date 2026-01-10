@@ -75,7 +75,7 @@ export default defineWorkspace([
   ]),
 
   // Database schema tests
-  createNodeWorkspace('schema', ['db/tests/**/*.test.ts']),
+  createNodeWorkspace('schema', ['db/tests/**/*.test.ts', 'db/schema/tests/**/*.test.ts']),
 
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
@@ -300,6 +300,9 @@ export default defineWorkspace([
 
   // Iceberg metadata DO tests (metadata parsing, partition pruning)
   createNodeWorkspace('iceberg-do', ['tests/iceberg/**/*.test.ts']),
+
+  // Security tests (audit, dependencies, etc.)
+  createNodeWorkspace('security', ['tests/security/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
