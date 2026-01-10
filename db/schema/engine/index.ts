@@ -165,7 +165,11 @@ export class GenerationEngine {
     }
 
     // LEGACY API: generate(typeName, seed?, options?) or generate(SchemaDefinition, typeName, options?)
-    return this.generateLegacy<T>(schemaOrType, typeNameOrSeed, maybeOptions)
+    // Only pass maybeOptions if it's a valid GenerationOptions object (not a string)
+    const legacyOptions = typeof maybeOptions === 'object' && maybeOptions !== null && !('seed' in maybeOptions && typeof (maybeOptions as any).seed === 'string')
+      ? maybeOptions as GenerationOptions
+      : undefined
+    return this.generateLegacy<T>(schemaOrType, typeNameOrSeed as Record<string, unknown> | GenerationOptions | undefined, legacyOptions)
   }
 
   /**
@@ -549,7 +553,7 @@ export class GenerationEngine {
       this.schema = DB(typeOrSchema)
       this.parsedSchema = this.parseDBSchema(this.schema)
       typeName = seedOrOptions as string
-      seed = options ?? {}
+      seed = (options as Record<string, unknown>) ?? {}
     }
 
     // Validate schema is set
@@ -625,7 +629,11 @@ export class GenerationEngine {
     seed?: Record<string, unknown>,
     options?: GenerationOptions
   ): Promise<CascadeResult<T>> {
-    const entity = await this.generate<T>(typeOrSchema, seed, options)
+    const result = await this.generate<T>(typeOrSchema, seed, options)
+    // Handle both legacy (returns T directly) and new API (returns GenResult<T>)
+    const entity = (result && typeof result === 'object' && 'entity' in result)
+      ? (result as GenResult<T>).entity
+      : result as T
     const generated = Array.from(this.entities.values())
     const relationships = Array.from(this.relationships.values())
 

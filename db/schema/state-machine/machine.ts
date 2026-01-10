@@ -153,9 +153,10 @@ export class StateMachine {
     return Object.keys(this.config).filter((key) => !key.startsWith('$'))
   }
 
-  private getTargetState(transition: string | null | TransitionDefinition | undefined): string | null {
+  private getTargetState(transition: string | null | TransitionDefinition | ActionFunction<Entity> | undefined): string | null {
     if (transition === null) return null
     if (typeof transition === 'string') return transition
+    if (typeof transition === 'function') return null // ActionFunction doesn't define a target state
     if (typeof transition === 'object' && transition !== null && 'to' in transition) {
       return transition.to
     }

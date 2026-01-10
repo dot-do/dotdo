@@ -66,7 +66,7 @@ function parseObjectField(value: Record<string, unknown>): ParsedField {
   const properties: Record<string, ParsedField> = {}
 
   for (const [key, fieldValue] of Object.entries(value)) {
-    properties[key] = parseFieldType(fieldValue)
+    properties[key] = parseFieldType(fieldValue as FieldValue)
   }
 
   return {

@@ -193,7 +193,7 @@ export class LifecycleManager {
    */
   async onCreated(entity: Entity, $: LifecycleContext): Promise<CascadeResult | void> {
     const hooks = this.hooks.get(entity.$type)
-    let result: CascadeResult | void
+    let result: CascadeResult | void = undefined
 
     if (hooks?.$created) {
       result = await hooks.$created(entity, $)

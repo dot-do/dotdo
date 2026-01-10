@@ -127,7 +127,12 @@
     "db:seed:integrations": "pnpm tsx db/seeds/run.ts integrations",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "primitives": "tsx scripts/deploy-primitives.ts",
+    "primitives:dry": "tsx scripts/deploy-primitives.ts --dry",
+    "primitives:cf": "tsx scripts/deploy-primitives.ts --cf",
+    "primitives:npm": "tsx scripts/deploy-primitives.ts --npm",
+    "submodules": "git submodule update --init --recursive"
   },
   "dependencies": {
     "fsx.do": "file:../fsx",
