@@ -51,3 +51,29 @@ export type {
   FindFileResult,
   IcebergRecord,
 } from './types'
+
+// Search manifest exports
+export {
+  validateSearchManifest,
+  parseSearchManifest,
+  buildIndexUrl,
+  buildDataUrl,
+  buildAllDataUrls,
+  getAvailableIndexes,
+  getIndexConfig,
+  hasIndex,
+  SearchManifestValidationError,
+} from './search-manifest'
+
+export type {
+  SearchManifest,
+  IndexConfigs,
+  BloomIndexConfig,
+  RangeIndexConfig,
+  VectorIndexConfig,
+  InvertedIndexConfig,
+  DataConfig,
+  CacheConfig,
+  VectorMetric,
+  IndexType,
+} from './search-manifest'

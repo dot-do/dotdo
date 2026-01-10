@@ -1,0 +1,70 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "wiktionary-ingest",
+  "main": "../wiktionary-ingest.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // R2 bucket for storing dictionary partitions
+  "r2_buckets": [
+    {
+      "binding": "DICTIONARY_BUCKET",
+      "bucket_name": "dotdo-dictionary"
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    // Prefix for R2 object keys
+    "R2_PREFIX": "wiktionary/english/",
+
+    // Debug logging
+    "DEBUG": "false"
+  },
+
+  // Scheduled triggers for periodic refresh
+  // Kaikki.org updates monthly, so weekly check is reasonable
+  "triggers": {
+    "crons": [
+      // Run every Sunday at 3am UTC
+      "0 3 * * 0"
+    ]
+  },
+
+  // Development environment overrides
+  "env": {
+    "development": {
+      "vars": {
+        "DEBUG": "true"
+      },
+      "r2_buckets": [
+        {
+          "binding": "DICTIONARY_BUCKET",
+          "bucket_name": "dotdo-dictionary-dev"
+        }
+      ]
+    },
+    "staging": {
+      "vars": {
+        "DEBUG": "true"
+      },
+      "r2_buckets": [
+        {
+          "binding": "DICTIONARY_BUCKET",
+          "bucket_name": "dotdo-dictionary-staging"
+        }
+      ]
+    },
+    "production": {
+      "vars": {
+        "DEBUG": "false"
+      },
+      "r2_buckets": [
+        {
+          "binding": "DICTIONARY_BUCKET",
+          "bucket_name": "dotdo-dictionary"
+        }
+      ]
+    }
+  }
+}
