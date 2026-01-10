@@ -20,6 +20,7 @@
  * - withFs: Base filesystem capability (no dependencies)
  * - withGit: Git operations (requires withFs)
  * - withBash: Shell execution (requires withFs)
+ * - withNpm: Package management (requires withFs, optionally withBash for scripts)
  */
 
 export { withFs, type FsCapability, type WithFsContext } from './fs'
@@ -34,6 +35,7 @@ export {
   type GitBinding,
   type GitStatus,
   type GitCommitResult,
+  type GitLogEntry,
   type SyncResult,
   type PushResult,
 } from './git'
@@ -49,3 +51,14 @@ export {
   type WithBashContext,
   type WithBashConfig,
 } from './bash'
+export {
+  withNpm,
+  NpmModule,
+  type NpmCapability,
+  type WithNpmContext,
+  type WithNpmBashContext,
+  type WithNpmOptions,
+  type InstallResult,
+  type InstalledPackage,
+  type PackageJson,
+} from './npm'

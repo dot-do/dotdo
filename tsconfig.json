@@ -24,7 +24,8 @@
     // Import aliases
     "paths": {
       "dotdo": ["./index.ts"],
-      "dotdo/*": ["./*"]
+      "dotdo/*": ["./*"],
+      "fsx.do": ["../fsx/index.ts"]
     },
 
     // Better error messages and IDE experience

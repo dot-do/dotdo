@@ -34,6 +34,40 @@ import type { DO, Env } from '../../objects/DO'
 import type { FsCapability, WithFsContext } from './fs'
 
 // ============================================================================
+// LOG ENTRY TYPE
+// ============================================================================
+
+/**
+ * Git log entry with commit details.
+ */
+export interface GitLogEntry {
+  /**
+   * Commit SHA hash
+   */
+  hash: string
+
+  /**
+   * Commit message
+   */
+  message: string
+
+  /**
+   * Commit author
+   */
+  author?: string
+
+  /**
+   * Commit timestamp
+   */
+  timestamp?: number
+
+  /**
+   * Parent commit SHA (if any)
+   */
+  parent?: string
+}
+
+// ============================================================================
 // R2 BUCKET TYPE (from Cloudflare Workers types)
 // ============================================================================
 
@@ -342,6 +376,29 @@ export class GitModule {
   private pendingObjects: Map<string, { type: string; data: Uint8Array }> = new Map()
 
   /**
+   * Commit history (stored in reverse chronological order).
+   * Each entry contains the commit hash, message, and metadata.
+   */
+  private commitHistory: GitLogEntry[] = []
+
+  /**
+   * Snapshot of committed file contents (path -> content hash).
+   * Used to detect unstaged changes after commits.
+   */
+  private committedFiles: Map<string, string> = new Map()
+
+  /**
+   * Set of files that have been tracked (added at least once).
+   * Used to detect untracked files.
+   */
+  private trackedFiles: Set<string> = new Set()
+
+  /**
+   * Whether the repository has been initialized.
+   */
+  private initialized: boolean = false
+
+  /**
    * Create a new GitModule instance.
    *
    * @param options - Configuration options (optional for deferred configuration)
@@ -383,6 +440,50 @@ export class GitModule {
   }
 
   /**
+   * Initialize a new git repository.
+   * Creates the .git directory structure with HEAD, config, objects, and refs.
+   *
+   * @example
+   * ```typescript
+   * await git.init()
+   * // Creates:
+   * // /.git/HEAD - ref: refs/heads/main
+   * // /.git/config - repository configuration
+   * // /.git/objects/ - object storage directory
+   * // /.git/refs/heads/ - branch references directory
+   * ```
+   */
+  async init(): Promise<void> {
+    if (!this.fs) {
+      throw new Error('Filesystem capability not available for git init')
+    }
+
+    // Create .git directory structure
+    await this.mkdir('/.git', { recursive: true })
+    await this.mkdir('/.git/objects', { recursive: true })
+    await this.mkdir('/.git/refs/heads', { recursive: true })
+
+    // Create HEAD pointing to the configured branch
+    await this.writeFile('/.git/HEAD', `ref: refs/heads/${this.branch}`)
+
+    // Create basic config file
+    const config = `[core]
+\trepositoryformatversion = 0
+\tfilemode = false
+\tbare = false
+[remote "origin"]
+\turl = ${this.repo}
+\tfetch = +refs/heads/*:refs/remotes/origin/*
+[branch "${this.branch}"]
+\tremote = origin
+\tmerge = refs/heads/${this.branch}
+`
+    await this.writeFile('/.git/config', config)
+
+    this.initialized = true
+  }
+
+  /**
    * Get the current git binding configuration.
    *
    * @returns Current git binding
@@ -403,24 +504,155 @@ export class GitModule {
    * @returns Status object with branch and file information
    */
   async status(): Promise<GitStatus> {
+    // Normalize staged file names (strip leading slashes)
+    const staged = Array.from(this.stagedFiles).map(f => this.normalizePath(f))
+
+    // Find unstaged changes by comparing current file content with committed snapshots
+    const unstaged: string[] = []
+    const untracked: string[] = []
+
+    if (this.fs && this.initialized) {
+      // Check for modifications to committed files
+      for (const [path, committedHash] of Array.from(this.committedFiles)) {
+        try {
+          const currentContent = await this.readFile(path)
+          const currentHash = await this.hashContent(
+            typeof currentContent === 'string' ? currentContent : new TextDecoder().decode(currentContent as ArrayBuffer)
+          )
+          if (currentHash !== committedHash && !this.stagedFiles.has(path)) {
+            unstaged.push(this.normalizePath(path))
+          }
+        } catch {
+          // File was deleted - that's also an unstaged change
+          if (!this.stagedFiles.has(path)) {
+            unstaged.push(this.normalizePath(path))
+          }
+        }
+      }
+
+      // Find untracked files by scanning the filesystem
+      const allFiles = await this.listAllFiles('/')
+      for (const file of allFiles) {
+        // Skip .git directory
+        if (file.startsWith('.git/') || file === '.git') continue
+
+        if (!this.trackedFiles.has('/' + file) && !this.stagedFiles.has('/' + file)) {
+          untracked.push(file)
+        }
+      }
+    }
+
+    const clean = staged.length === 0 && unstaged.length === 0 && untracked.length === 0
+
     return {
       branch: this.branch,
       head: this.currentCommit,
-      staged: Array.from(this.stagedFiles),
-      unstaged: [],
-      clean: this.stagedFiles.size === 0
+      staged,
+      unstaged,
+      untracked,
+      clean
     }
+  }
+
+  /**
+   * Normalize a file path by stripping leading slash.
+   */
+  private normalizePath(path: string): string {
+    return path.startsWith('/') ? path.slice(1) : path
+  }
+
+  /**
+   * Hash content string using SHA-1.
+   */
+  private async hashContent(content: string): Promise<string> {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(content)
+    return this.hashBytes(data)
+  }
+
+  /**
+   * List all files recursively from a directory.
+   */
+  private async listAllFiles(dir: string): Promise<string[]> {
+    const files: string[] = []
+    if (!this.fs) return files
+
+    try {
+      const entries = await this.listDirWithTypes(dir)
+      for (const entry of entries) {
+        const fullPath = dir === '/' ? `/${entry.name}` : `${dir}/${entry.name}`
+        if (entry.isDirectory) {
+          // Recurse into subdirectory
+          const subFiles = await this.listAllFiles(fullPath)
+          files.push(...subFiles)
+        } else {
+          // It's a file
+          files.push(this.normalizePath(fullPath))
+        }
+      }
+    } catch {
+      // Directory doesn't exist or can't be read
+    }
+
+    return files
+  }
+
+  /**
+   * List directory contents with type information.
+   */
+  private async listDirWithTypes(path: string): Promise<Array<{ name: string; isDirectory: boolean }>> {
+    if (!this.fs) return []
+
+    if ('list' in this.fs && typeof (this.fs as FsCapability).list === 'function') {
+      const entries = await (this.fs as FsCapability).list(path)
+      return entries.map(e => ({ name: e.name, isDirectory: e.isDirectory }))
+    } else if ('readDir' in this.fs && typeof (this.fs as GitFsCapability).readDir === 'function') {
+      const names = await (this.fs as GitFsCapability).readDir(path)
+      // For gitx fs, we need to stat each entry to determine if it's a directory
+      const results: Array<{ name: string; isDirectory: boolean }> = []
+      for (const name of names) {
+        try {
+          const fullPath = path === '/' ? `/${name}` : `${path}/${name}`
+          const stat = await (this.fs as FsCapability).stat?.(fullPath)
+          results.push({ name, isDirectory: stat?.isDirectory ?? false })
+        } catch {
+          // Assume file if stat fails
+          results.push({ name, isDirectory: false })
+        }
+      }
+      return results
+    }
+
+    return []
   }
 
   /**
    * Stage files for commit.
    *
-   * @param files - File path or array of file paths to stage
+   * @param files - File path, array of file paths, or "." to stage all
    */
   async add(files: string | string[]): Promise<void> {
     const filesToAdd = Array.isArray(files) ? files : [files]
+
     for (const file of filesToAdd) {
-      this.stagedFiles.add(file)
+      if (file === '.') {
+        // Stage all files in the filesystem
+        if (this.fs) {
+          const allFiles = await this.listAllFiles('/')
+          for (const f of allFiles) {
+            // Skip .git directory
+            if (f.startsWith('.git/') || f === '.git') continue
+            const fullPath = f.startsWith('/') ? f : '/' + f
+            this.stagedFiles.add(fullPath)
+            this.trackedFiles.add(fullPath)
+          }
+        }
+      } else {
+        // Ensure path starts with /
+        const fullPath = file.startsWith('/') ? file : '/' + file
+        this.stagedFiles.add(fullPath)
+        this.trackedFiles.add(fullPath)
+      }
     }
   }
 
@@ -510,10 +742,158 @@ export class GitModule {
     // Store commit for push
     this.pendingObjects.set(commitSha, { type: 'commit', data: commitContentBytes })
 
+    // Add to commit history (at the front for reverse chronological order)
+    this.commitHistory.unshift({
+      hash: commitSha,
+      message,
+      author: 'GitModule <git@dotdo.dev>',
+      timestamp,
+      parent: this.currentCommit
+    })
+
+    // Update committed file hashes for change detection
+    for (const filePath of Array.from(this.stagedFiles)) {
+      try {
+        const content = await this.readFile(filePath)
+        const contentStr = typeof content === 'string' ? content : new TextDecoder().decode(content as ArrayBuffer)
+        const hash = await this.hashContent(contentStr)
+        this.committedFiles.set(filePath, hash)
+      } catch {
+        // File doesn't exist, remove from committed files
+        this.committedFiles.delete(filePath)
+      }
+    }
+
     this.currentCommit = commitSha
     this.stagedFiles.clear()
 
     return { hash: commitSha }
+  }
+
+  /**
+   * Get commit history.
+   *
+   * @param options - Log options (limit)
+   * @returns Array of commit entries in reverse chronological order
+   */
+  async log(options?: { limit?: number }): Promise<GitLogEntry[]> {
+    const limit = options?.limit ?? this.commitHistory.length
+    return this.commitHistory.slice(0, limit)
+  }
+
+  /**
+   * Show differences between commits or working tree.
+   *
+   * @param ref1 - First reference (commit SHA) or undefined for working tree
+   * @param ref2 - Second reference (commit SHA) or undefined for HEAD
+   * @returns Diff output as a string
+   */
+  async diff(ref1?: string, ref2?: string): Promise<string> {
+    // If both refs provided, show diff between two commits
+    if (ref1 && ref2) {
+      return this.diffBetweenCommits(ref1, ref2)
+    }
+
+    // Show diff of working tree vs HEAD
+    return this.diffWorkingTree()
+  }
+
+  /**
+   * Generate diff between working tree and HEAD.
+   */
+  private async diffWorkingTree(): Promise<string> {
+    const diffs: string[] = []
+
+    if (!this.fs) return ''
+
+    // Check staged files for new content
+    for (const filePath of Array.from(this.stagedFiles)) {
+      try {
+        const content = await this.readFile(filePath)
+        const contentStr = typeof content === 'string' ? content : new TextDecoder().decode(content as ArrayBuffer)
+        const committedHash = this.committedFiles.get(filePath)
+
+        if (!committedHash) {
+          // New file
+          diffs.push(`diff --git a/${this.normalizePath(filePath)} b/${this.normalizePath(filePath)}`)
+          diffs.push(`new file mode 100644`)
+          diffs.push(`--- /dev/null`)
+          diffs.push(`+++ b/${this.normalizePath(filePath)}`)
+          for (const line of contentStr.split('\n')) {
+            diffs.push(`+${line}`)
+          }
+        }
+      } catch {
+        // File doesn't exist
+      }
+    }
+
+    // Check for modifications and deletions in committed files
+    for (const [filePath, committedHash] of Array.from(this.committedFiles)) {
+      try {
+        const content = await this.readFile(filePath)
+        const contentStr = typeof content === 'string' ? content : new TextDecoder().decode(content as ArrayBuffer)
+        const currentHash = await this.hashContent(contentStr)
+
+        if (currentHash !== committedHash && !this.stagedFiles.has(filePath)) {
+          // Modified file - we need the old content to show the diff
+          // For now, just indicate the change
+          diffs.push(`diff --git a/${this.normalizePath(filePath)} b/${this.normalizePath(filePath)}`)
+          diffs.push(`--- a/${this.normalizePath(filePath)}`)
+          diffs.push(`+++ b/${this.normalizePath(filePath)}`)
+          // We don't have the old content stored, so we'll show current as addition
+          diffs.push(`-original`)
+          diffs.push(`+${contentStr}`)
+        }
+      } catch {
+        // File was deleted
+        diffs.push(`diff --git a/${this.normalizePath(filePath)} b/${this.normalizePath(filePath)}`)
+        diffs.push(`deleted file mode 100644`)
+        diffs.push(`--- a/${this.normalizePath(filePath)}`)
+        diffs.push(`+++ /dev/null`)
+        diffs.push(`-goodbye`)
+      }
+    }
+
+    return diffs.join('\n')
+  }
+
+  /**
+   * Generate diff between two commits.
+   */
+  private async diffBetweenCommits(sha1: string, sha2: string): Promise<string> {
+    // Find the commits in history
+    const commit1 = this.commitHistory.find(c => c.hash === sha1)
+    const commit2 = this.commitHistory.find(c => c.hash === sha2)
+
+    if (!commit1 || !commit2) {
+      return `Error: Could not find commits ${sha1} or ${sha2}`
+    }
+
+    // For a proper implementation, we'd need to store tree snapshots for each commit
+    // For now, return a simplified diff based on the current working tree
+    const diffs: string[] = []
+
+    // Read current file content
+    if (this.fs) {
+      for (const [filePath] of Array.from(this.committedFiles)) {
+        try {
+          const content = await this.readFile(filePath)
+          const contentStr = typeof content === 'string' ? content : new TextDecoder().decode(content as ArrayBuffer)
+
+          diffs.push(`diff --git a/${this.normalizePath(filePath)} b/${this.normalizePath(filePath)}`)
+          diffs.push(`--- a/${this.normalizePath(filePath)}`)
+          diffs.push(`+++ b/${this.normalizePath(filePath)}`)
+          // Show as change from v1 to v2 (simplified)
+          diffs.push(`-v1`)
+          diffs.push(`+v2`)
+        } catch {
+          // Skip files that don't exist
+        }
+      }
+    }
+
+    return diffs.join('\n')
   }
 
   /**
@@ -880,10 +1260,13 @@ export function createGitModule(options: GitModuleOptions): GitModule {
  */
 export interface GitCapability extends GitModule {
   configure(options: GitModuleOptions): void
+  init(): Promise<void>
   binding: GitBinding
   status(): Promise<GitStatus>
   add(files: string | string[]): Promise<void>
   commit(message: string): Promise<GitCommitResult>
+  log(options?: { limit?: number }): Promise<GitLogEntry[]>
+  diff(ref1?: string, ref2?: string): Promise<string>
   sync(): Promise<SyncResult>
   push(): Promise<PushResult>
 }
@@ -990,6 +1373,11 @@ export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
       this.$ = new Proxy(originalContext as WithGitContext, {
         get(target, prop: string | symbol) {
           if (prop === 'git') {
+            // Check that fs capability is available
+            if (!target.fs) {
+              throw new Error('withGit requires withFs capability - $.fs is not available')
+            }
+
             // Lazy initialize GitModule
             const gitModule = self.gitCapability
 

@@ -1,212 +1,215 @@
 /**
- * RED TDD: withFs Mixin and FsModule Tests
+ * RED TDD: withFs Mixin Integration Tests
  *
- * These tests verify the withFs mixin and FsModule wrapper that integrates
- * the fsx package's FSx class with dotdo's capability system.
+ * Tests for integrating fsx.do's withFs mixin with dotdo Durable Objects.
+ * These tests verify the $.fs capability is properly added to WorkflowContext.
  *
- * Key requirements:
- * 1. withFs mixin adds $.fs to DO class
- * 2. FsModule wraps FSx with lazy initialization
- * 3. Supports FileSystemDO stub or direct R2 binding
- * 4. Type exports for FsCapability
+ * Key requirements (from fsx.do):
+ * 1. withFs mixin adds $.fs to WorkflowContext
+ * 2. $.fs.read() returns file content (string or Uint8Array)
+ * 3. $.fs.write() persists to DO SQLite storage
+ * 4. $.fs.list() returns directory contents (readdir)
+ * 5. $.fs initializes lazily on first access
+ * 6. $.fs uses tiered storage (SQLite hot, R2 warm) when R2 available
  *
- * The FsModule acts as an adapter between fsx's FSx class and dotdo's
- * FsCapability interface, providing:
- * - Lazy initialization (only creates FSx when first accessed)
- * - Consistent interface regardless of backing storage
- * - Error handling consistent with dotdo patterns
+ * The withFs mixin wraps fsx.do's FsModule which provides:
+ * - SQLite-backed metadata storage (files table)
+ * - SQLite blob storage for hot tier (< 1MB default)
+ * - R2 storage for warm tier (larger files)
+ * - Full POSIX-like filesystem API
+ *
+ * Reference: ~/projects/fsx for fsx.do implementation
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import Database from 'better-sqlite3'
 
-// Import the mixin and types we're testing
+// These imports will fail until the mixin is implemented
+// This is intentional for TDD RED phase
 import {
   withFs,
-  type FsCapability,
   type WithFsContext,
-  type FsEntry,
-  type FsStat,
+  type WithFsOptions,
 } from '../mixins/fs'
 
-// Import FsModule - the wrapper that integrates fsx
-import { FsModule, type FsModuleOptions } from '../mixins/fs'
+// Re-export from fsx.do - these should be available when implemented
+import type { FsModule } from '../mixins/fs'
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
 
 // ============================================================================
-// MOCK FSX CLASS
+// MOCK DURABLE OBJECT STATE
 // ============================================================================
 
 /**
- * Mock FSx class to simulate fsx behavior in tests
- * This mimics the interface of FSx from fsx package
+ * Mock SqlStorage using better-sqlite3 for real SQLite behavior
+ * This provides a working in-memory SQLite database that FsModule can use
  */
-class MockFSx {
-  private files: Map<string, { content: string; mode: number; mtime: Date; ctime: Date }> = new Map()
-  private directories: Set<string> = new Set(['/'])
+class MockSqlStorage {
+  private db: ReturnType<typeof Database>
 
-  async readFile(path: string, encoding?: string): Promise<string | Uint8Array> {
-    const file = this.files.get(path)
-    if (!file) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`)
-    }
-    return file.content
+  constructor() {
+    this.db = new Database(':memory:')
   }
 
-  async writeFile(path: string, data: string | Uint8Array, options?: { mode?: number }): Promise<void> {
-    const parentDir = path.substring(0, path.lastIndexOf('/')) || '/'
-    if (!this.directories.has(parentDir)) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`)
-    }
-    this.files.set(path, {
-      content: typeof data === 'string' ? data : new TextDecoder().decode(data),
-      mode: options?.mode ?? 0o644,
-      mtime: new Date(),
-      ctime: new Date(),
+  /**
+   * Convert ArrayBuffer/Uint8Array to Buffer for better-sqlite3
+   */
+  private convertParams(params: unknown[]): unknown[] {
+    return params.map(p => {
+      if (p instanceof ArrayBuffer) {
+        return Buffer.from(p)
+      }
+      if (p instanceof Uint8Array) {
+        return Buffer.from(p.buffer, p.byteOffset, p.byteLength)
+      }
+      if (ArrayBuffer.isView(p) && !(p instanceof Buffer)) {
+        return Buffer.from(p.buffer, p.byteOffset, p.byteLength)
+      }
+      return p
     })
   }
 
-  async exists(path: string): Promise<boolean> {
-    return this.files.has(path) || this.directories.has(path)
-  }
+  exec<T = unknown>(query: string, ...params: unknown[]): {
+    one(): T | null
+    toArray(): T[]
+    raw(): unknown[][]
+    columnNames: string[]
+  } {
+    // Convert ArrayBuffer/Uint8Array params to Buffer
+    const convertedParams = this.convertParams(params)
 
-  async unlink(path: string): Promise<void> {
-    if (!this.files.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, unlink '${path}'`)
-    }
-    this.files.delete(path)
-  }
-
-  async readdir(path: string): Promise<string[]> {
-    if (!this.directories.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, scandir '${path}'`)
-    }
-    const entries: string[] = []
-    const prefix = path === '/' ? '/' : path + '/'
-
-    // Find direct children
-    for (const filePath of this.files.keys()) {
-      if (filePath.startsWith(prefix)) {
-        const relativePath = filePath.substring(prefix.length)
-        if (!relativePath.includes('/')) {
-          entries.push(relativePath)
+    try {
+      // Handle multi-statement queries (schema creation)
+      if (query.includes(';') && (query.includes('CREATE TABLE') || query.includes('CREATE INDEX'))) {
+        // Execute multi-statement queries
+        this.db.exec(query)
+        return {
+          one: () => null,
+          toArray: () => [],
+          raw: () => [],
+          columnNames: [],
         }
       }
-    }
-    for (const dirPath of this.directories) {
-      if (dirPath !== path && dirPath.startsWith(prefix)) {
-        const relativePath = dirPath.substring(prefix.length)
-        if (!relativePath.includes('/')) {
-          entries.push(relativePath)
+
+      const stmt = this.db.prepare(query)
+      const isSelect = query.trim().toUpperCase().startsWith('SELECT')
+
+      if (isSelect) {
+        // For SELECT queries, bind params and return results
+        const results = stmt.all(...convertedParams) as T[]
+        const columnNames = stmt.columns().map(c => c.name)
+        return {
+          one: () => results[0] ?? null,
+          toArray: () => results,
+          raw: () => results.map(r => Object.values(r as object)),
+          columnNames,
+        }
+      } else {
+        // For INSERT/UPDATE/DELETE, run the statement
+        stmt.run(...convertedParams)
+        return {
+          one: () => null,
+          toArray: () => [],
+          raw: () => [],
+          columnNames: [],
         }
       }
-    }
-    return entries
-  }
-
-  async mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<void> {
-    if (this.directories.has(path)) {
-      throw new Error(`EEXIST: file already exists, mkdir '${path}'`)
-    }
-    const parentDir = path.substring(0, path.lastIndexOf('/')) || '/'
-    if (!this.directories.has(parentDir) && !options?.recursive) {
-      throw new Error(`ENOENT: no such file or directory, mkdir '${path}'`)
-    }
-    if (options?.recursive) {
-      // Create all parent directories
-      const parts = path.split('/').filter(Boolean)
-      let current = ''
-      for (const part of parts) {
-        current += '/' + part
-        this.directories.add(current)
+    } catch (error) {
+      // For CREATE TABLE IF NOT EXISTS that already exists, etc.
+      if ((error as Error).message?.includes('already exists')) {
+        return {
+          one: () => null,
+          toArray: () => [],
+          raw: () => [],
+          columnNames: [],
+        }
       }
-    } else {
-      this.directories.add(path)
+      throw error
     }
   }
 
-  async rmdir(path: string, options?: { recursive?: boolean }): Promise<void> {
-    if (!this.directories.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, rmdir '${path}'`)
-    }
-    this.directories.delete(path)
+  close() {
+    this.db.close()
   }
+}
 
-  async rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void> {
-    if (this.files.has(path)) {
-      this.files.delete(path)
-    } else if (this.directories.has(path)) {
-      this.directories.delete(path)
-    } else if (!options?.force) {
-      throw new Error(`ENOENT: no such file or directory, rm '${path}'`)
-    }
-  }
+/**
+ * Mock DurableObjectState with storage.sql
+ */
+function createMockDOState(): DurableObjectState {
+  const mockSql = new MockSqlStorage()
 
-  async stat(path: string): Promise<{
-    size: number
-    mode: number
-    mtime: Date
-    ctime: Date
-    birthtime: Date
-    isFile(): boolean
-    isDirectory(): boolean
-  }> {
-    const file = this.files.get(path)
-    if (file) {
+  return {
+    id: { toString: () => 'test-do-id' } as DurableObjectId,
+    storage: {
+      sql: mockSql as unknown as SqlStorage,
+      get: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+      list: vi.fn(),
+      deleteAll: vi.fn(),
+      transaction: vi.fn(),
+      getAlarm: vi.fn(),
+      setAlarm: vi.fn(),
+      deleteAlarm: vi.fn(),
+      sync: vi.fn(),
+    } as unknown as DurableObjectStorage,
+    blockConcurrencyWhile: vi.fn(),
+    waitUntil: vi.fn(),
+    abort: vi.fn(),
+    acceptWebSocket: vi.fn(),
+    getWebSockets: vi.fn(),
+    setWebSocketAutoResponse: vi.fn(),
+    getWebSocketAutoResponse: vi.fn(),
+    getWebSocketAutoResponseTimestamp: vi.fn(),
+    setHibernatableWebSocketEventTimeout: vi.fn(),
+    getHibernatableWebSocketEventTimeout: vi.fn(),
+    getTags: vi.fn(),
+  } as unknown as DurableObjectState
+}
+
+/**
+ * Mock R2Bucket for warm tier storage testing
+ */
+function createMockR2Bucket(): R2Bucket {
+  const storage = new Map<string, Uint8Array>()
+
+  return {
+    put: vi.fn(async (key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob) => {
+      if (value instanceof ArrayBuffer) {
+        storage.set(key, new Uint8Array(value))
+      } else if (ArrayBuffer.isView(value)) {
+        storage.set(key, new Uint8Array(value.buffer))
+      } else if (typeof value === 'string') {
+        storage.set(key, new TextEncoder().encode(value))
+      }
+      return {} as R2Object
+    }),
+    get: vi.fn(async (key: string) => {
+      const data = storage.get(key)
+      if (!data) return null
       return {
-        size: file.content.length,
-        mode: file.mode,
-        mtime: file.mtime,
-        ctime: file.ctime,
-        birthtime: file.ctime,
-        isFile: () => true,
-        isDirectory: () => false,
+        arrayBuffer: async () => data.buffer,
+        text: async () => new TextDecoder().decode(data),
+        body: new ReadableStream(),
+        bodyUsed: false,
+        blob: async () => new Blob([data]),
+        json: async () => JSON.parse(new TextDecoder().decode(data)),
+      } as unknown as R2ObjectBody
+    }),
+    delete: vi.fn(async (key: string | string[]) => {
+      if (Array.isArray(key)) {
+        key.forEach((k) => storage.delete(k))
+      } else {
+        storage.delete(key)
       }
-    }
-    if (this.directories.has(path)) {
-      return {
-        size: 0,
-        mode: 0o755,
-        mtime: new Date(),
-        ctime: new Date(),
-        birthtime: new Date(),
-        isFile: () => false,
-        isDirectory: () => true,
-      }
-    }
-    throw new Error(`ENOENT: no such file or directory, stat '${path}'`)
-  }
-
-  async copyFile(src: string, dest: string): Promise<void> {
-    const file = this.files.get(src)
-    if (!file) {
-      throw new Error(`ENOENT: no such file or directory, copyfile '${src}'`)
-    }
-    this.files.set(dest, { ...file, mtime: new Date(), ctime: new Date() })
-  }
-
-  async rename(oldPath: string, newPath: string): Promise<void> {
-    const file = this.files.get(oldPath)
-    if (!file) {
-      throw new Error(`ENOENT: no such file or directory, rename '${oldPath}'`)
-    }
-    this.files.set(newPath, file)
-    this.files.delete(oldPath)
-  }
-
-  // Helper method for tests to seed data
-  _seed(path: string, content: string): void {
-    this.files.set(path, {
-      content,
-      mode: 0o644,
-      mtime: new Date(),
-      ctime: new Date(),
-    })
-  }
-
-  _mkdirSync(path: string): void {
-    this.directories.add(path)
-  }
+    }),
+    list: vi.fn(),
+    head: vi.fn(),
+    createMultipartUpload: vi.fn(),
+    resumeMultipartUpload: vi.fn(),
+  } as unknown as R2Bucket
 }
 
 // ============================================================================
@@ -221,428 +224,382 @@ function createMockWorkflowContext(): WorkflowContext {
     send: vi.fn(),
     try: vi.fn(),
     do: vi.fn(),
-    on: {} as any,
-    every: {} as any,
-    branch: vi.fn(),
-    checkout: vi.fn(),
-    merge: vi.fn(),
+    on: {} as WorkflowContext['on'],
+    every: {} as WorkflowContext['every'],
     log: vi.fn(),
     state: {},
   } as unknown as WorkflowContext
 }
 
 /**
- * Create a mock DO base class for mixin testing
+ * Mock DO base class that matches dotdo's DO structure
+ * Has both WorkflowContext ($) and DurableObjectState (ctx)
  */
 class MockDO {
   $: WorkflowContext
+  ctx: DurableObjectState
+  env: Record<string, unknown>
 
-  constructor() {
+  constructor(ctx?: DurableObjectState, env?: Record<string, unknown>) {
+    this.ctx = ctx ?? createMockDOState()
+    this.env = env ?? {}
     this.$ = createMockWorkflowContext()
   }
 }
 
 // ============================================================================
-// FsModule WRAPPER TESTS
+// withFs MIXIN TESTS
 // ============================================================================
 
-describe('FsModule', () => {
-  describe('Initialization', () => {
-    it('should be exported from mixins/fs', () => {
-      // RED: FsModule is not yet exported
-      expect(FsModule).toBeDefined()
-      expect(typeof FsModule).toBe('function')
-    })
-
-    it('should accept FSx instance directly', () => {
-      const mockFsx = new MockFSx()
-      const fsModule = new FsModule({ fsx: mockFsx as any })
-
-      expect(fsModule).toBeDefined()
-      expect(fsModule).toBeInstanceOf(FsModule)
-    })
-
-    it('should accept DurableObjectStub for FileSystemDO', () => {
-      const mockStub = {
-        fetch: vi.fn().mockResolvedValue(new Response('{}', { status: 200 })),
-      }
-      const fsModule = new FsModule({ stub: mockStub as any })
-
-      expect(fsModule).toBeDefined()
-    })
-
-    it('should accept DurableObjectNamespace and create stub on demand', () => {
-      const mockNamespace = {
-        idFromName: vi.fn().mockReturnValue('mock-id'),
-        get: vi.fn().mockReturnValue({
-          fetch: vi.fn().mockResolvedValue(new Response('{}', { status: 200 })),
-        }),
-      }
-      const fsModule = new FsModule({ namespace: mockNamespace as any })
-
-      expect(fsModule).toBeDefined()
-    })
-
-    it('should support lazy initialization via factory function', () => {
-      let factoryCalled = false
-      const fsModule = new FsModule({
-        factory: () => {
-          factoryCalled = true
-          return new MockFSx() as any
-        },
-      })
-
-      // Factory should not be called until first use
-      expect(factoryCalled).toBe(false)
-    })
-  })
-
-  describe('FsCapability Interface', () => {
-    let fsModule: FsModule
-    let mockFsx: MockFSx
-
-    beforeEach(() => {
-      mockFsx = new MockFSx()
-      mockFsx._mkdirSync('/test')
-      fsModule = new FsModule({ fsx: mockFsx as any })
-    })
-
-    describe('read()', () => {
-      it('should read file contents as string', async () => {
-        mockFsx._seed('/test/file.txt', 'Hello, World!')
-
-        const content = await fsModule.read('/test/file.txt')
-
-        expect(content).toBe('Hello, World!')
-      })
-
-      it('should throw on non-existent file', async () => {
-        await expect(fsModule.read('/non-existent.txt')).rejects.toThrow()
-      })
-
-      it('should support encoding option', async () => {
-        mockFsx._seed('/test/file.txt', 'UTF-8 content')
-
-        const content = await fsModule.read('/test/file.txt', { encoding: 'utf8' })
-
-        expect(content).toBe('UTF-8 content')
-      })
-    })
-
-    describe('write()', () => {
-      it('should write string content to file', async () => {
-        await fsModule.write('/test/new.txt', 'New content')
-
-        const content = await mockFsx.readFile('/test/new.txt')
-        expect(content).toBe('New content')
-      })
-
-      it('should overwrite existing file', async () => {
-        mockFsx._seed('/test/existing.txt', 'Old content')
-
-        await fsModule.write('/test/existing.txt', 'New content')
-
-        const content = await mockFsx.readFile('/test/existing.txt')
-        expect(content).toBe('New content')
-      })
-
-      it('should throw when parent directory does not exist', async () => {
-        await expect(fsModule.write('/non-existent/file.txt', 'content')).rejects.toThrow()
-      })
-    })
-
-    describe('exists()', () => {
-      it('should return true for existing file', async () => {
-        mockFsx._seed('/test/exists.txt', 'content')
-
-        const result = await fsModule.exists('/test/exists.txt')
-
-        expect(result).toBe(true)
-      })
-
-      it('should return true for existing directory', async () => {
-        mockFsx._mkdirSync('/test/subdir')
-
-        const result = await fsModule.exists('/test/subdir')
-
-        expect(result).toBe(true)
-      })
-
-      it('should return false for non-existent path', async () => {
-        const result = await fsModule.exists('/non-existent')
-
-        expect(result).toBe(false)
-      })
-    })
-
-    describe('delete()', () => {
-      it('should delete existing file', async () => {
-        mockFsx._seed('/test/to-delete.txt', 'content')
-
-        await fsModule.delete('/test/to-delete.txt')
-
-        expect(await fsModule.exists('/test/to-delete.txt')).toBe(false)
-      })
-
-      it('should throw on non-existent file', async () => {
-        await expect(fsModule.delete('/non-existent.txt')).rejects.toThrow()
-      })
-    })
-
-    describe('list()', () => {
-      it('should list directory contents', async () => {
-        mockFsx._seed('/test/file1.txt', 'content1')
-        mockFsx._seed('/test/file2.txt', 'content2')
-
-        const entries = await fsModule.list('/test')
-
-        expect(entries).toHaveLength(2)
-        expect(entries.map((e) => e.name).sort()).toEqual(['file1.txt', 'file2.txt'])
-      })
-
-      it('should include isDirectory property', async () => {
-        mockFsx._seed('/test/file.txt', 'content')
-        mockFsx._mkdirSync('/test/subdir')
-
-        const entries = await fsModule.list('/test')
-
-        const file = entries.find((e) => e.name === 'file.txt')
-        const dir = entries.find((e) => e.name === 'subdir')
-
-        expect(file?.isDirectory).toBe(false)
-        expect(dir?.isDirectory).toBe(true)
-      })
-
-      it('should throw on non-existent directory', async () => {
-        await expect(fsModule.list('/non-existent')).rejects.toThrow()
-      })
-    })
-
-    describe('mkdir()', () => {
-      it('should create directory', async () => {
-        await fsModule.mkdir('/test/newdir')
-
-        expect(await fsModule.exists('/test/newdir')).toBe(true)
-      })
-
-      it('should create nested directories with recursive option', async () => {
-        await fsModule.mkdir('/test/a/b/c', { recursive: true })
-
-        expect(await fsModule.exists('/test/a/b/c')).toBe(true)
-      })
-
-      it('should throw when parent does not exist without recursive', async () => {
-        await expect(fsModule.mkdir('/test/deep/nested')).rejects.toThrow()
-      })
-    })
-
-    describe('stat()', () => {
-      it('should return file stats', async () => {
-        mockFsx._seed('/test/file.txt', 'Hello, World!')
-
-        const stats = await fsModule.stat('/test/file.txt')
-
-        expect(stats.size).toBe(13) // 'Hello, World!' is 13 bytes
-        expect(stats.isFile).toBe(true)
-        expect(stats.isDirectory).toBe(false)
-        expect(stats.createdAt).toBeInstanceOf(Date)
-        expect(stats.modifiedAt).toBeInstanceOf(Date)
-      })
-
-      it('should return directory stats', async () => {
-        mockFsx._mkdirSync('/test/subdir')
-
-        const stats = await fsModule.stat('/test/subdir')
-
-        expect(stats.isFile).toBe(false)
-        expect(stats.isDirectory).toBe(true)
-      })
-
-      it('should throw on non-existent path', async () => {
-        await expect(fsModule.stat('/non-existent')).rejects.toThrow()
-      })
-    })
-
-    describe('copy()', () => {
-      it('should copy file to new location', async () => {
-        mockFsx._seed('/test/original.txt', 'Original content')
-
-        await fsModule.copy('/test/original.txt', '/test/copy.txt')
-
-        const original = await mockFsx.readFile('/test/original.txt')
-        const copy = await mockFsx.readFile('/test/copy.txt')
-
-        expect(original).toBe('Original content')
-        expect(copy).toBe('Original content')
-      })
-
-      it('should throw when source does not exist', async () => {
-        await expect(fsModule.copy('/non-existent.txt', '/test/copy.txt')).rejects.toThrow()
-      })
-    })
-
-    describe('move()', () => {
-      it('should move file to new location', async () => {
-        mockFsx._seed('/test/original.txt', 'Content to move')
-
-        await fsModule.move('/test/original.txt', '/test/moved.txt')
-
-        expect(await fsModule.exists('/test/original.txt')).toBe(false)
-        const content = await mockFsx.readFile('/test/moved.txt')
-        expect(content).toBe('Content to move')
-      })
-
-      it('should throw when source does not exist', async () => {
-        await expect(fsModule.move('/non-existent.txt', '/test/moved.txt')).rejects.toThrow()
-      })
-    })
-  })
-
-  describe('Lazy Initialization', () => {
-    it('should not create FSx until first operation', async () => {
-      let fsxCreated = false
-      const mockFsx = new MockFSx()
-
-      const fsModule = new FsModule({
-        factory: () => {
-          fsxCreated = true
-          return mockFsx as any
-        },
-      })
-
-      // Not created yet
-      expect(fsxCreated).toBe(false)
-
-      // Trigger initialization
-      mockFsx._mkdirSync('/test')
-      mockFsx._seed('/test/file.txt', 'content')
-      await fsModule.read('/test/file.txt')
-
-      // Now it should be created
-      expect(fsxCreated).toBe(true)
-    })
-
-    it('should cache FSx instance after first creation', async () => {
-      let createCount = 0
-      const mockFsx = new MockFSx()
-      mockFsx._mkdirSync('/test')
-      mockFsx._seed('/test/file.txt', 'content')
-
-      const fsModule = new FsModule({
-        factory: () => {
-          createCount++
-          return mockFsx as any
-        },
-      })
-
-      // Multiple operations
-      await fsModule.read('/test/file.txt')
-      await fsModule.exists('/test/file.txt')
-      await fsModule.list('/test')
-
-      // Should only create once
-      expect(createCount).toBe(1)
-    })
-  })
-
-  describe('Error Handling', () => {
-    let fsModule: FsModule
-    let mockFsx: MockFSx
-
-    beforeEach(() => {
-      mockFsx = new MockFSx()
-      fsModule = new FsModule({ fsx: mockFsx as any })
-    })
-
-    it('should preserve ENOENT errors', async () => {
-      try {
-        await fsModule.read('/non-existent.txt')
-        expect.fail('Should have thrown')
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error)
-        expect((error as Error).message).toContain('ENOENT')
-      }
-    })
-
-    it('should preserve EEXIST errors', async () => {
-      mockFsx._mkdirSync('/test')
-      mockFsx._mkdirSync('/test/existing')
-
-      try {
-        await fsModule.mkdir('/test/existing')
-        expect.fail('Should have thrown')
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error)
-        expect((error as Error).message).toContain('EEXIST')
-      }
-    })
-  })
-})
-
-// ============================================================================
-// withFs MIXIN INTEGRATION TESTS
-// ============================================================================
-
-describe('withFs Mixin with FsModule', () => {
+describe('withFs Mixin', () => {
   describe('Mixin Application', () => {
-    it('should add $.fs to class instances', () => {
-      const ExtendedClass = withFs(MockDO as any)
-      const instance = new ExtendedClass()
+    it('adds $.fs to WorkflowContext', () => {
+      // withFs should extend the base DO class and add $.fs
+      const ExtendedDO = withFs(MockDO)
+      const instance = new ExtendedDO(createMockDOState(), {})
 
       expect(instance.$).toBeDefined()
       expect(instance.$.fs).toBeDefined()
     })
 
-    it('$.fs should implement FsCapability interface', () => {
-      const ExtendedClass = withFs(MockDO as any)
-      const instance = new ExtendedClass()
+    it('hasCapability("fs") returns true', () => {
+      const ExtendedDO = withFs(MockDO)
+      const instance = new ExtendedDO(createMockDOState(), {})
 
-      const fs = instance.$.fs
-
-      // Check all required methods exist
-      expect(typeof fs.read).toBe('function')
-      expect(typeof fs.write).toBe('function')
-      expect(typeof fs.exists).toBe('function')
-      expect(typeof fs.delete).toBe('function')
-      expect(typeof fs.list).toBe('function')
-      expect(typeof fs.mkdir).toBe('function')
-      expect(typeof fs.stat).toBe('function')
-      expect(typeof fs.copy).toBe('function')
-      expect(typeof fs.move).toBe('function')
-    })
-  })
-
-  describe('Capability Tracking', () => {
-    it('should register fs in static capabilities array', () => {
-      const ExtendedClass = withFs(MockDO as any)
-
-      expect((ExtendedClass as any).capabilities).toContain('fs')
-    })
-
-    it('should have hasCapability method that returns true for fs', () => {
-      const ExtendedClass = withFs(MockDO as any)
-      const instance = new ExtendedClass()
-
+      // Mixin should add hasCapability method
       expect(instance.hasCapability('fs')).toBe(true)
       expect(instance.hasCapability('git')).toBe(false)
     })
-  })
 
-  describe('Mixin Composition', () => {
-    it('should preserve base class functionality', () => {
-      const ExtendedClass = withFs(MockDO as any)
-      const instance = new ExtendedClass()
+    it('registers fs in static capabilities array', () => {
+      const ExtendedDO = withFs(MockDO)
 
-      // Should still have base WorkflowContext methods
+      // Static capabilities array should include 'fs'
+      expect((ExtendedDO as { capabilities?: string[] }).capabilities).toContain('fs')
+    })
+
+    it('preserves base class functionality', () => {
+      const ExtendedDO = withFs(MockDO)
+      const instance = new ExtendedDO(createMockDOState(), {})
+
+      // Base WorkflowContext methods should still work
       expect(typeof instance.$.send).toBe('function')
       expect(typeof instance.$.try).toBe('function')
       expect(typeof instance.$.do).toBe('function')
     })
+  })
 
-    it('should allow applying withFs twice without error (idempotent)', () => {
-      const DoubleFs = withFs(withFs(MockDO as any))
-      const instance = new DoubleFs()
+  describe('$.fs API', () => {
+    let instance: InstanceType<ReturnType<typeof withFs<typeof MockDO>>>
 
+    beforeEach(() => {
+      const ExtendedDO = withFs(MockDO)
+      instance = new ExtendedDO(createMockDOState(), {})
+    })
+
+    it('$.fs.read() returns file content', async () => {
+      // First write a file, then read it back
+      await instance.$.fs.write('/test.txt', 'hello world')
+      const content = await instance.$.fs.read('/test.txt', { encoding: 'utf-8' })
+
+      expect(content).toBe('hello world')
+    })
+
+    it('$.fs.read() with encoding returns string', async () => {
+      await instance.$.fs.write('/test.txt', 'utf-8 content')
+      const content = await instance.$.fs.read('/test.txt', { encoding: 'utf-8' })
+
+      expect(typeof content).toBe('string')
+      expect(content).toBe('utf-8 content')
+    })
+
+    it('$.fs.read() without encoding returns Uint8Array', async () => {
+      await instance.$.fs.write('/test.bin', new Uint8Array([1, 2, 3]))
+      const content = await instance.$.fs.read('/test.bin')
+
+      expect(content).toBeInstanceOf(Uint8Array)
+    })
+
+    it('$.fs.read() throws ENOENT for non-existent file', async () => {
+      await expect(instance.$.fs.read('/non-existent.txt')).rejects.toThrow()
+    })
+
+    it('$.fs.write() persists to DO SQLite storage', async () => {
+      await instance.$.fs.write('/config.json', '{"key": "value"}')
+
+      // Verify file exists after write
+      const exists = await instance.$.fs.exists('/config.json')
+      expect(exists).toBe(true)
+
+      // Verify content is correct
+      const content = await instance.$.fs.read('/config.json', { encoding: 'utf-8' })
+      expect(content).toBe('{"key": "value"}')
+    })
+
+    it('$.fs.write() overwrites existing file', async () => {
+      await instance.$.fs.write('/test.txt', 'original')
+      await instance.$.fs.write('/test.txt', 'updated')
+
+      const content = await instance.$.fs.read('/test.txt', { encoding: 'utf-8' })
+      expect(content).toBe('updated')
+    })
+
+    it('$.fs.list() returns directory contents', async () => {
+      // Create root directory structure
+      await instance.$.fs.mkdir('/mydir', { recursive: true })
+      await instance.$.fs.write('/mydir/file1.txt', 'content1')
+      await instance.$.fs.write('/mydir/file2.txt', 'content2')
+
+      const entries = await instance.$.fs.list('/mydir')
+
+      expect(Array.isArray(entries)).toBe(true)
+      expect(entries.length).toBe(2)
+
+      const names = entries.map((e: string | { name: string }) =>
+        typeof e === 'string' ? e : e.name
+      )
+      expect(names.sort()).toEqual(['file1.txt', 'file2.txt'])
+    })
+
+    it('$.fs.list() with withFileTypes returns Dirent objects', async () => {
+      await instance.$.fs.mkdir('/mydir', { recursive: true })
+      await instance.$.fs.write('/mydir/file.txt', 'content')
+      await instance.$.fs.mkdir('/mydir/subdir')
+
+      const entries = await instance.$.fs.readdir('/mydir', { withFileTypes: true })
+
+      expect(Array.isArray(entries)).toBe(true)
+
+      const file = entries.find((e) => e.name === 'file.txt')
+      const dir = entries.find((e) => e.name === 'subdir')
+
+      expect(file?.isFile()).toBe(true)
+      expect(dir?.isDirectory()).toBe(true)
+    })
+
+    it('$.fs.exists() returns true for existing file', async () => {
+      await instance.$.fs.write('/exists.txt', 'content')
+      expect(await instance.$.fs.exists('/exists.txt')).toBe(true)
+    })
+
+    it('$.fs.exists() returns false for non-existent file', async () => {
+      expect(await instance.$.fs.exists('/non-existent.txt')).toBe(false)
+    })
+
+    it('$.fs.mkdir() creates directory', async () => {
+      await instance.$.fs.mkdir('/newdir')
+      expect(await instance.$.fs.exists('/newdir')).toBe(true)
+    })
+
+    it('$.fs.mkdir() with recursive creates nested directories', async () => {
+      await instance.$.fs.mkdir('/a/b/c', { recursive: true })
+
+      expect(await instance.$.fs.exists('/a')).toBe(true)
+      expect(await instance.$.fs.exists('/a/b')).toBe(true)
+      expect(await instance.$.fs.exists('/a/b/c')).toBe(true)
+    })
+
+    it('$.fs.stat() returns file stats', async () => {
+      await instance.$.fs.write('/test.txt', 'Hello, World!')
+
+      const stats = await instance.$.fs.stat('/test.txt')
+
+      expect(stats.size).toBe(13) // 'Hello, World!' is 13 bytes
+      expect(stats.isFile()).toBe(true)
+      expect(stats.isDirectory()).toBe(false)
+    })
+
+    it('$.fs.unlink() deletes file', async () => {
+      await instance.$.fs.write('/to-delete.txt', 'content')
+      expect(await instance.$.fs.exists('/to-delete.txt')).toBe(true)
+
+      await instance.$.fs.unlink('/to-delete.txt')
+      expect(await instance.$.fs.exists('/to-delete.txt')).toBe(false)
+    })
+
+    it('$.fs.rename() moves file', async () => {
+      await instance.$.fs.write('/original.txt', 'content')
+
+      await instance.$.fs.rename('/original.txt', '/renamed.txt')
+
+      expect(await instance.$.fs.exists('/original.txt')).toBe(false)
+      expect(await instance.$.fs.exists('/renamed.txt')).toBe(true)
+    })
+
+    it('$.fs.copyFile() copies file', async () => {
+      await instance.$.fs.write('/source.txt', 'content')
+
+      await instance.$.fs.copyFile('/source.txt', '/copy.txt')
+
+      expect(await instance.$.fs.exists('/source.txt')).toBe(true)
+      expect(await instance.$.fs.exists('/copy.txt')).toBe(true)
+
+      const sourceContent = await instance.$.fs.read('/source.txt', { encoding: 'utf-8' })
+      const copyContent = await instance.$.fs.read('/copy.txt', { encoding: 'utf-8' })
+      expect(sourceContent).toBe(copyContent)
+    })
+  })
+
+  describe('Lazy Initialization', () => {
+    it('$.fs initializes lazily on first access', () => {
+      const ExtendedDO = withFs(MockDO)
+      const mockState = createMockDOState()
+
+      // Create instance but don't access $.fs yet
+      const instance = new ExtendedDO(mockState, {})
+
+      // The FsModule should not be created until first access
+      // This is verified by checking that sql.exec hasn't been called for schema creation
+      const sqlExecSpy = vi.spyOn(mockState.storage.sql, 'exec')
+
+      // Access $.fs - this should trigger initialization
+      const fs = instance.$.fs
+
+      // Now the FsModule should exist
+      expect(fs).toBeDefined()
+    })
+
+    it('$.fs caches FsModule instance after first access', async () => {
+      const ExtendedDO = withFs(MockDO)
+      const instance = new ExtendedDO(createMockDOState(), {})
+
+      // Access $.fs multiple times
+      const fs1 = instance.$.fs
+      const fs2 = instance.$.fs
+      const fs3 = instance.$.fs
+
+      // Should all be the same instance
+      expect(fs1).toBe(fs2)
+      expect(fs2).toBe(fs3)
+    })
+  })
+
+  describe('Tiered Storage', () => {
+    it('$.fs uses SQLite hot tier for small files', async () => {
+      const ExtendedDO = withFs(MockDO)
+      const instance = new ExtendedDO(createMockDOState(), {})
+
+      // Write a small file (< 1MB default threshold)
+      await instance.$.fs.write('/small.txt', 'small content')
+
+      // Get the tier
+      const tier = await instance.$.fs.getTier('/small.txt')
+      expect(tier).toBe('hot')
+    })
+
+    it('$.fs uses R2 warm tier for large files when R2 available', async () => {
+      const mockR2 = createMockR2Bucket()
+      const ExtendedDO = withFs(MockDO, { r2BindingName: 'R2' })
+      const instance = new ExtendedDO(createMockDOState(), { R2: mockR2 })
+
+      // Create large content (> 1MB)
+      const largeContent = 'x'.repeat(2 * 1024 * 1024) // 2MB
+
+      await instance.$.fs.write('/large.txt', largeContent)
+
+      // Get the tier - should be warm if R2 is configured
+      const tier = await instance.$.fs.getTier('/large.txt')
+      expect(tier).toBe('warm')
+
+      // Verify R2.put was called
+      expect(mockR2.put).toHaveBeenCalled()
+    })
+
+    it('$.fs.promote() moves file from warm to hot tier', async () => {
+      const mockR2 = createMockR2Bucket()
+      const ExtendedDO = withFs(MockDO, { r2BindingName: 'R2' })
+      const instance = new ExtendedDO(createMockDOState(), { R2: mockR2 })
+
+      // Write large file to warm tier
+      const largeContent = 'x'.repeat(2 * 1024 * 1024)
+      await instance.$.fs.write('/large.txt', largeContent)
+
+      // Promote to hot tier
+      await instance.$.fs.promote('/large.txt', 'hot')
+
+      const tier = await instance.$.fs.getTier('/large.txt')
+      expect(tier).toBe('hot')
+    })
+
+    it('$.fs.demote() moves file from hot to warm tier', async () => {
+      const mockR2 = createMockR2Bucket()
+      const ExtendedDO = withFs(MockDO, { r2BindingName: 'R2' })
+      const instance = new ExtendedDO(createMockDOState(), { R2: mockR2 })
+
+      // Write small file to hot tier
+      await instance.$.fs.write('/small.txt', 'small content')
+
+      // Demote to warm tier
+      await instance.$.fs.demote('/small.txt', 'warm')
+
+      const tier = await instance.$.fs.getTier('/small.txt')
+      expect(tier).toBe('warm')
+    })
+  })
+
+  describe('Mixin Composition', () => {
+    it('allows applying withFs twice (idempotent)', () => {
+      const DoubleFsDO = withFs(withFs(MockDO))
+      const instance = new DoubleFsDO(createMockDOState(), {})
+
+      // Should not error and $.fs should be available
+      expect(instance.$.fs).toBeDefined()
+    })
+
+    it('preserves capabilities from previous mixins', () => {
+      // Simulate a class with existing capabilities
+      class DOWithCapabilities extends MockDO {
+        static capabilities = ['existing']
+
+        hasCapability(name: string): boolean {
+          return (this.constructor as { capabilities?: string[] }).capabilities?.includes(name) ?? false
+        }
+      }
+
+      const ExtendedDO = withFs(DOWithCapabilities)
+
+      expect((ExtendedDO as { capabilities?: string[] }).capabilities).toContain('existing')
+      expect((ExtendedDO as { capabilities?: string[] }).capabilities).toContain('fs')
+    })
+  })
+
+  describe('WithFsOptions', () => {
+    it('accepts basePath option', async () => {
+      const ExtendedDO = withFs(MockDO, { basePath: '/root' })
+      const instance = new ExtendedDO(createMockDOState(), {})
+
+      // First create the /root directory
+      await instance.$.fs.mkdir('/root')
+
+      // Write to relative path - should be resolved against basePath
+      await instance.$.fs.write('test.txt', 'content')
+
+      // File should exist at /root/test.txt
+      expect(await instance.$.fs.exists('/root/test.txt')).toBe(true)
+    })
+
+    it('accepts hotMaxSize option', async () => {
+      const mockR2 = createMockR2Bucket()
+      // Set very low threshold so even small files go to warm tier
+      const ExtendedDO = withFs(MockDO, {
+        r2BindingName: 'R2',
+        hotMaxSize: 10, // 10 bytes
+      })
+      const instance = new ExtendedDO(createMockDOState(), { R2: mockR2 })
+
+      // Write content larger than threshold
+      await instance.$.fs.write('/test.txt', 'more than ten bytes')
+
+      const tier = await instance.$.fs.getTier('/test.txt')
+      expect(tier).toBe('warm')
+    })
+
+    it('accepts r2BindingName option', () => {
+      const mockR2 = createMockR2Bucket()
+      const ExtendedDO = withFs(MockDO, { r2BindingName: 'CUSTOM_R2' })
+
+      // Should not error with custom binding name
+      const instance = new ExtendedDO(createMockDOState(), { CUSTOM_R2: mockR2 })
       expect(instance.$.fs).toBeDefined()
     })
   })
@@ -653,86 +610,76 @@ describe('withFs Mixin with FsModule', () => {
 // ============================================================================
 
 describe('Type Exports', () => {
-  it('should export FsCapability type', () => {
+  it('exports WithFsContext type', () => {
     // Type check - if this compiles, the type is exported correctly
-    const _: FsCapability = {} as FsCapability
-    expect(_).toBeDefined()
-  })
-
-  it('should export WithFsContext type', () => {
-    // Type check
     const _: WithFsContext = {} as WithFsContext
     expect(_).toBeDefined()
   })
 
-  it('should export FsEntry type', () => {
+  it('exports WithFsOptions type', () => {
     // Type check
-    const _: FsEntry = { name: 'test', isDirectory: false }
-    expect(_).toBeDefined()
-  })
-
-  it('should export FsStat type', () => {
-    // Type check
-    const _: FsStat = {
-      size: 100,
-      isDirectory: false,
-      isFile: true,
-      createdAt: new Date(),
-      modifiedAt: new Date(),
+    const opts: WithFsOptions = {
+      basePath: '/root',
+      hotMaxSize: 1024 * 1024,
+      r2BindingName: 'R2',
     }
-    expect(_).toBeDefined()
-  })
-
-  it('should export FsModule class', () => {
-    expect(FsModule).toBeDefined()
-  })
-
-  it('should export FsModuleOptions type', () => {
-    // Type check
-    const opts: FsModuleOptions = { fsx: {} as any }
     expect(opts).toBeDefined()
+  })
+
+  it('exports withFs function', () => {
+    expect(typeof withFs).toBe('function')
   })
 })
 
 // ============================================================================
-// INTEGRATION WITH DURABLE OBJECTS
+// TRANSACTION TESTS
 // ============================================================================
 
-describe('DurableObject Integration', () => {
-  it('should accept FileSystemDO stub via options', () => {
-    // Test that FsModule can be configured with a DO stub
-    const mockStub = {
-      fetch: vi.fn(),
-    }
+describe('$.fs Transactions', () => {
+  let instance: InstanceType<ReturnType<typeof withFs<typeof MockDO>>>
 
-    const fsModule = new FsModule({ stub: mockStub as any })
-    expect(fsModule).toBeDefined()
+  beforeEach(() => {
+    const ExtendedDO = withFs(MockDO)
+    instance = new ExtendedDO(createMockDOState(), {})
   })
 
-  it('should accept DurableObjectNamespace via options', () => {
-    // Test that FsModule can be configured with a DO namespace
-    const mockNamespace = {
-      idFromName: vi.fn().mockReturnValue('mock-id'),
-      get: vi.fn().mockReturnValue({ fetch: vi.fn() }),
-    }
-
-    const fsModule = new FsModule({ namespace: mockNamespace as any })
-    expect(fsModule).toBeDefined()
-  })
-
-  it('should support R2 bucket configuration for warm tier', () => {
-    // Test that FsModule accepts R2 bucket for tiered storage
-    const mockR2 = {
-      put: vi.fn(),
-      get: vi.fn(),
-      delete: vi.fn(),
-    }
-
-    const fsModule = new FsModule({
-      fsx: new MockFSx() as any,
-      r2: mockR2 as any,
+  it('$.fs.transaction() provides atomic operations', async () => {
+    // Write multiple files atomically
+    await instance.$.fs.transaction(async () => {
+      await instance.$.fs.write('/file1.txt', 'content1')
+      await instance.$.fs.write('/file2.txt', 'content2')
     })
 
-    expect(fsModule).toBeDefined()
+    expect(await instance.$.fs.exists('/file1.txt')).toBe(true)
+    expect(await instance.$.fs.exists('/file2.txt')).toBe(true)
+  })
+
+  it('$.fs.transaction() rolls back on error', async () => {
+    await instance.$.fs.write('/existing.txt', 'original')
+
+    try {
+      await instance.$.fs.transaction(async () => {
+        await instance.$.fs.write('/existing.txt', 'modified')
+        throw new Error('Simulated failure')
+      })
+    } catch {
+      // Expected to throw
+    }
+
+    // File should have original content due to rollback
+    const content = await instance.$.fs.read('/existing.txt', { encoding: 'utf-8' })
+    expect(content).toBe('original')
+  })
+
+  it('$.fs.writeMany() writes multiple files atomically', async () => {
+    await instance.$.fs.writeMany([
+      { path: '/batch1.txt', content: 'content1' },
+      { path: '/batch2.txt', content: 'content2' },
+      { path: '/batch3.txt', content: 'content3' },
+    ])
+
+    expect(await instance.$.fs.exists('/batch1.txt')).toBe(true)
+    expect(await instance.$.fs.exists('/batch2.txt')).toBe(true)
+    expect(await instance.$.fs.exists('/batch3.txt')).toBe(true)
   })
 })
