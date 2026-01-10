@@ -66,7 +66,67 @@ export interface AuthActions {
 export type AuthContextValue = AuthState & AuthActions
 
 // =============================================================================
-// Session Storage (in-memory for now)
+// SessionStore Interface
+// =============================================================================
+
+/**
+ * SessionStore interface abstracts session storage mechanism.
+ * Implementations can use localStorage, cookies, Durable Objects, KV, etc.
+ */
+export interface SessionStore {
+  /** Get stored session data by key */
+  get(key: string): string | null
+  /** Store session data by key */
+  set(key: string, value: string): void
+  /** Delete session data by key */
+  delete(key: string): void
+}
+
+/**
+ * LocalStorageSessionStore - Browser localStorage implementation of SessionStore
+ */
+export class LocalStorageSessionStore implements SessionStore {
+  get(key: string): string | null {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(key)
+    }
+    return null
+  }
+
+  set(key: string, value: string): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value)
+    }
+  }
+
+  delete(key: string): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(key)
+    }
+  }
+}
+
+/**
+ * MemorySessionStore - In-memory implementation for Node/testing environments
+ */
+export class MemorySessionStore implements SessionStore {
+  private storage = new Map<string, string>()
+
+  get(key: string): string | null {
+    return this.storage.get(key) ?? null
+  }
+
+  set(key: string, value: string): void {
+    this.storage.set(key, value)
+  }
+
+  delete(key: string): void {
+    this.storage.delete(key)
+  }
+}
+
+// =============================================================================
+// Session Storage (using SessionStore interface)
 // =============================================================================
 
 const STORAGE_KEY = 'dotdo_session'
@@ -75,32 +135,37 @@ const STORAGE_KEY = 'dotdo_session'
 const sessions = new Map<string, { userId: string; createdAt: Date }>()
 
 /**
- * Get storage adapter - uses localStorage in browser, in-memory Map in Node
+ * Create default SessionStore based on environment.
+ * Uses localStorage in browser, in-memory Map in Node.
  */
-function getStorage(): { get: (key: string) => string | null; set: (key: string, value: string) => void; delete: (key: string) => void } {
+function createDefaultSessionStore(): SessionStore {
   if (typeof localStorage !== 'undefined') {
-    return {
-      get: (key: string) => localStorage.getItem(key),
-      set: (key: string, value: string) => localStorage.setItem(key, value),
-      delete: (key: string) => localStorage.removeItem(key),
-    }
+    return new LocalStorageSessionStore()
   }
   // Fallback for Node environment (tests)
-  const memoryStorage = new Map<string, string>()
-  return {
-    get: (key: string) => memoryStorage.get(key) ?? null,
-    set: (key: string, value: string) => memoryStorage.set(key, value),
-    delete: (key: string) => memoryStorage.delete(key),
-  }
+  return new MemorySessionStore()
 }
 
-// Singleton storage instance
-let storageInstance: ReturnType<typeof getStorage> | null = null
-function storage() {
-  if (!storageInstance) {
-    storageInstance = getStorage()
+// Singleton storage instance - can be replaced via setSessionStore() for testing/DI
+let sessionStore: SessionStore | null = null
+
+/**
+ * Get the current session store instance.
+ * Creates a default one if not set.
+ */
+function getSessionStore(): SessionStore {
+  if (!sessionStore) {
+    sessionStore = createDefaultSessionStore()
   }
-  return storageInstance
+  return sessionStore
+}
+
+/**
+ * Set a custom session store (for dependency injection/testing).
+ * Pass null to reset to default behavior.
+ */
+export function setSessionStore(store: SessionStore | null): void {
+  sessionStore = store
 }
 
 /**
@@ -117,7 +182,7 @@ export async function createSession(): Promise<{ token: string; userId: string }
   })
 
   // Store the current session in storage
-  storage().set(STORAGE_KEY, JSON.stringify({ token, userId }))
+  getSessionStore().set(STORAGE_KEY, JSON.stringify({ token, userId }))
 
   return { token, userId }
 }
@@ -140,7 +205,7 @@ export async function validateSession(token: string): Promise<{ valid: boolean; 
  */
 export async function invalidateSession(token: string): Promise<void> {
   sessions.delete(token)
-  storage().delete(STORAGE_KEY)
+  getSessionStore().delete(STORAGE_KEY)
 }
 
 /**
@@ -150,7 +215,7 @@ export async function invalidateSession(token: string): Promise<void> {
  */
 export function getCurrentSession(): { token: string; userId: string } | null {
   // Check storage for stored session
-  const storedSession = storage().get(STORAGE_KEY)
+  const storedSession = getSessionStore().get(STORAGE_KEY)
   if (storedSession) {
     try {
       const session = JSON.parse(storedSession)
@@ -165,7 +230,7 @@ export function getCurrentSession(): { token: string; userId: string } | null {
       return session
     } catch {
       // Invalid stored session, clear it
-      storage().delete(STORAGE_KEY)
+      getSessionStore().delete(STORAGE_KEY)
     }
   }
 

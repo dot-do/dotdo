@@ -51,6 +51,21 @@ export {
   type AgentConfig,
 } from './factory'
 
+// ============================================================================
+// Composable Persona System (from personas)
+// ============================================================================
+
+export {
+  PersonaBuilder,
+  persona,
+  TRAITS,
+  ROLE_DEFINITIONS,
+  PERSONA_DEFINITIONS,
+  type Trait,
+  type RoleDefinition,
+  type PersonaBuilderOptions,
+} from './personas'
+
 // Default export for convenience
 export { ralph as default } from './factory'
 

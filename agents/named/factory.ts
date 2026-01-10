@@ -5,6 +5,7 @@
  * Business-as-Code framework.
  *
  * @see dotdo-kp869 - GREEN phase implementation
+ * @see dotdo-xaidb - REFACTOR phase (persona extraction)
  * @module agents/named/factory
  */
 
@@ -73,6 +74,33 @@ export interface NamedAgent {
 // Personas
 // ============================================================================
 
+// Re-export composable persona system for extensibility
+export {
+  PersonaBuilder,
+  persona,
+  TRAITS,
+  ROLE_DEFINITIONS,
+  PERSONA_DEFINITIONS,
+  type Trait,
+  type RoleDefinition,
+  type PersonaBuilderOptions,
+} from './personas'
+
+/**
+ * Legacy PERSONAS export with original hardcoded instructions.
+ * Maintained for backwards compatibility.
+ *
+ * For new personas, use the composable PersonaBuilder:
+ * @example
+ * ```ts
+ * import { persona } from './personas'
+ *
+ * const customAgent = persona('Alex', 'engineering')
+ *   .withDescription('Backend specialist')
+ *   .addCapabilities('Optimize database queries')
+ *   .build()
+ * ```
+ */
 export const PERSONAS: Record<string, AgentPersona> = {
   priya: {
     name: 'Priya',
