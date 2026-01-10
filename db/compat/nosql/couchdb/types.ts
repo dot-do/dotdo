@@ -293,7 +293,7 @@ export interface ViewRow<V = unknown, D = Document> {
   id?: string
   key: unknown
   value: V
-  doc?: D & { _id: string; _rev: string }
+  doc?: D
   error?: string
 }
 

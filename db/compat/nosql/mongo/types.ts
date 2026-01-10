@@ -24,7 +24,7 @@ export class ObjectId {
   /** Machine/process identifier (5 random bytes) */
   private static _machineId = ObjectId._generateMachineId()
 
-  constructor(id?: string | ObjectId | Buffer | Uint8Array) {
+  constructor(id?: string | ObjectId | Buffer | Uint8Array | ArrayBuffer) {
     if (id instanceof ObjectId) {
       this._id = id.toHexString()
     } else if (typeof id === 'string') {
@@ -32,7 +32,7 @@ export class ObjectId {
         throw new TypeError(`Invalid ObjectId string: ${id}`)
       }
       this._id = id.toLowerCase()
-    } else if (id instanceof Uint8Array || id instanceof ArrayBuffer) {
+    } else if (id instanceof Uint8Array || (typeof ArrayBuffer !== 'undefined' && id instanceof ArrayBuffer)) {
       const bytes = id instanceof ArrayBuffer ? new Uint8Array(id) : id
       if (bytes.length !== 12) {
         throw new TypeError('ObjectId buffer must be 12 bytes')
@@ -209,7 +209,7 @@ export interface EvaluationOperators {
  */
 export interface ArrayOperators<T = unknown> {
   $all?: T[]
-  $elemMatch?: Filter<T extends (infer U)[] ? U : never>
+  $elemMatch?: T extends (infer U)[] ? (U extends Document ? Filter<U> : Record<string, unknown>) : Record<string, unknown>
   $size?: number
 }
 
@@ -492,6 +492,7 @@ export interface IndexInfo {
   sparse?: boolean
   expireAfterSeconds?: number
   v?: number
+  [key: string]: unknown
 }
 
 // ============================================================================

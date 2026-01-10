@@ -79,6 +79,23 @@ export interface DurableObjectBindings {
    * @deprecated Use WORKFLOW_DO instead
    */
   WORKFLOW?: DurableObjectNamespace
+
+  /**
+   * Iceberg Metadata Durable Object namespace for partition planning
+   * @see IcebergMetadataDO
+   */
+  ICEBERG_METADATA?: DurableObjectNamespace
+
+  /**
+   * Vector Shard Durable Object namespace for similarity search
+   * @see VectorShardDO
+   */
+  VECTOR_SHARD?: DurableObjectNamespace
+
+  /**
+   * Observability Broadcaster Durable Object namespace
+   */
+  OBS_BROADCASTER?: DurableObjectNamespace
 }
 
 // ============================================================================

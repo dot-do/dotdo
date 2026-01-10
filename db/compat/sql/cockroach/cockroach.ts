@@ -139,6 +139,7 @@ function transformToQueryResult<R>(result: ExecutionResult): QueryResult<R> {
 // CLIENT IMPLEMENTATION
 // ============================================================================
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from pg Client interface
 class CockroachClient extends EventEmitter implements IClient {
   protected engine: SQLEngine
   private config: CockroachConfig
@@ -216,7 +217,7 @@ class CockroachClient extends EventEmitter implements IClient {
     if (typeof queryTextOrConfig === 'string') {
       text = queryTextOrConfig
       if (typeof valuesOrCallback === 'function') {
-        cb = valuesOrCallback
+        cb = valuesOrCallback as (err: Error | null, result: QueryResult<R>) => void
       } else if (Array.isArray(valuesOrCallback)) {
         values = valuesOrCallback as SQLValue[]
         cb = callback
@@ -225,7 +226,7 @@ class CockroachClient extends EventEmitter implements IClient {
       text = queryTextOrConfig.text
       values = (queryTextOrConfig.values ?? []) as SQLValue[]
       if (typeof valuesOrCallback === 'function') {
-        cb = valuesOrCallback
+        cb = valuesOrCallback as (err: Error | null, result: QueryResult<R>) => void
       }
     }
 
@@ -298,6 +299,7 @@ class CockroachClient extends EventEmitter implements IClient {
 // POOL IMPLEMENTATION
 // ============================================================================
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from pg Pool interface
 class CockroachPool extends EventEmitter implements IPool {
   private config: CockroachConfig
   private clients: Set<CockroachPoolClient> = new Set()
@@ -371,7 +373,7 @@ class CockroachPool extends EventEmitter implements IPool {
     if (this.idleClients.length > 0) {
       const client = this.idleClients.pop()!
       this.emit('acquire', client)
-      return client
+      return client as unknown as PoolClient
     }
 
     // Create new client if under max
@@ -382,7 +384,7 @@ class CockroachPool extends EventEmitter implements IPool {
       await client.connect()
       this.emit('connect', client)
       this.emit('acquire', client)
-      return client
+      return client as unknown as PoolClient
     }
 
     // Wait for available client
@@ -422,7 +424,7 @@ class CockroachPool extends EventEmitter implements IPool {
     if (this.waitingRequests.length > 0) {
       const waiter = this.waitingRequests.shift()!
       this.emit('acquire', client)
-      waiter.resolve(client)
+      waiter.resolve(client as unknown as PoolClient)
       return
     }
 
@@ -452,6 +454,7 @@ class CockroachPool extends EventEmitter implements IPool {
   }
 }
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from pg PoolClient interface
 class CockroachPoolClient extends CockroachClient implements PoolClient {
   private pool: CockroachPool
 

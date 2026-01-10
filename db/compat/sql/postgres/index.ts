@@ -73,11 +73,11 @@ export type {
   // Pool types
   PoolConfig,
   PoolClient,
-  Pool,
+  Pool as IPool,
 
   // Client types
   ClientConfig,
-  Client,
+  Client as IClient,
 
   // Cursor types
   Cursor,

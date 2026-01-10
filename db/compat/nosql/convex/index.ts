@@ -78,8 +78,7 @@ export type {
   // Client types
   ConvexClientOptions,
   ExtendedConvexConfig,
-  ConvexClient,
 } from './types'
 
-// Core class
+// Core class (also re-exports the type)
 export { ConvexClient } from './convex'

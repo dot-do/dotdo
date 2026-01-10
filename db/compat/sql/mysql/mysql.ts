@@ -130,6 +130,7 @@ function transformToMySQLResult<T>(
 // CONNECTION IMPLEMENTATION
 // ============================================================================
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from mysql2 Connection interface
 class MySQLConnection extends EventEmitter implements IConnection {
   protected engine: SQLEngine
   private config: ExtendedMySQLConfig
@@ -265,6 +266,7 @@ class MySQLConnection extends EventEmitter implements IConnection {
 // POOL IMPLEMENTATION
 // ============================================================================
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from mysql2 Pool interface
 class MySQLPool extends EventEmitter implements IPool {
   private config: ExtendedMySQLConfig
   private connections: Set<MySQLPoolConnection> = new Set()
@@ -302,7 +304,9 @@ class MySQLPool extends EventEmitter implements IPool {
   ): Promise<QueryResult<T>> {
     const connection = await this.getConnection()
     try {
-      const result = await connection.query<T>(sqlOrOptions, values)
+      const result = typeof sqlOrOptions === 'string'
+        ? await connection.query<T>(sqlOrOptions, values ?? [])
+        : await connection.query<T>(sqlOrOptions)
       connection.release()
       return result
     } catch (e) {
@@ -317,7 +321,9 @@ class MySQLPool extends EventEmitter implements IPool {
   ): Promise<QueryResult<T>> {
     const connection = await this.getConnection()
     try {
-      const result = await connection.execute<T>(sqlOrOptions, values)
+      const result = typeof sqlOrOptions === 'string'
+        ? await connection.execute<T>(sqlOrOptions, values ?? [])
+        : await connection.execute<T>(sqlOrOptions)
       connection.release()
       return result
     } catch (e) {
@@ -335,7 +341,7 @@ class MySQLPool extends EventEmitter implements IPool {
     if (this.idleConnections.length > 0) {
       const connection = this.idleConnections.pop()!
       this.emit('acquire', connection)
-      return connection
+      return connection as unknown as IPoolConnection
     }
 
     // Create new connection if under limit
@@ -345,7 +351,7 @@ class MySQLPool extends EventEmitter implements IPool {
       this.connections.add(connection)
       this.emit('connection', connection)
       this.emit('acquire', connection)
-      return connection
+      return connection as unknown as IPoolConnection
     }
 
     // Wait for available connection
@@ -380,7 +386,7 @@ class MySQLPool extends EventEmitter implements IPool {
     if (this.waitingRequests.length > 0) {
       const waiter = this.waitingRequests.shift()!
       this.emit('acquire', connection)
-      waiter.resolve(connection)
+      waiter.resolve(connection as unknown as IPoolConnection)
       return
     }
 
@@ -408,6 +414,7 @@ class MySQLPool extends EventEmitter implements IPool {
   }
 }
 
+// @ts-expect-error - EventEmitter 'on' method signature differs from mysql2 PoolConnection interface
 class MySQLPoolConnection extends MySQLConnection implements IPoolConnection {
   private pool: MySQLPool
 
@@ -417,7 +424,7 @@ class MySQLPoolConnection extends MySQLConnection implements IPoolConnection {
   }
 
   get connection(): IConnection {
-    return this
+    return this as unknown as IConnection
   }
 
   release(): void {
@@ -433,11 +440,11 @@ export async function createConnection(
   config: ConnectionOptions | ExtendedMySQLConfig
 ): Promise<IConnection> {
   const connection = new MySQLConnection(config)
-  return connection
+  return connection as unknown as IConnection
 }
 
 export function createPool(config: PoolOptions | ExtendedMySQLConfig): IPool {
-  return new MySQLPool(config)
+  return new MySQLPool(config) as unknown as IPool
 }
 
 // ============================================================================

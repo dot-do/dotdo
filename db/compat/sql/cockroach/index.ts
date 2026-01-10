@@ -102,7 +102,7 @@ export type {
 export { DatabaseError, ConnectionError, types } from './types'
 
 // Core classes (implementations)
-export { Client, Pool, crdb, default } from './cockroach'
+export { Client, Pool, default } from './cockroach'
 
 // Re-export interfaces with different names for advanced usage
 export type { Client as ClientInterface, Pool as PoolInterface } from './types'

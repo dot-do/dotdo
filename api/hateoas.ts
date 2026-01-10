@@ -126,12 +126,12 @@ export const APIInfoSchema = z.object({
 
 export const HATEOASResponseSchema = z.object({
   api: APIInfoSchema,
-  links: z.record(z.string()),
-  discover: z.record(z.string()).optional(),
-  collections: z.record(z.string()).optional(),
-  schema: z.record(z.string()).optional(),
-  actions: z.record(ActionDescriptorSchema).optional(),
-  relationships: z.record(z.string()).optional(),
+  links: z.record(z.string(), z.string()),
+  discover: z.record(z.string(), z.string()).optional(),
+  collections: z.record(z.string(), z.string()).optional(),
+  schema: z.record(z.string(), z.string()).optional(),
+  actions: z.record(z.string(), ActionDescriptorSchema).optional(),
+  relationships: z.record(z.string(), z.string()).optional(),
   verbs: z.array(z.string()).optional(),
   data: z.unknown(),
   user: UserContextSchema.optional(),

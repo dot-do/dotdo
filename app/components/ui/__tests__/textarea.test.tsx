@@ -89,10 +89,10 @@ describe('Textarea', () => {
     })
 
     it('preserves line breaks in value', () => {
-      render(<Textarea defaultValue="First line\nSecond line" />)
+      render(<Textarea defaultValue={`First line\nSecond line`} />)
 
       const textarea = screen.getByRole('textbox')
-      expect(textarea).toHaveValue('First line\nSecond line')
+      expect(textarea).toHaveValue(`First line\nSecond line`)
     })
 
     it('handles Enter key to create new lines', () => {
@@ -382,7 +382,7 @@ describe('Textarea', () => {
       render(<Textarea readOnly />)
 
       const textarea = screen.getByRole('textbox')
-      fireEvent.focus(textarea)
+      textarea.focus()
 
       expect(document.activeElement).toBe(textarea)
     })

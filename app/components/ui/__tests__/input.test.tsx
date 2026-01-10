@@ -256,7 +256,7 @@ describe('Input', () => {
       render(<Input readOnly />)
 
       const input = screen.getByRole('textbox')
-      fireEvent.focus(input)
+      input.focus()
 
       expect(document.activeElement).toBe(input)
     })

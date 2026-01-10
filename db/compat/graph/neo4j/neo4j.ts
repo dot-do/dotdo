@@ -13,7 +13,7 @@ import type {
   Transaction as ITransaction,
   ManagedTransaction as IManagedTransaction,
   Result as IResult,
-  Record as IRecord,
+  Neo4jRecord as IRecord,
   EagerResult,
   ResultSummary,
   ResultObserver,

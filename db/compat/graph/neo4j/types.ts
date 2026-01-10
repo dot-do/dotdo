@@ -303,9 +303,9 @@ export interface ManagedTransaction {
 /**
  * Query result interface
  */
-export interface Result<T = Record<string, unknown>> extends AsyncIterable<Record<T>> {
+export interface Result<T = Record<string, unknown>> extends AsyncIterable<Neo4jRecord<T>> {
   /** Get all records as array */
-  records(): Promise<Record<T>[]>
+  records(): Promise<Neo4jRecord<T>[]>
 
   /** Get result summary */
   summary(): Promise<ResultSummary>
@@ -317,7 +317,7 @@ export interface Result<T = Record<string, unknown>> extends AsyncIterable<Recor
   keys(): Promise<string[]>
 
   /** Peek at the first record without consuming */
-  peek(): Promise<Record<T> | null>
+  peek(): Promise<Neo4jRecord<T> | null>
 
   /** Subscribe to results */
   subscribe(observer: ResultObserver<T>): void
@@ -328,7 +328,7 @@ export interface Result<T = Record<string, unknown>> extends AsyncIterable<Recor
  */
 export interface EagerResult<T = Record<string, unknown>> {
   keys: string[]
-  records: Record<T>[]
+  records: Neo4jRecord<T>[]
   summary: ResultSummary
 }
 
@@ -337,7 +337,7 @@ export interface EagerResult<T = Record<string, unknown>> {
  */
 export interface ResultObserver<T = Record<string, unknown>> {
   onKeys?: (keys: string[]) => void
-  onNext?: (record: Record<T>) => void
+  onNext?: (record: Neo4jRecord<T>) => void
   onCompleted?: (summary: ResultSummary) => void
   onError?: (error: Error) => void
 }
@@ -345,7 +345,7 @@ export interface ResultObserver<T = Record<string, unknown>> {
 /**
  * Single record from query result
  */
-export interface Record<T = Record<string, unknown>> {
+export interface Neo4jRecord<T = Record<string, unknown>> {
   /** Get all keys */
   keys: string[]
 
@@ -359,7 +359,7 @@ export interface Record<T = Record<string, unknown>> {
   has(key: string | number): boolean
 
   /** Iterate over values */
-  forEach(visitor: (value: unknown, key: string, record: Record<T>) => void): void
+  forEach(visitor: (value: unknown, key: string, record: Neo4jRecord<T>) => void): void
 
   /** Convert to object */
   toObject(): T

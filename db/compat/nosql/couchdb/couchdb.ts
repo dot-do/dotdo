@@ -730,7 +730,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
     }
 
     const newDoc = deepClone(src) as D
-    delete (newDoc as StoredDocument)._rev
+    delete (newDoc as { _rev?: string })._rev
     newDoc._id = destDoc
 
     if (options?.overwrite) {
@@ -1051,7 +1051,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
 
   async changes(params?: ChangesParams): Promise<ChangesResponse<D>> {
     const db = this.getDb()
-    let changes = [...db.changes]
+    let changes = [...db.changes] as ChangeItem<D>[]
 
     // Filter by since
     if (params?.since !== undefined) {

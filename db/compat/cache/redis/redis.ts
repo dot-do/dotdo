@@ -1725,7 +1725,7 @@ class RedisPipeline implements PipelineInterface {
     return this
   }
 
-  async exec(): Promise<[Error | null, unknown][]> {
+  async exec(): Promise<[Error | null, unknown][] | null> {
     const results: [Error | null, unknown][] = []
 
     for (const cmd of this.queue) {
@@ -2112,10 +2112,14 @@ class Redis implements RedisInterface {
     return this.storage.rpush(keyToString(key), values.map(valueToString))
   }
 
+  lpop(key: RedisKey): Promise<string | null>
+  lpop(key: RedisKey, count: number): Promise<string | string[] | null>
   async lpop(key: RedisKey, count?: number): Promise<string | string[] | null> {
     return this.storage.lpop(keyToString(key), count)
   }
 
+  rpop(key: RedisKey): Promise<string | null>
+  rpop(key: RedisKey, count: number): Promise<string | string[] | null>
   async rpop(key: RedisKey, count?: number): Promise<string | string[] | null> {
     return this.storage.rpop(keyToString(key), count)
   }
@@ -2220,10 +2224,14 @@ class Redis implements RedisInterface {
     return result.length
   }
 
+  srandmember(key: RedisKey): Promise<string | null>
+  srandmember(key: RedisKey, count: number): Promise<string | string[] | null>
   async srandmember(key: RedisKey, count?: number): Promise<string | string[] | null> {
     return this.storage.srandmember(keyToString(key), count)
   }
 
+  spop(key: RedisKey): Promise<string | null>
+  spop(key: RedisKey, count: number): Promise<string | string[] | null>
   async spop(key: RedisKey, count?: number): Promise<string | string[] | null> {
     return this.storage.spop(keyToString(key), count)
   }

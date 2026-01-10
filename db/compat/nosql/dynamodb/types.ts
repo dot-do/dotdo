@@ -7,6 +7,8 @@
  * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/clients/client-dynamodb/
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 // ============================================================================
 // ATTRIBUTE VALUE TYPES
 // ============================================================================

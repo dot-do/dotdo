@@ -122,7 +122,16 @@ export function resolveValuePart(
     return normalizeValue(params[paramIndex.current++], dialect)
   }
 
-  // Parse as literal
+  // Handle boolean literals with dialect awareness
+  const upperTrimmed = trimmed.toUpperCase()
+  if (upperTrimmed === 'TRUE') {
+    return dialect.booleanType === 'integer' ? 1 : true
+  }
+  if (upperTrimmed === 'FALSE') {
+    return dialect.booleanType === 'integer' ? 0 : false
+  }
+
+  // Parse as literal (for non-boolean values)
   return parseValueToken(trimmed)
 }
 

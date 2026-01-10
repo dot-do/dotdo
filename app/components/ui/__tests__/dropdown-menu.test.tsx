@@ -502,7 +502,9 @@ describe('DropdownMenu', () => {
         expect(screen.getByRole('menu')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByTestId('outside'))
+      // Use fireEvent.pointerDown instead of user.click to bypass pointer-events checks
+      // Radix UI's dismissable layer listens for pointerdown events
+      fireEvent.pointerDown(screen.getByTestId('outside'), { button: 0, pointerType: 'mouse' })
 
       await waitFor(() => {
         expect(screen.queryByRole('menu')).not.toBeInTheDocument()
@@ -577,7 +579,7 @@ describe('DropdownMenu', () => {
       render(
         <DropdownMenu defaultOpen>
           <DropdownMenuTrigger>Menu</DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent loop>
             <DropdownMenuItem>Item 1</DropdownMenuItem>
             <DropdownMenuItem>Item 2</DropdownMenuItem>
           </DropdownMenuContent>
@@ -595,7 +597,7 @@ describe('DropdownMenu', () => {
       const item2 = screen.getByRole('menuitem', { name: 'Item 2' })
       expect(item2).toHaveFocus()
 
-      // Should wrap to first item
+      // Should wrap to first item when loop is enabled
       await user.keyboard('{ArrowDown}')
 
       const item1 = screen.getByRole('menuitem', { name: 'Item 1' })

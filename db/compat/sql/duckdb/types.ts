@@ -46,6 +46,14 @@ export interface QueryResult {
   changes: number
   /** Last inserted row ID (if applicable) */
   lastInsertRowid?: number | bigint
+  /** Column names */
+  columns?: string[]
+  /** Result rows */
+  rows?: unknown[][]
+  /** Row count */
+  rowCount?: number
+  /** Changed rows */
+  changedRows?: number
 }
 
 /**
@@ -233,8 +241,8 @@ export interface IDatabase {
   /**
    * Close the database
    */
-  close(): Promise<void>
-  close(callback: CloseCallback): void
+  close(callback?: CloseCallback): void
+  close(force: boolean, callback?: CloseCallback): void
 }
 
 // ============================================================================

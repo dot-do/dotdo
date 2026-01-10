@@ -22,8 +22,48 @@
  * ```
  */
 
-// Re-export types
-export * from './types'
+// Re-export types (excluding classes that are re-exported from firebase.ts)
+export type {
+  FirebaseApp,
+  FirebaseConfig,
+  ExtendedFirebaseConfig,
+  Firestore,
+  Database,
+  DocumentReference,
+  CollectionReference,
+  DocumentSnapshot,
+  QuerySnapshot,
+  QueryDocumentSnapshot,
+  Query,
+  QueryConstraint,
+  QueryWhereConstraint,
+  QueryOrderByConstraint,
+  QueryLimitConstraint,
+  QueryCursorConstraint,
+  DocumentData,
+  SetOptions,
+  UpdateData,
+  WriteBatch,
+  Transaction,
+  TransactionOptions,
+  SnapshotMetadata,
+  SnapshotOptions,
+  SnapshotListenOptions,
+  DocumentChange,
+  WhereFilterOp,
+  OrderByDirection,
+  FieldValue,
+  AggregateSpec,
+  AggregateField,
+  AggregateQuerySnapshot,
+  Unsubscribe,
+  DatabaseReference,
+  DataSnapshot,
+  ThenableReference,
+  DatabaseQueryConstraint,
+  TransactionResult,
+  EventType,
+} from './types'
 
-// Re-export implementation
+// Re-export implementation (includes classes: Bytes, FieldPath, GeoPoint, Timestamp)
 export * from './firebase'

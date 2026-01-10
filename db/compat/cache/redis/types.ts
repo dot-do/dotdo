@@ -348,7 +348,7 @@ export interface Pipeline {
   info(section?: string): Pipeline
 
   // Execute pipeline
-  exec(): Promise<[Error | null, unknown][]>
+  exec(): Promise<[Error | null, unknown][] | null>
 }
 
 // ============================================================================
@@ -415,11 +415,11 @@ export interface Redis {
   /**
    * Set the value of a key
    */
-  set(key: RedisKey, value: RedisValue, options?: SetOptions): Promise<SetResult | string | null>
-  set(key: RedisKey, value: RedisValue, secondsToken: 'EX', seconds: number): Promise<'OK'>
-  set(key: RedisKey, value: RedisValue, millisecondsToken: 'PX', milliseconds: number): Promise<'OK'>
-  set(key: RedisKey, value: RedisValue, nxToken: 'NX'): Promise<'OK' | null>
-  set(key: RedisKey, value: RedisValue, xxToken: 'XX'): Promise<'OK' | null>
+  set(key: RedisKey, value: RedisValue, options?: SetOptions): Promise<string | null>
+  set(key: RedisKey, value: RedisValue, secondsToken: 'EX', seconds: number): Promise<string | null>
+  set(key: RedisKey, value: RedisValue, millisecondsToken: 'PX', milliseconds: number): Promise<string | null>
+  set(key: RedisKey, value: RedisValue, nxToken: 'NX'): Promise<string | null>
+  set(key: RedisKey, value: RedisValue, xxToken: 'XX'): Promise<string | null>
 
   /**
    * Get multiple keys
@@ -526,7 +526,7 @@ export interface Redis {
    * Set multiple hash fields
    */
   hmset(key: RedisKey, fieldValues: Record<string, RedisValue>): Promise<'OK'>
-  hmset(key: RedisKey, ...fieldValues: (string | RedisValue)[]): Promise<'OK'>
+  hmset(key: RedisKey, field: string, value: RedisValue, ...rest: (string | RedisValue)[]): Promise<'OK'>
 
   /**
    * Get all hash fields and values
@@ -591,13 +591,13 @@ export interface Redis {
    * Pop from head of list
    */
   lpop(key: RedisKey): Promise<string | null>
-  lpop(key: RedisKey, count: number): Promise<string[]>
+  lpop(key: RedisKey, count: number): Promise<string | string[] | null>
 
   /**
    * Pop from tail of list
    */
   rpop(key: RedisKey): Promise<string | null>
-  rpop(key: RedisKey, count: number): Promise<string[]>
+  rpop(key: RedisKey, count: number): Promise<string | string[] | null>
 
   /**
    * Get range of list elements
@@ -707,13 +707,13 @@ export interface Redis {
    * Get random members
    */
   srandmember(key: RedisKey): Promise<string | null>
-  srandmember(key: RedisKey, count: number): Promise<string[]>
+  srandmember(key: RedisKey, count: number): Promise<string | string[] | null>
 
   /**
    * Pop random members
    */
   spop(key: RedisKey): Promise<string | null>
-  spop(key: RedisKey, count: number): Promise<string[]>
+  spop(key: RedisKey, count: number): Promise<string | string[] | null>
 
   /**
    * Move member between sets
@@ -727,8 +727,8 @@ export interface Redis {
   /**
    * Add members with scores
    */
-  zadd(key: RedisKey, score: number, member: RedisValue): Promise<number>
-  zadd(key: RedisKey, ...scoreMembers: (number | RedisValue)[]): Promise<number>
+  zadd(key: RedisKey, score: number, member: RedisValue): Promise<number | string>
+  zadd(key: RedisKey, ...scoreMembers: (number | RedisValue)[]): Promise<number | string>
   zadd(key: RedisKey, options: ZAddOptions, score: number, member: RedisValue): Promise<number | string>
 
   /**

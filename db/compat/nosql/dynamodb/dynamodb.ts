@@ -144,7 +144,7 @@ function keyToString(key: Key): string {
 function attributeValueToString(av: AttributeValue): string {
   if (av.S !== undefined) return `S:${av.S}`
   if (av.N !== undefined) return `N:${av.N}`
-  if (av.B !== undefined) return `B:${btoa(String.fromCharCode(...av.B))}`
+  if (av.B !== undefined) return `B:${btoa(String.fromCharCode.apply(null, Array.from(av.B)))}`
   throw new ValidationException('Invalid key attribute type')
 }
 
@@ -173,8 +173,8 @@ function compareAttributeValues(a: AttributeValue, b: AttributeValue): number {
     return Number(a.N) - Number(b.N)
   }
   if (a.B !== undefined && b.B !== undefined) {
-    const strA = String.fromCharCode(...a.B)
-    const strB = String.fromCharCode(...b.B)
+    const strA = String.fromCharCode.apply(null, Array.from(a.B))
+    const strB = String.fromCharCode.apply(null, Array.from(b.B))
     return strA.localeCompare(strB)
   }
   return 0

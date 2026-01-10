@@ -498,16 +498,17 @@ function applyUpdate(doc: Document, update: UpdateFilter<Document>): Document {
         setNestedValue(doc, key, current)
       }
 
-      if (typeof value === 'object' && value !== null && '$each' in value) {
-        const each = value.$each as unknown[]
-        const position = (value as { $position?: number }).$position
+      const pushValue = value as unknown
+      if (typeof pushValue === 'object' && pushValue !== null && '$each' in pushValue) {
+        const each = (pushValue as { $each?: unknown[] }).$each ?? []
+        const position = (pushValue as { $position?: number }).$position
         if (position !== undefined) {
           current.splice(position, 0, ...each)
         } else {
           current.push(...each)
         }
       } else {
-        current.push(value)
+        current.push(pushValue)
       }
     }
   }
@@ -537,16 +538,17 @@ function applyUpdate(doc: Document, update: UpdateFilter<Document>): Document {
         setNestedValue(doc, key, current)
       }
 
-      if (typeof value === 'object' && value !== null && '$each' in value) {
-        const each = value.$each as unknown[]
+      const addValue = value as unknown
+      if (typeof addValue === 'object' && addValue !== null && '$each' in addValue) {
+        const each = (addValue as { $each?: unknown[] }).$each ?? []
         for (const item of each) {
           if (!current.some(existing => deepEquals(existing, item))) {
             current.push(item)
           }
         }
       } else {
-        if (!current.some(existing => deepEquals(existing, value))) {
-          current.push(value)
+        if (!current.some(existing => deepEquals(existing, addValue))) {
+          current.push(addValue)
         }
       }
     }
@@ -625,12 +627,13 @@ function applyProjection(doc: WithId<Document>, projection: Projection<Document>
   const hasExclusion = entries.some(([k, v]) => (v === 0 || v === false) && k !== '_id')
 
   const result: Document = {}
+  const docAny = doc as unknown as Document
 
   if (hasInclusion && !hasExclusion) {
     // Inclusion mode - only include specified fields
     for (const [key, include] of entries) {
       if (include === 1 || include === true) {
-        const value = getNestedValue(doc, key)
+        const value = getNestedValue(docAny, key)
         if (value !== undefined) {
           setNestedValue(result, key, value)
         }
@@ -651,7 +654,7 @@ function applyProjection(doc: WithId<Document>, projection: Projection<Document>
     }
   }
 
-  return result as WithId<Document>
+  return result as unknown as WithId<Document>
 }
 
 // ============================================================================
@@ -674,9 +677,9 @@ function parseSortSpec(sort: Sort<Document>): [string, 1 | -1][] {
     return [[sort, 1]]
   }
   if (Array.isArray(sort)) {
-    return sort.map(([field, dir]) => [field, normalizeSortDirection(dir)])
+    return sort.map(([field, dir]) => [field, normalizeSortDirection(dir ?? 1)])
   }
-  return Object.entries(sort).map(([field, dir]) => [field, normalizeSortDirection(dir)])
+  return Object.entries(sort).map(([field, dir]) => [field, normalizeSortDirection(dir ?? 1)])
 }
 
 /**
@@ -1021,10 +1024,10 @@ class FindCursorImpl<T extends Document = Document> implements IFindCursor<T> {
   private execute(): WithId<T>[] {
     if (this._executed) return this._results
 
-    let result = this.docs.filter(doc => matchesFilter(doc, this._filter as Filter<Document>))
+    let result = this.docs.filter(doc => matchesFilter(doc as unknown as Document, this._filter as Filter<Document>)) as WithId<T>[]
 
     if (this._sort) {
-      result = sortDocuments(result, this._sort as Sort<Document>) as WithId<T>[]
+      result = sortDocuments(result as unknown as Document[], this._sort as Sort<Document>) as unknown as WithId<T>[]
     }
 
     if (this._skip !== undefined) {
@@ -1415,7 +1418,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
 
   find(filter?: Filter<T>, options?: FindOptions<T>): IFindCursor<T> {
     const storage = this.getStorage()
-    const cursor = new FindCursorImpl<T>(storage as WithId<T>[], filter)
+    const cursor = new FindCursorImpl<T>(storage as unknown as WithId<T>[], filter)
 
     if (options?.projection) {
       cursor.project(options.projection)
@@ -1562,14 +1565,14 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
         const _id = newDoc._id as ObjectId ?? new ObjectId()
         newDoc._id = _id
         storage.push(newDoc)
-        return options.returnDocument === 'after' ? newDoc as WithId<T> : null
+        return options.returnDocument === 'after' ? (newDoc as unknown as WithId<T>) : null
       }
       return null
     }
 
-    const before = { ...storage[index] } as WithId<T>
+    const before = { ...storage[index] } as unknown as WithId<T>
     applyUpdate(storage[index], update as UpdateFilter<Document>)
-    const after = storage[index] as WithId<T>
+    const after = storage[index] as unknown as WithId<T>
 
     return options?.returnDocument === 'after' ? after : before
   }
@@ -1582,7 +1585,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
       return null
     }
 
-    const doc = storage[index] as WithId<T>
+    const doc = storage[index] as unknown as WithId<T>
     storage.splice(index, 1)
     return doc
   }
@@ -1600,15 +1603,15 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
         const _id = (replacement as Document)._id as ObjectId ?? new ObjectId()
         const newDoc = { ...replacement, _id } as Document
         storage.push(newDoc)
-        return options.returnDocument === 'after' ? newDoc as WithId<T> : null
+        return options.returnDocument === 'after' ? (newDoc as unknown as WithId<T>) : null
       }
       return null
     }
 
-    const before = { ...storage[index] } as WithId<T>
+    const before = { ...storage[index] } as unknown as WithId<T>
     const _id = storage[index]._id
     storage[index] = { ...replacement, _id } as Document
-    const after = storage[index] as WithId<T>
+    const after = storage[index] as unknown as WithId<T>
 
     return options?.returnDocument === 'after' ? after : before
   }
@@ -1644,7 +1647,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
     const docs = await this.find(filter).toArray()
     const values = new Set<unknown>()
     for (const doc of docs) {
-      const value = getNestedValue(doc, key as string)
+      const value = getNestedValue(doc as unknown as Document, key as string)
       if (value !== undefined) {
         values.add(value)
       }
@@ -1702,7 +1705,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
 
   listIndexes(): IFindCursor<IndexInfo> {
     const indexes = this.getIndexes()
-    return new FindCursorImpl<IndexInfo>(indexes as WithId<IndexInfo>[])
+    return new FindCursorImpl<IndexInfo>(indexes as unknown as WithId<IndexInfo>[])
   }
 
   async indexExists(name: string | string[]): Promise<boolean> {

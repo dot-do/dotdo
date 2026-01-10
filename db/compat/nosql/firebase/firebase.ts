@@ -37,7 +37,7 @@ import type {
   DocumentChange,
   WhereFilterOp,
   OrderByDirection,
-  FieldPath,
+  FieldPath as IFieldPath,
   FieldValue,
   GeoPoint as GeoPointType,
   Timestamp as TimestampType,
@@ -332,8 +332,11 @@ class InMemoryFirestore {
         const fieldPath = typeof oc._field === 'string' ? oc._field : ''
         const dir = oc._direction === 'desc' ? -1 : 1
         return [...results].sort((a, b) => {
-          const aVal = this.getNestedValue(a.data, fieldPath)
-          const bVal = this.getNestedValue(b.data, fieldPath)
+          const aVal = this.getNestedValue(a.data, fieldPath) as string | number | null
+          const bVal = this.getNestedValue(b.data, fieldPath) as string | number | null
+          if (aVal == null && bVal == null) return 0
+          if (aVal == null) return 1
+          if (bVal == null) return -1
           if (aVal < bVal) return -1 * dir
           if (aVal > bVal) return 1 * dir
           return 0
@@ -351,10 +354,11 @@ class InMemoryFirestore {
         const cc = constraint as QueryCursorConstraint
         const cursorValue = cc._values[0]
         // If cursor is a document snapshot, get its value for the order field
-        const compareValue = this.getCursorValue(cursorValue, orderField)
+        const compareValue = this.getCursorValue(cursorValue, orderField) as string | number | null
         if (orderField) {
           const idx = results.findIndex((doc) => {
-            const docValue = this.getNestedValue(doc.data, orderField)
+            const docValue = this.getNestedValue(doc.data, orderField) as string | number | null
+            if (docValue == null || compareValue == null) return false
             return docValue >= compareValue
           })
           return idx >= 0 ? results.slice(idx) : results
@@ -364,10 +368,11 @@ class InMemoryFirestore {
       case 'startAfter': {
         const cc = constraint as QueryCursorConstraint
         const cursorValue = cc._values[0]
-        const compareValue = this.getCursorValue(cursorValue, orderField)
+        const compareValue = this.getCursorValue(cursorValue, orderField) as string | number | null
         if (orderField) {
           const idx = results.findIndex((doc) => {
-            const docValue = this.getNestedValue(doc.data, orderField)
+            const docValue = this.getNestedValue(doc.data, orderField) as string | number | null
+            if (docValue == null || compareValue == null) return false
             return docValue > compareValue
           })
           return idx >= 0 ? results.slice(idx) : []
@@ -377,10 +382,11 @@ class InMemoryFirestore {
       case 'endAt': {
         const cc = constraint as QueryCursorConstraint
         const cursorValue = cc._values[0]
-        const compareValue = this.getCursorValue(cursorValue, orderField)
+        const compareValue = this.getCursorValue(cursorValue, orderField) as string | number | null
         if (orderField) {
           const idx = results.findIndex((doc) => {
-            const docValue = this.getNestedValue(doc.data, orderField)
+            const docValue = this.getNestedValue(doc.data, orderField) as string | number | null
+            if (docValue == null || compareValue == null) return false
             return docValue > compareValue
           })
           return idx >= 0 ? results.slice(0, idx) : results
@@ -390,10 +396,11 @@ class InMemoryFirestore {
       case 'endBefore': {
         const cc = constraint as QueryCursorConstraint
         const cursorValue = cc._values[0]
-        const compareValue = this.getCursorValue(cursorValue, orderField)
+        const compareValue = this.getCursorValue(cursorValue, orderField) as string | number | null
         if (orderField) {
           const idx = results.findIndex((doc) => {
-            const docValue = this.getNestedValue(doc.data, orderField)
+            const docValue = this.getNestedValue(doc.data, orderField) as string | number | null
+            if (docValue == null || compareValue == null) return false
             return docValue >= compareValue
           })
           return idx >= 0 ? results.slice(0, idx) : results
@@ -418,7 +425,7 @@ class InMemoryFirestore {
   }
 
   private evaluateWhere(data: DocumentData, field: string, op: WhereFilterOp, value: unknown): boolean {
-    const fieldValue = this.getNestedValue(data, field)
+    const fieldValue = this.getNestedValue(data, field) as unknown
 
     switch (op) {
       case '==':
@@ -426,24 +433,24 @@ class InMemoryFirestore {
       case '!=':
         return fieldValue !== value
       case '<':
-        return fieldValue < (value as any)
+        return (fieldValue as number) < (value as number)
       case '<=':
-        return fieldValue <= (value as any)
+        return (fieldValue as number) <= (value as number)
       case '>':
-        return fieldValue > (value as any)
+        return (fieldValue as number) > (value as number)
       case '>=':
-        return fieldValue >= (value as any)
+        return (fieldValue as number) >= (value as number)
       case 'in':
         return Array.isArray(value) && value.includes(fieldValue)
       case 'not-in':
         return Array.isArray(value) && !value.includes(fieldValue)
       case 'array-contains':
-        return Array.isArray(fieldValue) && fieldValue.includes(value)
+        return Array.isArray(fieldValue) && (fieldValue as unknown[]).includes(value)
       case 'array-contains-any':
         return (
           Array.isArray(fieldValue) &&
           Array.isArray(value) &&
-          value.some((v) => fieldValue.includes(v))
+          value.some((v) => (fieldValue as unknown[]).includes(v))
         )
       default:
         return true
@@ -1112,7 +1119,7 @@ class TransactionImpl implements Transaction {
   async get<T>(documentRef: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
     const snap = await getDoc(documentRef)
     this.reads.set(documentRef.path, snap)
-    return snap
+    return snap as DocumentSnapshot<T>
   }
 
   set<T>(documentRef: DocumentReference<T>, data: T, options?: SetOptions): Transaction {
@@ -1415,14 +1422,14 @@ export class GeoPoint implements GeoPointType {
 // FIELDPATH CLASS
 // ============================================================================
 
-export class FieldPath implements FieldPath {
+export class FieldPath implements IFieldPath {
   private _segments: string[]
 
   constructor(...fieldNames: string[]) {
     this._segments = fieldNames
   }
 
-  isEqual(other: FieldPath): boolean {
+  isEqual(other: IFieldPath): boolean {
     const otherSegments = (other as FieldPath)._segments
     return (
       this._segments.length === otherSegments.length &&
@@ -2333,8 +2340,11 @@ function applyDatabaseQueryConstraints(snapshot: DataSnapshot, constraints: DBQu
       case 'orderByChild': {
         const path = (constraint as any)._path
         entries.sort((a, b) => {
-          const aVal = getNestedValue(a.value, path)
-          const bVal = getNestedValue(b.value, path)
+          const aVal = getNestedValue(a.value as Record<string, unknown>, path) as string | number | null
+          const bVal = getNestedValue(b.value as Record<string, unknown>, path) as string | number | null
+          if (aVal == null && bVal == null) return 0
+          if (aVal == null) return 1
+          if (bVal == null) return -1
           if (aVal < bVal) return -1
           if (aVal > bVal) return 1
           return 0
@@ -2346,8 +2356,13 @@ function applyDatabaseQueryConstraints(snapshot: DataSnapshot, constraints: DBQu
         break
       case 'orderByValue':
         entries.sort((a, b) => {
-          if (a.value < b.value) return -1
-          if (a.value > b.value) return 1
+          const aValue = a.value as string | number | null
+          const bValue = b.value as string | number | null
+          if (aValue == null && bValue == null) return 0
+          if (aValue == null) return 1
+          if (bValue == null) return -1
+          if (aValue < bValue) return -1
+          if (aValue > bValue) return 1
           return 0
         })
         break

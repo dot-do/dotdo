@@ -20,6 +20,22 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
+// Mock jsdom APIs required by Radix UI Select
+const ResizeObserverMock = vi.fn(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+
+// Mock scrollIntoView since jsdom doesn't implement it
+Element.prototype.scrollIntoView = vi.fn()
+
+// Mock hasPointerCapture and related methods
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()
+
 // Import components under test
 import {
   Select,

@@ -53,7 +53,37 @@ import {
 function normalizeDuckDbSql(sql: string): string {
   let result = sql
 
-  // DuckDB uses $1, $2 style parameters like PostgreSQL (no change needed)
+  // Convert ? placeholders to $N style for PostgreSQL dialect
+  // Track position while avoiding replacing ? inside strings
+  let paramIndex = 0
+  let inString = false
+  let stringChar = ''
+  let newSql = ''
+
+  for (let i = 0; i < result.length; i++) {
+    const char = result[i]
+
+    if (!inString && (char === "'" || char === '"')) {
+      inString = true
+      stringChar = char
+      newSql += char
+    } else if (inString && char === stringChar) {
+      // Check for escaped quote
+      if (result[i + 1] === stringChar) {
+        newSql += char + result[i + 1]
+        i++
+      } else {
+        inString = false
+        newSql += char
+      }
+    } else if (!inString && char === '?') {
+      paramIndex++
+      newSql += `$${paramIndex}`
+    } else {
+      newSql += char
+    }
+  }
+  result = newSql
 
   // Handle DuckDB-specific types
   // HUGEINT -> INTEGER (simplified for in-memory)
@@ -127,6 +157,7 @@ function transformToRowObjects<R>(result: ExecutionResult): R[] {
  */
 function transformToQueryResult(result: ExecutionResult): QueryResult {
   return {
+    changes: result.affectedRows || result.rows.length,
     columns: result.columns,
     rows: result.rows as unknown[][],
     rowCount: result.affectedRows || result.rows.length,
@@ -143,8 +174,9 @@ class DuckDBDatabase implements IDatabase {
   private engine: SQLEngine
   private config: ExtendedDuckDBConfig
   private _isClosed = false
+  private _path: string
 
-  constructor(path: string, configOrCallback?: DatabaseConfig | DatabaseCallback, callback?: DatabaseCallback) {
+  constructor(path?: string, configOrCallback?: DatabaseConfig | DatabaseCallback, callback?: DatabaseCallback) {
     // Parse arguments
     let config: DatabaseConfig = {}
     let cb: DatabaseCallback | undefined
@@ -156,7 +188,8 @@ class DuckDBDatabase implements IDatabase {
       cb = callback
     }
 
-    this.config = { path, ...config } as ExtendedDuckDBConfig
+    this._path = path ?? ':memory:'
+    this.config = { path: this._path, ...config } as ExtendedDuckDBConfig
     this.engine = createSQLEngine(POSTGRES_DIALECT)
 
     // Async initialization callback
@@ -165,11 +198,19 @@ class DuckDBDatabase implements IDatabase {
     }
   }
 
-  connect(path?: string): IConnection {
+  get path(): string {
+    return this._path
+  }
+
+  get open(): boolean {
+    return !this._isClosed
+  }
+
+  connect(path?: string): Promise<IConnection> {
     if (this._isClosed) {
       throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
     }
-    return new DuckDBConnection(this, this.engine)
+    return Promise.resolve(new DuckDBConnection(this, this.engine))
   }
 
   interrupt(): void {
@@ -194,25 +235,44 @@ class DuckDBDatabase implements IDatabase {
     }
   }
 
-  run(sql: string, ...paramsOrCallback: (unknown | RunCallback)[]): this {
+  run(sql: string, ...paramsOrCallback: (unknown | RunCallback)[]): QueryResult {
+    if (this._isClosed) {
+      throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
+    }
+
     const { params, callback } = this.extractParamsAndCallback<RunCallback>(paramsOrCallback)
 
     try {
       const normalizedSql = normalizeDuckDbSql(sql)
-      this.engine.execute(normalizedSql, params as SQLValue[])
-      if (callback) {
-        setTimeout(() => callback(null), 0)
+      const result = this.engine.execute(normalizedSql, params as SQLValue[])
+      // For INSERT/DELETE use affectedRows, for UPDATE use changedRows (rows that actually changed values)
+      // DuckDB returns number of rows matched for UPDATE, not rows changed
+      const changes = result.command === 'UPDATE'
+        ? result.affectedRows  // UPDATE returns matched rows
+        : result.affectedRows  // INSERT/DELETE return affected rows
+      const queryResult: QueryResult = {
+        changes,
+        lastInsertRowid: result.lastInsertRowid,
       }
+      if (callback) {
+        setTimeout(() => callback(null, queryResult), 0)
+      }
+      return queryResult
     } catch (e) {
+      const err = mapToDuckDBError(e)
       if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e)), 0)
+        setTimeout(() => callback(err), 0)
+        return { changes: 0 }
       }
+      throw err
     }
-
-    return this
   }
 
-  all<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | AllCallback<R>)[]): this {
+  all<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | AllCallback<R>)[]): R[] {
+    if (this._isClosed) {
+      throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
+    }
+
     const { params, callback } = this.extractParamsAndCallback<AllCallback<R>>(paramsOrCallback)
 
     try {
@@ -222,42 +282,74 @@ class DuckDBDatabase implements IDatabase {
       if (callback) {
         setTimeout(() => callback(null, rows), 0)
       }
+      return rows
     } catch (e) {
+      const err = mapToDuckDBError(e)
       if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), []), 0)
+        setTimeout(() => callback(err, []), 0)
+        return []
       }
+      throw err
     }
-
-    return this
   }
 
-  get<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | GetCallback<R>)[]): this {
+  get<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | GetCallback<R>)[]): R | undefined {
+    if (this._isClosed) {
+      throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
+    }
+
     const { params, callback } = this.extractParamsAndCallback<GetCallback<R>>(paramsOrCallback)
 
     try {
       const normalizedSql = normalizeDuckDbSql(sql)
       const result = this.engine.execute(normalizedSql, params as SQLValue[])
       const rows = transformToRowObjects<R>(result)
+      const row = rows[0]
       if (callback) {
-        setTimeout(() => callback(null, rows[0] ?? null), 0)
+        setTimeout(() => callback(null, row as R | undefined), 0)
       }
+      return row
     } catch (e) {
+      const err = mapToDuckDBError(e)
       if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), null), 0)
+        setTimeout(() => callback(err, undefined), 0)
+        return undefined
       }
+      throw err
     }
-
-    return this
   }
 
   each<R = Record<string, unknown>>(
     sql: string,
     ...paramsOrCallback: (unknown | EachRowCallback<R> | EachCompleteCallback)[]
-  ): this {
+  ): void {
+    if (this._isClosed) {
+      throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
+    }
+
     const args = [...paramsOrCallback]
-    const completeCallback = typeof args[args.length - 1] === 'function' ? args.pop() as EachCompleteCallback : undefined
-    const rowCallback = typeof args[args.length - 1] === 'function' ? args.pop() as EachRowCallback<R> : undefined
-    const params = args as unknown[]
+
+    // Find callbacks from the end
+    let completeCallback: EachCompleteCallback | undefined
+    let rowCallback: EachRowCallback<R> | undefined
+
+    // If last arg is a function, check if second-to-last is also a function
+    if (typeof args[args.length - 1] === 'function') {
+      if (args.length >= 2 && typeof args[args.length - 2] === 'function') {
+        // Two callbacks: row callback, then complete callback
+        completeCallback = args.pop() as EachCompleteCallback
+        rowCallback = args.pop() as EachRowCallback<R>
+      } else {
+        // One callback: it's the row callback
+        rowCallback = args.pop() as EachRowCallback<R>
+      }
+    }
+
+    // Remaining args are params - handle array param pattern
+    let params: unknown[] = args
+    if (params.length === 1 && Array.isArray(params[0])) {
+      params = params[0] as unknown[]
+    }
 
     try {
       const normalizedSql = normalizeDuckDbSql(sql)
@@ -273,32 +365,30 @@ class DuckDBDatabase implements IDatabase {
       }
 
       if (completeCallback) {
-        setTimeout(() => completeCallback(null, index), 0)
+        completeCallback(null, index)
       }
     } catch (e) {
+      if (rowCallback) {
+        rowCallback(mapToDuckDBError(e), null as unknown as R)
+      }
       if (completeCallback) {
-        setTimeout(() => completeCallback(mapToDuckDBError(e), 0), 0)
+        completeCallback(mapToDuckDBError(e), 0)
       }
     }
-
-    return this
   }
 
-  prepare(sql: string, ...paramsOrCallback: (unknown | ((err: DuckDBError | null, stmt: IStatement) => void))[]): this {
-    const { params, callback } = this.extractParamsAndCallback<(err: DuckDBError | null, stmt: IStatement) => void>(paramsOrCallback)
-
-    try {
-      const stmt = new DuckDBStatement(this.engine, sql, params)
-      if (callback) {
-        setTimeout(() => callback(null, stmt), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), null as unknown as IStatement), 0)
-      }
+  prepare(sql: string, ...paramsOrCallback: (unknown | ((err: DuckDBError | null, stmt: IStatement) => void))[]): IStatement {
+    if (this._isClosed) {
+      throw new DuckDBError('Database is closed', 'INTERNAL_ERROR')
     }
 
-    return this
+    const { params, callback } = this.extractParamsAndCallback<(err: DuckDBError | null, stmt: IStatement) => void>(paramsOrCallback)
+
+    const stmt = new DuckDBStatement(this.engine, sql, params)
+    if (callback) {
+      setTimeout(() => callback(null, stmt), 0)
+    }
+    return stmt
   }
 
   exec(sql: string, callback?: (err: DuckDBError | null) => void): this {
@@ -330,7 +420,7 @@ class DuckDBDatabase implements IDatabase {
     _callback?.()
   }
 
-  private extractParamsAndCallback<T extends (...args: unknown[]) => void>(
+  private extractParamsAndCallback<T extends (...args: any[]) => void>(
     args: (unknown | T)[]
   ): { params: unknown[]; callback?: T } {
     if (args.length === 0) {
@@ -339,10 +429,17 @@ class DuckDBDatabase implements IDatabase {
 
     const lastArg = args[args.length - 1]
     if (typeof lastArg === 'function') {
-      return {
-        params: args.slice(0, -1) as unknown[],
-        callback: lastArg as T,
-      }
+      const rawParams = args.slice(0, -1)
+      // If first arg is an array, use it directly (common pattern: db.run(sql, [params]))
+      const params = rawParams.length === 1 && Array.isArray(rawParams[0])
+        ? (rawParams[0] as unknown[])
+        : (rawParams as unknown[])
+      return { params, callback: lastArg as T }
+    }
+
+    // If first arg is an array, use it directly
+    if (args.length === 1 && Array.isArray(args[0])) {
+      return { params: args[0] as unknown[] }
     }
 
     return { params: args as unknown[] }
@@ -363,113 +460,34 @@ class DuckDBConnection implements IConnection {
     this.engine = engine
   }
 
-  close(callback?: CloseCallback): void
-  close(force: boolean, callback?: CloseCallback): void
-  close(forceOrCallback?: boolean | CloseCallback, callback?: CloseCallback): void {
-    let cb: CloseCallback | undefined
-
-    if (typeof forceOrCallback === 'function') {
-      cb = forceOrCallback
-    } else {
-      cb = callback
-    }
-
+  async close(): Promise<void> {
     this._isClosed = true
+  }
 
-    if (cb) {
-      setTimeout(() => cb!(null), 0)
+  async run(sql: string, params: unknown[] = []): Promise<QueryResult> {
+    const normalizedSql = normalizeDuckDbSql(sql)
+    const result = this.engine.execute(normalizedSql, params as SQLValue[])
+    return {
+      changes: result.affectedRows,
+      lastInsertRowid: result.lastInsertRowid,
     }
   }
 
-  run(sql: string, ...paramsOrCallback: (unknown | RunCallback)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<RunCallback>(paramsOrCallback)
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(sql)
-      this.engine.execute(normalizedSql, params as SQLValue[])
-      if (callback) {
-        setTimeout(() => callback(null), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e)), 0)
-      }
-    }
-
-    return this
+  async all<R = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<R[]> {
+    const normalizedSql = normalizeDuckDbSql(sql)
+    const result = this.engine.execute(normalizedSql, params as SQLValue[])
+    return transformToRowObjects<R>(result)
   }
 
-  all<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | AllCallback<R>)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<AllCallback<R>>(paramsOrCallback)
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(sql)
-      const result = this.engine.execute(normalizedSql, params as SQLValue[])
-      const rows = transformToRowObjects<R>(result)
-      if (callback) {
-        setTimeout(() => callback(null, rows), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), []), 0)
-      }
-    }
-
-    return this
+  async get<R = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<R | undefined> {
+    const normalizedSql = normalizeDuckDbSql(sql)
+    const result = this.engine.execute(normalizedSql, params as SQLValue[])
+    const rows = transformToRowObjects<R>(result)
+    return rows[0]
   }
 
-  get<R = Record<string, unknown>>(sql: string, ...paramsOrCallback: (unknown | GetCallback<R>)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<GetCallback<R>>(paramsOrCallback)
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(sql)
-      const result = this.engine.execute(normalizedSql, params as SQLValue[])
-      const rows = transformToRowObjects<R>(result)
-      if (callback) {
-        setTimeout(() => callback(null, rows[0] ?? null), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), null), 0)
-      }
-    }
-
-    return this
-  }
-
-  prepare(sql: string, ...paramsOrCallback: (unknown | ((err: DuckDBError | null, stmt: IStatement) => void))[]): this {
-    const { params, callback } = this.extractParamsAndCallback<(err: DuckDBError | null, stmt: IStatement) => void>(paramsOrCallback)
-
-    try {
-      const stmt = new DuckDBStatement(this.engine, sql, params)
-      if (callback) {
-        setTimeout(() => callback(null, stmt), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), null as unknown as IStatement), 0)
-      }
-    }
-
-    return this
-  }
-
-  private extractParamsAndCallback<T extends (...args: unknown[]) => void>(
-    args: (unknown | T)[]
-  ): { params: unknown[]; callback?: T } {
-    if (args.length === 0) {
-      return { params: [] }
-    }
-
-    const lastArg = args[args.length - 1]
-    if (typeof lastArg === 'function') {
-      return {
-        params: args.slice(0, -1) as unknown[],
-        callback: lastArg as T,
-      }
-    }
-
-    return { params: args as unknown[] }
+  async prepare(sql: string): Promise<IStatement> {
+    return new DuckDBStatement(this.engine, sql, [])
   }
 }
 
@@ -479,13 +497,17 @@ class DuckDBConnection implements IConnection {
 
 class DuckDBStatement implements IStatement {
   private engine: SQLEngine
-  private sql: string
+  private _sql: string
   private boundParams: unknown[]
 
   constructor(engine: SQLEngine, sql: string, params: unknown[] = []) {
     this.engine = engine
-    this.sql = sql
+    this._sql = sql
     this.boundParams = params
+  }
+
+  get sql(): string {
+    return this._sql
   }
 
   bind(...params: unknown[]): this {
@@ -493,63 +515,29 @@ class DuckDBStatement implements IStatement {
     return this
   }
 
-  run(...paramsOrCallback: (unknown | RunCallback)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<RunCallback>(paramsOrCallback)
+  run(...params: unknown[]): QueryResult {
     const execParams = params.length > 0 ? params : this.boundParams
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(this.sql)
-      this.engine.execute(normalizedSql, execParams as SQLValue[])
-      if (callback) {
-        setTimeout(() => callback(null), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e)), 0)
-      }
+    const normalizedSql = normalizeDuckDbSql(this._sql)
+    const result = this.engine.execute(normalizedSql, execParams as SQLValue[])
+    return {
+      changes: result.affectedRows,
+      lastInsertRowid: result.lastInsertRowid,
     }
-
-    return this
   }
 
-  all<R = Record<string, unknown>>(...paramsOrCallback: (unknown | AllCallback<R>)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<AllCallback<R>>(paramsOrCallback)
+  all<R = Record<string, unknown>>(...params: unknown[]): R[] {
     const execParams = params.length > 0 ? params : this.boundParams
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(this.sql)
-      const result = this.engine.execute(normalizedSql, execParams as SQLValue[])
-      const rows = transformToRowObjects<R>(result)
-      if (callback) {
-        setTimeout(() => callback(null, rows), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), []), 0)
-      }
-    }
-
-    return this
+    const normalizedSql = normalizeDuckDbSql(this._sql)
+    const result = this.engine.execute(normalizedSql, execParams as SQLValue[])
+    return transformToRowObjects<R>(result)
   }
 
-  get<R = Record<string, unknown>>(...paramsOrCallback: (unknown | GetCallback<R>)[]): this {
-    const { params, callback } = this.extractParamsAndCallback<GetCallback<R>>(paramsOrCallback)
+  get<R = Record<string, unknown>>(...params: unknown[]): R | undefined {
     const execParams = params.length > 0 ? params : this.boundParams
-
-    try {
-      const normalizedSql = normalizeDuckDbSql(this.sql)
-      const result = this.engine.execute(normalizedSql, execParams as SQLValue[])
-      const rows = transformToRowObjects<R>(result)
-      if (callback) {
-        setTimeout(() => callback(null, rows[0] ?? null), 0)
-      }
-    } catch (e) {
-      if (callback) {
-        setTimeout(() => callback(mapToDuckDBError(e), null), 0)
-      }
-    }
-
-    return this
+    const normalizedSql = normalizeDuckDbSql(this._sql)
+    const result = this.engine.execute(normalizedSql, execParams as SQLValue[])
+    const rows = transformToRowObjects<R>(result)
+    return rows[0]
   }
 
   reset(): this {
@@ -559,27 +547,20 @@ class DuckDBStatement implements IStatement {
 
   finalize(callback?: FinalizeCallback): void {
     if (callback) {
-      setTimeout(() => callback(null), 0)
+      callback(null)
     }
   }
+}
 
-  private extractParamsAndCallback<T extends (...args: unknown[]) => void>(
-    args: (unknown | T)[]
-  ): { params: unknown[]; callback?: T } {
-    if (args.length === 0) {
-      return { params: [] }
-    }
+// ============================================================================
+// ASYNC FACTORY
+// ============================================================================
 
-    const lastArg = args[args.length - 1]
-    if (typeof lastArg === 'function') {
-      return {
-        params: args.slice(0, -1) as unknown[],
-        callback: lastArg as T,
-      }
-    }
-
-    return { params: args as unknown[] }
-  }
+/**
+ * Async factory function for creating a Database instance
+ */
+export async function open(path?: string, config?: DatabaseConfig): Promise<DuckDBDatabase> {
+  return new DuckDBDatabase(path, config)
 }
 
 // ============================================================================
@@ -599,4 +580,5 @@ export default {
   Connection: DuckDBConnection,
   Statement: DuckDBStatement,
   DuckDBError,
+  open,
 }

@@ -764,17 +764,17 @@ class PostgrestFilterBuilderImpl<T extends Row> implements PostgrestFilterBuilde
         const aVal = (a as Row)[order.column]
         const bVal = (b as Row)[order.column]
 
-        // Handle nulls
-        if (aVal === null && bVal === null) continue
-        if (aVal === null) return order.nullsFirst ? -1 : 1
-        if (bVal === null) return order.nullsFirst ? 1 : -1
+        // Handle nulls and undefined
+        if ((aVal === null || aVal === undefined) && (bVal === null || bVal === undefined)) continue
+        if (aVal === null || aVal === undefined) return order.nullsFirst ? -1 : 1
+        if (bVal === null || bVal === undefined) return order.nullsFirst ? 1 : -1
 
         // Compare values
         let cmp = 0
         if (typeof aVal === 'string' && typeof bVal === 'string') {
           cmp = aVal.localeCompare(bVal)
         } else {
-          cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+          cmp = (aVal as number) < (bVal as number) ? -1 : (aVal as number) > (bVal as number) ? 1 : 0
         }
 
         if (cmp !== 0) {
