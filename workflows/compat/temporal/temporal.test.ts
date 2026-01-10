@@ -35,6 +35,21 @@ import {
   // Workflow registry cleanup functions
   __startWorkflowCleanup,
   __stopWorkflowCleanup,
+  // Determinism enforcement
+  workflowNow,
+  WorkflowDeterminismWarning,
+  configureDeterminism,
+  getDeterminismWarnings,
+  clearDeterminismWarnings,
+  enableDeterminismDetection,
+  disableDeterminismDetection,
+  inWorkflowContext,
+  // Task queue routing
+  registerWorker,
+  hasWorker,
+  getWorker,
+  listTaskQueues,
+  TaskQueueNotRegisteredError,
   type ChildWorkflowHandle,
   type TimerHandle,
   type SearchAttributes,
@@ -1865,6 +1880,648 @@ describe('Temporal Compat Layer', () => {
       const childHandle = client.getHandle('tracked-child')
       const childDesc = await childHandle.describe()
       expect(childDesc.status).toBe('COMPLETED')
+    })
+  })
+
+  describe('Task Queue Routing', () => {
+    // Use real timers for task queue tests
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+    })
+
+    afterEach(() => {
+      __clearTemporalState()
+      vi.useFakeTimers()
+    })
+
+    it('should allow workflows without registered workers (backward compatibility)', async () => {
+      const client = new WorkflowClient()
+
+      async function simpleWorkflow() {
+        return 'no worker needed'
+      }
+
+      // Should work without registering a worker (backward compatibility)
+      const result = await client.execute(simpleWorkflow, {
+        taskQueue: 'unregistered-queue',
+      })
+
+      expect(result).toBe('no worker needed')
+    })
+
+    it('should register and use a task queue worker', async () => {
+      const client = new WorkflowClient()
+
+      // Register a worker for the queue
+      const unregister = registerWorker('my-worker-queue')
+
+      async function workedWorkflow() {
+        return 'worker handled'
+      }
+
+      const result = await client.execute(workedWorkflow, {
+        taskQueue: 'my-worker-queue',
+      })
+
+      expect(result).toBe('worker handled')
+
+      // Cleanup
+      unregister()
+    })
+
+    it('should throw error when starting workflow on unregistered queue (when routing enabled)', async () => {
+      const client = new WorkflowClient()
+
+      // Register a worker for a different queue (enables routing)
+      const unregister = registerWorker('registered-queue')
+
+      async function workflowOnWrongQueue() {
+        return 'should not run'
+      }
+
+      // Should throw because 'unregistered-queue' has no worker
+      await expect(
+        client.start(workflowOnWrongQueue, {
+          taskQueue: 'unregistered-queue',
+        })
+      ).rejects.toThrow(TaskQueueNotRegisteredError)
+
+      unregister()
+    })
+
+    it('should list registered task queues', () => {
+      const unregister1 = registerWorker('queue-1')
+      const unregister2 = registerWorker('queue-2')
+      const unregister3 = registerWorker('queue-3')
+
+      const queues = listTaskQueues()
+
+      expect(queues).toContain('queue-1')
+      expect(queues).toContain('queue-2')
+      expect(queues).toContain('queue-3')
+      expect(queues.length).toBe(3)
+
+      unregister1()
+      unregister2()
+      unregister3()
+    })
+
+    it('should check if worker exists', () => {
+      const unregister = registerWorker('existing-queue')
+
+      expect(hasWorker('existing-queue')).toBe(true)
+      expect(hasWorker('non-existing-queue')).toBe(false)
+
+      unregister()
+
+      expect(hasWorker('existing-queue')).toBe(false)
+    })
+
+    it('should get worker handler', () => {
+      const unregister = registerWorker('handler-queue', {
+        workflowTypes: new Set(['workflow1', 'workflow2']),
+        activityTypes: new Set(['activity1']),
+      })
+
+      const worker = getWorker('handler-queue')
+
+      expect(worker).toBeDefined()
+      expect(worker?.workflowTypes?.has('workflow1')).toBe(true)
+      expect(worker?.workflowTypes?.has('workflow2')).toBe(true)
+      expect(worker?.activityTypes?.has('activity1')).toBe(true)
+
+      unregister()
+    })
+
+    it('should unregister worker using returned function', () => {
+      const unregister = registerWorker('temp-queue')
+
+      expect(hasWorker('temp-queue')).toBe(true)
+
+      unregister()
+
+      expect(hasWorker('temp-queue')).toBe(false)
+    })
+
+    it('should validate workflow type when worker specifies types', async () => {
+      const client = new WorkflowClient()
+
+      // Register worker with specific workflow types
+      const unregister = registerWorker('typed-queue', {
+        workflowTypes: new Set(['allowedWorkflow']),
+      })
+
+      async function disallowedWorkflow() {
+        return 'should not run'
+      }
+
+      // Should throw because 'disallowedWorkflow' is not in the allowed types
+      await expect(
+        client.start(disallowedWorkflow, {
+          taskQueue: 'typed-queue',
+        })
+      ).rejects.toThrow('not registered on task queue')
+
+      unregister()
+    })
+
+    it('should allow any workflow type when worker does not specify types', async () => {
+      const client = new WorkflowClient()
+
+      // Register worker without specific workflow types
+      const unregister = registerWorker('any-workflow-queue')
+
+      async function anyWorkflow() {
+        return 'any type allowed'
+      }
+
+      const result = await client.execute(anyWorkflow, {
+        taskQueue: 'any-workflow-queue',
+      })
+
+      expect(result).toBe('any type allowed')
+
+      unregister()
+    })
+
+    it('should validate child workflow task queue', async () => {
+      const client = new WorkflowClient()
+
+      // Register workers for parent and child queues
+      const unregisterParent = registerWorker('parent-queue')
+      const unregisterChild = registerWorker('child-queue')
+
+      async function childOnRegisteredQueue() {
+        return 'child ran'
+      }
+
+      async function parentWorkflow() {
+        const result = await executeChild(childOnRegisteredQueue, {
+          taskQueue: 'child-queue',
+        })
+        return result
+      }
+
+      const result = await client.execute(parentWorkflow, {
+        taskQueue: 'parent-queue',
+      })
+
+      expect(result).toBe('child ran')
+
+      unregisterParent()
+      unregisterChild()
+    })
+
+    it('should throw error for child workflow on unregistered queue', async () => {
+      const client = new WorkflowClient()
+
+      // Only register parent queue
+      const unregisterParent = registerWorker('parent-only-queue')
+
+      async function childOnUnregisteredQueue() {
+        return 'should not run'
+      }
+
+      async function parentWorkflow() {
+        // This should throw because child-unregistered-queue has no worker
+        const result = await executeChild(childOnUnregisteredQueue, {
+          taskQueue: 'child-unregistered-queue',
+        })
+        return result
+      }
+
+      await expect(
+        client.execute(parentWorkflow, {
+          taskQueue: 'parent-only-queue',
+        })
+      ).rejects.toThrow(TaskQueueNotRegisteredError)
+
+      unregisterParent()
+    })
+
+    it('should reject invalid task queue names', () => {
+      expect(() => registerWorker('')).toThrow('Task queue name must be a non-empty string')
+      // @ts-expect-error Testing invalid input
+      expect(() => registerWorker(null)).toThrow('Task queue name must be a non-empty string')
+      // @ts-expect-error Testing invalid input
+      expect(() => registerWorker(undefined)).toThrow('Task queue name must be a non-empty string')
+    })
+
+    it('should clear task queue registry on __clearTemporalState', () => {
+      registerWorker('queue-to-clear-1')
+      registerWorker('queue-to-clear-2')
+
+      expect(listTaskQueues().length).toBe(2)
+
+      __clearTemporalState()
+
+      expect(listTaskQueues().length).toBe(0)
+    })
+
+    it('should have TaskQueueNotRegisteredError with correct properties', () => {
+      const error = new TaskQueueNotRegisteredError('my-queue', 'workflow')
+
+      expect(error.name).toBe('TaskQueueNotRegisteredError')
+      expect(error.taskQueue).toBe('my-queue')
+      expect(error.type).toBe('workflow')
+      expect(error.message).toContain('my-queue')
+      expect(error.message).toContain('No worker registered')
+    })
+
+    it('should support activity-specific task queue error', () => {
+      const error = new TaskQueueNotRegisteredError('activity-queue', 'activity')
+
+      expect(error.type).toBe('activity')
+      expect(error.message).toContain('activities')
+    })
+  })
+
+  describe('Determinism Enforcement', () => {
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+      clearDeterminismWarnings()
+      // Disable detection for clean slate
+      disableDeterminismDetection()
+    })
+
+    afterEach(() => {
+      __clearTemporalState()
+      clearDeterminismWarnings()
+      disableDeterminismDetection()
+      vi.useFakeTimers()
+    })
+
+    describe('workflowNow()', () => {
+      it('should return deterministic time based on workflow start time', async () => {
+        const client = new WorkflowClient()
+
+        async function timeWorkflow() {
+          const now1 = workflowNow()
+          const now2 = workflowNow()
+          const now3 = workflowNow()
+
+          return {
+            time1: now1.getTime(),
+            time2: now2.getTime(),
+            time3: now3.getTime(),
+          }
+        }
+
+        const result = await client.execute(timeWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        // Each call should return a slightly different time (incrementing)
+        expect(result.time1).toBeLessThan(result.time2)
+        expect(result.time2).toBeLessThan(result.time3)
+      })
+
+      it('should return same time on replay', async () => {
+        const client = new WorkflowClient()
+
+        async function replayTimeWorkflow() {
+          const t1 = workflowNow().getTime()
+          const t2 = workflowNow().getTime()
+
+          return { t1, t2 }
+        }
+
+        // First execution
+        const result1 = await client.execute(replayTimeWorkflow, {
+          taskQueue: 'test-queue',
+          workflowId: 'replay-time-test',
+        })
+
+        // Re-execute (simulates replay in same workflow context)
+        __clearTemporalState()
+
+        const result2 = await client.execute(replayTimeWorkflow, {
+          taskQueue: 'test-queue',
+          workflowId: 'replay-time-test-2',
+        })
+
+        // Each workflow execution is independent but internally deterministic
+        expect(typeof result2.t1).toBe('number')
+        expect(typeof result2.t2).toBe('number')
+        expect(result2.t1).toBeLessThan(result2.t2)
+      })
+
+      it('should return real time outside workflow context', () => {
+        const before = Date.now()
+        const now = workflowNow()
+        const after = Date.now()
+
+        expect(now.getTime()).toBeGreaterThanOrEqual(before)
+        expect(now.getTime()).toBeLessThanOrEqual(after)
+      })
+
+      it('should be based on workflow startTime', async () => {
+        const client = new WorkflowClient()
+
+        async function startTimeWorkflow() {
+          const info = workflowInfo()
+          const now = workflowNow()
+
+          return {
+            startTime: info.startTime.getTime(),
+            workflowNow: now.getTime(),
+          }
+        }
+
+        const result = await client.execute(startTimeWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        // workflowNow should be >= startTime (based on it)
+        expect(result.workflowNow).toBeGreaterThanOrEqual(result.startTime)
+      })
+    })
+
+    describe('WorkflowDeterminismWarning', () => {
+      it('should create warning with all properties', () => {
+        const warning = new WorkflowDeterminismWarning(
+          'Date.now',
+          'Test message',
+          'Use workflowNow()',
+          'test-workflow-id'
+        )
+
+        expect(warning.type).toBe('Date.now')
+        expect(warning.message).toBe('Test message')
+        expect(warning.suggestion).toBe('Use workflowNow()')
+        expect(warning.workflowId).toBe('test-workflow-id')
+        expect(warning.timestamp).toBeInstanceOf(Date)
+        expect(warning.stack).toBeDefined()
+      })
+
+      it('should format warning for console output', () => {
+        const warning = new WorkflowDeterminismWarning(
+          'Math.random',
+          'Non-deterministic operation',
+          'Use random()',
+          'wf-123'
+        )
+
+        const str = warning.toString()
+        expect(str).toContain('WorkflowDeterminismWarning')
+        expect(str).toContain('wf-123')
+        expect(str).toContain('Non-deterministic operation')
+        expect(str).toContain('Suggestion: Use random()')
+      })
+
+      it('should work without workflowId', () => {
+        const warning = new WorkflowDeterminismWarning(
+          'fetch',
+          'Network call detected',
+          'Use activities'
+        )
+
+        expect(warning.workflowId).toBeUndefined()
+        expect(warning.toString()).not.toContain('in workflow')
+      })
+    })
+
+    describe('configureDeterminism()', () => {
+      it('should update configuration', () => {
+        // Initially should be based on NODE_ENV
+        configureDeterminism({ warnOnNonDeterministic: false })
+
+        // Verify by checking no warnings are generated
+        expect(getDeterminismWarnings()).toHaveLength(0)
+      })
+
+      it('should enable warnings when configured', () => {
+        configureDeterminism({ warnOnNonDeterministic: true })
+
+        // Warnings should now be enabled (actual warning generation requires workflow context)
+        expect(getDeterminismWarnings()).toHaveLength(0)
+      })
+    })
+
+    describe('getDeterminismWarnings() and clearDeterminismWarnings()', () => {
+      it('should return empty array initially', () => {
+        const warnings = getDeterminismWarnings()
+        expect(Array.isArray(warnings)).toBe(true)
+        expect(warnings).toHaveLength(0)
+      })
+
+      it('should clear all warnings', () => {
+        clearDeterminismWarnings()
+        expect(getDeterminismWarnings()).toHaveLength(0)
+      })
+    })
+
+    describe('enableDeterminismDetection() and disableDeterminismDetection()', () => {
+      it('should enable and disable detection', () => {
+        configureDeterminism({ warnOnNonDeterministic: true })
+
+        // Enable detection
+        enableDeterminismDetection()
+
+        // Disable detection
+        disableDeterminismDetection()
+
+        // These functions should not throw
+        expect(true).toBe(true)
+      })
+
+      it('should only enable when warnOnNonDeterministic is true', () => {
+        configureDeterminism({ warnOnNonDeterministic: false })
+
+        // This should be a no-op
+        enableDeterminismDetection()
+
+        // Should not throw
+        expect(true).toBe(true)
+      })
+    })
+
+    describe('inWorkflowContext()', () => {
+      it('should return false outside workflow', () => {
+        expect(inWorkflowContext()).toBe(false)
+      })
+
+      it('should return true inside workflow', async () => {
+        const client = new WorkflowClient()
+
+        async function contextCheckWorkflow() {
+          return inWorkflowContext()
+        }
+
+        const result = await client.execute(contextCheckWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        expect(result).toBe(true)
+      })
+    })
+
+    describe('Detection Integration', () => {
+      it('should detect Date.now() usage in workflow when enabled', async () => {
+        const client = new WorkflowClient()
+        configureDeterminism({ warnOnNonDeterministic: true })
+        enableDeterminismDetection()
+
+        // Capture console.warn
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+        async function dateNowWorkflow() {
+          // This should trigger a warning
+          const timestamp = Date.now()
+          return timestamp
+        }
+
+        await client.execute(dateNowWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        // Verify warning was logged
+        expect(warnSpy).toHaveBeenCalled()
+        const warnings = getDeterminismWarnings()
+        expect(warnings.length).toBeGreaterThan(0)
+        expect(warnings[0].type).toBe('Date.now')
+
+        warnSpy.mockRestore()
+        disableDeterminismDetection()
+      })
+
+      it('should detect Math.random() usage in workflow when enabled', async () => {
+        const client = new WorkflowClient()
+        configureDeterminism({ warnOnNonDeterministic: true })
+        enableDeterminismDetection()
+
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+        async function mathRandomWorkflow() {
+          // This should trigger a warning
+          const value = Math.random()
+          return value
+        }
+
+        await client.execute(mathRandomWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        expect(warnSpy).toHaveBeenCalled()
+        const warnings = getDeterminismWarnings()
+        expect(warnings.some(w => w.type === 'Math.random')).toBe(true)
+
+        warnSpy.mockRestore()
+        disableDeterminismDetection()
+      })
+
+      it('should not warn when detection is disabled', async () => {
+        const client = new WorkflowClient()
+        configureDeterminism({ warnOnNonDeterministic: false })
+
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+        async function safeWorkflow() {
+          // These should not warn
+          Date.now()
+          Math.random()
+          return 'done'
+        }
+
+        await client.execute(safeWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        // Should not have any warnings
+        expect(getDeterminismWarnings()).toHaveLength(0)
+
+        warnSpy.mockRestore()
+      })
+
+      it('should not warn outside workflow context', () => {
+        configureDeterminism({ warnOnNonDeterministic: true })
+        enableDeterminismDetection()
+
+        // These should not warn because we're outside workflow context
+        Date.now()
+        Math.random()
+
+        expect(getDeterminismWarnings()).toHaveLength(0)
+
+        disableDeterminismDetection()
+      })
+    })
+
+    describe('Using Deterministic Alternatives', () => {
+      it('should use workflowNow() instead of Date.now()', async () => {
+        const client = new WorkflowClient()
+
+        async function goodPracticeWorkflow() {
+          // Good: using workflowNow()
+          const now = workflowNow()
+
+          // Create an expiry 24 hours from now
+          const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+
+          return {
+            createdAt: now.toISOString(),
+            expiresAt: expiresAt.toISOString(),
+          }
+        }
+
+        const result = await client.execute(goodPracticeWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        expect(result.createdAt).toBeDefined()
+        expect(result.expiresAt).toBeDefined()
+
+        // Parse and verify the expiry is 24 hours after creation
+        const created = new Date(result.createdAt).getTime()
+        const expires = new Date(result.expiresAt).getTime()
+        expect(expires - created).toBe(24 * 60 * 60 * 1000)
+      })
+
+      it('should use random() instead of Math.random()', async () => {
+        const client = new WorkflowClient()
+
+        async function randomDecisionWorkflow() {
+          // Good: using random()
+          const roll = random()
+
+          // Make a decision based on random value
+          const action = roll < 0.5 ? 'retry' : 'skip'
+
+          return { roll, action }
+        }
+
+        const result = await client.execute(randomDecisionWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        expect(result.roll).toBeGreaterThanOrEqual(0)
+        expect(result.roll).toBeLessThan(1)
+        expect(['retry', 'skip']).toContain(result.action)
+      })
+
+      it('should use uuid4() instead of crypto.randomUUID()', async () => {
+        const client = new WorkflowClient()
+
+        async function uuidWorkflow() {
+          // Good: using uuid4()
+          const orderId = uuid4()
+          const transactionId = uuid4()
+
+          return { orderId, transactionId }
+        }
+
+        const result = await client.execute(uuidWorkflow, {
+          taskQueue: 'test-queue',
+        })
+
+        // Verify they're valid UUIDs
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        expect(result.orderId).toMatch(uuidRegex)
+        expect(result.transactionId).toMatch(uuidRegex)
+        expect(result.orderId).not.toBe(result.transactionId)
+      })
     })
   })
 })

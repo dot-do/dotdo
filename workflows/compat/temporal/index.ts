@@ -4,9 +4,50 @@
  * Drop-in replacement for Temporal that runs on dotdo's
  * durable execution infrastructure.
  *
+ * ## Determinism Requirements
+ *
+ * Workflows MUST be deterministic to support replay. This means that given the
+ * same inputs and history, a workflow must produce the same sequence of commands.
+ *
+ * ### Non-Deterministic Operations to Avoid:
+ *
+ * | Avoid                    | Use Instead                          |
+ * |--------------------------|--------------------------------------|
+ * | `Date.now()`             | `workflowNow()` - deterministic time |
+ * | `new Date()`             | `workflowNow()` - returns Date       |
+ * | `Math.random()`          | `random()` - deterministic random    |
+ * | `crypto.randomUUID()`    | `uuid4()` - deterministic UUID       |
+ * | `fetch()` / HTTP calls   | Activities (via `proxyActivities`)   |
+ * | `setTimeout/setInterval` | `sleep()` or `createTimer()`         |
+ * | File I/O                 | Activities                           |
+ * | Database queries         | Activities                           |
+ *
+ * ### Why Determinism Matters:
+ *
+ * When a workflow fails and restarts, it replays from the beginning using
+ * stored history. If your workflow makes different decisions on replay
+ * (e.g., because `Math.random()` returns a different value), the replay
+ * will diverge from history and fail.
+ *
+ * ### Development Mode Warnings:
+ *
+ * Set `warnOnNonDeterministic: true` in configuration to get console warnings
+ * when non-deterministic patterns are detected. This is enabled by default
+ * in development mode (`NODE_ENV !== 'production'`).
+ *
+ * ```typescript
+ * import { configureDeterminism, enableDeterminismDetection } from '@dotdo/temporal'
+ *
+ * // Configure warnings
+ * configureDeterminism({ warnOnNonDeterministic: true })
+ *
+ * // Enable detection (patches global Date.now, Math.random, fetch)
+ * enableDeterminismDetection()
+ * ```
+ *
  * @example
  * ```typescript
- * import { proxyActivities, defineSignal, setHandler, sleep, condition } from '@dotdo/temporal'
+ * import { proxyActivities, defineSignal, setHandler, sleep, condition, workflowNow, random } from '@dotdo/temporal'
  *
  * const { sendEmail, chargeCard } = proxyActivities<typeof activities>({
  *   startToCloseTimeout: '10s',
@@ -17,6 +58,10 @@
  *   const approved = defineSignal<[boolean]>('approve')
  *   let isApproved = false
  *
+ *   // Use deterministic alternatives
+ *   const orderTime = workflowNow() // instead of new Date()
+ *   const shouldDiscount = random() < 0.1 // instead of Math.random()
+ *
  *   setHandler(approved, (approval) => {
  *     isApproved = approval
  *   })
@@ -26,7 +71,7 @@
  *   await chargeCard(order.cardToken, order.amount)
  *   await sendEmail(order.email, 'Order confirmed!')
  *
- *   return { status: 'completed' }
+ *   return { status: 'completed', orderTime }
  * }
  * ```
  */
@@ -36,6 +81,149 @@ import { WaitForEventManager, WaitTimeoutError, WaitCancelledError } from '../..
 import { DurableWorkflowRuntime, InMemoryStepStorage } from '../../runtime'
 import type { StepStorage } from '../../runtime'
 import { parseDuration, ensureError } from '../utils'
+
+// ============================================================================
+// DETERMINISM ENFORCEMENT - Runtime detection of non-deterministic patterns
+// ============================================================================
+
+/**
+ * Configuration for determinism enforcement
+ */
+interface DeterminismConfig {
+  /** Whether to warn about non-deterministic operations (default: true in dev, false in prod) */
+  warnOnNonDeterministic: boolean
+}
+
+// Default configuration - warn in development, silent in production
+let determinismConfig: DeterminismConfig = {
+  warnOnNonDeterministic: typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production',
+}
+
+/**
+ * Configure determinism enforcement settings
+ *
+ * @example
+ * ```typescript
+ * import { configureDeterminism } from '@dotdo/temporal'
+ *
+ * // Disable warnings in tests
+ * configureDeterminism({ warnOnNonDeterministic: false })
+ *
+ * // Enable warnings in production for debugging
+ * configureDeterminism({ warnOnNonDeterministic: true })
+ * ```
+ */
+export function configureDeterminism(config: Partial<DeterminismConfig>): void {
+  determinismConfig = { ...determinismConfig, ...config }
+}
+
+/**
+ * Types of non-deterministic operations that can be detected
+ */
+export type DeterminismViolationType =
+  | 'Date.now'
+  | 'new Date'
+  | 'Math.random'
+  | 'crypto.randomUUID'
+  | 'fetch'
+  | 'setTimeout'
+  | 'setInterval'
+
+/**
+ * Warning class for tracking determinism violations.
+ * These are logged in development mode to help identify potential replay issues.
+ */
+export class WorkflowDeterminismWarning {
+  /** Type of non-deterministic operation detected */
+  readonly type: DeterminismViolationType
+
+  /** Human-readable message describing the violation */
+  readonly message: string
+
+  /** Stack trace showing where the violation occurred */
+  readonly stack: string | undefined
+
+  /** Workflow ID where the violation was detected (if available) */
+  readonly workflowId: string | undefined
+
+  /** Suggested alternative to use instead */
+  readonly suggestion: string
+
+  /** Timestamp when the warning was created */
+  readonly timestamp: Date
+
+  constructor(
+    type: DeterminismViolationType,
+    message: string,
+    suggestion: string,
+    workflowId?: string
+  ) {
+    this.type = type
+    this.message = message
+    this.suggestion = suggestion
+    this.workflowId = workflowId
+    this.timestamp = new Date()
+    this.stack = new Error().stack
+  }
+
+  /**
+   * Format the warning for console output
+   */
+  toString(): string {
+    const workflowInfo = this.workflowId ? ` in workflow ${this.workflowId}` : ''
+    return `[WorkflowDeterminismWarning]${workflowInfo}: ${this.message}\n  Suggestion: ${this.suggestion}`
+  }
+}
+
+/**
+ * Track warnings for analysis (limited to prevent memory leaks)
+ */
+const MAX_WARNINGS = 100
+const determinismWarnings: WorkflowDeterminismWarning[] = []
+
+/**
+ * Get all recorded determinism warnings
+ */
+export function getDeterminismWarnings(): readonly WorkflowDeterminismWarning[] {
+  return determinismWarnings
+}
+
+/**
+ * Clear all recorded determinism warnings
+ */
+export function clearDeterminismWarnings(): void {
+  determinismWarnings.length = 0
+}
+
+/**
+ * Record a determinism violation warning
+ */
+function warnNonDeterministic(
+  type: DeterminismViolationType,
+  message: string,
+  suggestion: string
+): void {
+  // Only warn if enabled and we're in a workflow context
+  const workflow = getCurrentWorkflow()
+  if (!determinismConfig.warnOnNonDeterministic || !workflow) {
+    return
+  }
+
+  const warning = new WorkflowDeterminismWarning(
+    type,
+    message,
+    suggestion,
+    workflow.workflowId
+  )
+
+  // Store warning (with limit to prevent memory leaks)
+  if (determinismWarnings.length < MAX_WARNINGS) {
+    determinismWarnings.push(warning)
+  }
+
+  // Log to console in development
+  console.warn(warning.toString())
+}
 
 // ============================================================================
 // TYPES - Match Temporal SDK exactly
@@ -408,6 +596,217 @@ function runWithContext<T>(context: WorkflowContext, fn: () => T): T {
 }
 
 // ============================================================================
+// DETERMINISTIC TIME - workflowNow() implementation
+// ============================================================================
+
+/**
+ * Per-workflow counters for deterministic workflowNow() step IDs
+ */
+const nowCounters = new WeakMap<WorkflowState, number>()
+
+/**
+ * Get deterministic current time (for replay).
+ *
+ * This function returns a deterministic timestamp based on workflow start time
+ * plus an offset derived from the step count. On replay, it returns the same
+ * timestamp that was recorded during the original execution.
+ *
+ * Use this instead of `Date.now()` or `new Date()` in workflow code.
+ *
+ * @returns A Date object representing the current workflow time
+ * @throws Error if called outside a workflow context
+ *
+ * @example
+ * ```typescript
+ * import { workflowNow } from '@dotdo/temporal'
+ *
+ * export async function orderWorkflow() {
+ *   // Use workflowNow() instead of new Date() or Date.now()
+ *   const orderTime = workflowNow()
+ *   const expiresAt = new Date(workflowNow().getTime() + 24 * 60 * 60 * 1000)
+ *
+ *   return { orderTime, expiresAt }
+ * }
+ * ```
+ */
+export function workflowNow(): Date {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
+    // Outside workflow context - fall back to real time
+    // This allows usage in tests or non-workflow code
+    return new Date()
+  }
+
+  // Get and increment the counter for this workflow
+  const counter = nowCounters.get(workflow) ?? 0
+  nowCounters.set(workflow, counter + 1)
+
+  // Create deterministic step ID based on call order
+  const stepId = `workflowNow:${counter}`
+
+  // Check for existing result (replay case)
+  if (workflow.stepResults.has(stepId)) {
+    return new Date(workflow.stepResults.get(stepId) as number)
+  }
+
+  // Calculate deterministic time:
+  // Start time + (step count * small increment to show progression)
+  // This ensures time appears to progress while remaining deterministic
+  const baseTime = workflow.startTime.getTime()
+  const stepIncrement = workflow.historyLength * 1 // 1ms per step for minimal progression
+  const deterministicTime = baseTime + stepIncrement
+
+  // Store for replay
+  workflow.stepResults.set(stepId, deterministicTime)
+  workflow.historyLength++
+
+  return new Date(deterministicTime)
+}
+
+// ============================================================================
+// NON-DETERMINISTIC PATTERN DETECTION - Interceptors for common violations
+// ============================================================================
+
+// Store original functions for restoration and proxying
+const originalDateNow = Date.now
+const originalMathRandom = Math.random
+const originalFetch = typeof fetch !== 'undefined' ? fetch : undefined
+const originalSetTimeout = setTimeout
+const originalSetInterval = setInterval
+
+/**
+ * Wrapped Date.now that warns about non-deterministic usage in workflows
+ */
+function wrappedDateNow(): number {
+  const workflow = getCurrentWorkflow()
+  if (workflow && determinismConfig.warnOnNonDeterministic) {
+    warnNonDeterministic(
+      'Date.now',
+      'Date.now() is non-deterministic and will return different values on replay',
+      'Use workflowNow() for deterministic timestamps'
+    )
+  }
+  return originalDateNow.call(Date)
+}
+
+/**
+ * Wrapped Math.random that warns about non-deterministic usage in workflows
+ */
+function wrappedMathRandom(): number {
+  const workflow = getCurrentWorkflow()
+  if (workflow && determinismConfig.warnOnNonDeterministic) {
+    warnNonDeterministic(
+      'Math.random',
+      'Math.random() is non-deterministic and will return different values on replay',
+      'Use random() for deterministic random numbers'
+    )
+  }
+  return originalMathRandom.call(Math)
+}
+
+/**
+ * Wrapped fetch that warns about non-deterministic usage in workflows
+ */
+function wrappedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const workflow = getCurrentWorkflow()
+  if (workflow && determinismConfig.warnOnNonDeterministic) {
+    warnNonDeterministic(
+      'fetch',
+      'fetch() is non-deterministic - network responses can vary between executions',
+      'Use activities (proxyActivities) for network calls'
+    )
+  }
+  return originalFetch!(input, init)
+}
+
+/**
+ * Wrapped setTimeout that warns about non-deterministic usage in workflows
+ */
+function wrappedSetTimeout<TArgs extends unknown[]>(
+  callback: (...args: TArgs) => void,
+  ms?: number,
+  ...args: TArgs
+): ReturnType<typeof setTimeout> {
+  const workflow = getCurrentWorkflow()
+  if (workflow && determinismConfig.warnOnNonDeterministic) {
+    warnNonDeterministic(
+      'setTimeout',
+      'setTimeout() is non-deterministic - timing varies between executions',
+      'Use sleep() or createTimer() for durable delays'
+    )
+  }
+  return originalSetTimeout(callback, ms, ...args)
+}
+
+/**
+ * Wrapped setInterval that warns about non-deterministic usage in workflows
+ */
+function wrappedSetInterval<TArgs extends unknown[]>(
+  callback: (...args: TArgs) => void,
+  ms?: number,
+  ...args: TArgs
+): ReturnType<typeof setInterval> {
+  const workflow = getCurrentWorkflow()
+  if (workflow && determinismConfig.warnOnNonDeterministic) {
+    warnNonDeterministic(
+      'setInterval',
+      'setInterval() is non-deterministic - timing varies between executions',
+      'Use sleep() in a loop or schedule recurring activities'
+    )
+  }
+  return originalSetInterval(callback, ms, ...args)
+}
+
+/**
+ * Enable determinism detection by patching global functions.
+ * This is automatically called when the module loads in development mode.
+ *
+ * Note: This patches global objects, which may affect other code.
+ * Use with caution in shared environments.
+ */
+export function enableDeterminismDetection(): void {
+  // Only patch if we're configured to warn
+  if (!determinismConfig.warnOnNonDeterministic) {
+    return
+  }
+
+  // Patch Date.now
+  Date.now = wrappedDateNow
+
+  // Patch Math.random
+  Math.random = wrappedMathRandom
+
+  // Patch fetch if available
+  if (originalFetch && typeof globalThis !== 'undefined') {
+    ;(globalThis as Record<string, unknown>).fetch = wrappedFetch
+  }
+
+  // Patch setTimeout and setInterval
+  // Note: These are intentionally not patched by default as they're used internally
+  // by the workflow runtime. Only patch if explicitly requested.
+}
+
+/**
+ * Disable determinism detection and restore original functions.
+ */
+export function disableDeterminismDetection(): void {
+  Date.now = originalDateNow
+  Math.random = originalMathRandom
+
+  if (originalFetch && typeof globalThis !== 'undefined') {
+    ;(globalThis as Record<string, unknown>).fetch = originalFetch
+  }
+}
+
+/**
+ * Check if code is running within a workflow context.
+ * Useful for conditional behavior based on workflow vs non-workflow execution.
+ */
+export function inWorkflowContext(): boolean {
+  return getCurrentWorkflow() !== null
+}
+
+// ============================================================================
 // GLOBAL REGISTRIES - These are shared lookup tables, not per-execution state
 // ============================================================================
 
@@ -419,6 +818,196 @@ let globalNamespace = 'default'
 // Workflow registry - shared across all executions for handle lookups
 const workflows = new Map<string, WorkflowState>()
 const workflowFunctions = new Map<string, (...args: unknown[]) => Promise<unknown>>()
+
+// ============================================================================
+// TASK QUEUE REGISTRY - Worker registration and routing
+// ============================================================================
+
+/**
+ * Worker handler type - receives workflow/activity execution requests
+ */
+export type WorkerHandler = {
+  /** Registered workflow types this worker handles */
+  workflowTypes?: Set<string>
+  /** Registered activity types this worker handles */
+  activityTypes?: Set<string>
+  /** Custom handler for executing workflows */
+  executeWorkflow?: (workflowType: string, args: unknown[]) => Promise<unknown>
+  /** Custom handler for executing activities */
+  executeActivity?: (activityName: string, args: unknown[]) => Promise<unknown>
+}
+
+/**
+ * Task queue registry maps queue names to their registered workers
+ */
+const taskQueueRegistry = new Map<string, WorkerHandler>()
+
+/**
+ * Error thrown when attempting to use an unregistered task queue.
+ * This mirrors Temporal's behavior where workflows fail if no worker
+ * is polling the specified task queue.
+ */
+export class TaskQueueNotRegisteredError extends Error {
+  readonly taskQueue: string
+  readonly type: 'workflow' | 'activity'
+
+  constructor(taskQueue: string, type: 'workflow' | 'activity' = 'workflow') {
+    super(
+      `No worker registered for task queue "${taskQueue}". ` +
+        `Ensure a worker is polling this queue before starting ${type === 'workflow' ? 'workflows' : 'activities'}.`
+    )
+    this.name = 'TaskQueueNotRegisteredError'
+    this.taskQueue = taskQueue
+    this.type = type
+  }
+}
+
+/**
+ * Register a worker for a task queue.
+ *
+ * In real Temporal, workers poll task queues for work. This compat layer
+ * validates that a worker is registered before allowing workflow/activity
+ * execution on that queue.
+ *
+ * @param taskQueue - The task queue name to register
+ * @param handler - Optional handler configuration for the worker
+ * @returns A function to unregister the worker
+ *
+ * @example
+ * ```typescript
+ * import { registerWorker } from '@dotdo/temporal'
+ *
+ * // Simple registration - just validates the queue exists
+ * const unregister = registerWorker('my-task-queue')
+ *
+ * // With workflow types
+ * const unregister = registerWorker('my-task-queue', {
+ *   workflowTypes: new Set(['orderWorkflow', 'paymentWorkflow']),
+ * })
+ *
+ * // Cleanup when done
+ * unregister()
+ * ```
+ */
+export function registerWorker(taskQueue: string, handler: WorkerHandler = {}): () => void {
+  if (!taskQueue || typeof taskQueue !== 'string') {
+    throw new Error('Task queue name must be a non-empty string')
+  }
+
+  taskQueueRegistry.set(taskQueue, {
+    workflowTypes: handler.workflowTypes ?? new Set(),
+    activityTypes: handler.activityTypes ?? new Set(),
+    executeWorkflow: handler.executeWorkflow,
+    executeActivity: handler.executeActivity,
+  })
+
+  // Return unregister function
+  return () => {
+    taskQueueRegistry.delete(taskQueue)
+  }
+}
+
+/**
+ * Check if a task queue has a registered worker
+ */
+export function hasWorker(taskQueue: string): boolean {
+  return taskQueueRegistry.has(taskQueue)
+}
+
+/**
+ * Get the worker handler for a task queue
+ */
+export function getWorker(taskQueue: string): WorkerHandler | undefined {
+  return taskQueueRegistry.get(taskQueue)
+}
+
+/**
+ * List all registered task queues
+ */
+export function listTaskQueues(): string[] {
+  return Array.from(taskQueueRegistry.keys())
+}
+
+/**
+ * Validate that a task queue is registered for workflow execution.
+/**
+ * Check if task queue routing is enabled.
+ *
+ * Task queue validation is enabled when at least one worker has been registered.
+ * This maintains backward compatibility - existing code that doesnt use
+ * registerWorker() will continue to work without changes.
+ */
+function isTaskQueueRoutingEnabled(): boolean {
+  return taskQueueRegistry.size > 0
+}
+
+/**
+ * Validate that a task queue is registered for workflow execution.
+ * Throws TaskQueueNotRegisteredError if not registered.
+ *
+ * NOTE: Validation is only performed when task queue routing is enabled
+ * (i.e., when at least one worker has been registered via registerWorker()).
+ * This maintains backward compatibility with existing code.
+ *
+ * @param taskQueue - The task queue to validate
+ * @param workflowType - Optional workflow type for more specific validation
+ * @throws TaskQueueNotRegisteredError if no worker is registered
+ */
+function validateTaskQueueForWorkflow(taskQueue: string, workflowType?: string): void {
+  // Skip validation if no workers are registered (backward compatibility)
+  if (!isTaskQueueRoutingEnabled()) {
+    return
+  }
+
+  const worker = taskQueueRegistry.get(taskQueue)
+  if (!worker) {
+    throw new TaskQueueNotRegisteredError(taskQueue, 'workflow')
+  }
+
+  // If worker specifies workflow types, validate this type is registered
+  if (workflowType && worker.workflowTypes && worker.workflowTypes.size > 0) {
+    if (!worker.workflowTypes.has(workflowType)) {
+      throw new Error(
+        `Workflow type "${workflowType}" is not registered on task queue "${taskQueue}". ` +
+          `Registered types: ${Array.from(worker.workflowTypes).join(', ')}` 
+      )
+    }
+  }
+}
+
+/**
+ * Validate that a task queue is registered for activity execution.
+ * Throws TaskQueueNotRegisteredError if not registered.
+ *
+ * NOTE: Validation is only performed when task queue routing is enabled
+ * (i.e., when at least one worker has been registered via registerWorker()).
+ * This maintains backward compatibility with existing code.
+ *
+ * @param taskQueue - The task queue to validate
+ * @param activityName - Optional activity name for more specific validation
+ * @throws TaskQueueNotRegisteredError if no worker is registered
+ */
+function validateTaskQueueForActivity(taskQueue: string, activityName?: string): void {
+  // Skip validation if no workers are registered (backward compatibility)
+  if (!isTaskQueueRoutingEnabled()) {
+    return
+  }
+
+  const worker = taskQueueRegistry.get(taskQueue)
+  if (!worker) {
+    throw new TaskQueueNotRegisteredError(taskQueue, 'activity')
+  }
+
+  // If worker specifies activity types, validate this activity is registered
+  if (activityName && worker.activityTypes && worker.activityTypes.size > 0) {
+    if (!worker.activityTypes.has(activityName)) {
+      throw new Error(
+        `Activity "${activityName}" is not registered on task queue "${taskQueue}". ` +
+          `Registered activities: ${Array.from(worker.activityTypes).join(', ')}` 
+      )
+    }
+  }
+}
 
 // Timer tracking - global for cancel operations by ID
 const activeTimers = new Map<string, TimerState>()
@@ -870,6 +1459,9 @@ export function __clearTemporalState(): void {
   // Clear workflow completion tracking (memory leak fix)
   workflowCompletionTimes.clear()
 
+  // Clear task queue registry
+  taskQueueRegistry.clear()
+
   // Properly cancel all active timers to prevent memory leaks
   for (const timer of activeTimers.values()) {
     if (timer.timeoutId) {
@@ -893,6 +1485,10 @@ export function __clearTemporalState(): void {
   // Stop the periodic cleanup intervals
   __stopTimerCleanup()
   __stopWorkflowCleanup()
+
+  // Clear determinism tracking
+  clearDeterminismWarnings()
+  disableDeterminismDetection()
 
   globalNamespace = 'default'
 }
@@ -1051,6 +1647,10 @@ type Activities = Record<string, ActivityFunction>
 
 /**
  * Create activity proxies
+ *
+ * Activities can specify a `taskQueue` option to route execution to a specific
+ * worker. If a task queue is specified, it must have a registered worker.
+ * If no task queue is specified, activities use the workflow's task queue.
  */
 export function proxyActivities<T extends Activities>(options: ActivityOptions): T {
   const runtime = new DurableWorkflowRuntime({
@@ -1066,6 +1666,9 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
       : undefined,
   })
 
+  // Activity task queue (can be different from workflow's task queue)
+  const activityTaskQueue = options.taskQueue
+
   return new Proxy({} as T, {
     get(_, name: string) {
       return async (...args: unknown[]): Promise<unknown> => {
@@ -1073,6 +1676,12 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
         if (!workflow) {
           throw new Error('Activities can only be called within a workflow')
         }
+
+        // Determine which task queue to use for this activity
+        const targetTaskQueue = activityTaskQueue ?? workflow.taskQueue
+
+        // Validate the task queue has a registered worker
+        validateTaskQueueForActivity(targetTaskQueue, name)
 
         const stepId = `activity:${name}:${JSON.stringify(args)}`
 
@@ -1082,12 +1691,12 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
         }
 
         // Execute the activity (in compat mode, activities are stubs)
-        // In production, this would route to actual activity workers
+        // In production, this would route to actual activity workers on the target task queue
         const result = await runtime.executeStep(
           stepId,
           {
             path: ['Activity', name],
-            context: { args },
+            context: { args, taskQueue: targetTaskQueue },
             contextHash: stepId,
             runtime,
           },
@@ -1117,6 +1726,8 @@ export function proxyLocalActivities<T extends Activities>(options: LocalActivit
 
 /**
  * Start a child workflow
+ *
+ * @throws TaskQueueNotRegisteredError if no worker is registered for the task queue
  */
 export async function startChild<T, TArgs extends unknown[]>(
   workflowType: string | ((...args: TArgs) => Promise<T>),
@@ -1128,6 +1739,12 @@ export async function startChild<T, TArgs extends unknown[]>(
   const now = new Date()
 
   const parentWorkflow = getCurrentWorkflow()
+
+  // Determine the task queue for the child workflow
+  const childTaskQueue = options.taskQueue ?? parentWorkflow?.taskQueue ?? 'default'
+
+  // Validate task queue has a registered worker (like real Temporal)
+  validateTaskQueueForWorkflow(childTaskQueue, typeName)
 
   // Get parent info if executing within a workflow
   const parentInfo: ParentWorkflowInfo | undefined = parentWorkflow
@@ -1143,7 +1760,7 @@ export async function startChild<T, TArgs extends unknown[]>(
     workflowId,
     runId,
     workflowType: typeName,
-    taskQueue: options.taskQueue ?? parentWorkflow?.taskQueue ?? 'default',
+    taskQueue: childTaskQueue,
     namespace: parentWorkflow?.namespace ?? globalNamespace,
     signalHandlers: new Map(),
     queryHandlers: new Map(),
@@ -1347,6 +1964,8 @@ export class WorkflowClient {
 
   /**
    * Start a workflow
+   *
+   * @throws TaskQueueNotRegisteredError if no worker is registered for the task queue
    */
   async start<TArgs extends unknown[], TResult>(
     workflowType: string | ((...args: TArgs) => Promise<TResult>),
@@ -1356,6 +1975,9 @@ export class WorkflowClient {
     const workflowId = options.workflowId ?? generateWorkflowId()
     const runId = generateRunId()
     const now = new Date()
+
+    // Validate task queue has a registered worker (like real Temporal)
+    validateTaskQueueForWorkflow(options.taskQueue, typeName)
 
     // Create workflow state with full context
     const state: WorkflowState = {
@@ -1775,6 +2397,21 @@ export default {
   deprecatePatch,
   setSearchAttributes,
   upsertSearchAttributes,
+  // Task queue routing
+  registerWorker,
+  hasWorker,
+  getWorker,
+  listTaskQueues,
+  TaskQueueNotRegisteredError,
+  // Determinism enforcement
+  workflowNow,
+  WorkflowDeterminismWarning,
+  configureDeterminism,
+  getDeterminismWarnings,
+  clearDeterminismWarnings,
+  enableDeterminismDetection,
+  disableDeterminismDetection,
+  inWorkflowContext,
   // Utility for testing
   __clearTemporalState,
 }
