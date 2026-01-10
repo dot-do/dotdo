@@ -36,7 +36,7 @@ await platform.Analytics.track({ event: 'pageview' })
 ```
 
 <Callout type="info">
-The namespace URL is the root of your DO deployment. All RPC calls go to `{namespace}/rpc`.
+The namespace URL is your DO endpoint. Cap'n Web RPC uses the root endpoint (`/`) with WebSocket-first and HTTP batch fallback.
 </Callout>
 
 ### $ - Pre-configured
@@ -61,12 +61,12 @@ export default {
 }
 ```
 
-## Promise Pipelining Over HTTP
+## Promise Pipelining
 
-The client builds a chain of operations and sends them all in one HTTP request:
+The client uses the [capnweb](https://github.com/cloudflare/capnweb) library for true promise pipelining—building operation graphs that execute in a single network round trip:
 
 ```typescript
-// Build the chain - no await yet
+// Build the pipeline - no await yet
 const customer = $.Customer('alice')
 const orders = customer.orders
 const recent = orders.recent(5)
@@ -76,20 +76,18 @@ const titles = recent.map(o => o.title)
 const result = await titles
 ```
 
-The server receives the entire chain:
+Capnweb batches all pending operations at the microtask boundary, so multiple independent calls also batch together:
 
-```json
-{
-  "chain": [
-    { "type": "call", "key": "Customer", "args": ["alice"] },
-    { "type": "property", "key": "orders" },
-    { "type": "call", "key": "recent", "args": [5] },
-    { "type": "call", "key": "map", "args": [...] }
-  ]
-}
+```typescript
+// These all batch into ONE request
+const [alice, bob, charlie] = await Promise.all([
+  $.Customer('alice'),
+  $.Customer('bob'),
+  $.Customer('charlie'),
+])
 ```
 
-One round trip. No matter how deep the chain.
+One round trip. No matter how deep the chain or how many parallel calls.
 
 <Callout type="warn" title="Await Flushes the Pipeline">
 Every `await` sends the chain immediately. Build your entire pipeline before awaiting for maximum efficiency.
@@ -220,11 +218,10 @@ try {
 |------|-------------|
 | `NOT_FOUND` | Resource doesn't exist |
 | `NOT_CALLABLE` | Tried to call a non-function |
-| `BLOCKED_ACCESS` | Method is private or blocked |
-| `INVALID_CHAIN` | Malformed RPC chain |
+| `METHOD_NOT_FOUND` | Method doesn't exist on target |
+| `INVALID_TARGET` | Cannot access property of null/undefined |
 | `EXECUTION_ERROR` | Server-side execution failed |
-| `HTTP_ERROR` | Server returned 5xx status |
-| `PARSE_ERROR` | Response was not valid JSON |
+| `RPC_BROKEN` | Connection was lost |
 
 ## Security
 

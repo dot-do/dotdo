@@ -1,5 +1,10 @@
 /**
- * Tests for POST /rpc chain execution endpoint
+ * Legacy tests for POST /rpc chain execution endpoint
+ *
+ * @deprecated These tests cover the legacy Chain RPC format which is deprecated.
+ * New code should use the capnweb protocol at the root endpoint (/).
+ *
+ * @see {@link ./capnweb.test.ts} for tests of the new capnweb integration
  *
  * Tests the chain-based RPC execution format that starts from `this.$` (WorkflowContext).
  *

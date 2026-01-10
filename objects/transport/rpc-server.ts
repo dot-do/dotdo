@@ -1,16 +1,20 @@
 /**
- * RPC Server for DO - Cap'n Web RPC Protocol Implementation
+ * RPC Server for DO - Legacy RPC Protocol Implementation
  *
- * Implements Cap'n Web-style RPC with promise pipelining:
- * - HTTP POST /rpc: Batch mode for multiple calls in one request
- * - WebSocket /rpc: Persistent connection for streaming RPC
+ * @deprecated This module is deprecated in favor of the official capnweb library.
+ * Use the root endpoint (/) for Cap'n Web RPC via `objects/transport/capnweb-target.ts`.
  *
- * Features:
- * - Promise pipelining: Chain calls without awaiting intermediate results
- * - Pass-by-reference: Send object references instead of serializing
- * - Automatic batching: Multiple calls batched in single round-trip
- * - JSON-RPC 2.0 support: Standard JSON-RPC protocol
- * - Magic operations: __map__, __filter__, array index access
+ * This module is kept for backward compatibility at the /rpc endpoint and supports:
+ * - JSON-RPC 2.0: Standard JSON-RPC protocol (still useful for many clients)
+ * - Chain RPC: Legacy chain-based format (deprecated, use capnweb)
+ * - Custom Cap'n Web emulation: (deprecated, use real capnweb at /)
+ *
+ * Migration guide:
+ * - For new clients: Use capnweb client connecting to root endpoint (/)
+ * - For JSON-RPC 2.0: Continue using /rpc endpoint
+ * - For Chain RPC: Migrate to capnweb protocol
+ *
+ * @see {@link ./capnweb-target.ts} for the new capnweb integration
  */
 
 // ============================================================================
