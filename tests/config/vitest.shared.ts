@@ -35,6 +35,12 @@ export const DOTDO_TANSTACK_SYNC_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/dotdo
 /** @dotdo/client/adapters path for client adapter modules */
 export const DOTDO_CLIENT_ADAPTERS = resolve(PROJECT_ROOT, 'client/adapters')
 
+/** humans.do path for human escalation module */
+export const HUMANS_DO = resolve(PROJECT_ROOT, 'lib/humans/index.ts')
+
+/** fsx.do path for filesystem module (sibling project) */
+export const FSX_DO = resolve(PROJECT_ROOT, '../fsx/index.ts')
+
 /** Global test setup file path for clearing static state between tests */
 export const GLOBAL_SETUP = resolve(PROJECT_ROOT, 'tests/config/global-setup.ts')
 
@@ -86,6 +92,8 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
     '@tanstack/db': TANSTACK_DB_MOCK,
     '@dotdo/tanstack/sync': DOTDO_TANSTACK_SYNC_MOCK,
     '@dotdo/client/adapters': DOTDO_CLIENT_ADAPTERS,
+    'humans.do': HUMANS_DO,
+    'fsx.do': FSX_DO,
   },
 }
 

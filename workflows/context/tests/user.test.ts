@@ -2,13 +2,32 @@ import { describe, it, expect, vi } from 'vitest'
 import { createUserProxy, type UserProxyConfig } from '../user'
 
 describe('$.user.* Context API', () => {
+  const createMockStub = () => ({
+    id: { toString: () => 'user-id' },
+    fetch: vi.fn().mockImplementation((request: Request) => {
+      const url = new URL(request.url)
+      const path = url.pathname
+
+      // Return appropriate response based on endpoint
+      if (path === '/confirm') {
+        return Promise.resolve(new Response(JSON.stringify({ confirmed: true })))
+      } else if (path === '/prompt') {
+        return Promise.resolve(new Response(JSON.stringify({ answer: 'test@example.com' })))
+      } else if (path === '/select') {
+        return Promise.resolve(new Response(JSON.stringify({ selected: 'medium' })))
+      } else if (path === '/notify') {
+        return Promise.resolve(new Response(JSON.stringify({ sent: true })))
+      } else if (path === '/chat') {
+        return Promise.resolve(new Response(JSON.stringify({ conversationId: 'conv-123' })))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ confirmed: true })))
+    }),
+  })
+
   const mockEnv = {
     USER_DO: {
       idFromName: vi.fn().mockReturnValue({ toString: () => 'user-id' }),
-      get: vi.fn().mockReturnValue({
-        id: { toString: () => 'user-id' },
-        fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({ confirmed: true }))),
-      }),
+      get: vi.fn().mockImplementation(() => createMockStub()),
     },
   }
 
