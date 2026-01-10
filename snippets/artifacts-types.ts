@@ -1,76 +1,118 @@
 /**
- * Shared Artifact Types Module (STUB)
+ * Shared Artifact Types Module
  *
  * Centralized type definitions for artifact storage system.
- * This file is intentionally incomplete to make tests fail (TDD RED phase).
+ * Single source of truth for ArtifactMode, RetryResult, and ArtifactRecord types.
  *
- * Problems to fix:
- * 1. ArtifactMode is duplicated in artifacts-ingest.ts and artifacts-config.ts
- * 2. RetryResult<T> uses unsafe `undefined as T` cast
- * 3. AST fields use `object` type which is too loose
+ * Key design decisions:
+ * 1. ArtifactMode: Single definition - 'preview' | 'build' | 'bulk'
+ * 2. RetryResult<T>: Proper discriminated union for type-safe success/failure handling
+ * 3. AST fields: Use `unknown` instead of `object` for type safety
  *
  * @module snippets/artifacts-types
  * @see docs/plans/2026-01-10-artifact-storage-design.md
  */
 
 // ============================================================================
-// Artifact Mode (INTENTIONALLY INCOMPLETE - missing 'bulk')
+// Artifact Mode
 // ============================================================================
 
 /**
  * Valid artifact modes for routing to different Pipelines.
  *
- * STUB: Missing 'bulk' mode - will cause test failures.
+ * - preview: Fast path for development preview
+ * - build: Production build pipeline
+ * - bulk: Batch operations for large imports
  */
-export type ArtifactMode = 'preview' | 'build'  // Missing 'bulk' - RED
+export type ArtifactMode = 'preview' | 'build' | 'bulk'
 
 /**
- * Array of all valid artifact modes.
+ * Readonly array of all valid artifact modes.
+ * Use this for runtime validation and iteration.
  *
- * STUB: Missing 'bulk' - will cause test failures.
+ * This is a Proxy-backed array that silently ignores mutation attempts,
+ * making it truly immutable at both compile-time and runtime.
  */
-export const ARTIFACT_MODES = ['preview', 'build'] as const  // Missing 'bulk' - RED
+const _ARTIFACT_MODES_BASE = ['preview', 'build', 'bulk'] as const
+export const ARTIFACT_MODES: readonly ['preview', 'build', 'bulk'] = new Proxy(_ARTIFACT_MODES_BASE as unknown as ['preview', 'build', 'bulk'], {
+  set() { return true }, // Silently ignore property sets
+  deleteProperty() { return true }, // Silently ignore deletes
+  defineProperty() { return true }, // Silently ignore defineProperty
+}) as readonly ['preview', 'build', 'bulk']
 
 // ============================================================================
-// RetryResult (INTENTIONALLY NOT A DISCRIMINATED UNION)
+// RetryResult Discriminated Union
 // ============================================================================
+
+/**
+ * Success variant of RetryResult.
+ * When success is true, result is guaranteed to be T.
+ */
+export interface RetryResultSuccess<T> {
+  success: true
+  result: T
+  retries: number
+  error?: undefined
+}
+
+/**
+ * Failure variant of RetryResult.
+ * When success is false, result is undefined and error is present.
+ */
+export interface RetryResultFailure {
+  success: false
+  result: undefined
+  retries: number
+  error: string
+}
 
 /**
  * Result from a retry operation including metadata.
  *
- * STUB: Not a discriminated union - result should be T | undefined
- * based on success field. This will cause type narrowing to fail.
+ * This is a proper discriminated union - TypeScript can narrow
+ * the type based on the `success` field:
+ *
+ * @example
+ * ```typescript
+ * const result = await withRetry(() => fetch(url))
+ * if (result.success) {
+ *   // result.result is T, not T | undefined
+ *   console.log(result.result)
+ * } else {
+ *   // result.result is undefined, result.error is string
+ *   console.error(result.error)
+ * }
+ * ```
  */
-export interface RetryResult<T> {
-  result: T  // Should be T when success=true, undefined when success=false
-  success: boolean
-  retries: number
-  error?: string
-}
+export type RetryResult<T> = RetryResultSuccess<T> | RetryResultFailure
 
 // ============================================================================
-// AST Types (INTENTIONALLY USING `object`)
+// AST Types
 // ============================================================================
 
 /**
  * Base interface for AST fields.
  *
- * STUB: Using `object` which is too loose. Should use `unknown` or
- * proper AST interfaces from mdast/hast/estree.
+ * Uses `unknown` instead of `object` for type safety:
+ * - `unknown` requires explicit type checking before property access
+ * - `object` allows any property access without type checking
  */
 export interface AstFields {
-  mdast?: object | null   // Too loose - RED
-  hast?: object | null    // Too loose - RED
-  estree?: object | null  // Too loose - RED
-  tsast?: object | null   // Too loose - RED
+  mdast?: unknown | null
+  hast?: unknown | null
+  estree?: unknown | null
+  tsast?: unknown | null
 }
 
 // ============================================================================
-// Artifact Record (WITH LOOSE AST TYPES)
+// Artifact Record
 // ============================================================================
 
 /**
  * Represents a validated artifact record with required and optional fields.
+ *
+ * Required fields: ns, type, id
+ * All other fields are optional and may be null.
  */
 export interface ArtifactRecord {
   // Required identity fields
@@ -89,14 +131,14 @@ export interface ArtifactRecord {
   dts?: string | null
   css?: string | null
 
-  // AST artifacts (using loose object type - RED)
-  mdast?: object | null
-  hast?: object | null
-  estree?: object | null
-  tsast?: object | null
+  // AST artifacts (using unknown for type safety)
+  mdast?: unknown | null
+  hast?: unknown | null
+  estree?: unknown | null
+  tsast?: unknown | null
 
   // Metadata
-  frontmatter?: object | null
+  frontmatter?: unknown | null
   dependencies?: string[] | null
   exports?: string[] | null
   hash?: string | null
@@ -107,40 +149,89 @@ export interface ArtifactRecord {
 }
 
 // ============================================================================
-// Type Guards (INTENTIONALLY BROKEN)
+// Type Guards
 // ============================================================================
 
 /**
  * Type guard to check if a value is a valid ArtifactRecord.
  *
- * STUB: Always returns false - will cause test failures.
+ * Validates:
+ * - Value is a non-null object (not an array)
+ * - Required fields (ns, type, id) are present and non-empty strings
+ *
+ * @param value - The value to check
+ * @returns True if value is a valid ArtifactRecord
+ *
+ * @example
+ * ```typescript
+ * const data: unknown = await fetchData()
+ * if (isArtifactRecord(data)) {
+ *   // data is now typed as ArtifactRecord
+ *   console.log(data.ns, data.type, data.id)
+ * }
+ * ```
  */
 export function isArtifactRecord(value: unknown): value is ArtifactRecord {
-  return false  // Always false - RED
+  // Check for null/undefined
+  if (value === null || value === undefined) {
+    return false
+  }
+
+  // Check it's an object (and not an array)
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const obj = value as Record<string, unknown>
+
+  // Validate required fields are present and non-empty strings
+  if (typeof obj.ns !== 'string' || obj.ns === '') {
+    return false
+  }
+  if (typeof obj.type !== 'string' || obj.type === '') {
+    return false
+  }
+  if (typeof obj.id !== 'string' || obj.id === '') {
+    return false
+  }
+
+  return true
 }
 
 /**
- * Type guard to check if a string is a valid ArtifactMode.
+ * Type guard to check if a value is a valid ArtifactMode.
  *
- * STUB: Missing 'bulk' check - will cause test failures.
+ * @param mode - The value to check
+ * @returns True if mode is a valid ArtifactMode
+ *
+ * @example
+ * ```typescript
+ * const mode: unknown = request.headers.get('X-Mode')
+ * if (isValidArtifactMode(mode)) {
+ *   // mode is now typed as ArtifactMode
+ *   routeToPipeline(mode)
+ * }
+ * ```
  */
 export function isValidArtifactMode(mode: unknown): mode is ArtifactMode {
-  return mode === 'preview' || mode === 'build'  // Missing 'bulk' - RED
+  return mode === 'preview' || mode === 'build' || mode === 'bulk'
 }
 
 // ============================================================================
-// RetryResult Factory (INTENTIONALLY BROKEN)
+// RetryResult Factory Functions
 // ============================================================================
 
 /**
  * Creates a success RetryResult.
  *
- * STUB: Incorrect typing - doesn't enforce discriminated union.
+ * @param result - The successful result value
+ * @param retries - Number of retries before success
+ * @returns RetryResultSuccess<T>
  */
-export function createSuccessResult<T>(result: T, retries: number): RetryResult<T> {
+export function createSuccessResult<T>(result: T, retries: number): RetryResultSuccess<T> {
   return {
-    result,
     success: true,
+    result,
     retries,
   }
 }
@@ -148,36 +239,59 @@ export function createSuccessResult<T>(result: T, retries: number): RetryResult<
 /**
  * Creates a failure RetryResult.
  *
- * STUB: Uses `undefined as T` which is unsafe for non-nullable T.
- * This is the exact problem from the original code.
+ * @param error - Error message
+ * @param retries - Number of retries before failure
+ * @returns RetryResultFailure
  */
-export function createFailureResult<T>(error: string, retries: number): RetryResult<T> {
+export function createFailureResult<T>(error: string, retries: number): RetryResultFailure {
   return {
-    result: undefined as T,  // UNSAFE CAST - RED
     success: false,
+    result: undefined,
     retries,
     error,
   }
 }
 
 // ============================================================================
-// AST Type Utilities (STUB)
+// AST Type Utilities
 // ============================================================================
 
 /**
  * Type-safe accessor for MDAST field.
  *
- * STUB: Returns object type instead of proper MDAST root type.
+ * @param record - The artifact record
+ * @returns The MDAST value or null/undefined
  */
-export function getMdast(record: ArtifactRecord): object | null | undefined {
+export function getMdast(record: ArtifactRecord): unknown | null | undefined {
   return record.mdast
 }
 
 /**
  * Type-safe accessor for HAST field.
  *
- * STUB: Returns object type instead of proper HAST root type.
+ * @param record - The artifact record
+ * @returns The HAST value or null/undefined
  */
-export function getHast(record: ArtifactRecord): object | null | undefined {
+export function getHast(record: ArtifactRecord): unknown | null | undefined {
   return record.hast
+}
+
+/**
+ * Type-safe accessor for ESTree field.
+ *
+ * @param record - The artifact record
+ * @returns The ESTree value or null/undefined
+ */
+export function getEstree(record: ArtifactRecord): unknown | null | undefined {
+  return record.estree
+}
+
+/**
+ * Type-safe accessor for TypeScript AST field.
+ *
+ * @param record - The artifact record
+ * @returns The TS AST value or null/undefined
+ */
+export function getTsast(record: ArtifactRecord): unknown | null | undefined {
+  return record.tsast
 }

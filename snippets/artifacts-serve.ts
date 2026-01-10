@@ -9,9 +9,18 @@
  */
 
 import { type ArtifactMetrics, noopMetrics } from './artifacts-ingest'
+import type {
+  GetRecordOptions,
+  AuthContext,
+  Visibility,
+  PartitionFilter,
+} from '../db/iceberg/types'
 
 // Re-export metrics types for external use
 export { type ArtifactMetrics, noopMetrics, createDefaultMetrics } from './artifacts-ingest'
+
+// Re-export iceberg types used by consumers
+export type { GetRecordOptions, AuthContext, Visibility, PartitionFilter } from '../db/iceberg/types'
 
 // ============================================================================
 // Types
@@ -49,12 +58,12 @@ export interface CacheControlOverrides {
   fresh?: boolean
 }
 
+/**
+ * IcebergReader interface using real types from db/iceberg/types.
+ * Supports visibility filtering, auth context, and column projection.
+ */
 export interface IcebergReader {
-  getRecord(options: {
-    table: string
-    partition: { ns: string; type: string }
-    id: string
-  }): Promise<Record<string, unknown> | null>
+  getRecord(options: GetRecordOptions): Promise<Record<string, unknown> | null>
 }
 
 export interface ServeOptions {
@@ -304,6 +313,159 @@ export function buildCacheControl(
   }
 
   return parts.join(', ')
+}
+
+// ============================================================================
+// Auth Context Extraction
+// ============================================================================
+
+/**
+ * Parse a base64url-encoded JWT payload.
+ * Does NOT verify signature - verification should be done by auth middleware.
+ *
+ * @param token - Bearer token string
+ * @returns Decoded payload or null if invalid
+ */
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+
+    const payload = parts[1]
+    // Base64url to base64 conversion
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const decoded = atob(padded)
+    return JSON.parse(decoded)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if a JWT token has expired.
+ *
+ * @param payload - Parsed JWT payload
+ * @returns true if expired, false otherwise
+ */
+function isTokenExpired(payload: Record<string, unknown>): boolean {
+  const exp = payload.exp
+  if (typeof exp !== 'number') return false
+
+  // exp is in seconds since epoch
+  return Date.now() / 1000 > exp
+}
+
+/**
+ * Extract auth context from request headers.
+ *
+ * Extracts:
+ * - userId from JWT payload or X-User-Id header
+ * - orgId from X-Org-Id header or JWT payload
+ * - roles from JWT payload
+ *
+ * Supports both:
+ * - JWT tokens with claims
+ * - Non-JWT tokens with X-User-Id/X-Org-Id headers for testing
+ *
+ * @param request - The HTTP request
+ * @returns AuthContext or undefined if no auth present
+ */
+export function extractAuthContext(request: Request): AuthContext | undefined {
+  const authHeader = request.headers.get('Authorization')
+
+  // Check for X-User-Id and X-Org-Id headers (can work with or without auth)
+  const userIdHeader = request.headers.get('X-User-Id')
+  const orgIdHeader = request.headers.get('X-Org-Id')
+
+  // If there's no auth header and no X- headers, return undefined
+  if (!authHeader && !userIdHeader && !orgIdHeader) {
+    return undefined
+  }
+
+  const authContext: AuthContext = {}
+
+  // Try to extract from JWT if present
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    const payload = parseJwtPayload(token)
+
+    if (payload && !isTokenExpired(payload)) {
+      // Extract userId from JWT payload
+      if (typeof payload.userId === 'string') {
+        authContext.userId = payload.userId
+      }
+
+      // Extract orgId from JWT payload
+      if (typeof payload.orgId === 'string') {
+        authContext.orgId = payload.orgId
+      }
+
+      // Extract roles from JWT payload
+      if (Array.isArray(payload.roles)) {
+        authContext.roles = payload.roles.filter((r): r is string => typeof r === 'string')
+      }
+    }
+  }
+
+  // Override/supplement with X- headers (headers take precedence)
+  if (userIdHeader) {
+    authContext.userId = userIdHeader
+  }
+  if (orgIdHeader) {
+    authContext.orgId = orgIdHeader
+  }
+
+  // If no properties were extracted, return undefined
+  if (!authContext.userId && !authContext.orgId && !authContext.roles) {
+    return undefined
+  }
+
+  return authContext
+}
+
+/**
+ * Determine the visibility level to request based on auth context.
+ *
+ * Rules:
+ * - No auth context: 'public'
+ * - Auth with orgId: 'org'
+ * - Auth with userId only: 'user'
+ * - For unlisted artifacts: return undefined (accessible by direct ID only)
+ *
+ * @param authContext - The extracted auth context
+ * @param isUnlistedAccess - Whether this is accessing an unlisted artifact
+ * @returns Visibility level or undefined for unlisted access
+ */
+export function determineVisibility(
+  authContext: AuthContext | undefined,
+  isUnlistedAccess: boolean = false
+): Visibility | undefined {
+  // Unlisted artifacts don't filter by visibility - they're accessible by direct ID
+  if (isUnlistedAccess) return undefined
+
+  if (!authContext) return 'public'
+
+  // If orgId is present, use org visibility
+  if (authContext.orgId) return 'org'
+
+  // If userId is present, use user visibility
+  if (authContext.userId) return 'user'
+
+  // Default to public
+  return 'public'
+}
+
+/**
+ * Get the columns to request based on file extension.
+ * Always includes 'id' for record identification.
+ *
+ * @param ext - File extension
+ * @returns Array of column names to request
+ */
+export function getColumnsForExtension(ext: string): string[] {
+  const column = getColumnForExtension(ext)
+  return ['id', column]
 }
 
 // ============================================================================
@@ -689,13 +851,71 @@ async function handleServeOriginal(
   return response
 }
 
-// In-flight requests map for request coalescing
-const inFlightRequests = new Map<string, Promise<ServeResult>>()
+// ============================================================================
+// In-Flight Request Management with TTL
+// ============================================================================
+
+/**
+ * TTL for in-flight request entries in milliseconds.
+ * Entries older than this are considered stale and cleaned up.
+ */
+const IN_FLIGHT_TTL_MS = 30_000
+
+/**
+ * Maximum number of entries in the in-flight requests map.
+ * Prevents unbounded growth under high load.
+ */
+const IN_FLIGHT_MAX_SIZE = 10_000
+
+/**
+ * Entry in the in-flight requests map with timestamp for TTL cleanup.
+ */
+interface InFlightEntry {
+  promise: Promise<ServeResult>
+  createdAt: number
+}
+
+/**
+ * In-flight requests map for request coalescing.
+ * Uses TTL-based cleanup to prevent memory leaks from hung requests.
+ */
+const inFlightRequests = new Map<string, InFlightEntry>()
+
+/**
+ * Cleans up stale entries from the in-flight requests map.
+ * Removes entries older than IN_FLIGHT_TTL_MS.
+ */
+function cleanupStaleEntries(): void {
+  const now = Date.now()
+  for (const [key, entry] of inFlightRequests) {
+    if (now - entry.createdAt > IN_FLIGHT_TTL_MS) {
+      inFlightRequests.delete(key)
+    }
+  }
+}
+
+/**
+ * Gets the current count of in-flight requests.
+ * Exported for testing to verify cleanup behavior.
+ */
+export function getInFlightRequestCount(): number {
+  return inFlightRequests.size
+}
+
+/**
+ * Clears all in-flight requests.
+ * Exported for testing to reset state between tests.
+ */
+export function clearInFlightRequests(): void {
+  inFlightRequests.clear()
+}
 
 /**
  * Integration test handleServe implementation returning ServeResult.
  * Uses request coalescing to ensure concurrent requests for the same resource
  * share a single reader call.
+ *
+ * Includes TTL-based cleanup to prevent memory leaks from hung requests.
  */
 async function handleServeIntegration(
   request: Request,
@@ -705,16 +925,40 @@ async function handleServeIntegration(
   const url = new URL(request.url)
   const cacheKey = url.toString()
 
+  // Lazy cleanup: purge stale entries on each access
+  cleanupStaleEntries()
+
   // Check if there's an in-flight request for the same resource
   const inFlight = inFlightRequests.get(cacheKey)
   if (inFlight) {
-    // Wait for the in-flight request to complete and return its result
-    return inFlight
+    // Check if the entry is still valid (within TTL)
+    const now = Date.now()
+    if (now - inFlight.createdAt <= IN_FLIGHT_TTL_MS) {
+      // Wait for the in-flight request to complete and return its result
+      return inFlight.promise
+    }
+    // Entry is stale, remove it and proceed with a new request
+    inFlightRequests.delete(cacheKey)
   }
 
-  // Create a promise for this request and store it
+  // Enforce max size limit - if at capacity, clean up oldest entries
+  if (inFlightRequests.size >= IN_FLIGHT_MAX_SIZE) {
+    // Find and remove the oldest entries (LRU-style eviction)
+    const entriesToRemove = Math.max(1, Math.floor(IN_FLIGHT_MAX_SIZE * 0.1))
+    const sortedEntries = Array.from(inFlightRequests.entries())
+      .sort((a, b) => a[1].createdAt - b[1].createdAt)
+    for (let i = 0; i < entriesToRemove && i < sortedEntries.length; i++) {
+      inFlightRequests.delete(sortedEntries[i][0])
+    }
+  }
+
+  // Create a promise for this request and store it with timestamp
   const requestPromise = handleServeIntegrationInner(request, ctx, options)
-  inFlightRequests.set(cacheKey, requestPromise)
+  const entry: InFlightEntry = {
+    promise: requestPromise,
+    createdAt: Date.now(),
+  }
+  inFlightRequests.set(cacheKey, entry)
 
   try {
     const result = await requestPromise
@@ -727,6 +971,7 @@ async function handleServeIntegration(
 
 /**
  * Inner implementation of handleServeIntegration.
+ * Uses real IcebergReader interface with visibility, auth, and columns.
  */
 async function handleServeIntegrationInner(
   request: Request,
@@ -750,9 +995,10 @@ async function handleServeIntegrationInner(
 
   const { ns, type, id, ext } = parsed
 
-  // Check extension validity
+  // Check extension validity and get column
+  let column: string
   try {
-    getColumnForExtension(ext)
+    column = getColumnForExtension(ext)
   } catch {
     return {
       status: 400,
@@ -784,8 +1030,25 @@ async function handleServeIntegrationInner(
   // Build cache key
   const cacheKey = url.toString()
 
-  // Check visibility for private artifacts
-  let record: Record<string, unknown> | null = null
+  // Extract auth context from request headers
+  const authContext = extractAuthContext(request)
+
+  // Determine visibility based on auth context
+  // For unlisted resources, we don't filter by visibility (undefined)
+  // This allows direct ID access while still hiding from listings
+  const visibility = determineVisibility(authContext)
+
+  // Get columns to request (id + requested column)
+  const columns = getColumnsForExtension(ext)
+
+  // Build partition filter with visibility
+  const partition: PartitionFilter = { ns, type }
+  if (visibility !== undefined) {
+    partition.visibility = visibility
+  }
+
+  // Check if this is a protected visibility that requires auth
+  const requiresAuth = visibility === 'org' || visibility === 'user'
 
   // Try cache first (unless fresh bypass)
   if (!overrides.fresh) {
@@ -808,11 +1071,12 @@ async function handleServeIntegrationInner(
           const revalidatePromise = (async () => {
             const freshRecord = await options.reader.getRecord({
               table: 'do_resources',
-              partition: { ns, type },
+              partition,
               id,
+              auth: authContext,
+              columns,
             })
             if (freshRecord) {
-              const column = getColumnForExtension(ext)
               const content = freshRecord[column]
               if (content !== null && content !== undefined) {
                 const isJson = ext.endsWith('.json') || ext === 'json'
@@ -852,12 +1116,15 @@ async function handleServeIntegrationInner(
     }
   }
 
-  // Fetch from IcebergReader
+  // Fetch from IcebergReader using real interface
+  let record: Record<string, unknown> | null = null
   try {
     record = await options.reader.getRecord({
       table: 'do_resources',
-      partition: { ns, type },
+      partition,
       id,
+      auth: authContext,
+      columns,
     })
   } catch (error) {
     return {
@@ -868,7 +1135,71 @@ async function handleServeIntegrationInner(
     }
   }
 
-  // Handle not found
+  // Handle visibility-based auth checks
+  // The record might be null because visibility doesn't match
+  // or because the record doesn't exist
+
+  // If record not found with visibility filter, try without filter
+  // This handles:
+  // 1. Unlisted artifacts (accessible by direct ID regardless of visibility)
+  // 2. Protected artifacts (need to check auth)
+  if (!record) {
+    // Check if auth is required but not present
+    if (requiresAuth && !authContext) {
+      return {
+        status: 401,
+        body: JSON.stringify({ error: 'Authentication required' }),
+        contentType: 'application/json',
+        headers: {
+          'WWW-Authenticate': 'Bearer realm="artifacts"',
+        },
+      }
+    }
+
+    // Try fetching with no visibility filter to check if resource exists
+    // Include visibility column to check access control
+    const unfilteredColumns = [...columns, 'visibility', 'orgId', 'userId']
+    const unfiltered = await options.reader.getRecord({
+      table: 'do_resources',
+      partition: { ns, type },
+      id,
+      columns: unfilteredColumns,
+    })
+
+    if (unfiltered) {
+      const actualVisibility = unfiltered.visibility as Visibility | undefined
+
+      // Unlisted artifacts are accessible by direct ID lookup
+      if (actualVisibility === 'unlisted') {
+        // Use the unfiltered record
+        record = unfiltered
+      } else if (actualVisibility === 'org' || actualVisibility === 'user') {
+        // Resource exists but is protected
+        if (!authContext) {
+          return {
+            status: 401,
+            body: JSON.stringify({ error: 'Authentication required' }),
+            contentType: 'application/json',
+            headers: {
+              'WWW-Authenticate': 'Bearer realm="artifacts"',
+            },
+          }
+        }
+        // Auth present but doesn't match - access denied
+        return {
+          status: 403,
+          body: JSON.stringify({ error: 'Access denied' }),
+          contentType: 'application/json',
+          headers: {},
+        }
+      } else {
+        // Public artifact should have been found earlier - this is unexpected
+        record = unfiltered
+      }
+    }
+  }
+
+  // Still no record found
   if (!record) {
     return {
       status: 404,
@@ -878,9 +1209,36 @@ async function handleServeIntegrationInner(
     }
   }
 
-  // Check visibility and authentication
-  const visibility = record.visibility as string | undefined
-  if (visibility === 'private') {
+  const recordVisibility = record.visibility as Visibility | undefined
+
+  // Double-check visibility matches auth
+  if (recordVisibility === 'org') {
+    const recordOrgId = record.orgId as string | undefined
+    if (!authContext?.orgId || (recordOrgId && authContext.orgId !== recordOrgId)) {
+      return {
+        status: 403,
+        body: JSON.stringify({ error: 'Access denied' }),
+        contentType: 'application/json',
+        headers: {},
+      }
+    }
+  }
+
+  if (recordVisibility === 'user') {
+    const recordUserId = record.userId as string | undefined
+    if (!authContext?.userId || (recordUserId && authContext.userId !== recordUserId)) {
+      return {
+        status: 403,
+        body: JSON.stringify({ error: 'Access denied' }),
+        contentType: 'application/json',
+        headers: {},
+      }
+    }
+  }
+
+  // Check legacy visibility === 'private' handling (backward compatibility)
+  const legacyVisibility = record.visibility as string | undefined
+  if (legacyVisibility === 'private') {
     if (!options.authenticatedNs) {
       return {
         status: 401,
@@ -899,8 +1257,7 @@ async function handleServeIntegrationInner(
     }
   }
 
-  // Get content from the appropriate column
-  const column = getColumnForExtension(ext)
+  // Get content from the appropriate column (column already defined above)
   const content = record[column]
 
   // Handle missing column content

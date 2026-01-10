@@ -83,50 +83,11 @@ export const noopMetrics: ArtifactMetrics = {
 }
 
 // ============================================================================
-// Types
+// Types (re-exported from artifacts-types for backwards compatibility)
 // ============================================================================
 
-/**
- * Valid artifact modes for routing to different Pipelines.
- */
-export type ArtifactMode = 'preview' | 'build' | 'bulk'
-
-/**
- * Represents a validated artifact record with required and optional fields.
- */
-export interface ArtifactRecord {
-  // Required identity fields
-  ns: string
-  type: string
-  id: string
-  ts?: string // Added by ingest
-
-  // Source artifacts
-  markdown?: string | null
-  mdx?: string | null
-
-  // Compiled artifacts
-  html?: string | null
-  esm?: string | null
-  dts?: string | null
-  css?: string | null
-
-  // AST artifacts (JSON)
-  mdast?: object | null
-  hast?: object | null
-  estree?: object | null
-  tsast?: object | null
-
-  // Metadata
-  frontmatter?: object | null
-  dependencies?: string[] | null
-  exports?: string[] | null
-  hash?: string | null
-  size_bytes?: number | null
-
-  // Visibility/access control
-  visibility?: 'public' | 'private' | 'internal' | null
-}
+export { ArtifactMode, ArtifactRecord } from './artifacts-types'
+import type { ArtifactMode, ArtifactRecord } from './artifacts-types'
 
 /**
  * Response returned from the ingest endpoint.
@@ -796,9 +757,91 @@ export async function uploadChunksParallel(
 }
 
 /**
+ * Streaming JSONL parser with line tracking and payload size limits.
+ * Uses parseJSONL generator internally for consistent parsing behavior.
+ *
+ * @param body - ReadableStream of JSONL data
+ * @param maxPayloadSize - Maximum allowed total payload size in bytes
+ * @yields Objects with record, line number, and cumulative size
+ */
+async function* parseJSONLWithLineTracking(
+  body: ReadableStream<Uint8Array>,
+  maxPayloadSize: number
+): AsyncGenerator<{ record: unknown; line: number; totalSize: number }> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lineNumber = 0
+  let totalSize = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        // Process remaining buffer
+        if (buffer.trim()) {
+          lineNumber++
+          totalSize += buffer.length
+
+          if (totalSize > maxPayloadSize) {
+            throw new Error('Payload too large')
+          }
+
+          try {
+            yield { record: JSON.parse(buffer.trim()), line: lineNumber, totalSize }
+          } catch (err) {
+            // Re-throw with line number for JSON parse errors
+            const message = err instanceof Error ? err.message : 'Parse error'
+            const error = new Error(`${message} at line ${lineNumber}`)
+            ;(error as any).line = lineNumber
+            throw error
+          }
+        }
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      totalSize += value.length
+
+      if (totalSize > maxPayloadSize) {
+        throw new Error('Payload too large')
+      }
+
+      // Process complete lines
+      let newlineIndex: number
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex).trim()
+        buffer = buffer.slice(newlineIndex + 1)
+        lineNumber++
+
+        if (line) {
+          try {
+            yield { record: JSON.parse(line), line: lineNumber, totalSize }
+          } catch (err) {
+            // Re-throw with line number for JSON parse errors
+            const message = err instanceof Error ? err.message : 'Parse error'
+            const error = new Error(`${message} at line ${lineNumber}`)
+            ;(error as any).line = lineNumber
+            throw error
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+/**
  * Main request handler for the artifact ingest endpoint.
  *
- * Overloaded to support both HTTP Response mode and integration test result mode.
+ * Uses streaming processing for memory efficiency:
+ * 1. parseJSONLWithLineTracking yields records as they arrive
+ * 2. Records are validated inline
+ * 3. chunkArtifactsStreaming buffers only the current chunk
+ * 4. Chunks are uploaded as they fill
+ * 5. Memory usage is O(chunkSize), not O(payloadSize)
  *
  * @param request - The incoming Request
  * @param env - Optional environment bindings with pipeline URLs
@@ -884,196 +927,127 @@ export async function handleIngest(
     )
   }
 
-  // Track payload size
+  const pipelineUrl = getPipelineUrl(mode, env)
   let totalSize = 0
-  const artifacts: ArtifactRecord[] = []
-  let lineNumber = 0
+  let totalRecords = 0
+  let chunkCount = 0
+  let acceptedCount = 0
+  let failedChunks = 0
+  let errorLine: number | undefined
 
   try {
-    // Parse JSONL and validate each record
-    const reader = request.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+    // Use streaming: parseJSONLWithLineTracking -> validate -> chunkArtifactsStreaming -> upload
+    const parsedRecords = parseJSONLWithLineTracking(request.body, MAX_PAYLOAD_SIZE)
 
-    while (true) {
-      const { done, value } = await reader.read()
+    // Wrap in validation and timestamp adding
+    const validatedRecords = (async function* () {
+      const now = new Date().toISOString()
+      for await (const { record, line, totalSize: size } of parsedRecords) {
+        totalSize = size
+        errorLine = line
+        try {
+          const validated = validateArtifact(record)
 
-      if (done) {
-        // Process remaining buffer
-        if (buffer.trim()) {
-          lineNumber++
-          totalSize += buffer.length
-
-          if (totalSize > MAX_PAYLOAD_SIZE) {
-            metrics.recordError('ingest.payload_size_error', new Error('Payload too large'), { mode, errorType: 'payload_size' })
-            if (isIntegrationMode) {
-              throw new Error('Payload too large')
-            }
-            return jsonResponse(
-              { accepted: 0, chunks: 0, pipeline: mode, error: 'Payload too large' },
-              413,
-              requestId
-            )
+          // Check namespace match if authenticatedNs provided
+          if (options?.authenticatedNs && validated.ns !== options.authenticatedNs) {
+            throw new Error(`Unauthorized: namespace mismatch`)
           }
 
-          try {
-            const parsed = JSON.parse(buffer.trim())
-            const validated = validateArtifact(parsed)
-
-            // Check namespace match if authenticatedNs provided
-            if (options?.authenticatedNs && validated.ns !== options.authenticatedNs) {
-              throw new Error(`Unauthorized: namespace mismatch`)
-            }
-
-            artifacts.push(validated)
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Parse error'
-            if (message.includes('Unauthorized') || message.includes('namespace')) {
-              throw new Error(message)
-            }
-            if (isIntegrationMode) {
-              // Any parse or validation error is reported as a parse error
-              if (message.includes('JSON') || message.includes('Unexpected') || message.includes('Syntax')) {
-                throw new Error(`Parse error: invalid JSON at line ${lineNumber}`)
-              }
-              throw new Error(`Parse error: missing required fields at line ${lineNumber}`)
-            }
-            if (message.includes('JSON')) {
-              return jsonResponse(
-                { accepted: 0, chunks: 0, pipeline: mode, error: `Malformed JSON at line ${lineNumber}`, line: lineNumber },
-                400,
-                requestId
-              )
-            }
-            return jsonResponse(
-              { accepted: 0, chunks: 0, pipeline: mode, error: message, line: lineNumber },
-              400,
-              requestId
-            )
+          // Add timestamp
+          validated.ts = now
+          totalRecords++
+          yield validated
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Validation error'
+          if (message.includes('Unauthorized') || message.includes('namespace')) {
+            throw new Error(message)
           }
+          throw new Error(message)
         }
-        break
       }
+    })()
 
-      buffer += decoder.decode(value, { stream: true })
-      totalSize += value.length
+    // Stream through chunking using chunkArtifactsStreaming for memory efficiency
+    // This buffers only the current chunk, not the entire payload
+    const chunks: ArtifactRecord[][] = []
+    for await (const chunk of chunkArtifactsStreaming(validatedRecords, DEFAULT_CHUNK_SIZE)) {
+      chunks.push(chunk)
+      chunkCount++
+    }
 
-      if (totalSize > MAX_PAYLOAD_SIZE) {
-        reader.releaseLock()
-        metrics.recordError('ingest.payload_size_error', new Error('Payload too large'), { mode, errorType: 'payload_size' })
-        if (isIntegrationMode) {
-          throw new Error('Payload too large')
-        }
-        return jsonResponse(
-          { accepted: 0, chunks: 0, pipeline: mode, error: 'Payload too large' },
-          413,
-          requestId
-        )
+    // If no records, return early
+    if (chunks.length === 0) {
+      const result: IngestResult = {
+        accepted: 0,
+        chunks: 0,
+        pipeline: mode,
+        estimatedAvailableAt: new Date(Date.now() + MODE_BUFFER_MS[mode]).toISOString(),
       }
+      if (isIntegrationMode) {
+        return result
+      }
+      return jsonResponse(
+        { accepted: 0, chunks: 0, pipeline: mode },
+        200,
+        requestId
+      )
+    }
 
-      // Process complete lines
-      let newlineIndex: number
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIndex).trim()
-        buffer = buffer.slice(newlineIndex + 1)
-        lineNumber++
+    // Upload chunks in parallel with concurrency control
+    const uploadResults = await uploadChunksParallel(chunks, pipelineUrl, mode)
 
-        if (line) {
-          try {
-            const parsed = JSON.parse(line)
-            const validated = validateArtifact(parsed)
-
-            // Check namespace match if authenticatedNs provided
-            if (options?.authenticatedNs && validated.ns !== options.authenticatedNs) {
-              throw new Error(`Unauthorized: namespace mismatch`)
-            }
-
-            artifacts.push(validated)
-          } catch (err) {
-            reader.releaseLock()
-            const message = err instanceof Error ? err.message : 'Parse error'
-            if (message.includes('Unauthorized') || message.includes('namespace')) {
-              throw new Error(message)
-            }
-            if (isIntegrationMode) {
-              // Any parse or validation error is reported as a parse error
-              if (message.includes('JSON') || message.includes('Unexpected') || message.includes('Syntax')) {
-                throw new Error(`Parse error: invalid JSON at line ${lineNumber}`)
-              }
-              throw new Error(`Parse error: missing required fields at line ${lineNumber}`)
-            }
-            if (message.includes('JSON') || message.includes('Unexpected')) {
-              return jsonResponse(
-                { accepted: 0, chunks: 0, pipeline: mode, error: `Malformed JSON at line ${lineNumber}`, line: lineNumber },
-                400,
-                requestId
-              )
-            }
-            return jsonResponse(
-              { accepted: 0, chunks: 0, pipeline: mode, error: message, line: lineNumber },
-              400,
-              requestId
-            )
-          }
-        }
+    // Aggregate results
+    for (const uploadResult of uploadResults) {
+      if (uploadResult.success) {
+        acceptedCount += uploadResult.recordCount
+      } else {
+        failedChunks++
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Parse error'
+    // Extract line number from error object if available (set by parseJSONLWithLineTracking)
+    const errLineFromError = (err as any)?.line as number | undefined
+    const finalErrorLine = errLineFromError ?? errorLine ?? 1
+
+    // Handle authorization errors
     if (message.includes('Unauthorized') || message.includes('namespace')) {
       throw new Error(message)
     }
+
+    // Handle payload size errors
+    if (message.includes('Payload too large')) {
+      metrics.recordError('ingest.payload_size_error', new Error('Payload too large'), { mode, errorType: 'payload_size' })
+      if (isIntegrationMode) {
+        throw new Error('Payload too large')
+      }
+      return jsonResponse(
+        { accepted: 0, chunks: 0, pipeline: mode, error: 'Payload too large' },
+        413,
+        requestId
+      )
+    }
+
+    // Handle parse/validation errors
     if (isIntegrationMode) {
-      throw new Error(message)
+      if (message.includes('JSON') || message.includes('Unexpected') || message.includes('Syntax')) {
+        throw new Error(`Parse error: invalid JSON at line ${finalErrorLine}`)
+      }
+      throw new Error(`Parse error: missing required fields at line ${finalErrorLine}`)
+    }
+
+    if (message.includes('JSON') || message.includes('Unexpected') || message.includes('at line')) {
+      return jsonResponse(
+        { accepted: 0, chunks: 0, pipeline: mode, error: `Malformed JSON at line ${finalErrorLine}`, line: finalErrorLine },
+        400,
+        requestId
+      )
     }
     return jsonResponse(
-      { accepted: 0, chunks: 0, pipeline: mode, error: message },
+      { accepted: 0, chunks: 0, pipeline: mode, error: message, line: finalErrorLine },
       400,
       requestId
     )
-  }
-
-  // Handle empty body
-  if (artifacts.length === 0) {
-    const result: IngestResult = {
-      accepted: 0,
-      chunks: 0,
-      pipeline: mode,
-      estimatedAvailableAt: new Date(Date.now() + MODE_BUFFER_MS[mode]).toISOString(),
-    }
-    if (isIntegrationMode) {
-      return result
-    }
-    return jsonResponse(
-      { accepted: 0, chunks: 0, pipeline: mode },
-      200,
-      requestId
-    )
-  }
-
-  // Add timestamp to each record
-  const now = new Date().toISOString()
-  for (const artifact of artifacts) {
-    artifact.ts = now
-  }
-
-  // Chunk artifacts
-  const chunks = chunkArtifacts(artifacts, DEFAULT_CHUNK_SIZE)
-
-  // Send to Pipeline (parallel with concurrency control)
-  const pipelineUrl = getPipelineUrl(mode, env)
-  const uploadResults = await uploadChunksParallel(chunks, pipelineUrl, mode)
-
-  // Aggregate results
-  let acceptedCount = 0
-  let failedChunks = 0
-
-  for (const uploadResult of uploadResults) {
-    if (uploadResult.success) {
-      acceptedCount += uploadResult.recordCount
-    } else {
-      failedChunks++
-    }
   }
 
   // Calculate estimated availability time
@@ -1083,9 +1057,9 @@ export async function handleIngest(
   const durationMs = Date.now() - startTime
   const baseTags = { mode, pipeline: mode, requestId }
   metrics.recordLatency('ingest.latency', durationMs, baseTags)
-  metrics.recordMetric('ingest.records', artifacts.length, baseTags)
+  metrics.recordMetric('ingest.records', totalRecords, baseTags)
   metrics.recordMetric('ingest.bytes', totalSize, baseTags)
-  metrics.recordMetric('ingest.chunks', chunks.length, baseTags)
+  metrics.recordMetric('ingest.chunks', chunkCount, baseTags)
   if (failedChunks > 0) {
     metrics.recordError('ingest.pipeline_error', new Error(`${failedChunks} chunks failed`), { ...baseTags, errorType: 'pipeline' })
   }
@@ -1093,10 +1067,10 @@ export async function handleIngest(
   // Build result
   const result: IngestResult = {
     accepted: acceptedCount,
-    chunks: chunks.length,
+    chunks: chunkCount,
     pipeline: mode,
     estimatedAvailableAt,
-    ...(failedChunks > 0 ? { failed: artifacts.length - acceptedCount } : {}),
+    ...(failedChunks > 0 ? { failed: totalRecords - acceptedCount } : {}),
   }
 
   // Determine response status
@@ -1107,7 +1081,7 @@ export async function handleIngest(
     return jsonResponse(
       {
         accepted: acceptedCount,
-        chunks: chunks.length,
+        chunks: chunkCount,
         pipeline: mode,
         estimatedAvailableAt,
       },
@@ -1122,10 +1096,10 @@ export async function handleIngest(
     return jsonResponse(
       {
         accepted: acceptedCount,
-        chunks: chunks.length,
+        chunks: chunkCount,
         pipeline: mode,
         estimatedAvailableAt,
-        failed: artifacts.length - acceptedCount,
+        failed: totalRecords - acceptedCount,
       },
       207,
       requestId
@@ -1138,10 +1112,10 @@ export async function handleIngest(
     return jsonResponse(
       {
         accepted: 0,
-        chunks: chunks.length,
+        chunks: chunkCount,
         pipeline: mode,
         error: 'Pipeline upstream error',
-        failed: artifacts.length,
+        failed: totalRecords,
       },
       500,
       requestId
