@@ -26,6 +26,15 @@ export const CLOUDFLARE_SANDBOX_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudf
 /** @cloudflare/containers mock path for node environments */
 export const CLOUDFLARE_CONTAINERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudflare-containers.ts')
 
+/** @tanstack/db mock path for TanStack DB integration tests */
+export const TANSTACK_DB_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/tanstack-db.ts')
+
+/** @dotdo/tanstack/sync mock path for dotdo sync engine */
+export const DOTDO_TANSTACK_SYNC_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/dotdo-tanstack-sync.ts')
+
+/** @dotdo/client/adapters path for client adapter modules */
+export const DOTDO_CLIENT_ADAPTERS = resolve(PROJECT_ROOT, 'client/adapters')
+
 /**
  * Shared test configuration settings applied to all test workspaces
  */
@@ -71,6 +80,9 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
     'drizzle-orm/durable-sqlite': DRIZZLE_DURABLE_SQLITE_MOCK,
     '@cloudflare/sandbox': CLOUDFLARE_SANDBOX_MOCK,
     '@cloudflare/containers': CLOUDFLARE_CONTAINERS_MOCK,
+    '@tanstack/db': TANSTACK_DB_MOCK,
+    '@dotdo/tanstack/sync': DOTDO_TANSTACK_SYNC_MOCK,
+    '@dotdo/client/adapters': DOTDO_CLIENT_ADAPTERS,
   },
 }
 

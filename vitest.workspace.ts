@@ -135,6 +135,19 @@ export default defineWorkspace([
     resolve: nodeResolveConfig,
   },
 
+  // Client React hook tests (jsdom environment for React testing)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'client-hooks',
+      include: ['client/tests/**/*.test.tsx', 'client/tests/**/*.test.ts'],
+      exclude: defaultExcludes,
+      environment: 'jsdom' as const,
+      setupFiles: ['./app/tests/setup.ts'],
+    },
+    resolve: nodeResolveConfig,
+  },
+
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
 
@@ -252,6 +265,9 @@ export default defineWorkspace([
   // @dotdo/client package tests (RPC Client SDK)
   createNodeWorkspace('client', ['packages/client/tests/**/*.test.ts']),
 
+  // Client context tests ($.db proxy for SaasKit)
+  createNodeWorkspace('client-context', ['client/tests/**/*.test.ts']),
+
   // SDK client tests ($() function)
   createNodeWorkspace('sdk', ['sdk/**/*.test.ts']),
 
@@ -260,6 +276,9 @@ export default defineWorkspace([
 
   // TypeScript compilation tests (RED TDD - verify type safety)
   createNodeWorkspace('typescript', ['tests/typescript/**/*.test.ts']),
+
+  // Code conventions tests (file locations, naming, etc.)
+  createNodeWorkspace('conventions', ['tests/conventions/**/*.test.ts']),
 
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
