@@ -138,6 +138,19 @@ export default defineWorkspace([
   // Utility tests (hash, etc.)
   createNodeWorkspace('utils', ['tests/utils/**/*.test.ts']),
 
+  // API root discovery tests (Node environment, tests endpoint structure)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'api-discovery',
+      include: ['tests/api/**/*.test.ts'],
+      exclude: defaultExcludes,
+      environment: 'node' as const,
+      setupFiles: ['./tests/api/setup.ts'],
+    },
+    resolve: nodeResolveConfig,
+  },
+
   // Test harness utilities tests
   createNodeWorkspace('harness', ['tests/harness/**/*.test.ts']),
 

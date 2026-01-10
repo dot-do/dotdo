@@ -14,14 +14,90 @@
  * - State synchronization with optimistic updates
  *
  * @module app/lib/hooks/use-dollar
+ *
+ * @example Basic usage
+ * ```tsx
+ * function MyComponent() {
+ *   const { $, isConnected, error } = useDollar({
+ *     doUrl: 'wss://example.com/do/123'
+ *   })
+ *
+ *   // Fire and forget
+ *   $.send({ type: 'event', data: {} })
+ *
+ *   // Single attempt RPC
+ *   const result = await $.try({ action: 'process' })
+ *
+ *   // Durable execution with retries
+ *   await $.do({ action: 'sendEmail' })
+ *
+ *   // Cross-DO RPC
+ *   await $.Customer('id').notify({ message: 'Hello' })
+ * }
+ * ```
  */
 
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 
 // =============================================================================
+// Branded Types for Type Safety
+// =============================================================================
+
+/**
+ * Branded type for request IDs to prevent mixing with other string types
+ */
+export type RequestId = string & { readonly __brand: 'RequestId' }
+
+/**
+ * Branded type for transaction IDs
+ */
+export type TransactionId = number & { readonly __brand: 'TransactionId' }
+
+/**
+ * Creates a branded RequestId
+ */
+function createRequestId(prefix: string, counter: number): RequestId {
+  return `${prefix}_${Date.now()}_${counter}` as RequestId
+}
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+/**
+ * Error codes for WebSocket/RPC errors
+ */
+export type DollarErrorCode =
+  | 'CONNECTION_ERROR'
+  | 'CONNECTION_CLOSED'
+  | 'MESSAGE_PARSE_ERROR'
+  | 'RPC_ERROR'
+  | 'TIMEOUT'
+  | 'UNKNOWN'
+
+/**
+ * Structured error class for $ hook errors
+ */
+export class DollarError extends Error {
+  readonly code: DollarErrorCode
+  readonly cause?: Error
+
+  constructor(code: DollarErrorCode, message: string, cause?: Error) {
+    super(message)
+    this.name = 'DollarError'
+    this.code = code
+    this.cause = cause
+    Object.setPrototypeOf(this, DollarError.prototype)
+  }
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
+/**
+ * Options for the useDollar hook
+ */
 export interface UseDollarOptions {
   /** WebSocket URL for the Durable Object */
   doUrl: string
@@ -31,76 +107,148 @@ export interface UseDollarOptions {
   autoConnect?: boolean
 }
 
+/**
+ * Return value from the useDollar hook
+ */
 export interface UseDollarReturn {
-  /** The $ RPC proxy */
+  /** The $ RPC proxy for DO interaction */
   $: DollarProxy
-  /** True while connecting */
+  /** True while connection is being established */
   isLoading: boolean
-  /** True when connected */
+  /** True when WebSocket is connected and ready */
   isConnected: boolean
-  /** Connection error if any */
-  error: Error | null
-  /** Manual connect */
+  /** Connection or RPC error, null when healthy */
+  error: DollarError | null
+  /** Manually initiate WebSocket connection */
   connect: () => void
-  /** Manual disconnect */
+  /** Manually close WebSocket connection */
   disconnect: () => void
 }
 
-/** Event handler for state updates */
-type StateHandler = (state: unknown) => void
+/**
+ * Handler for state updates from the Durable Object
+ * @typeParam T - The state type, defaults to unknown
+ */
+export type StateHandler<T = unknown> = (state: T) => void
 
-/** Event handler for conflicts */
-type ConflictHandler = (conflict: { local: unknown; remote: unknown }) => void
+/**
+ * Handler for optimistic update conflicts
+ * @typeParam T - The state type, defaults to unknown
+ */
+export type ConflictHandler<T = unknown> = (conflict: { local: T; remote: T }) => void
 
-/** Generic event handler */
-type EventHandler = (data: unknown) => void
+/**
+ * Generic event handler for subscriptions
+ * @typeParam T - The event data type, defaults to unknown
+ */
+export type EventHandler<T = unknown> = (data: T) => void
 
-/** Unsubscribe function */
-type Unsubscribe = () => void
+/**
+ * Function to unsubscribe from an event
+ */
+export type Unsubscribe = () => void
 
-/** Schedule handler */
-type ScheduleHandler = () => void
+/**
+ * Handler for scheduled tasks
+ */
+export type ScheduleHandler = () => void
 
 // =============================================================================
 // Internal Types
 // =============================================================================
 
-interface PendingCall {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
+/**
+ * Represents a pending RPC call awaiting response
+ * @internal
+ */
+interface PendingCall<T = unknown> {
+  resolve: (value: T) => void
+  reject: (error: DollarError) => void
   batchIndex?: number
 }
 
+/**
+ * Message types for the RPC protocol
+ * @internal
+ */
+type RPCMessageType =
+  | 'send'
+  | 'try'
+  | 'do'
+  | 'rpc'
+  | 'subscribe'
+  | 'schedule'
+  | 'sync'
+  | 'optimistic'
+  | 'batch'
+
+/**
+ * Response types from the DO
+ * @internal
+ */
+type RPCResponseType = 'response' | 'batch-response' | 'event' | 'state'
+
+/**
+ * A batched RPC call for promise pipelining
+ * @internal
+ */
 interface BatchedCall {
   type: 'rpc'
   noun: string
   id: string
   method: string
-  args: unknown[]
-  pipeline?: string[][]
+  args: readonly unknown[]
+  pipeline?: ReadonlyArray<readonly string[]>
 }
 
+/**
+ * Outgoing RPC message structure
+ * @internal
+ */
 interface RPCMessage {
-  type: 'send' | 'try' | 'do' | 'rpc' | 'subscribe' | 'schedule' | 'sync' | 'optimistic' | 'batch'
-  id?: string
+  type: RPCMessageType
+  id?: RequestId
   event?: string
   payload?: unknown
   noun?: string
   method?: string
-  args?: unknown[]
+  args?: readonly unknown[]
   cron?: string
   since?: number
-  pipeline?: string[][]
-  calls?: BatchedCall[]
+  pipeline?: ReadonlyArray<readonly string[]>
+  calls?: readonly BatchedCall[]
   data?: unknown
 }
 
+/**
+ * Error response from the DO
+ * @internal
+ */
+interface RPCErrorPayload {
+  code: string
+  message: string
+}
+
+/**
+ * Individual result in a batch response
+ * @internal
+ */
+interface BatchResultItem {
+  id: number
+  result: unknown
+  error?: { message: string }
+}
+
+/**
+ * Incoming RPC response structure
+ * @internal
+ */
 interface RPCResponse {
-  type: 'response' | 'batch-response' | 'event' | 'state'
-  id?: string
+  type: RPCResponseType
+  id?: RequestId
   result?: unknown
-  error?: { code: string; message: string }
-  results?: Array<{ id: number; result: unknown; error?: { message: string } }>
+  error?: RPCErrorPayload
+  results?: readonly BatchResultItem[]
   event?: string
   data?: unknown
   txid?: number
@@ -124,65 +272,198 @@ const DAYS: Record<string, string> = {
 // $ Proxy Types
 // =============================================================================
 
-/** On proxy for event subscriptions - $.on.Noun.verb(handler) */
+/**
+ * Proxy for subscribing to events - $.on.Noun.verb(handler)
+ *
+ * @example
+ * ```ts
+ * // Subscribe to state changes
+ * $.on.state(state => console.log(state))
+ *
+ * // Subscribe to specific events
+ * $.on.Customer.signup(data => console.log('New customer:', data))
+ * ```
+ */
 interface OnProxy {
-  state: (handler: StateHandler) => Unsubscribe
-  conflict: (handler: ConflictHandler) => Unsubscribe
-  [noun: string]: OnNounProxy | ((handler: StateHandler | ConflictHandler) => Unsubscribe)
+  /**
+   * Subscribe to state changes from the Durable Object
+   * @param handler - Called with the new state whenever it changes
+   * @returns Unsubscribe function
+   */
+  state: <T = unknown>(handler: StateHandler<T>) => Unsubscribe
+  /**
+   * Subscribe to optimistic update conflicts
+   * @param handler - Called when local optimistic state conflicts with server state
+   * @returns Unsubscribe function
+   */
+  conflict: <T = unknown>(handler: ConflictHandler<T>) => Unsubscribe
+  /**
+   * Dynamic noun access for event subscriptions
+   */
+  [noun: string]: OnNounProxy | (<T = unknown>(handler: StateHandler<T> | ConflictHandler<T>) => Unsubscribe)
 }
 
+/**
+ * Noun-level proxy for verb subscriptions
+ * @internal
+ */
 interface OnNounProxy {
-  [verb: string]: (handler: EventHandler) => Unsubscribe
+  [verb: string]: <T = unknown>(handler: EventHandler<T>) => Unsubscribe
 }
 
-/** Every proxy for scheduling - $.every.Monday.at9am(handler) */
+/**
+ * Proxy for scheduling - $.every.Monday.at9am(handler)
+ *
+ * @example
+ * ```ts
+ * // Run every hour
+ * $.every.hour(() => sendReport())
+ *
+ * // Run every Monday at 9am
+ * $.every.Monday.at9am(() => sendWeeklyReport())
+ * ```
+ */
 interface EveryProxy {
+  /** Schedule to run every hour */
   hour: (handler: ScheduleHandler) => void
+  /** Schedule to run every minute */
   minute: (handler: ScheduleHandler) => void
+  /** Monday scheduling */
   Monday: EveryDayProxy
+  /** Tuesday scheduling */
   Tuesday: EveryDayProxy
+  /** Wednesday scheduling */
   Wednesday: EveryDayProxy
+  /** Thursday scheduling */
   Thursday: EveryDayProxy
+  /** Friday scheduling */
   Friday: EveryDayProxy
+  /** Saturday scheduling */
   Saturday: EveryDayProxy
+  /** Sunday scheduling */
   Sunday: EveryDayProxy
+  /** Dynamic day access */
   [key: string]: EveryDayProxy | ((handler: ScheduleHandler) => void)
 }
 
+/**
+ * Day-level proxy for time-based scheduling
+ * @internal
+ */
 interface EveryDayProxy {
+  /** Schedule for 9am on this day */
   at9am: (handler: ScheduleHandler) => void
+  /** Dynamic time access (e.g., at10am, at3pm) */
   [time: string]: (handler: ScheduleHandler) => void
 }
 
-/** Optimistic update proxy */
+/**
+ * Proxy for optimistic updates
+ *
+ * @example
+ * ```ts
+ * // Apply optimistic update before server confirms
+ * $.optimistic.update({ counter: newValue })
+ * ```
+ */
 interface OptimisticProxy {
-  update: (state: unknown) => void
+  /**
+   * Apply an optimistic state update
+   * @param state - The optimistic state to apply immediately
+   */
+  update: <T = unknown>(state: T) => void
 }
 
-/** Cross-DO RPC proxy - $.Noun(id).method() */
+/**
+ * Factory function for creating noun instance proxies
+ * Used for cross-DO RPC: $.Customer(id)
+ * @internal
+ */
 interface NounProxy {
   (id: string): NounInstanceProxy
 }
 
+/**
+ * Instance-level proxy for method calls
+ * @internal
+ */
 interface NounInstanceProxy {
   [method: string]: NounMethodProxy
 }
 
-/** Method that can be chained (for pipelining) or called */
+/**
+ * Method proxy that can be called or chained for pipelining
+ *
+ * Supports both immediate calls and Cap'n Proto-style promise pipelining:
+ * - Immediate: $.Customer('id').notify({ message: 'Hi' })
+ * - Pipelined: $.User('id').getAccount().getBalance()
+ *
+ * @internal
+ */
 interface NounMethodProxy {
-  (...args: unknown[]): Promise<unknown> & NounMethodProxy
+  (...args: readonly unknown[]): Promise<unknown> & NounMethodProxy
   [chainMethod: string]: NounMethodProxy
 }
 
-/** Main $ proxy interface */
+/**
+ * Main $ proxy interface for Durable Object interaction
+ *
+ * Provides three durability levels:
+ * - `send`: Fire and forget, no response expected
+ * - `try`: Single attempt, may fail
+ * - `do`: Durable execution with automatic retries
+ *
+ * @example
+ * ```ts
+ * const { $ } = useDollar({ doUrl: 'wss://...' })
+ *
+ * // Fire and forget
+ * $.send({ type: 'log', data: { event: 'click' } })
+ *
+ * // Single attempt
+ * const result = await $.try({ action: 'validate' })
+ *
+ * // Durable with retries
+ * await $.do({ action: 'charge', amount: 100 })
+ *
+ * // Cross-DO RPC
+ * await $.Customer('cust-123').sendEmail({ subject: 'Hello' })
+ * ```
+ */
 export interface DollarProxy {
+  /**
+   * Fire-and-forget message sending
+   * @param event - The event payload to send
+   */
   send: (event: unknown) => void
-  try: (action: unknown) => Promise<unknown>
-  do: (action: unknown) => Promise<unknown>
+  /**
+   * Single-attempt RPC call
+   * @param action - The action to execute
+   * @returns Promise resolving to the result
+   */
+  try: <T = unknown>(action: unknown) => Promise<T>
+  /**
+   * Durable RPC call with automatic retries
+   * @param action - The action to execute durably
+   * @returns Promise resolving to the result
+   */
+  do: <T = unknown>(action: unknown) => Promise<T>
+  /**
+   * Event subscription proxy
+   */
   on: OnProxy
+  /**
+   * Scheduling proxy
+   */
   every: EveryProxy
+  /**
+   * Optimistic update proxy
+   */
   optimistic: OptimisticProxy
-  [noun: string]: NounProxy | unknown
+  /**
+   * Dynamic noun access for cross-DO RPC
+   */
+  [noun: string]: NounProxy | OnProxy | EveryProxy | OptimisticProxy | ((event: unknown) => void) | (<T = unknown>(action: unknown) => Promise<T>)
 }
 
 // =============================================================================
@@ -226,11 +507,11 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
   // Connection state
   const [isLoading, setIsLoading] = useState(autoConnect)
   const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const [error, setError] = useState<DollarError | null>(null)
 
-  // Refs for mutable state
+  // Refs for mutable state - use typed Maps and Sets
   const wsRef = useRef<WebSocket | null>(null)
-  const pendingCallsRef = useRef<Map<string, PendingCall>>(new Map())
+  const pendingCallsRef = useRef<Map<RequestId, PendingCall>>(new Map())
   const eventHandlersRef = useRef<Map<string, Set<EventHandler>>>(new Map())
   const stateHandlersRef = useRef<Set<StateHandler>>(new Set())
   const conflictHandlersRef = useRef<Set<ConflictHandler>>(new Set())
@@ -245,19 +526,30 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
   const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const batchPendingRef = useRef<Map<number, PendingCall>>(new Map())
 
-  // Generate unique request ID
-  const generateRequestId = useCallback(() => {
-    return `req_${Date.now()}_${++requestIdRef.current}`
+  /**
+   * Generate unique request ID for tracking RPC calls
+   * @internal
+   */
+  const generateRequestId = useCallback((): RequestId => {
+    return createRequestId('req', ++requestIdRef.current)
   }, [])
 
-  // Send message over WebSocket
+  /**
+   * Send a message over the WebSocket connection
+   * Silently fails if not connected
+   * @internal
+   */
   const sendMessage = useCallback((message: RPCMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message))
     }
   }, [])
 
-  // Flush batched calls
+  /**
+   * Flush all batched RPC calls in a single message
+   * Implements Cap'n Proto-style promise pipelining
+   * @internal
+   */
   const flushBatch = useCallback(() => {
     const queue = batchQueueRef.current
     if (queue.length === 0) return
@@ -274,7 +566,11 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
     batchTimeoutRef.current = null
   }, [generateRequestId, sendMessage])
 
-  // Add call to batch queue (for pipelining)
+  /**
+   * Add an RPC call to the batch queue for pipelining
+   * Calls are automatically flushed on the next microtask
+   * @internal
+   */
   const addToBatch = useCallback((call: BatchedCall): Promise<unknown> => {
     return new Promise((resolve, reject) => {
       const batchIndex = batchQueueRef.current.length
@@ -288,85 +584,113 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
     })
   }, [flushBatch])
 
-  // Handle incoming WebSocket messages
+  /**
+   * Handle incoming WebSocket messages
+   * Dispatches responses to pending calls and events to handlers
+   * @internal
+   */
   const handleMessage = useCallback((event: MessageEvent) => {
+    let data: RPCResponse
     try {
-      const data: RPCResponse = JSON.parse(event.data)
+      data = JSON.parse(event.data) as RPCResponse
+    } catch (parseErr) {
+      const error = new DollarError(
+        'MESSAGE_PARSE_ERROR',
+        'Failed to parse WebSocket message',
+        parseErr instanceof Error ? parseErr : undefined
+      )
+      setError(error)
+      return
+    }
 
-      switch (data.type) {
-        case 'response': {
-          // Find pending call by checking all pending
-          const pendingCalls = pendingCallsRef.current
-          for (const [id, pending] of pendingCalls) {
+    switch (data.type) {
+      case 'response': {
+        // Find pending call by ID if provided, otherwise resolve first pending
+        const pendingCalls = pendingCallsRef.current
+        const targetId = data.id
+
+        if (targetId && pendingCalls.has(targetId)) {
+          const pending = pendingCalls.get(targetId)!
+          if (data.error) {
+            pending.reject(new DollarError('RPC_ERROR', data.error.message))
+          } else {
+            pending.resolve(data.result)
+          }
+          pendingCalls.delete(targetId)
+        } else {
+          // Fallback: resolve first pending call (for backwards compatibility)
+          const entries = Array.from(pendingCalls.entries())
+          if (entries.length > 0) {
+            const [id, pending] = entries[0]
             if (data.error) {
-              pending.reject(new Error(data.error.message))
+              pending.reject(new DollarError('RPC_ERROR', data.error.message))
             } else {
               pending.resolve(data.result)
             }
             pendingCalls.delete(id)
-            break // Only resolve first matching pending call
           }
-          break
         }
-
-        case 'batch-response': {
-          // Resolve all batched calls
-          if (data.results) {
-            for (const result of data.results) {
-              const pending = batchPendingRef.current.get(result.id)
-              if (pending) {
-                if (result.error) {
-                  pending.reject(new Error(result.error.message))
-                } else {
-                  pending.resolve(result.result)
-                }
-                batchPendingRef.current.delete(result.id)
-              }
-            }
-          }
-          break
-        }
-
-        case 'event': {
-          // Dispatch to event handlers
-          if (data.event) {
-            const handlers = eventHandlersRef.current.get(data.event)
-            handlers?.forEach(handler => handler(data.data))
-          }
-          break
-        }
-
-        case 'state': {
-          // Track transaction ID for sync
-          if (data.txid !== undefined) {
-            lastTxidRef.current = data.txid
-          }
-
-          // Check for conflicts with optimistic state
-          if (optimisticStateRef.current !== null) {
-            const optimistic = optimisticStateRef.current
-            const remote = data.data
-
-            // Simple conflict detection - if values differ, notify
-            if (JSON.stringify(optimistic) !== JSON.stringify(remote)) {
-              conflictHandlersRef.current.forEach(handler =>
-                handler({ local: optimistic, remote })
-              )
-            }
-            optimisticStateRef.current = null
-          }
-
-          // Notify state handlers
-          stateHandlersRef.current.forEach(handler => handler(data.data))
-          break
-        }
+        break
       }
-    } catch (err) {
-      console.error('Failed to parse WebSocket message:', err)
+
+      case 'batch-response': {
+        // Resolve all batched calls
+        if (data.results) {
+          for (const result of data.results) {
+            const pending = batchPendingRef.current.get(result.id)
+            if (pending) {
+              if (result.error) {
+                pending.reject(new DollarError('RPC_ERROR', result.error.message))
+              } else {
+                pending.resolve(result.result)
+              }
+              batchPendingRef.current.delete(result.id)
+            }
+          }
+        }
+        break
+      }
+
+      case 'event': {
+        // Dispatch to event handlers
+        if (data.event) {
+          const handlers = eventHandlersRef.current.get(data.event)
+          handlers?.forEach(handler => handler(data.data))
+        }
+        break
+      }
+
+      case 'state': {
+        // Track transaction ID for sync
+        if (data.txid !== undefined) {
+          lastTxidRef.current = data.txid
+        }
+
+        // Check for conflicts with optimistic state
+        if (optimisticStateRef.current !== null) {
+          const optimistic = optimisticStateRef.current
+          const remote = data.data
+
+          // Simple conflict detection - if values differ, notify
+          if (JSON.stringify(optimistic) !== JSON.stringify(remote)) {
+            conflictHandlersRef.current.forEach(handler =>
+              handler({ local: optimistic, remote })
+            )
+          }
+          optimisticStateRef.current = null
+        }
+
+        // Notify state handlers
+        stateHandlersRef.current.forEach(handler => handler(data.data))
+        break
+      }
     }
   }, [])
 
-  // Connect to WebSocket
+  /**
+   * Establish WebSocket connection to the Durable Object
+   * Handles reconnection with exponential backoff on abnormal closure
+   */
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
@@ -380,8 +704,9 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
     ws.addEventListener('open', () => {
       setIsConnected(true)
       setIsLoading(false)
+      setError(null) // Clear any previous errors on successful connection
 
-      // If reconnecting, request state sync
+      // If reconnecting, request state sync from last known transaction
       if (lastTxidRef.current !== null) {
         sendMessage({
           type: 'sync',
@@ -396,6 +721,10 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
       // Only reconnect on abnormal closure (not intentional disconnect)
       if (!intentionalDisconnectRef.current && event.code !== 1000) {
         setIsLoading(true)
+        setError(new DollarError(
+          'CONNECTION_CLOSED',
+          `Connection closed unexpectedly (code: ${event.code})`
+        ))
         // Schedule reconnection with backoff
         reconnectTimeoutRef.current = setTimeout(() => {
           connect()
@@ -405,14 +734,17 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
       }
     })
 
-    ws.addEventListener('error', (event) => {
-      setError(new Error('WebSocket connection error'))
+    ws.addEventListener('error', () => {
+      setError(new DollarError('CONNECTION_ERROR', 'WebSocket connection error'))
     })
 
     ws.addEventListener('message', handleMessage)
   }, [doUrl, handleMessage, sendMessage])
 
-  // Disconnect from WebSocket
+  /**
+   * Cleanly disconnect from the WebSocket
+   * Cancels any pending reconnection attempts
+   */
   const disconnect = useCallback(() => {
     intentionalDisconnectRef.current = true
     if (reconnectTimeoutRef.current) {
@@ -579,9 +911,13 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
         // Make promise also act as a proxy for further chaining
         return new Proxy(promise as Promise<unknown> & NounMethodProxy, {
           get(target, prop: string) {
-            // If accessing promise methods, return them
+            // If accessing promise methods, return them bound to the promise
             if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-              return (target as Record<string, unknown>)[prop]?.bind(target)
+              const method = target[prop as keyof Promise<unknown>]
+              if (typeof method === 'function') {
+                return method.bind(target)
+              }
+              return method
             }
 
             // Otherwise, return a chained method proxy

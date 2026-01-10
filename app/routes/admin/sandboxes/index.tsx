@@ -11,6 +11,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { SandboxSchema, type Sandbox } from '~/collections'
+import { useAuth } from '~/src/admin/auth'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 // ============================================================================
 // Types
@@ -60,64 +67,6 @@ export function StatusBadge({ status }: { status: DisplayStatus }) {
 }
 
 // ============================================================================
-// Loading Skeleton Component
-// ============================================================================
-
-function SandboxesListSkeleton() {
-  return (
-    <div data-testid='loading' className='animate-pulse'>
-      <div className='h-8 bg-gray-200 rounded w-48 mb-6' />
-      <div className='bg-white rounded-lg shadow p-4'>
-        <div className='space-y-4'>
-          {[1, 2, 3].map((i) => (
-            <div key={i} className='flex gap-4'>
-              <div className='h-4 bg-gray-200 rounded w-24' />
-              <div className='h-4 bg-gray-200 rounded w-16' />
-              <div className='h-4 bg-gray-200 rounded w-32' />
-              <div className='h-4 bg-gray-200 rounded w-24' />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div data-testid='empty-state' className='text-center py-12'>
-      <div className='text-gray-400 text-5xl mb-4'>&#128187;</div>
-      <h2 className='text-xl font-semibold text-gray-700 mb-2'>No sandboxes yet</h2>
-      <p className='text-gray-500 mb-6'>Get started by creating your first sandbox session.</p>
-      <button type='button' onClick={onCreate} className='inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700'>
-        Create First Sandbox
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid='error-state' className='text-center py-12'>
-      <div className='text-red-400 text-5xl mb-4'>&#9888;</div>
-      <h2 className='text-xl font-semibold text-red-700 mb-2'>Error loading sandboxes</h2>
-      <p className='text-gray-500 mb-6'>{error.message}</p>
-      <button type='button' onClick={() => window.location.reload()} className='inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700'>
-        Try Again
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
 // Format Date Helper
 // ============================================================================
 
@@ -147,6 +96,7 @@ function formatDate(dateString: string): string {
  */
 function SandboxesListPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   // Use collection for real-time sandbox data
   const sandboxes = useCollection({
@@ -169,7 +119,7 @@ function SandboxesListPage() {
         $type: 'Sandbox',
         name: 'New Sandbox',
         description: '',
-        ownerId: 'current-user', // TODO: Get from auth context
+        ownerId: user?.id ?? 'anonymous',
         status: 'active',
         runtime: 'v8',
         memory: 128,
@@ -188,7 +138,7 @@ function SandboxesListPage() {
     return (
       <Shell>
         <div className='p-6'>
-          <SandboxesListSkeleton />
+          <ListSkeleton rows={3} columns={['w-24', 'w-16', 'w-32', 'w-24']} />
         </div>
       </Shell>
     )
@@ -198,7 +148,7 @@ function SandboxesListPage() {
     return (
       <Shell>
         <div className='p-6'>
-          <ErrorState error={sandboxes.error} />
+          <ErrorState error={sandboxes.error} title="Error loading sandboxes" />
         </div>
       </Shell>
     )
@@ -208,13 +158,20 @@ function SandboxesListPage() {
     return (
       <Shell>
         <div className='p-6'>
-          <div className='flex justify-between items-center mb-6'>
-            <h1 className='text-2xl font-semibold'>Sandboxes</h1>
-            <button type='button' onClick={handleCreate} className='bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'>
-              New Sandbox
-            </button>
-          </div>
-          <EmptyState onCreate={handleCreate} />
+          <PageHeader
+            title="Sandboxes"
+            actions={
+              <button type='button' onClick={handleCreate} className='bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'>
+                New Sandbox
+              </button>
+            }
+          />
+          <EmptyState
+            icon="&#128187;"
+            title="No sandboxes yet"
+            description="Get started by creating your first sandbox session."
+            action={{ label: 'Create First Sandbox', onClick: handleCreate }}
+          />
         </div>
       </Shell>
     )

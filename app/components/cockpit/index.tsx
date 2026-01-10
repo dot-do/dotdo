@@ -182,18 +182,27 @@ interface KPICardProps {
   icon?: string
 }
 
-export function KPICard({ title, value, trend, icon }: KPICardProps) {
+/**
+ * KPI Card component for displaying key metrics.
+ * Memoized to prevent unnecessary re-renders when parent updates.
+ */
+export const KPICard = React.memo(function KPICard({ title, value, trend, icon }: KPICardProps) {
   const IconComponent = icon ? iconMap[icon] : null
+
+  // Determine trend direction for accessibility
+  const trendDirection = typeof trend === 'number' ? (trend > 0 ? 'up' : trend < 0 ? 'down' : 'unchanged') : undefined
 
   return (
     <div
       data-component="KPICard"
       className="p-6 bg-gray-900 rounded-lg border border-gray-800"
+      role="article"
+      aria-label={`${title}: ${value}${trend !== undefined ? `, trend ${trendDirection}` : ''}`}
     >
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-gray-500">{title}</span>
         {IconComponent && (
-          <span data-icon={icon}>
+          <span data-icon={icon} aria-hidden="true">
             <IconComponent className="w-5 h-5 text-gray-500" />
           </span>
         )}
@@ -208,7 +217,7 @@ export function KPICard({ title, value, trend, icon }: KPICardProps) {
       )}
     </div>
   )
-}
+})
 
 // ============================================================================
 // Activity Feed
@@ -224,34 +233,59 @@ interface ActivityFeedWrapperProps {
   }>
 }
 
-export function ActivityFeed({ items = [] }: ActivityFeedWrapperProps) {
+/**
+ * Activity item component for single feed entries.
+ * Memoized for performance in long lists.
+ */
+const ActivityItem = React.memo(function ActivityItem({
+  item,
+}: {
+  item: ActivityFeedWrapperProps['items'][number]
+}) {
+  return (
+    <div
+      data-activity-item
+      className="p-4 bg-gray-900 rounded-lg border border-gray-800"
+      role="article"
+      aria-label={`${item.title} - ${item.type}`}
+    >
+      <div className="font-medium">{item.title}</div>
+      {item.description && (
+        <div className="text-sm text-gray-500">{item.description}</div>
+      )}
+      <div className="text-xs text-gray-600 mt-2">
+        <time dateTime={new Date(item.timestamp).toISOString()}>
+          {new Date(item.timestamp).toLocaleString()}
+        </time>
+      </div>
+    </div>
+  )
+})
+
+/**
+ * Activity feed component displaying recent events.
+ * Memoized to prevent unnecessary re-renders when parent updates.
+ */
+export const ActivityFeed = React.memo(function ActivityFeed({ items = [] }: ActivityFeedWrapperProps) {
   return (
     <div
       data-component="ActivityFeed"
       data-items-count={items.length.toString()}
       className="space-y-4"
+      role="feed"
+      aria-label="Recent activity feed"
     >
       {items.map((item) => (
-        <div
-          key={item.id}
-          data-activity-item
-          className="p-4 bg-gray-900 rounded-lg border border-gray-800"
-        >
-          <div className="font-medium">{item.title}</div>
-          {item.description && (
-            <div className="text-sm text-gray-500">{item.description}</div>
-          )}
-          <div className="text-xs text-gray-600 mt-2">
-            {new Date(item.timestamp).toLocaleString()}
-          </div>
-        </div>
+        <ActivityItem key={item.id} item={item} />
       ))}
       {items.length === 0 && (
-        <div className="text-gray-500 text-center py-4">No recent activity</div>
+        <div className="text-gray-500 text-center py-4" role="status">
+          No recent activity
+        </div>
       )}
     </div>
   )
-}
+})
 
 // ============================================================================
 // Agent Status
@@ -267,31 +301,55 @@ interface AgentStatusProps {
   children?: ReactNode
 }
 
-export function AgentStatus({ agents = [], children }: AgentStatusProps) {
+/**
+ * Single agent status item component.
+ * Memoized for performance in agent grids.
+ */
+const AgentStatusItem = React.memo(function AgentStatusItem({
+  agent,
+}: {
+  agent: AgentStatusProps['agents'][number]
+}) {
+  return (
+    <div
+      className="text-center p-3 bg-gray-800 rounded-lg"
+      role="listitem"
+      aria-label={`${agent.name}: ${agent.status}${agent.role ? `, ${agent.role}` : ''}`}
+    >
+      <div
+        className="w-10 h-10 mx-auto mb-2 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold"
+        aria-hidden="true"
+      >
+        {agent.name[0]}
+      </div>
+      <div className="font-medium text-sm">{agent.name}</div>
+      <div className="text-xs text-gray-500">{agent.status}</div>
+    </div>
+  )
+})
+
+/**
+ * Agent status grid component displaying all agents.
+ * Memoized to prevent unnecessary re-renders when parent updates.
+ */
+export const AgentStatus = React.memo(function AgentStatus({ agents = [], children }: AgentStatusProps) {
   return (
     <div
       data-component="AgentStatus"
       data-agents-count={agents.length.toString()}
       className="p-6 bg-gray-900 rounded-lg border border-gray-800"
+      role="region"
+      aria-label="Agent status"
     >
       {children && <div className="text-gray-400 mb-4">{children}</div>}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" role="list">
         {agents.map((agent) => (
-          <div
-            key={agent.id}
-            className="text-center p-3 bg-gray-800 rounded-lg"
-          >
-            <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold">
-              {agent.name[0]}
-            </div>
-            <div className="font-medium text-sm">{agent.name}</div>
-            <div className="text-xs text-gray-500">{agent.status}</div>
-          </div>
+          <AgentStatusItem key={agent.id} agent={agent} />
         ))}
       </div>
     </div>
   )
-}
+})
 
 // ============================================================================
 // Command Palette
@@ -531,16 +589,22 @@ interface AgentGridProps {
   children: ReactNode
 }
 
-export function AgentGrid({ children }: AgentGridProps) {
+/**
+ * Agent grid container component.
+ * Memoized to prevent unnecessary re-renders.
+ */
+export const AgentGrid = React.memo(function AgentGrid({ children }: AgentGridProps) {
   return (
     <div
       data-component="AgentGrid"
       className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
+      role="list"
+      aria-label="Agent grid"
     >
       {children}
     </div>
   )
-}
+})
 
 interface AgentCardProps {
   agent?: {
@@ -551,7 +615,11 @@ interface AgentCardProps {
   status?: string
 }
 
-export function AgentCard({ agent, status }: AgentCardProps) {
+/**
+ * Agent card component for individual agent display.
+ * Memoized to prevent unnecessary re-renders.
+ */
+export const AgentCard = React.memo(function AgentCard({ agent, status }: AgentCardProps) {
   const name = agent?.name || 'Agent'
 
   return (
@@ -559,8 +627,13 @@ export function AgentCard({ agent, status }: AgentCardProps) {
       data-component="AgentCard"
       data-status={status}
       className="text-center p-4 bg-gray-900 rounded-lg border border-gray-800"
+      role="listitem"
+      aria-label={`${name}${agent?.role ? `, ${agent.role}` : ''}${status ? `, status: ${status}` : ''}`}
     >
-      <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold">
+      <div
+        className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold"
+        aria-hidden="true"
+      >
         {agent?.avatar || name[0]}
       </div>
       <div className="font-semibold">{name}</div>
@@ -580,7 +653,7 @@ export function AgentCard({ agent, status }: AgentCardProps) {
       )}
     </div>
   )
-}
+})
 
 // ============================================================================
 // Workflow Dashboard

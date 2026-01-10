@@ -9,6 +9,12 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { UserSchema, type User } from '~/collections'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 export const Route = createFileRoute('/admin/users/')({
   component: UsersPage,
@@ -31,72 +37,6 @@ function RoleBadge({ role }: { role: UserRole }) {
     <span className={`px-2 py-1 rounded text-sm font-medium capitalize ${colors[role]}`}>
       {role}
     </span>
-  )
-}
-
-// ============================================================================
-// Loading Skeleton Component
-// ============================================================================
-
-function UsersListSkeleton() {
-  return (
-    <div data-testid="loading" className="animate-pulse">
-      <div className="h-8 bg-gray-200 rounded w-32 mb-6" />
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex gap-4">
-              <div className="h-4 bg-gray-200 rounded w-32" />
-              <div className="h-4 bg-gray-200 rounded w-48" />
-              <div className="h-4 bg-gray-200 rounded w-20" />
-              <div className="h-4 bg-gray-200 rounded w-16" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div data-testid="empty-state" className="text-center py-12">
-      <div className="text-gray-400 text-5xl mb-4">&#128100;</div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">No users yet</h2>
-      <p className="text-gray-500 mb-6">Get started by creating your first user.</p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Create First User
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid="error-state" className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">&#9888;</div>
-      <h2 className="text-xl font-semibold text-red-700 mb-2">Error loading users</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-      >
-        Try Again
-      </button>
-    </div>
   )
 }
 
@@ -130,7 +70,7 @@ function UsersPage() {
     return (
       <Shell>
         <div className="p-6">
-          <UsersListSkeleton />
+          <ListSkeleton rows={3} columns={['w-32', 'w-48', 'w-20', 'w-16']} />
         </div>
       </Shell>
     )
@@ -140,7 +80,7 @@ function UsersPage() {
     return (
       <Shell>
         <div className="p-6">
-          <ErrorState error={users.error} />
+          <ErrorState error={users.error} title="Error loading users" />
         </div>
       </Shell>
     )
@@ -150,13 +90,20 @@ function UsersPage() {
     return (
       <Shell>
         <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-semibold">Users</h1>
-            <a href="/admin/users/new" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Create User
-            </a>
-          </div>
-          <EmptyState onCreate={handleCreate} />
+          <PageHeader
+            title="Users"
+            actions={
+              <a href="/admin/users/new" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                Create User
+              </a>
+            }
+          />
+          <EmptyState
+            icon="&#128100;"
+            title="No users yet"
+            description="Get started by creating your first user."
+            action={{ label: 'Create First User', onClick: handleCreate }}
+          />
         </div>
       </Shell>
     )

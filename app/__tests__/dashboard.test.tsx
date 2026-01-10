@@ -191,7 +191,8 @@ describe('Custom Routes Integration', () => {
 describe('KPI Cards', () => {
   it('should have KPICard component', async () => {
     const content = await readFile('app/components/cockpit/index.tsx', 'utf-8')
-    expect(content).toContain('export function KPICard')
+    // Accept both: export function KPICard OR export const KPICard = React.memo
+    expect(content).toMatch(/export (function|const) KPICard/)
   })
 
   it('should have DashboardGrid component', async () => {
@@ -257,7 +258,8 @@ describe('KPI Cards', () => {
 describe('Activity Feed', () => {
   it('should have ActivityFeed component', async () => {
     const content = await readFile('app/components/cockpit/index.tsx', 'utf-8')
-    expect(content).toContain('export function ActivityFeed')
+    // Accept both: export function OR export const = React.memo
+    expect(content).toMatch(/export (function|const) ActivityFeed/)
   })
 
   it('should accept items prop as array', async () => {
@@ -313,7 +315,8 @@ describe('Activity Feed', () => {
 describe('Agent Status Display', () => {
   it('should have AgentStatus component', async () => {
     const content = await readFile('app/components/cockpit/index.tsx', 'utf-8')
-    expect(content).toContain('export function AgentStatus')
+    // Accept both: export function OR export const = React.memo
+    expect(content).toMatch(/export (function|const) AgentStatus/)
   })
 
   it('should accept agents prop as array', async () => {
@@ -615,12 +618,14 @@ describe('Workflow Components', () => {
 describe('Agent Grid Components', () => {
   it('should have AgentGrid component', async () => {
     const content = await readFile('app/components/cockpit/index.tsx', 'utf-8')
-    expect(content).toContain('export function AgentGrid')
+    // Accept both: export function OR export const = React.memo
+    expect(content).toMatch(/export (function|const) AgentGrid/)
   })
 
   it('should have AgentCard component', async () => {
     const content = await readFile('app/components/cockpit/index.tsx', 'utf-8')
-    expect(content).toContain('export function AgentCard')
+    // Accept both: export function OR export const = React.memo
+    expect(content).toMatch(/export (function|const) AgentCard/)
   })
 
   it('should accept agent prop in AgentCard', async () => {

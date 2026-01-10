@@ -11,6 +11,12 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { BrowserSchema, type Browser } from '~/collections'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 // ============================================================================
 // Types
@@ -62,75 +68,6 @@ export function StatusBadge({ status }: { status: DisplayStatus }) {
 }
 
 // ============================================================================
-// Loading Skeleton Component
-// ============================================================================
-
-function BrowsersListSkeleton() {
-  return (
-    <div data-testid="loading" className="animate-pulse">
-      <div className="h-8 bg-gray-200 rounded w-48 mb-6" />
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex gap-4">
-              <div className="h-4 bg-gray-200 rounded w-24" />
-              <div className="h-4 bg-gray-200 rounded w-16" />
-              <div className="h-4 bg-gray-200 rounded w-20" />
-              <div className="h-4 bg-gray-200 rounded flex-1" />
-              <div className="h-4 bg-gray-200 rounded w-24" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div data-testid="empty-state" className="text-center py-12">
-      <div className="text-gray-400 text-5xl mb-4">&#127760;</div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">No browser sessions</h2>
-      <p className="text-gray-500 mb-6">
-        Get started by creating your first browser session.
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Create First Session
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid="error-state" className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">&#9888;</div>
-      <h2 className="text-xl font-semibold text-red-700 mb-2">Error loading sessions</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-      >
-        Try Again
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
 // Format Date Helper
 // ============================================================================
 
@@ -173,7 +110,7 @@ function BrowsersListPage() {
         $type: 'Browser',
         name: 'New Session',
         url: undefined,
-        sandboxId: '', // TODO: Get from context or let user select
+        sandboxId: '',
         status: 'idle',
         viewport: { width: 1280, height: 720 },
         userAgent: undefined,
@@ -203,7 +140,7 @@ function BrowsersListPage() {
     return (
       <Shell>
         <div className="p-6">
-          <BrowsersListSkeleton />
+          <ListSkeleton rows={3} columns={['w-24', 'w-16', 'w-20', 'flex-1', 'w-24']} />
         </div>
       </Shell>
     )
@@ -213,7 +150,7 @@ function BrowsersListPage() {
     return (
       <Shell>
         <div className="p-6">
-          <ErrorState error={browsers.error} />
+          <ErrorState error={browsers.error} title="Error loading sessions" />
         </div>
       </Shell>
     )
@@ -223,17 +160,24 @@ function BrowsersListPage() {
     return (
       <Shell>
         <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-semibold">Browser Sessions</h1>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-            >
-              New Session
-            </button>
-          </div>
-          <EmptyState onCreate={handleCreate} />
+          <PageHeader
+            title="Browser Sessions"
+            actions={
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                New Session
+              </button>
+            }
+          />
+          <EmptyState
+            icon="&#127760;"
+            title="No browser sessions"
+            description="Get started by creating your first browser session."
+            action={{ label: 'Create First Session', onClick: handleCreate }}
+          />
         </div>
       </Shell>
     )

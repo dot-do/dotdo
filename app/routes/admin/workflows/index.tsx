@@ -9,6 +9,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { WorkflowSchema, type Workflow } from '~/collections'
+import { useAuth } from '~/src/admin/auth'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 export const Route = createFileRoute('/admin/workflows/')({
   component: WorkflowsPage,
@@ -37,72 +44,6 @@ function StatusBadge({ status }: { status: WorkflowStatus }) {
 }
 
 // ============================================================================
-// Loading Skeleton Component
-// ============================================================================
-
-function WorkflowsListSkeleton() {
-  return (
-    <div data-testid="loading" className="animate-pulse">
-      <div className="h-8 bg-gray-200 rounded w-48 mb-6" />
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex gap-4">
-              <div className="h-4 bg-gray-200 rounded w-48" />
-              <div className="h-4 bg-gray-200 rounded w-20" />
-              <div className="h-4 bg-gray-200 rounded w-24" />
-              <div className="h-4 bg-gray-200 rounded w-16" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div data-testid="empty-state" className="text-center py-12">
-      <div className="text-gray-400 text-5xl mb-4">&#9881;</div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">No workflows yet</h2>
-      <p className="text-gray-500 mb-6">Get started by creating your first workflow.</p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Create First Workflow
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid="error-state" className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">&#9888;</div>
-      <h2 className="text-xl font-semibold text-red-700 mb-2">Error loading workflows</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-      >
-        Try Again
-      </button>
-    </div>
-  )
-}
-
-// ============================================================================
 // Format Date Helper
 // ============================================================================
 
@@ -124,6 +65,7 @@ function formatDate(dateString: string | null): string {
 
 function WorkflowsPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   // Use collection for real-time workflow data
   const workflows = useCollection({
@@ -137,7 +79,7 @@ function WorkflowsPage() {
         $type: 'Workflow',
         name: 'New Workflow',
         description: '',
-        ownerId: 'current-user', // TODO: Get from auth context
+        ownerId: user?.id ?? 'anonymous',
         sandboxId: null,
         status: 'draft',
         trigger: { type: 'manual' },
@@ -166,7 +108,10 @@ function WorkflowsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <WorkflowsListSkeleton />
+          <ListSkeleton
+            rows={3}
+            columns={['w-48', 'w-20', 'w-24', 'w-16']}
+          />
         </div>
       </Shell>
     )
@@ -176,7 +121,7 @@ function WorkflowsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <ErrorState error={workflows.error} />
+          <ErrorState error={workflows.error} title="Error loading workflows" />
         </div>
       </Shell>
     )
@@ -186,17 +131,24 @@ function WorkflowsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-semibold">Workflows</h1>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-            >
-              New Workflow
-            </button>
-          </div>
-          <EmptyState onCreate={handleCreate} />
+          <PageHeader
+            title="Workflows"
+            actions={
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                New Workflow
+              </button>
+            }
+          />
+          <EmptyState
+            icon="&#9881;"
+            title="No workflows yet"
+            description="Get started by creating your first workflow."
+            action={{ label: 'Create First Workflow', onClick: handleCreate }}
+          />
         </div>
       </Shell>
     )

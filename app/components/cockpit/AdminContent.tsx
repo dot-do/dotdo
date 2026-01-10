@@ -104,8 +104,8 @@ export function DashboardContent({
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
       <DashboardGrid cols={4}>
-        {kpis?.map((kpi, i) => (
-          <KPICard key={i} {...kpi} />
+        {kpis?.map((kpi) => (
+          <KPICard key={kpi.title} {...kpi} />
         ))}
       </DashboardGrid>
 

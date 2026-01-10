@@ -6,7 +6,9 @@
  *
  * Built on top of the $ RPC proxy for Durable Object interaction.
  *
- * @example
+ * @module app/lib/hooks/use-collection
+ *
+ * @example Basic CRUD usage
  * ```typescript
  * const UserSchema = z.object({
  *   $id: z.string(),
@@ -31,36 +33,102 @@
  *   )
  * }
  * ```
+ *
+ * @example Optimistic mutations
+ * ```typescript
+ * const { insert, update, delete: remove } = useCollection({
+ *   name: 'todos',
+ *   schema: TodoSchema,
+ * })
+ *
+ * // All mutations are optimistic - UI updates immediately
+ * await insert({ title: 'New todo', completed: false })
+ * await update(id, { completed: true })
+ * await remove(id)
+ * ```
+ *
+ * @example Pagination
+ * ```typescript
+ * const { data, hasMore, loadMore } = useCollection({
+ *   name: 'products',
+ *   schema: ProductSchema,
+ * })
+ *
+ * return (
+ *   <>
+ *     {data.map(p => <ProductCard key={p.$id} product={p} />)}
+ *     {hasMore && <button onClick={loadMore}>Load More</button>}
+ *   </>
+ * )
+ * ```
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { z, ZodObject, ZodRawShape } from 'zod'
 
 // =============================================================================
+// Error Types
+// =============================================================================
+
+/**
+ * Error codes for collection operations
+ */
+export type CollectionErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'NOT_FOUND'
+  | 'RPC_ERROR'
+  | 'NETWORK_ERROR'
+
+/**
+ * Structured error class for collection operations
+ */
+export class CollectionError extends Error {
+  readonly code: CollectionErrorCode
+  readonly fieldErrors?: Record<string, string[]>
+
+  constructor(code: CollectionErrorCode, message: string, fieldErrors?: Record<string, string[]>) {
+    super(message)
+    this.name = 'CollectionError'
+    this.code = code
+    this.fieldErrors = fieldErrors
+    Object.setPrototypeOf(this, CollectionError.prototype)
+  }
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
 /**
- * Base interface for items with an ID
+ * Base interface for items with an ID.
+ * All collection items must have a unique $id field.
  */
 interface WithId {
-  $id: string
+  /** Unique identifier for the item */
+  readonly $id: string
 }
 
 /**
- * Collection RPC methods available on the $ proxy
+ * Branded type for item IDs to prevent mixing with other strings
  */
-interface CollectionRPC {
-  findAll: () => Promise<unknown[]>
-  findById: (id: string) => Promise<unknown>
-  insert: (data: unknown) => Promise<unknown>
-  update: (id: string, data: unknown) => Promise<unknown>
+export type ItemId = string & { readonly __brand: 'ItemId' }
+
+/**
+ * Collection RPC methods available on the $ proxy
+ * @typeParam T - The item type
+ * @internal
+ */
+interface CollectionRPC<T = unknown> {
+  findAll: () => Promise<T[]>
+  findById: (id: string) => Promise<T | null>
+  insert: (data: Omit<T, '$id'>) => Promise<T>
+  update: (id: string, data: Partial<Omit<T, '$id'>>) => Promise<T>
   delete: (id: string) => Promise<void>
-  insertMany: (items: unknown[]) => Promise<unknown[]>
+  insertMany: (items: Omit<T, '$id'>[]) => Promise<T[]>
   deleteMany: (ids: string[]) => Promise<void>
-  findWhere: (predicate: Record<string, unknown>) => Promise<unknown[]>
+  findWhere: (predicate: Partial<T>) => Promise<T[]>
   loadMore: (cursor?: string | null) => Promise<{
-    items: unknown[]
+    items: T[]
     cursor: string | null
     hasMore?: boolean
   }>
@@ -68,6 +136,7 @@ interface CollectionRPC {
 
 /**
  * The $ proxy interface for RPC calls
+ * @internal
  */
 interface $Proxy {
   collection: (name: string) => CollectionRPC
@@ -75,82 +144,209 @@ interface $Proxy {
 }
 
 /**
- * Options for useCollection hook
+ * Options for the useCollection hook
+ * @typeParam TSchema - The Zod schema type for the collection items
  */
 export interface UseCollectionOptions<TSchema extends ZodObject<ZodRawShape>> {
-  /** Collection name (e.g., 'users', 'orders') */
+  /**
+   * Collection name (e.g., 'users', 'orders')
+   * Used for RPC calls and event subscriptions
+   */
   name: string
-  /** Zod schema for validation */
+  /**
+   * Zod schema for client-side validation
+   * Items are validated before being sent to the server
+   */
   schema: TSchema
-  /** Optional: use existing $ proxy from parent */
+  /**
+   * Existing $ proxy from a parent component
+   * When provided, reuses the existing WebSocket connection
+   */
   $?: $Proxy
-  /** Optional WebSocket URL (used when $ is not provided) */
+  /**
+   * WebSocket URL for the Durable Object
+   * Required when $ is not provided
+   */
   doUrl?: string
-  /** Optional branch for branched data */
+  /**
+   * Branch name for branched data (multi-tenancy support)
+   */
   branch?: string
-  /** Whether to auto-connect on mount (default: true) */
+  /**
+   * Whether to auto-connect on mount
+   * @default true
+   */
   autoConnect?: boolean
 }
 
 /**
- * Return type for useCollection hook
+ * Return type for the useCollection hook
+ * @typeParam T - The item type, must extend WithId
  */
 export interface UseCollectionReturn<T extends WithId> {
-  /** Current collection data */
-  data: T[]
-  /** True while initial data is loading */
-  isLoading: boolean
-  /** Error if any occurred */
-  error: Error | null
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
 
-  // Queries
-  /** Find item by ID, returns null if not found */
+  /**
+   * Current collection data as a readonly array
+   * Updates reactively on mutations and real-time sync
+   */
+  readonly data: readonly T[]
+
+  /**
+   * True while initial data is loading
+   * False once initial fetch completes (success or error)
+   */
+  readonly isLoading: boolean
+
+  /**
+   * Error from the most recent failed operation
+   * Null when all operations succeed
+   */
+  readonly error: CollectionError | Error | null
+
+  // ---------------------------------------------------------------------------
+  // Queries (synchronous, operate on local data)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find an item by its unique ID
+   * @param id - The item's $id
+   * @returns The item if found, null otherwise
+   */
   findById: (id: string) => T | null
-  /** Get all items */
-  findAll: () => T[]
-  /** Filter items by partial match */
-  findWhere: (predicate: Partial<T>) => T[]
 
-  // Mutations (optimistic)
-  /** Insert new item, returns item with $id */
+  /**
+   * Get all items in the collection
+   * @returns Array of all items
+   */
+  findAll: () => readonly T[]
+
+  /**
+   * Filter items by partial property match
+   * All specified properties must match exactly
+   * @param predicate - Object with properties to match
+   * @returns Array of matching items
+   *
+   * @example
+   * ```ts
+   * // Find all completed todos
+   * const completed = findWhere({ completed: true })
+   *
+   * // Find users with specific role
+   * const admins = findWhere({ role: 'admin' })
+   * ```
+   */
+  findWhere: (predicate: Partial<T>) => readonly T[]
+
+  // ---------------------------------------------------------------------------
+  // Mutations (async, optimistic updates with rollback on error)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Insert a new item into the collection
+   * Optimistically adds to local data before server confirms
+   * @param data - Item data without $id (generated by server)
+   * @returns Promise resolving to the inserted item with $id
+   * @throws CollectionError on validation or server error
+   */
   insert: (data: Omit<T, '$id'>) => Promise<T>
-  /** Update existing item */
-  update: (id: string, data: Partial<T>) => Promise<T>
-  /** Delete item by ID */
+
+  /**
+   * Update an existing item
+   * Optimistically updates local data before server confirms
+   * @param id - The item's $id
+   * @param data - Partial update data
+   * @returns Promise resolving to the updated item
+   * @throws CollectionError if item not found or validation fails
+   */
+  update: (id: string, data: Partial<Omit<T, '$id'>>) => Promise<T>
+
+  /**
+   * Delete an item by ID
+   * Optimistically removes from local data before server confirms
+   * @param id - The item's $id
+   * @throws CollectionError if item not found
+   */
   delete: (id: string) => Promise<void>
-  /** Bulk insert items */
+
+  /**
+   * Bulk insert multiple items
+   * @param data - Array of item data without $id
+   * @returns Promise resolving to array of inserted items with $id
+   */
   insertMany: (data: Omit<T, '$id'>[]) => Promise<T[]>
-  /** Bulk delete items by IDs */
+
+  /**
+   * Bulk delete multiple items by their IDs
+   * @param ids - Array of $id values to delete
+   */
   deleteMany: (ids: string[]) => Promise<void>
 
+  // ---------------------------------------------------------------------------
   // Pagination
-  /** True if more items available */
-  hasMore: boolean
-  /** Load next page of items */
+  // ---------------------------------------------------------------------------
+
+  /**
+   * True if more items are available beyond what's currently loaded
+   */
+  readonly hasMore: boolean
+
+  /**
+   * Load the next page of items
+   * Appends to existing data rather than replacing
+   * @throws Error on network failure
+   */
   loadMore: () => Promise<void>
 
+  // ---------------------------------------------------------------------------
   // Refresh
-  /** Refetch all data from server */
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Refetch all data from the server
+   * Replaces local data with fresh server data
+   * Resets pagination cursor
+   */
   refetch: () => Promise<void>
 }
 
 /**
- * Change event from real-time sync
+ * Change event types for real-time sync
+ * @internal
+ */
+type ChangeEventType = 'insert' | 'update' | 'delete'
+
+/**
+ * Change event from real-time sync subscription
+ * @typeParam T - The item type
+ * @internal
  */
 interface ChangeEvent<T> {
-  type: 'insert' | 'update' | 'delete'
+  /** The type of change that occurred */
+  type: ChangeEventType
+  /** The changed item data (for insert/update) */
   data?: T
+  /** The item ID (for delete) */
   id?: string
 }
 
 /**
- * Pending mutation for optimistic updates
+ * Tracks a pending optimistic mutation for potential rollback
+ * @typeParam T - The item type
+ * @internal
  */
 interface PendingMutation<T> {
+  /** The item ID */
   id: string
-  type: 'insert' | 'update' | 'delete'
+  /** The type of mutation */
+  type: ChangeEventType
+  /** The optimistic data applied locally */
   optimisticData?: T
+  /** The original data before mutation (for rollback) */
   originalData?: T
+  /** When the mutation was initiated */
   timestamp: number
 }
 
@@ -190,7 +386,11 @@ export function useCollection<TSchema extends ZodObject<ZodRawShape>>(
   // ==========================================================================
 
   /**
-   * Validate data against schema, throwing descriptive error if invalid
+   * Validate data against schema, throwing CollectionError if invalid
+   * @param inputData - The data to validate
+   * @param isPartial - True for partial validation (updates), false for full (inserts)
+   * @throws CollectionError with field-level error details
+   * @internal
    */
   const validate = useCallback(
     (inputData: unknown, isPartial = false): void => {
@@ -206,10 +406,27 @@ export function useCollection<TSchema extends ZodObject<ZodRawShape>>(
       } catch (err) {
         if (err && typeof err === 'object' && 'errors' in err) {
           const zodError = err as { errors: Array<{ path: string[]; message: string }> }
-          const fieldErrors = zodError.errors
-            .map((e) => `${e.path.join('.')}: ${e.message}`)
-            .join(', ')
-          throw new Error(`Validation failed - ${fieldErrors}`)
+
+          // Build field-level error map
+          const fieldErrors: Record<string, string[]> = {}
+          for (const e of zodError.errors) {
+            const path = e.path.join('.')
+            if (!fieldErrors[path]) {
+              fieldErrors[path] = []
+            }
+            fieldErrors[path].push(e.message)
+          }
+
+          // Build human-readable message
+          const fieldMessages = Object.entries(fieldErrors)
+            .map(([field, messages]) => `${field}: ${messages.join(', ')}`)
+            .join('; ')
+
+          throw new CollectionError(
+            'VALIDATION_ERROR',
+            `Validation failed - ${fieldMessages}`,
+            fieldErrors
+          )
         }
         throw err
       }

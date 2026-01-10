@@ -1,13 +1,44 @@
 /**
  * useSyncForm Hook
  *
- * Integrates TanStack Form with a collection from useDotdoCollection for
+ * Integrates TanStack Form with a collection from useCollection for
  * type-safe forms with real-time sync and optimistic updates.
+ *
+ * @module app/lib/hooks/use-sync-form
  *
  * Features:
  * - Create mode: form starts empty, calls collection.insert on submit
  * - Edit mode: loads data from collection.findById(initialId), calls collection.update on submit
- * - Validates using Zod schema via @tanstack/zod-form-adapter
+ * - Validates using Zod schema via TanStack Form validators
+ *
+ * @example Create mode
+ * ```tsx
+ * const { form, submit, isSubmitting } = useSyncForm({
+ *   collection: tasksCollection,
+ *   schema: TaskSchema,
+ *   onSuccess: () => navigate('/tasks'),
+ * })
+ *
+ * return (
+ *   <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
+ *     <form.Field name="title" children={(field) => (
+ *       <input value={field.state.value} onChange={e => field.handleChange(e.target.value)} />
+ *     )} />
+ *     <button disabled={isSubmitting}>Create</button>
+ *   </form>
+ * )
+ * ```
+ *
+ * @example Edit mode
+ * ```tsx
+ * const { form, isEditing, submit } = useSyncForm({
+ *   collection: tasksCollection,
+ *   schema: TaskSchema,
+ *   initialId: taskId, // Enables edit mode
+ * })
+ *
+ * // form.state.values is pre-populated with existing data
+ * ```
  *
  * @see app/tests/hooks/use-sync-form.test.ts for test coverage
  */
@@ -21,47 +52,90 @@ import type { z, ZodObject, ZodRawShape, ZodError } from 'zod'
 // =============================================================================
 
 /**
- * Collection interface matching useDotdoCollection return value
+ * Collection interface matching useCollection return value
+ * @typeParam T - The item type, must have $id field
+ * @internal
  */
 interface Collection<T extends { $id: string }> {
+  /** Find item by ID */
   findById: (id: string) => T | null
-  findAll: () => T[]
+  /** Get all items */
+  findAll: () => readonly T[]
+  /** Insert new item */
   insert: (data: Omit<T, '$id'>) => Promise<T>
+  /** Update existing item */
   update: (id: string, data: Partial<Omit<T, '$id'>>) => Promise<T>
-  delete: (id: string) => Promise<{ deleted: boolean }>
+  /** Delete item */
+  delete: (id: string) => Promise<{ deleted: boolean } | void>
+  /** Loading state */
   isLoading: boolean
+  /** Error state */
   error: Error | null
 }
 
 /**
  * Options for the useSyncForm hook
+ * @typeParam TSchema - The Zod schema type
  */
-interface UseSyncFormOptions<TSchema extends ZodObject<ZodRawShape>> {
-  /** The collection to sync with */
+export interface UseSyncFormOptions<TSchema extends ZodObject<ZodRawShape>> {
+  /**
+   * The collection to sync with
+   * Form submissions will call insert/update on this collection
+   */
   collection: Collection<z.infer<TSchema> & { $id: string }>
-  /** Zod schema for validation */
+  /**
+   * Zod schema for form validation
+   * Used for both field-level and form-level validation
+   */
   schema: TSchema
-  /** Optional ID for edit mode - if provided, loads existing item */
+  /**
+   * Item ID for edit mode
+   * When provided, form loads existing data and uses update on submit
+   * When omitted, form starts empty and uses insert on submit
+   */
   initialId?: string
-  /** Callback on successful submit */
+  /**
+   * Callback invoked on successful submit
+   * Use for navigation, toast messages, etc.
+   */
   onSuccess?: () => void
-  /** Callback on submit error */
+  /**
+   * Callback invoked on submit error
+   * Receives the error that caused the failure
+   */
   onError?: (error: Error) => void
 }
 
 /**
  * Return value from the useSyncForm hook
+ * @typeParam TSchema - The Zod schema type
  */
-interface UseSyncFormReturn<TSchema extends ZodObject<ZodRawShape>> {
-  /** TanStack Form instance */
+export interface UseSyncFormReturn<TSchema extends ZodObject<ZodRawShape>> {
+  /**
+   * TanStack Form instance
+   * Use for field bindings and form state access
+   */
   form: ReturnType<typeof useForm<z.infer<TSchema>>>
-  /** Whether we're in edit mode (vs create mode) */
-  isEditing: boolean
-  /** Whether the form is currently submitting */
-  isSubmitting: boolean
-  /** Submit the form (insert or update based on mode) */
+  /**
+   * True when editing existing item, false when creating new
+   * Determined by whether initialId was provided
+   */
+  readonly isEditing: boolean
+  /**
+   * True while form is submitting to the collection
+   */
+  readonly isSubmitting: boolean
+  /**
+   * Submit the form
+   * Validates, then calls collection.insert (create) or collection.update (edit)
+   * @throws Re-throws errors after calling onError
+   */
   submit: () => Promise<void>
-  /** Reset the form to initial values */
+  /**
+   * Reset form to initial values
+   * For create mode: clears to schema defaults
+   * For edit mode: reloads from collection
+   */
   reset: () => void
 }
 

@@ -14,6 +14,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { ApprovalSchema, type Approval } from '~/collections'
+import { useAuth } from '~/src/admin/auth'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 export const Route = createFileRoute('/admin/approvals/')({
   component: ApprovalQueuePage,
@@ -65,10 +72,10 @@ function StatusBadge({ status }: { status: ApprovalStatus }) {
 }
 
 // ============================================================================
-// Loading Skeleton Component
+// Approvals Card Skeleton Component
 // ============================================================================
 
-function ApprovalsListSkeleton() {
+function ApprovalsCardSkeleton() {
   return (
     <div data-testid="loading" className="animate-pulse">
       <div className="h-8 bg-gray-200 rounded w-48 mb-6" />
@@ -84,41 +91,6 @@ function ApprovalsListSkeleton() {
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState() {
-  return (
-    <div data-testid="empty-state" className="text-center py-12">
-      <div className="text-gray-400 text-5xl mb-4">&#10004;</div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">All caught up!</h2>
-      <p className="text-gray-500">No pending approvals at the moment.</p>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid="error-state" className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">&#9888;</div>
-      <h2 className="text-xl font-semibold text-red-700 mb-2">Error loading approvals</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-      >
-        Try Again
-      </button>
     </div>
   )
 }
@@ -247,6 +219,7 @@ function FilterBar({ statusFilter, priorityFilter, onStatusChange, onPriorityCha
 
 function ApprovalQueuePage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [statusFilter, setStatusFilter] = React.useState<ApprovalStatus | ''>('')
   const [priorityFilter, setPriorityFilter] = React.useState<ApprovalPriority | ''>('')
 
@@ -293,7 +266,7 @@ function ApprovalQueuePage() {
         status: 'approved',
         decision: {
           outcome: 'approved',
-          decidedBy: 'current-user', // TODO: Get from auth context
+          decidedBy: user?.id ?? 'anonymous',
           decidedAt: new Date().toISOString(),
         },
       })
@@ -308,7 +281,7 @@ function ApprovalQueuePage() {
         status: 'rejected',
         decision: {
           outcome: 'rejected',
-          decidedBy: 'current-user', // TODO: Get from auth context
+          decidedBy: user?.id ?? 'anonymous',
           decidedAt: new Date().toISOString(),
         },
       })
@@ -321,7 +294,7 @@ function ApprovalQueuePage() {
     return (
       <Shell>
         <div className="p-6">
-          <ApprovalsListSkeleton />
+          <ApprovalsCardSkeleton />
         </div>
       </Shell>
     )
@@ -331,7 +304,7 @@ function ApprovalQueuePage() {
     return (
       <Shell>
         <div className="p-6">
-          <ErrorState error={approvals.error} />
+          <ErrorState error={approvals.error} title="Error loading approvals" />
         </div>
       </Shell>
     )
@@ -368,7 +341,11 @@ function ApprovalQueuePage() {
         />
 
         {filteredApprovals.length === 0 ? (
-          <EmptyState />
+          <EmptyState
+            icon="&#10004;"
+            title="All caught up!"
+            description="No pending approvals at the moment."
+          />
         ) : (
           <div className="space-y-4">
             {filteredApprovals.map((approval) => (

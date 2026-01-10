@@ -9,6 +9,12 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { IntegrationSchema, type Integration } from '~/collections'
+import {
+  ErrorState,
+  EmptyState,
+  ListSkeleton,
+  PageHeader,
+} from '~/components/admin/shared'
 
 export const Route = createFileRoute('/admin/integrations/')({
   component: IntegrationsPage,
@@ -59,10 +65,10 @@ function getProviderIcon(provider: string): string {
 }
 
 // ============================================================================
-// Loading Skeleton Component
+// Integrations Grid Skeleton Component
 // ============================================================================
 
-function IntegrationsListSkeleton() {
+function IntegrationsGridSkeleton() {
   return (
     <div data-testid="loading" className="animate-pulse">
       <div className="h-8 bg-gray-200 rounded w-40 mb-6" />
@@ -80,41 +86,6 @@ function IntegrationsListSkeleton() {
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Empty State Component
-// ============================================================================
-
-function EmptyState() {
-  return (
-    <div data-testid="empty-state" className="text-center py-12">
-      <div className="text-gray-400 text-5xl mb-4">&#128279;</div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">No integrations yet</h2>
-      <p className="text-gray-500 mb-6">Connect your first service to get started.</p>
-    </div>
-  )
-}
-
-// ============================================================================
-// Error State Component
-// ============================================================================
-
-function ErrorState({ error }: { error: Error }) {
-  return (
-    <div data-testid="error-state" className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">&#9888;</div>
-      <h2 className="text-xl font-semibold text-red-700 mb-2">Error loading integrations</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-      >
-        Try Again
-      </button>
     </div>
   )
 }
@@ -193,7 +164,7 @@ function IntegrationsPage() {
       await integrations.update(integration.$id, {
         status: 'pending',
       })
-      // TODO: Redirect to OAuth flow or show modal
+      // OAuth flow would be handled by a separate auth service
       console.log('Connecting to:', integration.provider)
     } catch (err) {
       console.error('Failed to initiate connection:', err)
@@ -216,7 +187,7 @@ function IntegrationsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <IntegrationsListSkeleton />
+          <IntegrationsGridSkeleton />
         </div>
       </Shell>
     )
@@ -226,7 +197,7 @@ function IntegrationsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <ErrorState error={integrations.error} />
+          <ErrorState error={integrations.error} title="Error loading integrations" />
         </div>
       </Shell>
     )
@@ -236,8 +207,12 @@ function IntegrationsPage() {
     return (
       <Shell>
         <div className="p-6">
-          <h1 className="text-2xl font-semibold mb-6">Integrations</h1>
-          <EmptyState />
+          <PageHeader title="Integrations" />
+          <EmptyState
+            icon="&#128279;"
+            title="No integrations yet"
+            description="Connect your first service to get started."
+          />
         </div>
       </Shell>
     )
