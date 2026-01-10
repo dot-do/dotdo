@@ -8,25 +8,22 @@
 import type { ReactNode } from 'react'
 import * as React from 'react'
 import {
-  DashboardGrid as BaseDashboardGrid,
-  KPICard as BaseKPICard,
-  ActivityFeed as BaseActivityFeed,
-  DataTable as BaseDataTable,
-  CommandPalette as BaseCommandPalette,
-  AreaChart as BaseAreaChart,
-  BarChart as BaseBarChart,
-  LineChart as BaseLineChart,
-  UserProfile as BaseUserProfile,
-  APIKeyManager as BaseAPIKeyManager,
-} from '@mdxui/cockpit'
-import type {
-  KPICardProps as BaseKPICardProps,
-  ActivityFeedProps as BaseActivityFeedProps,
-  DataTableProps as BaseDataTableProps,
-  AreaChartProps as BaseAreaChartProps,
-  BarChartProps as BaseBarChartProps,
-  LineChartProps as BaseLineChartProps,
-} from '@mdxui/cockpit'
+  AreaChart as RechartsAreaChart,
+  BarChart as RechartsBarChart,
+  LineChart as RechartsLineChart,
+  PieChart as RechartsPieChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  Area,
+  Bar,
+  Line,
+  Pie,
+  Cell,
+  CartesianGrid,
+} from 'recharts'
 import {
   Home,
   Rocket,
@@ -696,17 +693,66 @@ export function AnalyticsDashboard({ children }: AnalyticsDashboardProps) {
   )
 }
 
-interface AreaChartWrapperProps {
-  data?: Array<Record<string, any>>
+// ============================================================================
+// Chart Components with Recharts
+// ============================================================================
+
+// Default theme colors using CSS variable-compatible values
+const DEFAULT_COLORS = [
+  'hsl(221.2 83.2% 53.3%)', // primary blue
+  'hsl(262.1 83.3% 57.8%)', // purple
+  'hsl(142.1 76.2% 36.3%)', // green
+  'hsl(38.3 92.8% 50.4%)',  // amber/orange
+  'hsl(346.8 77.2% 49.8%)', // red/rose
+  'hsl(199.4 95.5% 53.8%)', // cyan
+]
+
+export interface BaseChartProps<T = Record<string, unknown>> {
+  data?: T[]
+  xKey?: keyof T
+  yKey?: keyof T | (keyof T)[]
   title?: string
   description?: string
+  height?: number
+  colors?: string[]
+  showLegend?: boolean
+  showTooltip?: boolean
+  showGrid?: boolean
+  animate?: boolean
 }
 
-export function AreaChart({
+// Helper to normalize yKey to array
+function normalizeYKeys<T>(yKey?: keyof T | (keyof T)[]): (keyof T)[] {
+  if (!yKey) return []
+  return Array.isArray(yKey) ? yKey : [yKey]
+}
+
+// Empty state component
+function ChartEmptyState({ message = 'No data available' }: { message?: string }) {
+  return (
+    <div className="h-full flex items-center justify-center text-gray-500">
+      {message}
+    </div>
+  )
+}
+
+interface AreaChartWrapperProps<T = Record<string, unknown>> extends BaseChartProps<T> {}
+
+export function AreaChart<T extends Record<string, unknown>>({
   data = [],
+  xKey,
+  yKey,
   title,
   description,
-}: AreaChartWrapperProps) {
+  height = 200,
+  colors = DEFAULT_COLORS,
+  showLegend = false,
+  showTooltip = true,
+  showGrid = true,
+  animate = true,
+}: AreaChartWrapperProps<T>) {
+  const yKeys = normalizeYKeys(yKey)
+
   return (
     <div
       data-component="AreaChart"
@@ -717,24 +763,81 @@ export function AreaChart({
       {description && (
         <p className="text-sm text-gray-500 mb-4">{description}</p>
       )}
-      <div className="h-48 flex items-center justify-center text-gray-600">
-        [Area Chart - {data.length} data points]
+      <div style={{ height }}>
+        {data.length === 0 ? (
+          <ChartEmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsAreaChart
+              data={data}
+              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+            >
+              {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#374151" />}
+              {xKey && (
+                <XAxis
+                  dataKey={xKey as string}
+                  stroke="#9CA3AF"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+              )}
+              <YAxis
+                stroke="#9CA3AF"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              {showTooltip && (
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1F2937',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#F9FAFB',
+                  }}
+                />
+              )}
+              {showLegend && <Legend />}
+              {yKeys.map((key, index) => (
+                <Area
+                  key={String(key)}
+                  type="monotone"
+                  dataKey={key as string}
+                  stroke={colors[index % colors.length]}
+                  fill={colors[index % colors.length]}
+                  fillOpacity={0.3}
+                  isAnimationActive={animate}
+                />
+              ))}
+            </RechartsAreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )
 }
 
-interface BarChartWrapperProps {
-  data?: Array<Record<string, any>>
-  title?: string
-  description?: string
+interface BarChartWrapperProps<T = Record<string, unknown>> extends BaseChartProps<T> {
+  layout?: 'horizontal' | 'vertical'
 }
 
-export function BarChart({
+export function BarChart<T extends Record<string, unknown>>({
   data = [],
+  xKey,
+  yKey,
   title,
   description,
-}: BarChartWrapperProps) {
+  height = 200,
+  colors = DEFAULT_COLORS,
+  showLegend = false,
+  showTooltip = true,
+  showGrid = true,
+  animate = true,
+  layout = 'horizontal',
+}: BarChartWrapperProps<T>) {
+  const yKeys = normalizeYKeys(yKey)
+
   return (
     <div
       data-component="BarChart"
@@ -745,24 +848,83 @@ export function BarChart({
       {description && (
         <p className="text-sm text-gray-500 mb-4">{description}</p>
       )}
-      <div className="h-48 flex items-center justify-center text-gray-600">
-        [Bar Chart - {data.length} data points]
+      <div style={{ height }}>
+        {data.length === 0 ? (
+          <ChartEmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsBarChart
+              data={data}
+              layout={layout === 'vertical' ? 'vertical' : 'horizontal'}
+              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+            >
+              {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#374151" />}
+              {xKey && (
+                <XAxis
+                  dataKey={layout === 'vertical' ? undefined : (xKey as string)}
+                  type={layout === 'vertical' ? 'number' : 'category'}
+                  stroke="#9CA3AF"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+              )}
+              <YAxis
+                dataKey={layout === 'vertical' ? (xKey as string) : undefined}
+                type={layout === 'vertical' ? 'category' : 'number'}
+                stroke="#9CA3AF"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              {showTooltip && (
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1F2937',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#F9FAFB',
+                  }}
+                />
+              )}
+              {showLegend && <Legend />}
+              {yKeys.map((key, index) => (
+                <Bar
+                  key={String(key)}
+                  dataKey={key as string}
+                  fill={colors[index % colors.length]}
+                  isAnimationActive={animate}
+                  radius={[4, 4, 0, 0]}
+                />
+              ))}
+            </RechartsBarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )
 }
 
-interface LineChartWrapperProps {
-  data?: Array<Record<string, any>>
-  title?: string
-  description?: string
+interface LineChartWrapperProps<T = Record<string, unknown>> extends BaseChartProps<T> {
+  curved?: boolean
 }
 
-export function LineChart({
+export function LineChart<T extends Record<string, unknown>>({
   data = [],
+  xKey,
+  yKey,
   title,
   description,
-}: LineChartWrapperProps) {
+  height = 200,
+  colors = DEFAULT_COLORS,
+  showLegend = false,
+  showTooltip = true,
+  showGrid = true,
+  animate = true,
+  curved = true,
+}: LineChartWrapperProps<T>) {
+  const yKeys = normalizeYKeys(yKey)
+
   return (
     <div
       data-component="LineChart"
@@ -773,8 +935,135 @@ export function LineChart({
       {description && (
         <p className="text-sm text-gray-500 mb-4">{description}</p>
       )}
-      <div className="h-48 flex items-center justify-center text-gray-600">
-        [Line Chart - {data.length} data points]
+      <div style={{ height }}>
+        {data.length === 0 ? (
+          <ChartEmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsLineChart
+              data={data}
+              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+            >
+              {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#374151" />}
+              {xKey && (
+                <XAxis
+                  dataKey={xKey as string}
+                  stroke="#9CA3AF"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+              )}
+              <YAxis
+                stroke="#9CA3AF"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              {showTooltip && (
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1F2937',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#F9FAFB',
+                  }}
+                />
+              )}
+              {showLegend && <Legend />}
+              {yKeys.map((key, index) => (
+                <Line
+                  key={String(key)}
+                  type={curved ? 'monotone' : 'linear'}
+                  dataKey={key as string}
+                  stroke={colors[index % colors.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={animate}
+                />
+              ))}
+            </RechartsLineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// PieChart with different props structure
+export interface PieChartWrapperProps<T = Record<string, unknown>> {
+  data?: T[]
+  nameKey?: keyof T
+  valueKey?: keyof T
+  title?: string
+  description?: string
+  height?: number
+  colors?: string[]
+  showLegend?: boolean
+  showTooltip?: boolean
+  animate?: boolean
+  innerRadius?: number
+  outerRadius?: number
+}
+
+export function PieChart<T extends Record<string, unknown>>({
+  data = [],
+  nameKey,
+  valueKey,
+  title,
+  description,
+  height = 200,
+  colors = DEFAULT_COLORS,
+  showLegend = true,
+  showTooltip = true,
+  animate = true,
+  innerRadius = 0,
+  outerRadius = 80,
+}: PieChartWrapperProps<T>) {
+  return (
+    <div
+      data-component="PieChart"
+      data-data-count={data.length.toString()}
+      className="p-4 bg-gray-900 rounded-lg border border-gray-800"
+    >
+      {title && <h4 className="font-semibold">{title}</h4>}
+      {description && (
+        <p className="text-sm text-gray-500 mb-4">{description}</p>
+      )}
+      <div style={{ height }}>
+        {data.length === 0 ? (
+          <ChartEmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsPieChart>
+              {showTooltip && (
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1F2937',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#F9FAFB',
+                  }}
+                />
+              )}
+              {showLegend && <Legend />}
+              <Pie
+                data={data}
+                dataKey={valueKey as string}
+                nameKey={nameKey as string}
+                cx="50%"
+                cy="50%"
+                innerRadius={innerRadius}
+                outerRadius={outerRadius}
+                isAnimationActive={animate}
+              >
+                {data.map((_, index) => (
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                ))}
+              </Pie>
+            </RechartsPieChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

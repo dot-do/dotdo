@@ -1,6 +1,7 @@
 // shadcn/ui components
 export * from "./badge"
 export * from "./button"
+export * from "./charts"
 export * from "./checkbox"
 export * from "./dialog"
 export * from "./dropdown-menu"

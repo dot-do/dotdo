@@ -4,15 +4,13 @@
  * Displays a list of sandbox sessions with status, created date, and actions.
  * Supports viewing active sandboxes, opening terminals, and session management.
  *
- * Uses TanStack DB collection pattern for real-time sync via WebSocket.
+ * Uses useCollection for real-time sync with the Sandbox collection via WebSocket.
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
-import { type Sandbox } from '~/collections'
-
-// Collection will be used when useDotdoCollection is implemented
-// import { sandboxesCollection } from '~/collections'
+import { useCollection } from '~/lib/hooks/use-collection'
+import { SandboxSchema, type Sandbox } from '~/collections'
 
 // ============================================================================
 // Types
@@ -141,45 +139,52 @@ function formatDate(dateString: string): string {
 /**
  * SandboxesListPage
  *
- * This page displays a list of sandboxes. It uses static mock data for now
- * since the full TanStack DB sync is not yet implemented (see GREEN phase).
- *
- * When useDotdoCollection is implemented, this component will:
- * - Receive real-time updates via WebSocket (no polling needed)
- * - Use optimistic updates for create/delete operations
- * - Handle loading/error states automatically from the hook
- *
- * TODO: Replace mock data with useDotdoCollection when GREEN phase is complete:
- * ```typescript
- * const { data: sandboxes, isLoading, error, insert, delete: deleteSandbox } =
- *   useDotdoCollection({ collection: 'Sandbox', schema: SandboxSchema })
- * ```
+ * Displays a list of sandboxes using useCollection for real-time sync.
+ * The collection provides:
+ * - Real-time updates via WebSocket (no polling needed)
+ * - Optimistic updates for create/delete operations
+ * - Loading/error states handled automatically
  */
 function SandboxesListPage() {
   const navigate = useNavigate()
 
-  // Mock data for now - will be replaced with useDotdoCollection
-  // Real-time sync via WebSocket will handle updates automatically
-  const sandboxes: Array<{ $id: string; status: Sandbox['status']; name: string; createdAt: string }> = [
-    { $id: 'sandbox-1', status: 'active', name: 'Development', createdAt: '2024-01-15T10:30:00Z' },
-    { $id: 'sandbox-2', status: 'paused', name: 'Staging', createdAt: '2024-01-14T14:20:00Z' },
-    { $id: 'sandbox-3', status: 'archived', name: 'Testing', createdAt: '2024-01-13T09:15:00Z' },
-  ]
-  const isLoading = false
-  const error: Error | null = null
+  // Use collection for real-time sandbox data
+  const sandboxes = useCollection({
+    name: 'sandboxes',
+    schema: SandboxSchema,
+  })
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this sandbox?')) return
-    // TODO: Use collection.delete(id) when useDotdoCollection is implemented
-    // Optimistic update will remove from UI immediately
-    console.log('Delete sandbox:', id)
+    try {
+      await sandboxes.delete(id)
+    } catch (err) {
+      console.error('Failed to delete sandbox:', err)
+    }
   }
 
-  const handleCreate = () => {
-    navigate({ to: '/admin/sandboxes/new' })
+  const handleCreate = async () => {
+    try {
+      const newSandbox = await sandboxes.insert({
+        $type: 'Sandbox',
+        name: 'New Sandbox',
+        description: '',
+        ownerId: 'current-user', // TODO: Get from auth context
+        status: 'active',
+        runtime: 'v8',
+        memory: 128,
+        timeout: 30000,
+        env: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as Omit<Sandbox, '$id'>)
+      navigate({ to: '/admin/sandboxes/$sandboxId', params: { sandboxId: newSandbox.$id } })
+    } catch (err) {
+      console.error('Failed to create sandbox:', err)
+    }
   }
 
-  if (isLoading) {
+  if (sandboxes.isLoading) {
     return (
       <Shell>
         <div className='p-6'>
@@ -189,17 +194,17 @@ function SandboxesListPage() {
     )
   }
 
-  if (error) {
+  if (sandboxes.error) {
     return (
       <Shell>
         <div className='p-6'>
-          <ErrorState error={error} />
+          <ErrorState error={sandboxes.error} />
         </div>
       </Shell>
     )
   }
 
-  if (sandboxes.length === 0) {
+  if (sandboxes.data.length === 0) {
     return (
       <Shell>
         <div className='p-6'>
@@ -267,7 +272,7 @@ function SandboxesListPage() {
                 },
               },
             ]}
-            data={sandboxes}
+            data={sandboxes.data}
           />
         </div>
       </div>
