@@ -43,7 +43,7 @@ export interface DOSchema {
   classes: DOClassSchema[]
 
   /** Registered Nouns */
-  nouns: NounSchema[]
+  nouns: IntrospectNounSchema[]
 
   /** Registered Verbs */
   verbs: VerbSchema[]
@@ -148,13 +148,16 @@ export interface ActionSchema {
 }
 
 // ============================================================================
-// NOUN SCHEMA
+// NOUN SCHEMA (Introspection)
 // ============================================================================
 
 /**
- * Noun schema from the nouns table
+ * Noun schema from the nouns table (for introspection)
+ *
+ * Note: This is different from NounSchema in Noun.ts which defines field schemas.
+ * This type describes noun metadata for introspection responses.
  */
-export interface NounSchema {
+export interface IntrospectNounSchema {
   /** Singular noun name (PascalCase) */
   noun: string
   /** Plural form */

@@ -301,14 +301,34 @@ export class CompactModule implements LifecycleModule {
         id: string
         verb: string
         target: string
-        actor: string
-        input: Record<string, unknown>
-        status: string
+        actor: string | null
+        input: number | null
+        output: number | null
+        options: unknown
+        status: 'pending' | 'running' | 'completed' | 'failed' | 'undone' | 'retrying'
+        error: unknown
+        duration: number | null
+        startedAt: Date | null
+        completedAt: Date | null
         createdAt: Date
       }>
 
       for (const action of actions) {
-        await this.ctx.db.insert(schema.actions).values(action)
+        await this.ctx.db.insert(schema.actions).values({
+          id: action.id,
+          verb: action.verb,
+          target: action.target,
+          actor: action.actor,
+          input: action.input,
+          output: action.output,
+          options: action.options as Record<string, unknown> | null,
+          status: action.status,
+          error: action.error as Record<string, unknown> | null,
+          duration: action.duration,
+          startedAt: action.startedAt,
+          completedAt: action.completedAt,
+          createdAt: action.createdAt,
+        })
         actionsRestored++
       }
     }
@@ -322,11 +342,25 @@ export class CompactModule implements LifecycleModule {
         verb: string
         source: string
         data: Record<string, unknown>
+        actionId: string | null
+        sequence: number
+        streamed: boolean | null
+        streamedAt: Date | null
         createdAt: Date
       }>
 
       for (const event of events) {
-        await this.ctx.db.insert(schema.events).values(event)
+        await this.ctx.db.insert(schema.events).values({
+          id: event.id,
+          verb: event.verb,
+          source: event.source,
+          data: event.data,
+          actionId: event.actionId,
+          sequence: event.sequence,
+          streamed: event.streamed ?? false,
+          streamedAt: event.streamedAt,
+          createdAt: event.createdAt,
+        })
         eventsRestored++
       }
     }

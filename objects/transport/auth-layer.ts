@@ -310,7 +310,7 @@ async function validateJWT(
         issuer: payload.iss,
         audience: payload.aud,
         expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
-        claims: payload as Record<string, unknown>,
+        claims: payload as unknown as Record<string, unknown>,
       },
     }
   } catch {
@@ -847,7 +847,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
               issuer: payload.iss,
               audience: payload.aud,
               expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
-              claims: payload as Record<string, unknown>,
+              claims: payload as unknown as Record<string, unknown>,
             },
           }
 

@@ -37,19 +37,22 @@ export interface PayloadRequest {
 }
 
 /**
+ * Where clause operator for filtering documents.
+ */
+export interface WhereOperator {
+  equals?: string | number | boolean
+  not_equals?: string | number | boolean
+  in?: (string | number)[]
+  not_in?: (string | number)[]
+  exists?: boolean
+}
+
+/**
  * Where clause for filtering documents.
  * Used to restrict access to specific documents.
  */
 export interface Where {
-  [field: string]:
-    | {
-        equals?: string | number | boolean
-        not_equals?: string | number | boolean
-        in?: (string | number)[]
-        not_in?: (string | number)[]
-        exists?: boolean
-      }
-    | Where
+  [field: string]: WhereOperator | Where | Where[] | undefined
   and?: Where[]
   or?: Where[]
 }

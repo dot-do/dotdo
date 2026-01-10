@@ -160,12 +160,12 @@ export class InMemorySQLEngine implements SQLEngine {
 
     // Snapshot current state for rollback
     this.transaction.dataSnapshot = new Map()
-    for (const [table, rows] of this.data) {
-      this.transaction.dataSnapshot.set(
+    this.data.forEach((rows, table) => {
+      this.transaction.dataSnapshot!.set(
         table,
         rows.map((r) => ({ rowid: r.rowid, values: new Map(r.values) }))
       )
-    }
+    })
     this.transaction.autoIncrementSnapshot = new Map(this.autoIncrementCounters)
   }
 
@@ -463,9 +463,9 @@ export class InMemorySQLEngine implements SQLEngine {
       if (existingRowIndex >= 0) {
         // Update existing row
         const existingRow = tableData[existingRowIndex]
-        for (const [col, val] of values) {
+        values.forEach((val, col) => {
           existingRow.values.set(col, val)
-        }
+        })
         return {
           columns: [],
           columnTypes: [],
@@ -1042,13 +1042,14 @@ export function createSQLEngine(dialectOrOptions?: DialectConfig | SQLEngineOpti
   }
 
   // Check if it's an options object (has parser or validateBeforeExecute)
-  if ('parser' in dialectOrOptions || 'validateBeforeExecute' in dialectOrOptions || 'dialect' in dialectOrOptions) {
+  // SQLEngineOptions has 'parser' or 'validateBeforeExecute', while DialectConfig has 'parameterStyle'
+  if ('parser' in dialectOrOptions || 'validateBeforeExecute' in dialectOrOptions) {
     const options = dialectOrOptions as SQLEngineOptions
     return new InMemorySQLEngineWithParser(options)
   }
 
-  // Legacy: dialect config only
-  return new InMemorySQLEngine(dialectOrOptions)
+  // It's a DialectConfig (has parameterStyle which SQLEngineOptions doesn't have at root level)
+  return new InMemorySQLEngine(dialectOrOptions as DialectConfig)
 }
 
 /**

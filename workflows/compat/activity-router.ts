@@ -635,14 +635,14 @@ export class InMemoryActivityMetrics implements ActivityMetricsCollector {
       avgLatencyMs: number
     }>()
 
-    for (const [name, data] of this.byActivity) {
+    this.byActivity.forEach((data, name) => {
       byActivity.set(name, {
         executionCount: data.executionCount,
         successCount: data.successCount,
         errorCount: data.errorCount,
         avgLatencyMs: data.latencyCount > 0 ? data.latencySum / data.latencyCount : 0,
       })
-    }
+    })
 
     return {
       executionCount: this.executionCount,

@@ -38,10 +38,10 @@ export function parseCentroidsFile(buffer: Buffer | ArrayBuffer): {
   dimensions: number
   centroids: Float32Array[]
 } {
-  // Convert Buffer to ArrayBuffer if needed
-  const arrayBuffer = buffer instanceof Buffer
-    ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-    : buffer
+  // Convert Buffer to ArrayBuffer if needed - create a copy to ensure proper ArrayBuffer type
+  const arrayBuffer: ArrayBuffer = buffer instanceof ArrayBuffer
+    ? buffer
+    : new Uint8Array(buffer).buffer
 
   if (arrayBuffer.byteLength < 32) {
     throw new Error('Truncated or incomplete header')
@@ -97,10 +97,10 @@ export function parseCodebooksFile(buffer: Buffer | ArrayBuffer): {
   subvectorDim: number
   centroids: Float32Array[]
 } {
-  // Convert Buffer to ArrayBuffer if needed
-  const arrayBuffer = buffer instanceof Buffer
-    ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-    : buffer
+  // Convert Buffer to ArrayBuffer if needed - create a copy to ensure proper ArrayBuffer type
+  const arrayBuffer: ArrayBuffer = buffer instanceof ArrayBuffer
+    ? buffer
+    : new Uint8Array(buffer).buffer
 
   if (arrayBuffer.byteLength < 32) {
     throw new Error('Truncated or incomplete header')
@@ -153,10 +153,10 @@ export function parseClusterFile(buffer: Buffer | ArrayBuffer): {
   ids: string[]
   pqCodes: Uint8Array
 } {
-  // Convert Buffer to ArrayBuffer if needed
-  const arrayBuffer = buffer instanceof Buffer
-    ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-    : buffer
+  // Convert Buffer to ArrayBuffer if needed - create a copy to ensure proper ArrayBuffer type
+  const arrayBuffer: ArrayBuffer = buffer instanceof ArrayBuffer
+    ? buffer
+    : new Uint8Array(buffer).buffer
 
   const parsed = parseStaticCluster(arrayBuffer)
 
@@ -1124,7 +1124,7 @@ export async function appendToIndex(options: AppendToIndexOptions): Promise<void
   const centroidsData = parseCentroidsFile(centroidsBuffer)
   const codebooksData = parseCodebooksFile(codebooksBuffer)
 
-  const { numClusters, dimensions, centroids } = centroidsData
+  const { numCentroids: numClusters, dimensions, centroids } = centroidsData
   const { M, Ksub, subvectorDim, centroids: codebookCentroids } = codebooksData
 
   // Reconstruct codebooks object

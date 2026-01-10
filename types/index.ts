@@ -119,7 +119,7 @@ export type {
   RESTEndpointSchema,
   PropertySchema,
   ActionSchema,
-  NounSchema,
+  IntrospectNounSchema,
   VerbSchema,
   StoreType,
   StoreSchema,

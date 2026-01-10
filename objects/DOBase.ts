@@ -104,7 +104,7 @@ import type {
   RESTEndpointSchema,
   StoreSchema,
   StorageCapabilities,
-  NounSchema,
+  IntrospectNounSchema,
   VerbSchema,
   VisibilityRole,
 } from '../types/introspect'
@@ -1187,19 +1187,19 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           data: data as Record<string, unknown>,
         })
         return {
-          $id: result.id,
+          $id: result.$id,
           $type: noun,
           ...result.data,
-          $rowid: result.rowid,
+          $rowid: result.version ?? 0,
         } as T & { $rowid: number }
       },
       delete: async (id: string): Promise<T & { $rowid: number }> => {
         const result = await self.things.delete(id)
         return {
-          $id: result.id,
+          $id: result.$id,
           $type: noun,
           ...result.data,
-          $rowid: result.rowid,
+          $rowid: result.version ?? 0,
         } as T & { $rowid: number }
       },
     }
@@ -2552,7 +2552,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   /**
    * Introspect registered nouns
    */
-  private async introspectNouns(): Promise<NounSchema[]> {
+  private async introspectNouns(): Promise<IntrospectNounSchema[]> {
     // Query nouns from the database (simplified for now)
     // In full implementation, would query from db.nouns table
     return []

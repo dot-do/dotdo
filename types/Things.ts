@@ -1,4 +1,4 @@
-import type { RpcPromise } from 'capnweb'
+import type { RpcPromise } from './fn'
 import type { Thing, ThingData, ThingDO } from './Thing'
 
 // ============================================================================

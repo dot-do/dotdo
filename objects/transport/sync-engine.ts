@@ -388,14 +388,16 @@ export class SyncEngine {
   }
 
   private thingEntityToSyncThing(entity: ThingEntity): SyncThing {
+    // ThingEntity doesn't have timestamp fields, so we use current time as default
+    const now = new Date().toISOString()
     return {
       $id: entity.$id,
       $type: entity.$type,
       name: entity.name ?? undefined,
       data: entity.data ?? undefined,
       branch: entity.branch ?? null,
-      createdAt: entity.createdAt ?? new Date().toISOString(),
-      updatedAt: entity.updatedAt ?? new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     }
   }
 }

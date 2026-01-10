@@ -304,8 +304,16 @@ export class ReplicatedPostgres {
       this.config.replication.readFrom = 'primary'
     }
 
-    // Create underlying EdgePostgres
-    this.postgres = new EdgePostgres(ctx, env, config)
+    // Create underlying EdgePostgres with adapted config
+    // EdgePostgres doesn't need the replication config (we handle it ourselves)
+    const edgePostgresConfig: EdgePostgresConfig = {
+      tiering: config?.tiering,
+      pglite: config?.pglite,
+      sharding: config?.sharding,
+      quantization: config?.quantization,
+      hybridSearch: config?.hybridSearch,
+    }
+    this.postgres = new EdgePostgres(ctx, env, edgePostgresConfig)
   }
 
   // ==========================================================================

@@ -1053,7 +1053,7 @@ export class TieredStorage {
             break
           case 'UPDATE':
             if (currentRow) {
-              currentRow = { ...currentRow, ...entry.row }
+              currentRow = Object.assign({}, currentRow, entry.row)
             } else {
               currentRow = { ...entry.row }
             }

@@ -36,8 +36,10 @@ import { DEFAULT_REPLICA_CONFIG, REGION_TO_COLO, JURISDICTION_REGIONS } from './
 // ============================================================================
 
 /**
- * Map AWS-style region to Cloudflare locationHint
+ * Cloudflare location hint type (from workers types)
  */
+type DurableObjectLocationHint = 'wnam' | 'enam' | 'sam' | 'weur' | 'eeur' | 'apac' | 'oc' | 'afr' | 'me'
+
 const REGION_TO_LOCATION_HINT: Record<string, string> = {
   'us-east-1': 'enam',
   'us-east-2': 'enam',
@@ -260,7 +262,7 @@ export class ReplicaManager {
     )?.[1]
 
     const id = this.namespace.idFromName(`replica-${city}-${name}`)
-    return this.namespace.get(id, hint ? { locationHint: hint } : undefined)
+    return this.namespace.get(id, hint ? { locationHint: hint as DurableObjectLocationHint } : undefined)
   }
 
   /**
@@ -276,7 +278,7 @@ export class ReplicaManager {
 
     const hint = REGION_TO_LOCATION_HINT[region]
     const id = this.namespace.idFromName(`replica-${region}-${name}`)
-    return this.namespace.get(id, hint ? { locationHint: hint } : undefined)
+    return this.namespace.get(id, hint ? { locationHint: hint as DurableObjectLocationHint } : undefined)
   }
 
   /**

@@ -1,4 +1,5 @@
-import type { RpcPromise, RpcTarget } from 'capnweb'
+import type { RpcTarget } from 'capnweb'
+import type { RpcPromise } from './fn'
 import type { Thing, ThingData } from './Thing'
 import type { Things, ThingsCollection } from './Things'
 import type { Noun, NounData } from './Noun'

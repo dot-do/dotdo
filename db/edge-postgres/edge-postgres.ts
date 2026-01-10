@@ -722,22 +722,18 @@ export class EdgePostgres {
     // Check if we should load pgvector
     const usePgVector = this.config.pglite?.extensions?.includes('pgvector')
 
-    // Create PGLite options
-    const options: {
-      extensions?: Record<string, unknown>
-      initialMemory?: number
-    } = {}
-
+    // Create PGLite instance with optional extensions
+    let pg: PGlite
     if (usePgVector) {
-      options.extensions = { vector }
+      pg = await PGlite.create({
+        extensions: { vector },
+        initialMemory: this.config.pglite?.initialMemory,
+      })
+    } else {
+      pg = await PGlite.create({
+        initialMemory: this.config.pglite?.initialMemory,
+      })
     }
-
-    if (this.config.pglite?.initialMemory) {
-      options.initialMemory = this.config.pglite.initialMemory
-    }
-
-    // Create PGLite instance
-    const pg = await PGlite.create(options)
 
     // Try to restore from checkpoint
     await this.restoreFromCheckpoint(pg)

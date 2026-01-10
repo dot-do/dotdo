@@ -300,13 +300,18 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       operations.push({ query, params, timestamp: Date.now() })
 
       // Check for mocked responses
-      for (const [pattern, response] of mockResponses) {
+      let matchedResponse: unknown[] | null = null
+      mockResponses.forEach((response, pattern) => {
+        if (matchedResponse) return
         if (typeof pattern === 'string' && query.includes(pattern)) {
-          return createMockCursor<T>(response as T[])
+          matchedResponse = response
         }
         if (pattern instanceof RegExp && pattern.test(query)) {
-          return createMockCursor<T>(response as T[])
+          matchedResponse = response
         }
+      })
+      if (matchedResponse) {
+        return createMockCursor<T>(matchedResponse as T[])
       }
 
       // Parse simple queries for table operations
@@ -444,10 +449,11 @@ function createMockCursor<T>(data: T[]): MockSqlStorageCursor<T> {
     toArray: () => [...data],
     one: () => data[0],
     // Drizzle's durable-sqlite driver expects raw() to return an object with toArray()
+    // Cast to unknown[] to satisfy the interface while maintaining runtime behavior
     raw: () => ({
       toArray: () => rawData,
       columnNames: data.length > 0 ? Object.keys(data[0] as Record<string, unknown>) : [],
-    }),
+    }) as unknown as unknown[],
     [Symbol.iterator]: function* () {
       for (const item of data) {
         yield item
@@ -466,13 +472,13 @@ export function createMockStorage(
   // Initialize data store
   const data = new Map<string, unknown>()
   if (initialData instanceof Map) {
-    for (const [key, value] of initialData) {
+    initialData.forEach((value, key) => {
       data.set(key, value)
-    }
+    })
   } else if (initialData) {
-    for (const [key, value] of Object.entries(initialData)) {
+    Object.entries(initialData).forEach(([key, value]) => {
       data.set(key, value)
-    }
+    })
   }
 
   // Initialize SQL data
@@ -586,7 +592,7 @@ export function createMockStorage(
       }
     },
 
-    async delete(keyOrKeys: string | string[]): Promise<boolean | number> {
+    delete: (async (keyOrKeys: string | string[]): Promise<boolean | number> => {
       if (Array.isArray(keyOrKeys)) {
         operations.push({ type: 'delete', key: keyOrKeys, timestamp: Date.now() })
         let count = 0
@@ -602,7 +608,7 @@ export function createMockStorage(
       operations.push({ type: 'delete', key: keyOrKeys, timestamp: Date.now() })
       deletes.push(keyOrKeys)
       return data.delete(keyOrKeys)
-    },
+    }) as MockDurableObjectStorage['delete'],
 
     async deleteAll(): Promise<void> {
       operations.push({ type: 'deleteAll', timestamp: Date.now() })
@@ -691,7 +697,7 @@ export function createMockDONamespace<T = unknown>(): MockDurableObjectNamespace
       const id = `new-unique-id-${crypto.randomUUID().slice(0, 8)}`
       const mockId = createMockId(id)
       // Store location hint for testing
-      ;(mockId as Record<string, unknown>).locationHint = options?.locationHint
+      ;(mockId as unknown as Record<string, unknown>).locationHint = options?.locationHint
       return mockId
     },
 
@@ -908,7 +914,7 @@ export function createMockDO<
   const instance = new DOClass(ctx, env) as InstanceType<T>
 
   // If namespace was provided, try to set it
-  if (options.ns && 'ns' in instance) {
+  if (options.ns && instance && typeof instance === 'object' && 'ns' in (instance as object)) {
     // Use Object.defineProperty to bypass readonly
     Object.defineProperty(instance, 'ns', {
       value: options.ns,
@@ -923,9 +929,9 @@ export function createMockDO<
 
     if (resetOptions?.clearStorage) {
       storage.data.clear()
-      for (const [table] of sqlData) {
+      sqlData.forEach((_, table) => {
         sqlData.set(table, [])
-      }
+      })
     }
   }
 

@@ -1,4 +1,4 @@
-import type { RpcPromise } from 'capnweb'
+import type { RpcPromise } from './fn'
 
 // ============================================================================
 // VISIBILITY - Access control for Things

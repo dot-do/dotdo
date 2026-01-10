@@ -312,14 +312,12 @@ export default defineWorkspace([
     test: {
       // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
       globals: sharedTestConfig.globals,
-      reporters: sharedTestConfig.reporters,
-      snapshotFormat: sharedTestConfig.snapshotFormat,
-      bail: sharedTestConfig.bail,
       name: 'workers-integration',
       include: ['workers/**/*.test.ts'],
       exclude: [...defaultExcludes, 'workers/observability-tail/**'],
       sequence: { concurrent: false },
       // Override pool options to use workers-specific wrangler config
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
       poolOptions: {
         workers: {
           wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.test.jsonc') },
@@ -328,7 +326,7 @@ export default defineWorkspace([
           isolatedStorage: false,
           singleWorker: true,
         },
-      },
+      } as unknown as Record<string, unknown>,
     },
   },
 
@@ -353,9 +351,6 @@ export default defineWorkspace([
     test: {
       // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
       globals: sharedTestConfig.globals,
-      reporters: sharedTestConfig.reporters,
-      snapshotFormat: sharedTestConfig.snapshotFormat,
-      bail: sharedTestConfig.bail,
       name: 'duckdb-worker-workers',
       include: ['packages/duckdb-worker/tests/workers/**/*.test.ts'],
       exclude: defaultExcludes,
@@ -367,13 +362,14 @@ export default defineWorkspace([
         concurrent: false,
       },
       // Override pool options to use package-specific wrangler config
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
       poolOptions: {
         workers: {
           wrangler: { configPath: resolve(PROJECT_ROOT, 'packages/duckdb-worker/wrangler.jsonc') },
           isolatedStorage: true,
           singleWorker: true,
         },
-      },
+      } as unknown as Record<string, unknown>,
     },
     resolve: {
       alias: {

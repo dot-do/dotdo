@@ -105,7 +105,7 @@ export { McpHandler, createMcpHandler, getMcpTools, hasMcpConfig } from './mcp-s
 export type { McpHandlerOptions } from './mcp-server'
 
 // RPC handler
-export { RpcHandler, RPCServer, withRpc, applyRpcIntegration } from './rpc-server'
+export { RpcHandler, RPCServer, withRpcServer, applyRpcIntegration } from './rpc-server'
 export type { RpcHandlerOptions } from './rpc-server'
 
 // Auth handler

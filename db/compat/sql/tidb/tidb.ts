@@ -147,6 +147,18 @@ class TiDBConnection extends EventEmitter implements IConnection {
     this.engine = sharedEngine ?? createSQLEngine(MYSQL_DIALECT)
   }
 
+  // Override on/off to match the Connection interface signatures
+  override on(event: 'error', handler: (err: Error) => void): this
+  override on(event: 'end', handler: () => void): this
+  override on(event: string, handler: (...args: any[]) => void): this
+  override on(event: string, handler: (...args: any[]) => void): this {
+    return super.on(event, handler)
+  }
+
+  override off(event: string, handler: (...args: any[]) => void): this {
+    return super.off(event, handler)
+  }
+
   get threadId(): number | null {
     return this._threadId
   }
@@ -292,6 +304,17 @@ class TiDBPool extends EventEmitter implements IPool {
     this.sharedEngine = createSQLEngine(MYSQL_DIALECT)
   }
 
+  // Override on to match the Pool interface signatures
+  override on(event: 'acquire', handler: (connection: IPoolConnection) => void): this
+  override on(event: 'connection', handler: (connection: IPoolConnection) => void): this
+  override on(event: 'enqueue', handler: () => void): this
+  override on(event: 'release', handler: (connection: IPoolConnection) => void): this
+  override on(event: 'error', handler: (err: Error) => void): this
+  override on(event: string, handler: (...args: any[]) => void): this
+  override on(event: string, handler: (...args: any[]) => void): this {
+    return super.on(event, handler)
+  }
+
   get pool() {
     return {
       _allConnections: { length: this.connections.size },
@@ -306,7 +329,9 @@ class TiDBPool extends EventEmitter implements IPool {
   ): Promise<QueryResult<T>> {
     const connection = await this.getConnection()
     try {
-      const result = await connection.query<T>(sqlOrOptions, values)
+      const result = typeof sqlOrOptions === 'string'
+        ? await connection.query<T>(sqlOrOptions, values as any[])
+        : await connection.query<T>(sqlOrOptions)
       connection.release()
       return result
     } catch (e) {
@@ -321,7 +346,9 @@ class TiDBPool extends EventEmitter implements IPool {
   ): Promise<QueryResult<T>> {
     const connection = await this.getConnection()
     try {
-      const result = await connection.execute<T>(sqlOrOptions, values)
+      const result = typeof sqlOrOptions === 'string'
+        ? await connection.execute<T>(sqlOrOptions, values as any[])
+        : await connection.execute<T>(sqlOrOptions)
       connection.release()
       return result
     } catch (e) {
@@ -396,15 +423,15 @@ class TiDBPool extends EventEmitter implements IPool {
   async end(): Promise<void> {
     this._ended = true
 
-    for (const waiter of this.waitingRequests) {
+    this.waitingRequests.forEach((waiter) => {
       waiter.reject(new ConnectionError('Pool is closed'))
-    }
+    })
     this.waitingRequests = []
 
     const endPromises: Promise<void>[] = []
-    for (const connection of this.connections) {
+    this.connections.forEach((connection) => {
       endPromises.push(connection.end())
-    }
+    })
     await Promise.all(endPromises)
 
     this.connections.clear()
@@ -421,7 +448,7 @@ class TiDBPoolConnection extends TiDBConnection implements IPoolConnection {
   }
 
   get connection(): IConnection {
-    return this
+    return this as unknown as IConnection
   }
 
   release(): void {

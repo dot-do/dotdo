@@ -812,7 +812,7 @@ export class Inngest {
       // Trigger handlers for this event
       const handlers = this.eventHandlers.get(event.name)
       if (handlers) {
-        for (const fn of handlers) {
+        handlers.forEach((fn) => {
           // Check if function uses batching
           if (fn.config.batchEvents) {
             this.handleBatchedEvent(fn, event)
@@ -834,7 +834,7 @@ export class Inngest {
               })
             this.runningTasks.set(runId, runPromise)
           }
-        }
+        })
       }
 
       // Deliver to any waiting step.waitForEvent calls
@@ -906,11 +906,11 @@ export class Inngest {
       throw error
     } finally {
       // Clear step results for this run (memory leak fix)
-      for (const key of this.stepResults.keys()) {
+      Array.from(this.stepResults.keys()).forEach((key) => {
         if (key.startsWith(`${runId}:`)) {
           this.stepResults.delete(key)
         }
-      }
+      })
 
       // Cleanup after a delay
       setTimeout(() => this.activeRuns.delete(runId), 60000)
@@ -924,10 +924,10 @@ export class Inngest {
     const subscriptions = this.cancelSubscriptions.get(event.name)
     if (!subscriptions) return
 
-    for (const { functionId, config } of subscriptions) {
+    subscriptions.forEach(async ({ functionId, config }) => {
       // Find matching active runs
-      for (const [runId, run] of this.activeRuns.entries()) {
-        if (run.functionId !== functionId || run.status !== 'running') continue
+      Array.from(this.activeRuns.entries()).forEach(async ([runId, run]) => {
+        if (run.functionId !== functionId || run.status !== 'running') return
 
         // Check match condition
         let shouldCancel = false
@@ -948,8 +948,8 @@ export class Inngest {
         if (shouldCancel) {
           await this.cancel(runId, 'Cancelled by event: ' + event.name)
         }
-      }
-    }
+      })
+    })
   }
 
   /**
@@ -957,11 +957,11 @@ export class Inngest {
    */
   async getRuns(options: { functionId?: string }): Promise<FunctionRun[]> {
     const runs: FunctionRun[] = []
-    for (const run of this.activeRuns.values()) {
+    this.activeRuns.forEach((run) => {
       if (!options.functionId || run.functionId === options.functionId) {
         runs.push(run)
       }
-    }
+    })
     return runs
   }
 
@@ -990,11 +990,11 @@ export class Inngest {
     }
 
     // Clear step results for this run
-    for (const key of this.stepResults.keys()) {
+    Array.from(this.stepResults.keys()).forEach((key) => {
       if (key.startsWith(`${runId}:`)) {
         this.stepResults.delete(key)
       }
-    }
+    })
 
     // Remove from active runs
     this.activeRuns.delete(runId)
@@ -1298,7 +1298,7 @@ export class Inngest {
 
     try {
       // Execute the function
-      let result = await fn.handler(ctx)
+      let result: TResult = await fn.handler(ctx)
 
       // Transform output via middleware
       for (const lifecycle of middlewareLifecycles) {
@@ -1335,11 +1335,11 @@ export class Inngest {
       // Clear step results for this run (memory leak fix)
       // Step results are only needed during execution for memoization/replay
       // Once execution completes (success or failure), they can be cleaned up
-      for (const key of this.stepResults.keys()) {
+      Array.from(this.stepResults.keys()).forEach((key) => {
         if (key.startsWith(`${runId}:`)) {
           this.stepResults.delete(key)
         }
-      }
+      })
 
       // Cleanup after a delay
       setTimeout(() => this.activeRuns.delete(runId), 60000)

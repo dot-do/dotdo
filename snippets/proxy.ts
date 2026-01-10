@@ -14,6 +14,18 @@
  * @see docs/concepts/snippets.mdx for usage documentation
  */
 
+// Cloudflare Workers types (when not using @cloudflare/workers-types)
+declare global {
+  interface ExecutionContext {
+    waitUntil(promise: Promise<unknown>): void
+    passThroughOnException(): void
+  }
+
+  interface CacheStorage {
+    default: Cache
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================

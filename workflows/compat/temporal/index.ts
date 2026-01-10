@@ -1526,7 +1526,7 @@ let workflowCleanupIntervalId: ReturnType<typeof setInterval> | null = null
 /**
  * Terminal states that indicate a workflow has finished execution
  */
-const TERMINAL_STATES: Set<WorkflowExecutionStatus> = new Set([
+const TERMINAL_STATES = new Set<WorkflowExecutionStatus>([
   'COMPLETED',
   'FAILED',
   'CANCELED',
@@ -1567,7 +1567,7 @@ function cleanupExpiredWorkflows(): void {
   const expiredIds: string[] = []
 
   // Find workflows past their TTL
-  for (const [workflowId, completionTime] of workflowCompletionTimes) {
+  for (const [workflowId, completionTime] of Array.from(workflowCompletionTimes.entries())) {
     if (now - completionTime >= WORKFLOW_COMPLETED_TTL_MS) {
       expiredIds.push(workflowId)
     }
@@ -1581,7 +1581,7 @@ function cleanupExpiredWorkflows(): void {
   // LRU eviction if still over max size
   if (workflows.size > WORKFLOW_MAX_REGISTRY_SIZE) {
     // Sort completed workflows by completion time (oldest first)
-    const completedWorkflows = [...workflowCompletionTimes.entries()]
+    const completedWorkflows = Array.from(workflowCompletionTimes.entries())
       .sort((a, b) => a[1] - b[1])
 
     // Evict oldest completed workflows until under limit
@@ -1860,7 +1860,7 @@ function cleanupStaleTimerBuckets(): void {
   const now = Date.now()
   const bucketsToDelete: number[] = []
 
-  for (const [bucket, timers] of coalescedTimerBuckets) {
+  for (const [bucket, timers] of Array.from(coalescedTimerBuckets.entries())) {
     // Filter out stale timers from this bucket
     const activeTimersInBucket = timers.filter((timer) => {
       // Timer is stale if it's past its expected fire time + threshold
@@ -2015,7 +2015,7 @@ export function cancelTimer(timer: TimerHandle): void {
     timerState.pending = false
 
     // Remove from coalesced bucket if present
-    for (const [bucket, timers] of coalescedTimerBuckets) {
+    for (const [bucket, timers] of Array.from(coalescedTimerBuckets.entries())) {
       const index = timers.findIndex(t => t.id === timer.id)
       if (index !== -1) {
         timers.splice(index, 1)
@@ -2059,19 +2059,19 @@ export function __clearTemporalState(): void {
   activityRouter.clear()
 
   // Properly cancel all active timers to prevent memory leaks
-  for (const timer of activeTimers.values()) {
+  for (const timer of Array.from(activeTimers.values())) {
     timer.pending = false
   }
   activeTimers.clear()
 
   // Clear bucket timeouts (timeouts are stored on buckets, not individual timers)
-  for (const timeoutId of bucketTimeouts.values()) {
+  for (const timeoutId of Array.from(bucketTimeouts.values())) {
     clearTimeout(timeoutId)
   }
   bucketTimeouts.clear()
 
   // Clear coalesced timer buckets
-  for (const timers of coalescedTimerBuckets.values()) {
+  for (const timers of Array.from(coalescedTimerBuckets.values())) {
     for (const timer of timers) {
       timer.pending = false
     }
@@ -2382,7 +2382,7 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
               initialInterval: options.retry.initialInterval,
               backoffCoefficient: options.retry.backoffCoefficient,
               maximumInterval: options.retry.maximumInterval,
-              nonRetryableErrors: options.retry.nonRetryableErrorTypes,
+              nonRetryableErrors: options.retry.nonRetryableErrorTypes ? [...options.retry.nonRetryableErrorTypes] : undefined,
             } : undefined,
           }
 
@@ -2927,7 +2927,7 @@ export class WorkflowClient {
   async list(options: ListWorkflowOptions = {}): Promise<WorkflowExecutionDescription[]> {
     const results: WorkflowExecutionDescription[] = []
 
-    for (const [, state] of workflows) {
+    for (const [, state] of Array.from(workflows.entries())) {
       // If query provided, parse and filter
       if (options.query) {
         const match = this.matchesQuery(state, options.query)
@@ -3086,7 +3086,7 @@ export class WorkflowClient {
           state.abortController.abort()
         }
         // Cancel all children based on parent close policy
-        for (const childId of state.children) {
+        for (const childId of Array.from(state.children)) {
           const childState = workflows.get(childId)
           if (childState && childState.status === 'RUNNING') {
             childState.status = 'CANCELED'
@@ -3101,7 +3101,7 @@ export class WorkflowClient {
         state.status = 'TERMINATED'
         state.error = new Error(reason ?? 'Workflow terminated')
         // Terminate all children based on parent close policy
-        for (const childId of state.children) {
+        for (const childId of Array.from(state.children)) {
           const childState = workflows.get(childId)
           if (childState && childState.status === 'RUNNING') {
             if (childState.parentClosePolicy === 'TERMINATE') {

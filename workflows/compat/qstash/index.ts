@@ -447,13 +447,13 @@ function generateEventId(): string {
 }
 
 /**
- * Valid HTTP methods for QStash requests
+ * Valid HTTP methods for QStash requests (matching PublishRequest.method)
  */
-const validHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const
+const validHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
 type HttpMethod = (typeof validHttpMethods)[number]
 
 /**
- * Check if a string is a valid HTTP method
+ * Check if a string is a valid HTTP method for publishing
  */
 function isValidHttpMethod(method: string): method is HttpMethod {
   return validHttpMethods.includes(method as HttpMethod)
@@ -1022,6 +1022,22 @@ export class Topics {
 // EVENTS API
 // ============================================================================
 
+/** Input type for recording events - allows all event-specific properties */
+type RecordEventInput = {
+  type: EventType
+  messageId: string
+  timestamp: number
+  url?: string
+  // Event-specific optional properties
+  statusCode?: number
+  latencyMs?: number
+  error?: string
+  attempt?: number
+  nextRetryAt?: number
+  originalUrl?: string
+  callbackUrl?: string
+}
+
 export class Events {
   private readonly events: QStashEvent[] = []
   private readonly eventMap = new Map<string, QStashEvent>()
@@ -1029,13 +1045,13 @@ export class Events {
   /**
    * Record an event (internal use)
    */
-  _recordEvent(event: Omit<QStashEvent, 'eventId' | 'cursor'>): void {
+  _recordEvent(event: RecordEventInput): void {
     const eventId = generateEventId()
-    const fullEvent: QStashEvent = {
+    const fullEvent = {
       ...event,
       eventId,
       cursor: eventId,
-    }
+    } as QStashEvent
     this.events.push(fullEvent)
     this.eventMap.set(eventId, fullEvent)
   }
@@ -1142,11 +1158,11 @@ export class Client {
    */
   private _cleanupDeduplicationCache(): void {
     const now = Date.now()
-    for (const [key, entry] of this.deduplicationCache) {
+    this.deduplicationCache.forEach((entry, key) => {
       if (now - entry.timestamp > Client.DEDUP_EVICTION_AGE_MS) {
         this.deduplicationCache.delete(key)
       }
-    }
+    })
   }
 
   /**

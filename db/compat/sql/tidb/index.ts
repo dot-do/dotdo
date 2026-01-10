@@ -93,4 +93,4 @@ export type {
 export { TiDBError, ConnectionError, Types } from './types'
 
 // Core factory functions and default export
-export { createConnection, createPool, mysql, default as mysql2 } from './tidb'
+export { createConnection, createPool, tidb as mysql, default as mysql2 } from './tidb'
