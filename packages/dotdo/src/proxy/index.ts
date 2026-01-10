@@ -18,10 +18,35 @@
  * $.fsx                // → Filesystem client
  * ```
  *
+ * ## Implementation Status
+ *
+ * | Feature | Status |
+ * |---------|--------|
+ * | Schema fetching | Complete |
+ * | Schema caching | Complete |
+ * | Class proxy creation | Complete |
+ * | Storage clients | Complete |
+ * | RPC operations | Stub (mock data) |
+ *
+ * RPC operations (list, get, where, create, update, delete) currently return
+ * stub data. Real RPC will be implemented when DO endpoints are ready.
+ *
  * @module proxy
  */
 
 import type { DOSchema } from '../../../types/introspect'
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Path for the introspection endpoint */
+const INTROSPECT_PATH = '/_do/introspect'
+
+/** Build the full introspection URL for a namespace */
+function buildIntrospectUrl(ns: string): string {
+  return `https://${ns}${INTROSPECT_PATH}`
+}
 
 // ============================================================================
 // TYPES
@@ -138,13 +163,14 @@ const schemaCache = new Map<string, DOSchema>()
  * Fetch schema from server or use mock.
  */
 async function fetchSchema(ns: string, token: string): Promise<DOSchema> {
+  const url = buildIntrospectUrl(ns)
   if (mockFetch) {
-    return mockFetch(`https://${ns}/_do/introspect`, {
+    return mockFetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     })
   }
 
-  const response = await fetch(`https://${ns}/_do/introspect`, {
+  const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) {
@@ -162,12 +188,40 @@ function validateSchema(data: unknown): data is DOSchema {
   return (
     typeof obj.ns === 'string' &&
     Array.isArray(obj.classes) &&
-    obj.permissions !== undefined
+    obj.permissions !== undefined &&
+    Array.isArray(obj.nouns) &&
+    Array.isArray(obj.verbs) &&
+    Array.isArray(obj.stores) &&
+    obj.storage !== undefined &&
+    typeof obj.storage === 'object' &&
+    obj.storage !== null
   )
 }
 
 /**
+ * Get a storage client, preferring mock if available.
+ * @internal
+ */
+function getStorageClient<T>(
+  enabled: boolean,
+  mockClient: Partial<T> | undefined,
+  createClient: () => T
+): T | undefined {
+  if (!enabled) return undefined
+  if (mockClient) return mockClient as T
+  return createClient()
+}
+
+/**
  * Create a class proxy for DO class access.
+ *
+ * @param className - The DO class name (e.g., 'Users')
+ * @param _schema - Schema reference (reserved for future RPC implementation)
+ * @param _token - Auth token (reserved for future RPC implementation)
+ * @returns ClassProxy with CRUD operations
+ *
+ * @internal This creates stub implementations. Real RPC will use className,
+ * schema, and token to make authenticated calls to DO endpoints.
  */
 function createClassProxy(
   className: string,
@@ -286,26 +340,9 @@ function createSchemaProxy(schema: DOSchema, token: string): DOSchemaProxy {
 
   // Build storage clients
   const storage = schema.storage
-  const fsxClient: FSXClient | undefined =
-    storage.fsx && mockStorage?.fsx
-      ? (mockStorage.fsx as FSXClient)
-      : storage.fsx
-        ? createFSXClient()
-        : undefined
-
-  const gitxClient: GitXClient | undefined =
-    storage.gitx && mockStorage?.gitx
-      ? (mockStorage.gitx as GitXClient)
-      : storage.gitx
-        ? createGitXClient()
-        : undefined
-
-  const bashxClient: BashXClient | undefined =
-    storage.bashx && mockStorage?.bashx
-      ? (mockStorage.bashx as BashXClient)
-      : storage.bashx
-        ? createBashXClient()
-        : undefined
+  const fsxClient = getStorageClient(storage.fsx, mockStorage?.fsx, createFSXClient)
+  const gitxClient = getStorageClient(storage.gitx, mockStorage?.gitx, createGitXClient)
+  const bashxClient = getStorageClient(storage.bashx, mockStorage?.bashx, createBashXClient)
 
   // Define the known properties for ownKeys
   // Include function properties because we're proxying a function
@@ -379,7 +416,8 @@ function createSchemaProxy(schema: DOSchema, token: string): DOSchemaProxy {
     },
 
     ownKeys() {
-      return knownKeys
+      const classNames = schema.classes.map(c => c.name)
+      return [...knownKeys, ...classNames]
     },
 
     getOwnPropertyDescriptor(target, prop) {
@@ -414,6 +452,20 @@ function createSchemaProxy(schema: DOSchema, token: string): DOSchemaProxy {
           value: proxy[prop as keyof typeof proxy],
         }
       }
+
+      // Handle dynamic class names
+      const doClass = schema.classes.find(c => c.name === prop)
+      if (doClass) {
+        if (!classProxies.has(prop as string)) {
+          classProxies.set(prop as string, createClassProxy(prop as string, schema, token))
+        }
+        return {
+          configurable: true,
+          enumerable: true,
+          value: classProxies.get(prop as string),
+        }
+      }
+
       return undefined
     },
   })
