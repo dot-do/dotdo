@@ -198,9 +198,135 @@ export function defineConfig(config: DoConfig): DoConfig {
 
 ---
 
+## The $ Proxy: Unified Schema Access
+
+The `$` is not just a workflow context—it IS the introspected schema. Instead of calling `$introspect()` separately, accessing `$` gives you the complete DOSchema filtered by your role.
+
+### Design Principle
+
+```ts
+// OLD: Separate introspection call
+const schema = await this.$introspect(authContext)
+const users = await this.Users.list()
+
+// NEW: $ is the schema, accessed via Proxy
+const $ = await createDOProxy(ns, token)  // Fetches & caches schema
+$                    // → DOSchema (the whole thing)
+$.classes            // → [{ name: 'Users', ... }, ...]
+$.Users              // → Proxy for Users DO class
+$.Users('id')        // → Get specific instance
+$.Users.where({})    // → Query builder
+$.fsx                // → Filesystem client
+$.gitx               // → Git client
+```
+
+### Implementation
+
+```ts
+// packages/dotdo/src/proxy/create-do-proxy.ts
+
+export async function createDOProxy(
+  ns: string,
+  token: string
+): Promise<DOSchemaProxy> {
+  // Fetch schema once (with caching)
+  const schema = await fetchSchema(ns, token)
+
+  return new Proxy(schema, {
+    get(target, prop) {
+      // Special properties
+      if (prop === 'schema') return target
+      if (prop === 'ns') return target.ns
+      if (prop === 'permissions') return target.permissions
+      if (prop === 'classes') return target.classes
+      if (prop === 'stores') return target.stores
+      if (prop === 'storage') return target.storage
+
+      // DO class access: $.Users, $.Customers, etc.
+      const doClass = target.classes.find(c => c.name === prop)
+      if (doClass) {
+        return createClassProxy(ns, token, doClass)
+      }
+
+      // Storage access: $.fsx, $.gitx, $.bashx
+      if (prop === 'fsx' && target.storage.fsx) return createFsxClient(ns, token)
+      if (prop === 'gitx' && target.storage.gitx) return createGitxClient(ns, token)
+      if (prop === 'bashx' && target.storage.bashx) return createBashxClient(ns, token)
+
+      return undefined
+    },
+
+    // $() returns the raw schema
+    apply(target) {
+      return target
+    }
+  })
+}
+
+function createClassProxy(ns: string, token: string, doClass: DOClassSchema) {
+  const classProxy = function(id?: string) {
+    if (id) return getInstance(ns, token, doClass.name, id)
+    return listInstances(ns, token, doClass.name)
+  }
+
+  return new Proxy(classProxy, {
+    get(target, prop) {
+      if (prop === 'where') return (filter: object) => queryInstances(ns, token, doClass.name, filter)
+      if (prop === 'count') return (filter?: object) => countInstances(ns, token, doClass.name, filter)
+      if (prop === 'create') return (data: object) => createInstance(ns, token, doClass.name, data)
+      // ... more methods
+      return target[prop]
+    }
+  })
+}
+```
+
+### REPL Experience
+
+```
+$ $
+{
+  ns: 'myapp.com',
+  permissions: { role: 'admin', scopes: ['*'] },
+  classes: [...],
+  stores: [...],
+  storage: { fsx: true, gitx: true, bashx: true, ... }
+}
+
+$ $.classes.map(c => c.name)
+['Users', 'Customers', 'Orders', 'Products']
+
+$ $.Users
+[Function: UsersProxy]
+
+$ await $.Users()
+[{ id: 'usr-1', email: 'alice@co.com' }, ...]
+
+$ await $.Users('usr-1')
+{ id: 'usr-1', email: 'alice@co.com', role: 'admin' }
+
+$ await $.Users.where({ role: 'admin' })
+[{ id: 'usr-1', ... }]
+
+$ $.fsx.ls('/')
+['config/', 'data/', 'README.md']
+```
+
+### Benefits
+
+| Aspect | Before (`$introspect`) | After (`$ proxy`) |
+|--------|------------------------|-------------------|
+| Discovery | Explicit RPC call | Just access `$` |
+| Mental model | Schema + API | One unified abstraction |
+| Autocomplete | Requires type generation | Natural from proxy |
+| Caching | Manual | Built into proxy |
+| Consistency | `$` and `$introspect` separate | `$` is everything |
+
+---
+
 ## Introspection: Auto-Discovery
 
-The dashboard introspects the DO namespace to discover what's available:
+The `$` proxy internally fetches and caches the DOSchema:
 
 ```ts
 // packages/dotdo/src/introspection/types.ts
