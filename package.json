@@ -74,6 +74,11 @@
       "types": "./metrics/hunch.ts",
       "default": "./metrics/hunch.ts"
     },
+    "./sdk": {
+      "types": "./sdk/index.ts",
+      "default": "./sdk/index.ts"
+    },
+    "./sdk/*": "./sdk/*.ts",
     "./dist": "./dist",
     "./dist/*": "./dist/*"
   },
@@ -88,6 +93,7 @@
     "api",
     "tests/harness",
     "metrics",
+    "sdk",
     "dist"
   ],
   "scripts": {

@@ -252,6 +252,9 @@ export default defineWorkspace([
   // @dotdo/client package tests (RPC Client SDK)
   createNodeWorkspace('client', ['packages/client/tests/**/*.test.ts']),
 
+  // SDK client tests ($() function)
+  createNodeWorkspace('sdk', ['sdk/**/*.test.ts']),
+
   // AI template literal API tests
   createNodeWorkspace('ai', ['ai/tests/**/*.test.ts', 'ai/**/*.test.ts']),
 

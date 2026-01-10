@@ -133,6 +133,62 @@ const JSON_RPC_ERRORS = {
 }
 
 // ============================================================================
+// TYPES - Chain RPC Protocol
+// ============================================================================
+
+/**
+ * Chain step types for simple chain-based RPC
+ */
+export interface ChainPropertyStep {
+  type: 'property'
+  key: string
+}
+
+export interface ChainCallStep {
+  type: 'call'
+  args?: unknown[]
+}
+
+export interface ChainIndexStep {
+  type: 'index'
+  index: number
+}
+
+export type ChainStep = ChainPropertyStep | ChainCallStep | ChainIndexStep
+
+/**
+ * Chain RPC Request - Simple chain-based execution format
+ */
+export interface ChainRpcRequest {
+  chain: ChainStep[]
+}
+
+/**
+ * Chain RPC Response
+ */
+export interface ChainRpcResponse {
+  data?: unknown
+  error?: {
+    message: string
+    code?: string
+  }
+}
+
+/**
+ * Chain execution error codes
+ */
+const CHAIN_ERRORS = {
+  INVALID_CHAIN: { code: 'INVALID_CHAIN', message: 'Chain must be a non-empty array' },
+  INVALID_STEP: { code: 'INVALID_STEP', message: 'Invalid step type' },
+  NOT_FOUND: { code: 'NOT_FOUND', message: 'Property not found' },
+  NOT_CALLABLE: { code: 'NOT_CALLABLE', message: 'Value is not a function' },
+  NOT_INDEXABLE: { code: 'NOT_INDEXABLE', message: 'Value is not an array' },
+  INDEX_OUT_OF_BOUNDS: { code: 'INDEX_OUT_OF_BOUNDS', message: 'Array index out of bounds' },
+  EXECUTION_ERROR: { code: 'EXECUTION_ERROR', message: 'Chain execution failed' },
+  BLOCKED_ACCESS: { code: 'BLOCKED_ACCESS', message: 'Access to this property is blocked' },
+}
+
+// ============================================================================
 // PROMISE STORE - Manages stored promise results for pipelining
 // ============================================================================
 
@@ -701,6 +757,20 @@ export class RPCServer {
       return Response.json(response, { headers: { 'Content-Type': 'application/json' } })
     }
 
+    // Chain RPC - Check for chain request format
+    if (this.isChainRequest(body)) {
+      // Get the WorkflowContext if available on the DO instance
+      const workflowContext = (this.doInstance as { $?: unknown }).$
+      return this.executeChainRequest(body, workflowContext)
+    }
+
+    // Check for invalid chain format (has 'chain' property but it's not an array)
+    if (body !== null && typeof body === 'object' && 'chain' in body) {
+      return Response.json({
+        error: { message: 'Chain must be a non-empty array', code: 'INVALID_CHAIN' },
+      } satisfies ChainRpcResponse, { status: 400, headers: { 'Content-Type': 'application/json' } })
+    }
+
     return Response.json({
       id: '',
       type: 'error',
@@ -845,6 +915,187 @@ export class RPCServer {
       'type' in data &&
       typeof (data as RPCRequest).type === 'string'
     )
+  }
+
+  /**
+   * Check if request is a Chain RPC request
+   */
+  private isChainRequest(data: unknown): data is ChainRpcRequest {
+    return (
+      data !== null &&
+      typeof data === 'object' &&
+      'chain' in data &&
+      Array.isArray((data as ChainRpcRequest).chain)
+    )
+  }
+
+  // ============================================================================
+  // CHAIN RPC HANDLER
+  // ============================================================================
+
+  /**
+   * Execute a chain-based RPC request.
+   *
+   * The chain starts from the root object (the DO instance) and executes
+   * each step in sequence. If a WorkflowContext ($) is available, the chain
+   * can access it via the 'chain' starting from root.
+   *
+   * @param request - The chain RPC request
+   * @param workflowContext - Optional WorkflowContext to use as $ root
+   * @returns Response with data or error
+   */
+  async executeChainRequest(
+    request: ChainRpcRequest,
+    workflowContext?: unknown
+  ): Promise<Response> {
+    const { chain } = request
+
+    // Validate chain
+    if (!Array.isArray(chain) || chain.length === 0) {
+      return Response.json({
+        error: { message: 'Chain must be a non-empty array', code: 'INVALID_CHAIN' },
+      } satisfies ChainRpcResponse, { status: 400, headers: { 'Content-Type': 'application/json' } })
+    }
+
+    try {
+      const result = await this.executeChain(chain, workflowContext)
+      return Response.json({
+        data: result,
+      } satisfies ChainRpcResponse, { headers: { 'Content-Type': 'application/json' } })
+    } catch (error) {
+      const chainError = error as { code?: string; message?: string; status?: number }
+      const status = chainError.status ?? 400
+
+      return Response.json({
+        error: {
+          message: chainError.message ?? 'Chain execution failed',
+          code: chainError.code ?? 'EXECUTION_ERROR',
+        },
+      } satisfies ChainRpcResponse, { status, headers: { 'Content-Type': 'application/json' } })
+    }
+  }
+
+  /**
+   * Execute a chain of steps starting from the DO instance.
+   *
+   * The chain can access:
+   * - DO instance properties and methods directly (e.g., config, getStatus)
+   * - WorkflowContext via the $ property (e.g., $.things, $.on)
+   *
+   * @param chain - Array of chain steps
+   * @param workflowContext - Optional WorkflowContext accessible via $ property
+   * @returns The final result of the chain
+   */
+  private async executeChain(
+    chain: ChainStep[],
+    workflowContext?: unknown
+  ): Promise<unknown> {
+    // Always start from the DO instance
+    // WorkflowContext ($) is accessible as a property of the instance
+    let current: unknown = this.doInstance
+
+    // If the first step is accessing '$', use the WorkflowContext directly
+    if (chain.length > 0 && chain[0].type === 'property' && (chain[0] as ChainPropertyStep).key === '$' && workflowContext) {
+      current = workflowContext
+      chain = chain.slice(1) // Skip the '$' step
+    }
+
+    for (let i = 0; i < chain.length; i++) {
+      const step = chain[i]
+
+      switch (step.type) {
+        case 'property': {
+          // Validate the step
+          if (typeof step.key !== 'string') {
+            throw { code: 'INVALID_STEP', message: 'Property step requires a string key', status: 400 }
+          }
+
+          // Block access to private/internal properties
+          if (step.key.startsWith('_')) {
+            throw { code: 'BLOCKED_ACCESS', message: `Access to private property '${step.key}' is blocked`, status: 404 }
+          }
+
+          // Block access to internal DO methods on first step (from root)
+          if (i === 0 && this.blockedMethods.has(step.key)) {
+            throw { code: 'BLOCKED_ACCESS', message: `Access to '${step.key}' is blocked`, status: 404 }
+          }
+
+          if (current === null || current === undefined) {
+            throw { code: 'NOT_FOUND', message: `Cannot access property '${step.key}' of ${current}`, status: 404 }
+          }
+
+          // For objects with a Proxy get trap (like WorkflowContext), accessing the property triggers the proxy
+          const value = (current as Record<string, unknown>)[step.key]
+
+          if (value === undefined && !(step.key in (current as object))) {
+            throw { code: 'NOT_FOUND', message: `Property '${step.key}' not found`, status: 404 }
+          }
+
+          current = value
+          break
+        }
+
+        case 'call': {
+          if (typeof current !== 'function') {
+            throw { code: 'NOT_CALLABLE', message: 'Value is not a function, cannot call', status: 400 }
+          }
+
+          const args = step.args ?? []
+
+          // Find the 'this' context for the call
+          // Look back for the last property access to get the parent object
+          let thisContext: unknown = this.doInstance
+          if (i > 0) {
+            // Re-execute chain up to the previous step to get the parent context
+            const prevChain = chain.slice(0, i - 1)
+            if (prevChain.length > 0) {
+              thisContext = await this.executeChain(prevChain, workflowContext)
+            } else if (i === 1) {
+              // First call after property access - use root
+              thisContext = workflowContext ?? this.doInstance
+            }
+          }
+
+          // Execute the function
+          const result = (current as Function).apply(thisContext, args)
+
+          // Await if it's a promise
+          current = result instanceof Promise ? await result : result
+          break
+        }
+
+        case 'index': {
+          if (typeof step.index !== 'number') {
+            throw { code: 'INVALID_STEP', message: 'Index step requires a numeric index', status: 400 }
+          }
+
+          if (!Array.isArray(current)) {
+            throw { code: 'NOT_INDEXABLE', message: 'Value is not an array, cannot use index access', status: 400 }
+          }
+
+          if (step.index < 0 || step.index >= current.length) {
+            throw {
+              code: 'INDEX_OUT_OF_BOUNDS',
+              message: `Index ${step.index} is out of bounds (array length: ${current.length})`,
+              status: 404
+            }
+          }
+
+          current = current[step.index]
+          break
+        }
+
+        default: {
+          throw {
+            code: 'INVALID_STEP',
+            message: `Invalid step type: ${(step as { type: string }).type}`,
+            status: 400
+          }
+        }
+      }
+    }
+
+    return current
   }
 
   // ============================================================================

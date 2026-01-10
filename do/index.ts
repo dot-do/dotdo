@@ -51,3 +51,7 @@ export * from '../types'
 
 // Code snippets for common patterns
 export * from '../snippets'
+
+// Client SDK - $() function for Cap'n Web RPC
+export { $ } from '../sdk/index.js'
+export type { ChainStep, RpcError, RpcPromise, RpcClient } from '../sdk/index.js'

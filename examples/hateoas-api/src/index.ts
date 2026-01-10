@@ -1,25 +1,22 @@
 /**
  * Example: HATEOAS API with dotdo
  *
- * This gives you an apis.vin-style clickable REST API:
+ * Server: apis.vin-style clickable REST API
+ * Client: RPC with promise pipelining
  *
- * GET /my-startup/
+ * Server Response (GET /my-startup/):
  * {
  *   "api": { "$context": "https://my-startup.example.com" },
- *   "links": { "self": "/", "home": "/" },
- *   "discover": {
- *     "things": "/things/",
- *     "actions": "/actions/",
- *     "events": "/events/"
- *   },
- *   "collections": {
- *     "Customer": "/Customer/",
- *     "Order": "/Order/"
- *   },
- *   "actions": {
- *     "rpc": { "method": "POST", "href": "/rpc" }
- *   }
+ *   "discover": { "Customer": "/Customer/", "Order": "/Order/" },
+ *   "actions": { "rpc": { "method": "POST", "href": "/rpc" } }
  * }
+ *
+ * Client Usage:
+ * ```typescript
+ * import { $Context } from 'dotdo'
+ * const $ = $Context('https://my-startup.example.com')
+ * await $.Customer('alice').update({ name: 'Alice' })
+ * ```
  */
 
 import { DO } from 'dotdo'
