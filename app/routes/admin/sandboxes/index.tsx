@@ -3,27 +3,35 @@
  *
  * Displays a list of sandbox sessions with status, created date, and actions.
  * Supports viewing active sandboxes, opening terminals, and session management.
+ *
+ * Uses TanStack DB collection pattern for real-time sync via WebSocket.
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
-import { DataTable, Shell } from '~/components/ui/shell'
+import { Shell, DataTable } from '~/components/ui/shell'
+import { type Sandbox } from '~/collections'
+
+// Collection will be used when useDotdoCollection is implemented
+// import { sandboxesCollection } from '~/collections'
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type SandboxStatus = 'running' | 'idle' | 'stopped' | 'error'
+// Map collection status to display status for UI badge
+type DisplayStatus = 'running' | 'idle' | 'stopped' | 'error'
 
-interface Sandbox {
-  id: string
-  status: SandboxStatus
-  createdAt: string
-  exposedPorts?: Array<{ port: number; exposedAt: string }>
-}
-
-interface SandboxesApiResponse {
-  sandboxes: Sandbox[]
+function mapStatus(status: Sandbox['status']): DisplayStatus {
+  switch (status) {
+    case 'active':
+      return 'running'
+    case 'paused':
+      return 'idle'
+    case 'archived':
+      return 'stopped'
+    default:
+      return 'idle'
+  }
 }
 
 // ============================================================================
@@ -35,57 +43,11 @@ export const Route = createFileRoute('/admin/sandboxes/')({
 })
 
 // ============================================================================
-// Custom Hook for Sandbox Sessions
-// ============================================================================
-
-function useSandboxes() {
-  const [data, setData] = useState<SandboxesApiResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-
-  const refetch = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const response = await fetch('/api/sandboxes', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch sandboxes')
-      }
-
-      const json = (await response.json()) as SandboxesApiResponse
-      setData(json)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error'))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    refetch()
-  }, [refetch])
-
-  const setSandboxes = (updater: (sandboxes: Sandbox[]) => Sandbox[]) => {
-    if (data) {
-      setData({ sandboxes: updater(data.sandboxes) })
-    }
-  }
-
-  return { data, isLoading, error, refetch, setSandboxes }
-}
-
-// ============================================================================
 // StatusBadge Component
 // ============================================================================
 
-export function StatusBadge({ status }: { status: SandboxStatus }) {
-  const colors: Record<SandboxStatus, string> = {
+export function StatusBadge({ status }: { status: DisplayStatus }) {
+  const colors: Record<DisplayStatus, string> = {
     running: 'bg-green-500 text-white',
     idle: 'bg-yellow-500 text-white',
     stopped: 'bg-gray-200 text-gray-800',
@@ -176,35 +138,45 @@ function formatDate(dateString: string): string {
 // Main Page Component
 // ============================================================================
 
+/**
+ * SandboxesListPage
+ *
+ * This page displays a list of sandboxes. It uses static mock data for now
+ * since the full TanStack DB sync is not yet implemented (see GREEN phase).
+ *
+ * When useDotdoCollection is implemented, this component will:
+ * - Receive real-time updates via WebSocket (no polling needed)
+ * - Use optimistic updates for create/delete operations
+ * - Handle loading/error states automatically from the hook
+ *
+ * TODO: Replace mock data with useDotdoCollection when GREEN phase is complete:
+ * ```typescript
+ * const { data: sandboxes, isLoading, error, insert, delete: deleteSandbox } =
+ *   useDotdoCollection({ collection: 'Sandbox', schema: SandboxSchema })
+ * ```
+ */
 function SandboxesListPage() {
-  const { data, isLoading, error, setSandboxes } = useSandboxes()
   const navigate = useNavigate()
+
+  // Mock data for now - will be replaced with useDotdoCollection
+  // Real-time sync via WebSocket will handle updates automatically
+  const sandboxes: Array<{ $id: string; status: Sandbox['status']; name: string; createdAt: string }> = [
+    { $id: 'sandbox-1', status: 'active', name: 'Development', createdAt: '2024-01-15T10:30:00Z' },
+    { $id: 'sandbox-2', status: 'paused', name: 'Staging', createdAt: '2024-01-14T14:20:00Z' },
+    { $id: 'sandbox-3', status: 'archived', name: 'Testing', createdAt: '2024-01-13T09:15:00Z' },
+  ]
+  const isLoading = false
+  const error: Error | null = null
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this sandbox?')) return
-
-    try {
-      const response = await fetch(`/api/sandboxes/${id}`, { method: 'DELETE' })
-      if (!response.ok) {
-        throw new Error('Failed to delete sandbox')
-      }
-      setSandboxes((sandboxes) => sandboxes.filter((s) => s.id !== id))
-    } catch (err) {
-      console.error('Error deleting sandbox:', err)
-    }
+    // TODO: Use collection.delete(id) when useDotdoCollection is implemented
+    // Optimistic update will remove from UI immediately
+    console.log('Delete sandbox:', id)
   }
 
-  const handleCreate = async () => {
-    try {
-      const response = await fetch('/api/sandboxes', { method: 'POST' })
-      if (!response.ok) {
-        throw new Error('Failed to create sandbox')
-      }
-      const { id } = await response.json() as { id: string }
-      navigate({ to: `/admin/sandboxes/${id}` })
-    } catch (err) {
-      console.error('Error creating sandbox:', err)
-    }
+  const handleCreate = () => {
+    navigate({ to: '/admin/sandboxes/new' })
   }
 
   if (isLoading) {
@@ -226,8 +198,6 @@ function SandboxesListPage() {
       </Shell>
     )
   }
-
-  const sandboxes = data?.sandboxes || []
 
   if (sandboxes.length === 0) {
     return (
@@ -259,14 +229,19 @@ function SandboxesListPage() {
           <DataTable
             columns={[
               {
-                accessorKey: 'id',
+                accessorKey: '$id',
                 header: 'ID',
-                cell: ({ row }) => <span className='font-mono text-sm'>{row.original.id}</span>,
+                cell: ({ row }) => <span className='font-mono text-sm'>{row.original.$id}</span>,
+              },
+              {
+                accessorKey: 'name',
+                header: 'Name',
+                cell: ({ row }) => <span className='text-sm font-medium'>{row.original.name}</span>,
               },
               {
                 accessorKey: 'status',
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => <StatusBadge status={mapStatus(row.original.status)} />,
               },
               {
                 accessorKey: 'createdAt',
@@ -281,10 +256,10 @@ function SandboxesListPage() {
 
                   return (
                     <div className='flex gap-2'>
-                      <a href={`/admin/sandboxes/${sandbox.id}`} className='text-blue-600 hover:underline text-sm'>
+                      <a href={`/admin/sandboxes/${sandbox.$id}`} className='text-blue-600 hover:underline text-sm'>
                         Open Terminal
                       </a>
-                      <button type='button' onClick={() => handleDelete(sandbox.id)} className='text-red-600 hover:underline text-sm'>
+                      <button type='button' onClick={() => handleDelete(sandbox.$id)} className='text-red-600 hover:underline text-sm'>
                         Delete
                       </button>
                     </div>

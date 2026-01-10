@@ -2,7 +2,72 @@
  * Admin Authentication Module
  *
  * Provides authentication session management for the admin dashboard.
+ *
+ * ## Architecture
+ *
+ * This module provides a layered auth approach:
+ * 1. **Session functions** - Low-level session management (create, validate, invalidate)
+ * 2. **useAuth hook** - React state management for auth (TODO: implement with better-auth)
+ * 3. **AuthContext** - React context for sharing auth state across components
+ *
+ * ## Production Integration
+ *
+ * In production, replace the in-memory session store with:
+ * - better-auth for OAuth/email auth
+ * - Cloudflare Durable Objects for session storage
+ * - Worker KV for session tokens
+ *
+ * ## Usage
+ *
+ * ```tsx
+ * // In a component
+ * const { user, isAuthenticated, login, logout } = useAuth()
+ *
+ * // Protect routes
+ * if (!isAuthenticated) {
+ *   return <Navigate to="/admin/login" />
+ * }
+ * ```
  */
+
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface User {
+  id: string
+  email?: string
+  name?: string
+  avatar?: string
+}
+
+export interface Session {
+  token: string
+  userId: string
+  expiresAt?: Date
+}
+
+export interface AuthState {
+  user: User | null
+  session: Session | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  error: string | null
+}
+
+export interface AuthActions {
+  login: (credentials: { email: string; password: string }) => Promise<void>
+  logout: () => Promise<void>
+  refreshSession: () => Promise<void>
+}
+
+export type AuthContextValue = AuthState & AuthActions
+
+// =============================================================================
+// Session Storage (in-memory for now)
+// =============================================================================
 
 // Session storage (in-memory for now, would use better-auth in production)
 const sessions = new Map<string, { userId: string; createdAt: Date }>()
@@ -49,4 +114,186 @@ export function getCurrentSession(): { token: string; userId: string } | null {
     token: 'test-session-token',
     userId: 'test-user-id',
   }
+}
+
+// =============================================================================
+// Auth Context
+// =============================================================================
+
+const defaultAuthState: AuthState = {
+  user: null,
+  session: null,
+  isAuthenticated: false,
+  isLoading: true,
+  error: null,
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+/**
+ * Auth Provider Props
+ */
+interface AuthProviderProps {
+  children: ReactNode
+  /** Optional initial session for SSR */
+  initialSession?: Session | null
+}
+
+/**
+ * AuthProvider - Provides auth state to the component tree
+ *
+ * Wrap your app (or admin routes) with this provider:
+ * ```tsx
+ * <AuthProvider>
+ *   <AdminRoutes />
+ * </AuthProvider>
+ * ```
+ */
+export function AuthProvider({ children, initialSession }: AuthProviderProps) {
+  const [state, setState] = useState<AuthState>(() => ({
+    ...defaultAuthState,
+    session: initialSession ?? null,
+    isAuthenticated: !!initialSession,
+    isLoading: !initialSession,
+  }))
+
+  // Initialize auth state on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      const session = getCurrentSession()
+      if (session) {
+        const validation = await validateSession(session.token)
+        if (validation.valid) {
+          setState({
+            user: { id: session.userId },
+            session,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          })
+          return
+        }
+      }
+      setState((prev) => ({ ...prev, isLoading: false }))
+    }
+    initAuth()
+  }, [])
+
+  const login = useCallback(async (credentials: { email: string; password: string }) => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }))
+    try {
+      // In production, this would call better-auth or your auth API
+      const session = await createSession()
+      setState({
+        user: { id: session.userId, email: credentials.email },
+        session,
+        isAuthenticated: true,
+        isLoading: false,
+        error: null,
+      })
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Login failed',
+      }))
+      throw error
+    }
+  }, [])
+
+  const logout = useCallback(async () => {
+    setState((prev) => ({ ...prev, isLoading: true }))
+    try {
+      if (state.session?.token) {
+        await invalidateSession(state.session.token)
+      }
+      setState({
+        user: null,
+        session: null,
+        isAuthenticated: false,
+        isLoading: false,
+        error: null,
+      })
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Logout failed',
+      }))
+    }
+  }, [state.session?.token])
+
+  const refreshSession = useCallback(async () => {
+    if (!state.session?.token) return
+    const validation = await validateSession(state.session.token)
+    if (!validation.valid) {
+      setState({
+        user: null,
+        session: null,
+        isAuthenticated: false,
+        isLoading: false,
+        error: 'Session expired',
+      })
+    }
+  }, [state.session?.token])
+
+  const value: AuthContextValue = {
+    ...state,
+    login,
+    logout,
+    refreshSession,
+  }
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+// =============================================================================
+// useAuth Hook
+// =============================================================================
+
+/**
+ * useAuth - Hook to access auth state and actions
+ *
+ * Must be used within an AuthProvider.
+ *
+ * @example
+ * ```tsx
+ * function AdminPage() {
+ *   const { user, isAuthenticated, logout } = useAuth()
+ *
+ *   if (!isAuthenticated) {
+ *     return <Navigate to="/admin/login" />
+ *   }
+ *
+ *   return (
+ *     <div>
+ *       <p>Welcome, {user?.email}</p>
+ *       <button onClick={logout}>Logout</button>
+ *     </div>
+ *   )
+ * }
+ * ```
+ */
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
+
+/**
+ * useRequireAuth - Hook that redirects to login if not authenticated
+ *
+ * @returns Auth state (guaranteed to have user if this hook returns)
+ */
+export function useRequireAuth(): AuthContextValue & { user: User; session: Session } {
+  const auth = useAuth()
+
+  // In a real app, this would trigger a redirect via router
+  if (!auth.isAuthenticated && !auth.isLoading) {
+    throw new Error('Authentication required')
+  }
+
+  return auth as AuthContextValue & { user: User; session: Session }
 }

@@ -20,29 +20,32 @@ function SettingsIndexPage() {
         <div className="grid grid-cols-3 gap-6">
           <a
             href="/admin/settings/account"
-            className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
+            className="bg-card rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
           >
             <h3 className="text-lg font-semibold mb-2">Account & Profile</h3>
-            <p className="text-gray-600">Manage your personal information and preferences.</p>
+            <p className="text-muted-foreground">Manage your personal information and preferences.</p>
           </a>
 
           <a
             href="/admin/settings/security"
-            className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
+            className="bg-card rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
           >
             <h3 className="text-lg font-semibold mb-2">Security & Password</h3>
-            <p className="text-gray-600">Update password, Two-Factor authentication (2FA), and sessions.</p>
+            <p className="text-muted-foreground">Update password, Two-Factor authentication (2FA), and sessions.</p>
           </a>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-card rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-2">Notification Preferences</h3>
-            <p className="text-gray-600">Configure Email alerts and notifications.</p>
+            <p className="text-muted-foreground">Configure Email alerts and notifications.</p>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <a
+            href="/admin/settings/appearance"
+            className="bg-card rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
+          >
             <h3 className="text-lg font-semibold mb-2">Appearance & Theme</h3>
-            <p className="text-gray-600">Customize the look with Dark Mode and themes.</p>
-          </div>
+            <p className="text-muted-foreground">Customize the look with Dark Mode and themes.</p>
+          </a>
         </div>
       </div>
     </Shell>

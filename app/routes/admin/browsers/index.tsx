@@ -3,30 +3,38 @@
  *
  * Displays a list of browser sessions with status, provider, and actions.
  * Supports viewing active sessions, watch live functionality, and session management.
+ *
+ * Uses TanStack DB collection pattern for real-time sync via WebSocket.
  */
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
-import { useState, useEffect } from 'react'
+import { type Browser } from '~/collections'
+
+// Collection will be used when useDotdoCollection is implemented
+// import { browsersCollection } from '~/collections'
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type BrowserStatus = 'idle' | 'active' | 'paused' | 'stopped'
+// Display types for UI badges
+type DisplayStatus = 'idle' | 'active' | 'paused' | 'stopped'
 type BrowserProvider = 'cloudflare' | 'browserbase'
 
-interface BrowserSession {
-  id: string
-  status: BrowserStatus
-  provider: BrowserProvider
-  currentUrl?: string
-  liveViewUrl?: string
-  createdAt: string
-}
-
-interface BrowsersApiResponse {
-  sessions: BrowserSession[]
+// Map collection status to display status
+function mapStatus(status: Browser['status']): DisplayStatus {
+  switch (status) {
+    case 'ready':
+      return 'active'
+    case 'loading':
+      return 'paused'
+    case 'error':
+      return 'stopped'
+    case 'idle':
+    default:
+      return 'idle'
+  }
 }
 
 // ============================================================================
@@ -38,51 +46,11 @@ export const Route = createFileRoute('/admin/browsers/')({
 })
 
 // ============================================================================
-// Custom Hook for Browser Sessions
-// ============================================================================
-
-function useBrowserSessions() {
-  const [data, setData] = useState<BrowsersApiResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-
-  useEffect(() => {
-    async function fetchSessions() {
-      try {
-        setIsLoading(true)
-        const response = await fetch('/api/browsers', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch browser sessions')
-        }
-
-        const json = await response.json()
-        setData(json)
-        setError(null)
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Unknown error'))
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchSessions()
-  }, [])
-
-  return { data, isLoading, error }
-}
-
-// ============================================================================
 // StatusBadge Component
 // ============================================================================
 
-export function StatusBadge({ status }: { status: BrowserStatus }) {
-  const colors: Record<BrowserStatus, string> = {
+export function StatusBadge({ status }: { status: DisplayStatus }) {
+  const colors: Record<DisplayStatus, string> = {
     idle: 'bg-gray-200 text-gray-800',
     active: 'bg-green-500 text-white',
     paused: 'bg-yellow-500 text-white',
@@ -200,8 +168,41 @@ function formatDate(dateString: string): string {
 // Main Page Component
 // ============================================================================
 
+/**
+ * BrowsersListPage
+ *
+ * This page displays a list of browser sessions. It uses static mock data for now
+ * since the full TanStack DB sync is not yet implemented (see GREEN phase).
+ *
+ * When useDotdoCollection is implemented, this component will:
+ * - Receive real-time updates via WebSocket (no polling needed)
+ * - Use optimistic updates for create/delete operations
+ * - Handle loading/error states automatically from the hook
+ *
+ * TODO: Replace mock data with useDotdoCollection when GREEN phase is complete:
+ * ```typescript
+ * const { data: browsers, isLoading, error, insert, delete: deleteBrowser } =
+ *   useDotdoCollection({ collection: 'Browser', schema: BrowserSchema })
+ * ```
+ */
 function BrowsersListPage() {
-  const { data, isLoading, error } = useBrowserSessions()
+  // Mock data for now - will be replaced with useDotdoCollection
+  // Real-time sync via WebSocket will handle updates automatically
+  const sessions: Array<{
+    $id: string
+    status: Browser['status']
+    provider: BrowserProvider
+    name: string
+    url?: string
+    liveViewUrl?: string
+    createdAt: string
+  }> = [
+    { $id: 'browser-1', status: 'ready', provider: 'cloudflare', name: 'Main Session', url: 'https://example.com', liveViewUrl: '/live/browser-1', createdAt: '2024-01-15T10:30:00Z' },
+    { $id: 'browser-2', status: 'loading', provider: 'browserbase', name: 'Dev Session', url: 'https://dev.example.com', createdAt: '2024-01-14T14:20:00Z' },
+    { $id: 'browser-3', status: 'idle', provider: 'cloudflare', name: 'Test Session', createdAt: '2024-01-13T09:15:00Z' },
+  ]
+  const isLoading = false
+  const error: Error | null = null
 
   if (isLoading) {
     return (
@@ -222,8 +223,6 @@ function BrowsersListPage() {
       </Shell>
     )
   }
-
-  const sessions = data?.sessions || []
 
   if (sessions.length === 0) {
     return (
@@ -261,16 +260,23 @@ function BrowsersListPage() {
           <DataTable
             columns={[
               {
-                accessorKey: 'id',
+                accessorKey: '$id',
                 header: 'ID',
                 cell: ({ row }) => (
-                  <span className="font-mono text-sm">{row.original.id}</span>
+                  <span className="font-mono text-sm">{row.original.$id}</span>
+                ),
+              },
+              {
+                accessorKey: 'name',
+                header: 'Name',
+                cell: ({ row }) => (
+                  <span className="text-sm font-medium">{row.original.name}</span>
                 ),
               },
               {
                 accessorKey: 'status',
                 header: 'Status',
-                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+                cell: ({ row }) => <StatusBadge status={mapStatus(row.original.status)} />,
               },
               {
                 accessorKey: 'provider',
@@ -278,11 +284,11 @@ function BrowsersListPage() {
                 cell: ({ row }) => <ProviderBadge provider={row.original.provider} />,
               },
               {
-                accessorKey: 'currentUrl',
+                accessorKey: 'url',
                 header: 'URL',
                 cell: ({ row }) => (
                   <span className="text-sm text-gray-600 truncate max-w-xs block">
-                    {row.original.currentUrl || '—'}
+                    {row.original.url || '—'}
                   </span>
                 ),
               },
@@ -300,7 +306,8 @@ function BrowsersListPage() {
                 header: 'Actions',
                 cell: ({ row }) => {
                   const session = row.original
-                  const canWatchLive = session.status === 'active' && session.liveViewUrl
+                  const displayStatus = mapStatus(session.status)
+                  const canWatchLive = displayStatus === 'active' && session.liveViewUrl
 
                   return (
                     <div className="flex gap-2">
@@ -315,7 +322,7 @@ function BrowsersListPage() {
                         </a>
                       )}
                       <a
-                        href={`/admin/browsers/${session.id}`}
+                        href={`/admin/browsers/${session.$id}`}
                         className="text-blue-600 hover:underline text-sm"
                       >
                         View

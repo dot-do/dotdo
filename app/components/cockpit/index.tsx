@@ -363,6 +363,7 @@ export function CommandPalette({ children }: CommandPaletteWrapperProps) {
 // Data Table
 // ============================================================================
 
+// DataTable component accepts columns and data props
 interface DataTableWrapperProps<TData = any, TValue = any> {
   columns?: Array<{
     accessorKey?: string
@@ -683,6 +684,7 @@ interface AnalyticsDashboardProps {
   children: ReactNode
 }
 
+// AnalyticsDashboard uses grid layout for responsive dashboard display
 export function AnalyticsDashboard({ children }: AnalyticsDashboardProps) {
   return (
     <div

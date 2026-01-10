@@ -72,5 +72,3 @@ export function CodeBlock({ filename, children }: CodeBlockProps) {
   )
 }
 
-// Export LandingLayout (keep for backwards compatibility, but use PrimitivePage)
-export { LandingLayout } from './LandingLayout'

@@ -13,6 +13,8 @@ import { Route as IndexRouteImport } from './../routes/index'
 import { Route as AdminIndexRouteImport } from './../routes/admin/index'
 import { Route as DocsSplatRouteImport } from './../routes/docs/$'
 import { Route as ApiSearchRouteImport } from './../routes/api/search'
+import { Route as AdminSignupRouteImport } from './../routes/admin/signup'
+import { Route as AdminResetPasswordRouteImport } from './../routes/admin/reset-password'
 import { Route as AdminLoginRouteImport } from './../routes/admin/login'
 import { Route as AdminWorkflowsIndexRouteImport } from './../routes/admin/workflows/index'
 import { Route as AdminUsersIndexRouteImport } from './../routes/admin/users/index'
@@ -26,6 +28,7 @@ import { Route as AdminWorkflowsWorkflowIdRouteImport } from './../routes/admin/
 import { Route as AdminUsersNewRouteImport } from './../routes/admin/users/new'
 import { Route as AdminUsersUserIdRouteImport } from './../routes/admin/users/$userId'
 import { Route as AdminSettingsSecurityRouteImport } from './../routes/admin/settings/security'
+import { Route as AdminSettingsAppearanceRouteImport } from './../routes/admin/settings/appearance'
 import { Route as AdminSettingsAccountRouteImport } from './../routes/admin/settings/account'
 import { Route as AdminSandboxesSandboxIdRouteImport } from './../routes/admin/sandboxes/$sandboxId'
 import { Route as AdminIntegrationsApiKeysRouteImport } from './../routes/admin/integrations/api-keys'
@@ -55,6 +58,16 @@ const DocsSplatRoute = DocsSplatRouteImport.update({
 const ApiSearchRoute = ApiSearchRouteImport.update({
   id: '/api/search',
   path: '/api/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSignupRoute = AdminSignupRouteImport.update({
+  id: '/admin/signup',
+  path: '/admin/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminResetPasswordRoute = AdminResetPasswordRouteImport.update({
+  id: '/admin/reset-password',
+  path: '/admin/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
@@ -123,6 +136,11 @@ const AdminSettingsSecurityRoute = AdminSettingsSecurityRouteImport.update({
   path: '/admin/settings/security',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSettingsAppearanceRoute = AdminSettingsAppearanceRouteImport.update({
+  id: '/admin/settings/appearance',
+  path: '/admin/settings/appearance',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminSettingsAccountRoute = AdminSettingsAccountRouteImport.update({
   id: '/admin/settings/account',
   path: '/admin/settings/account',
@@ -182,6 +200,8 @@ const AdminWorkflowsWorkflowIdRunsRunIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/reset-password': typeof AdminResetPasswordRoute
+  '/admin/signup': typeof AdminSignupRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/admin': typeof AdminIndexRoute
@@ -193,6 +213,7 @@ export interface FileRoutesByFullPath {
   '/admin/integrations/api-keys': typeof AdminIntegrationsApiKeysRoute
   '/admin/sandboxes/$sandboxId': typeof AdminSandboxesSandboxIdRoute
   '/admin/settings/account': typeof AdminSettingsAccountRoute
+  '/admin/settings/appearance': typeof AdminSettingsAppearanceRoute
   '/admin/settings/security': typeof AdminSettingsSecurityRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
@@ -211,6 +232,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/reset-password': typeof AdminResetPasswordRoute
+  '/admin/signup': typeof AdminSignupRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/admin': typeof AdminIndexRoute
@@ -222,6 +245,7 @@ export interface FileRoutesByTo {
   '/admin/integrations/api-keys': typeof AdminIntegrationsApiKeysRoute
   '/admin/sandboxes/$sandboxId': typeof AdminSandboxesSandboxIdRoute
   '/admin/settings/account': typeof AdminSettingsAccountRoute
+  '/admin/settings/appearance': typeof AdminSettingsAppearanceRoute
   '/admin/settings/security': typeof AdminSettingsSecurityRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
@@ -241,6 +265,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/reset-password': typeof AdminResetPasswordRoute
+  '/admin/signup': typeof AdminSignupRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/admin/': typeof AdminIndexRoute
@@ -252,6 +278,7 @@ export interface FileRoutesById {
   '/admin/integrations/api-keys': typeof AdminIntegrationsApiKeysRoute
   '/admin/sandboxes/$sandboxId': typeof AdminSandboxesSandboxIdRoute
   '/admin/settings/account': typeof AdminSettingsAccountRoute
+  '/admin/settings/appearance': typeof AdminSettingsAppearanceRoute
   '/admin/settings/security': typeof AdminSettingsSecurityRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
@@ -272,6 +299,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin/login'
+    | '/admin/reset-password'
+    | '/admin/signup'
     | '/api/search'
     | '/docs/$'
     | '/admin'
@@ -283,6 +312,7 @@ export interface FileRouteTypes {
     | '/admin/integrations/api-keys'
     | '/admin/sandboxes/$sandboxId'
     | '/admin/settings/account'
+    | '/admin/settings/appearance'
     | '/admin/settings/security'
     | '/admin/users/$userId'
     | '/admin/users/new'
@@ -301,6 +331,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin/login'
+    | '/admin/reset-password'
+    | '/admin/signup'
     | '/api/search'
     | '/docs/$'
     | '/admin'
@@ -312,6 +344,7 @@ export interface FileRouteTypes {
     | '/admin/integrations/api-keys'
     | '/admin/sandboxes/$sandboxId'
     | '/admin/settings/account'
+    | '/admin/settings/appearance'
     | '/admin/settings/security'
     | '/admin/users/$userId'
     | '/admin/users/new'
@@ -330,6 +363,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin/login'
+    | '/admin/reset-password'
+    | '/admin/signup'
     | '/api/search'
     | '/docs/$'
     | '/admin/'
@@ -341,6 +376,7 @@ export interface FileRouteTypes {
     | '/admin/integrations/api-keys'
     | '/admin/sandboxes/$sandboxId'
     | '/admin/settings/account'
+    | '/admin/settings/appearance'
     | '/admin/settings/security'
     | '/admin/users/$userId'
     | '/admin/users/new'
@@ -360,6 +396,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminResetPasswordRoute: typeof AdminResetPasswordRoute
+  AdminSignupRoute: typeof AdminSignupRoute
   ApiSearchRoute: typeof ApiSearchRoute
   DocsSplatRoute: typeof DocsSplatRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -371,6 +409,7 @@ export interface RootRouteChildren {
   AdminIntegrationsApiKeysRoute: typeof AdminIntegrationsApiKeysRoute
   AdminSandboxesSandboxIdRoute: typeof AdminSandboxesSandboxIdRoute
   AdminSettingsAccountRoute: typeof AdminSettingsAccountRoute
+  AdminSettingsAppearanceRoute: typeof AdminSettingsAppearanceRoute
   AdminSettingsSecurityRoute: typeof AdminSettingsSecurityRoute
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
@@ -413,6 +452,20 @@ declare module '@tanstack/react-router' {
       path: '/api/search'
       fullPath: '/api/search'
       preLoaderRoute: typeof ApiSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/signup': {
+      id: '/admin/signup'
+      path: '/admin/signup'
+      fullPath: '/admin/signup'
+      preLoaderRoute: typeof AdminSignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/reset-password': {
+      id: '/admin/reset-password'
+      path: '/admin/reset-password'
+      fullPath: '/admin/reset-password'
+      preLoaderRoute: typeof AdminResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/login': {
@@ -504,6 +557,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/settings/security'
       fullPath: '/admin/settings/security'
       preLoaderRoute: typeof AdminSettingsSecurityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/settings/appearance': {
+      id: '/admin/settings/appearance'
+      path: '/admin/settings/appearance'
+      fullPath: '/admin/settings/appearance'
+      preLoaderRoute: typeof AdminSettingsAppearanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/settings/account': {
@@ -612,6 +672,8 @@ const AdminWorkflowsWorkflowIdRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminResetPasswordRoute: AdminResetPasswordRoute,
+  AdminSignupRoute: AdminSignupRoute,
   ApiSearchRoute: ApiSearchRoute,
   DocsSplatRoute: DocsSplatRoute,
   AdminIndexRoute: AdminIndexRoute,
@@ -623,6 +685,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIntegrationsApiKeysRoute: AdminIntegrationsApiKeysRoute,
   AdminSandboxesSandboxIdRoute: AdminSandboxesSandboxIdRoute,
   AdminSettingsAccountRoute: AdminSettingsAccountRoute,
+  AdminSettingsAppearanceRoute: AdminSettingsAppearanceRoute,
   AdminSettingsSecurityRoute: AdminSettingsSecurityRoute,
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,

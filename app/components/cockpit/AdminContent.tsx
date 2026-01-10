@@ -1,7 +1,23 @@
 /**
- * AdminContent - Placeholder admin dashboard content
+ * AdminContent - Admin dashboard content components
  *
- * Renders a basic admin dashboard using cockpit components.
+ * Provides dashboard content that can be used:
+ * 1. With Shell wrapper (recommended) - just the content portion
+ * 2. Standalone with full layout - includes sidebar/navigation
+ *
+ * ## Usage
+ *
+ * With Shell (recommended):
+ * ```tsx
+ * <Shell>
+ *   <DashboardContent {...defaultAdminData} />
+ * </Shell>
+ * ```
+ *
+ * Standalone (includes layout):
+ * ```tsx
+ * <AdminContent {...defaultAdminData} />
+ * ```
  */
 
 import {
@@ -10,7 +26,7 @@ import {
   SidebarNav,
   NavItem,
   SidebarUser,
-  DashboardContent,
+  DashboardContent as DashboardContentWrapper,
   DashboardGrid,
   KPICard,
   ActivityFeed,
@@ -72,6 +88,49 @@ export const defaultAdminData: AdminContentProps = {
   ],
 }
 
+/**
+ * DashboardContent - Content-only component for use with Shell
+ *
+ * Renders just the dashboard content (KPIs, activity feed, agent status)
+ * without the sidebar/navigation. Use this when wrapping with Shell.
+ */
+export function DashboardContent({
+  kpis = defaultAdminData.kpis,
+  activities = defaultAdminData.activities,
+  agents = defaultAdminData.agents,
+}: AdminContentProps) {
+  return (
+    <>
+      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+
+      <DashboardGrid cols={4}>
+        {kpis?.map((kpi, i) => (
+          <KPICard key={i} {...kpi} />
+        ))}
+      </DashboardGrid>
+
+      <div className="grid md:grid-cols-2 gap-6 mt-6">
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+          <ActivityFeed items={activities} />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Agent Status</h2>
+          <AgentStatus agents={agents} />
+        </div>
+      </div>
+    </>
+  )
+}
+
+/**
+ * AdminContent - Full dashboard with layout (standalone use)
+ *
+ * Includes the complete dashboard layout with sidebar and navigation.
+ * Use this when NOT wrapping with Shell.
+ *
+ * @deprecated Prefer using DashboardContent with Shell wrapper
+ */
 export function AdminContent({
   kpis = defaultAdminData.kpis,
   activities = defaultAdminData.activities,
@@ -93,26 +152,9 @@ export function AdminContent({
         </SidebarNav>
         <SidebarUser />
       </Sidebar>
-      <DashboardContent>
-        <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-
-        <DashboardGrid cols={4}>
-          {kpis?.map((kpi, i) => (
-            <KPICard key={i} {...kpi} />
-          ))}
-        </DashboardGrid>
-
-        <div className="grid md:grid-cols-2 gap-6 mt-6">
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-            <ActivityFeed items={activities} />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Agent Status</h2>
-            <AgentStatus agents={agents} />
-          </div>
-        </div>
-      </DashboardContent>
+      <DashboardContentWrapper>
+        <DashboardContent kpis={kpis} activities={activities} agents={agents} />
+      </DashboardContentWrapper>
     </DashboardLayout>
   )
 }

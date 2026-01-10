@@ -16,6 +16,9 @@
     "type": "git",
     "url": "https://github.com/drivly/dotdo"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc"
   },
