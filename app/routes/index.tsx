@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import React from 'react'
 import { LandingPage, Hero, Features, Pricing, CTA, Navigation, Testimonials } from '@mdxui/beacon'
 
 export const Route = createFileRoute('/')({

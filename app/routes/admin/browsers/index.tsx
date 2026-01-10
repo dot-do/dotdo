@@ -9,6 +9,7 @@
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { BrowserSchema, type Browser } from '~/collections'
 import {
@@ -54,7 +55,7 @@ export const Route = createFileRoute('/admin/browsers/')({
 
 export function StatusBadge({ status }: { status: DisplayStatus }) {
   const colors: Record<DisplayStatus, string> = {
-    idle: 'bg-gray-200 text-gray-800',
+    idle: 'bg-muted text-muted-foreground',
     active: 'bg-green-500 text-white',
     paused: 'bg-yellow-500 text-white',
     stopped: 'bg-red-500 text-white',
@@ -163,13 +164,9 @@ function BrowsersListPage() {
           <PageHeader
             title="Browser Sessions"
             actions={
-              <button
-                type="button"
-                onClick={handleCreate}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
+              <Button onClick={handleCreate}>
                 New Session
-              </button>
+              </Button>
             }
           />
           <EmptyState
@@ -188,14 +185,12 @@ function BrowsersListPage() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Browser Sessions</h1>
-          <button
-            type="button"
+          <Button
             onClick={handleCreate}
             data-testid="new-browser-button"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
             New Session
-          </button>
+          </Button>
         </div>
 
         <div className="bg-white rounded-lg shadow">
@@ -224,7 +219,7 @@ function BrowsersListPage() {
                 accessorKey: 'url',
                 header: 'URL',
                 cell: ({ row }) => (
-                  <span className="text-sm text-gray-600 truncate max-w-xs block">
+                  <span className="text-sm text-muted-foreground truncate max-w-xs block">
                     {row.original.url || '-'}
                   </span>
                 ),
@@ -233,7 +228,7 @@ function BrowsersListPage() {
                 accessorKey: 'createdAt',
                 header: 'Created',
                 cell: ({ row }) => (
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-muted-foreground">
                     {formatDate(row.original.createdAt)}
                   </span>
                 ),
@@ -262,13 +257,14 @@ function BrowsersListPage() {
                       >
                         View
                       </a>
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
+                        className="text-destructive p-0 h-auto text-sm"
                         onClick={() => handleDelete(session.$id)}
-                        className="text-red-600 hover:underline text-sm"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   )
                 },

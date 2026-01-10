@@ -62,8 +62,7 @@ interface MinimalFieldApi {
 /**
  * Minimal form API interface expected from TanStack Form (useSyncForm)
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface MinimalFormApi<TFormData = any> {
+export interface MinimalFormApi<TFormData extends Record<string, unknown> = Record<string, unknown>> {
   state: {
     values: TFormData
     isSubmitting?: boolean

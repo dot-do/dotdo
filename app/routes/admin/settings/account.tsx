@@ -6,6 +6,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell, UserProfile } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/settings/account')({
   component: AccountSettingsPage,
@@ -24,9 +25,9 @@ function AccountSettingsPage() {
             </label>
             <div className="flex items-center gap-4">
               <img src="/avatar.png" alt="Current avatar" className="w-16 h-16 rounded-full" />
-              <button type="button" className="px-4 py-2 border rounded hover:bg-accent">
+              <Button type="button" variant="outline">
                 Change
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -58,9 +59,9 @@ function AccountSettingsPage() {
             <p className="text-sm text-muted-foreground mt-1">Contact support to change your email.</p>
           </div>
 
-          <button type="submit" className="bg-primary text-primary-foreground px-4 py-2 rounded hover:opacity-90">
+          <Button type="submit">
             Save Changes
-          </button>
+          </Button>
         </form>
       </div>
     </Shell>

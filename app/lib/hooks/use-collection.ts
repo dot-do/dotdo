@@ -314,22 +314,42 @@ export interface UseCollectionReturn<T extends WithId> {
 
 /**
  * Change event types for real-time sync
- * @internal
  */
-type ChangeEventType = 'insert' | 'update' | 'delete'
+export type ChangeEventType = 'insert' | 'update' | 'delete'
 
 /**
  * Change event from real-time sync subscription
  * @typeParam T - The item type
- * @internal
  */
-interface ChangeEvent<T> {
+export interface ChangeEvent<T> {
   /** The type of change that occurred */
   type: ChangeEventType
   /** The changed item data (for insert/update) */
   data?: T
   /** The item ID (for delete) */
   id?: string
+}
+
+// =============================================================================
+// Type Guards for Change Events
+// =============================================================================
+
+/**
+ * Type guard to check if data is a valid ChangeEvent
+ * @param data - Unknown data to validate
+ * @returns True if data is a valid ChangeEvent
+ */
+export function isChangeEvent<T>(data: unknown): data is ChangeEvent<T> {
+  if (data === null || data === undefined) return false
+  if (typeof data !== 'object') return false
+
+  const obj = data as Record<string, unknown>
+
+  // Must have a valid type field
+  if (!('type' in obj)) return false
+  if (obj.type !== 'insert' && obj.type !== 'update' && obj.type !== 'delete') return false
+
+  return true
 }
 
 /**
@@ -480,7 +500,12 @@ export function useCollection<TSchema extends ZodObject<ZodRawShape>>(
 
     // Subscribe to collection changes
     const unsubscribe = $.on[name]?.change?.((event: unknown) => {
-      const changeEvent = event as ChangeEvent<T>
+      // Validate change event before processing
+      if (!isChangeEvent(event)) {
+        console.warn('Invalid change event received:', event)
+        return
+      }
+      const changeEvent = event
 
       switch (changeEvent.type) {
         case 'insert':

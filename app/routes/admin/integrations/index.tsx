@@ -15,6 +15,7 @@ import {
   ListSkeleton,
   PageHeader,
 } from '~/components/admin/shared'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/integrations/')({
   component: IntegrationsPage,
@@ -126,22 +127,22 @@ function IntegrationCard({ integration, onConnect, onDisconnect }: IntegrationCa
             >
               Configure
             </a>
-            <button
+            <Button
               type="button"
+              variant="link"
+              className="text-destructive p-0 h-auto"
               onClick={onDisconnect}
-              className="text-red-600 hover:underline"
             >
               Disconnect
-            </button>
+            </Button>
           </>
         ) : (
-          <button
+          <Button
             type="button"
             onClick={onConnect}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
             Connect
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -164,10 +165,9 @@ function IntegrationsPage() {
       await integrations.update(integration.$id, {
         status: 'pending',
       })
-      // OAuth flow would be handled by a separate auth service
-      console.log('Connecting to:', integration.provider)
-    } catch (err) {
-      console.error('Failed to initiate connection:', err)
+      // TODO: OAuth flow would be handled by a separate auth service
+    } catch (_err) {
+      // TODO: Handle connection error
     }
   }
 
@@ -178,8 +178,8 @@ function IntegrationsPage() {
         status: 'disconnected',
         credentials: undefined,
       })
-    } catch (err) {
-      console.error('Failed to disconnect:', err)
+    } catch (_err) {
+      // TODO: Handle disconnect error
     }
   }
 

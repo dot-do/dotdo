@@ -1,5 +1,6 @@
 // shadcn/ui components
 export * from "./badge"
+export * from "./error-boundary"
 export * from "./button"
 export * from "./charts"
 export * from "./checkbox"

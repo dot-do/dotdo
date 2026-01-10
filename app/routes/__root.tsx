@@ -2,6 +2,7 @@ import { createRootRoute, Outlet, HeadContent, Scripts } from '@tanstack/react-r
 import { RootProvider } from 'fumadocs-ui/provider/tanstack'
 import React, { useEffect } from 'react'
 import { ThemeScript, useThemeStore } from '@mdxui/themes'
+import { ErrorBoundary } from '../components/ui/error-boundary'
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -34,7 +35,9 @@ function RootComponent() {
       <body>
         <ThemeInitializer />
         <RootProvider>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </RootProvider>
         <Scripts />
       </body>

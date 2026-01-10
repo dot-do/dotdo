@@ -6,6 +6,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/settings/security')({
   component: SecuritySettingsPage,
@@ -39,9 +40,9 @@ function SecuritySettingsPage() {
                 </label>
                 <input type='password' id='confirm-password' name='confirmPassword' className='w-full border rounded px-3 py-2 bg-input' />
               </div>
-              <button type='submit' className='bg-primary text-primary-foreground px-4 py-2 rounded hover:opacity-90'>
+              <Button type='submit'>
                 Update Password
-              </button>
+              </Button>
             </form>
           </div>
 
@@ -50,9 +51,9 @@ function SecuritySettingsPage() {
             <p className='text-muted-foreground mb-4'>Add an extra layer of security to your account.</p>
             <div className='flex items-center gap-4'>
               <span className='text-muted-foreground'>Status: Disabled</span>
-              <button type='button' className='bg-primary text-primary-foreground px-4 py-2 rounded hover:opacity-90'>
+              <Button type='button'>
                 Enable 2FA
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -71,14 +72,14 @@ function SecuritySettingsPage() {
                   <p className='font-medium'>Safari on iPhone</p>
                   <p className='text-sm text-muted-foreground'>Last active: 2 hours ago</p>
                 </div>
-                <button type='button' className='text-destructive hover:underline'>
+                <Button type='button' variant='link' className='text-destructive p-0 h-auto'>
                   Revoke
-                </button>
+                </Button>
               </li>
             </ul>
-            <button type='button' className='text-destructive hover:underline'>
+            <Button type='button' variant='link' className='text-destructive p-0 h-auto'>
               Sign Out All Other Sessions
-            </button>
+            </Button>
           </div>
         </div>
       </div>

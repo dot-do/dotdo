@@ -6,6 +6,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/integrations/$integrationId')({
   component: IntegrationDetailPage,
@@ -19,7 +20,7 @@ function IntegrationDetailPage() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">{integrationId.toUpperCase()} Configuration</h1>
-          <button className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Test Connection</button>
+          <Button type="button">Test Connection</Button>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 mb-6">

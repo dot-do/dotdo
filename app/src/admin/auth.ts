@@ -69,11 +69,43 @@ export type AuthContextValue = AuthState & AuthActions
 // Session Storage (in-memory for now)
 // =============================================================================
 
+const STORAGE_KEY = 'dotdo_session'
+
 // Session storage (in-memory for now, would use better-auth in production)
 const sessions = new Map<string, { userId: string; createdAt: Date }>()
 
 /**
+ * Get storage adapter - uses localStorage in browser, in-memory Map in Node
+ */
+function getStorage(): { get: (key: string) => string | null; set: (key: string, value: string) => void; delete: (key: string) => void } {
+  if (typeof localStorage !== 'undefined') {
+    return {
+      get: (key: string) => localStorage.getItem(key),
+      set: (key: string, value: string) => localStorage.setItem(key, value),
+      delete: (key: string) => localStorage.removeItem(key),
+    }
+  }
+  // Fallback for Node environment (tests)
+  const memoryStorage = new Map<string, string>()
+  return {
+    get: (key: string) => memoryStorage.get(key) ?? null,
+    set: (key: string, value: string) => memoryStorage.set(key, value),
+    delete: (key: string) => memoryStorage.delete(key),
+  }
+}
+
+// Singleton storage instance
+let storageInstance: ReturnType<typeof getStorage> | null = null
+function storage() {
+  if (!storageInstance) {
+    storageInstance = getStorage()
+  }
+  return storageInstance
+}
+
+/**
  * Create a new authenticated session
+ * Creates a real session with proper token and stores it
  */
 export async function createSession(): Promise<{ token: string; userId: string }> {
   const token = crypto.randomUUID()
@@ -84,11 +116,15 @@ export async function createSession(): Promise<{ token: string; userId: string }
     createdAt: new Date(),
   })
 
+  // Store the current session in storage
+  storage().set(STORAGE_KEY, JSON.stringify({ token, userId }))
+
   return { token, userId }
 }
 
 /**
  * Validate a session token
+ * Validates against the sessions Map
  */
 export async function validateSession(token: string): Promise<{ valid: boolean; userId?: string }> {
   const session = sessions.get(token)
@@ -100,19 +136,52 @@ export async function validateSession(token: string): Promise<{ valid: boolean; 
 
 /**
  * Invalidate/logout a session
+ * Removes from sessions Map and clears storage
  */
 export async function invalidateSession(token: string): Promise<void> {
   sessions.delete(token)
+  storage().delete(STORAGE_KEY)
 }
 
 /**
- * Get current session from cookies/headers
+ * Get current session from storage
+ * Returns null if no session exists or session is invalid
+ * Only returns test values if NODE_ENV === 'test' AND no real session exists
  */
 export function getCurrentSession(): { token: string; userId: string } | null {
-  // In test environment, return a mock authenticated session
-  return {
-    token: 'test-session-token',
-    userId: 'test-user-id',
+  // Check storage for stored session
+  const storedSession = storage().get(STORAGE_KEY)
+  if (storedSession) {
+    try {
+      const session = JSON.parse(storedSession)
+      // Validate the session exists in our session store
+      if (sessions.has(session.token)) {
+        return session
+      }
+    } catch {
+      // Invalid stored session, clear it
+      storage().delete(STORAGE_KEY)
+    }
+  }
+
+  // No valid session exists
+  // In production mode, never return hardcoded test values
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  // No session exists - return null
+  return null
+}
+
+/**
+ * Logout the current session
+ * Clears session from storage and invalidates in session store
+ */
+export async function logout(): Promise<void> {
+  const currentSession = getCurrentSession()
+  if (currentSession) {
+    await invalidateSession(currentSession.token)
   }
 }
 

@@ -9,6 +9,7 @@
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { SandboxSchema, type Sandbox } from '~/collections'
 import { useAuth } from '~/src/admin/auth'
@@ -55,7 +56,7 @@ export function StatusBadge({ status }: { status: DisplayStatus }) {
   const colors: Record<DisplayStatus, string> = {
     running: 'bg-green-500 text-white',
     idle: 'bg-yellow-500 text-white',
-    stopped: 'bg-gray-200 text-gray-800',
+    stopped: 'bg-muted text-muted-foreground',
     error: 'bg-red-500 text-white',
   }
 
@@ -161,9 +162,9 @@ function SandboxesListPage() {
           <PageHeader
             title="Sandboxes"
             actions={
-              <button type='button' onClick={handleCreate} className='bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'>
+              <Button onClick={handleCreate}>
                 New Sandbox
-              </button>
+              </Button>
             }
           />
           <EmptyState
@@ -182,9 +183,9 @@ function SandboxesListPage() {
       <div className='p-6'>
         <div className='flex justify-between items-center mb-6'>
           <h1 className='text-2xl font-semibold'>Sandboxes</h1>
-          <button type='button' onClick={handleCreate} data-testid='new-sandbox-button' className='bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'>
+          <Button onClick={handleCreate} data-testid='new-sandbox-button'>
             New Sandbox
-          </button>
+          </Button>
         </div>
 
         <div className='bg-white rounded-lg shadow'>
@@ -208,7 +209,7 @@ function SandboxesListPage() {
               {
                 accessorKey: 'createdAt',
                 header: 'Created',
-                cell: ({ row }) => <span className='text-sm text-gray-600'>{formatDate(row.original.createdAt)}</span>,
+                cell: ({ row }) => <span className='text-sm text-muted-foreground'>{formatDate(row.original.createdAt)}</span>,
               },
               {
                 id: 'actions',
@@ -221,9 +222,9 @@ function SandboxesListPage() {
                       <a href={`/admin/sandboxes/${sandbox.$id}`} className='text-blue-600 hover:underline text-sm'>
                         Open Terminal
                       </a>
-                      <button type='button' onClick={() => handleDelete(sandbox.$id)} className='text-red-600 hover:underline text-sm'>
+                      <Button type='button' variant='link' className='text-destructive p-0 h-auto text-sm' onClick={() => handleDelete(sandbox.$id)}>
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   )
                 },

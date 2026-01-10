@@ -25,15 +25,12 @@ function AdminSignup() {
         subtitle="Sign up to get started"
         showOAuth={true}
         oauthProviders={['google', 'github', 'microsoft']}
-        onSubmit={async (data) => {
-          // Handle signup
-          console.log('Signup:', data)
+        onSubmit={async (_data) => {
           // TODO: Implement actual signup logic
           navigate({ to: '/admin' })
         }}
-        onOAuthClick={async (provider) => {
-          // Handle OAuth signup
-          console.log('OAuth signup:', provider)
+        onOAuthClick={async (_provider) => {
+          // TODO: Implement OAuth signup
         }}
         onLoginClick={() => {
           navigate({ to: '/admin/login' })

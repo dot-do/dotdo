@@ -24,14 +24,11 @@ function AdminResetPassword() {
         mode="request"
         title="Reset Password"
         subtitle="Enter your email to receive a password reset link"
-        onRequestSubmit={async (data) => {
-          // Handle password reset request
-          console.log('Password reset request:', data)
+        onRequestSubmit={async (_data) => {
           // TODO: Implement actual password reset logic
         }}
-        onConfirmSubmit={async (data) => {
-          // Handle password reset confirmation
-          console.log('Password reset confirm:', data)
+        onConfirmSubmit={async (_data) => {
+          // TODO: Implement password reset confirmation
           navigate({ to: '/admin/login' })
         }}
         onBackToLogin={() => {

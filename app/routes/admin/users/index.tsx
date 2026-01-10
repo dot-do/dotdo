@@ -15,6 +15,7 @@ import {
   ListSkeleton,
   PageHeader,
 } from '~/components/admin/shared'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/users/')({
   component: UsersPage,
@@ -93,9 +94,9 @@ function UsersPage() {
           <PageHeader
             title="Users"
             actions={
-              <a href="/admin/users/new" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                Create User
-              </a>
+              <Button asChild>
+                <a href="/admin/users/new">Create User</a>
+              </Button>
             }
           />
           <EmptyState
@@ -114,13 +115,9 @@ function UsersPage() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Users</h1>
-          <a
-            href="/admin/users/new"
-            data-testid="create-user-button"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Create User
-          </a>
+          <Button asChild data-testid="create-user-button">
+            <a href="/admin/users/new">Create User</a>
+          </Button>
         </div>
         <div className="bg-white rounded-lg shadow">
           <DataTable
@@ -170,13 +167,14 @@ function UsersPage() {
                       >
                         Edit
                       </a>
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
+                        className="text-destructive p-0 h-auto text-sm"
                         onClick={() => handleDelete(user.$id)}
-                        className="text-red-600 hover:underline text-sm"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   )
                 },

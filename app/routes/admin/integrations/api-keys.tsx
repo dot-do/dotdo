@@ -6,6 +6,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell, DataTable, APIKeyManager } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/integrations/api-keys')({
   component: APIKeysPage,
@@ -22,7 +23,7 @@ function APIKeysPage() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">API Keys</h1>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Generate New Key</button>
+          <Button type="button">Generate New Key</Button>
         </div>
 
         <div className="bg-white rounded-lg shadow">
@@ -36,7 +37,7 @@ function APIKeysPage() {
                 id: 'actions',
                 header: 'Actions',
                 cell: () => (
-                  <button className="text-red-600 hover:underline">Revoke</button>
+                  <Button type="button" variant="link" className="text-destructive p-0 h-auto">Revoke</Button>
                 ),
               },
             ]}

@@ -4,7 +4,7 @@
  * Tests for the /admin/sandboxes list page that displays sandbox sessions.
  * Tests verify file structure, component patterns, and content.
  *
- * RED Phase: These tests should fail until implementation is complete.
+ * GREEN Phase: These tests verify the useCollection-based implementation.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -30,10 +30,10 @@ describe('Sandbox List Route File Structure', () => {
       expect(content).toContain("'/admin/sandboxes/'")
     })
 
-    it('should import Shell from @mdxui/cockpit', async () => {
+    it('should import Shell from ui components', async () => {
       const content = await readFile('app/routes/admin/sandboxes/index.tsx', 'utf-8')
-      expect(content).toContain('@mdxui/cockpit')
-      expect(content).toContain('Shell')
+      expect(content).toMatch(/Shell/)
+      expect(content).toMatch(/import.*Shell/)
     })
 
     it('should export a Route constant', async () => {
@@ -163,10 +163,11 @@ describe('Empty State', () => {
 // API Integration Tests
 // ============================================================================
 
-describe('API Integration', () => {
-  it('should fetch sandboxes data from API', async () => {
+describe('Collection Integration', () => {
+  it('should use useCollection for sandboxes data', async () => {
     const content = await readFile('app/routes/admin/sandboxes/index.tsx', 'utf-8')
-    expect(content).toMatch(/useSandboxes|fetch.*sandboxes|useQuery|\/api\/sandboxes/i)
+    expect(content).toMatch(/useCollection/)
+    expect(content).toMatch(/SandboxSchema/)
   })
 
   it('should reference sandboxes data structure', async () => {
@@ -195,9 +196,9 @@ describe('Sandbox Actions', () => {
     expect(content).toMatch(/Delete|delete|handleDelete/i)
   })
 
-  it('should call DELETE /api/sandboxes/:id on delete', async () => {
+  it('should call sandboxes.delete on delete', async () => {
     const content = await readFile('app/routes/admin/sandboxes/index.tsx', 'utf-8')
-    expect(content).toMatch(/method:\s*['"]DELETE['"]|DELETE/i)
+    expect(content).toMatch(/sandboxes\.delete/)
   })
 
   it('should show confirmation before delete', async () => {
@@ -205,9 +206,10 @@ describe('Sandbox Actions', () => {
     expect(content).toMatch(/confirm|Confirm|dialog/i)
   })
 
-  it('should refresh list after successful delete', async () => {
+  it('should use optimistic delete via useCollection', async () => {
     const content = await readFile('app/routes/admin/sandboxes/index.tsx', 'utf-8')
-    expect(content).toMatch(/setSandboxes|refetch|filter|invalidate/i)
+    // useCollection handles optimistic updates internally
+    expect(content).toMatch(/sandboxes\.delete/)
   })
 })
 

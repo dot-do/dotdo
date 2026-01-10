@@ -25,14 +25,12 @@ function AdminLogin() {
         subtitle="Sign in to access the admin dashboard"
         showOAuth={true}
         oauthProviders={['google', 'github', 'microsoft']}
-        onSubmit={async (data) => {
-          // Handle login
-          console.log('Login:', data)
+        onSubmit={async (_data) => {
+          // TODO: Implement actual login authentication
           navigate({ to: '/admin' })
         }}
-        onOAuthClick={async (provider) => {
-          // Handle OAuth login
-          console.log('OAuth:', provider)
+        onOAuthClick={async (_provider) => {
+          // TODO: Implement OAuth login
         }}
         onForgotPasswordClick={() => {
           navigate({ to: '/admin/reset-password' })

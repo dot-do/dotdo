@@ -9,60 +9,23 @@ import * as React from 'react'
 import { cn } from '../../lib/utils'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
-import type { ApprovalRequest, ApprovalPriority, ApprovalStatus } from '../../types/approval'
+import {
+  formatRelativeTime,
+  formatTimeRemaining,
+  priorityConfig,
+  statusConfig,
+} from '../../lib/utils/approval'
+import type { ApprovalRequest } from '../../types/approval'
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
-
-function formatTimeRemaining(expiresAt: Date): string {
-  const now = new Date()
-  const diffMs = expiresAt.getTime() - now.getTime()
-  if (diffMs <= 0) return 'Expired'
-
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  return `${diffDays}d`
-}
 
 function formatApprovalType(type: string): string {
   return type
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
-}
-
-const priorityConfig: Record<ApprovalPriority, { label: string; className: string; borderClass: string }> = {
-  critical: { label: 'Critical', className: 'bg-red-100 text-red-800 border-red-200', borderClass: 'border-red-500' },
-  high: { label: 'High', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-orange-500' },
-  normal: { label: 'Normal', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-blue-500' },
-  low: { label: 'Low', className: 'bg-gray-100 text-gray-800 border-gray-200', borderClass: 'border-gray-500' },
-}
-
-const statusConfig: Record<ApprovalStatus, { label: string; className: string }> = {
-  pending: { label: 'Pending', className: 'bg-yellow-100 text-yellow-800' },
-  approved: { label: 'Approved', className: 'bg-green-100 text-green-800' },
-  rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800' },
-  expired: { label: 'Expired', className: 'bg-gray-100 text-gray-800' },
-  escalated: { label: 'Escalated', className: 'bg-purple-100 text-purple-800' },
 }
 
 const channelLabels: Record<string, string> = {

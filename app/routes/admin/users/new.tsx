@@ -6,6 +6,7 @@
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/users/new')({
   component: CreateUserPage,
@@ -51,12 +52,12 @@ function CreateUserPage() {
           </div>
 
           <div className="flex gap-2">
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            <Button type="submit">
               Create User
-            </button>
-            <a href="/admin/users" className="px-4 py-2 border rounded hover:bg-gray-50">
-              Cancel
-            </a>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href="/admin/users">Cancel</a>
+            </Button>
           </div>
         </form>
       </div>

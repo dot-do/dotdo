@@ -21,6 +21,7 @@ import {
   ListSkeleton,
   PageHeader,
 } from '~/components/admin/shared'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/approvals/')({
   component: ApprovalQueuePage,
@@ -150,20 +151,21 @@ function ApprovalCard({ approval, onApprove, onReject, onClick }: ApprovalCardPr
         </div>
         {isPending && (
           <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
-            <button
+            <Button
               type="button"
+              size="sm"
               onClick={onApprove}
-              className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
             >
               Approve
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              size="sm"
+              variant="destructive"
               onClick={onReject}
-              className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
             >
               Reject
-            </button>
+            </Button>
           </div>
         )}
       </div>

@@ -6,6 +6,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/workflows/$workflowId')({
   component: WorkflowDetailPage,
@@ -20,8 +21,8 @@ function WorkflowDetailPage() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Workflow Details</h1>
           <div className="flex gap-2">
-            <button type="button" className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700">Pause</button>
-            <button type="button" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Run Now</button>
+            <Button type="button" variant="secondary">Pause</Button>
+            <Button type="button">Run Now</Button>
           </div>
         </div>
 

@@ -38,6 +38,7 @@
  */
 
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
+import { z } from 'zod'
 
 // =============================================================================
 // Branded Types for Type Safety
@@ -184,9 +185,8 @@ type RPCMessageType =
 
 /**
  * Response types from the DO
- * @internal
  */
-type RPCResponseType = 'response' | 'batch-response' | 'event' | 'state'
+export type RPCResponseType = 'response' | 'batch-response' | 'event' | 'state'
 
 /**
  * A batched RPC call for promise pipelining
@@ -241,9 +241,8 @@ interface BatchResultItem {
 
 /**
  * Incoming RPC response structure
- * @internal
  */
-interface RPCResponse {
+export interface RPCResponse {
   type: RPCResponseType
   id?: RequestId
   result?: unknown
@@ -252,6 +251,86 @@ interface RPCResponse {
   event?: string
   data?: unknown
   txid?: number
+}
+
+// =============================================================================
+// Zod Schemas for Runtime Validation
+// =============================================================================
+
+/**
+ * Zod schema for RPC error payload
+ */
+const RPCErrorPayloadSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+})
+
+/**
+ * Zod schema for batch result items
+ */
+const BatchResultItemSchema = z.object({
+  id: z.number(),
+  result: z.unknown(),
+  error: z.object({ message: z.string() }).optional(),
+})
+
+/**
+ * Zod schema for RPC response validation
+ * Use safeParse for runtime validation of WebSocket messages
+ */
+export const RPCResponseSchema = z.object({
+  type: z.enum(['response', 'batch-response', 'event', 'state']),
+  id: z.string().optional(),
+  result: z.unknown().optional(),
+  error: RPCErrorPayloadSchema.optional(),
+  results: z.array(BatchResultItemSchema).optional(),
+  event: z.string().optional(),
+  data: z.unknown().optional(),
+  txid: z.number().optional(),
+})
+
+// =============================================================================
+// Type Guards for WebSocket Messages
+// =============================================================================
+
+/**
+ * Type guard to check if data is a valid RPC response
+ * @param data - Unknown data to validate
+ * @returns True if data is a valid RPCResponse
+ */
+export function isRPCResponse(data: unknown): data is RPCResponse {
+  const result = RPCResponseSchema.safeParse(data)
+  return result.success
+}
+
+/**
+ * Type guard to check if data is a state message
+ * @param data - Unknown data to validate
+ * @returns True if data is a state message
+ */
+export function isStateMessage(data: unknown): data is RPCResponse & { type: 'state' } {
+  if (!isRPCResponse(data)) return false
+  return data.type === 'state'
+}
+
+/**
+ * Type guard to check if data is a batch response
+ * @param data - Unknown data to validate
+ * @returns True if data is a batch response
+ */
+export function isBatchResponse(data: unknown): data is RPCResponse & { type: 'batch-response' } {
+  if (!isRPCResponse(data)) return false
+  return data.type === 'batch-response'
+}
+
+/**
+ * Type guard to check if data is an event message
+ * @param data - Unknown data to validate
+ * @returns True if data is an event message
+ */
+export function isEventMessage(data: unknown): data is RPCResponse & { type: 'event' } {
+  if (!isRPCResponse(data)) return false
+  return data.type === 'event'
 }
 
 // =============================================================================
@@ -590,9 +669,9 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
    * @internal
    */
   const handleMessage = useCallback((event: MessageEvent) => {
-    let data: RPCResponse
+    let parsed: unknown
     try {
-      data = JSON.parse(event.data) as RPCResponse
+      parsed = JSON.parse(event.data)
     } catch (parseErr) {
       const error = new DollarError(
         'MESSAGE_PARSE_ERROR',
@@ -602,6 +681,18 @@ export function useDollar(options: UseDollarOptions): UseDollarReturn {
       setError(error)
       return
     }
+
+    // Validate parsed data using type guard with Zod safeParse
+    if (!isRPCResponse(parsed)) {
+      const error = new DollarError(
+        'MESSAGE_PARSE_ERROR',
+        'Invalid RPC response structure'
+      )
+      setError(error)
+      return
+    }
+
+    const data: RPCResponse = parsed
 
     switch (data.type) {
       case 'response': {

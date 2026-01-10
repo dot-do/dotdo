@@ -26,9 +26,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
-import { DeveloperDashboard } from '@mdxui/cockpit'
-import { DashboardContent, defaultAdminData } from '~/components/cockpit/AdminContent'
-import { getCurrentSession } from '~/src/admin/auth'
+import { useAuth } from '~/src/admin/auth'
 import { useDashboardMetrics, formatMetricValue } from '~/lib/hooks/use-dashboard-metrics'
 import {
   DashboardGrid,
@@ -37,6 +35,7 @@ import {
   AgentStatus,
   AreaChart,
 } from '~/components/cockpit'
+import { Button } from '~/components/ui/button'
 
 export const Route = createFileRoute('/admin/')({
   component: AdminDashboard,
@@ -71,12 +70,9 @@ function DashboardError({ error, onRetry }: { error: Error; onRetry: () => void 
       <div className="text-red-400 text-5xl mb-4">!</div>
       <h2 className="text-xl font-semibold text-red-400 mb-2">Error loading dashboard</h2>
       <p className="text-gray-500 mb-6">{error.message}</p>
-      <button
-        onClick={onRetry}
-        className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700"
-      >
+      <Button type="button" variant="secondary" onClick={onRetry}>
         Try Again
-      </button>
+      </Button>
     </div>
   )
 }
@@ -160,15 +156,17 @@ function DashboardWithMetrics() {
 }
 
 function AdminDashboard() {
-  // Auth state - uses session management from admin auth module
-  const session = getCurrentSession()
+  // Auth state - uses useAuth hook from admin auth module
+  const { user, isAuthenticated } = useAuth()
 
   return (
     <div
       data-mdx-source=".do/App.mdx"
       data-mdxui-cockpit
       data-mdx-runtime
-      data-authenticated={session ? 'true' : 'false'}
+      data-authenticated={isAuthenticated ? 'true' : 'false'}
+      data-user-id={user?.id}
+      data-user-email={user?.email}
       className="min-h-screen bg-gray-950 text-white"
     >
       <Shell>

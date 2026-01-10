@@ -5,7 +5,7 @@
  * Displays endpoint information with method badges, parameters, code samples, and responses.
  */
 
-import React from 'react'
+import { useState, type ReactElement } from 'react'
 
 // ============================================================================
 // Types
@@ -56,7 +56,7 @@ interface CodeSample {
 // Sub-components
 // ============================================================================
 
-function MethodBadge({ method }: { method: string }): React.ReactElement {
+function MethodBadge({ method }: { method: string }): ReactElement {
   const colors: Record<string, string> = {
     GET: '#61affe',
     POST: '#49cc90',
@@ -82,7 +82,7 @@ function MethodBadge({ method }: { method: string }): React.ReactElement {
   )
 }
 
-function ParameterTable({ parameters }: { parameters: Parameter[] }): React.ReactElement {
+function ParameterTable({ parameters }: { parameters: Parameter[] }): ReactElement {
   return (
     <table className="fd-param-table">
       <thead>
@@ -111,8 +111,8 @@ function ParameterTable({ parameters }: { parameters: Parameter[] }): React.Reac
   )
 }
 
-function CodeSampleTabs({ samples }: { samples: CodeSample[] }): React.ReactElement {
-  const [activeTab, setActiveTab] = React.useState(0)
+function CodeSampleTabs({ samples }: { samples: CodeSample[] }): ReactElement {
+  const [activeTab, setActiveTab] = useState(0)
 
   return (
     <div className="fd-code-samples">
@@ -140,7 +140,7 @@ function CodeSampleTabs({ samples }: { samples: CodeSample[] }): React.ReactElem
   )
 }
 
-function ResponseSection({ responses }: { responses: Record<string, ResponseDef> }): React.ReactElement {
+function ResponseSection({ responses }: { responses: Record<string, ResponseDef> }): ReactElement {
   return (
     <div className="fd-responses">
       <h3>Responses</h3>
@@ -164,7 +164,7 @@ function ResponseSection({ responses }: { responses: Record<string, ResponseDef>
 // Main Component
 // ============================================================================
 
-export function APIPage(props: APIPageProps): React.ReactElement {
+export function APIPage(props: APIPageProps): ReactElement {
   const { operationId, method, path, summary, description, parameters = [], requestBody, responses = {}, security = [], codeSamples = [] } = props
 
   const isProtected = security.length > 0

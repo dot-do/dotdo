@@ -17,6 +17,7 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BrowserScreencast } from '~/components/BrowserScreencast'
 
@@ -154,13 +155,15 @@ function BrowserLiveView({ liveViewUrl, provider, browserId }: BrowserLiveViewPr
     return (
       <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-black' : ''}`}>
         <div className="absolute top-2 right-2 z-10">
-          <button
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
             onClick={toggleFullscreen}
-            className="bg-white/90 hover:bg-white px-3 py-1 rounded shadow text-sm"
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
             {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-          </button>
+          </Button>
         </div>
         <iframe
           src={liveViewUrl}
@@ -346,30 +349,35 @@ function BrowserControls({ session, browserId, onAction }: BrowserControlsProps)
       <div className="flex gap-2">
         {isActive && (
           <>
-            <button
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
               onClick={handlePause}
               disabled={loading}
-              className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-yellow-300 text-white px-4 py-2 rounded text-sm font-medium"
             >
               Pause
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
               onClick={handleStop}
               disabled={loading}
-              className="bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white px-4 py-2 rounded text-sm font-medium"
             >
               Stop
-            </button>
+            </Button>
           </>
         )}
         {isStopped && (
-          <button
+          <Button
+            type="button"
+            size="sm"
             onClick={handleRestart}
             disabled={loading}
-            className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2 rounded text-sm font-medium"
           >
             Restart
-          </button>
+          </Button>
         )}
         {!isActive && !isStopped && (
           <span className="text-sm text-gray-500">Session is {session?.status || 'unknown'}</span>
@@ -506,13 +514,13 @@ function BrowserActionsPanel({ browserId, onAction }: BrowserActionsPanelProps) 
             className="flex-1 border rounded px-3 py-2 text-sm"
             aria-label="URL to navigate"
           />
-          <button
+          <Button
             type="submit"
+            size="sm"
             disabled={loading === 'navigate' || !url.trim()}
-            className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white px-4 py-2 rounded text-sm font-medium"
           >
             Navigate
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -530,13 +538,14 @@ function BrowserActionsPanel({ browserId, onAction }: BrowserActionsPanelProps) 
             className="flex-1 border rounded px-3 py-2 text-sm"
             aria-label="Action instruction"
           />
-          <button
+          <Button
             type="submit"
+            size="sm"
+            variant="secondary"
             disabled={loading === 'act' || !instruction.trim()}
-            className="bg-purple-500 hover:bg-purple-600 disabled:bg-purple-300 text-white px-4 py-2 rounded text-sm font-medium"
           >
             Act
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -554,13 +563,13 @@ function BrowserActionsPanel({ browserId, onAction }: BrowserActionsPanelProps) 
             className="flex-1 border rounded px-3 py-2 text-sm"
             aria-label="Extract instruction"
           />
-          <button
+          <Button
             type="submit"
+            size="sm"
             disabled={loading === 'extract' || !extractInstruction.trim()}
-            className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2 rounded text-sm font-medium"
           >
             Extract
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -578,13 +587,14 @@ function BrowserActionsPanel({ browserId, onAction }: BrowserActionsPanelProps) 
             className="flex-1 border rounded px-3 py-2 text-sm"
             aria-label="Agent goal"
           />
-          <button
+          <Button
             type="submit"
+            size="sm"
+            variant="secondary"
             disabled={loading === 'agent' || !goal.trim()}
-            className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded text-sm font-medium"
           >
             Agent
-          </button>
+          </Button>
         </div>
       </form>
 

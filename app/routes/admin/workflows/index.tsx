@@ -7,6 +7,7 @@
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Shell, DataTable } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 import { useCollection } from '~/lib/hooks/use-collection'
 import { WorkflowSchema, type Workflow } from '~/collections'
 import { useAuth } from '~/src/admin/auth'
@@ -29,7 +30,7 @@ type WorkflowStatus = 'draft' | 'active' | 'paused' | 'completed' | 'failed'
 
 function StatusBadge({ status }: { status: WorkflowStatus }) {
   const colors: Record<WorkflowStatus, string> = {
-    draft: 'bg-gray-200 text-gray-800',
+    draft: 'bg-muted text-muted-foreground',
     active: 'bg-green-500 text-white',
     paused: 'bg-yellow-500 text-white',
     completed: 'bg-blue-500 text-white',
@@ -134,13 +135,9 @@ function WorkflowsPage() {
           <PageHeader
             title="Workflows"
             actions={
-              <button
-                type="button"
-                onClick={handleCreate}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
+              <Button onClick={handleCreate}>
                 New Workflow
-              </button>
+              </Button>
             }
           />
           <EmptyState
@@ -174,14 +171,12 @@ function WorkflowsPage() {
               aria-label="Search workflows"
               className="border rounded px-3 py-2"
             />
-            <button
-              type="button"
+            <Button
               onClick={handleCreate}
               data-testid="new-workflow-button"
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
             >
               New Workflow
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -204,7 +199,7 @@ function WorkflowsPage() {
                 accessorKey: 'trigger',
                 header: 'Trigger',
                 cell: ({ row }) => (
-                  <span className="text-sm text-gray-600 capitalize">
+                  <span className="text-sm text-muted-foreground capitalize">
                     {row.original.trigger.type}
                   </span>
                 ),
@@ -213,7 +208,7 @@ function WorkflowsPage() {
                 accessorKey: 'lastRunAt',
                 header: 'Last Run',
                 cell: ({ row }) => (
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-muted-foreground">
                     {formatDate(row.original.lastRunAt)}
                   </span>
                 ),
@@ -237,13 +232,14 @@ function WorkflowsPage() {
                       >
                         Runs
                       </a>
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
+                        className="text-destructive p-0 h-auto text-sm"
                         onClick={() => handleDelete(workflow.$id)}
-                        className="text-red-600 hover:underline text-sm"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   )
                 },

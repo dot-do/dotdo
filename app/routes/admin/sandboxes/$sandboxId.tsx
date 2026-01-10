@@ -17,6 +17,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { TerminalEmbed } from '~/components/TerminalEmbed'
 import { Shell } from '~/components/ui/shell'
+import { Button } from '~/components/ui/button'
 
 // ============================================================================
 // Types
@@ -185,13 +186,13 @@ function ExposedPortsList({ ports, sandboxId, onExposePort }: ExposedPortsListPr
     <div className="bg-white rounded-lg shadow p-6 mt-4">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Exposed Ports</h3>
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={() => setShowModal(true)}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm font-medium"
         >
           Expose Port
-        </button>
+        </Button>
       </div>
 
       {ports.length === 0 ? (
@@ -232,20 +233,21 @@ function ExposedPortsList({ ports, sandboxId, onExposePort }: ExposedPortsListPr
               max={65535}
             />
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="flex-1"
                 onClick={() => setShowModal(false)}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-medium"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                className="flex-1"
                 onClick={handleExposePort}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium"
               >
                 Expose
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -327,14 +329,14 @@ function SandboxDetailPage() {
             </div>
             <h1 className="text-2xl font-semibold">Sandbox: {sandboxId}</h1>
           </div>
-          <button
+          <Button
             type="button"
+            variant="destructive"
             onClick={handleDestroy}
             disabled={destroying}
-            className="bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white px-4 py-2 rounded font-medium"
           >
             {destroying ? 'Destroying...' : 'Destroy'}
-          </button>
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
