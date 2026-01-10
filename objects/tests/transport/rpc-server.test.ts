@@ -1812,3 +1812,895 @@ describe('Type-Safe RPC Client Generation', () => {
     expect(true).toBe(true) // Placeholder
   })
 })
+
+// ============================================================================
+// TESTS: DYNAMIC COLLECTION RPC METHODS
+// ============================================================================
+
+/**
+ * TDD RED: Dynamic Collection RPC Methods
+ *
+ * These tests verify that RPC method patterns like {Noun}.{method} are routed
+ * to the corresponding collection operations. For example:
+ * - Task.create -> collection("Task").create(data)
+ * - Task.get -> collection("Task").get(id)
+ * - Task.list -> collection("Task").list()
+ *
+ * This enables a clean, RESTful-like API over RPC:
+ * - Client calls `Task.create({ title: "..." })`
+ * - Server routes to `this.collection("Task").create({ title: "..." })`
+ *
+ * Issue: dotdo-4hczl
+ */
+describe('Collection RPC - Dynamic {Noun}.{method} routing', () => {
+  let mockState: DurableObjectState
+  let mockEnv: Env
+  let doInstance: RpcTestDO
+
+  beforeEach(async () => {
+    mockState = createMockState()
+    mockEnv = createMockEnv()
+    doInstance = new RpcTestDO(mockState, mockEnv)
+    await doInstance.initialize({ ns: 'https://test.example.com' })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.CREATE - Task.create calls collection("Task").create
+  // ==========================================================================
+
+  describe('Task.create calls collection("Task").create', () => {
+    it('routes Task.create RPC call to collection create method', async () => {
+      // RED: RPC server doesn't recognize {Noun}.{method} pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.create',
+            args: [{ type: 'value', value: { title: 'My Task', status: 'pending' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      expect(data.results?.[0].type).toBe('value')
+
+      const createdTask = data.results?.[0].value as { $id: string; $type: string; title: string }
+      expect(createdTask.$type).toBe('Task')
+      expect(createdTask.$id).toBeDefined()
+      expect(createdTask.title).toBe('My Task')
+    })
+
+    it('returns rowid in response for Task.create mutation', async () => {
+      // RED: Collection mutations don't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.create',
+            args: [{ type: 'value', value: { title: 'Task with rowid' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $id: string; $rowid?: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+    })
+
+    it('handles JSON-RPC 2.0 format for Task.create', async () => {
+      // RED: JSON-RPC doesn't route {Noun}.{method} patterns yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'Task.create',
+          params: [{ title: 'JSON-RPC Task', priority: 'high' }],
+          id: 1,
+        } satisfies JSONRPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as JSONRPCResponse
+
+      expect(data.jsonrpc).toBe('2.0')
+      expect(data.id).toBe(1)
+      expect(data.error).toBeUndefined()
+
+      const result = data.result as { $type: string; title: string }
+      expect(result.$type).toBe('Task')
+      expect(result.title).toBe('JSON-RPC Task')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.UPDATE - Task.update calls collection("Task").update
+  // ==========================================================================
+
+  describe('Task.update calls collection("Task").update', () => {
+    it('routes Task.update RPC call to collection update method', async () => {
+      // RED: RPC server doesn't recognize Task.update pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.update',
+            args: [
+              { type: 'value', value: 'task-123' },
+              { type: 'value', value: { status: 'completed' } },
+            ],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      expect(data.results?.[0].type).toBe('value')
+
+      const updatedTask = data.results?.[0].value as { $id: string; status: string }
+      expect(updatedTask.$id).toBe('task-123')
+      expect(updatedTask.status).toBe('completed')
+    })
+
+    it('returns rowid in response for Task.update mutation', async () => {
+      // RED: Update mutations don't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.update',
+            args: [
+              { type: 'value', value: 'task-456' },
+              { type: 'value', value: { title: 'Updated Title' } },
+            ],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $rowid?: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.DELETE - Task.delete calls collection("Task").delete
+  // ==========================================================================
+
+  describe('Task.delete calls collection("Task").delete', () => {
+    it('routes Task.delete RPC call to collection delete method', async () => {
+      // RED: RPC server doesn't recognize Task.delete pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.delete',
+            args: [{ type: 'value', value: 'task-789' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      expect(data.results?.[0].type).toBe('value')
+
+      const result = data.results?.[0].value as { deleted: boolean; $id: string }
+      expect(result.deleted).toBe(true)
+      expect(result.$id).toBe('task-789')
+    })
+
+    it('returns rowid in response for Task.delete mutation', async () => {
+      // RED: Delete mutations don't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.delete',
+            args: [{ type: 'value', value: 'task-to-delete' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $rowid?: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.GET - Task.get calls collection("Task").get
+  // ==========================================================================
+
+  describe('Task.get calls collection("Task").get', () => {
+    it('routes Task.get RPC call to collection get method', async () => {
+      // RED: RPC server doesn't recognize Task.get pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.get',
+            args: [{ type: 'value', value: 'task-abc' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      // Result could be value (found) or null (not found)
+      expect(['value', 'error'].includes(data.results?.[0].type ?? '')).toBe(false)
+      // Should return the task object or null
+      expect(data.results?.[0].type).toBe('value')
+    })
+
+    it('returns null for non-existent Task.get', async () => {
+      // RED: RPC doesn't handle Task.get for missing items yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.get',
+            args: [{ type: 'value', value: 'non-existent-task' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('value')
+      expect(data.results?.[0].value).toBeNull()
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.LIST - Task.list calls collection("Task").list
+  // ==========================================================================
+
+  describe('Task.list calls collection("Task").list', () => {
+    it('routes Task.list RPC call to collection list method', async () => {
+      // RED: RPC server doesn't recognize Task.list pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.list',
+            args: [],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      expect(data.results?.[0].type).toBe('value')
+      expect(Array.isArray(data.results?.[0].value)).toBe(true)
+    })
+
+    it('returns empty array when no tasks exist', async () => {
+      // RED: Task.list for empty collection not implemented yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.list',
+            args: [],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].value).toEqual([])
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: COLLECTION.FIND - Task.find calls collection("Task").find
+  // ==========================================================================
+
+  describe('Task.find calls collection("Task").find', () => {
+    it('routes Task.find RPC call to collection find method', async () => {
+      // RED: RPC server doesn't recognize Task.find pattern yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.find',
+            args: [{ type: 'value', value: { status: 'pending' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.type).toBe('batch')
+      expect(data.results?.[0].type).toBe('value')
+      expect(Array.isArray(data.results?.[0].value)).toBe(true)
+    })
+
+    it('returns filtered results from Task.find', async () => {
+      // RED: Task.find with query not implemented yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.find',
+            args: [{ type: 'value', value: { priority: 'high', status: 'pending' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('value')
+      // Results should all match the query criteria
+      const results = data.results?.[0].value as Array<{ priority: string; status: string }>
+      if (results.length > 0) {
+        for (const item of results) {
+          expect(item.priority).toBe('high')
+          expect(item.status).toBe('pending')
+        }
+      }
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: ROWID IN RESPONSES FOR MUTATIONS
+  // ==========================================================================
+
+  describe('returns rowid in response for mutations', () => {
+    it('includes $rowid in create response', async () => {
+      // RED: Create doesn't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Project.create',
+            args: [{ type: 'value', value: { name: 'New Project' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $id: string; $rowid: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+      expect(result.$rowid).toBeGreaterThan(0)
+    })
+
+    it('includes $rowid in update response', async () => {
+      // RED: Update doesn't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Project.update',
+            args: [
+              { type: 'value', value: 'proj-1' },
+              { type: 'value', value: { name: 'Updated Project' } },
+            ],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $rowid: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+    })
+
+    it('includes $rowid in delete response', async () => {
+      // RED: Delete doesn't return rowid yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Project.delete',
+            args: [{ type: 'value', value: 'proj-to-delete' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      const result = data.results?.[0].value as { $rowid: number }
+      expect(result.$rowid).toBeDefined()
+      expect(typeof result.$rowid).toBe('number')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: INVALID NOUN NAMES
+  // ==========================================================================
+
+  describe('rejects invalid noun names', () => {
+    it('rejects lowercase noun names', async () => {
+      // RED: RPC doesn't validate noun names yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'task.create', // lowercase - invalid
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('INVALID_NOUN')
+    })
+
+    it('rejects noun names with numbers', async () => {
+      // RED: RPC doesn't validate noun format yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task123.create', // has numbers - might be invalid
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      // Depending on validation rules, this might be error or pass
+      // For strict PascalCase, numbers should be invalid
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('INVALID_NOUN')
+    })
+
+    it('rejects empty noun names', async () => {
+      // RED: RPC doesn't validate empty noun names yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: '.create', // empty noun
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('INVALID_NOUN')
+    })
+
+    it('rejects noun names with special characters', async () => {
+      // RED: RPC doesn't validate special chars in noun names yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task$Special.create', // special char - invalid
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('INVALID_NOUN')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: UNKNOWN METHODS
+  // ==========================================================================
+
+  describe('rejects unknown methods', () => {
+    it('rejects unknown collection methods', async () => {
+      // RED: RPC doesn't validate collection method names yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.unknownMethod', // not a valid collection method
+            args: [{ type: 'value', value: 'test' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('UNKNOWN_METHOD')
+    })
+
+    it('rejects typos in method names', async () => {
+      // RED: RPC doesn't validate method name typos yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.crete', // typo: should be 'create'
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.code).toBe('UNKNOWN_METHOD')
+    })
+
+    it('returns helpful error message for unknown methods', async () => {
+      // RED: RPC doesn't return helpful error messages yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.search', // not implemented
+            args: [{ type: 'value', value: 'query' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[0].type).toBe('error')
+      expect(data.results?.[0].error?.message).toContain('search')
+      expect(data.results?.[0].error?.message).toContain('Task')
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: PATTERN MATCHING
+  // ==========================================================================
+
+  describe('Pattern matching for {Noun}.{method}', () => {
+    it('correctly parses Noun.method format', async () => {
+      // RED: Pattern matching not implemented yet
+      const testCases = [
+        { method: 'Task.create', expectedNoun: 'Task', expectedMethod: 'create' },
+        { method: 'Project.list', expectedNoun: 'Project', expectedMethod: 'list' },
+        { method: 'UserProfile.get', expectedNoun: 'UserProfile', expectedMethod: 'get' },
+        { method: 'OrderItem.find', expectedNoun: 'OrderItem', expectedMethod: 'find' },
+      ]
+
+      for (const testCase of testCases) {
+        const request = new Request('http://test/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: 'req-1',
+            type: 'call',
+            calls: [{
+              promiseId: 'p1',
+              target: { type: 'root' },
+              method: testCase.method,
+              args: testCase.expectedMethod === 'create'
+                ? [{ type: 'value', value: { name: 'test' } }]
+                : testCase.expectedMethod === 'get'
+                  ? [{ type: 'value', value: 'test-id' }]
+                  : testCase.expectedMethod === 'find'
+                    ? [{ type: 'value', value: {} }]
+                    : [],
+            }],
+          } satisfies RPCRequest),
+        })
+
+        const response = await doInstance.fetch(request)
+        const data = await response.json() as RPCResponse
+
+        // Should succeed (not return METHOD_NOT_FOUND)
+        expect(data.results?.[0].error?.code).not.toBe('METHOD_NOT_FOUND')
+      }
+    })
+
+    it('does not match methods without dot separator', async () => {
+      // RED: Should treat non-dotted methods as regular method calls
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'getUser', // regular method, not Noun.method pattern
+            args: [{ type: 'value', value: 'user-1' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      // Should call the actual getUser method, not try to parse as Noun.method
+      expect(data.results?.[0].type).toBe('value')
+      expect(data.results?.[0].value).toEqual({
+        id: 'user-1',
+        name: 'Alice',
+        email: 'alice@example.com',
+      })
+    })
+
+    it('handles multiple dots correctly', async () => {
+      // RED: Edge case - multiple dots should be invalid
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'Task.sub.create', // multiple dots - invalid pattern
+            args: [{ type: 'value', value: { title: 'Test' } }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      // Should return error for invalid pattern
+      expect(data.results?.[0].type).toBe('error')
+    })
+
+    it('prioritizes explicit methods over pattern matching', async () => {
+      // RED: If a method 'Task.create' exists, use it instead of pattern
+      // This tests that pattern matching is a fallback, not primary
+
+      // The test DO has a 'getUser' method - make sure it's called directly
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'call',
+          calls: [{
+            promiseId: 'p1',
+            target: { type: 'root' },
+            method: 'getUser',
+            args: [{ type: 'value', value: 'user-2' }],
+          }],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      // Should get Bob, not route to User.get('User', 'user-2')
+      expect(data.results?.[0].value).toEqual({
+        id: 'user-2',
+        name: 'Bob',
+        email: 'bob@example.com',
+      })
+    })
+  })
+
+  // ==========================================================================
+  // TESTS: BATCH OPERATIONS WITH COLLECTION RPC
+  // ==========================================================================
+
+  describe('Batch operations with Collection RPC', () => {
+    it('handles mixed collection and regular method calls', async () => {
+      // RED: Batch with mixed call types not implemented yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'batch',
+          calls: [
+            {
+              promiseId: 'p1',
+              target: { type: 'root' },
+              method: 'Task.create',
+              args: [{ type: 'value', value: { title: 'New Task' } }],
+            },
+            {
+              promiseId: 'p2',
+              target: { type: 'root' },
+              method: 'getUser',
+              args: [{ type: 'value', value: 'user-1' }],
+            },
+            {
+              promiseId: 'p3',
+              target: { type: 'root' },
+              method: 'Project.list',
+              args: [],
+            },
+          ],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results).toHaveLength(3)
+      // First should be created task
+      expect((data.results?.[0].value as { $type: string }).$type).toBe('Task')
+      // Second should be user
+      expect((data.results?.[1].value as { name: string }).name).toBe('Alice')
+      // Third should be array
+      expect(Array.isArray(data.results?.[2].value)).toBe(true)
+    })
+
+    it('supports pipelining with collection results', async () => {
+      // RED: Pipelining on collection results not implemented yet
+      const request = new Request('http://test/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'req-1',
+          type: 'batch',
+          calls: [
+            {
+              promiseId: 'p1',
+              target: { type: 'root' },
+              method: 'Task.create',
+              args: [{ type: 'value', value: { title: 'Pipeline Task', priority: 'high' } }],
+            },
+            // Access property from created task
+            {
+              promiseId: 'p2',
+              target: { type: 'property', base: { type: 'promise', promiseId: 'p1' }, property: 'title' },
+              method: '__get__',
+              args: [],
+            },
+          ],
+        } satisfies RPCRequest),
+      })
+
+      const response = await doInstance.fetch(request)
+      const data = await response.json() as RPCResponse
+
+      expect(data.results?.[1].value).toBe('Pipeline Task')
+    })
+  })
+})

@@ -127,9 +127,10 @@ export default defineWorkspace([
     test: {
       ...sharedTestConfig,
       name: 'app-components',
-      include: ['app/tests/**/*.test.tsx'],
+      include: ['app/tests/**/*.test.tsx', 'app/__tests__/**/*.test.tsx', 'app/components/**/__tests__/**/*.test.tsx'],
       exclude: defaultExcludes,
       environment: 'jsdom' as const,
+      setupFiles: ['./app/tests/setup.ts'],
     },
     resolve: nodeResolveConfig,
   },
@@ -216,6 +217,9 @@ export default defineWorkspace([
 
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
+
+  // TanStack DB integration tests (db/tanstack - SyncClient, RPC, etc.)
+  createNodeWorkspace('tanstack-db', ['db/tanstack/**/*.test.ts']),
 
   // @dotdo/duckdb-worker package tests (Node.js compatible tests only)
   // Note: Workers-specific tests are in packages/duckdb-worker/tests/workers/ and run in duckdb-worker-workers project
