@@ -49,7 +49,14 @@ export type AuthConfig = Record<string, MethodAuthConfig>
 
 const _DEFAULT_AUTH_CONFIG: AuthConfig = {
   // System endpoints
+  /**
+   * @deprecated Use the $ proxy via createDOProxy() instead.
+   * The $introspect endpoint is kept for backwards compatibility.
+   * @see createDOProxy from 'dotdo/proxy'
+   */
   '$introspect': { requireAuth: true },
+  /** The unified $ proxy endpoint - provides schema and class access */
+  '$': { requireAuth: true },
   '$health': { public: true },
   '$version': { public: true },
   '$metrics': { roles: ['admin'] },
