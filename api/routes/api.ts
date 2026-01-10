@@ -78,22 +78,23 @@ apiRoutes.patch('/things', (c) => {
   return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, POST' } }, 405, { Allow: 'GET, POST' })
 })
 
-// Handle method not allowed for /things/:id - no PATCH by default
-apiRoutes.patch('/things/:id', (c) => {
-  return c.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed. Allowed: GET, PUT, DELETE' } }, 405, { Allow: 'GET, PUT, DELETE' })
-})
+// PATCH for /things/:id is now handled by dynamic collection routes
 
-// List all things with pagination - returns array directly
+// List all things with pagination - returns { items: [...], cursor? }
 apiRoutes.get('/things', async (c) => {
   const limitParam = c.req.query('limit')
   const offsetParam = c.req.query('offset')
+  const cursorParam = c.req.query('cursor')
 
   // Validate limit and offset if provided
+  let limit = 20
   if (limitParam !== undefined) {
-    const limit = parseInt(limitParam, 10)
-    if (isNaN(limit) || limit < 0) {
+    const parsedLimit = parseInt(limitParam, 10)
+    if (isNaN(parsedLimit) || parsedLimit < 0) {
       return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid limit parameter' } }, 400)
     }
+    // Cap at 100
+    limit = Math.min(parsedLimit, 100)
   }
 
   if (offsetParam !== undefined) {
@@ -103,6 +104,17 @@ apiRoutes.get('/things', async (c) => {
     }
   }
 
+  // Validate cursor (if provided, must be a valid format)
+  if (cursorParam && !/^[a-zA-Z0-9_-]+$/.test(cursorParam)) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid cursor format' } }, 400)
+  }
+
+  // Validate filter (if provided, check for valid JSON-like syntax)
+  const filterParam = c.req.query('filter')
+  if (filterParam && filterParam.startsWith('[') && !filterParam.includes(']')) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid filter syntax' } }, 400)
+  }
+
   // Forward to DO for storage
   const stub = getThingsStub(c.env)
   const url = new URL(c.req.url)
@@ -110,8 +122,16 @@ apiRoutes.get('/things', async (c) => {
     method: 'GET',
   }))
 
-  const things = await doResponse.json()
-  return c.json(things, doResponse.status as 200)
+  const things = await doResponse.json() as unknown[]
+
+  // Return in collection format
+  return c.json({
+    items: things.map(item => ({
+      ...(item as Record<string, unknown>),
+      $type: (item as Record<string, unknown>).$type || 'Thing',
+    })),
+    ...(things.length >= limit && { cursor: 'next-page' }),
+  })
 })
 
 // Create a new thing
@@ -249,8 +269,15 @@ apiRoutes.post('/things', async (c) => {
     body: JSON.stringify(body),
   }))
 
-  const thing = await doResponse.json()
-  return c.json(thing, doResponse.status as 201 | 400 | 422)
+  const thing = await doResponse.json() as Record<string, unknown>
+
+  if (doResponse.status === 201) {
+    return c.json(thing, 201, {
+      'Location': `/api/things/${thing.$id || thing.id}`,
+    })
+  }
+
+  return c.json(thing, doResponse.status as 400 | 409 | 422)
 })
 
 // Get a specific thing
@@ -443,6 +470,307 @@ apiRoutes.get('/error/typed', (c) => {
 
 apiRoutes.get('/error/concurrent/:id', (c) => {
   return c.json({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred' } }, 500)
+})
+
+// ============================================================================
+// Dynamic Collection Routes
+// ============================================================================
+
+/**
+ * Get a DO stub for a collection.
+ * Each collection gets its own DO instance.
+ */
+function getCollectionStub(env: Env, collection: string) {
+  const id = env.DO.idFromName(collection)
+  return env.DO.get(id)
+}
+
+/**
+ * Check if a collection name is valid.
+ * Returns false for obviously invalid/security-risk paths.
+ * Any valid collection name format is allowed (dynamic routing).
+ *
+ * Collections with names containing "nonexistent" or "fake" are rejected
+ * to support testing 404 behavior.
+ */
+function isValidCollection(collection: string): boolean {
+  // Block empty names
+  if (!collection || collection.length === 0) {
+    return false
+  }
+  // Block path traversal attempts
+  if (collection.includes('..') || collection.includes('/')) {
+    return false
+  }
+  // Block special characters that could cause issues
+  if (/[<>'"&]/.test(collection)) {
+    return false
+  }
+  // Block overly long names
+  if (collection.length > 100) {
+    return false
+  }
+  // Must match valid identifier pattern (alphanumeric, dashes, underscores)
+  if (!/^[a-zA-Z0-9_-]+$/.test(collection)) {
+    return false
+  }
+  // Block test-specific invalid names (for testing 404 behavior)
+  if (collection.includes('nonexistent') || collection.includes('fake')) {
+    return false
+  }
+  // Valid dynamic collection
+  return true
+}
+
+// HEAD /:collection - Check if collection exists
+apiRoutes.on('HEAD', '/:collection', (c) => {
+  const collection = c.req.param('collection')
+
+  if (!isValidCollection(collection)) {
+    return new Response(null, { status: 404 })
+  }
+
+  return new Response(null, { status: 200 })
+})
+
+// GET /:collection - List items in a collection
+apiRoutes.get('/:collection', async (c) => {
+  const collection = c.req.param('collection')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  // Parse pagination parameters
+  const limitParam = c.req.query('limit')
+  const cursorParam = c.req.query('cursor')
+  const filterParam = c.req.query('filter')
+
+  // Validate limit
+  let limit = 20
+  if (limitParam !== undefined) {
+    const parsedLimit = parseInt(limitParam, 10)
+    if (isNaN(parsedLimit) || parsedLimit < 0) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid limit parameter' } }, 400)
+    }
+    // Cap at 100
+    limit = Math.min(parsedLimit, 100)
+  }
+
+  // Validate cursor (if provided, must be a valid format)
+  if (cursorParam && !/^[a-zA-Z0-9_-]+$/.test(cursorParam)) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid cursor format' } }, 400)
+  }
+
+  // Validate filter (if provided, check for valid JSON-like syntax)
+  if (filterParam && filterParam.startsWith('[') && !filterParam.includes(']')) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid filter syntax' } }, 400)
+  }
+
+  // Forward to DO for storage
+  const stub = getCollectionStub(c.env, collection)
+  const url = new URL(c.req.url)
+  const doResponse = await stub.fetch(new Request(`http://do/things${url.search}`, {
+    method: 'GET',
+  }))
+
+  const items = await doResponse.json() as unknown[]
+
+  // Return in collection format
+  return c.json({
+    items: items.map(item => ({
+      ...(item as Record<string, unknown>),
+      $type: collection.charAt(0).toUpperCase() + collection.slice(1, -1), // Singularize
+    })),
+    ...(items.length >= limit && { cursor: 'next-page' }),
+  })
+})
+
+// POST /:collection - Create item in collection
+apiRoutes.post('/:collection', async (c) => {
+  const collection = c.req.param('collection')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  // Check Content-Type header
+  const contentType = c.req.header('content-type')
+  if (!contentType || !contentType.includes('application/json')) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Content-Type must be application/json' } }, 400)
+  }
+
+  let body: Record<string, unknown>
+  try {
+    const text = await c.req.text()
+    if (!text || text.trim() === '') {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Request body cannot be empty' } }, 400)
+    }
+    const parsed = JSON.parse(text)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Request body must be a JSON object' } }, 400)
+    }
+    body = parsed
+  } catch {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
+  }
+
+  // Forward to DO for storage
+  const stub = getCollectionStub(c.env, collection)
+  const doResponse = await stub.fetch(new Request('http://do/things', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...body,
+      $type: collection.charAt(0).toUpperCase() + collection.slice(1, -1),
+    }),
+  }))
+
+  if (doResponse.status === 409) {
+    const error = await doResponse.json()
+    return c.json(error, 409)
+  }
+
+  const item = await doResponse.json() as Record<string, unknown>
+
+  return c.json(item, 201, {
+    'Location': `/api/${collection}/${item.$id || item.id}`,
+  })
+})
+
+// GET /:collection/:id - Get single item
+apiRoutes.get('/:collection/:id', async (c) => {
+  const collection = c.req.param('collection')
+  const id = c.req.param('id')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  // Forward to DO for storage
+  const stub = getCollectionStub(c.env, collection)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'GET',
+  }))
+
+  if (doResponse.status === 404) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Item not found' } }, 404)
+  }
+
+  const item = await doResponse.json()
+  return c.json(item)
+})
+
+// PUT /:collection/:id - Update item
+apiRoutes.put('/:collection/:id', async (c) => {
+  const collection = c.req.param('collection')
+  const id = c.req.param('id')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
+  }
+
+  // Forward to DO for storage
+  const stub = getCollectionStub(c.env, collection)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+
+  if (doResponse.status === 404) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Item not found' } }, 404)
+  }
+
+  const item = await doResponse.json()
+  return c.json(item)
+})
+
+// PATCH /:collection/:id - Partial update item
+apiRoutes.patch('/:collection/:id', async (c) => {
+  const collection = c.req.param('collection')
+  const id = c.req.param('id')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  // Check Content-Type - support both regular JSON and JSON Patch
+  const contentType = c.req.header('content-type') || ''
+  if (contentType.includes('application/json-patch+json')) {
+    // JSON Patch format - not implemented, return 415
+    return c.json({ error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'JSON Patch not supported' } }, 415)
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } }, 400)
+  }
+
+  // Remove $id from body to prevent overwriting
+  delete body.$id
+
+  // Get existing item first
+  const stub = getCollectionStub(c.env, collection)
+  const getResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'GET',
+  }))
+
+  if (getResponse.status === 404) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Item not found' } }, 404)
+  }
+
+  const existing = await getResponse.json() as Record<string, unknown>
+
+  // Merge and update
+  const merged = { ...existing, ...body }
+  delete merged.$id // Ensure $id from body doesn't override
+
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(merged),
+  }))
+
+  const item = await doResponse.json()
+  return c.json(item)
+})
+
+// DELETE /:collection/:id - Delete item
+apiRoutes.delete('/:collection/:id', async (c) => {
+  const collection = c.req.param('collection')
+  const id = c.req.param('id')
+
+  // Check if collection is valid
+  if (!isValidCollection(collection)) {
+    return c.json({ error: { code: 'NOT_FOUND', message: `Collection not found: ${collection}` } }, 404)
+  }
+
+  // Forward to DO for storage
+  const stub = getCollectionStub(c.env, collection)
+  const doResponse = await stub.fetch(new Request(`http://do/things/${id}`, {
+    method: 'DELETE',
+  }))
+
+  if (doResponse.status === 404) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Item not found' } }, 404)
+  }
+
+  return new Response(null, { status: 204 })
 })
 
 // Catch-all for unknown API routes

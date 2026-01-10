@@ -303,6 +303,18 @@ export default defineWorkspace([
     },
   },
 
+  // Worker integration tests (real miniflare runtime)
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      ...sharedTestConfig,
+      name: 'workers-integration',
+      include: ['workers/**/*.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+    },
+  },
+
   // DuckDB WASM tests - require Workers runtime for WASM instantiation
   {
     extends: './tests/config/vitest.workers.config.ts',

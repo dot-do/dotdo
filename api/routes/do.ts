@@ -49,11 +49,15 @@ async function fetchWithTimeout(
 
   try {
     // Clone request with abort signal
+    // Need to use duplex: 'half' in Node.js environments when body is a ReadableStream
+    const hasBody = request.method !== 'GET' && request.method !== 'HEAD' && request.body
     const requestWithSignal = new Request(request.url, {
       method: request.method,
       headers: request.headers,
-      body: request.body,
+      body: hasBody ? request.body : undefined,
       signal: controller.signal,
+      // @ts-expect-error - duplex is required for Node.js but not in types
+      duplex: hasBody ? 'half' : undefined,
     })
     return await stub.fetch(requestWithSignal)
   } finally {
@@ -115,10 +119,14 @@ doRoutes.all('/:doClass/:id/*', async (c) => {
 
   // Forward request to DO with original headers and body, wrapped in try-catch
   try {
+    // Need to use duplex: 'half' in Node.js environments when body is a ReadableStream
+    const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
     const request = new Request(url.toString(), {
       method: c.req.method,
       headers: c.req.raw.headers,
-      body: c.req.raw.body,
+      body: hasBody ? c.req.raw.body : undefined,
+      // @ts-expect-error - duplex is required for Node.js but not in types
+      duplex: hasBody ? 'half' : undefined,
     })
 
     const response = await fetchWithTimeout(stub, request)
@@ -194,10 +202,14 @@ doRoutes.all('/:doClass/:id', async (c) => {
 
   // Forward request to DO with original headers and body, wrapped in try-catch
   try {
+    // Need to use duplex: 'half' in Node.js environments when body is a ReadableStream
+    const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
     const request = new Request(url.toString(), {
       method: c.req.method,
       headers: c.req.raw.headers,
-      body: c.req.raw.body,
+      body: hasBody ? c.req.raw.body : undefined,
+      // @ts-expect-error - duplex is required for Node.js but not in types
+      duplex: hasBody ? 'half' : undefined,
     })
 
     const response = await fetchWithTimeout(stub, request)
