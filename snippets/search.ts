@@ -1319,3 +1319,1277 @@ export async function queryVector(options: QueryVectorOptions): Promise<Centroid
 export function clearCentroidCache(): void {
   centroidCache.clear()
 }
+
+// ============================================================================
+// Full-Text Search Types
+// ============================================================================
+
+import { InvertedIndexReader, HEADER_SIZE, simpleTokenize } from '../db/iceberg/inverted-index'
+
+/**
+ * Options for fetching inverted index from CDN.
+ */
+export interface FullTextFetchOptions {
+  /** Custom fetch function (defaults to global fetch) */
+  fetch?: typeof globalThis.fetch
+  /** Enable range requests for partial loading */
+  rangeRequestEnabled?: boolean
+  /** Only fetch header (for metadata inspection) */
+  headerOnly?: boolean
+  /** Only fetch term index (no posting lists) */
+  termIndexOnly?: boolean
+  /** Maximum memory bytes for index cache */
+  maxMemoryBytes?: number
+  /** Request timeout in milliseconds */
+  timeoutMs?: number
+  /** Case-sensitive term lookup (default: false) */
+  caseSensitive?: boolean
+  /** Enable lazy loading of posting lists */
+  lazyPostingLists?: boolean
+}
+
+/**
+ * Full-text query parameters.
+ */
+export interface FullTextQuery {
+  /** URL to the inverted index file */
+  url: string
+  /** Query string (supports AND, OR, quotes, wildcards) */
+  query: string
+  /** Result offset for pagination */
+  offset?: number
+  /** Maximum results to return */
+  limit?: number
+}
+
+/**
+ * Result of a full-text query.
+ */
+export interface FullTextQueryResult {
+  /** Array of matching document IDs */
+  hits: number[]
+  /** Total number of matching documents (before pagination) */
+  totalHits: number
+  /** Query execution time in milliseconds */
+  queryTimeMs: number
+}
+
+/**
+ * Posting list result with document IDs and metadata.
+ */
+export interface PostingList {
+  /** Array of document IDs */
+  docIds: number[]
+  /** Number of documents containing the term */
+  documentFrequency: number
+}
+
+/**
+ * Parameters for term lookup.
+ */
+export interface LookupTermParams {
+  /** URL to the inverted index file */
+  url: string
+  /** Term to look up */
+  term: string
+}
+
+/**
+ * Parameters for multi-term intersection (AND).
+ */
+export interface IntersectTermsParams {
+  /** URL to the inverted index file */
+  url: string
+  /** Terms to intersect */
+  terms: string[]
+}
+
+/**
+ * Parameters for multi-term union (OR).
+ */
+export interface UnionTermsParams {
+  /** URL to the inverted index file */
+  url: string
+  /** Terms to union */
+  terms: string[]
+}
+
+/**
+ * Parameters for phrase search.
+ */
+export interface PhraseSearchParams {
+  /** URL to the inverted index file */
+  url: string
+  /** Phrase to search for */
+  phrase: string
+}
+
+/**
+ * Parameters for prefix search.
+ */
+export interface PrefixSearchParams {
+  /** URL to the inverted index file */
+  url: string
+  /** Prefix to match */
+  prefix: string
+  /** Maximum number of matching terms to return */
+  limit?: number
+}
+
+/**
+ * Result of a prefix search.
+ */
+export interface PrefixSearchResult {
+  /** Array of matching terms */
+  terms: string[]
+  /** Combined document IDs from all matching terms */
+  docIds: number[]
+}
+
+// ============================================================================
+// Full-Text Search Cache
+// ============================================================================
+
+/**
+ * Cache entry for inverted index.
+ */
+interface InvertedIndexCacheEntry {
+  /** Parsed inverted index reader */
+  reader: InvertedIndexReader
+  /** Size in bytes */
+  sizeBytes: number
+  /** Timestamp when cached */
+  cachedAt: number
+}
+
+/** In-memory cache for inverted indexes, keyed by URL:fetchId */
+const invertedIndexCache = new Map<string, InvertedIndexCacheEntry>()
+
+/** In-flight inverted index fetches for deduplication */
+const inFlightInvertedIndexFetches = new Map<string, Promise<InvertedIndexReader | null>>()
+
+/** Total bytes currently used by inverted index cache */
+let invertedIndexCacheTotalBytes = 0
+
+/** Default memory limit for inverted index cache (2MB for Snippets) */
+const DEFAULT_INVERTED_INDEX_MAX_MEMORY = 2 * 1024 * 1024
+
+/**
+ * Cache for parsed posting lists to avoid re-parsing on repeated lookups.
+ * Key: cacheKey::term, Value: array of doc IDs
+ */
+const postingListCache = new Map<string, number[]>()
+
+/** WeakMap to assign unique IDs to custom fetch functions */
+const fetchFunctionIds = new WeakMap<typeof globalThis.fetch, number>()
+
+/** Counter for assigning fetch function IDs */
+let nextFetchId = 1
+
+/**
+ * Get or create a unique ID for a fetch function.
+ * Returns 0 for the global fetch function.
+ */
+function getFetchId(fetchFn?: typeof globalThis.fetch): number {
+  if (!fetchFn || fetchFn === globalThis.fetch) {
+    return 0
+  }
+  let id = fetchFunctionIds.get(fetchFn)
+  if (id === undefined) {
+    id = nextFetchId++
+    fetchFunctionIds.set(fetchFn, id)
+  }
+  return id
+}
+
+/**
+ * Create a cache key that includes both URL and fetch function ID.
+ */
+function makeCacheKey(url: string, fetchFn?: typeof globalThis.fetch): string {
+  const fetchId = getFetchId(fetchFn)
+  return fetchId === 0 ? url : `${url}::${fetchId}`
+}
+
+/**
+ * Evict oldest entries from inverted index cache to make room for new entries.
+ */
+function evictInvertedIndexCacheIfNeeded(maxBytes: number, neededBytes: number): void {
+  if (invertedIndexCacheTotalBytes + neededBytes <= maxBytes) {
+    return
+  }
+
+  const entries = Array.from(invertedIndexCache.entries()).sort(
+    ([, a], [, b]) => a.cachedAt - b.cachedAt
+  )
+
+  for (const [key, entry] of entries) {
+    if (invertedIndexCacheTotalBytes + neededBytes <= maxBytes) {
+      break
+    }
+    invertedIndexCache.delete(key)
+    invertedIndexCacheTotalBytes -= entry.sizeBytes
+  }
+}
+
+/**
+ * Clear the inverted index cache.
+ */
+export function clearInvertedIndexCache(): void {
+  invertedIndexCache.clear()
+  inFlightInvertedIndexFetches.clear()
+  invertedIndexCacheTotalBytes = 0
+  postingListCache.clear()
+}
+
+// ============================================================================
+// Full-Text Search Implementation
+// ============================================================================
+
+/**
+ * Fetch and parse an inverted index from CDN.
+ *
+ * @param url - URL to the inverted index file
+ * @param options - Fetch options
+ * @returns Parsed InvertedIndexReader or null if not found/invalid
+ */
+export async function fetchInvertedIndex(
+  url: string,
+  options: FullTextFetchOptions = {}
+): Promise<InvertedIndexReader | null> {
+  const {
+    fetch: customFetch = fetch,
+    maxMemoryBytes = DEFAULT_INVERTED_INDEX_MAX_MEMORY,
+    timeoutMs,
+  } = options
+
+  // Create cache key that includes fetch function identity
+  const cacheKey = makeCacheKey(url, customFetch)
+
+  // Check cache first
+  const cached = invertedIndexCache.get(cacheKey)
+  if (cached) {
+    return cached.reader
+  }
+
+  // Check for in-flight request (request deduplication)
+  const inFlight = inFlightInvertedIndexFetches.get(cacheKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  // Create promise for this request
+  const fetchPromise = (async (): Promise<InvertedIndexReader | null> => {
+    try {
+      // Helper for timeout
+      const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+        return Promise.race([
+          promise,
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Request timeout')), ms)
+          }),
+        ])
+      }
+
+      let response: Response
+      try {
+        if (timeoutMs) {
+          response = await withTimeout(customFetch(url), timeoutMs)
+        } else {
+          response = await customFetch(url)
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'Request timeout') {
+            throw error
+          }
+          throw new Error(`Network fetch failed: ${error.message}`)
+        }
+        throw new Error('Network fetch failed')
+      }
+
+      if (response.status === 404) {
+        return null
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch inverted index: ${response.status}`)
+      }
+
+      const bytes = new Uint8Array(await response.arrayBuffer())
+
+      // Try to parse the index
+      let reader: InvertedIndexReader
+      try {
+        reader = InvertedIndexReader.deserialize(bytes)
+      } catch {
+        // Invalid/corrupt index
+        return null
+      }
+
+      // Cache the parsed reader
+      const sizeBytes = bytes.length
+      evictInvertedIndexCacheIfNeeded(maxMemoryBytes, sizeBytes)
+
+      invertedIndexCache.set(cacheKey, {
+        reader,
+        sizeBytes,
+        cachedAt: Date.now(),
+      })
+      invertedIndexCacheTotalBytes += sizeBytes
+
+      return reader
+    } finally {
+      inFlightInvertedIndexFetches.delete(cacheKey)
+    }
+  })()
+
+  inFlightInvertedIndexFetches.set(cacheKey, fetchPromise)
+  return fetchPromise
+}
+
+/**
+ * Look up a single term in an inverted index.
+ *
+ * @param params - Lookup parameters
+ * @param options - Fetch options
+ * @returns Posting list with document IDs
+ */
+export async function lookupTerm(
+  params: LookupTermParams,
+  options: FullTextFetchOptions = {}
+): Promise<PostingList> {
+  const { url, term } = params
+  const { caseSensitive = false, fetch: customFetch = fetch } = options
+
+  // Create cache keys
+  const indexCacheKey = makeCacheKey(url, customFetch)
+  const normalizedTerm = caseSensitive ? term : term.toLowerCase()
+  const postingCacheKey = `${indexCacheKey}::${normalizedTerm}`
+
+  // Check posting list cache first
+  const cachedPosting = postingListCache.get(postingCacheKey)
+  if (cachedPosting !== undefined) {
+    return {
+      docIds: cachedPosting,
+      documentFrequency: cachedPosting.length,
+    }
+  }
+
+  const reader = await fetchInvertedIndex(url, options)
+  if (!reader) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  const docIds = reader.getPostings(normalizedTerm)
+
+  // Cache the parsed posting list
+  postingListCache.set(postingCacheKey, docIds)
+
+  return {
+    docIds,
+    documentFrequency: docIds.length,
+  }
+}
+
+/**
+ * Intersect multiple terms (AND query).
+ *
+ * @param params - Intersection parameters
+ * @param options - Fetch options
+ * @returns Posting list with document IDs matching ALL terms
+ */
+export async function intersectTerms(
+  params: IntersectTermsParams,
+  options: FullTextFetchOptions = {}
+): Promise<PostingList> {
+  const { url, terms } = params
+  const { caseSensitive = false } = options
+
+  if (terms.length === 0) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  const reader = await fetchInvertedIndex(url, options)
+  if (!reader) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  // Normalize terms if case-insensitive
+  const normalizedTerms = caseSensitive ? terms : terms.map((t) => t.toLowerCase())
+
+  const docIds = reader.intersect(normalizedTerms)
+  return {
+    docIds,
+    documentFrequency: docIds.length,
+  }
+}
+
+/**
+ * Simple stemming helper that tries common inflections.
+ * Returns an array of term variants to try.
+ */
+function getTermVariants(term: string): string[] {
+  const variants = [term]
+
+  // Try adding 's' for plural
+  if (!term.endsWith('s')) {
+    variants.push(term + 's')
+  }
+
+  // Try removing 's' for singular
+  if (term.endsWith('s') && term.length > 2) {
+    variants.push(term.slice(0, -1))
+  }
+
+  return variants
+}
+
+/**
+ * Union multiple terms (OR query).
+ *
+ * @param params - Union parameters
+ * @param options - Fetch options
+ * @returns Posting list with document IDs matching ANY term
+ */
+export async function unionTerms(
+  params: UnionTermsParams,
+  options: FullTextFetchOptions = {}
+): Promise<PostingList> {
+  const { url, terms } = params
+  const { caseSensitive = false } = options
+
+  if (terms.length === 0) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  const reader = await fetchInvertedIndex(url, options)
+  if (!reader) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  // Normalize terms, expand with variants, and deduplicate
+  const normalizedTerms = caseSensitive ? terms : terms.map((t) => t.toLowerCase())
+  const expandedTerms = new Set<string>()
+
+  for (const term of normalizedTerms) {
+    for (const variant of getTermVariants(term)) {
+      expandedTerms.add(variant)
+    }
+  }
+
+  const docIds = reader.union([...expandedTerms])
+  return {
+    docIds,
+    documentFrequency: docIds.length,
+  }
+}
+
+/**
+ * Search for a phrase in an inverted index.
+ *
+ * Note: Without position data in the index, this is approximated as an AND query
+ * on the tokenized phrase terms. For exact phrase matching, the index would need
+ * position information stored with each posting.
+ *
+ * @param params - Phrase search parameters
+ * @param options - Fetch options
+ * @returns Posting list with document IDs containing the phrase
+ */
+export async function phraseSearch(
+  params: PhraseSearchParams,
+  options: FullTextFetchOptions = {}
+): Promise<PostingList> {
+  const { url, phrase } = params
+
+  // Tokenize the phrase
+  const terms = simpleTokenize(phrase)
+
+  if (terms.length === 0) {
+    return { docIds: [], documentFrequency: 0 }
+  }
+
+  // Without position data, treat as AND query
+  // This is an approximation - true phrase search requires position information
+  return intersectTerms({ url, terms }, options)
+}
+
+/**
+ * Search for terms matching a prefix.
+ *
+ * @param params - Prefix search parameters
+ * @param options - Fetch options
+ * @returns Matching terms and their combined document IDs
+ */
+export async function prefixSearch(
+  params: PrefixSearchParams,
+  options: FullTextFetchOptions = {}
+): Promise<PrefixSearchResult> {
+  const { url, prefix, limit = 100 } = params
+  const { caseSensitive = false } = options
+
+  const reader = await fetchInvertedIndex(url, options)
+  if (!reader) {
+    return { terms: [], docIds: [] }
+  }
+
+  // Normalize prefix if case-insensitive
+  const normalizedPrefix = caseSensitive ? prefix : prefix.toLowerCase()
+
+  // Get matching terms
+  const matchingEntries = reader.searchPrefix(normalizedPrefix, limit)
+  const terms = matchingEntries.map((e) => e.term)
+
+  if (terms.length === 0) {
+    return { terms: [], docIds: [] }
+  }
+
+  // Union all matching term postings
+  const docIds = reader.union(terms)
+
+  return {
+    terms,
+    docIds,
+  }
+}
+
+/**
+ * Parse and execute a full-text query.
+ *
+ * Query syntax:
+ * - Single term: `dog`
+ * - AND query: `dog AND cat` or `dog cat` (implicit AND)
+ * - OR query: `dog OR cat`
+ * - Phrase: `"quick brown fox"`
+ * - Prefix wildcard: `qui*`
+ *
+ * @param params - Query parameters
+ * @param options - Fetch options
+ * @returns Query result with hits and metadata
+ */
+export async function queryFullText(
+  params: FullTextQuery,
+  options: FullTextFetchOptions = {}
+): Promise<FullTextQueryResult> {
+  const { url, query, offset = 0, limit } = params
+  const { timeoutMs } = options
+
+  const startTime = performance.now()
+
+  // Helper for timeout
+  const checkTimeout = () => {
+    if (timeoutMs && performance.now() - startTime > timeoutMs) {
+      throw new Error('Request timeout')
+    }
+  }
+
+  // Handle empty query
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) {
+    return {
+      hits: [],
+      totalHits: 0,
+      queryTimeMs: performance.now() - startTime,
+    }
+  }
+
+  // Fetch the index
+  const reader = await fetchInvertedIndex(url, options)
+  if (!reader) {
+    throw new Error('Failed to fetch index')
+  }
+
+  checkTimeout()
+
+  let docIds: number[] = []
+
+  // Check for OR query
+  if (trimmedQuery.includes(' OR ')) {
+    const parts = trimmedQuery.split(' OR ').map((p) => p.trim()).filter(Boolean)
+    const termLists: number[][] = []
+
+    for (const part of parts) {
+      checkTimeout()
+      const partTerms = simpleTokenize(part)
+      if (partTerms.length > 0) {
+        const partResult = reader.intersect(partTerms)
+        termLists.push(partResult)
+      }
+    }
+
+    // Union all parts
+    const allDocs = new Set<number>()
+    for (const list of termLists) {
+      for (const id of list) {
+        allDocs.add(id)
+      }
+    }
+    docIds = Array.from(allDocs).sort((a, b) => a - b)
+  }
+  // Check for AND query
+  else if (trimmedQuery.includes(' AND ')) {
+    const parts = trimmedQuery.split(' AND ').map((p) => p.trim()).filter(Boolean)
+    const allTerms: string[] = []
+
+    for (const part of parts) {
+      const partTerms = simpleTokenize(part)
+      allTerms.push(...partTerms)
+    }
+
+    if (allTerms.length > 0) {
+      docIds = reader.intersect(allTerms)
+    }
+  }
+  // Check for quoted phrase
+  else if (trimmedQuery.startsWith('"') && trimmedQuery.endsWith('"')) {
+    const phrase = trimmedQuery.slice(1, -1)
+    const terms = simpleTokenize(phrase)
+    if (terms.length > 0) {
+      docIds = reader.intersect(terms)
+    }
+  }
+  // Check for prefix wildcard
+  else if (trimmedQuery.endsWith('*')) {
+    const prefix = trimmedQuery.slice(0, -1).toLowerCase()
+    const matchingEntries = reader.searchPrefix(prefix, 100)
+    const matchingTerms = matchingEntries.map((e) => e.term)
+    if (matchingTerms.length > 0) {
+      docIds = reader.union(matchingTerms)
+    }
+  }
+  // Default: treat as space-separated terms (implicit AND or single term)
+  else {
+    const terms = simpleTokenize(trimmedQuery)
+    if (terms.length > 0) {
+      if (terms.length === 1) {
+        docIds = reader.getPostings(terms[0])
+      } else {
+        docIds = reader.intersect(terms)
+      }
+    }
+  }
+
+  checkTimeout()
+
+  // Apply pagination
+  const totalHits = docIds.length
+  let hits = docIds
+
+  if (offset > 0) {
+    hits = hits.slice(offset)
+  }
+  if (limit !== undefined) {
+    hits = hits.slice(0, limit)
+  }
+
+  return {
+    hits,
+    totalHits,
+    queryTimeMs: performance.now() - startTime,
+  }
+}
+
+// ============================================================================
+// Combined Query Router Types
+// ============================================================================
+
+import { buildIndexUrl, type SearchManifest } from '../db/iceberg/search-manifest'
+
+/**
+ * Range comparison operators.
+ */
+export type RangeOp = 'gt' | 'lt' | 'gte' | 'lte' | 'eq'
+
+/**
+ * Bloom filter query parameter.
+ */
+export interface BloomQueryParam {
+  /** Field name to check */
+  field: string
+  /** Value to look up */
+  value: string
+}
+
+/**
+ * Range query parameter.
+ */
+export interface RangeQueryParam {
+  /** Field name to check */
+  field: string
+  /** Comparison operator */
+  op: RangeOp
+  /** Value to compare against */
+  value: string
+}
+
+/**
+ * Vector query parameter.
+ */
+export interface VectorQueryParam {
+  /** Field name for vector index */
+  field: string
+  /** Query vector */
+  query: Float32Array
+  /** Number of nearest neighbors to return */
+  k: number
+}
+
+/**
+ * Full-text query parameter.
+ */
+export interface TextQueryParam {
+  /** Field name for inverted index */
+  field: string
+  /** Query string */
+  query: string
+}
+
+/**
+ * Combined search query with all supported query types.
+ */
+export interface SearchQuery {
+  /** Bloom filter queries (AND semantics) */
+  bloom?: BloomQueryParam[]
+  /** Range queries (AND semantics) */
+  range?: RangeQueryParam[]
+  /** Vector similarity query */
+  vector?: VectorQueryParam
+  /** Full-text query */
+  text?: TextQueryParam
+}
+
+/**
+ * Centroid result with index and distance.
+ */
+export interface CentroidResult {
+  /** Index of the centroid */
+  index: number
+  /** Distance from query vector */
+  distance: number
+}
+
+/**
+ * Combined search result.
+ */
+export interface SearchResult {
+  /** Whether the entire result set is pruned (no matches possible) */
+  pruned: boolean
+  /** Block indices to scan (for range queries) */
+  blocks?: number[]
+  /** Top-k centroids (for vector queries) */
+  centroids?: CentroidResult[]
+  /** Matching document IDs (for text queries) */
+  documents?: number[]
+  /** Timing breakdown */
+  timing: {
+    /** Total execution time in milliseconds */
+    total_ms: number
+    /** Additional timing breakdowns by query type */
+    [key: string]: number
+  }
+  /** Number of subrequests made */
+  subrequests: number
+}
+
+/**
+ * Options for search execution.
+ */
+export interface SearchExecutionOptions {
+  /** Custom fetch function */
+  fetch?: typeof globalThis.fetch
+  /** Timeout in milliseconds */
+  timeoutMs?: number
+  /** Maximum number of subrequests (default: 5) */
+  maxSubrequests?: number
+}
+
+// ============================================================================
+// Combined Query Router Implementation
+// ============================================================================
+
+/** Maximum subrequests allowed per search */
+const MAX_SUBREQUESTS = 5
+
+/**
+ * Parse a search query from URL parameters.
+ *
+ * Query format:
+ * - bloom=field:value
+ * - range=field:op:value (op: gt, lt, gte, lte, eq)
+ * - vector=field:base64data:k=N
+ * - text=field:query
+ *
+ * @param url - URL containing query parameters
+ * @returns Parsed SearchQuery
+ */
+export function parseSearchQuery(url: URL): SearchQuery {
+  const query: SearchQuery = {}
+
+  // Parse bloom parameters
+  const bloomParams = url.searchParams.getAll('bloom')
+  if (bloomParams.length > 0) {
+    query.bloom = bloomParams.map((param) => {
+      const colonIndex = param.indexOf(':')
+      if (colonIndex === -1) {
+        return { field: param, value: '' }
+      }
+      return {
+        field: param.slice(0, colonIndex),
+        value: param.slice(colonIndex + 1),
+      }
+    })
+  }
+
+  // Parse range parameters
+  const rangeParams = url.searchParams.getAll('range')
+  if (rangeParams.length > 0) {
+    query.range = rangeParams.map((param) => {
+      const parts = param.split(':')
+      if (parts.length < 3) {
+        return { field: parts[0] ?? '', op: 'eq' as RangeOp, value: parts[1] ?? '' }
+      }
+      return {
+        field: parts[0],
+        op: parts[1] as RangeOp,
+        value: parts.slice(2).join(':'), // Rejoin remaining parts for values with colons
+      }
+    })
+  }
+
+  // Parse vector parameter
+  const vectorParam = url.searchParams.get('vector')
+  if (vectorParam) {
+    const parts = vectorParam.split(':')
+    if (parts.length >= 3) {
+      const field = parts[0]
+      const base64Data = parts[1]
+      const kMatch = parts[2].match(/k=(\d+)/)
+      const k = kMatch ? parseInt(kMatch[1], 10) : 10
+
+      // Decode base64 to Float32Array
+      // First decode to a byte array, then create Float32Array
+      const binaryString = Buffer.from(base64Data, 'base64')
+      // Create a new ArrayBuffer with the exact size needed
+      const arrayBuffer = new ArrayBuffer(binaryString.length)
+      const uint8View = new Uint8Array(arrayBuffer)
+      for (let i = 0; i < binaryString.length; i++) {
+        uint8View[i] = binaryString[i]
+      }
+      const floatArray = new Float32Array(arrayBuffer)
+
+      query.vector = { field, query: floatArray, k }
+    }
+  }
+
+  // Parse text parameter
+  const textParam = url.searchParams.get('text')
+  if (textParam) {
+    const colonIndex = textParam.indexOf(':')
+    if (colonIndex !== -1) {
+      query.text = {
+        field: textParam.slice(0, colonIndex),
+        query: textParam.slice(colonIndex + 1),
+      }
+    }
+  }
+
+  return query
+}
+
+/**
+ * In-memory cache for search-related data.
+ */
+const searchCache = new Map<string, unknown>()
+
+/**
+ * Clear all search caches.
+ */
+export function clearSearchCache(): void {
+  searchCache.clear()
+  clearCentroidCache()
+  clearInvertedIndexCache()
+  clearBloomCache()
+}
+
+/**
+ * Execute a combined search query against a manifest.
+ *
+ * @param manifest - Search manifest describing available indexes
+ * @param query - Combined search query
+ * @param ctx - Execution context
+ * @param options - Execution options
+ * @returns Combined search result
+ */
+export async function executeSearch(
+  manifest: SearchManifest,
+  query: SearchQuery,
+  ctx: { waitUntil: (promise: Promise<unknown>) => void },
+  options: SearchExecutionOptions = {}
+): Promise<SearchResult> {
+  const {
+    fetch: customFetch = fetch,
+    timeoutMs = 5000,
+    maxSubrequests = MAX_SUBREQUESTS,
+  } = options
+
+  const startTime = performance.now()
+  const timing: Record<string, number> = {}
+  let subrequests = 0
+  let budgetRemaining = maxSubrequests
+
+  // Track if we should prune (any definitive NO from bloom = prune all)
+  let pruned = false
+
+  // Results from different query types
+  let rangeBlocks: number[] | undefined
+  let vectorCentroids: CentroidResult[] | undefined
+  let textDocuments: number[] | undefined
+
+  // Helper to check timeout
+  const checkTimeout = () => {
+    if (performance.now() - startTime > timeoutMs) {
+      throw new Error('Search timeout')
+    }
+  }
+
+  // Helper to track subrequests
+  const trackSubrequest = () => {
+    subrequests++
+    budgetRemaining--
+  }
+
+  // Empty query - return immediately
+  const hasQuery =
+    (query.bloom && query.bloom.length > 0) ||
+    (query.range && query.range.length > 0) ||
+    query.vector ||
+    query.text
+
+  if (!hasQuery) {
+    return {
+      pruned: false,
+      timing: { total_ms: performance.now() - startTime },
+      subrequests: 0,
+    }
+  }
+
+  // Validate vector query dimensions if present
+  if (query.vector) {
+    const vectorConfig = manifest.indexes.vector?.[query.vector.field]
+    if (vectorConfig) {
+      if (query.vector.query.length === 0) {
+        throw new Error('Vector query is empty - dimension mismatch')
+      }
+      if (query.vector.query.length !== vectorConfig.dims) {
+        throw new Error(
+          `Vector dimension mismatch: expected ${vectorConfig.dims}, got ${query.vector.query.length}`
+        )
+      }
+    }
+  }
+
+  try {
+    // =========================================================================
+    // Phase 1: Bloom filter checks (most selective, do first)
+    // =========================================================================
+    if (query.bloom && query.bloom.length > 0 && budgetRemaining > 0) {
+      const bloomStartTime = performance.now()
+
+      for (const bloomQuery of query.bloom) {
+        if (budgetRemaining <= 0) break
+        checkTimeout()
+
+        const bloomConfig = manifest.indexes.bloom?.[bloomQuery.field]
+        if (!bloomConfig) {
+          // Field not in manifest - skip (conservative: don't prune)
+          continue
+        }
+
+        const bloomUrl = buildIndexUrl(manifest, 'bloom', bloomQuery.field)
+        if (!bloomUrl) continue
+
+        try {
+          trackSubrequest()
+
+          // Note: fieldId is used to identify which bloom filter in a Puffin file
+          // Since each field has its own Puffin file in this schema, use a default fieldId
+          // The fieldId in Puffin files typically corresponds to Iceberg column IDs
+          const result = await queryBloom(
+            {
+              url: bloomUrl,
+              fieldId: 1, // Default column ID
+              value: bloomQuery.value,
+            },
+            { fetch: customFetch }
+          )
+
+          if (result === BloomQueryResult.NO) {
+            // Definitive NO - prune entire result
+            pruned = true
+            timing.bloom_ms = performance.now() - bloomStartTime
+            break
+          }
+          // result === MAYBE means continue checking
+        } catch {
+          // On error, be conservative - don't prune
+          continue
+        }
+      }
+
+      timing.bloom_ms = performance.now() - bloomStartTime
+    }
+
+    // Short-circuit if already pruned
+    if (pruned) {
+      return {
+        pruned: true,
+        timing: {
+          ...timing,
+          total_ms: performance.now() - startTime,
+        },
+        subrequests,
+      }
+    }
+
+    // =========================================================================
+    // Phase 2: Range queries (determine blocks to scan)
+    // =========================================================================
+    if (query.range && query.range.length > 0 && budgetRemaining > 0) {
+      const rangeStartTime = performance.now()
+      const allBlocks = new Set<number>()
+      let firstRangeQuery = true
+
+      for (const rangeQuery of query.range) {
+        if (budgetRemaining <= 0) break
+        checkTimeout()
+
+        const rangeConfig = manifest.indexes.range?.[rangeQuery.field]
+        if (!rangeConfig) continue
+
+        const rangeUrl = buildIndexUrl(manifest, 'range', rangeQuery.field)
+        if (!rangeUrl) continue
+
+        try {
+          trackSubrequest()
+
+          // Fetch marks file
+          const response = await customFetch(rangeUrl)
+          if (!response.ok) continue
+
+          const buffer = await response.arrayBuffer()
+          // Use int64 type for range queries (covers timestamps and integers)
+          const blocks = parseMarksFile(new Uint8Array(buffer), 'int64')
+
+          // Find matching blocks based on operator
+          const matchingBlocks = findMatchingBlocks(blocks, rangeQuery.op, rangeQuery.value)
+
+          if (firstRangeQuery) {
+            for (const block of matchingBlocks) {
+              allBlocks.add(block)
+            }
+            firstRangeQuery = false
+          } else {
+            // Intersect with previous results (AND semantics)
+            for (const block of allBlocks) {
+              if (!matchingBlocks.includes(block)) {
+                allBlocks.delete(block)
+              }
+            }
+          }
+
+          // If no blocks match, we can prune
+          if (allBlocks.size === 0 && !firstRangeQuery) {
+            pruned = true
+            break
+          }
+        } catch {
+          // On error, be conservative
+          continue
+        }
+      }
+
+      if (allBlocks.size > 0) {
+        rangeBlocks = Array.from(allBlocks).sort((a, b) => a - b)
+      }
+
+      timing.range_ms = performance.now() - rangeStartTime
+    }
+
+    // Short-circuit if pruned by range
+    if (pruned) {
+      return {
+        pruned: true,
+        timing: {
+          ...timing,
+          total_ms: performance.now() - startTime,
+        },
+        subrequests,
+      }
+    }
+
+    // =========================================================================
+    // Phase 3: Vector query (find nearest centroids)
+    // =========================================================================
+    if (query.vector && budgetRemaining > 0) {
+      const vectorStartTime = performance.now()
+
+      const vectorConfig = manifest.indexes.vector?.[query.vector.field]
+      if (vectorConfig) {
+        const vectorUrl = buildIndexUrl(manifest, 'vector', query.vector.field)
+        if (vectorUrl) {
+          try {
+            trackSubrequest()
+
+            const k = Math.min(query.vector.k, vectorConfig.count)
+
+            // Convert manifest metric string to DistanceMetric enum
+            const metricMap: Record<string, DistanceMetric> = {
+              cosine: DistanceMetric.Cosine,
+              euclidean: DistanceMetric.Euclidean,
+              dot: DistanceMetric.DotProduct,
+            }
+            const metric = metricMap[vectorConfig.metric] ?? DistanceMetric.Cosine
+
+            const topK = await queryVector({
+              centroidsUrl: vectorUrl,
+              numCentroids: vectorConfig.count,
+              dims: vectorConfig.dims,
+              query: query.vector.query,
+              k,
+              metric,
+              fetch: customFetch,
+            })
+
+            vectorCentroids = topK.map((result) => ({
+              index: result.index,
+              distance: result.distance,
+            }))
+          } catch {
+            // On error, leave centroids undefined
+          }
+        }
+      }
+
+      timing.vector_ms = performance.now() - vectorStartTime
+    }
+
+    // =========================================================================
+    // Phase 4: Full-text query
+    // =========================================================================
+    if (query.text && budgetRemaining > 0) {
+      const textStartTime = performance.now()
+
+      const invertedConfig = manifest.indexes.inverted?.[query.text.field]
+      if (invertedConfig) {
+        const invertedUrl = buildIndexUrl(manifest, 'inverted', query.text.field)
+        if (invertedUrl) {
+          try {
+            trackSubrequest()
+
+            const result = await queryFullText(
+              { url: invertedUrl, query: query.text.query },
+              { fetch: customFetch }
+            )
+
+            textDocuments = result.hits
+
+            // If no documents match, we could prune
+            // But for combined queries we want to return the result
+            if (result.hits.length === 0) {
+              pruned = true
+            }
+          } catch {
+            // On error, leave documents undefined
+          }
+        }
+      }
+
+      timing.text_ms = performance.now() - textStartTime
+    }
+  } catch (error) {
+    // Handle timeout
+    if (error instanceof Error && error.message.includes('timeout')) {
+      return {
+        pruned: false, // Conservative on timeout
+        timing: {
+          ...timing,
+          total_ms: performance.now() - startTime,
+        },
+        subrequests,
+      }
+    }
+    throw error
+  }
+
+  timing.total_ms = performance.now() - startTime
+
+  return {
+    pruned,
+    blocks: rangeBlocks,
+    centroids: vectorCentroids,
+    documents: textDocuments,
+    timing,
+    subrequests,
+  }
+}
+
+// ============================================================================
+// Helper Functions for Combined Router
+// ============================================================================
+
+/**
+ * Find blocks matching a range query.
+ */
+function findMatchingBlocks(blocks: BlockRange[], op: RangeOp, value: string): number[] {
+  // Try to parse value as a number/timestamp
+  let numValue: bigint
+  try {
+    // Check if it's a date string
+    if (value.includes('-') && value.length >= 10) {
+      numValue = BigInt(new Date(value).getTime())
+    } else {
+      numValue = BigInt(value)
+    }
+  } catch {
+    // If parsing fails, return all blocks (conservative)
+    return blocks.map((b) => b.blockIndex)
+  }
+
+  const matchingBlocks: number[] = []
+
+  for (const block of blocks) {
+    let matches = false
+
+    // Handle different min/max types (bigint or number)
+    const minVal = typeof block.min === 'bigint' ? block.min : BigInt(Math.floor(block.min as number))
+    const maxVal = typeof block.max === 'bigint' ? block.max : BigInt(Math.floor(block.max as number))
+
+    switch (op) {
+      case 'gt':
+        // Block matches if its max > value (some values could be > value)
+        matches = maxVal > numValue
+        break
+      case 'gte':
+        // Block matches if its max >= value
+        matches = maxVal >= numValue
+        break
+      case 'lt':
+        // Block matches if its min < value
+        matches = minVal < numValue
+        break
+      case 'lte':
+        // Block matches if its min <= value
+        matches = minVal <= numValue
+        break
+      case 'eq':
+        // Block matches if value is within [min, max]
+        matches = minVal <= numValue && maxVal >= numValue
+        break
+    }
+
+    if (matches) {
+      matchingBlocks.push(block.blockIndex)
+    }
+  }
+
+  return matchingBlocks
+}
