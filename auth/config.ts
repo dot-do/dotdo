@@ -16,6 +16,7 @@ import { organization, admin, apiKey, sso, oauthProvider } from 'better-auth/plu
 import { stripe } from '@better-auth/stripe'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from '../db'
+import { validateAuthEnv, isAuthEnvValidated } from './env-validation'
 
 // ============================================================================
 // CONFIGURATION
@@ -50,6 +51,12 @@ export interface AuthConfig {
 // ============================================================================
 
 export function createAuth(config: AuthConfig) {
+  // Validate OAuth environment variables before using them
+  // This provides clear error messages if configuration is missing
+  if (!isAuthEnvValidated()) {
+    validateAuthEnv()
+  }
+
   const { db, authDomain, allowedDomainPatterns, resolveTenantNs, stripeClient, stripeWebhookSecret } = config
 
   const baseURL = `https://${authDomain}`

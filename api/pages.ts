@@ -5,15 +5,7 @@
  * for landing, docs, admin, and error pages.
  */
 
-// HTML escaping utility to prevent XSS
-const escapeHtml = (unsafe: string): string => {
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
+import { escapeHtml } from '../lib/utils/html'
 
 // Base styles for all pages
 const baseStyles = `

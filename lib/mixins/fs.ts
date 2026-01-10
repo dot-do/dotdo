@@ -10,10 +10,115 @@
  * - Lazy initialization (only creates FSx when first accessed)
  * - Support for FileSystemDO stub or direct R2 binding
  * - Consistent FsCapability interface
+ *
+ * Storage Layout:
+ * The virtual filesystem uses DurableObjectStorage (SQLite) with these key prefixes:
+ * - `fsx:file:/path` - File content (string)
+ * - `fsx:meta:/path` - File metadata (FileMetadata JSON)
+ * - `fsx:dir:/path`  - Directory marker (boolean)
+ *
+ * @module lib/mixins/fs
  */
 
 import type { WorkflowContext } from '../../types/WorkflowContext'
 import type { DO, Env } from '../../objects/DO'
+
+// ============================================================================
+// STORAGE KEY CONSTANTS
+// ============================================================================
+
+/**
+ * Storage key prefix for file content.
+ * Format: `fsx:file:/path/to/file` -> string content
+ */
+const FS_STORAGE_PREFIX_FILE = 'fsx:file:'
+
+/**
+ * Storage key prefix for file metadata.
+ * Format: `fsx:meta:/path/to/file` -> FileMetadata JSON
+ */
+const FS_STORAGE_PREFIX_META = 'fsx:meta:'
+
+/**
+ * Storage key prefix for directory markers.
+ * Format: `fsx:dir:/path/to/dir` -> true
+ */
+const FS_STORAGE_PREFIX_DIR = 'fsx:dir:'
+
+// ============================================================================
+// ERROR TYPES
+// ============================================================================
+
+/**
+ * Node.js-compatible filesystem error codes.
+ * These match standard POSIX error codes used by Node.js fs module.
+ */
+export type FsErrorCode =
+  | 'ENOENT'    // No such file or directory
+  | 'EEXIST'    // File already exists
+  | 'EISDIR'    // Is a directory
+  | 'ENOTDIR'   // Not a directory
+  | 'ENOTEMPTY' // Directory not empty
+  | 'EACCES'    // Permission denied
+  | 'EINVAL'    // Invalid argument
+  | 'ENOSPC'    // No space left on device
+
+/**
+ * Filesystem error with Node.js-compatible error codes.
+ *
+ * Provides a familiar error interface for developers used to Node.js fs errors.
+ * The `code` property can be used for programmatic error handling.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await $.fs.read('/missing.txt')
+ * } catch (error) {
+ *   if (error instanceof FsError && error.code === 'ENOENT') {
+ *     console.log('File not found:', error.path)
+ *   }
+ * }
+ * ```
+ */
+export class FsError extends Error {
+  /** POSIX error code (e.g., 'ENOENT', 'EEXIST') */
+  readonly code: FsErrorCode
+
+  /** The filesystem path that caused the error */
+  readonly path: string
+
+  /** The system call that failed (e.g., 'read', 'write', 'stat') */
+  readonly syscall: string
+
+  constructor(code: FsErrorCode, path: string, syscall: string) {
+    const message = `${code}: ${FsError.getErrorMessage(code)}: ${path}`
+    super(message)
+    this.name = 'FsError'
+    this.code = code
+    this.path = path
+    this.syscall = syscall
+
+    // Maintain proper prototype chain
+    Object.setPrototypeOf(this, FsError.prototype)
+  }
+
+  /**
+   * Get human-readable error message for error code.
+   */
+  private static getErrorMessage(code: FsErrorCode): string {
+    switch (code) {
+      case 'ENOENT': return 'no such file or directory'
+      case 'EEXIST': return 'file already exists'
+      case 'EISDIR': return 'illegal operation on a directory'
+      case 'ENOTDIR': return 'not a directory'
+      case 'ENOTEMPTY': return 'directory not empty'
+      case 'EACCES': return 'permission denied'
+      case 'EINVAL': return 'invalid argument'
+      case 'ENOSPC': return 'no space left on device'
+      default: return 'unknown error'
+    }
+  }
+}
 
 // ============================================================================
 // CAPABILITY TYPES
@@ -48,15 +153,162 @@ export interface FsMkdirOptions {
   recursive?: boolean
 }
 
+/**
+ * Filesystem capability interface for dotdo workflows.
+ *
+ * Provides a consistent API for filesystem operations across different backends:
+ * - DurableObjectStorage (SQLite) for persistent, transactional storage
+ * - FsModule wrapper for external FSx instances
+ * - FileSystemDO stubs for cross-DO filesystem access
+ *
+ * All paths should be absolute (starting with `/`). Paths are automatically
+ * normalized to handle trailing slashes and ensure consistency.
+ *
+ * @example
+ * ```typescript
+ * // In a DO with withFs mixin
+ * await $.fs.write('/config.json', JSON.stringify(config))
+ * const data = await $.fs.read('/config.json')
+ *
+ * // Directory operations
+ * await $.fs.mkdir('/data/logs', { recursive: true })
+ * const files = await $.fs.list('/data')
+ * ```
+ */
 export interface FsCapability {
+  /**
+   * Read file content as a string.
+   *
+   * @param path - Absolute path to the file
+   * @param options - Read options (encoding)
+   * @returns File content as string
+   * @throws {FsError} ENOENT if file does not exist
+   *
+   * @example
+   * ```typescript
+   * const content = await $.fs.read('/app/config.json')
+   * ```
+   */
   read(path: string, options?: FsReadOptions): Promise<string>
+
+  /**
+   * Write content to a file, creating it if it doesn't exist.
+   *
+   * Parent directories are NOT automatically created. Use `mkdir` with
+   * `recursive: true` first if needed.
+   *
+   * @param path - Absolute path to the file
+   * @param content - String content to write
+   * @param options - Write options (encoding)
+   *
+   * @example
+   * ```typescript
+   * await $.fs.write('/app/data.json', JSON.stringify(data))
+   * ```
+   */
   write(path: string, content: string, options?: FsWriteOptions): Promise<void>
+
+  /**
+   * Check if a file or directory exists.
+   *
+   * @param path - Absolute path to check
+   * @returns true if path exists, false otherwise
+   *
+   * @example
+   * ```typescript
+   * if (await $.fs.exists('/app/config.json')) {
+   *   // Load config
+   * }
+   * ```
+   */
   exists(path: string): Promise<boolean>
+
+  /**
+   * Delete a file or empty directory.
+   *
+   * @param path - Absolute path to delete
+   * @throws {FsError} ENOENT if path does not exist (behavior may vary by backend)
+   *
+   * @example
+   * ```typescript
+   * await $.fs.delete('/tmp/cache.json')
+   * ```
+   */
   delete(path: string): Promise<void>
+
+  /**
+   * List entries in a directory.
+   *
+   * @param path - Absolute path to directory
+   * @param options - List options (filter function)
+   * @returns Array of directory entries with name and isDirectory flag
+   *
+   * @example
+   * ```typescript
+   * const entries = await $.fs.list('/app')
+   * const files = entries.filter(e => !e.isDirectory)
+   * ```
+   */
   list(path: string, options?: FsListOptions): Promise<FsEntry[]>
+
+  /**
+   * Create a directory.
+   *
+   * @param path - Absolute path for new directory
+   * @param options - mkdir options
+   * @param options.recursive - If true, create parent directories as needed
+   *
+   * @example
+   * ```typescript
+   * await $.fs.mkdir('/app/data/logs', { recursive: true })
+   * ```
+   */
   mkdir(path: string, options?: FsMkdirOptions): Promise<void>
+
+  /**
+   * Get file or directory metadata.
+   *
+   * @param path - Absolute path to stat
+   * @returns File/directory statistics
+   * @throws {FsError} ENOENT if path does not exist
+   *
+   * @example
+   * ```typescript
+   * const info = await $.fs.stat('/app/data.json')
+   * console.log(`Size: ${info.size}, Modified: ${info.modifiedAt}`)
+   * ```
+   */
   stat(path: string): Promise<FsStat>
+
+  /**
+   * Copy a file to a new location.
+   *
+   * @param src - Source file path
+   * @param dest - Destination file path
+   * @throws {FsError} ENOENT if source does not exist
+   *
+   * @example
+   * ```typescript
+   * await $.fs.copy('/app/config.json', '/backup/config.json')
+   * ```
+   */
   copy(src: string, dest: string): Promise<void>
+
+  /**
+   * Move a file to a new location.
+   *
+   * This is an atomic operation: the source is deleted only after
+   * the destination is successfully written.
+   *
+   * @param src - Source file path
+   * @param dest - Destination file path
+   * @throws {FsError} ENOENT if source does not exist
+   *
+   * @example
+   * ```typescript
+   * await $.fs.move('/tmp/upload.json', '/data/file.json')
+   * ```
+   */
   move(src: string, dest: string): Promise<void>
 }
 
@@ -385,24 +637,39 @@ export interface WithFsDO<E extends Env = Env> extends DO<E> {
 // ============================================================================
 
 /**
- * File metadata stored alongside content
+ * File metadata stored alongside content in DurableObjectStorage.
+ * All dates are stored as ISO strings for JSON serialization.
  */
 interface FileMetadata {
+  /** File size in bytes (string length for text content) */
   size: number
+  /** Whether this entry represents a directory */
   isDirectory: boolean
-  createdAt: string  // ISO string for storage
-  modifiedAt: string // ISO string for storage
+  /** Creation timestamp as ISO 8601 string */
+  createdAt: string
+  /** Last modification timestamp as ISO 8601 string */
+  modifiedAt: string
 }
 
-/**
- * Storage key prefixes for the virtual filesystem
- */
-const FS_FILE_PREFIX = 'fsx:file:'
-const FS_META_PREFIX = 'fsx:meta:'
-const FS_DIR_PREFIX = 'fsx:dir:'
+// ============================================================================
+// PATH UTILITIES
+// ============================================================================
 
 /**
- * Normalize path to ensure consistent key format
+ * Normalize a filesystem path to ensure consistent key format.
+ *
+ * - Ensures path starts with `/`
+ * - Removes trailing slash (except for root `/`)
+ *
+ * @param path - The path to normalize
+ * @returns Normalized path string
+ *
+ * @example
+ * ```typescript
+ * normalizePath('foo/bar')   // '/foo/bar'
+ * normalizePath('/foo/bar/') // '/foo/bar'
+ * normalizePath('/')         // '/'
+ * ```
  */
 function normalizePath(path: string): string {
   // Ensure path starts with /
@@ -417,7 +684,17 @@ function normalizePath(path: string): string {
 }
 
 /**
- * Get parent directory path
+ * Get the parent directory path from a file path.
+ *
+ * @param path - The file or directory path
+ * @returns Parent directory path (always at least '/')
+ *
+ * @example
+ * ```typescript
+ * getParentDir('/foo/bar/file.txt') // '/foo/bar'
+ * getParentDir('/foo')               // '/'
+ * getParentDir('/')                  // '/'
+ * ```
  */
 function getParentDir(path: string): string {
   const normalized = normalizePath(path)
@@ -427,7 +704,17 @@ function getParentDir(path: string): string {
 }
 
 /**
- * Get file/directory name from path
+ * Get the basename (file or directory name) from a path.
+ *
+ * @param path - The file or directory path
+ * @returns The last segment of the path
+ *
+ * @example
+ * ```typescript
+ * getBasename('/foo/bar/file.txt') // 'file.txt'
+ * getBasename('/foo/bar')          // 'bar'
+ * getBasename('/')                 // ''
+ * ```
  */
 function getBasename(path: string): string {
   const normalized = normalizePath(path)
@@ -436,20 +723,28 @@ function getBasename(path: string): string {
 }
 
 /**
- * Creates an FsCapability instance backed by DurableObjectStorage (SQLite)
+ * Creates an FsCapability instance backed by DurableObjectStorage (SQLite).
  *
- * Storage layout:
- * - fsx:file:/path/to/file -> file content (string)
- * - fsx:meta:/path/to/file -> FileMetadata (JSON)
- * - fsx:dir:/path/to/dir -> true (marker for directories)
+ * This is the core filesystem implementation used by the withFs mixin.
+ * All operations are transactional via the underlying SQLite storage.
+ *
+ * Storage layout (uses constants defined at module top):
+ * - `fsx:file:/path` - File content (string)
+ * - `fsx:meta:/path` - FileMetadata JSON (size, timestamps, type)
+ * - `fsx:dir:/path`  - Directory marker (boolean true)
+ *
+ * @param storage - DurableObjectStorage instance from the DO state
+ * @returns FsCapability implementation
+ *
+ * @internal
  */
 function createFsCapability(storage: DurableObjectStorage): FsCapability {
   return {
     async read(path: string, options?: FsReadOptions): Promise<string> {
       const normalizedPath = normalizePath(path)
-      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedPath)
+      const content = await storage.get<string>(FS_STORAGE_PREFIX_FILE + normalizedPath)
       if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory: ${path}`)
+        throw new FsError('ENOENT', path, 'read')
       }
       return content
     },
@@ -459,7 +754,7 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       const now = new Date().toISOString()
 
       // Check if file already exists to preserve createdAt
-      const existingMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedPath)
+      const existingMeta = await storage.get<FileMetadata>(FS_STORAGE_PREFIX_META + normalizedPath)
 
       const metadata: FileMetadata = {
         size: content.length,
@@ -469,17 +764,17 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       }
 
       // Write file content and metadata atomically
-      await storage.put(FS_FILE_PREFIX + normalizedPath, content)
-      await storage.put(FS_META_PREFIX + normalizedPath, metadata)
+      await storage.put(FS_STORAGE_PREFIX_FILE + normalizedPath, content)
+      await storage.put(FS_STORAGE_PREFIX_META + normalizedPath, metadata)
     },
 
     async exists(path: string): Promise<boolean> {
       const normalizedPath = normalizePath(path)
       // Check for file
-      const fileContent = await storage.get(FS_FILE_PREFIX + normalizedPath)
+      const fileContent = await storage.get(FS_STORAGE_PREFIX_FILE + normalizedPath)
       if (fileContent !== undefined) return true
       // Check for directory marker
-      const dirMarker = await storage.get(FS_DIR_PREFIX + normalizedPath)
+      const dirMarker = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
       if (dirMarker !== undefined) return true
       return false
     },
@@ -487,9 +782,9 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
     async delete(path: string): Promise<void> {
       const normalizedPath = normalizePath(path)
       // Delete file content, metadata, and directory marker
-      await storage.delete(FS_FILE_PREFIX + normalizedPath)
-      await storage.delete(FS_META_PREFIX + normalizedPath)
-      await storage.delete(FS_DIR_PREFIX + normalizedPath)
+      await storage.delete(FS_STORAGE_PREFIX_FILE + normalizedPath)
+      await storage.delete(FS_STORAGE_PREFIX_META + normalizedPath)
+      await storage.delete(FS_STORAGE_PREFIX_DIR + normalizedPath)
     },
 
     async list(path: string, options?: FsListOptions): Promise<FsEntry[]> {
@@ -500,10 +795,10 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       const seen = new Set<string>()
 
       // List all file keys
-      const fileKeys = await storage.list<string>({ prefix: FS_FILE_PREFIX + prefix })
+      const fileKeys = await storage.list<string>({ prefix: FS_STORAGE_PREFIX_FILE + prefix })
       for (const [key] of fileKeys) {
         // Extract the path after the prefix
-        const fullPath = key.slice(FS_FILE_PREFIX.length)
+        const fullPath = key.slice(FS_STORAGE_PREFIX_FILE.length)
         const relativePath = fullPath.slice(prefix.length)
 
         // Get the first segment (immediate child)
@@ -519,9 +814,9 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       }
 
       // List all directory markers
-      const dirKeys = await storage.list<boolean>({ prefix: FS_DIR_PREFIX + prefix })
+      const dirKeys = await storage.list<boolean>({ prefix: FS_STORAGE_PREFIX_DIR + prefix })
       for (const [key] of dirKeys) {
-        const fullPath = key.slice(FS_DIR_PREFIX.length)
+        const fullPath = key.slice(FS_STORAGE_PREFIX_DIR.length)
         const relativePath = fullPath.slice(prefix.length)
 
         // Get the first segment
@@ -551,10 +846,10 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
         let current = ''
         for (const part of parts) {
           current += '/' + part
-          await storage.put(FS_DIR_PREFIX + current, true)
+          await storage.put(FS_STORAGE_PREFIX_DIR + current, true)
         }
       } else {
-        await storage.put(FS_DIR_PREFIX + normalizedPath, true)
+        await storage.put(FS_STORAGE_PREFIX_DIR + normalizedPath, true)
       }
     },
 
@@ -562,7 +857,7 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       const normalizedPath = normalizePath(path)
 
       // Check for file metadata
-      const meta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedPath)
+      const meta = await storage.get<FileMetadata>(FS_STORAGE_PREFIX_META + normalizedPath)
       if (meta) {
         return {
           size: meta.size,
@@ -574,7 +869,7 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       }
 
       // Check for directory marker
-      const isDir = await storage.get(FS_DIR_PREFIX + normalizedPath)
+      const isDir = await storage.get(FS_STORAGE_PREFIX_DIR + normalizedPath)
       if (isDir !== undefined) {
         const now = new Date()
         return {
@@ -586,24 +881,24 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
         }
       }
 
-      throw new Error(`ENOENT: no such file or directory: ${path}`)
+      throw new FsError('ENOENT', path, 'stat')
     },
 
     async copy(src: string, dest: string): Promise<void> {
       const normalizedSrc = normalizePath(src)
       const normalizedDest = normalizePath(dest)
 
-      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedSrc)
+      const content = await storage.get<string>(FS_STORAGE_PREFIX_FILE + normalizedSrc)
       if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory: ${src}`)
+        throw new FsError('ENOENT', src, 'copy')
       }
 
-      const srcMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedSrc)
+      const srcMeta = await storage.get<FileMetadata>(FS_STORAGE_PREFIX_META + normalizedSrc)
       const now = new Date().toISOString()
 
       // Write to destination with new timestamps
-      await storage.put(FS_FILE_PREFIX + normalizedDest, content)
-      await storage.put(FS_META_PREFIX + normalizedDest, {
+      await storage.put(FS_STORAGE_PREFIX_FILE + normalizedDest, content)
+      await storage.put(FS_STORAGE_PREFIX_META + normalizedDest, {
         size: content.length,
         isDirectory: false,
         createdAt: now,
@@ -615,17 +910,17 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       const normalizedSrc = normalizePath(src)
       const normalizedDest = normalizePath(dest)
 
-      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedSrc)
+      const content = await storage.get<string>(FS_STORAGE_PREFIX_FILE + normalizedSrc)
       if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory: ${src}`)
+        throw new FsError('ENOENT', src, 'move')
       }
 
-      const srcMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedSrc)
+      const srcMeta = await storage.get<FileMetadata>(FS_STORAGE_PREFIX_META + normalizedSrc)
       const now = new Date().toISOString()
 
       // Write to destination preserving original createdAt
-      await storage.put(FS_FILE_PREFIX + normalizedDest, content)
-      await storage.put(FS_META_PREFIX + normalizedDest, {
+      await storage.put(FS_STORAGE_PREFIX_FILE + normalizedDest, content)
+      await storage.put(FS_STORAGE_PREFIX_META + normalizedDest, {
         size: content.length,
         isDirectory: false,
         createdAt: srcMeta?.createdAt ?? now,
@@ -633,8 +928,8 @@ function createFsCapability(storage: DurableObjectStorage): FsCapability {
       } as FileMetadata)
 
       // Delete source
-      await storage.delete(FS_FILE_PREFIX + normalizedSrc)
-      await storage.delete(FS_META_PREFIX + normalizedSrc)
+      await storage.delete(FS_STORAGE_PREFIX_FILE + normalizedSrc)
+      await storage.delete(FS_STORAGE_PREFIX_META + normalizedSrc)
     },
   }
 }

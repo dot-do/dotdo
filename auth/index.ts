@@ -68,3 +68,6 @@ export type { AuthConfig } from './config'
 
 export { handleAuthRequest, getSessionFromRequest, requireAuth, requireOrgMembership } from './handler'
 export type { AuthEnv } from './handler'
+
+export { validateAuthEnv, isAuthEnvValidated, resetValidationState } from './env-validation'
+export type { RequiredAuthEnvVar } from './env-validation'

@@ -1751,11 +1751,7 @@ export interface WithRpcServer {
  * }
  * ```
  */
-/**
- * Constructor type for DO-compatible classes
- * Ensures mixins only accept classes with DO constructor signature
- */
-type DOConstructor = new (state: DurableObjectState, env: Record<string, unknown>) => any
+import type { DOConstructor } from './types'
 
 export function withRpcServer<T extends DOConstructor>(
   Base: T,

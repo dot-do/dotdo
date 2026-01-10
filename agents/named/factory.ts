@@ -7,10 +7,12 @@
  * @see dotdo-kp869 - GREEN phase implementation
  * @see dotdo-xaidb - REFACTOR phase (persona extraction)
  * @see dotdo-a7nx3 - GREEN phase: tool binding
+ * @see dotdo-zlr2z - REFACTOR phase: test response extraction
  * @module agents/named/factory
  */
 
 import { AGENT_TOOLS, executeTool, type AgentTool } from '../tools/registry'
+import { generateTestResponse } from './test-responses'
 
 // ============================================================================
 // Types
@@ -577,119 +579,6 @@ async function executeToolsFromPrompt(
   return null
 }
 
-/**
- * Generate simulated AI response for testing
- * This provides realistic responses when using test API keys
- */
-function generateTestResponse(
-  persona: AgentPersona,
-  prompt: string,
-  context: Array<{ role: 'user' | 'assistant'; content: string }>
-): string {
-  const promptLower = prompt.toLowerCase()
-
-  // Check for context-dependent questions (conversation memory)
-  if (promptLower.includes('what is my app called') || promptLower.includes('what did i name')) {
-    // Search previous messages for app name
-    for (const msg of context) {
-      if (msg.role === 'user') {
-        const appNameMatch = msg.content.match(/app\s+called\s+(\w+)/i) ||
-                            msg.content.match(/building\s+(?:an?\s+)?(\w+)\s+(?:app|project)/i) ||
-                            msg.content.match(/called\s+(\w+)/i)
-        if (appNameMatch) {
-          return `Based on our conversation, your app is called ${appNameMatch[1]}. This is the project management application you mentioned you're building.`
-        }
-      }
-    }
-    return 'I don\'t recall you mentioning a specific app name in our conversation. Could you remind me what you\'re building?'
-  }
-
-  // Product-related responses (Priya)
-  if (persona.role === 'product') {
-    if (promptLower.includes('mvp') || promptLower.includes('feature') || promptLower.includes('define')) {
-      return `# MVP Definition for Todo App
-
-## Core Features (Must-Have for MVP)
-
-1. **User Authentication**
-   - Simple sign up / login flow
-   - Session management
-
-2. **Task Management**
-   - Create new tasks with title and description
-   - Mark tasks as complete/incomplete
-   - Delete tasks
-   - List all tasks with filtering (completed/pending)
-
-3. **Basic Organization**
-   - Due dates for tasks
-   - Priority levels (high/medium/low)
-
-## User Stories
-
-- As a user, I want to create tasks so I can track my to-dos
-- As a user, I want to mark tasks complete so I can see my progress
-- As a user, I want to set priorities so I can focus on important items
-
-## Success Metrics
-- Users can create and complete tasks within 2 clicks
-- Page load time under 2 seconds
-- Mobile-responsive design
-
-This MVP focuses on core task management functionality, deferring advanced features like collaboration, tags, and integrations to future iterations.`
-    }
-    if (promptLower.includes('taskmaster') || promptLower.includes('project management')) {
-      return 'I understand you\'re building TaskMaster, a project management application. Let me know what specific aspects of the product you\'d like to define or discuss.'
-    }
-  }
-
-  // Engineering responses (Ralph)
-  if (persona.role === 'engineering') {
-    if (promptLower.includes('hello world') || promptLower.includes('function')) {
-      return `Here's a simple hello world function in TypeScript:
-
-\`\`\`typescript
-export function helloWorld(): string {
-  return 'Hello, World!'
-}
-
-// Usage example
-console.log(helloWorld()) // Output: Hello, World!
-\`\`\`
-
-This function follows TypeScript best practices with explicit return type annotation. You can extend it to accept parameters:
-
-\`\`\`typescript
-export function greet(name: string): string {
-  return \`Hello, \${name}!\`
-}
-\`\`\``
-    }
-  }
-
-  // Tech lead responses (Tom) - reviews and approvals
-  if (persona.role === 'tech-lead') {
-    if (promptLower.includes('review') || promptLower.includes('approve')) {
-      const approved = !promptLower.includes('bug') && !promptLower.includes('error')
-      return approved
-        ? 'Code review completed. The implementation looks clean and follows best practices. APPROVED.'
-        : 'Code review completed. Found some issues that need to be addressed. REJECTED.'
-    }
-  }
-
-  // Default intelligent response based on persona
-  return `As ${persona.name} (${persona.description}), I've analyzed your request: "${prompt.slice(0, 100)}${prompt.length > 100 ? '...' : ''}"
-
-Based on my expertise in ${persona.role}, here are my thoughts:
-
-This is a comprehensive response that demonstrates the agent's capability to process and respond to user queries. The implementation leverages the persona's specific knowledge and expertise to provide relevant insights.
-
-Key considerations:
-- Understanding the user's requirements
-- Applying domain-specific knowledge
-- Providing actionable recommendations
-- Maintaining conversation context for follow-up questions`
-}
 
 /**
  * Execute agent with the given prompt

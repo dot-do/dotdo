@@ -1130,11 +1130,7 @@ export function createInMemorySessionStorage(): SessionStorage {
  * Auth-enabled fetch handler wrapper
  * Integrates with DO's fetch method to add authentication/authorization
  */
-/**
- * Constructor type for DO-compatible classes
- * Ensures mixins only accept classes with DO constructor signature
- */
-type DOConstructor = new (state: DurableObjectState, env: Record<string, unknown>) => any
+import type { DOConstructor } from './types'
 
 export function withAuth<T extends DOConstructor>(
   Base: T,
