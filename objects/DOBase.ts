@@ -229,6 +229,35 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   static $mcp?: McpConfig
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // CAPABILITY MIXIN INFRASTRUCTURE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Static array of capability names supported by this class.
+   * Populated by capability mixins (e.g., withFS, withGit, withBash).
+   * Empty by default in base DO class.
+   */
+  static capabilities: string[] = []
+
+  /**
+   * Check if this DO instance has a specific capability.
+   * Capabilities are added via mixins and registered in the static capabilities array.
+   *
+   * @param name - Capability name to check (e.g., 'fs', 'git', 'bash')
+   * @returns true if the capability is registered on this class
+   *
+   * @example
+   * ```typescript
+   * if (this.hasCapability('fs')) {
+   *   await this.$.fs.read('/config.json')
+   * }
+   * ```
+   */
+  hasCapability(name: string): boolean {
+    return (this.constructor as typeof DO).capabilities?.includes(name) ?? false
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HONO APP (for HTTP routing)
   // ═══════════════════════════════════════════════════════════════════════════
 
