@@ -617,6 +617,19 @@ describe('do deploy', () => {
 // ============================================================================
 
 describe('Deploy Command Module', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Set up mock for ensureLoggedIn so tests don't fail with unhandled rejection
+    vi.mocked(ensureLoggedIn).mockResolvedValue({
+      token: MOCK_TOKEN,
+      isNewLogin: false,
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('exports a run function', async () => {
     const deployModule = await import('../../../cli/commands/dev/deploy')
 
@@ -629,6 +642,8 @@ describe('Deploy Command Module', () => {
 
     const result = deployModule.run([], { spawn: vi.fn() })
     expect(result).toBeInstanceOf(Promise)
+    // Await to prevent unhandled rejection
+    await result.catch(() => {})
   })
 
   it('exports command metadata', async () => {

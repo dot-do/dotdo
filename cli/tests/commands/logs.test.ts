@@ -435,18 +435,20 @@ describe('do logs', () => {
     it('handles SIGINT gracefully', async () => {
       const { run } = await import('../../../cli/commands/dev/logs')
       const killFn = vi.fn()
-      const spawnMock = createSpawnMock()
-      spawnMock.mock.mockReturnValue({
+      const spawnFn = vi.fn().mockReturnValue({
         pid: 12345,
         exited: new Promise(() => {}), // Never resolves - simulates streaming
         kill: killFn,
       })
 
       // Start logs (don't await - it won't finish)
-      const runPromise = run([], { spawn: spawnMock.mock })
+      const runPromise = run([], { spawn: spawnFn })
+
+      // Wait a tick for ensureLoggedIn to resolve and spawn to be called
+      await new Promise(resolve => setTimeout(resolve, 10))
 
       // Process should be spawned
-      expect(spawnMock.calls).toHaveLength(1)
+      expect(spawnFn).toHaveBeenCalledTimes(1)
 
       // Cleanup
       runPromise.catch(() => {})
@@ -726,6 +728,20 @@ describe('do logs', () => {
 // ============================================================================
 
 describe('Logs Command Module', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default mock: user is authenticated
+    vi.mocked(ensureLoggedIn).mockResolvedValue({
+      token: 'module-test-token',
+      isNewLogin: false,
+    })
+    vi.mocked(getToken).mockResolvedValue('module-test-token')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('exports a run function', async () => {
     const logsModule = await import('../../../cli/commands/dev/logs')
 
@@ -734,10 +750,23 @@ describe('Logs Command Module', () => {
   })
 
   it('run function is async', async () => {
+    // Set up mock to return valid token for this test
+    vi.mocked(ensureLoggedIn).mockResolvedValue({
+      token: 'test-token',
+      isNewLogin: false,
+    })
+
     const logsModule = await import('../../../cli/commands/dev/logs')
 
-    const result = logsModule.run([], { spawn: vi.fn() })
+    const result = logsModule.run([], { spawn: vi.fn().mockReturnValue({
+      pid: 1,
+      exited: Promise.resolve(0),
+      kill: vi.fn(),
+    }) })
     expect(result).toBeInstanceOf(Promise)
+
+    // Ensure promise is handled to prevent unhandled rejection
+    await result.catch(() => {})
   })
 
   it('exports command metadata', async () => {
