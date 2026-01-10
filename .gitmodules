@@ -10,3 +10,6 @@
 [submodule "primitives/npmx"]
 	path = primitives/npmx
 	url = https://github.com/dot-do/npmx.git
+[submodule "primitives/pyx"]
+	path = primitives/pyx
+	url = https://github.com/dot-do/pyx.git
