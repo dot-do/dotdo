@@ -379,16 +379,26 @@ Each compat package provides the **exact same API** but runs on Durable Objects 
 
 ---
 
-## Humans When It Matters
+## Humans When It Matters (humans.do)
 
 AI does the work. Humans make the decisions.
 
 ```typescript
-import { legal, ceo } from 'humans.do'
+import { legal, ceo, cfo } from 'humans.do'
 
 // Same syntax as agents
 const contract = await legal`review this agreement`
 const approved = await ceo`approve the partnership`
+
+// With SLA and channel
+const reviewed = await legal`review contract for ${amount}`
+  .timeout('4 hours')
+  .via('slack')
+
+// Custom roles
+import { createHumanTemplate } from 'humans.do'
+const seniorAccountant = createHumanTemplate('senior-accountant')
+await seniorAccountant`approve refund over ${amount}`
 
 // Or explicit escalation
 escalation = this.HumanFunction({
@@ -397,6 +407,30 @@ escalation = this.HumanFunction({
   sla: '4 hours',
 })
 ```
+
+### Two Human APIs
+
+- **`$.human.*`** — Internal escalation (employees, org roles)
+- **`$.user.*`** — End-user interaction (app users)
+
+```typescript
+// Internal escalation
+await $.human.approve('Approve this expense?', { role: 'cfo' })
+
+// End-user interaction
+const confirmed = await $.user.confirm('Delete this item?')
+const name = await $.user.prompt('Enter your name')
+const size = await $.user.select('Choose size', ['S', 'M', 'L'])
+```
+
+### Multi-Channel Notifications
+
+| Channel | Description |
+|---------|-------------|
+| **Slack BlockKit** | Interactive messages with approve/reject buttons |
+| **Discord** | Webhook with embeds and reactions |
+| **Email** | HTML templates with action links |
+| **MDXUI Chat** | In-app real-time chat interface |
 
 Messages route to Slack, email, SMS. Your workflow waits for response. Full audit trail.
 
