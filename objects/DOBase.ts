@@ -48,6 +48,11 @@ import {
 } from './transport/mcp-server'
 import { RPCServer, type RPCServerConfig } from './transport/rpc-server'
 import { SyncEngine } from './transport/sync-engine'
+import {
+  handleCapnWebRpc,
+  isCapnWebRequest,
+  type CapnWebOptions,
+} from './transport/capnweb-target'
 import type {
   WorkflowContext,
   DomainProxy,
@@ -2079,6 +2084,55 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return Response.json({ status: 'ok', ns: this.ns })
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ROOT ENDPOINT (/) - Cap'n Web RPC
+    // ═══════════════════════════════════════════════════════════════════════════
+    // POST / → capnweb RPC (HTTP batch)
+    // WebSocket / → capnweb RPC (persistent connection)
+    // GET / → info/discovery
+    if (url.pathname === '/') {
+      // Handle Cap'n Web RPC (POST or WebSocket upgrade)
+      if (isCapnWebRequest(request)) {
+        return this.#handleCapnWebRpc(request)
+      }
+
+      // GET request - return discovery info
+      if (request.method === 'GET') {
+        return Response.json({
+          ns: this.ns,
+          $type: this.$type,
+          protocols: {
+            capnweb: {
+              description: 'Cap\'n Web RPC with promise pipelining',
+              methods: ['POST', 'WebSocket'],
+              endpoint: '/',
+            },
+            jsonrpc: {
+              description: 'JSON-RPC 2.0 + Chain RPC',
+              methods: ['POST', 'WebSocket'],
+              endpoint: '/rpc',
+            },
+            mcp: {
+              description: 'Model Context Protocol',
+              methods: ['POST'],
+              endpoint: '/mcp',
+            },
+            sync: {
+              description: 'TanStack DB sync protocol',
+              methods: ['WebSocket'],
+              endpoint: '/sync',
+            },
+          },
+        }, { headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // Other methods not supported at root
+      return new Response('Method Not Allowed', {
+        status: 405,
+        headers: { 'Allow': 'GET, POST' },
+      })
+    }
+
     // Handle /$introspect endpoint for schema discovery
     if (url.pathname === '/$introspect') {
       return this.handleIntrospectRoute(request)
@@ -2089,7 +2143,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return this.handleMcp(request)
     }
 
-    // Handle /rpc endpoint for RPC protocol (JSON-RPC 2.0 + Cap'n Web)
+    // Handle /rpc endpoint for RPC protocol (JSON-RPC 2.0 + Chain RPC)
     if (url.pathname === '/rpc') {
       // Check for WebSocket upgrade
       const upgradeHeader = request.headers.get('upgrade')
@@ -2146,6 +2200,29 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // CAP'N WEB RPC HANDLER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Cap'n Web RPC options. Override in subclasses to customize.
+   */
+  protected get capnWebOptions(): CapnWebOptions {
+    return {
+      includeStackTraces: (this.env as Record<string, unknown>).ENVIRONMENT !== 'production',
+    }
+  }
+
+  /**
+   * Handle Cap'n Web RPC requests (POST or WebSocket upgrade at root endpoint).
+   *
+   * This is marked with # prefix to indicate it's internal and should not
+   * be exposed via RPC itself.
+   */
+  async #handleCapnWebRpc(request: Request): Promise<Response> {
+    return handleCapnWebRpc(request, this, this.capnWebOptions)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // ALARM HANDLER (for scheduled tasks)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2183,11 +2260,23 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
     const token = authHeader.slice(7)
 
-    // Parse the JWT (simplified - just decode, no signature verification for now)
+    // Parse and verify the JWT
     try {
       const parts = token.split('.')
       if (parts.length !== 3) {
         return Response.json({ error: 'Invalid token format' }, { status: 401 })
+      }
+
+      // Verify JWT signature if JWT_SECRET is configured
+      const jwtSecret = (this.env as Record<string, unknown>).JWT_SECRET as string | undefined
+      if (jwtSecret) {
+        const isValid = await this.verifyJwtSignature(token, jwtSecret)
+        if (!isValid) {
+          return Response.json({ error: 'Invalid token signature' }, { status: 401 })
+        }
+      } else {
+        // In development without JWT_SECRET, log warning but allow request
+        console.warn('JWT_SECRET not configured - skipping signature verification')
       }
 
       const payload = JSON.parse(atob(parts[1])) as {
@@ -2443,9 +2532,69 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    * Introspect registered verbs
    */
   private async introspectVerbs(): Promise<VerbSchema[]> {
-    // Query verbs from the database (simplified for now)
+    // TODO: Query verbs from the database
     // In full implementation, would query from db.verbs table
     return []
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // JWT VERIFICATION HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Verify JWT signature using HMAC-SHA256.
+   *
+   * @param token - The full JWT token string
+   * @param secret - The secret key for verification
+   * @returns true if signature is valid, false otherwise
+   */
+  private async verifyJwtSignature(token: string, secret: string): Promise<boolean> {
+    try {
+      const parts = token.split('.')
+      if (parts.length !== 3) return false
+
+      const signatureInput = `${parts[0]}.${parts[1]}`
+      const signature = parts[2]
+
+      const encoder = new TextEncoder()
+      const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['verify']
+      )
+
+      // Base64url decode the signature
+      const signatureBytes = this.base64UrlDecode(signature)
+
+      return await crypto.subtle.verify(
+        'HMAC',
+        key,
+        signatureBytes,
+        encoder.encode(signatureInput)
+      )
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Decode a base64url-encoded string to Uint8Array.
+   */
+  private base64UrlDecode(str: string): Uint8Array {
+    // Replace base64url chars with base64 chars
+    let base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+    // Pad with '=' to make it valid base64
+    while (base64.length % 4) {
+      base64 += '='
+    }
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
   }
 }
 

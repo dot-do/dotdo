@@ -21,39 +21,18 @@
  * @module sdk/client
  */
 
+import {
+  newWebSocketRpcSession,
+  newHttpBatchRpcSession,
+  type SessionOptions,
+} from './capnweb-compat.js'
+
 // =============================================================================
 // Types
 // =============================================================================
 
 /**
- * A single step in the RPC chain.
- * - 'property': Property access like .profile
- * - 'call': Method call like .Customer('alice')
- * - 'index': Array index access like [0]
- */
-export interface ChainStep {
-  type: 'property' | 'call' | 'index'
-  key?: string | symbol
-  args?: unknown[]
-}
-
-/**
- * RPC request body sent to the /rpc endpoint
- */
-interface RpcRequest {
-  chain: ChainStep[]
-}
-
-/**
- * RPC response from the /rpc endpoint
- */
-interface RpcResponse<T = unknown> {
-  result?: T
-  error?: RpcError
-}
-
-/**
- * RPC error structure
+ * RPC error structure for backwards compatibility
  */
 export interface RpcError {
   code: string
@@ -62,171 +41,120 @@ export interface RpcError {
 }
 
 /**
- * RpcPromise - A thenable that executes the RPC chain on await
- */
-export interface RpcPromise<T> extends PromiseLike<T> {
-  then<TResult1 = T, TResult2 = never>(
-    onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
-  ): Promise<TResult1 | TResult2>
-
-  catch<TResult = never>(
-    onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
-  ): Promise<T | TResult>
-
-  finally(onfinally?: (() => void) | null): Promise<T>
-}
-
-/**
- * RpcClient - The proxy returned by $()
- * Supports arbitrary property access and method calls
+ * RpcClient - The type returned by $Context()
+ * This is actually an RpcStub from capnweb with full pipelining support
  */
 export type RpcClient = {
-  [key: string]: RpcClient & ((...args: unknown[]) => RpcClient & RpcPromise<unknown>)
-} & RpcPromise<unknown>
+  // Allow arbitrary property access and method calls
+  [key: string]: RpcClient & ((...args: unknown[]) => RpcClient)
+} & PromiseLike<unknown> &
+  Disposable & {
+    dup(): RpcClient
+    onRpcBroken(callback: (error: unknown) => void): void
+  }
+
+/**
+ * RpcPromise - Re-export for backwards compatibility
+ * In capnweb, stubs already behave as pipelined promises
+ */
+export type RpcPromise<T> = RpcClient & Promise<T>
+
+/**
+ * ChainStep - Kept for backwards compatibility but no longer used internally
+ * @deprecated capnweb handles chaining internally
+ */
+export interface ChainStep {
+  type: 'property' | 'call' | 'index'
+  key?: string | symbol
+  args?: unknown[]
+}
 
 // =============================================================================
-// Implementation
+// Session Management
 // =============================================================================
 
 /**
- * Create an RPC proxy chain that tracks property accesses and method calls
+ * Active sessions keyed by namespace URL
+ * Enables session reuse and proper disposal
  */
-function createChainProxy(namespace: string, chain: ChainStep[]): RpcClient {
-  // Create the thenable implementation
-  const thenable: RpcPromise<unknown> = {
-    then(onfulfilled, onrejected) {
-      return executeChain(namespace, chain).then(onfulfilled, onrejected)
-    },
-    catch(onrejected) {
-      return executeChain(namespace, chain).catch(onrejected)
-    },
-    finally(onfinally) {
-      return executeChain(namespace, chain).finally(onfinally)
-    },
-  }
+const sessions = new Map<string, RpcClient>()
 
-  // Create the proxy
-  const proxy = new Proxy(function () {} as unknown as RpcClient, {
-    // Property access: .profile, .email, etc.
-    get(_target, prop) {
-      // Handle Promise methods
-      if (prop === 'then') {
-        return thenable.then.bind(thenable)
-      }
-      if (prop === 'catch') {
-        return thenable.catch.bind(thenable)
-      }
-      if (prop === 'finally') {
-        return thenable.finally.bind(thenable)
-      }
-
-      // Handle Symbol properties gracefully
-      if (typeof prop === 'symbol') {
-        // Return appropriate values for well-known symbols
-        if (prop === Symbol.toStringTag) {
-          return 'RpcClient'
-        }
-        if (prop === Symbol.toPrimitive) {
-          // Return a function that provides string representation
-          return (hint: string) => {
-            if (hint === 'string' || hint === 'default') {
-              return '[RpcClient]'
-            }
-            if (hint === 'number') {
-              return NaN
-            }
-            return null
-          }
-        }
-        // For Symbol.iterator and others, return undefined
-        return undefined
-      }
-
-      // Create a new chain with property access
-      const newChain: ChainStep[] = [...chain, { type: 'property', key: prop }]
-      return createChainProxy(namespace, newChain)
-    },
-
-    // Method call: .Customer('alice'), .update({ name: 'Bob' }), etc.
-    apply(_target, _thisArg, args) {
-      // If we have a property step at the end, convert it to a call
-      if (chain.length > 0) {
-        const lastStep = chain[chain.length - 1]
-        if (lastStep.type === 'property') {
-          // Convert the last property access to a call with args
-          const newChain: ChainStep[] = [
-            ...chain.slice(0, -1),
-            { type: 'call', key: lastStep.key, args },
-          ]
-          return createChainProxy(namespace, newChain)
-        }
-      }
-
-      // If the last step is already a call, this is a continuation
-      // This shouldn't happen in normal usage, but handle gracefully
-      const newChain: ChainStep[] = [...chain, { type: 'call', key: undefined, args }]
-      return createChainProxy(namespace, newChain)
-    },
-
-    // Handle has checks (for 'then' in proxy, etc.)
-    has(_target, prop) {
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-        return true
-      }
-      return true // Allow all property checks
-    },
-  })
-
-  return proxy
+/**
+ * Session options for all connections
+ */
+const defaultSessionOptions: SessionOptions = {
+  onSendError: (error) => {
+    // Redact stack traces in production
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
+      return new Error(error.message)
+    }
+    return error
+  },
 }
 
 /**
- * Execute the RPC chain by sending it to the /rpc endpoint
+ * Get or create a session for a namespace URL
+ * Uses WebSocket-first with HTTP batch fallback
  */
-async function executeChain(namespace: string, chain: ChainStep[]): Promise<unknown> {
-  const rpcUrl = `${namespace}/rpc`
-
-  const request: RpcRequest = {
-    chain: chain.map((step) => ({
-      type: step.type,
-      key: typeof step.key === 'symbol' ? step.key.toString() : step.key,
-      args: step.args,
-    })),
+function getOrCreateSession(namespace: string): RpcClient {
+  // Check for existing session
+  const existing = sessions.get(namespace)
+  if (existing) {
+    return existing
   }
 
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
+  // Namespace IS the endpoint (no /rpc suffix)
+  const wsUrl = namespace.replace(/^http/, 'ws')
+
+  let stub: unknown
+
+  // WebSocket-first with HTTP batch fallback
+  // Note: In browser environments, WebSocket connection errors are async,
+  // so we can't synchronously detect failure. The stub handles reconnection.
+  if (typeof WebSocket !== 'undefined') {
+    try {
+      stub = newWebSocketRpcSession(wsUrl, undefined, defaultSessionOptions)
+    } catch {
+      // WebSocket not available or immediate failure, use HTTP batch
+      stub = newHttpBatchRpcSession(namespace, defaultSessionOptions)
+    }
+  } else {
+    // No WebSocket support, use HTTP batch
+    stub = newHttpBatchRpcSession(namespace, defaultSessionOptions)
+  }
+
+  // Cache the session
+  const client = stub as RpcClient
+  sessions.set(namespace, client)
+
+  // Set up broken connection handler to clean up cache
+  client.onRpcBroken(() => {
+    sessions.delete(namespace)
   })
 
-  // Check HTTP status before parsing
-  if (!response.ok && response.status >= 500) {
-    throw {
-      code: 'HTTP_ERROR',
-      message: `Server error: ${response.status} ${response.statusText}`,
-    } satisfies RpcError
-  }
+  return client
+}
 
-  // Parse JSON with error handling
-  let data: RpcResponse
-  try {
-    data = (await response.json()) as RpcResponse
-  } catch {
-    throw {
-      code: 'PARSE_ERROR',
-      message: 'Failed to parse server response as JSON',
-    } satisfies RpcError
+/**
+ * Dispose of a session for a namespace
+ * Useful for cleanup in tests or when switching namespaces
+ */
+export function disposeSession(namespace: string): void {
+  const session = sessions.get(namespace)
+  if (session) {
+    session[Symbol.dispose]()
+    sessions.delete(namespace)
   }
+}
 
-  if (data.error) {
-    throw data.error
-  }
-
-  return data.result
+/**
+ * Dispose of all sessions
+ */
+export function disposeAllSessions(): void {
+  sessions.forEach((session, namespace) => {
+    session[Symbol.dispose]()
+    sessions.delete(namespace)
+  })
 }
 
 // =============================================================================
@@ -305,11 +233,12 @@ function getNamespace(): string {
 /**
  * Create an RPC client for a specific namespace URL.
  *
- * Use this when you need to explicitly specify the namespace,
- * or when connecting to multiple different DOs.
+ * Uses WebSocket-first with HTTP batch fallback for optimal performance.
+ * Cap'n Web provides automatic promise pipelining - multiple chained calls
+ * execute in a single network round trip.
  *
  * @param namespace - The namespace URL (e.g., 'https://startups.studio')
- * @returns An RPC client proxy
+ * @returns An RPC stub with full pipelining support
  *
  * @example
  * ```typescript
@@ -318,8 +247,8 @@ function getNamespace(): string {
  * // Create a client for a specific namespace
  * const $ = $Context('https://startups.studio')
  *
- * // Chain RPC calls
- * await $.Customer('alice').update({ name: 'Alice' })
+ * // Promise pipelining - single round trip!
+ * const email = await $.Customer('alice').profile.email
  *
  * // Connect to multiple namespaces
  * const startup = $Context('https://startups.studio')
@@ -330,7 +259,7 @@ export function $Context(namespace: string): RpcClient {
   if (!namespace) {
     throw new Error('Namespace URL is required')
   }
-  return createChainProxy(namespace, [])
+  return getOrCreateSession(namespace)
 }
 
 /**
@@ -341,21 +270,38 @@ export function $Context(namespace: string): RpcClient {
  * 2. DOTDO_NAMESPACE environment variable
  * 3. Local dev server (http://localhost:8787) in development
  *
+ * Features automatic promise pipelining via Cap'n Web.
+ *
  * @example
  * ```typescript
  * import { $ } from 'dotdo'
  *
- * // Automatically connects to configured namespace
- * await $.Customer('alice')
- * await $.things.create({ $type: 'Order', total: 100 })
+ * // Promise pipelining - these all batch into one round trip
+ * const [alice, bob] = await Promise.all([
+ *   $.Customer('alice'),
+ *   $.Customer('bob')
+ * ])
+ *
+ * // Deep chaining with pipelining
+ * await $.Customer('alice').orders.create({ product: 'widget' })
  * ```
  */
-export const $: RpcClient = new Proxy(function () {} as unknown as RpcClient, {
+// Use a function as proxy target to support both property access and direct calls
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const $: RpcClient = new Proxy(function () {} as any, {
   get(_target, prop) {
-    // Lazily create the client on first property access
+    // Handle disposal
+    if (prop === Symbol.dispose) {
+      return () => {
+        const namespace = getNamespace()
+        disposeSession(namespace)
+      }
+    }
+
+    // Lazily create/get the session on first property access
     const namespace = getNamespace()
-    const client = createChainProxy(namespace, [])
-    return (client as unknown as Record<string | symbol, unknown>)[prop]
+    const client = getOrCreateSession(namespace)
+    return client[prop as string]
   },
   apply(_target, _thisArg, args) {
     // Support $('CustomNamespace') as alias for $Context
@@ -364,7 +310,8 @@ export const $: RpcClient = new Proxy(function () {} as unknown as RpcClient, {
     }
     throw new Error('$ must be called with a namespace URL or used as a property accessor')
   },
-  has(_target, prop) {
+  has(_target, _prop) {
+    // All properties potentially exist on the RPC stub
     return true
   },
 })
