@@ -304,11 +304,13 @@ function TaskListWithCollection() {
       loading={isLoading}
       empty={<span>No tasks found</span>}
     >
-      <MockDataGrid
-        data={data}
-        columns={taskColumns}
-        rowKey="$id"
-      />
+      {data.length > 0 ? (
+        <MockDataGrid
+          data={data}
+          columns={taskColumns}
+          rowKey="$id"
+        />
+      ) : null}
     </MockListView>
   )
 }

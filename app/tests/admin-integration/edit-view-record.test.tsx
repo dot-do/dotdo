@@ -167,7 +167,7 @@ function MockSimpleForm({ defaultValues, onSubmit, disabled, children }: SimpleF
   }
 
   return (
-    <form data-testid="simple-form" onSubmit={handleSubmit}>
+    <form id="task-form" data-testid="simple-form" onSubmit={handleSubmit}>
       {React.Children.map(children, child => {
         if (React.isValidElement(child)) {
           const fieldName = child.props.source || child.props.name
@@ -192,6 +192,15 @@ interface TextInputProps {
 }
 
 function MockTextInput({ source, label, defaultValue, disabled }: TextInputProps) {
+  const [value, setValue] = React.useState(defaultValue ?? '')
+
+  // Update internal value when defaultValue changes (e.g., from server push)
+  React.useEffect(() => {
+    if (defaultValue !== undefined) {
+      setValue(defaultValue)
+    }
+  }, [defaultValue])
+
   return (
     <div>
       <label htmlFor={source}>{label}</label>
@@ -199,7 +208,8 @@ function MockTextInput({ source, label, defaultValue, disabled }: TextInputProps
         id={source}
         name={source}
         type="text"
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
         disabled={disabled}
         data-testid={`input-${source}`}
       />

@@ -138,7 +138,7 @@ function MockSimpleForm({ defaultValues = {}, onSubmit, disabled, children }: Si
   }
 
   return (
-    <form data-testid="simple-form" onSubmit={handleSubmit}>
+    <form id="task-create-form" data-testid="simple-form" onSubmit={handleSubmit}>
       {children}
     </form>
   )
