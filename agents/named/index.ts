@@ -15,20 +15,50 @@
  *
  * @example
  * ```ts
- * import { ralph } from 'agents.do'
+ * import { priya, ralph, tom } from 'agents.do'
  *
- * const app = await ralph`build ${spec}`
+ * const spec = await priya`define the MVP for ${hypothesis}`
+ * let app = await ralph`build ${spec}`
+ *
+ * do {
+ *   app = await ralph`improve ${app} per ${tom}`
+ * } while (!await tom.approve(app))
  * ```
  *
  * @module agents/named
  */
 
 // ============================================================================
-// Ralph - Engineering Agent
+// Named Agents (from factory)
 // ============================================================================
 
 export {
+  priya,
   ralph,
+  tom,
+  mark,
+  sally,
+  quinn,
+  createNamedAgent,
+  enableMockMode,
+  disableMockMode,
+  setMockResponse,
+  isMockMode,
+  PERSONAS,
+  type NamedAgent,
+  type AgentPersona,
+  type AgentRole,
+  type AgentConfig,
+} from './factory'
+
+// Default export for convenience
+export { ralph as default } from './factory'
+
+// ============================================================================
+// Legacy Ralph exports (for backwards compatibility)
+// ============================================================================
+
+export {
   RalphAgent,
   createRalph,
   RALPH_SYSTEM_PROMPT,
@@ -36,6 +66,3 @@ export {
   type RalphTemplateLiteralOptions,
   type CreateRalphOptions,
 } from './ralph'
-
-// Default export for convenience
-export { ralph as default } from './ralph'
