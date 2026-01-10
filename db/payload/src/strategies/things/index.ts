@@ -819,11 +819,10 @@ export class ThingsStorageStrategy implements StorageStrategy {
     const existing = await this.findGlobal({ slug, depth: 0 })
     const now = new Date()
 
-    // Merge data
-    const mergedData = { ...existing, ...data }
-    delete mergedData.id
-    delete mergedData.createdAt
-    delete mergedData.updatedAt
+    // Merge data, excluding id, createdAt, updatedAt
+    const { id: _existingId, createdAt: _existingCreatedAt, updatedAt: _existingUpdatedAt, ...existingData } = existing
+    const { id: _dataId, createdAt: _dataCreatedAt, updatedAt: _dataUpdatedAt, ...cleanData } = data as PayloadDocument
+    const mergedData = { ...existingData, ...cleanData }
 
     // Insert new version (append-only)
     await (this.db as any).insert(this.schema.things).values({

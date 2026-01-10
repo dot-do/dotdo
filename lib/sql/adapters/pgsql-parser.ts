@@ -649,8 +649,8 @@ function convertBoolExpr(boolExpr: PgNode): Expression {
     return { type: 'null', value: null } as unknown as Expression
   }
 
-  return args.reduce((left, right) => ({
-    type: 'binary_expr',
+  return args.reduce((left: Expression | ColumnRef | LiteralValue, right: Expression | ColumnRef | LiteralValue) => ({
+    type: 'binary_expr' as const,
     operator: opMap[boolExpr.boolop] || 'AND',
     left,
     right,
@@ -672,7 +672,7 @@ function convertSortBy(sortBy: PgNode): OrderByClause {
 /**
  * Convert CTE
  */
-function convertCTE(cte: PgNode): SelectStatement['with'][number] {
+function convertCTE(cte: PgNode): NonNullable<SelectStatement['with']>[number] {
   const c = cte.CommonTableExpr
   return {
     name: c.ctename,

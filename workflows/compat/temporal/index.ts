@@ -2533,7 +2533,7 @@ export async function startChild<T, TArgs extends unknown[]>(
 
     // Run the child workflow in its own context
     runWithContext(childContext, () => {
-      workflowFn(...(options.args ?? []))
+      workflowFn(...((options.args ?? []) as TArgs))
         .then((result) => {
           childState.status = 'COMPLETED'
           childState.result = result
@@ -2878,7 +2878,7 @@ export class WorkflowClient {
 
       // Run the workflow in its own context (enabling concurrent execution)
       runWithContext(context, () => {
-        workflowFn(...(options.args ?? []))
+        workflowFn(...((options.args ?? []) as TArgs))
           .then((result) => {
             state.status = 'COMPLETED'
             state.result = result

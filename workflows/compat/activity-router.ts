@@ -477,7 +477,7 @@ export class DurableActivityRouter implements ActivityRouter {
     const stepOptions = this.buildStepDoOptions(options)
 
     // Wrap the inner router call in step.do() for durability
-    return this.step.do(stepId, stepOptions, async () => {
+    return this.step.do(stepId, stepOptions ?? {}, async () => {
       return this.inner.route<T>(activityName, args, options, context)
     }) as Promise<T>
   }

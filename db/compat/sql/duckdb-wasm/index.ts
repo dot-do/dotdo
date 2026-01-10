@@ -32,6 +32,7 @@ import {
   type DuckDBBindings,
   type DuckDBConnection as NativeConnection,
   type PreparedStatement,
+  // @ts-expect-error - Valid runtime import, types not exported in package.json exports
 } from '@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs'
 
 import type {

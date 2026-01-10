@@ -21,9 +21,7 @@ declare global {
     passThroughOnException(): void
   }
 
-  interface CacheStorage {
-    default: Cache
-  }
+  // Note: CacheStorage.default is already declared in @cloudflare/workers-types
 }
 
 // ============================================================================
@@ -353,9 +351,8 @@ export function applyRequestTransforms(
     method: request.method,
     headers,
     body: request.body,
-    // @ts-expect-error - cf is a Cloudflare-specific property
-    cf: request.cf,
-  })
+    cf: (request as Request & { cf?: unknown }).cf,
+  } as RequestInit)
 }
 
 // ============================================================================
@@ -698,8 +695,7 @@ const proxyHandler = {
       requestId: crypto.randomUUID(),
       timestamp: Date.now(),
       ip: request.headers.get('CF-Connecting-IP'),
-      // @ts-expect-error - cf is a Cloudflare-specific property
-      cf: request.cf || {},
+      cf: ((request as Request & { cf?: Record<string, unknown> }).cf) || {},
       jwt: null,
       config: {},
     }

@@ -116,7 +116,7 @@ export class SyncClient<T> {
     const wsUrl = `${this.config.doUrl}/sync`
     this.ws = new WebSocket(wsUrl)
 
-    this.ws.onopen = () => {
+    this.ws.addEventListener('open', () => {
       // Reset reconnect attempts on successful connection
       this.reconnectAttempts = 0
 
@@ -131,9 +131,9 @@ export class SyncClient<T> {
       }
 
       this.ws!.send(JSON.stringify(subscribeMsg))
-    }
+    })
 
-    this.ws.onmessage = (event) => {
+    this.ws.addEventListener('message', (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data)
 
@@ -150,21 +150,21 @@ export class SyncClient<T> {
       } catch {
         // Malformed JSON - silently ignore
       }
-    }
+    })
 
-    this.ws.onclose = () => {
+    this.ws.addEventListener('close', () => {
       this.onDisconnect()
 
       // Only schedule reconnect if this wasn't an intentional disconnect
       if (!this.intentionalDisconnect) {
         this.scheduleReconnect()
       }
-    }
+    })
 
-    this.ws.onerror = () => {
+    this.ws.addEventListener('error', () => {
       // Error handling - the onclose handler will fire after this
       // and handle reconnection
-    }
+    })
   }
 
   /**

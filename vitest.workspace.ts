@@ -311,7 +311,7 @@ export default defineWorkspace([
     extends: './tests/config/vitest.workers.config.ts',
     test: {
       // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig.globals,
+      globals: sharedTestConfig?.globals,
       name: 'workers-integration',
       include: ['workers/**/*.test.ts'],
       exclude: [...defaultExcludes, 'workers/observability-tail/**'],
@@ -350,7 +350,7 @@ export default defineWorkspace([
     extends: './tests/config/vitest.workers.config.ts',
     test: {
       // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
-      globals: sharedTestConfig.globals,
+      globals: sharedTestConfig?.globals,
       name: 'duckdb-worker-workers',
       include: ['packages/duckdb-worker/tests/workers/**/*.test.ts'],
       exclude: defaultExcludes,

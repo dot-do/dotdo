@@ -13,6 +13,7 @@ import {
   getJsDelivrBundles,
   selectBundle,
   type DuckDBBindingsBase,
+  // @ts-expect-error - Valid runtime import, types not exported in package.json exports
 } from '@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs'
 import type { WasmModuleCache, InstantiationMetrics, DuckDBConfig } from './types'
 
