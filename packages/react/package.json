@@ -21,6 +21,11 @@
       "types": "./dist/tanstack/index.d.ts",
       "import": "./dist/tanstack/index.js",
       "require": "./dist/tanstack/index.cjs"
+    },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "import": "./dist/admin/index.js",
+      "require": "./dist/admin/index.cjs"
     }
   },
   "files": [

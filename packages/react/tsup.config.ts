@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     'hooks/index': 'src/hooks/index.ts',
     'tanstack/index': 'src/tanstack/index.ts',
+    'admin/index': 'src/admin/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,
