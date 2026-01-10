@@ -854,6 +854,40 @@ describe('Temporal Compat Layer', () => {
       expect(results.some(w => w.workflowId === 'search-query-1')).toBe(true)
     })
 
+    it('should return empty results for invalid query format (fail closed)', async () => {
+      const client = new WorkflowClient()
+
+      // Start a workflow with search attributes
+      async function securityTestWorkflow() {
+        setSearchAttributes({ CustomerId: 'cust-SEC', Status: 'active' })
+        return 'done'
+      }
+
+      await client.start(securityTestWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'security-test-1',
+      })
+
+      // Invalid query formats should NOT match any workflows (fail closed)
+      const invalidQueries = [
+        'invalid syntax',           // No = operator
+        '__proto__ = "malicious"',  // Prototype pollution attempt (not in valid keys)
+        'constructor = "exploit"',  // Constructor pollution attempt
+        'Status === "active"',      // Wrong operator
+        'Status = active',          // Missing quotes
+      ]
+
+      for (const invalidQuery of invalidQueries) {
+        const results = await client.list({ query: invalidQuery })
+        // Invalid queries should return empty results (fail closed)
+        expect(results.length).toBe(0)
+      }
+
+      // Valid query should still work
+      const validResults = await client.list({ query: 'Status = "active"' })
+      expect(validResults.some(w => w.workflowId === 'security-test-1')).toBe(true)
+    })
+
     it('should update search attributes', async () => {
       const client = new WorkflowClient()
 

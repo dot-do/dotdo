@@ -270,6 +270,13 @@ function generateRunId(): string {
 // TASK CLASS
 // ============================================================================
 
+interface TaskLogger {
+  info?: (message: string, ...args: unknown[]) => void
+  warn?: (message: string, ...args: unknown[]) => void
+  error?: (message: string, ...args: unknown[]) => void
+  debug?: (message: string, ...args: unknown[]) => void
+}
+
 class Task<TPayload, TOutput> {
   readonly id: string
   readonly version?: string
@@ -279,6 +286,16 @@ class Task<TPayload, TOutput> {
   private readonly runStatuses = new Map<string, TaskRunStatus>()
   private readonly runResults = new Map<string, unknown>()
   private initialized = false
+
+  // Background task tracking for promise race condition prevention
+  private readonly runningTasks = new Map<string, Promise<unknown>>()
+  private readonly failedRuns = new Map<string, { error: Error; timestamp: number }>()
+  private readonly logger: TaskLogger = {
+    error: console.error.bind(console),
+    warn: console.warn.bind(console),
+    info: console.log.bind(console),
+    debug: console.debug.bind(console),
+  }
 
   constructor(config: TaskConfig<TPayload, TOutput>) {
     this.config = config
@@ -456,19 +473,30 @@ class Task<TPayload, TOutput> {
     // Handle delay
     const delay = options?.delay ? parseDuration(options.delay) : 0
 
-    if (delay > 0) {
-      setTimeout(() => {
-        this.execute(processedPayload, runId).catch(() => {
-          // Error already handled in execute
+    // Create tracked promise for proper error handling
+    const createTrackedExecution = () => {
+      const runPromise = this.execute(processedPayload, runId)
+        .catch((error) => {
+          // Log with full stack trace for debugging
+          this.logger.error?.(`Task ${this.id} run ${runId} failed:`, error)
+          // Store failure for debugging and observability
+          this.failedRuns.set(runId, { error: error as Error, timestamp: Date.now() })
+          // Clean up old failed runs after 1 hour
+          setTimeout(() => this.failedRuns.delete(runId), 3600000)
+          throw error // Re-throw so callers can handle if needed
         })
-      }, delay)
+        .finally(() => {
+          // Clean up running task reference
+          this.runningTasks.delete(runId)
+        })
+      this.runningTasks.set(runId, runPromise)
+    }
+
+    if (delay > 0) {
+      setTimeout(() => createTrackedExecution(), delay)
     } else {
       // Execute in background
-      setImmediate(() => {
-        this.execute(processedPayload, runId).catch(() => {
-          // Error already handled in execute
-        })
-      })
+      setImmediate(() => createTrackedExecution())
     }
 
     return {
@@ -534,6 +562,29 @@ class Task<TPayload, TOutput> {
   async batchTriggerAndWait(items: TPayload[], options?: TriggerOptions): Promise<{ runs: TaskRunResult<TOutput>[] }> {
     const runs = await Promise.all(items.map((item) => this.triggerAndWait(item, options)))
     return { runs }
+  }
+
+  /**
+   * Get failed runs for observability
+   */
+  getFailedRuns(): Map<string, { error: Error; timestamp: number }> {
+    return new Map(this.failedRuns)
+  }
+
+  /**
+   * Get count of currently running background tasks
+   */
+  getRunningTaskCount(): number {
+    return this.runningTasks.size
+  }
+
+  /**
+   * Wait for all running background tasks to complete
+   * Useful for graceful shutdown or testing
+   */
+  async waitForAllTasks(): Promise<void> {
+    const tasks = Array.from(this.runningTasks.values())
+    await Promise.allSettled(tasks)
   }
 }
 

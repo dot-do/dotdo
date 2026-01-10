@@ -467,16 +467,63 @@ export class HybridWorkflowBackend {
     }
   }
 
-  async step<T>(name: string, fn: () => T | Promise<T>, options?: StepOptions): Promise<T> {
-    return this.cfBackend.step(name, fn, options)
+  async step<T>(
+    name: string,
+    fn: () => T | Promise<T>,
+    options?: StepOptions
+  ): Promise<T> {
+    const backend = this.selectBackend('do')
+    if (backend === this.cfBackend) {
+      return this.cfBackend.step(name, fn, options)
+    } else {
+      // Use DO storage for step execution
+      const cached = await this.doStorage.get(name)
+      if (cached?.status === 'completed') {
+        return cached.result as T
+      }
+
+      const startedAt = Date.now()
+      try {
+        const result = await fn()
+        await this.doStorage.set(name, {
+          stepId: name,
+          status: 'completed',
+          result,
+          attempts: 1,
+          createdAt: startedAt,
+          completedAt: Date.now(),
+        })
+        return result
+      } catch (error) {
+        await this.doStorage.set(name, {
+          stepId: name,
+          status: 'failed',
+          error: (error as Error).message,
+          attempts: 1,
+          createdAt: startedAt,
+        })
+        throw error
+      }
+    }
   }
 
   async sleep(name: string, duration: string): Promise<void> {
-    return this.cfBackend.sleep(name, duration)
+    const backend = this.selectBackend('sleep')
+    if (backend === this.cfBackend) {
+      return this.cfBackend.sleep(name, duration)
+    }
+    // DO fallback - use setTimeout
+    const ms = parseDuration(duration)
+    await new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   async waitForEvent<T = unknown>(name: string, options?: WaitForEventOptions): Promise<T | null> {
-    return this.cfBackend.waitForEvent<T>(name, options)
+    const backend = this.selectBackend('waitForEvent')
+    if (backend === this.cfBackend) {
+      return this.cfBackend.waitForEvent<T>(name, options)
+    }
+    // DO fallback - would need WaitForEventManager integration
+    return null
   }
 }
 

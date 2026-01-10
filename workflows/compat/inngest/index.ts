@@ -31,6 +31,7 @@
 import { WaitForEventManager, WaitTimeoutError } from '../../WaitForEventManager'
 import { DurableWorkflowRuntime, InMemoryStepStorage } from '../../runtime'
 import type { StepStorage, RetryPolicy } from '../../runtime'
+import { parseDuration, ensureError } from '../utils'
 
 // ============================================================================
 // ERROR TYPES - Match Inngest SDK exactly
@@ -367,34 +368,8 @@ export interface FunctionRun {
 
 // ============================================================================
 // UTILITIES
+// Note: parseDuration and ensureError are imported from '../utils'
 // ============================================================================
-
-function parseDuration(duration: string | number): number {
-  if (typeof duration === 'number') return duration
-
-  const match = duration.match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min|h|hr|hour|d|day|w|week)s?$/i)
-  if (!match) throw new Error(`Invalid duration format: ${duration}`)
-
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
-
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    sec: 1000,
-    m: 60 * 1000,
-    min: 60 * 1000,
-    h: 60 * 60 * 1000,
-    hr: 60 * 60 * 1000,
-    hour: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-    day: 24 * 60 * 60 * 1000,
-    w: 7 * 24 * 60 * 60 * 1000,
-    week: 7 * 24 * 60 * 60 * 1000,
-  }
-
-  return Math.floor(value * (multipliers[unit] || 1000))
-}
 
 function generateRunId(): string {
   return `run_${crypto.randomUUID().replace(/-/g, '')}`
@@ -448,16 +423,20 @@ const defaultLogger: Logger = {
 // THROTTLE MANAGER
 // ============================================================================
 
+/** Queue item for throttle manager with timing information */
+interface ThrottleQueueItem {
+  resolve: () => void
+  reject: (error: Error) => void
+  count: number
+  periodMs: number
+  addedAt: number
+}
+
 class ThrottleManager {
   /** Map of throttle key -> array of timestamps */
   private readonly buckets = new Map<string, number[]>()
   /** Queue of pending executions by throttle key */
-  private readonly queues = new Map<string, Array<{
-    resolve: () => void
-    reject: (error: Error) => void
-    count: number
-    periodMs: number
-  }>>()
+  private readonly queues = new Map<string, ThrottleQueueItem[]>()
 
   /**
    * Acquire a throttle slot
@@ -482,7 +461,7 @@ class ThrottleManager {
     // Queue this request
     return new Promise((resolve, reject) => {
       const queue = this.queues.get(key) || []
-      queue.push({ resolve, reject, count, periodMs })
+      queue.push({ resolve, reject, count, periodMs, addedAt: now })
       this.queues.set(key, queue)
 
       // Schedule retry when oldest entry expires
@@ -500,7 +479,10 @@ class ThrottleManager {
       const queue = this.queues.get(key)
       if (queue && queue.length > 0) {
         const item = queue[0]
-        this.scheduleQueueProcess(key, item.periodMs)
+        // Calculate remaining time properly based on when item was added
+        const elapsed = Date.now() - item.addedAt
+        const remaining = Math.max(0, item.periodMs - elapsed)
+        this.scheduleQueueProcess(key, remaining)
       }
     }, waitTime)
   }
@@ -724,6 +706,10 @@ export class Inngest {
   private readonly activeRuns = new Map<string, FunctionRun>()
   private readonly runCancellations = new Map<string, { reject: (error: Error) => void }>()
 
+  // Background task tracking for promise race condition prevention
+  private readonly runningTasks = new Map<string, Promise<unknown>>()
+  private readonly failedRuns = new Map<string, { error: Error; timestamp: number }>()
+
   // Throttle manager
   private readonly throttleManager = new ThrottleManager()
 
@@ -831,10 +817,22 @@ export class Inngest {
           if (fn.config.batchEvents) {
             this.handleBatchedEvent(fn, event)
           } else {
-            // Execute in background (fire-and-forget)
-            this.invokeFunction(fn, event).catch((error) => {
-              this.logger.error(`Function ${fn.id} failed:`, error)
-            })
+            // Execute in background with proper error tracking
+            const runId = generateRunId()
+            const runPromise = this.invokeFunction(fn, event)
+              .catch((error) => {
+                this.logger.error(`Function ${fn.id} failed:`, error)
+                // Track failed run for debugging and observability
+                this.failedRuns.set(runId, { error: error as Error, timestamp: Date.now() })
+                // Clean up old failed runs after 1 hour
+                setTimeout(() => this.failedRuns.delete(runId), 3600000)
+                throw error // Re-throw so callers can handle if needed
+              })
+              .finally(() => {
+                // Clean up running task reference
+                this.runningTasks.delete(runId)
+              })
+            this.runningTasks.set(runId, runPromise)
           }
         }
       }
@@ -903,7 +901,7 @@ export class Inngest {
       return result
     } catch (error) {
       run.status = 'failed'
-      run.error = (error as Error).message
+      run.error = ensureError(error).message
       run.completedAt = Date.now()
       throw error
     } finally {
@@ -1044,7 +1042,8 @@ export class Inngest {
           if (error instanceof NonRetriableError) {
             throw error
           }
-          throw new StepError(`Step "${stepId}" failed: ${(error as Error).message}`, stepId, { cause: error as Error })
+          const err = ensureError(error)
+          throw new StepError(`Step "${stepId}" failed: ${err.message}`, stepId, { cause: err })
         }
       },
 
@@ -1062,17 +1061,23 @@ export class Inngest {
 
         const ms = parseDuration(duration)
 
-        // Create cancellable sleep
+        // Create cancellable sleep with proper cleanup
         await new Promise<void>((resolve, reject) => {
-          const timeoutId = setTimeout(() => {
+          // Cleanup function to clear timeout and remove cancellation handler
+          const cleanup = () => {
+            clearTimeout(timeoutId)
             self.runCancellations.delete(runId)
+          }
+
+          const timeoutId = setTimeout(() => {
+            cleanup()
             resolve()
           }, ms)
 
           // Register for cancellation
           self.runCancellations.set(runId, {
             reject: (error) => {
-              clearTimeout(timeoutId)
+              cleanup()
               reject(error)
             },
           })
@@ -1305,13 +1310,14 @@ export class Inngest {
 
       return result
     } catch (error) {
+      const err = ensureError(error)
       // Error hooks
       for (const lifecycle of middlewareLifecycles) {
-        await lifecycle.onError?.(error as Error)
+        await lifecycle.onError?.(err)
       }
 
       run.status = 'failed'
-      run.error = (error as Error).message
+      run.error = err.message
       run.completedAt = Date.now()
 
       throw error
@@ -1336,6 +1342,29 @@ export class Inngest {
    */
   getFunction(id: string): InngestFunction<unknown, unknown> | undefined {
     return this.functions.get(id)
+  }
+
+  /**
+   * Get failed runs for observability
+   */
+  getFailedRuns(): Map<string, { error: Error; timestamp: number }> {
+    return new Map(this.failedRuns)
+  }
+
+  /**
+   * Get count of currently running background tasks
+   */
+  getRunningTaskCount(): number {
+    return this.runningTasks.size
+  }
+
+  /**
+   * Wait for all running background tasks to complete
+   * Useful for graceful shutdown or testing
+   */
+  async waitForAllTasks(): Promise<void> {
+    const tasks = Array.from(this.runningTasks.values())
+    await Promise.allSettled(tasks)
   }
 }
 
@@ -1391,7 +1420,7 @@ export function serve(inngest: Inngest, functions: InngestFunction<unknown, unkn
           headers: { 'Content-Type': 'application/json' },
         })
       } catch (error) {
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        return new Response(JSON.stringify({ error: ensureError(error).message }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         })

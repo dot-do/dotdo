@@ -36,6 +36,7 @@
 import { ScheduleManager, parseCronExpression, getNextRunTime } from '../../ScheduleManager'
 import { DurableWorkflowRuntime, InMemoryStepStorage } from '../../runtime'
 import type { StepStorage } from '../../runtime'
+import { parseDuration, ensureError } from '../utils'
 
 // ============================================================================
 // TYPES - Match QStash SDK exactly
@@ -239,31 +240,86 @@ export interface SubscribeRequest {
 }
 
 // ============================================================================
-// EVENT TYPES
+// EVENT TYPES - Discriminated unions for type-safe event handling
 // ============================================================================
 
-export type EventType = 'created' | 'delivered' | 'failed' | 'retry' | 'dlq'
+export type EventType = 'created' | 'delivered' | 'failed' | 'retry' | 'dlq' | 'callback_failed'
 
-export interface QStashEvent {
+/** Base event properties shared by all event types */
+interface QStashEventBase {
   /** Event ID */
   eventId: string
-  /** Event type */
-  type: EventType
   /** Related message ID */
   messageId: string
   /** Timestamp */
   timestamp: number
   /** Destination URL */
   url?: string
-  /** HTTP status code (for delivered events) */
-  statusCode?: number
-  /** Error message (for failed events) */
-  error?: string
-  /** Retry attempt number (for retry events) */
-  attempt?: number
   /** Cursor for pagination */
   cursor?: string
 }
+
+/** Event emitted when a message is created */
+export interface QStashEventCreated extends QStashEventBase {
+  type: 'created'
+}
+
+/** Event emitted when a message is successfully delivered */
+export interface QStashEventDelivered extends QStashEventBase {
+  type: 'delivered'
+  url: string
+  /** HTTP status code from the destination */
+  statusCode: number
+  /** Response latency in milliseconds */
+  latencyMs?: number
+}
+
+/** Event emitted when a message delivery fails after all retries */
+export interface QStashEventFailed extends QStashEventBase {
+  type: 'failed'
+  /** Error message describing the failure */
+  error: string
+  /** HTTP status code if available */
+  statusCode?: number
+}
+
+/** Event emitted when a message is being retried */
+export interface QStashEventRetry extends QStashEventBase {
+  type: 'retry'
+  /** Error message from the previous attempt */
+  error: string
+  /** Current retry attempt number (1-based) */
+  attempt: number
+  /** Timestamp when next retry will be attempted */
+  nextRetryAt?: number
+}
+
+/** Event emitted when a message is moved to the dead letter queue */
+export interface QStashEventDLQ extends QStashEventBase {
+  type: 'dlq'
+  /** Error message if available */
+  error?: string
+  /** Original destination URL */
+  originalUrl: string
+}
+
+/** Event emitted when a callback fails */
+export interface QStashEventCallbackFailed extends QStashEventBase {
+  type: 'callback_failed'
+  /** Error message describing the callback failure */
+  error: string
+  /** The callback URL that failed */
+  callbackUrl: string
+}
+
+/** Discriminated union of all event types for type-safe handling */
+export type QStashEvent =
+  | QStashEventCreated
+  | QStashEventDelivered
+  | QStashEventFailed
+  | QStashEventRetry
+  | QStashEventDLQ
+  | QStashEventCallbackFailed
 
 export interface EventListOptions {
   /** Filter by event type */
@@ -367,33 +423,8 @@ export interface MessageMeta {
 
 // ============================================================================
 // UTILITIES
+// Note: parseDuration and ensureError are imported from '../utils'
 // ============================================================================
-
-function parseDuration(duration: string | number): number {
-  if (typeof duration === 'number') return duration
-
-  const match = duration.match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min|h|hr|d|day|w|week)s?$/i)
-  if (!match) throw new Error(`Invalid duration format: ${duration}`)
-
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
-
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    sec: 1000,
-    m: 60 * 1000,
-    min: 60 * 1000,
-    h: 60 * 60 * 1000,
-    hr: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-    day: 24 * 60 * 60 * 1000,
-    w: 7 * 24 * 60 * 60 * 1000,
-    week: 7 * 24 * 60 * 60 * 1000,
-  }
-
-  return Math.floor(value * (multipliers[unit] || 1000))
-}
 
 function generateMessageId(): string {
   return `msg_${crypto.randomUUID().replace(/-/g, '')}`
@@ -413,6 +444,19 @@ function generateSubscriptionId(): string {
 
 function generateEventId(): string {
   return `evt_${crypto.randomUUID().replace(/-/g, '')}`
+}
+
+/**
+ * Valid HTTP methods for QStash requests
+ */
+const validHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const
+type HttpMethod = (typeof validHttpMethods)[number]
+
+/**
+ * Check if a string is a valid HTTP method
+ */
+function isValidHttpMethod(method: string): method is HttpMethod {
+  return validHttpMethods.includes(method as HttpMethod)
 }
 
 async function hashBody(body: string): Promise<string> {
@@ -794,10 +838,15 @@ export class DLQ {
 
     if (publishFn) {
       try {
+        // Validate HTTP method before casting
+        if (!isValidHttpMethod(message.method)) {
+          throw new Error(`Invalid HTTP method in DLQ message: ${message.method}`)
+        }
+
         const result = await publishFn({
           url,
           body: message.body,
-          method: message.method as PublishRequest['method'],
+          method: message.method,
           headers: message.headers,
         })
 
@@ -1044,6 +1093,11 @@ export class Client {
   private readonly runtime: DurableWorkflowRuntime
   private readonly deduplicationCache = new Map<string, { messageId: string; timestamp: number }>()
   private readonly config: ClientConfig
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null
+
+  // Deduplication window is 1 hour, evict entries older than 2 hours
+  private static readonly DEDUP_EVICTION_AGE_MS = 2 * 60 * 60 * 1000 // 2 hours
+  private static readonly DEDUP_CLEANUP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 
   constructor(config: ClientConfig = {}) {
     this.config = config
@@ -1064,6 +1118,60 @@ export class Client {
     this.dlq = new DLQ()
     this.topics = new Topics()
     this.events = new Events()
+
+    // Start periodic cleanup of deduplication cache
+    this._startDeduplicationCleanup()
+  }
+
+  /**
+   * Start periodic cleanup of the deduplication cache to prevent memory leaks
+   */
+  private _startDeduplicationCleanup(): void {
+    this.cleanupIntervalId = setInterval(() => {
+      this._cleanupDeduplicationCache()
+    }, Client.DEDUP_CLEANUP_INTERVAL_MS)
+
+    // Ensure cleanup doesn't prevent process from exiting (Node.js)
+    if (typeof this.cleanupIntervalId === 'object' && 'unref' in this.cleanupIntervalId) {
+      this.cleanupIntervalId.unref()
+    }
+  }
+
+  /**
+   * Clean up expired entries from the deduplication cache
+   */
+  private _cleanupDeduplicationCache(): void {
+    const now = Date.now()
+    for (const [key, entry] of this.deduplicationCache) {
+      if (now - entry.timestamp > Client.DEDUP_EVICTION_AGE_MS) {
+        this.deduplicationCache.delete(key)
+      }
+    }
+  }
+
+  /**
+   * Stop the cleanup interval (useful for testing or shutdown)
+   */
+  destroy(): void {
+    if (this.cleanupIntervalId !== null) {
+      clearInterval(this.cleanupIntervalId)
+      this.cleanupIntervalId = null
+    }
+  }
+
+  /**
+   * Handle callback failure - logs the error and emits a callback_failed event
+   */
+  private _handleCallbackFailure(messageId: string, callbackUrl: string, error: unknown): void {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error(`[QStash] Callback failed for ${callbackUrl}:`, error)
+    this.events._recordEvent({
+      type: 'callback_failed',
+      messageId,
+      url: callbackUrl,
+      error: errorMessage,
+      timestamp: Date.now(),
+    })
   }
 
   /**
@@ -1168,8 +1276,8 @@ export class Client {
                   headers: responseHeaders,
                 },
               }),
-            }).catch(() => {
-              // Ignore callback errors
+            }).catch((error) => {
+              this._handleCallbackFailure(messageId, request.callback!, error)
             })
           }
 
@@ -1237,8 +1345,9 @@ export class Client {
             attempts: attempt - 1,
             timestamp: Date.now(),
           }),
-        }).catch(() => {
-          // Ignore DLQ errors (best effort)
+        }).catch((error) => {
+          // Log DLQ delivery failure
+          console.error(`[QStash] DLQ delivery failed for ${request.deadLetterQueue}:`, error)
         })
       }
 
@@ -1277,8 +1386,8 @@ export class Client {
             attempts: attempt - 1,
             attemptHistory,
           }),
-        }).catch(() => {
-          // Ignore callback errors
+        }).catch((error) => {
+          this._handleCallbackFailure(messageId, request.failureCallback!, error)
         })
       }
     }
@@ -1392,7 +1501,7 @@ export class Client {
           deliveries[index] = {
             url: endpoint.url,
             status: 'failed',
-            error: (error as Error).message,
+            error: ensureError(error).message,
             timestamp: Date.now(),
           }
         }
@@ -1457,13 +1566,16 @@ export class Client {
                 status: 'success',
                 statusCode: response.status,
               }),
-            }).catch(() => {})
+            }).catch((err) => {
+              this._handleCallbackFailure(messageId, request.callback!, err)
+            })
           }
         } catch (error) {
+          const errorMessage = ensureError(error).message
           deliveries[index] = {
             url: endpoint.url,
             status: 'failed',
-            error: (error as Error).message,
+            error: errorMessage,
             timestamp: Date.now(),
           }
 
@@ -1476,9 +1588,11 @@ export class Client {
                 messageId,
                 destinationUrl: endpoint.url,
                 status: 'failed',
-                error: (error as Error).message,
+                error: errorMessage,
               }),
-            }).catch(() => {})
+            }).catch((err) => {
+              this._handleCallbackFailure(messageId, request.callback!, err)
+            })
           }
         }
       })
@@ -1527,7 +1641,7 @@ export class Client {
             deliveries.push({
               url: sub.url,
               status: 'failed',
-              error: (error as Error).message,
+              error: ensureError(error).message,
               timestamp: Date.now(),
             })
           }
@@ -1547,7 +1661,7 @@ export class Client {
                 deliveries.push({
                   url: endpoint.url,
                   status: 'failed',
-                  error: (error as Error).message,
+                  error: ensureError(error).message,
                   timestamp: Date.now(),
                 })
               }
@@ -1584,9 +1698,22 @@ export class Client {
 
   /**
    * Publish multiple messages in a batch
+   * Uses Promise.allSettled to return partial results even if some messages fail
    */
   async batch(messages: PublishRequest[]): Promise<BatchResponse> {
-    const responses = await Promise.all(messages.map((msg) => this.publish(msg)))
+    const results = await Promise.allSettled(messages.map((msg) => this.publish(msg)))
+    const responses: PublishResponse[] = results.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        return result.value
+      }
+      // For rejected promises, return a minimal response with error info
+      return {
+        messageId: `failed_${index}`,
+        url: messages[index].url,
+        deduplicated: false,
+        error: result.reason?.message || 'Unknown error',
+      } as PublishResponse & { error?: string }
+    })
     return { responses }
   }
 

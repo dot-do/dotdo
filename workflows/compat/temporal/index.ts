@@ -31,9 +31,11 @@
  * ```
  */
 
+import { AsyncLocalStorage } from 'async_hooks'
 import { WaitForEventManager, WaitTimeoutError, WaitCancelledError } from '../../WaitForEventManager'
 import { DurableWorkflowRuntime, InMemoryStepStorage } from '../../runtime'
 import type { StepStorage } from '../../runtime'
+import { parseDuration, ensureError } from '../utils'
 
 // ============================================================================
 // TYPES - Match Temporal SDK exactly
@@ -291,7 +293,7 @@ export interface ListWorkflowOptions {
 }
 
 // ============================================================================
-// GLOBAL STATE - Extended for full API coverage
+// WORKFLOW STATE TYPES
 // ============================================================================
 
 interface WorkflowState {
@@ -334,56 +336,102 @@ interface TimerState {
   timeoutId: ReturnType<typeof setTimeout> | null
 }
 
-let currentWorkflow: WorkflowState | null = null
-let currentPatchState: PatchState | null = null
+// ============================================================================
+// WORKFLOW CONTEXT - AsyncLocalStorage for concurrent execution support
+// ============================================================================
+
+/**
+ * WorkflowContext encapsulates all per-execution state, enabling concurrent
+ * workflow execution without global state pollution.
+ *
+ * This solves the issue where global mutable variables prevent:
+ * - Tests from running in parallel
+ * - Multiple concurrent workflow executions
+ * - Type safety for workflow context
+ */
+interface WorkflowContext {
+  workflow: WorkflowState
+  patchState: PatchState | null
+  storage: StepStorage
+  waitManager: WaitForEventManager | null
+}
+
+// AsyncLocalStorage provides execution-scoped context
+// This works in both Node.js and Cloudflare Workers runtime
+const workflowContextStorage = new AsyncLocalStorage<WorkflowContext>()
+
+/**
+ * Get the current workflow context from AsyncLocalStorage.
+ * Returns null if not executing within a workflow.
+ */
+function getCurrentContext(): WorkflowContext | null {
+  return workflowContextStorage.getStore() ?? null
+}
+
+/**
+ * Get the current workflow state for backward compatibility.
+ * This function bridges the old global state approach with the new context-based approach.
+ */
+function getCurrentWorkflow(): WorkflowState | null {
+  const ctx = getCurrentContext()
+  return ctx?.workflow ?? null
+}
+
+/**
+ * Get the current patch state from context.
+ */
+function getCurrentPatchState(): PatchState | null {
+  const ctx = getCurrentContext()
+  return ctx?.patchState ?? null
+}
+
+/**
+ * Set the current patch state within the context.
+ */
+function setCurrentPatchState(patchState: PatchState): void {
+  const ctx = getCurrentContext()
+  if (ctx) {
+    ctx.patchState = patchState
+  }
+}
+
+/**
+ * Execute a workflow function within a context.
+ * This ensures all workflow operations have access to the correct context.
+ */
+function runWithContext<T>(context: WorkflowContext, fn: () => T): T {
+  return workflowContextStorage.run(context, fn)
+}
+
+// ============================================================================
+// GLOBAL REGISTRIES - These are shared lookup tables, not per-execution state
+// ============================================================================
+
 let globalStorage: StepStorage = new InMemoryStepStorage()
 let globalState: DurableObjectState | null = null
-let waitManager: WaitForEventManager | null = null
+let globalWaitManager: WaitForEventManager | null = null
 let globalNamespace = 'default'
 
+// Workflow registry - shared across all executions for handle lookups
 const workflows = new Map<string, WorkflowState>()
 const workflowFunctions = new Map<string, (...args: unknown[]) => Promise<unknown>>()
+
+// Timer tracking - global for cancel operations by ID
 const activeTimers = new Map<string, TimerState>()
 
 export function configure(opts: { storage?: StepStorage; state?: DurableObjectState; namespace?: string }): void {
   if (opts.storage) globalStorage = opts.storage
   if (opts.state) {
     globalState = opts.state
-    waitManager = new WaitForEventManager(opts.state)
+    globalWaitManager = new WaitForEventManager(opts.state)
   }
   if (opts.namespace) globalNamespace = opts.namespace
 }
 
 // ============================================================================
 // UTILITIES
+// Note: parseDuration and ensureError are imported from '../utils'
 // ============================================================================
-
-function parseDuration(duration: string | number): number {
-  if (typeof duration === 'number') return duration
-
-  const match = duration.match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min|h|hr|hour|d|day|w|week)s?$/i)
-  if (!match) throw new Error(`Invalid duration format: ${duration}`)
-
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
-
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    sec: 1000,
-    m: 60 * 1000,
-    min: 60 * 1000,
-    h: 60 * 60 * 1000,
-    hr: 60 * 60 * 1000,
-    hour: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-    day: 24 * 60 * 60 * 1000,
-    w: 7 * 24 * 60 * 60 * 1000,
-    week: 7 * 24 * 60 * 60 * 1000,
-  }
-
-  return Math.floor(value * (multipliers[unit] || 1000))
-}
 
 function generateWorkflowId(): string {
   return `wf_${crypto.randomUUID().replace(/-/g, '')}`
@@ -432,16 +480,17 @@ export function setHandler(
   definition: SignalDefinition<unknown[]> | QueryDefinition<unknown, unknown[]> | UpdateDefinition<unknown, unknown[]>,
   handler: SignalHandler<unknown[]> | QueryHandler<unknown, unknown[]> | UpdateHandler<unknown, unknown[]>
 ): void {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('setHandler can only be called within a workflow')
   }
 
   if (definition.type === 'signal') {
-    currentWorkflow.signalHandlers.set(definition.name, handler as SignalHandler<unknown[]>)
+    workflow.signalHandlers.set(definition.name, handler as SignalHandler<unknown[]>)
   } else if (definition.type === 'query') {
-    currentWorkflow.queryHandlers.set(definition.name, handler as QueryHandler<unknown, unknown[]>)
+    workflow.queryHandlers.set(definition.name, handler as QueryHandler<unknown, unknown[]>)
   } else {
-    currentWorkflow.updateHandlers.set(definition.name, handler as UpdateHandler<unknown, unknown[]>)
+    workflow.updateHandlers.set(definition.name, handler as UpdateHandler<unknown, unknown[]>)
   }
 }
 
@@ -453,24 +502,25 @@ export function setHandler(
  * Get current workflow info
  */
 export function workflowInfo(): WorkflowInfo {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('workflowInfo can only be called within a workflow')
   }
 
   return {
-    workflowId: currentWorkflow.workflowId,
-    runId: currentWorkflow.runId,
-    workflowType: currentWorkflow.workflowType,
-    taskQueue: currentWorkflow.taskQueue,
-    namespace: currentWorkflow.namespace,
-    firstExecutionRunId: currentWorkflow.runId,
-    attempt: currentWorkflow.attempt,
-    historyLength: currentWorkflow.historyLength,
-    startTime: currentWorkflow.startTime,
-    runStartTime: currentWorkflow.runStartTime,
-    memo: currentWorkflow.memo,
-    searchAttributes: currentWorkflow.searchAttributes,
-    parent: currentWorkflow.parent,
+    workflowId: workflow.workflowId,
+    runId: workflow.runId,
+    workflowType: workflow.workflowType,
+    taskQueue: workflow.taskQueue,
+    namespace: workflow.namespace,
+    firstExecutionRunId: workflow.runId,
+    attempt: workflow.attempt,
+    historyLength: workflow.historyLength,
+    startTime: workflow.startTime,
+    runStartTime: workflow.runStartTime,
+    memo: workflow.memo,
+    searchAttributes: workflow.searchAttributes,
+    parent: workflow.parent,
   }
 }
 
@@ -482,25 +532,27 @@ export function workflowInfo(): WorkflowInfo {
  * Set search attributes (replaces all)
  */
 export function setSearchAttributes(attrs: SearchAttributes): void {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('setSearchAttributes can only be called within a workflow')
   }
-  currentWorkflow.searchAttributes = { ...attrs }
-  currentWorkflow.historyLength++
+  workflow.searchAttributes = { ...attrs }
+  workflow.historyLength++
 }
 
 /**
  * Upsert (merge) search attributes
  */
 export function upsertSearchAttributes(attrs: SearchAttributes): void {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('upsertSearchAttributes can only be called within a workflow')
   }
-  currentWorkflow.searchAttributes = {
-    ...currentWorkflow.searchAttributes,
+  workflow.searchAttributes = {
+    ...workflow.searchAttributes,
     ...attrs,
   }
-  currentWorkflow.historyLength++
+  workflow.historyLength++
 }
 
 // ============================================================================
@@ -563,8 +615,9 @@ export function createTimer(duration: string | number): TimerHandle {
           timer.pending = false
           timer.resolve()
           activeTimers.delete(timer.id)
-          if (currentWorkflow) {
-            currentWorkflow.historyLength++
+          const workflow = getCurrentWorkflow()
+          if (workflow) {
+            workflow.historyLength++
           }
         }
       }
@@ -614,14 +667,13 @@ export function cancelTimer(timer: TimerHandle): void {
 
 /**
  * Clear all internal state (useful for testing)
+ * Note: AsyncLocalStorage context is automatically cleaned up when execution ends
  */
 export function __clearTemporalState(): void {
   workflows.clear()
   workflowFunctions.clear()
   activeTimers.clear()
   coalescedTimerBuckets.clear()
-  currentWorkflow = null
-  currentPatchState = null
   globalNamespace = 'default'
 }
 
@@ -635,19 +687,22 @@ export function __clearTemporalState(): void {
  * For replays of old executions, this returns false to maintain compatibility
  */
 export function patched(patchId: string): boolean {
-  if (!currentPatchState) {
-    currentPatchState = {
+  let patchState = getCurrentPatchState()
+  if (!patchState) {
+    patchState = {
       appliedPatches: new Set(),
       deprecatedPatches: new Set(),
     }
+    setCurrentPatchState(patchState)
   }
 
   // For new executions, always apply patches
   // In a full implementation, this would check workflow history
-  currentPatchState.appliedPatches.add(patchId)
+  patchState.appliedPatches.add(patchId)
 
-  if (currentWorkflow) {
-    currentWorkflow.historyLength++
+  const workflow = getCurrentWorkflow()
+  if (workflow) {
+    workflow.historyLength++
   }
 
   return true
@@ -657,14 +712,16 @@ export function patched(patchId: string): boolean {
  * Deprecate an old patch (removes it from consideration in new workflow code)
  */
 export function deprecatePatch(patchId: string): void {
-  if (!currentPatchState) {
-    currentPatchState = {
+  let patchState = getCurrentPatchState()
+  if (!patchState) {
+    patchState = {
       appliedPatches: new Set(),
       deprecatedPatches: new Set(),
     }
+    setCurrentPatchState(patchState)
   }
 
-  currentPatchState.deprecatedPatches.add(patchId)
+  patchState.deprecatedPatches.add(patchId)
 }
 
 // ============================================================================
@@ -675,28 +732,30 @@ export function deprecatePatch(patchId: string): void {
  * Sleep for a duration (durable)
  */
 export async function sleep(duration: string | number): Promise<void> {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('sleep can only be called within a workflow')
   }
 
   const ms = parseDuration(duration)
-  const stepId = `sleep:${ms}:${currentWorkflow.historyLength}`
+  const stepId = `sleep:${ms}:${workflow.historyLength}`
 
   // Check for replay
-  if (currentWorkflow.stepResults.has(stepId)) {
+  if (workflow.stepResults.has(stepId)) {
     return
   }
 
   await new Promise((resolve) => setTimeout(resolve, ms))
-  currentWorkflow.stepResults.set(stepId, true)
-  currentWorkflow.historyLength++
+  workflow.stepResults.set(stepId, true)
+  workflow.historyLength++
 }
 
 /**
  * Wait for a condition to be true
  */
 export async function condition(fn: () => boolean, timeout?: string | number): Promise<boolean> {
-  if (!currentWorkflow) {
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
     throw new Error('condition can only be called within a workflow')
   }
 
@@ -743,15 +802,16 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
   return new Proxy({} as T, {
     get(_, name: string) {
       return async (...args: unknown[]): Promise<unknown> => {
-        if (!currentWorkflow) {
+        const workflow = getCurrentWorkflow()
+        if (!workflow) {
           throw new Error('Activities can only be called within a workflow')
         }
 
         const stepId = `activity:${name}:${JSON.stringify(args)}`
 
         // Check for replay
-        if (currentWorkflow.stepResults.has(stepId)) {
-          return currentWorkflow.stepResults.get(stepId)
+        if (workflow.stepResults.has(stepId)) {
+          return workflow.stepResults.get(stepId)
         }
 
         // Execute the activity (in compat mode, activities are stubs)
@@ -768,8 +828,8 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
           'do'
         )
 
-        currentWorkflow.stepResults.set(stepId, result)
-        currentWorkflow.historyLength++
+        workflow.stepResults.set(stepId, result)
+        workflow.historyLength++
         return result
       }
     },
@@ -800,12 +860,14 @@ export async function startChild<T, TArgs extends unknown[]>(
   const runId = generateRunId()
   const now = new Date()
 
+  const parentWorkflow = getCurrentWorkflow()
+
   // Get parent info if executing within a workflow
-  const parentInfo: ParentWorkflowInfo | undefined = currentWorkflow
+  const parentInfo: ParentWorkflowInfo | undefined = parentWorkflow
     ? {
-        workflowId: currentWorkflow.workflowId,
-        runId: currentWorkflow.runId,
-        namespace: currentWorkflow.namespace,
+        workflowId: parentWorkflow.workflowId,
+        runId: parentWorkflow.runId,
+        namespace: parentWorkflow.namespace,
       }
     : undefined
 
@@ -814,8 +876,8 @@ export async function startChild<T, TArgs extends unknown[]>(
     workflowId,
     runId,
     workflowType: typeName,
-    taskQueue: options.taskQueue ?? currentWorkflow?.taskQueue ?? 'default',
-    namespace: currentWorkflow?.namespace ?? globalNamespace,
+    taskQueue: options.taskQueue ?? parentWorkflow?.taskQueue ?? 'default',
+    namespace: parentWorkflow?.namespace ?? globalNamespace,
     signalHandlers: new Map(),
     queryHandlers: new Map(),
     updateHandlers: new Map(),
@@ -835,32 +897,34 @@ export async function startChild<T, TArgs extends unknown[]>(
   workflows.set(workflowId, childState)
 
   // Track child in parent
-  if (currentWorkflow) {
-    currentWorkflow.children.add(workflowId)
-    currentWorkflow.historyLength++
+  if (parentWorkflow) {
+    parentWorkflow.children.add(workflowId)
+    parentWorkflow.historyLength++
   }
 
-  // Execute in background
+  // Execute in background with its own context
   const workflowFn = typeof workflowType === 'function' ? workflowType : workflowFunctions.get(typeName)
   if (workflowFn) {
-    const prevWorkflow = currentWorkflow
-    const prevPatchState = currentPatchState
-    currentWorkflow = childState
-    currentPatchState = null
+    // Create a new context for the child workflow
+    const childContext: WorkflowContext = {
+      workflow: childState,
+      patchState: null,
+      storage: globalStorage,
+      waitManager: globalWaitManager,
+    }
 
-    workflowFn(...(options.args ?? []))
-      .then((result) => {
-        childState.status = 'COMPLETED'
-        childState.result = result
-      })
-      .catch((error) => {
-        childState.status = 'FAILED'
-        childState.error = error
-      })
-      .finally(() => {
-        currentWorkflow = prevWorkflow
-        currentPatchState = prevPatchState
-      })
+    // Run the child workflow in its own context
+    runWithContext(childContext, () => {
+      workflowFn(...(options.args ?? []))
+        .then((result) => {
+          childState.status = 'COMPLETED'
+          childState.result = result
+        })
+        .catch((error) => {
+          childState.status = 'FAILED'
+          childState.error = error
+        })
+    })
   }
 
   return {
@@ -1046,31 +1110,33 @@ export class WorkflowClient {
 
     workflows.set(workflowId, state)
 
-    // Execute the workflow
+    // Execute the workflow with its own context
     const workflowFn = typeof workflowType === 'function' ? workflowType : workflowFunctions.get(typeName)
     if (workflowFn) {
-      const prevWorkflow = currentWorkflow
-      const prevPatchState = currentPatchState
-      currentWorkflow = state
-      currentPatchState = null
+      // Create a new context for this workflow execution
+      const context: WorkflowContext = {
+        workflow: state,
+        patchState: null,
+        storage: this.storage,
+        waitManager: globalWaitManager,
+      }
 
-      workflowFn(...(options.args ?? []))
-        .then((result) => {
-          state.status = 'COMPLETED'
-          state.result = result
-        })
-        .catch((error) => {
-          if (error instanceof ContinueAsNew) {
-            state.status = 'CONTINUED_AS_NEW'
-          } else {
-            state.status = 'FAILED'
-            state.error = error
-          }
-        })
-        .finally(() => {
-          currentWorkflow = prevWorkflow
-          currentPatchState = prevPatchState
-        })
+      // Run the workflow in its own context (enabling concurrent execution)
+      runWithContext(context, () => {
+        workflowFn(...(options.args ?? []))
+          .then((result) => {
+            state.status = 'COMPLETED'
+            state.result = result
+          })
+          .catch((error) => {
+            if (error instanceof ContinueAsNew) {
+              state.status = 'CONTINUED_AS_NEW'
+            } else {
+              state.status = 'FAILED'
+              state.error = error
+            }
+          })
+      })
     }
 
     return this.createHandle<TResult>(workflowId, runId, state)
@@ -1132,13 +1198,31 @@ export class WorkflowClient {
 
   /**
    * Simple query matcher for search attributes
+   *
+   * Security: This method validates queries to prevent injection attacks.
+   * - Empty queries match all (intentional)
+   * - Invalid query format returns false (fail closed)
+   * - Only whitelisted attribute keys are allowed
    */
   private matchesQuery(state: WorkflowState, query: string): boolean {
+    // Empty query matches all (intentional behavior)
+    if (!query || query.trim() === '') return true
+
     // Simple parser for queries like: Status = "active"
     const match = query.match(/(\w+)\s*=\s*"([^"]+)"/)
-    if (!match) return true
+    if (!match) {
+      // Invalid query format - fail closed (don't match)
+      return false
+    }
 
     const [, key, value] = match
+
+    // Validate key is a known search attribute (prevent prototype pollution)
+    const validKeys = ['status', 'workflowType', 'runId', ...Object.keys(state.searchAttributes)]
+    if (!validKeys.includes(key)) {
+      return false
+    }
+
     const attrValue = state.searchAttributes[key]
     return String(attrValue) === value
   }
@@ -1217,8 +1301,8 @@ export class WorkflowClient {
         }
 
         // Also deliver to wait manager if present
-        if (waitManager) {
-          await waitManager.deliverEvent(null, `signal:${signal.name}`, args)
+        if (globalWaitManager) {
+          await globalWaitManager.deliverEvent(null, `signal:${signal.name}`, args)
         }
       },
 

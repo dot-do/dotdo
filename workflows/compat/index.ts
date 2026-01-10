@@ -42,6 +42,10 @@
  *   await sendEmail('hello')
  *   await sleep('1h')
  * }
+ *
+ * // Unified error handling
+ * import { DotdoRetryableError, mapToNativeError } from '@dotdo/workflows/compat/errors'
+ * throw new DotdoRetryableError('Service unavailable', 5000)
  * ```
  */
 
@@ -131,3 +135,33 @@ export {
   type WorkflowClientOptions,
   type WorkflowStartOptions,
 } from './temporal'
+
+// Unified Error Handling
+export {
+  // Base error types
+  DotdoError,
+  DotdoRetryableError,
+  DotdoNonRetryableError,
+  DotdoTimeoutError,
+  DotdoCancellationError,
+  DotdoNotImplementedError,
+  DotdoStepError,
+  DotdoInvokeTimeoutError,
+  // Type guards
+  isError,
+  isDotdoError,
+  isRetryableError,
+  isNonRetryableError,
+  isCancellationError,
+  isTimeoutError,
+  ensureError,
+  // Platform mapping
+  mapToNativeError,
+  mapFromNativeError,
+  // Utilities
+  wrapError,
+  toNonRetryable,
+  toRetryable,
+  // Types
+  type Platform,
+} from './errors'
