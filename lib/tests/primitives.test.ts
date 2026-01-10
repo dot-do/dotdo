@@ -617,20 +617,20 @@ describe('Extended Primitives', () => {
 
 describe('Primitives Error Handling', () => {
   describe('Clear error messages for unimplemented features', () => {
-    it('fsx operations should throw clear errors when not backed by implementation', async () => {
-      // The withFs mixin creates stub implementations that throw errors
-      // These errors should be clear about what's missing
+    it('fsx operations should throw clear ENOENT errors for missing files', async () => {
+      // The withFs mixin provides SQLite-backed filesystem operations
+      // Reading non-existent files should throw clear ENOENT errors
 
       class TestDO extends withFs(DO) {}
       const instance = new TestDO(createMockState(), createMockEnv())
 
-      // Attempt to read - should get clear error message
+      // Attempt to read non-existent file - should get clear ENOENT error
       try {
         await instance.$.fs.read('/test.txt')
         expect.fail('Expected error to be thrown')
       } catch (error: any) {
-        // Error should mention what operation failed
-        expect(error.message).toMatch(/read|not.?implemented/i)
+        // Error should mention ENOENT and the path
+        expect(error.message).toMatch(/ENOENT|no such file/i)
       }
     })
 

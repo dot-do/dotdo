@@ -197,16 +197,18 @@ describe('Named Agents - Template Literal Interface', () => {
   describe('Agent approval methods', () => {
     it('tom should have approve method for tech review', async () => {
       const code = 'function hello() { return "world" }'
-      const approved = await tom.approve(code)
+      const result = await tom.approve(code)
 
-      expect(typeof approved).toBe('boolean')
+      expect(result).toHaveProperty('approved')
+      expect(typeof result.approved).toBe('boolean')
     })
 
     it('quinn should have approve method for QA', async () => {
       const feature = { name: 'login', tests: ['unit', 'e2e'] }
-      const approved = await quinn.approve(feature)
+      const result = await quinn.approve(feature)
 
-      expect(typeof approved).toBe('boolean')
+      expect(result).toHaveProperty('approved')
+      expect(typeof result.approved).toBe('boolean')
     })
   })
 

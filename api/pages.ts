@@ -5,6 +5,16 @@
  * for landing, docs, admin, and error pages.
  */
 
+// HTML escaping utility to prevent XSS
+const escapeHtml = (unsafe: string): string => {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 // Base styles for all pages
 const baseStyles = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -803,6 +813,16 @@ export function adminDashboardHtml(): string {
 
 <!-- Tab switching script -->
 <script>
+  // HTML escaping utility to prevent XSS
+  function escapeHtml(unsafe) {
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   document.querySelectorAll('[data-component="TabsTrigger"]').forEach(trigger => {
     trigger.addEventListener('click', () => {
       const tabs = trigger.closest('[data-component="Tabs"]');
@@ -823,16 +843,17 @@ export function adminDashboardHtml(): string {
   document.querySelectorAll('[data-component="CommandItem"][data-agent]').forEach(item => {
     item.addEventListener('click', () => {
       const agent = item.dataset.agent;
+      const safeAgent = escapeHtml(agent);
       const modal = document.createElement('div');
       modal.setAttribute('data-agent-chat', agent);
       modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50;';
       modal.innerHTML = \`
         <div style="background: #111; border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; max-width: 28rem; width: 100%; margin: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-weight: 600; color: #fff;">Chat with \${agent}</h3>
+            <h3 style="font-weight: 600; color: #fff;">Chat with \${safeAgent}</h3>
             <button onclick="this.closest('[data-agent-chat]').remove()" style="background: transparent; border: none; color: #9ca3af; cursor: pointer; font-size: 1.25rem;">X</button>
           </div>
-          <p style="color: #9ca3af;">Starting conversation with \${agent}...</p>
+          <p style="color: #9ca3af;">Starting conversation with \${safeAgent}...</p>
         </div>
       \`;
       modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });

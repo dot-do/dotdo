@@ -17,6 +17,7 @@ export type PipelineExpression =
   | { type: 'branch'; value: PipelineExpression; cases: Record<string, PipelineExpression> }
   | { type: 'match'; value: PipelineExpression; patterns: Array<{ predicateSource: string; result: PipelineExpression }> }
   | { type: 'waitFor'; eventName: string; options: { timeout?: string; type?: string } }
+  | { type: 'send'; entity: string; event: string; payload: unknown }
   | { type: 'literal'; value: unknown }
   | { type: 'placeholder'; path: string[] }
 
@@ -29,7 +30,6 @@ export interface MapperInstruction {
 export interface PipelinePromise<T = unknown> extends PromiseLike<T> {
   readonly __expr: PipelineExpression
   readonly __isPipelinePromise: true
-  [key: string]: any
 }
 
 export interface WorkflowProxyOptions {

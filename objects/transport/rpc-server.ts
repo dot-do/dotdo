@@ -1751,11 +1751,17 @@ export interface WithRpcServer {
  * }
  * ```
  */
-export function withRpcServer<T extends new (...args: any[]) => any>(
+/**
+ * Constructor type for DO-compatible classes
+ * Ensures mixins only accept classes with DO constructor signature
+ */
+type DOConstructor = new (state: DurableObjectState, env: Record<string, unknown>) => any
+
+export function withRpcServer<T extends DOConstructor>(
   Base: T,
   config?: RPCServerConfig
 ) {
-  return class extends Base implements WithRpcServer {
+  return class extends (Base as new (...args: any[]) => any) implements WithRpcServer {
     private _rpcServer?: RPCServer
 
     get rpcServer(): RPCServer {
@@ -1867,6 +1873,7 @@ import type {
   HandlerContext,
   CanHandleResult,
   HandlerOptions,
+  DurableObjectState,
 } from './handler'
 import {
   buildJsonResponse,

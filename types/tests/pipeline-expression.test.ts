@@ -89,14 +89,13 @@ describe('PipelineExpression Union Completeness', () => {
     })
 
     it('should allow creating send expression without cast', () => {
-      // RED: This assignment should work without `as any`
-      // Currently workflows/on.ts line 233 requires `as any`
+      // GREEN: SendExpression is now in the PipelineExpression union
       const sendExpr: PipelineExpression = {
         type: 'send',
         entity: 'Customer',
         event: 'signup',
         payload: { email: 'test@example.com' },
-      } as unknown as PipelineExpression // Remove this cast when union is complete
+      }
 
       // This should be assignable to PipelineExpression
       expectTypeOf(sendExpr).toMatchTypeOf<PipelineExpression>()
@@ -221,7 +220,7 @@ describe('PipelineExpression Type Discriminants', () => {
 describe('PipelineExpression Exhaustiveness', () => {
   it('should handle all expression types in switch statement', () => {
     // This test ensures the union can be exhaustively checked
-    // RED: Will not compile until 'send' is added (switch won't be exhaustive)
+    // GREEN: Now includes 'send' case for complete exhaustiveness
     function getExpressionDescription(expr: PipelineExpression): string {
       switch (expr.type) {
         case 'call':
@@ -238,11 +237,12 @@ describe('PipelineExpression Exhaustiveness', () => {
           return 'Match'
         case 'waitFor':
           return `Wait for ${expr.eventName}`
+        case 'send':
+          return `Send ${expr.entity}.${expr.event}`
         case 'literal':
           return `Literal: ${expr.value}`
         case 'placeholder':
           return `Placeholder: ${expr.path.join('.')}`
-        // Missing: case 'send' - this would be a type error if send was in union
         default:
           // Exhaustiveness check - should be never if all cases are covered
           const _exhaustive: never = expr
@@ -254,20 +254,10 @@ describe('PipelineExpression Exhaustiveness', () => {
   })
 
   it('should include send in exhaustiveness check after fix', () => {
-    // Document expected behavior after adding send to union:
-    // This switch should require a 'send' case
-    //
-    // switch (expr.type) {
-    //   case 'send':
-    //     return `Send ${expr.entity}.${expr.event}`
-    //   ...
-    // }
-    //
-    // For now this is just a documentation placeholder
+    // GREEN: 'send' is now included in the union
     type ExpectedTypes = PipelineExpression['type']
 
-    // RED: 'send' is not in this union yet
-    // After fix, this should include 'send'
+    // All expression types including 'send'
     expectTypeOf<ExpectedTypes>().toMatchTypeOf<
       | 'call'
       | 'property'
@@ -276,6 +266,7 @@ describe('PipelineExpression Exhaustiveness', () => {
       | 'branch'
       | 'match'
       | 'waitFor'
+      | 'send'
       | 'literal'
       | 'placeholder'
     >()
@@ -288,22 +279,18 @@ describe('PipelineExpression Exhaustiveness', () => {
 
 describe('Integration with send proxy (workflows/on.ts)', () => {
   it('should allow send expression creation without type assertion', () => {
-    // This mirrors the code in workflows/on.ts lines 228-234
-    // Currently requires: } as any // extend PipelineExpression type
-    //
-    // RED: This test documents the required fix
+    // GREEN: This mirrors the code in workflows/on.ts - no cast needed
     function createSendExpression(
       entity: string,
       event: string,
       payload: unknown
     ): PipelineExpression {
-      // This should compile without `as any` after fixing the union
       return {
         type: 'send',
         entity,
         event,
         payload,
-      } as unknown as PipelineExpression // This cast should not be needed
+      }
     }
 
     const result = createSendExpression('Customer', 'signup', { email: 'test@example.com' })

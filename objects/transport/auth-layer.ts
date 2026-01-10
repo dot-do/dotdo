@@ -1130,11 +1130,17 @@ export function createInMemorySessionStorage(): SessionStorage {
  * Auth-enabled fetch handler wrapper
  * Integrates with DO's fetch method to add authentication/authorization
  */
-export function withAuth<T extends { new(...args: any[]): any }>(
+/**
+ * Constructor type for DO-compatible classes
+ * Ensures mixins only accept classes with DO constructor signature
+ */
+type DOConstructor = new (state: DurableObjectState, env: Record<string, unknown>) => any
+
+export function withAuth<T extends DOConstructor>(
   Base: T,
   options: AuthMiddlewareOptions = {}
 ) {
-  return class extends Base {
+  return class extends (Base as new (...args: any[]) => any) {
     private _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
     private _authMiddleware = createAuthMiddleware({
       ...options,
@@ -1598,6 +1604,7 @@ import type {
   HandlerOptions,
   MiddlewareHandler,
   AuthContext as HandlerAuthContext,
+  DurableObjectState,
 } from './handler'
 import {
   buildJsonResponse,

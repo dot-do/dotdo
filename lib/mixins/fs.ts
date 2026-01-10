@@ -385,47 +385,256 @@ export interface WithFsDO<E extends Env = Env> extends DO<E> {
 // ============================================================================
 
 /**
- * Creates an FsCapability instance
- * This is a stub implementation - actual filesystem operations would be
- * implemented based on the runtime environment (e.g., container-based execution)
+ * File metadata stored alongside content
  */
-function createFsCapability(): FsCapability {
+interface FileMetadata {
+  size: number
+  isDirectory: boolean
+  createdAt: string  // ISO string for storage
+  modifiedAt: string // ISO string for storage
+}
+
+/**
+ * Storage key prefixes for the virtual filesystem
+ */
+const FS_FILE_PREFIX = 'fsx:file:'
+const FS_META_PREFIX = 'fsx:meta:'
+const FS_DIR_PREFIX = 'fsx:dir:'
+
+/**
+ * Normalize path to ensure consistent key format
+ */
+function normalizePath(path: string): string {
+  // Ensure path starts with /
+  if (!path.startsWith('/')) {
+    path = '/' + path
+  }
+  // Remove trailing slash except for root
+  if (path !== '/' && path.endsWith('/')) {
+    path = path.slice(0, -1)
+  }
+  return path
+}
+
+/**
+ * Get parent directory path
+ */
+function getParentDir(path: string): string {
+  const normalized = normalizePath(path)
+  const lastSlash = normalized.lastIndexOf('/')
+  if (lastSlash <= 0) return '/'
+  return normalized.slice(0, lastSlash)
+}
+
+/**
+ * Get file/directory name from path
+ */
+function getBasename(path: string): string {
+  const normalized = normalizePath(path)
+  const lastSlash = normalized.lastIndexOf('/')
+  return normalized.slice(lastSlash + 1)
+}
+
+/**
+ * Creates an FsCapability instance backed by DurableObjectStorage (SQLite)
+ *
+ * Storage layout:
+ * - fsx:file:/path/to/file -> file content (string)
+ * - fsx:meta:/path/to/file -> FileMetadata (JSON)
+ * - fsx:dir:/path/to/dir -> true (marker for directories)
+ */
+function createFsCapability(storage: DurableObjectStorage): FsCapability {
   return {
     async read(path: string, options?: FsReadOptions): Promise<string> {
-      // Stub implementation - would be replaced with actual fs operations
-      throw new Error(`fs.read not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedPath)
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory: ${path}`)
+      }
+      return content
     },
+
     async write(path: string, content: string, options?: FsWriteOptions): Promise<void> {
-      // Stub implementation
-      throw new Error(`fs.write not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+      const now = new Date().toISOString()
+
+      // Check if file already exists to preserve createdAt
+      const existingMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedPath)
+
+      const metadata: FileMetadata = {
+        size: content.length,
+        isDirectory: false,
+        createdAt: existingMeta?.createdAt ?? now,
+        modifiedAt: now,
+      }
+
+      // Write file content and metadata atomically
+      await storage.put(FS_FILE_PREFIX + normalizedPath, content)
+      await storage.put(FS_META_PREFIX + normalizedPath, metadata)
     },
+
     async exists(path: string): Promise<boolean> {
-      // Stub implementation
-      throw new Error(`fs.exists not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+      // Check for file
+      const fileContent = await storage.get(FS_FILE_PREFIX + normalizedPath)
+      if (fileContent !== undefined) return true
+      // Check for directory marker
+      const dirMarker = await storage.get(FS_DIR_PREFIX + normalizedPath)
+      if (dirMarker !== undefined) return true
+      return false
     },
+
     async delete(path: string): Promise<void> {
-      // Stub implementation
-      throw new Error(`fs.delete not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+      // Delete file content, metadata, and directory marker
+      await storage.delete(FS_FILE_PREFIX + normalizedPath)
+      await storage.delete(FS_META_PREFIX + normalizedPath)
+      await storage.delete(FS_DIR_PREFIX + normalizedPath)
     },
+
     async list(path: string, options?: FsListOptions): Promise<FsEntry[]> {
-      // Stub implementation
-      throw new Error(`fs.list not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+      const prefix = normalizedPath === '/' ? '/' : normalizedPath + '/'
+
+      const entries: FsEntry[] = []
+      const seen = new Set<string>()
+
+      // List all file keys
+      const fileKeys = await storage.list<string>({ prefix: FS_FILE_PREFIX + prefix })
+      for (const [key] of fileKeys) {
+        // Extract the path after the prefix
+        const fullPath = key.slice(FS_FILE_PREFIX.length)
+        const relativePath = fullPath.slice(prefix.length)
+
+        // Get the first segment (immediate child)
+        const firstSlash = relativePath.indexOf('/')
+        const name = firstSlash === -1 ? relativePath : relativePath.slice(0, firstSlash)
+
+        if (name && !seen.has(name)) {
+          seen.add(name)
+          // If there's a slash, it's a directory containing this file
+          const isDirectory = firstSlash !== -1
+          entries.push({ name, isDirectory })
+        }
+      }
+
+      // List all directory markers
+      const dirKeys = await storage.list<boolean>({ prefix: FS_DIR_PREFIX + prefix })
+      for (const [key] of dirKeys) {
+        const fullPath = key.slice(FS_DIR_PREFIX.length)
+        const relativePath = fullPath.slice(prefix.length)
+
+        // Get the first segment
+        const firstSlash = relativePath.indexOf('/')
+        const name = firstSlash === -1 ? relativePath : relativePath.slice(0, firstSlash)
+
+        if (name && !seen.has(name)) {
+          seen.add(name)
+          entries.push({ name, isDirectory: true })
+        }
+      }
+
+      // Apply filter if provided
+      if (options?.filter) {
+        return entries.filter(options.filter)
+      }
+
+      return entries
     },
+
     async mkdir(path: string, options?: FsMkdirOptions): Promise<void> {
-      // Stub implementation
-      throw new Error(`fs.mkdir not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+
+      if (options?.recursive) {
+        // Create all parent directories
+        const parts = normalizedPath.split('/').filter(Boolean)
+        let current = ''
+        for (const part of parts) {
+          current += '/' + part
+          await storage.put(FS_DIR_PREFIX + current, true)
+        }
+      } else {
+        await storage.put(FS_DIR_PREFIX + normalizedPath, true)
+      }
     },
+
     async stat(path: string): Promise<FsStat> {
-      // Stub implementation
-      throw new Error(`fs.stat not implemented: ${path}`)
+      const normalizedPath = normalizePath(path)
+
+      // Check for file metadata
+      const meta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedPath)
+      if (meta) {
+        return {
+          size: meta.size,
+          isFile: !meta.isDirectory,
+          isDirectory: meta.isDirectory,
+          createdAt: new Date(meta.createdAt),
+          modifiedAt: new Date(meta.modifiedAt),
+        }
+      }
+
+      // Check for directory marker
+      const isDir = await storage.get(FS_DIR_PREFIX + normalizedPath)
+      if (isDir !== undefined) {
+        const now = new Date()
+        return {
+          size: 0,
+          isFile: false,
+          isDirectory: true,
+          createdAt: now,
+          modifiedAt: now,
+        }
+      }
+
+      throw new Error(`ENOENT: no such file or directory: ${path}`)
     },
+
     async copy(src: string, dest: string): Promise<void> {
-      // Stub implementation
-      throw new Error(`fs.copy not implemented: ${src} -> ${dest}`)
+      const normalizedSrc = normalizePath(src)
+      const normalizedDest = normalizePath(dest)
+
+      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedSrc)
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory: ${src}`)
+      }
+
+      const srcMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedSrc)
+      const now = new Date().toISOString()
+
+      // Write to destination with new timestamps
+      await storage.put(FS_FILE_PREFIX + normalizedDest, content)
+      await storage.put(FS_META_PREFIX + normalizedDest, {
+        size: content.length,
+        isDirectory: false,
+        createdAt: now,
+        modifiedAt: now,
+      } as FileMetadata)
     },
+
     async move(src: string, dest: string): Promise<void> {
-      // Stub implementation
-      throw new Error(`fs.move not implemented: ${src} -> ${dest}`)
+      const normalizedSrc = normalizePath(src)
+      const normalizedDest = normalizePath(dest)
+
+      const content = await storage.get<string>(FS_FILE_PREFIX + normalizedSrc)
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory: ${src}`)
+      }
+
+      const srcMeta = await storage.get<FileMetadata>(FS_META_PREFIX + normalizedSrc)
+      const now = new Date().toISOString()
+
+      // Write to destination preserving original createdAt
+      await storage.put(FS_FILE_PREFIX + normalizedDest, content)
+      await storage.put(FS_META_PREFIX + normalizedDest, {
+        size: content.length,
+        isDirectory: false,
+        createdAt: srcMeta?.createdAt ?? now,
+        modifiedAt: now,
+      } as FileMetadata)
+
+      // Delete source
+      await storage.delete(FS_FILE_PREFIX + normalizedSrc)
+      await storage.delete(FS_META_PREFIX + normalizedSrc)
     },
   }
 }
@@ -436,6 +645,8 @@ function createFsCapability(): FsCapability {
 
 // Symbol for caching the fs capability instance
 const FS_CAPABILITY_CACHE = Symbol('fsCapabilityCache')
+// Symbol for storing the storage reference
+const FS_STORAGE_REF = Symbol('fsStorageRef')
 
 /**
  * Adds filesystem capability to a DO class
@@ -470,13 +681,19 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
 
     // Cache for the fs capability instance
     private [FS_CAPABILITY_CACHE]?: FsCapability
+    // Storage reference from constructor
+    private [FS_STORAGE_REF]?: DurableObjectStorage
 
     /**
      * Lazy-loaded filesystem capability
      */
     private get fsCapability(): FsCapability {
       if (!this[FS_CAPABILITY_CACHE]) {
-        this[FS_CAPABILITY_CACHE] = createFsCapability()
+        const storage = this[FS_STORAGE_REF]
+        if (!storage) {
+          throw new Error('fsx: DurableObjectStorage not available - fs operations require DO storage')
+        }
+        this[FS_CAPABILITY_CACHE] = createFsCapability(storage)
       }
       return this[FS_CAPABILITY_CACHE]
     }
@@ -485,6 +702,13 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
+
+      // Extract storage from the DurableObjectState (first constructor arg)
+      // DO constructor signature: (state: DurableObjectState, env: Env)
+      const state = args[0] as DurableObjectState | undefined
+      if (state?.storage) {
+        this[FS_STORAGE_REF] = state.storage
+      }
 
       // Extend $ to include fs capability
       const originalContext = this.$

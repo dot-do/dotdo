@@ -230,7 +230,7 @@ export const send: SendProxy = new Proxy({} as SendProxy, {
             entity,
             event,
             payload,
-          } as any // extend PipelineExpression type
+          }
           return createPipelinePromise(expr, {})
         }
       },
@@ -246,15 +246,19 @@ export function when<TThen, TElse = never>(
   condition: unknown,
   branches: { then: () => TThen; else?: () => TElse }
 ): ReturnType<typeof createPipelinePromise> {
-  const conditionExpr = isPipelinePromise(condition) ? condition.__expr : { type: 'literal', value: condition }
+  const conditionExpr: PipelineExpression = isPipelinePromise(condition)
+    ? condition.__expr
+    : { type: 'literal' as const, value: condition }
 
   const thenResult = branches.then()
-  const thenExpr = isPipelinePromise(thenResult) ? thenResult.__expr : { type: 'literal', value: thenResult }
+  const thenExpr: PipelineExpression = isPipelinePromise(thenResult)
+    ? thenResult.__expr
+    : { type: 'literal' as const, value: thenResult }
 
-  let elseExpr = null
+  let elseExpr: PipelineExpression | null = null
   if (branches.else) {
     const elseResult = branches.else()
-    elseExpr = isPipelinePromise(elseResult) ? elseResult.__expr : { type: 'literal', value: elseResult }
+    elseExpr = isPipelinePromise(elseResult) ? elseResult.__expr : { type: 'literal' as const, value: elseResult }
   }
 
   const expr: PipelineExpression = {
@@ -262,7 +266,7 @@ export function when<TThen, TElse = never>(
     condition: conditionExpr,
     thenBranch: thenExpr,
     elseBranch: elseExpr,
-  } as any
+  }
 
   return createPipelinePromise(expr, {})
 }
@@ -279,7 +283,7 @@ export function waitFor(
     type: 'waitFor',
     eventName,
     options,
-  } as PipelineExpression & { type: 'waitFor'; eventName: string; options: { timeout?: string; type?: string } }
+  }
 
   return createPipelinePromise(expr, {})
 }

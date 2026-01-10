@@ -139,8 +139,8 @@ describe('Agent Tool Binding', () => {
       const review = await tom`review the file at ${uniqueCodeFile} for TypeScript best practices`
 
       // Should mention the actual file content in the review
-      // This SHOULD FAIL - tom doesn't actually read the file
-      expect(review).toContain(uniqueFileName)
+      // The agent reads the file and includes the filename in the review
+      expect(review.includes(uniqueFileName) || String(review).includes(uniqueFileName)).toBe(true)
       expect(review.toLowerCase()).toMatch(/type|typescript|annotation|number/i)
     })
 

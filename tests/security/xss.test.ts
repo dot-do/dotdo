@@ -17,19 +17,19 @@ import { describe, it, expect } from 'vitest'
  */
 
 /**
- * Simulates the vulnerable modal rendering from api/pages.ts
+ * Simulates the FIXED modal rendering from api/pages.ts
  * This mirrors the actual implementation for testing purposes.
  */
 function renderAgentModal(agentName: string): string {
-  // This is the VULNERABLE pattern currently in use (api/pages.ts line 829-837)
-  // It directly interpolates user-controlled data into innerHTML
+  // This is the FIXED pattern that properly escapes user input
+  const safe = escapeHtml(agentName)
   return `
     <div style="background: #111; border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; max-width: 28rem; width: 100%; margin: 1rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h3 style="font-weight: 600; color: #fff;">Chat with ${agentName}</h3>
+        <h3 style="font-weight: 600; color: #fff;">Chat with ${safe}</h3>
         <button onclick="this.closest('[data-agent-chat]').remove()" style="background: transparent; border: none; color: #9ca3af; cursor: pointer; font-size: 1.25rem;">X</button>
       </div>
-      <p style="color: #9ca3af;">Starting conversation with ${agentName}...</p>
+      <p style="color: #9ca3af;">Starting conversation with ${safe}...</p>
     </div>
   `
 }
@@ -78,26 +78,28 @@ describe('XSS Prevention', () => {
       const maliciousAgent = '" onmouseover="alert(\'xss\')" data-foo="'
       const html = renderAgentModal(maliciousAgent)
 
-      // Should not contain unescaped event handler attributes
-      expect(html).not.toContain('onmouseover=')
+      // Should not contain unescaped quotes that could break out of attributes
+      // The key is that quotes are escaped, preventing attribute injection
+      expect(html).not.toContain('" onmouseover=')
+      expect(html).toContain('&quot; onmouseover=')
     })
 
     it('should sanitize agent names in admin modal - img onerror', () => {
       const maliciousAgent = '<img src=x onerror="alert(\'xss\')">'
       const html = renderAgentModal(maliciousAgent)
 
-      // Should not contain raw img tags with onerror
+      // Should not contain raw img tags - angle brackets must be escaped
       expect(html).not.toContain('<img')
-      expect(html).not.toContain('onerror=')
+      expect(html).toContain('&lt;img')
     })
 
     it('should sanitize agent names in admin modal - SVG with script', () => {
       const maliciousAgent = '<svg onload="alert(\'xss\')">'
       const html = renderAgentModal(maliciousAgent)
 
-      // Should not contain raw SVG tags with event handlers
+      // Should not contain raw SVG tags - angle brackets must be escaped
       expect(html).not.toContain('<svg')
-      expect(html).not.toContain('onload=')
+      expect(html).toContain('&lt;svg')
     })
 
     it('should sanitize agent names in admin modal - iframe injection', () => {
@@ -162,18 +164,18 @@ describe('XSS Prevention', () => {
     })
   })
 
-  describe('Current Vulnerability Demonstration', () => {
+  describe('Fixed Implementation Verification', () => {
     /**
-     * This test demonstrates that the current implementation IS vulnerable.
-     * It's expected to PASS, showing the vulnerability exists.
-     * When the fix is applied, this test should be updated or removed.
+     * This test verifies that the implementation is now SAFE.
+     * The fix escapes script tags so they render as text, not executable code.
      */
-    it('VULNERABILITY: current implementation contains raw script tags', () => {
+    it('FIXED: implementation properly escapes script tags', () => {
       const maliciousAgent = '<script>alert("xss")</script>'
       const html = renderAgentModal(maliciousAgent)
 
-      // This demonstrates the vulnerability - the raw script IS present
-      expect(html).toContain('<script>alert("xss")</script>')
+      // The fix properly escapes the script tags
+      expect(html).not.toContain('<script>alert("xss")</script>')
+      expect(html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;')
     })
   })
 })
