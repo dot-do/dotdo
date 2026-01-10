@@ -112,6 +112,29 @@ The event DSL uses Proxies. `$.on.Customer` returns a Proxy. `.signup` returns a
 
 ---
 
+## Connect From Anywhere
+
+Your Durable Object is already an API. No routes to define. No schemas to maintain.
+
+```typescript
+import { $Context } from 'dotdo'
+
+const $ = $Context('https://my-startup.example.com')
+await $.Customer('alice').orders.create({ item: 'widget', qty: 5 })
+```
+
+The same promise pipelining works over HTTP. One round trip for the entire chain. Your DO methods become your API automatically.
+
+```typescript
+// Local development
+import { $ } from 'dotdo'
+await $.Customer('alice')  // Auto-connects to localhost or do.config.ts
+```
+
+Works in browsers, Node.js, mobile apps, other Workers. The client is just a Proxy—it records your calls, sends them as a single request, and returns the result. No SDK generation. No API versioning headaches. Your code IS your contract.
+
+---
+
 ## The DO in .do
 
 dotdo runs on [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)—V8 isolates with SQLite storage, globally distributed with single-threaded consistency guarantees. But we've added layers:
