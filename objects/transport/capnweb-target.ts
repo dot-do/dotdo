@@ -12,6 +12,10 @@
  * - HTTP batch mode
  *
  * Internal methods (fetch, alarm, etc.) are hidden from RPC exposure.
+ *
+ * @maintainer When adding new protected/private methods to DO classes,
+ * update INTERNAL_METHODS or INTERNAL_PROPERTIES sets below to ensure
+ * they are not exposed via RPC.
  */
 
 import {
@@ -29,6 +33,11 @@ import {
 /**
  * Methods that are internal to DurableObject and should not be exposed via RPC.
  * These are lifecycle methods, internal state accessors, and protected methods.
+ *
+ * IMPORTANT: Keep this list synchronized with DO class methods. When adding
+ * new internal methods to DOBase, DOFull, or DOTiny, add them here.
+ *
+ * @see DOBase.ts, DOFull.ts, DOTiny.ts
  */
 const INTERNAL_METHODS = new Set([
   // DurableObject lifecycle methods
