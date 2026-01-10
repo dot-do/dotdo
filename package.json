@@ -130,6 +130,8 @@
     "release": "pnpm build && changeset publish"
   },
   "dependencies": {
+    "fsx.do": "file:../fsx",
+    "gitx": "file:../gitx",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
     "@dotdo/landing": "workspace:*",

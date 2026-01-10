@@ -33,12 +33,37 @@ import type { WorkflowContext } from '../../types/WorkflowContext'
 import type { DO, Env } from '../../objects/DO'
 import type { FsCapability, WithFsContext } from './fs'
 
+// Import types from gitx for better type safety and consistency
+import type {
+  ObjectType as GitxObjectType,
+  TreeEntry as GitxTreeEntry,
+  CommitObject as GitxCommitObject,
+  Author as GitxAuthor,
+} from 'gitx'
+
+// ============================================================================
+// RE-EXPORTS FROM GITX
+// ============================================================================
+
+/**
+ * Re-export gitx types for consumers who need the full git object types.
+ * These provide more detailed type information for advanced git operations.
+ */
+export type {
+  GitxObjectType,
+  GitxTreeEntry,
+  GitxCommitObject,
+  GitxAuthor,
+}
+
 // ============================================================================
 // LOG ENTRY TYPE
 // ============================================================================
 
 /**
  * Git log entry with commit details.
+ * This is a simplified type used by the GitModule; for full commit details,
+ * use GitxCommitObject from gitx.
  */
 export interface GitLogEntry {
   /**
