@@ -1,0 +1,12 @@
+[submodule "primitives/fsx"]
+	path = primitives/fsx
+	url = https://github.com/dot-do/fsx.git
+[submodule "primitives/bashx"]
+	path = primitives/bashx
+	url = https://github.com/dot-do/bashx.git
+[submodule "primitives/gitx"]
+	path = primitives/gitx
+	url = https://github.com/dot-do/gitx.git
+[submodule "primitives/npmx"]
+	path = primitives/npmx
+	url = https://github.com/dot-do/npmx.git
