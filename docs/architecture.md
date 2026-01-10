@@ -480,6 +480,75 @@ const response = await this.env.AI_GATEWAY.complete(prompt)
 
 ---
 
+## 8. Workers Proxy Layer
+
+dotdo provides proxy workers that route HTTP requests to Durable Objects based on hostname or path patterns.
+
+### API() Factory
+
+The `API()` factory creates minimal proxy workers with a clean, declarative API:
+
+```typescript
+import { API } from 'dotdo'
+
+// Hostname mode (default) - subdomain extraction
+// tenant.api.dotdo.dev → DO('tenant')
+export default API()
+
+// Path param routing (Express-style)
+// api.dotdo.dev/acme/users → DO('acme')
+export default API({ ns: '/:org' })
+
+// Nested path params (joined by colon)
+// api.dotdo.dev/acme/proj1/tasks → DO('acme:proj1')
+export default API({ ns: '/:org/:project' })
+
+// Fixed namespace (singleton DO)
+// All requests route to DO('main')
+export default API({ ns: 'main' })
+```
+
+### Routing Modes
+
+| Mode | Pattern | Example | DO Namespace |
+|------|---------|---------|--------------|
+| Hostname | `undefined` | `tenant.api.dotdo.dev/users` | `tenant` |
+| Path Param | `/:org` | `api.dotdo.dev/acme/users` | `acme` |
+| Nested Params | `/:org/:proj` | `api.dotdo.dev/acme/p1/tasks` | `acme:p1` |
+| Fixed | `main` | `api.dotdo.dev/users` | `main` |
+
+### Request Forwarding
+
+The proxy:
+
+1. **Auto-detects DO binding** - Finds the first `DurableObjectNamespace` in env
+2. **Resolves namespace** - Extracts from hostname subdomain or path params
+3. **Strips namespace from path** - `/acme/users` → `/users` (for path mode)
+4. **Preserves everything else** - Method, headers, body, query params
+
+```typescript
+// Incoming: POST https://tenant.api.dotdo.dev/users?active=true
+// Forwarded to DO('tenant'): POST /users?active=true
+```
+
+### Low-Level Access
+
+For advanced configuration, use `createProxyHandler` directly:
+
+```typescript
+import { createProxyHandler, type ProxyConfig } from './hostname-proxy'
+
+const config: ProxyConfig = {
+  mode: 'hostname',
+  hostname: { rootDomain: 'api.dotdo.dev' },
+  defaultNs: 'fallback'
+}
+
+export default { fetch: createProxyHandler(config) }
+```
+
+---
+
 ## Summary
 
 dotdo's architecture enables building autonomous businesses by combining:

@@ -65,8 +65,34 @@ db/            # Drizzle schemas, iceberg/, edgevec/, proxy/
 workflows/     # $ context DSL (on.ts, proxy.ts, schedule-builder.ts)
 compat/        # 38 API-compatible SDKs
 agents/        # Multi-provider agent SDK (Tool, Agent, Providers)
+workers/       # DO proxy workers (api.ts, hostname-proxy.ts)
 app/           # TanStack Start frontend (MDXUI components)
 ```
+
+## DO Proxy Workers
+
+Route requests to Durable Objects with the clean `API()` factory:
+
+```typescript
+import { API } from 'dotdo'
+
+// Hostname mode (default) - subdomain → DO namespace
+// tenant.api.dotdo.dev → DO('tenant')
+export default API()
+
+// Path param routing (Express-style)
+// api.dotdo.dev/acme/users → DO('acme')
+export default API({ ns: '/:org' })
+
+// Nested path params
+// api.dotdo.dev/acme/proj1/tasks → DO('acme:proj1')
+export default API({ ns: '/:org/:project' })
+
+// Fixed namespace (singleton DO)
+export default API({ ns: 'main' })
+```
+
+The `API()` factory auto-detects DO bindings and forwards requests with the namespace stripped from the path.
 
 ## Key APIs
 
