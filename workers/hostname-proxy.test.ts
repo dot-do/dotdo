@@ -407,12 +407,10 @@ describe('HostnameProxy Integration - Path Mode', () => {
     const response = await handler(request, env)
 
     // The DO receives the request (namespace resolved to 'default')
-    // TestDurableObject returns 404 for unknown paths, which is valid
-    // We're testing that namespace resolution worked, not DO response
-    // The response body from the DO should contain 'error: Not found'
-    expect(response.status).toBe(404)
-    const body = await response.json() as { error?: string }
-    expect(body.error).toBe('Not found')
+    // TestDurableObject echoes request info
+    expect(response.status).toBe(200)
+    const body = await response.json() as { path: string }
+    expect(body.path).toBe('/')
   })
 
   it('applies basepath stripping before namespace extraction', async () => {
