@@ -203,7 +203,24 @@ async function executeChain(namespace: string, chain: ChainStep[]): Promise<unkn
     body: JSON.stringify(request),
   })
 
-  const data = (await response.json()) as RpcResponse
+  // Check HTTP status before parsing
+  if (!response.ok && response.status >= 500) {
+    throw {
+      code: 'HTTP_ERROR',
+      message: `Server error: ${response.status} ${response.statusText}`,
+    } satisfies RpcError
+  }
+
+  // Parse JSON with error handling
+  let data: RpcResponse
+  try {
+    data = (await response.json()) as RpcResponse
+  } catch {
+    throw {
+      code: 'PARSE_ERROR',
+      message: 'Failed to parse server response as JSON',
+    } satisfies RpcError
+  }
 
   if (data.error) {
     throw data.error
@@ -338,7 +355,7 @@ export const $: RpcClient = new Proxy(function () {} as unknown as RpcClient, {
     // Lazily create the client on first property access
     const namespace = getNamespace()
     const client = createChainProxy(namespace, [])
-    return (client as any)[prop]
+    return (client as unknown as Record<string | symbol, unknown>)[prop]
   },
   apply(_target, _thisArg, args) {
     // Support $('CustomNamespace') as alias for $Context

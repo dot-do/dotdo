@@ -167,7 +167,7 @@ export interface ChainRpcRequest {
  * Chain RPC Response
  */
 export interface ChainRpcResponse {
-  data?: unknown
+  result?: unknown
   error?: {
     message: string
     code?: string
@@ -960,7 +960,7 @@ export class RPCServer {
     try {
       const result = await this.executeChain(chain, workflowContext)
       return Response.json({
-        data: result,
+        result,
       } satisfies ChainRpcResponse, { headers: { 'Content-Type': 'application/json' } })
     } catch (error) {
       const chainError = error as { code?: string; message?: string; status?: number }

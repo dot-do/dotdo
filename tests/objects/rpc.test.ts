@@ -55,7 +55,7 @@ interface ChainRpcRequest {
  * Chain RPC response format
  */
 interface ChainRpcResponse {
-  data?: unknown
+  result?: unknown
   error?: {
     message: string
     code?: string
@@ -179,7 +179,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe(true)
+      expect(result.result).toBe(true)
     })
 
     it('executes method call chain', async () => {
@@ -193,7 +193,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ status: 'active', uptime: 12345 })
+      expect(result.result).toEqual({ status: 'active', uptime: 12345 })
     })
 
     it('executes mixed property/method chain', async () => {
@@ -209,7 +209,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('alice@example.com')
+      expect(result.result).toBe('alice@example.com')
     })
 
     it('handles array index access', async () => {
@@ -224,7 +224,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('First')
+      expect(result.result).toBe('First')
     })
 
     it('executes method with arguments', async () => {
@@ -238,7 +238,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ echoed: 'hello world' })
+      expect(result.result).toEqual({ echoed: 'hello world' })
     })
 
     it('executes nested method calls', async () => {
@@ -254,7 +254,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('TEST: message')
+      expect(result.result).toBe('TEST: message')
     })
 
     it('handles async methods', async () => {
@@ -268,7 +268,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ key: 'test-key', value: 'data-for-test-key' })
+      expect(result.result).toEqual({ key: 'test-key', value: 'data-for-test-key' })
     })
 
     it('accesses nested array items via chain', async () => {
@@ -285,7 +285,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('Second Post')
+      expect(result.result).toBe('Second Post')
     })
   })
 
@@ -301,7 +301,7 @@ describe('POST /rpc', () => {
 
       const result = await parseResponse<ChainRpcResponse>(response)
       // The things property should exist and be an object
-      expect(result.data).toBeDefined()
+      expect(result.result).toBeDefined()
     })
 
     it('accesses things.list method', async () => {
@@ -478,7 +478,7 @@ describe('POST /rpc', () => {
 
       const result = await parseResponse<ChainRpcResponse>(response)
       // The 'on' property returns a proxy, which may serialize to an object
-      expect(result.data).toBeDefined()
+      expect(result.result).toBeDefined()
     })
 
     it('accesses $.every for scheduling', async () => {
@@ -545,7 +545,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ echoed: 'hello' })
+      expect(result.result).toEqual({ echoed: 'hello' })
     })
 
     it('executes chained combined call steps', async () => {
@@ -570,7 +570,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('User alice')
+      expect(result.result).toBe('User alice')
     })
 
     it('executes multiple combined call steps', async () => {
@@ -593,7 +593,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toBe('TEST: message')
+      expect(result.result).toBe('TEST: message')
     })
 
     it('handles async method with combined call step', async () => {
@@ -611,7 +611,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ key: 'test-key', value: 'data-for-test-key' })
+      expect(result.result).toEqual({ key: 'test-key', value: 'data-for-test-key' })
     })
 
     it('returns error for non-existent method in combined call', async () => {
@@ -663,7 +663,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ status: 'active', uptime: 12345 })
+      expect(result.result).toEqual({ status: 'active', uptime: 12345 })
     })
 
     it('handles mixed combined calls and property access', async () => {
@@ -683,7 +683,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.data).toEqual({ id: 'post-1', title: 'First Post' })
+      expect(result.result).toEqual({ id: 'post-1', title: 'First Post' })
     })
   })
 })
