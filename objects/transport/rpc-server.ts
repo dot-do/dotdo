@@ -517,6 +517,44 @@ export class RPCServer {
   }
 
   /**
+   * Check if a method requires authentication and return an error if auth is missing
+   */
+  private checkMethodAuth(method: string, request: Request): JSONRPCError | null {
+    // Get the $auth config from the DO instance's constructor
+    const DOClass = this.doInstance.constructor as {
+      $auth?: Record<string, { requireAuth?: boolean; public?: boolean; roles?: string[] }>
+    }
+
+    const authConfig = DOClass.$auth?.[method]
+    if (!authConfig) return null
+
+    // If method is public, no auth needed
+    if (authConfig.public) return null
+
+    // If method requires auth, check for Authorization header
+    if (authConfig.requireAuth || authConfig.roles) {
+      const authHeader = request.headers.get('Authorization')
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return {
+          code: -32001, // Custom auth error code
+          message: 'Authentication required',
+        }
+      }
+
+      // Basic token validation (could be extended to actually validate JWT)
+      const token = authHeader.slice(7)
+      if (!token || token.split('.').length !== 3) {
+        return {
+          code: -32001,
+          message: 'Invalid authentication token',
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
    * Handle collection RPC call pattern: {Noun}.{method}
    * Routes to the DO's collection() method for typed data access.
    *
@@ -728,6 +766,15 @@ export class RPCServer {
 
     // Check if JSON-RPC 2.0
     if (this.isJSONRPCRequest(body)) {
+      // Check if the method requires auth
+      const authError = this.checkMethodAuth(body.method, request)
+      if (authError) {
+        return Response.json({
+          jsonrpc: '2.0',
+          error: authError,
+          id: body.id ?? null,
+        }, { status: 401, headers: { 'Content-Type': 'application/json' } })
+      }
       const response = await this.handleJSONRPCRequest(body, ctx)
       if (!response) {
         // Notification - no response

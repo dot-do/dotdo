@@ -90,6 +90,23 @@ import {
   is as isFunc,
   decide as decideFunc,
 } from '../ai'
+import type { AuthContext } from './transport/auth-layer'
+import type {
+  DOSchema,
+  DOClassSchema,
+  MCPToolSchema,
+  RESTEndpointSchema,
+  StoreSchema,
+  StorageCapabilities,
+  NounSchema,
+  VerbSchema,
+  VisibilityRole,
+} from '../types/introspect'
+import {
+  STORE_VISIBILITY,
+  canAccessVisibility,
+  getHighestRole,
+} from '../types/introspect'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -2062,6 +2079,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       return Response.json({ status: 'ok', ns: this.ns })
     }
 
+    // Handle /$introspect endpoint for schema discovery
+    if (url.pathname === '/$introspect') {
+      return this.handleIntrospectRoute(request)
+    }
+
     // Handle /mcp endpoint for MCP transport
     if (url.pathname === '/mcp') {
       return this.handleMcp(request)
@@ -2132,6 +2154,298 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     if (this._scheduleManager) {
       await this._scheduleManager.handleAlarm()
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTROSPECTION HTTP HANDLER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle the /$introspect HTTP route.
+   * Requires authentication and returns the DOSchema.
+   */
+  private async handleIntrospectRoute(request: Request): Promise<Response> {
+    // Only allow GET requests
+    if (request.method !== 'GET') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 })
+    }
+
+    // Check for Authorization header
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 })
+    }
+
+    // Parse JWT from Bearer token
+    if (!authHeader.startsWith('Bearer ')) {
+      return Response.json({ error: 'Invalid authorization header' }, { status: 401 })
+    }
+
+    const token = authHeader.slice(7)
+
+    // Parse the JWT (simplified - just decode, no signature verification for now)
+    try {
+      const parts = token.split('.')
+      if (parts.length !== 3) {
+        return Response.json({ error: 'Invalid token format' }, { status: 401 })
+      }
+
+      const payload = JSON.parse(atob(parts[1])) as {
+        sub?: string
+        email?: string
+        name?: string
+        roles?: string[]
+        permissions?: string[]
+        exp?: number
+      }
+
+      // Check expiration
+      const now = Math.floor(Date.now() / 1000)
+      if (payload.exp && payload.exp < now) {
+        return Response.json({ error: 'Token expired' }, { status: 401 })
+      }
+
+      // Build auth context from JWT claims
+      const authContext: AuthContext = {
+        authenticated: true,
+        user: {
+          id: payload.sub || 'anonymous',
+          email: payload.email,
+          name: payload.name,
+          roles: payload.roles || [],
+          permissions: payload.permissions || [],
+        },
+        token: {
+          type: 'jwt',
+          expiresAt: payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000),
+        },
+      }
+
+      // Call $introspect with auth context
+      const schema = await this.$introspect(authContext)
+      return Response.json(schema)
+    } catch (error) {
+      return Response.json({ error: 'Invalid token' }, { status: 401 })
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTROSPECTION ($introspect)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Introspect the DO schema, filtered by user role.
+   *
+   * Returns information about:
+   * - Available classes and their methods
+   * - MCP tools from static $mcp config
+   * - REST endpoints from static $rest config
+   * - Available stores (filtered by role)
+   * - Storage capabilities (filtered by role)
+   * - Registered nouns and verbs
+   *
+   * @param authContext - Optional auth context for role-based filtering
+   * @returns DOSchema object with introspection data
+   */
+  async $introspect(authContext?: AuthContext): Promise<DOSchema> {
+    // Determine role from auth context
+    const role = this.determineRole(authContext)
+    const scopes = authContext?.user?.permissions || []
+
+    // Build the schema response
+    const schema: DOSchema = {
+      ns: this.ns,
+      permissions: {
+        role,
+        scopes,
+      },
+      classes: this.introspectClasses(role),
+      nouns: await this.introspectNouns(),
+      verbs: await this.introspectVerbs(),
+      stores: this.introspectStores(role),
+      storage: this.introspectStorage(role),
+    }
+
+    return schema
+  }
+
+  /**
+   * Determine the effective role from auth context
+   */
+  private determineRole(authContext?: AuthContext): VisibilityRole {
+    if (!authContext || !authContext.authenticated) {
+      return 'public'
+    }
+
+    const roles = authContext.user?.roles || []
+
+    if (roles.length === 0) {
+      // Authenticated but no specific roles - default to 'user'
+      return 'user'
+    }
+
+    return getHighestRole(roles)
+  }
+
+  /**
+   * Introspect available classes
+   */
+  private introspectClasses(role: VisibilityRole): DOClassSchema[] {
+    const classes: DOClassSchema[] = []
+
+    // Get class info from constructor
+    const DOClass = this.constructor as typeof DO & {
+      $type?: string
+      $mcp?: {
+        tools?: Record<string, {
+          description: string
+          inputSchema: Record<string, unknown>
+          visibility?: VisibilityRole
+        }>
+        resources?: string[]
+      }
+      $rest?: {
+        endpoints?: Array<{
+          method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+          path: string
+          description?: string
+          visibility?: VisibilityRole
+        }>
+      }
+    }
+
+    const className = DOClass.$type || this.constructor.name
+
+    // Determine class visibility based on config
+    // Default to 'user' visibility for the class itself
+    const classVisibility: VisibilityRole = 'user'
+
+    // Only include class if caller can access it
+    if (!canAccessVisibility(role, classVisibility)) {
+      return classes
+    }
+
+    // Build tools list from $mcp config, filtered by role
+    const tools: MCPToolSchema[] = []
+    if (DOClass.$mcp?.tools) {
+      for (const [name, config] of Object.entries(DOClass.$mcp.tools)) {
+        const toolVisibility = config.visibility || 'user'
+        if (canAccessVisibility(role, toolVisibility)) {
+          tools.push({
+            name,
+            description: config.description,
+            inputSchema: config.inputSchema,
+          })
+        }
+      }
+    }
+
+    // Build endpoints list from $rest config, filtered by role
+    const endpoints: RESTEndpointSchema[] = []
+    if (DOClass.$rest?.endpoints) {
+      for (const endpoint of DOClass.$rest.endpoints) {
+        const endpointVisibility = endpoint.visibility || 'user'
+        if (canAccessVisibility(role, endpointVisibility)) {
+          endpoints.push({
+            method: endpoint.method,
+            path: endpoint.path,
+            description: endpoint.description,
+          })
+        }
+      }
+    }
+
+    // Build class schema
+    classes.push({
+      name: className,
+      type: 'thing', // Default to 'thing', could be 'collection' for collection DOs
+      pattern: `/:type/:id`,
+      visibility: classVisibility,
+      tools,
+      endpoints,
+      properties: [], // Could be populated from static schema
+      actions: [], // Could be populated from method decorators
+    })
+
+    return classes
+  }
+
+  /**
+   * Introspect available stores, filtered by role
+   */
+  private introspectStores(role: VisibilityRole): StoreSchema[] {
+    const stores: StoreSchema[] = []
+
+    const storeDefinitions: Array<{ name: string; type: StoreSchema['type'] }> = [
+      { name: 'things', type: 'things' },
+      { name: 'relationships', type: 'relationships' },
+      { name: 'actions', type: 'actions' },
+      { name: 'events', type: 'events' },
+      { name: 'search', type: 'search' },
+      { name: 'objects', type: 'objects' },
+      { name: 'dlq', type: 'dlq' },
+    ]
+
+    for (const store of storeDefinitions) {
+      const storeVisibility = STORE_VISIBILITY[store.type]
+      if (canAccessVisibility(role, storeVisibility)) {
+        stores.push({
+          name: store.name,
+          type: store.type,
+          visibility: storeVisibility,
+        })
+      }
+    }
+
+    return stores
+  }
+
+  /**
+   * Introspect storage capabilities, filtered by role
+   */
+  private introspectStorage(role: VisibilityRole): StorageCapabilities {
+    // Capability visibility levels:
+    // - fsx, gitx: user and above
+    // - bashx, r2, sql: admin and above
+    // - iceberg, edgevec: system only
+
+    const isUser = canAccessVisibility(role, 'user')
+    const isAdmin = canAccessVisibility(role, 'admin')
+    const isSystem = canAccessVisibility(role, 'system')
+
+    return {
+      fsx: isUser,
+      gitx: isUser,
+      bashx: isAdmin,
+      r2: {
+        enabled: isAdmin,
+        buckets: isAdmin ? [] : undefined, // Would list actual buckets from env
+      },
+      sql: {
+        enabled: isAdmin,
+        tables: isAdmin ? [] : undefined, // Would list actual tables from schema
+      },
+      iceberg: isSystem,
+      edgevec: isSystem,
+    }
+  }
+
+  /**
+   * Introspect registered nouns
+   */
+  private async introspectNouns(): Promise<NounSchema[]> {
+    // Query nouns from the database (simplified for now)
+    // In full implementation, would query from db.nouns table
+    return []
+  }
+
+  /**
+   * Introspect registered verbs
+   */
+  private async introspectVerbs(): Promise<VerbSchema[]> {
+    // Query verbs from the database (simplified for now)
+    // In full implementation, would query from db.verbs table
+    return []
   }
 }
 

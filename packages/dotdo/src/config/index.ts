@@ -4,10 +4,12 @@
  * Configuration system for do.config.ts files.
  * Provides type-safe configuration loading, validation, and environment resolution.
  *
- * This is a STUB file for TDD RED phase - implementation pending.
- *
  * @see docs/plans/2026-01-10-do-dashboard-design.md for specification
  */
+
+import { existsSync } from 'fs'
+import { join } from 'path'
+import { pathToFileURL } from 'url'
 
 // =============================================================================
 // Type Definitions
@@ -151,7 +153,37 @@ export interface LoadConfigOptions {
 }
 
 // =============================================================================
-// Functions (STUB - Not Implemented)
+// Error Classes
+// =============================================================================
+
+/**
+ * Error thrown when no config file is found
+ */
+export class ConfigNotFoundError extends Error {
+  name = 'ConfigNotFoundError'
+  constructor(cwd: string) {
+    super(`ConfigNotFoundError: No do.config.ts, do.config.js, or do.config.mjs found in ${cwd}`)
+  }
+}
+
+/**
+ * Error thrown when config validation fails
+ */
+export class ConfigValidationError extends Error {
+  name = 'ConfigValidationError'
+  constructor(message: string) {
+    super(`ConfigValidationError: ${message}`)
+  }
+}
+
+// =============================================================================
+// Config Cache
+// =============================================================================
+
+const configCache = new Map<string, DoConfig>()
+
+// =============================================================================
+// Functions
 // =============================================================================
 
 /**
@@ -175,8 +207,7 @@ export interface LoadConfigOptions {
  * ```
  */
 export function defineConfig(config: DoConfig): DoConfig {
-  // STUB: Will be implemented in GREEN phase
-  throw new Error('Not implemented: defineConfig()')
+  return config
 }
 
 /**
@@ -194,8 +225,51 @@ export function defineConfig(config: DoConfig): DoConfig {
  * ```
  */
 export async function loadConfig(options?: LoadConfigOptions): Promise<DoConfig> {
-  // STUB: Will be implemented in GREEN phase
-  throw new Error('Not implemented: loadConfig()')
+  const cwd = options?.cwd ?? process.cwd()
+  const useCache = options?.cache !== false
+
+  // Check cache first
+  if (useCache && configCache.has(cwd)) {
+    return configCache.get(cwd)!
+  }
+
+  // Config file candidates in priority order
+  const configFiles = ['do.config.ts', 'do.config.js', 'do.config.mjs']
+  let configPath: string | undefined
+
+  for (const file of configFiles) {
+    const fullPath = join(cwd, file)
+    if (existsSync(fullPath)) {
+      configPath = fullPath
+      break
+    }
+  }
+
+  if (!configPath) {
+    throw new ConfigNotFoundError(cwd)
+  }
+
+  // Import the config file
+  const configUrl = pathToFileURL(configPath).href
+  const module = await import(configUrl)
+
+  // Handle both default exports and named exports
+  const loadedConfig: DoConfig = module.default ?? module
+
+  // Validate config
+  if (!loadedConfig.ns || typeof loadedConfig.ns !== 'string') {
+    throw new ConfigValidationError('Missing required field: ns')
+  }
+
+  // When cache is disabled, return a fresh copy to ensure different object identity
+  if (!useCache) {
+    return { ...loadedConfig }
+  }
+
+  // Cache the config
+  configCache.set(cwd, loadedConfig)
+
+  return loadedConfig
 }
 
 /**
@@ -220,6 +294,14 @@ export async function loadConfig(options?: LoadConfigOptions): Promise<DoConfig>
  * ```
  */
 export function resolveNamespace(config: DoConfig, env?: string): string {
-  // STUB: Will be implemented in GREEN phase
-  throw new Error('Not implemented: resolveNamespace()')
+  // Determine the environment: explicit arg > DO_ENV > NODE_ENV
+  const environment = env ?? process.env.DO_ENV ?? process.env.NODE_ENV
+
+  // If no environment or no envs map, return default namespace
+  if (!environment || !config.envs) {
+    return config.ns
+  }
+
+  // Look up the namespace override for this environment
+  return config.envs[environment] ?? config.ns
 }

@@ -3,8 +3,6 @@
  *
  * Provides default value application for DO configuration.
  *
- * This is a STUB file for TDD RED phase - implementation pending.
- *
  * @see docs/plans/2026-01-10-do-dashboard-design.md for specification
  */
 
@@ -48,6 +46,23 @@ export const CONFIG_DEFAULTS = {
  * ```
  */
 export function applyDefaults(config: DoConfig): DoConfig {
-  // STUB: Will be implemented in GREEN phase
-  throw new Error('Not implemented: applyDefaults()')
+  return {
+    ...config,
+    auth: {
+      provider: CONFIG_DEFAULTS.auth.provider,
+      ...config.auth,
+    },
+    api: {
+      basePath: CONFIG_DEFAULTS.api.basePath,
+      ...config.api,
+    },
+    dashboard: {
+      theme: CONFIG_DEFAULTS.dashboard.theme,
+      ...config.dashboard,
+    },
+    cli: {
+      vimMode: CONFIG_DEFAULTS.cli.vimMode,
+      ...config.cli,
+    },
+  }
 }

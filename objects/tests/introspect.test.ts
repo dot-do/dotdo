@@ -481,9 +481,15 @@ describe('$introspect RPC Handler', () => {
   it('should be exposed via /rpc endpoint', async () => {
     const doInstance = createIntrospectableTestDO()
 
+    // Create JWT token for authentication
+    const token = createTestJWT('admin')
+
     const request = new Request('https://example.com/rpc', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: '$introspect',

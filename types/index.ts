@@ -109,6 +109,29 @@ export { isTypedEvent, assertEventPayload } from './EventHandler'
 export type { Experiment, ExperimentStatus, ExperimentInput } from './Experiment'
 export { ExperimentSchema } from './Experiment'
 
+// Introspection types
+export * from './introspect'
+export type {
+  VisibilityRole,
+  DOSchema,
+  DOClassSchema,
+  MCPToolSchema,
+  RESTEndpointSchema,
+  PropertySchema,
+  ActionSchema,
+  NounSchema,
+  VerbSchema,
+  StoreType,
+  StoreSchema,
+  StorageCapabilities,
+} from './introspect'
+export {
+  STORE_VISIBILITY,
+  ROLE_HIERARCHY,
+  canAccessVisibility,
+  getHighestRole,
+} from './introspect'
+
 export type { Flag, Branch, Filter, Stickiness, FlagStatus, FlagInput, BranchInput, FilterInput } from './Flag'
 export { FlagSchema, BranchSchema, FilterSchema, validateFlag } from './Flag'
 
