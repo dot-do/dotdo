@@ -880,6 +880,9 @@ interface WorkflowState {
   parentClosePolicy?: ParentClosePolicy
   // Cancellation support
   abortController?: AbortController
+  // Per-workflow step counters for deterministic step IDs
+  sleepStepCounter: number
+  activityStepCounter: number
 }
 
 // Patch tracking for versioning
@@ -889,12 +892,14 @@ interface PatchState {
 }
 
 // Timer tracking
+// NOTE: timeoutId is NOT stored here - it's stored in bucketTimeouts Map
+// to avoid the "cancelled leader" bug where cancelling the first timer in a
+// coalesced bucket would leave other timers without a scheduled callback
 interface TimerState {
   id: string
   pending: boolean
   resolve: () => void
   reject: (error: Error) => void
-  timeoutId: ReturnType<typeof setTimeout> | null
   /** Timestamp when timer was created, for staleness detection */
   createdAt: number
   /** Expected fire time for cleanup calculations */
@@ -1004,11 +1009,6 @@ function getCurrentStorage(): StepStorage {
 // ============================================================================
 
 /**
- * Counter for generating unique step IDs per workflow execution
- */
-let sleepStepCounter = 0
-
-/**
  * Set the WorkflowStep context for the current workflow execution.
  * Call this at the beginning of a CF Workflows run() method to enable
  * native step.do() and step.sleep() execution.
@@ -1084,13 +1084,19 @@ function formatDurationForCF(ms: number): string {
 
 /**
  * Generate a unique step ID for sleep operations.
+ * Uses per-workflow counter for deterministic IDs across concurrent workflows.
  *
  * @param ms - Duration in milliseconds
  * @returns Unique step ID
  */
 function generateSleepStepId(ms: number): string {
-  sleepStepCounter++
-  return `sleep:${formatDurationForCF(ms)}:${sleepStepCounter}`
+  const ctx = getCurrentContext()
+  if (!ctx?.workflow) {
+    // Fallback for non-workflow context (testing)
+    return `sleep:${formatDurationForCF(ms)}:${Date.now()}`
+  }
+  ctx.workflow.sleepStepCounter++
+  return `sleep:${formatDurationForCF(ms)}:${ctx.workflow.sleepStepCounter}`
 }
 
 // ============================================================================
@@ -1148,10 +1154,12 @@ export function workflowNow(): Date {
   }
 
   // Calculate deterministic time:
-  // Start time + (step count * small increment to show progression)
+  // Start time + (counter * small increment to show progression)
   // This ensures time appears to progress while remaining deterministic
+  // NOTE: We use the workflowNow counter (not historyLength) because historyLength
+  // can vary between replays due to conditional paths or optimizations
   const baseTime = workflow.startTime.getTime()
-  const stepIncrement = workflow.historyLength * 1 // 1ms per step for minimal progression
+  const stepIncrement = counter + 1 // 1ms per call for minimal progression (counter is 0-indexed)
   const deterministicTime = baseTime + stepIncrement
 
   // Store for replay
@@ -1586,6 +1594,51 @@ export function __stopWorkflowCleanup(): void {
   }
 }
 
+// ============================================================================
+// LAZY CLEANUP INITIALIZATION - Auto-start cleanup on first usage
+// ============================================================================
+
+/**
+ * Track whether cleanup intervals have been auto-started.
+ * This enables lazy initialization - cleanup only starts when actually needed.
+ */
+let cleanupStarted = false
+
+/**
+ * Ensure cleanup intervals are started (lazy initialization).
+ *
+ * This function is called automatically when:
+ * - A workflow is started (WorkflowClient.start, startChild)
+ * - A timer is created (createTimer)
+ *
+ * This eliminates the need to manually call __startWorkflowCleanup() and
+ * __startTimerCleanup(), preventing memory leaks from accumulated workflows
+ * and timers even when the manual calls are forgotten.
+ *
+ * The cleanup intervals are idempotent - calling this multiple times is safe.
+ */
+export function ensureCleanupStarted(): void {
+  if (cleanupStarted) return
+  cleanupStarted = true
+  __startWorkflowCleanup()
+  __startTimerCleanup()
+}
+
+/**
+ * Reset the cleanup started flag (for testing only).
+ * This allows tests to verify the lazy initialization behavior.
+ */
+export function __resetCleanupStarted(): void {
+  cleanupStarted = false
+}
+
+/**
+ * Check if cleanup has been auto-started (for testing only).
+ */
+export function __isCleanupStarted(): boolean {
+  return cleanupStarted
+}
+
 /**
  * Configure the Temporal compat layer globals.
  *
@@ -1764,6 +1817,9 @@ export function upsertSearchAttributes(attrs: SearchAttributes): void {
 // Timer coalescing: Group timers that fire within the same 10ms window
 const TIMER_COALESCE_WINDOW_MS = 10
 const coalescedTimerBuckets = new Map<number, TimerState[]>()
+// Store bucket timeouts separately to avoid "cancelled leader" bug
+// When the first timer in a bucket is cancelled, other timers still need the timeout
+const bucketTimeouts = new Map<number, ReturnType<typeof setTimeout>>()
 
 // Periodic cleanup for stale timer buckets (memory leak prevention)
 // Timers are considered stale if they haven't fired 5 minutes past their expected time
@@ -1791,9 +1847,6 @@ function cleanupStaleTimerBuckets(): void {
       if (isStale) {
         // Clean up the stale timer
         timer.pending = false
-        if (timer.timeoutId) {
-          clearTimeout(timer.timeoutId)
-        }
         activeTimers.delete(timer.id)
       }
 
@@ -1808,9 +1861,14 @@ function cleanupStaleTimerBuckets(): void {
     }
   }
 
-  // Delete empty buckets
+  // Delete empty buckets and their timeouts
   for (const bucket of bucketsToDelete) {
     coalescedTimerBuckets.delete(bucket)
+    const timeoutId = bucketTimeouts.get(bucket)
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+      bucketTimeouts.delete(bucket)
+    }
   }
 }
 
@@ -1845,6 +1903,9 @@ export function __stopTimerCleanup(): void {
  * into a single setTimeout call, reducing system call overhead.
  */
 export function createTimer(duration: string | number): TimerHandle {
+  // Auto-start cleanup on first timer creation
+  ensureCleanupStarted()
+
   const ms = parseDuration(duration)
   const id = generateTimerId()
   const now = Date.now()
@@ -1862,7 +1923,6 @@ export function createTimer(duration: string | number): TimerHandle {
     pending: true,
     resolve: resolveTimer!,
     reject: rejectTimer!,
-    timeoutId: null,
     createdAt: now,
     expectedFireAt: now + ms,
   }
@@ -1882,8 +1942,11 @@ export function createTimer(duration: string | number): TimerHandle {
     const newBucket = [timerState]
     coalescedTimerBuckets.set(bucket, newBucket)
 
-    // Set the actual timeout
-    timerState.timeoutId = setTimeout(() => {
+    // Set the actual timeout - stored on bucket, not individual timer
+    // This prevents the "cancelled leader" bug where cancelling the first timer
+    // would leave other timers in the bucket without a scheduled callback
+    const timeoutId = setTimeout(() => {
+      bucketTimeouts.delete(bucket)
       // Fire all timers in this bucket
       const timersToFire = coalescedTimerBuckets.get(bucket) || []
       coalescedTimerBuckets.delete(bucket)
@@ -1900,6 +1963,7 @@ export function createTimer(duration: string | number): TimerHandle {
         }
       }
     }, ms)
+    bucketTimeouts.set(bucket, timeoutId)
   }
 
   // Create a TimerHandle with additional properties
@@ -1917,14 +1981,16 @@ export function createTimer(duration: string | number): TimerHandle {
  *
  * OPTIMIZATION: Also removes from coalesced bucket to prevent
  * unnecessary processing of cancelled timers.
+ *
+ * FIX: Timeouts are now stored on the bucket (bucketTimeouts), not on individual
+ * timers. This prevents the "cancelled leader" bug where cancelling the first timer
+ * in a bucket would leave other timers without a scheduled callback.
+ * When cancelling, we only clear the bucket timeout if this was the last timer.
  */
 export function cancelTimer(timer: TimerHandle): void {
   const timerState = activeTimers.get(timer.id)
   if (timerState && timerState.pending) {
     timerState.pending = false
-    if (timerState.timeoutId) {
-      clearTimeout(timerState.timeoutId)
-    }
 
     // Remove from coalesced bucket if present
     for (const [bucket, timers] of coalescedTimerBuckets) {
@@ -1932,8 +1998,16 @@ export function cancelTimer(timer: TimerHandle): void {
       if (index !== -1) {
         timers.splice(index, 1)
         if (timers.length === 0) {
+          // Only clear the bucket timeout when the last timer is cancelled
           coalescedTimerBuckets.delete(bucket)
+          const timeoutId = bucketTimeouts.get(bucket)
+          if (timeoutId) {
+            clearTimeout(timeoutId)
+            bucketTimeouts.delete(bucket)
+          }
         }
+        // If other timers remain in the bucket, leave the timeout running
+        // so those timers will fire when the timeout expires
         break
       }
     }
@@ -1964,19 +2038,19 @@ export function __clearTemporalState(): void {
 
   // Properly cancel all active timers to prevent memory leaks
   for (const timer of activeTimers.values()) {
-    if (timer.timeoutId) {
-      clearTimeout(timer.timeoutId)
-    }
     timer.pending = false
   }
   activeTimers.clear()
 
-  // Clear coalesced timer buckets (also cancel any timeouts)
+  // Clear bucket timeouts (timeouts are stored on buckets, not individual timers)
+  for (const timeoutId of bucketTimeouts.values()) {
+    clearTimeout(timeoutId)
+  }
+  bucketTimeouts.clear()
+
+  // Clear coalesced timer buckets
   for (const timers of coalescedTimerBuckets.values()) {
     for (const timer of timers) {
-      if (timer.timeoutId) {
-        clearTimeout(timer.timeoutId)
-      }
       timer.pending = false
     }
   }
@@ -1990,9 +2064,8 @@ export function __clearTemporalState(): void {
   clearDeterminismWarnings()
   disableDeterminismDetection()
 
-  // Reset CF Workflows step counters
-  sleepStepCounter = 0
-  activityStepCounter = 0
+  // Note: Step counters are now per-workflow (in WorkflowState), not global.
+  // They are automatically reset when workflows are created.
 
   // Clear WorkflowStep context
   clearWorkflowStep()
@@ -2130,11 +2203,6 @@ export async function condition(fn: () => boolean, timeout?: string | number): P
 type ActivityFunction = (...args: unknown[]) => Promise<unknown>
 type Activities = Record<string, ActivityFunction>
 
-/**
- * Counter for generating unique activity step IDs
- */
-let activityStepCounter = 0
-
 // Note: ActivityTimeoutError and TaskQueueNotRegisteredError are imported from '../activity-router'
 // and re-exported at the top of this file for backward compatibility.
 //
@@ -2226,10 +2294,47 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
           return cached
         }
 
+        // Check for CF Workflows step context - use step.do() for durability
+        const step = getWorkflowStep()
+        if (step) {
+          // Use CF Workflows native step.do() - DURABLE
+          // Use per-workflow counter for deterministic IDs across concurrent workflows
+          workflow.activityStepCounter++
+          const stepName = `activity:${name}:${workflow.activityStepCounter}`
+          const stepDoOptions = buildStepDoOptions()
+
+          // The callback is what CF Workflows will execute.
+          // When a worker handler is registered, invoke it for actual activity execution.
+          // Otherwise, return a stub for CF Workflows runtime (production mode).
+          const callback = async () => {
+            // Check if worker has a handler for this activity
+            const worker = activityRouter.getWorker(targetTaskQueue)
+            if (worker?.executeActivity) {
+              // Create activity context with cancellation signal
+              const activityContext: RouterActivityContext = {
+                signal: workflow.abortController?.signal,
+              }
+              return worker.executeActivity(name, args, activityContext)
+            }
+            // Fallback for CF Workflows runtime (no local handler)
+            return { _activity: name, _args: args, _stub: true }
+          }
+
+          // Call step.do() with or without options
+          const result = stepDoOptions
+            ? await step.do(stepName, stepDoOptions, callback)
+            : await step.do(stepName, callback)
+
+          workflow.stepResults.set(stepId, result)
+          workflow.historyLength++
+          return result
+        }
+
+        // Fallback when no WorkflowStep is available:
         // Get the worker for this task queue via activityRouter
         const worker = activityRouter.getWorker(targetTaskQueue)
 
-        // If worker has executeActivity handler, route via activityRouter
+        // If worker has executeActivity handler, route via activityRouter (no step.do() durability)
         if (worker?.executeActivity) {
           // Create activity context with cancellation signal
           const activityContext: RouterActivityContext = {
@@ -2274,35 +2379,6 @@ export function proxyActivities<T extends Activities>(options: ActivityOptions):
             workflow.historyLength++
             throw err
           }
-        }
-
-        // Check for CF Workflows step context
-        const step = getWorkflowStep()
-        if (step) {
-          // Use CF Workflows native step.do() - DURABLE
-          activityStepCounter++
-          const stepName = `activity:${name}:${activityStepCounter}`
-          const stepDoOptions = buildStepDoOptions()
-
-          // The callback is what CF Workflows will execute.
-          // In production, this would contain the actual activity code.
-          // In compat/test mode, we return a stub value that indicates the activity was called.
-          // The important thing is that step.do() is called with proper options,
-          // and CF Workflows handles retry/durability.
-          const callback = async () => {
-            // Return a stub result - the actual activity implementation
-            // would be provided by the CF Workflows runtime in production
-            return { _activity: name, _args: args, _stub: true }
-          }
-
-          // Call step.do() with or without options
-          const result = stepDoOptions
-            ? await step.do(stepName, stepDoOptions, callback)
-            : await step.do(stepName, callback)
-
-          workflow.stepResults.set(stepId, result)
-          workflow.historyLength++
-          return result
         }
 
         // Fallback: Execute through DurableWorkflowRuntime
@@ -2361,6 +2437,9 @@ export async function startChild<T, TArgs extends unknown[]>(
   workflowType: string | ((...args: TArgs) => Promise<T>),
   options: ChildWorkflowOptions & { args?: TArgs }
 ): Promise<ChildWorkflowHandle<T>> {
+  // Auto-start cleanup on first workflow creation
+  ensureCleanupStarted()
+
   const typeName = typeof workflowType === 'string' ? workflowType : workflowType.name
   const workflowId = options.workflowId ?? generateWorkflowId()
   const runId = generateRunId()
@@ -2405,6 +2484,8 @@ export async function startChild<T, TArgs extends unknown[]>(
     children: new Set(),
     parentClosePolicy: options.parentClosePolicy,
     abortController: new AbortController(),
+    sleepStepCounter: 0,
+    activityStepCounter: 0,
   }
 
   workflows.set(workflowId, childState)
@@ -2603,6 +2684,9 @@ export class WorkflowClient {
     workflowType: string | ((...args: TArgs) => Promise<TResult>),
     options: WorkflowStartOptions<TArgs>
   ): Promise<WorkflowHandle<TResult>> {
+    // Auto-start cleanup on first workflow creation
+    ensureCleanupStarted()
+
     const typeName = typeof workflowType === 'string' ? workflowType : workflowType.name
     const workflowId = options.workflowId ?? generateWorkflowId()
     const runId = generateRunId()
@@ -2631,6 +2715,8 @@ export class WorkflowClient {
       attempt: 1,
       children: new Set(),
       abortController: new AbortController(),
+      sleepStepCounter: 0,
+      activityStepCounter: 0,
     }
 
     workflows.set(workflowId, state)

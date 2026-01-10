@@ -35,6 +35,10 @@ import {
   // Workflow registry cleanup functions
   __startWorkflowCleanup,
   __stopWorkflowCleanup,
+  // Lazy cleanup initialization
+  ensureCleanupStarted,
+  __resetCleanupStarted,
+  __isCleanupStarted,
   // Determinism enforcement
   workflowNow,
   WorkflowDeterminismWarning,
@@ -1597,6 +1601,51 @@ describe('Temporal Compat Layer', () => {
       __clearTemporalState()
     })
 
+    it('should fire remaining timers when first timer in bucket is cancelled (cancelled leader bug fix)', async () => {
+      const client = new WorkflowClient()
+
+      async function cancelledLeaderWorkflow() {
+        const results: string[] = []
+
+        // Create multiple timers in the same bucket (same 10ms window)
+        // The first timer (timer1) will be the "leader" that creates the bucket timeout
+        const timer1 = createTimer('100ms')
+        const timer2 = createTimer('105ms') // Same bucket as timer1
+        const timer3 = createTimer('102ms') // Same bucket as timer1
+
+        // Set up handlers for timer2 and timer3
+        const timer2Promise = timer2.then(() => {
+          results.push('timer2')
+        })
+        const timer3Promise = timer3.then(() => {
+          results.push('timer3')
+        })
+
+        // Attach catch handler to timer1 since we're cancelling it
+        timer1.catch(() => {
+          results.push('timer1-cancelled')
+        })
+
+        // Cancel the first timer (the "leader")
+        // Before the fix, this would clear the bucket timeout and leave timer2/timer3 hanging
+        cancelTimer(timer1)
+
+        // Wait for the remaining timers to fire
+        await Promise.all([timer2Promise, timer3Promise])
+
+        return results.sort() // Sort for deterministic comparison
+      }
+
+      const result = await client.execute(cancelledLeaderWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // timer1 should be cancelled, but timer2 and timer3 should still fire
+      expect(result).toEqual(['timer1-cancelled', 'timer2', 'timer3'])
+
+      __clearTemporalState()
+    })
+
     it('should handle mixed completed and cancelled timers', async () => {
       const client = new WorkflowClient()
 
@@ -1880,6 +1929,105 @@ describe('Temporal Compat Layer', () => {
       const childHandle = client.getHandle('tracked-child')
       const childDesc = await childHandle.describe()
       expect(childDesc.status).toBe('COMPLETED')
+    })
+  })
+
+  describe('Lazy Cleanup Initialization', () => {
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+      __stopWorkflowCleanup()
+      __stopTimerCleanup()
+      __resetCleanupStarted()
+    })
+
+    afterEach(() => {
+      __stopWorkflowCleanup()
+      __stopTimerCleanup()
+      __resetCleanupStarted()
+      __clearTemporalState()
+      vi.useFakeTimers()
+    })
+
+    it('should not have cleanup started initially', () => {
+      expect(__isCleanupStarted()).toBe(false)
+    })
+
+    it('should auto-start cleanup when a workflow is started', async () => {
+      expect(__isCleanupStarted()).toBe(false)
+
+      const client = new WorkflowClient()
+
+      async function testWorkflow() {
+        return 'done'
+      }
+
+      await client.execute(testWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'auto-cleanup-test',
+      })
+
+      expect(__isCleanupStarted()).toBe(true)
+    })
+
+    it('should auto-start cleanup when a timer is created', async () => {
+      expect(__isCleanupStarted()).toBe(false)
+
+      const timer = createTimer('100ms')
+      cancelTimer(timer)
+
+      // Catch the expected cancellation rejection
+      await timer.catch(() => {
+        // Expected - timer was cancelled
+      })
+
+      expect(__isCleanupStarted()).toBe(true)
+    })
+
+    it('should auto-start cleanup when startChild is called', async () => {
+      expect(__isCleanupStarted()).toBe(false)
+
+      const client = new WorkflowClient()
+
+      async function childWorkflow() {
+        return 'child done'
+      }
+
+      async function parentWorkflow() {
+        const handle = await startChild(childWorkflow, {
+          workflowId: 'lazy-init-child',
+        })
+        return handle.result()
+      }
+
+      await client.execute(parentWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'lazy-init-parent',
+      })
+
+      expect(__isCleanupStarted()).toBe(true)
+    })
+
+    it('should only start cleanup once even with multiple calls', () => {
+      expect(__isCleanupStarted()).toBe(false)
+
+      ensureCleanupStarted()
+      expect(__isCleanupStarted()).toBe(true)
+
+      // Multiple calls should be idempotent
+      ensureCleanupStarted()
+      ensureCleanupStarted()
+      ensureCleanupStarted()
+
+      expect(__isCleanupStarted()).toBe(true)
+    })
+
+    it('should be resetable for testing purposes', () => {
+      ensureCleanupStarted()
+      expect(__isCleanupStarted()).toBe(true)
+
+      __resetCleanupStarted()
+      expect(__isCleanupStarted()).toBe(false)
     })
   })
 
@@ -2236,6 +2384,39 @@ describe('Temporal Compat Layer', () => {
 
         // workflowNow should be >= startTime (based on it)
         expect(result.workflowNow).toBeGreaterThanOrEqual(result.startTime)
+      })
+
+      it('should return consistent values independent of historyLength', async () => {
+        // This test verifies that workflowNow() uses its own counter,
+        // not historyLength, which can vary between replays
+        const client = new WorkflowClient()
+
+        async function counterWorkflow() {
+          // Call workflowNow multiple times
+          const times = []
+          for (let i = 0; i < 5; i++) {
+            times.push(workflowNow().getTime())
+          }
+          return { times }
+        }
+
+        const result = await client.execute(counterWorkflow, {
+          taskQueue: 'test-queue',
+          workflowId: 'counter-consistency-test',
+        })
+
+        // Each successive call should return time = startTime + (callIndex + 1)
+        // where callIndex starts at 0
+        // This proves we're using a dedicated counter, not historyLength
+        const startTime = result.times[0] - 1 // First call is startTime + 1
+        for (let i = 0; i < result.times.length; i++) {
+          expect(result.times[i]).toBe(startTime + i + 1)
+        }
+
+        // Verify monotonic increase
+        for (let i = 1; i < result.times.length; i++) {
+          expect(result.times[i]).toBeGreaterThan(result.times[i - 1])
+        }
       })
     })
 

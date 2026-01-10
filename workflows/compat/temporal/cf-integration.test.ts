@@ -24,6 +24,7 @@ import {
   setWorkflowStep,
   clearWorkflowStep,
   getWorkflowStep,
+  registerWorker,
 } from './index'
 import type { WorkflowStep, StepDoOptions } from '../../../lib/cloudflare/workflows'
 
@@ -355,6 +356,100 @@ describe('CF Workflows Integration', () => {
 
       // Verify timeout was passed to step.do()
       expect(calls.do[0].options?.timeout).toBe('5m')
+    })
+
+    it('should invoke registered worker handler inside step.do() callback', async () => {
+      const { mockStep, calls } = createMockWorkflowStep()
+      const client = new WorkflowClient()
+      const activityCalls: Array<{ name: string; args: unknown[] }> = []
+
+      // Register a worker for the workflow queue
+      const unregisterWorkflow = registerWorker('workflow-queue', {})
+
+      // Register a worker with an executeActivity handler
+      const unregister = registerWorker('activity-queue', {
+        activityTypes: new Set(['processOrder']),
+        executeActivity: async (activityName: string, args: unknown[]) => {
+          activityCalls.push({ name: activityName, args })
+          return { status: 'processed', orderId: args[0] }
+        },
+      })
+
+      try {
+        const activities = proxyActivities<{
+          processOrder: (orderId: string) => Promise<{ status: string; orderId: string }>
+        }>({
+          startToCloseTimeout: '10s',
+          taskQueue: 'activity-queue',
+        })
+
+        async function handlerInvocationWorkflow() {
+          setWorkflowStep(mockStep)
+
+          const result = await activities.processOrder('order-456')
+
+          clearWorkflowStep()
+
+          return result
+        }
+
+        const result = await client.execute(handlerInvocationWorkflow, {
+          taskQueue: 'workflow-queue',
+        })
+
+        // Verify step.do() was called
+        expect(mockStep.do).toHaveBeenCalled()
+        expect(calls.do.length).toBe(1)
+
+        // Verify the registered handler was invoked (not a stub)
+        expect(activityCalls).toHaveLength(1)
+        expect(activityCalls[0].name).toBe('processOrder')
+        expect(activityCalls[0].args).toEqual(['order-456'])
+
+        // Verify the result came from the handler
+        expect(result.status).toBe('processed')
+        expect(result.orderId).toBe('order-456')
+      } finally {
+        unregister()
+        unregisterWorkflow()
+      }
+    })
+
+    it('should return stub when no worker handler is registered for step.do()', async () => {
+      const { mockStep, calls } = createMockWorkflowStep()
+      const client = new WorkflowClient()
+
+      // No worker registered for this task queue
+      const activities = proxyActivities<{
+        unregisteredActivity: () => Promise<unknown>
+      }>({
+        startToCloseTimeout: '10s',
+        // Using workflow's default queue which has no handler
+      })
+
+      async function stubWorkflow() {
+        setWorkflowStep(mockStep)
+
+        const result = await activities.unregisteredActivity()
+
+        clearWorkflowStep()
+
+        return result
+      }
+
+      const result = await client.execute(stubWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // Verify step.do() was called
+      expect(mockStep.do).toHaveBeenCalled()
+
+      // Verify the result is a stub (no handler registered)
+      expect(result).toEqual({
+        _activity: 'unregisteredActivity',
+        _args: [],
+        _stub: true,
+      })
     })
   })
 
@@ -1038,6 +1133,244 @@ describe('CF Workflows Integration', () => {
 
       // This test documents expected timeout handling
     })
+  })
+})
+
+// ============================================================================
+// TEST GROUP: Concurrent Workflows with Independent Step IDs
+// ============================================================================
+
+describe('Concurrent Workflows Step ID Independence', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    __clearTemporalState()
+  })
+
+  afterEach(() => {
+    __clearTemporalState()
+    vi.useFakeTimers()
+  })
+
+  it('should generate independent step IDs for concurrent workflows with sleep', async () => {
+    // Create separate mock steps for each workflow to track calls
+    const mock1 = createMockWorkflowStep()
+    const mock2 = createMockWorkflowStep()
+    const client = new WorkflowClient()
+
+    async function sleepWorkflow1() {
+      setWorkflowStep(mock1.mockStep)
+      try {
+        await sleep('1s')
+        await sleep('2s')
+        await sleep('3s')
+        return 'workflow1-done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    async function sleepWorkflow2() {
+      setWorkflowStep(mock2.mockStep)
+      try {
+        await sleep('1s')
+        await sleep('2s')
+        await sleep('3s')
+        return 'workflow2-done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    // Run both workflows concurrently
+    const [result1, result2] = await Promise.all([
+      client.execute(sleepWorkflow1, {
+        taskQueue: 'test-queue',
+        workflowId: 'concurrent-sleep-1',
+      }),
+      client.execute(sleepWorkflow2, {
+        taskQueue: 'test-queue',
+        workflowId: 'concurrent-sleep-2',
+      }),
+    ])
+
+    expect(result1).toBe('workflow1-done')
+    expect(result2).toBe('workflow2-done')
+
+    // Both workflows should have 3 sleep calls each
+    expect(mock1.calls.sleep.length).toBe(3)
+    expect(mock2.calls.sleep.length).toBe(3)
+
+    // Extract step IDs from each workflow
+    const stepIds1 = mock1.calls.sleep.map(c => c.name)
+    const stepIds2 = mock2.calls.sleep.map(c => c.name)
+
+    // Each workflow should have unique step names within itself
+    expect(new Set(stepIds1).size).toBe(3)
+    expect(new Set(stepIds2).size).toBe(3)
+
+    // CRITICAL: Both workflows should have step IDs following the same pattern
+    // e.g., both should have sleep:1s:1, sleep:2s:2, sleep:3s:3
+    // This proves they have independent counters (not incrementing globally)
+    // Before the fix, workflow2 would have step IDs like sleep:1s:4, sleep:2s:5, sleep:3s:6
+
+    // The step IDs should follow the pattern sleep:<duration>:<counter>
+    // With independent counters, both workflows should have counters 1, 2, 3
+    const extractCounter = (name: string) => {
+      const match = name.match(/:(\d+)$/)
+      return match ? parseInt(match[1], 10) : null
+    }
+
+    const counters1 = stepIds1.map(extractCounter).filter((n): n is number => n !== null)
+    const counters2 = stepIds2.map(extractCounter).filter((n): n is number => n !== null)
+
+    // Both workflows should have counters 1, 2, 3 (independent counters)
+    expect(counters1).toEqual([1, 2, 3])
+    expect(counters2).toEqual([1, 2, 3])
+  })
+
+  it('should generate independent activity step IDs for concurrent workflows', async () => {
+    const mock1 = createMockWorkflowStep()
+    const mock2 = createMockWorkflowStep()
+    const client = new WorkflowClient()
+
+    // Register a test worker to handle activities
+    const unregister = registerWorker('test-queue', {
+      executeActivity: async (name: string, args: unknown[]) => {
+        return { name, args, result: 'success' }
+      },
+    })
+
+    const activities = proxyActivities<{
+      task1: () => Promise<unknown>
+      task2: () => Promise<unknown>
+      task3: () => Promise<unknown>
+    }>({
+      startToCloseTimeout: '10s',
+    })
+
+    async function activityWorkflow1() {
+      setWorkflowStep(mock1.mockStep)
+      try {
+        await activities.task1()
+        await activities.task2()
+        await activities.task3()
+        return 'workflow1-done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    async function activityWorkflow2() {
+      setWorkflowStep(mock2.mockStep)
+      try {
+        await activities.task1()
+        await activities.task2()
+        await activities.task3()
+        return 'workflow2-done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    // Run both workflows concurrently
+    const [result1, result2] = await Promise.all([
+      client.execute(activityWorkflow1, {
+        taskQueue: 'test-queue',
+        workflowId: 'concurrent-activity-1',
+      }),
+      client.execute(activityWorkflow2, {
+        taskQueue: 'test-queue',
+        workflowId: 'concurrent-activity-2',
+      }),
+    ])
+
+    expect(result1).toBe('workflow1-done')
+    expect(result2).toBe('workflow2-done')
+
+    // Both workflows should have 3 step.do() calls each
+    expect(mock1.calls.do.length).toBe(3)
+    expect(mock2.calls.do.length).toBe(3)
+
+    // Extract step IDs from each workflow
+    const stepIds1 = mock1.calls.do.map(c => c.name)
+    const stepIds2 = mock2.calls.do.map(c => c.name)
+
+    // CRITICAL: Both workflows should have activity step IDs with independent counters
+    // The pattern is activity:<name>:<counter>
+    const extractCounter = (name: string) => {
+      const match = name.match(/:(\d+)$/)
+      return match ? parseInt(match[1], 10) : null
+    }
+
+    const counters1 = stepIds1.map(extractCounter).filter((n): n is number => n !== null)
+    const counters2 = stepIds2.map(extractCounter).filter((n): n is number => n !== null)
+
+    // Both workflows should have counters 1, 2, 3 (independent counters)
+    expect(counters1).toEqual([1, 2, 3])
+    expect(counters2).toEqual([1, 2, 3])
+
+    // Cleanup
+    unregister()
+  })
+
+  it('should maintain determinism on workflow replay with independent step counters', async () => {
+    const mock1 = createMockWorkflowStep()
+    const client = new WorkflowClient()
+
+    // Track step IDs generated during first execution
+    const firstRunStepIds: string[] = []
+
+    async function deterministicWorkflow() {
+      setWorkflowStep(mock1.mockStep)
+      try {
+        await sleep('1s')
+        await sleep('2s')
+        await sleep('3s')
+        return 'done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    // First execution
+    await client.execute(deterministicWorkflow, {
+      taskQueue: 'test-queue',
+      workflowId: 'deterministic-replay-test',
+    })
+
+    // Capture step IDs from first run
+    firstRunStepIds.push(...mock1.calls.sleep.map(c => c.name))
+
+    // Clear state and run again (simulating replay)
+    __clearTemporalState()
+    mock1.calls.sleep.length = 0
+
+    // Create fresh mock for second run
+    const mock2 = createMockWorkflowStep()
+
+    async function deterministicWorkflow2() {
+      setWorkflowStep(mock2.mockStep)
+      try {
+        await sleep('1s')
+        await sleep('2s')
+        await sleep('3s')
+        return 'done'
+      } finally {
+        clearWorkflowStep()
+      }
+    }
+
+    // Second execution (should generate same step IDs)
+    await client.execute(deterministicWorkflow2, {
+      taskQueue: 'test-queue',
+      workflowId: 'deterministic-replay-test-2',
+    })
+
+    const secondRunStepIds = mock2.calls.sleep.map(c => c.name)
+
+    // Step IDs should be deterministic (same pattern on replay)
+    // With per-workflow counters, both runs should generate: sleep:1s:1, sleep:2s:2, sleep:3s:3
+    expect(firstRunStepIds).toEqual(secondRunStepIds)
   })
 })
 
