@@ -111,6 +111,19 @@ export interface QueryRangeResult {
 const BYTES_PER_BLOCK = 16
 
 /**
+ * Wraps a promise with a timeout.
+ * @internal
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout')), ms)
+    }),
+  ])
+}
+
+/**
  * Query a marks file and return the byte ranges that need to be fetched.
  *
  * @param cdnUrl - URL to the marks file on CDN
@@ -923,15 +936,6 @@ export async function fetchBloomFilter(
     options.stats.cacheMisses++
   }
 
-  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout')), ms)
-      }),
-    ])
-  }
-
   try {
     let puffinEntry = puffinFileCache.get(url)
 
@@ -1143,8 +1147,39 @@ export interface QueryVectorOptions {
   metric?: DistanceMetric
 }
 
-// Centroid cache
-const centroidCache = new Map<string, Float32Array>()
+// Centroid cache with size tracking
+interface CentroidCacheEntry {
+  centroids: Float32Array
+  cachedAt: number
+  sizeBytes: number
+}
+
+const centroidCache = new Map<string, CentroidCacheEntry>()
+let centroidCacheTotalBytes = 0
+
+/** Default max memory for centroid cache (2MB) */
+const DEFAULT_CENTROID_CACHE_BYTES = 2 * 1024 * 1024
+
+/**
+ * Evict oldest entries from centroid cache to make room.
+ */
+function evictCentroidCacheIfNeeded(maxBytes: number, neededBytes: number): void {
+  if (centroidCacheTotalBytes + neededBytes <= maxBytes) {
+    return
+  }
+
+  const entries = Array.from(centroidCache.entries()).sort(
+    ([, a], [, b]) => a.cachedAt - b.cachedAt
+  )
+
+  for (const [key, entry] of entries) {
+    if (centroidCacheTotalBytes + neededBytes <= maxBytes) {
+      break
+    }
+    centroidCache.delete(key)
+    centroidCacheTotalBytes -= entry.sizeBytes
+  }
+}
 
 /**
  * Fetch centroids from CDN.
@@ -1302,15 +1337,22 @@ export async function queryVector(options: QueryVectorOptions): Promise<Centroid
 
   // Check cache
   const cacheKey = `${centroidsUrl}:${numCentroids}x${dims}`
-  let centroids = centroidCache.get(cacheKey)
+  let cacheEntry = centroidCache.get(cacheKey)
 
-  if (!centroids) {
+  if (!cacheEntry) {
     const buffer = await fetchCentroids({ fetch: fetchFn, url: centroidsUrl })
-    centroids = deserializeCentroids(buffer, { count: numCentroids, dims })
-    centroidCache.set(cacheKey, centroids)
+    const centroids = deserializeCentroids(buffer, { count: numCentroids, dims })
+    const sizeBytes = centroids.byteLength
+
+    // Evict if needed before adding
+    evictCentroidCacheIfNeeded(DEFAULT_CENTROID_CACHE_BYTES, sizeBytes)
+
+    cacheEntry = { centroids, cachedAt: Date.now(), sizeBytes }
+    centroidCache.set(cacheKey, cacheEntry)
+    centroidCacheTotalBytes += sizeBytes
   }
 
-  return findTopKCentroids(query, centroids, { numCentroids, dims, k, metric })
+  return findTopKCentroids(query, cacheEntry.centroids, { numCentroids, dims, k, metric })
 }
 
 /**
@@ -1318,6 +1360,7 @@ export async function queryVector(options: QueryVectorOptions): Promise<Centroid
  */
 export function clearCentroidCache(): void {
   centroidCache.clear()
+  centroidCacheTotalBytes = 0
 }
 
 // ============================================================================
@@ -1580,16 +1623,6 @@ export async function fetchInvertedIndex(
   // Create promise for this request
   const fetchPromise = (async (): Promise<InvertedIndexReader | null> => {
     try {
-      // Helper for timeout
-      const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
-        return Promise.race([
-          promise,
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Request timeout')), ms)
-          }),
-        ])
-      }
-
       let response: Response
       try {
         if (timeoutMs) {
@@ -2058,16 +2091,6 @@ export interface SearchQuery {
 }
 
 /**
- * Centroid result with index and distance.
- */
-export interface CentroidResult {
-  /** Index of the centroid */
-  index: number
-  /** Distance from query vector */
-  distance: number
-}
-
-/**
  * Combined search result.
  */
 export interface SearchResult {
@@ -2196,15 +2219,9 @@ export function parseSearchQuery(url: URL): SearchQuery {
 }
 
 /**
- * In-memory cache for search-related data.
- */
-const searchCache = new Map<string, unknown>()
-
-/**
  * Clear all search caches.
  */
 export function clearSearchCache(): void {
-  searchCache.clear()
   clearCentroidCache()
   clearInvertedIndexCache()
   clearBloomCache()
@@ -2389,8 +2406,10 @@ export async function executeSearch(
             firstRangeQuery = false
           } else {
             // Intersect with previous results (AND semantics)
+            // Use Set for O(1) lookups instead of O(n) array includes
+            const matchingSet = new Set(matchingBlocks)
             for (const block of allBlocks) {
-              if (!matchingBlocks.includes(block)) {
+              if (!matchingSet.has(block)) {
                 allBlocks.delete(block)
               }
             }
