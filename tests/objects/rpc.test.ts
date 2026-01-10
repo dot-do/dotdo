@@ -522,4 +522,168 @@ describe('POST /rpc', () => {
       expect([400, 403, 404]).toContain(response.status)
     })
   })
+
+  // ===========================================================================
+  // Combined Call Step Format (SDK Client Compatibility)
+  // ===========================================================================
+  // The SDK client sends { type: 'call', key: 'methodName', args: [...] }
+  // instead of separate property and call steps.
+
+  describe('combined call step format (SDK compatibility)', () => {
+    it('executes combined call step with method name and args', async () => {
+      // SDK format: { type: 'call', key: 'echo', args: ['hello'] }
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'echo', args: ['hello'] },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toEqual({ echoed: 'hello' })
+    })
+
+    it('executes chained combined call steps', async () => {
+      // SDK format: $.Customer('alice').update({ name: 'Alice' })
+      // becomes: [
+      //   { type: 'call', key: 'getUser', args: ['alice'] },
+      //   { type: 'property', key: 'profile' },
+      //   { type: 'property', key: 'name' }
+      // ]
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'getUser', args: ['alice'] },
+            { type: 'property', key: 'profile' },
+            { type: 'property', key: 'name' },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toBe('User alice')
+    })
+
+    it('executes multiple combined call steps', async () => {
+      // SDK format: $.createHelper('TEST').format('message')
+      // becomes: [
+      //   { type: 'call', key: 'createHelper', args: ['TEST'] },
+      //   { type: 'call', key: 'format', args: ['message'] }
+      // ]
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'createHelper', args: ['TEST'] },
+            { type: 'call', key: 'format', args: ['message'] },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toBe('TEST: message')
+    })
+
+    it('handles async method with combined call step', async () => {
+      // SDK format: $.fetchData('test-key')
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'fetchData', args: ['test-key'] },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toEqual({ key: 'test-key', value: 'data-for-test-key' })
+    })
+
+    it('returns error for non-existent method in combined call', async () => {
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'nonExistentMethod', args: [] },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(404)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.error).toBeDefined()
+    })
+
+    it('blocks private methods in combined call', async () => {
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: '_privateMethod', args: [] },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect([400, 403, 404]).toContain(response.status)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.error).toBeDefined()
+    })
+
+    it('handles combined call step with no args', async () => {
+      // SDK format: $.getStatus()
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'getStatus' },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toEqual({ status: 'active', uptime: 12345 })
+    })
+
+    it('handles mixed combined calls and property access', async () => {
+      // Chain: $.getUser('bob').posts[0]
+      const request = createMockRequest('https://test.do/rpc', {
+        method: 'POST',
+        body: {
+          chain: [
+            { type: 'call', key: 'getUser', args: ['bob'] },
+            { type: 'property', key: 'posts' },
+            { type: 'index', index: 0 },
+          ],
+        },
+      })
+
+      const response = await instance.fetch(request)
+      expect(response.status).toBe(200)
+
+      const result = await parseResponse<ChainRpcResponse>(response)
+      expect(result.data).toEqual({ id: 'post-1', title: 'First Post' })
+    })
+  })
 })

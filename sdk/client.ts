@@ -333,7 +333,7 @@ export function $Context(namespace: string): RpcClient {
  * await $.things.create({ $type: 'Order', total: 100 })
  * ```
  */
-export const $: RpcClient = new Proxy({} as RpcClient, {
+export const $: RpcClient = new Proxy(function () {} as unknown as RpcClient, {
   get(_target, prop) {
     // Lazily create the client on first property access
     const namespace = getNamespace()

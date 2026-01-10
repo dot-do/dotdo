@@ -1036,31 +1036,75 @@ export class RPCServer {
         }
 
         case 'call': {
-          if (typeof current !== 'function') {
-            throw { code: 'NOT_CALLABLE', message: 'Value is not a function, cannot call', status: 400 }
-          }
-
           const args = step.args ?? []
 
-          // Find the 'this' context for the call
-          // Look back for the last property access to get the parent object
-          let thisContext: unknown = this.doInstance
-          if (i > 0) {
-            // Re-execute chain up to the previous step to get the parent context
-            const prevChain = chain.slice(0, i - 1)
-            if (prevChain.length > 0) {
-              thisContext = await this.executeChain(prevChain, workflowContext)
-            } else if (i === 1) {
-              // First call after property access - use root
-              thisContext = workflowContext ?? this.doInstance
+          // SDK Combined Format: { type: 'call', key: 'methodName', args: [...] }
+          // This combines property access and method call in one step.
+          // When 'key' is present, first access the property, then call it.
+          const combinedKey = (step as { key?: string }).key
+
+          if (combinedKey !== undefined) {
+            // Combined call step - first access the property, then call it
+            if (typeof combinedKey !== 'string') {
+              throw { code: 'INVALID_STEP', message: 'Combined call step requires a string key', status: 400 }
             }
+
+            // Block access to private methods
+            if (combinedKey.startsWith('_')) {
+              throw { code: 'BLOCKED_ACCESS', message: `Access to private method '${combinedKey}' is blocked`, status: 404 }
+            }
+
+            // Block access to internal DO methods on first step (from root)
+            if (i === 0 && this.blockedMethods.has(combinedKey)) {
+              throw { code: 'BLOCKED_ACCESS', message: `Access to '${combinedKey}' is blocked`, status: 404 }
+            }
+
+            if (current === null || current === undefined) {
+              throw { code: 'NOT_FOUND', message: `Cannot access method '${combinedKey}' of ${current}`, status: 404 }
+            }
+
+            // Access the method
+            const method = (current as Record<string, unknown>)[combinedKey]
+
+            if (method === undefined && !(combinedKey in (current as object))) {
+              throw { code: 'NOT_FOUND', message: `Method '${combinedKey}' not found`, status: 404 }
+            }
+
+            if (typeof method !== 'function') {
+              throw { code: 'NOT_CALLABLE', message: `'${combinedKey}' is not a function`, status: 400 }
+            }
+
+            // Execute the method with 'current' as 'this' context
+            const result = method.apply(current, args)
+
+            // Await if it's a promise
+            current = result instanceof Promise ? await result : result
+          } else {
+            // Traditional call step - 'current' should already be a function
+            if (typeof current !== 'function') {
+              throw { code: 'NOT_CALLABLE', message: 'Value is not a function, cannot call', status: 400 }
+            }
+
+            // Find the 'this' context for the call
+            // Look back for the last property access to get the parent object
+            let thisContext: unknown = this.doInstance
+            if (i > 0) {
+              // Re-execute chain up to the previous step to get the parent context
+              const prevChain = chain.slice(0, i - 1)
+              if (prevChain.length > 0) {
+                thisContext = await this.executeChain(prevChain, workflowContext)
+              } else if (i === 1) {
+                // First call after property access - use root
+                thisContext = workflowContext ?? this.doInstance
+              }
+            }
+
+            // Execute the function
+            const result = (current as Function).apply(thisContext, args)
+
+            // Await if it's a promise
+            current = result instanceof Promise ? await result : result
           }
-
-          // Execute the function
-          const result = (current as Function).apply(thisContext, args)
-
-          // Await if it's a promise
-          current = result instanceof Promise ? await result : result
           break
         }
 
