@@ -33,6 +33,7 @@ import {
   queryBloom,
   fetchBloomFilter,
   BloomQueryResult,
+  clearBloomCache,
   type BloomQuery,
   type BloomFetchOptions,
 } from '../search'
@@ -118,6 +119,9 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
   let mockFetch: ReturnType<typeof createMockFetch>
 
   beforeEach(() => {
+    // Clear bloom filter cache between tests
+    clearBloomCache()
+
     // Create a test Puffin file with bloom filters
     // Field 5 = email column, Field 6 = status column
     puffinFile = createTestPuffinFile({

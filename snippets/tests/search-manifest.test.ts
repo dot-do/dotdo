@@ -684,7 +684,8 @@ describe('SearchSnippet - Manifest Loading', () => {
       const ctx = createMockContext()
       const mockCaches = createMockCaches()
       const shortTtlManifest = { ...MINIMAL_MANIFEST }
-      const mockFetch = vi.fn().mockResolvedValue(createManifestResponse(shortTtlManifest))
+      // Use mockImplementation to return a fresh Response for each call
+      const mockFetch = vi.fn().mockImplementation(() => createManifestResponse(shortTtlManifest))
 
       vi.stubGlobal('fetch', mockFetch)
       vi.stubGlobal('caches', mockCaches)
@@ -707,7 +708,8 @@ describe('SearchSnippet - Manifest Loading', () => {
     it('clears manifest cache correctly', async () => {
       const ctx = createMockContext()
       const mockCaches = createMockCaches()
-      const mockFetch = vi.fn().mockResolvedValue(createManifestResponse(MINIMAL_MANIFEST))
+      // Use mockImplementation to return a fresh Response for each call
+      const mockFetch = vi.fn().mockImplementation(() => createManifestResponse(MINIMAL_MANIFEST))
 
       vi.stubGlobal('fetch', mockFetch)
       vi.stubGlobal('caches', mockCaches)

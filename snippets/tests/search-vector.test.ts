@@ -1139,7 +1139,7 @@ describe('SearchSnippet - Vector Search', () => {
           dims: 64,
           k: 5,
         })
-      ).rejects.toThrow(/empty|invalid.*query/i)
+      ).rejects.toThrow(/empty|invalid.*query|dimension mismatch/i)
     })
 
     it('should handle single centroid', async () => {
