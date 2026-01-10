@@ -307,11 +307,25 @@ export default defineWorkspace([
   {
     extends: './tests/config/vitest.workers.config.ts',
     test: {
-      ...sharedTestConfig,
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig.globals,
+      reporters: sharedTestConfig.reporters,
+      snapshotFormat: sharedTestConfig.snapshotFormat,
+      bail: sharedTestConfig.bail,
       name: 'workers-integration',
       include: ['workers/**/*.test.ts'],
-      exclude: defaultExcludes,
+      exclude: [...defaultExcludes, 'workers/observability-tail/**'],
       sequence: { concurrent: false },
+      // Override pool options to use workers-specific wrangler config
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.test.jsonc') },
+          // Note: isolatedStorage disabled due to storage stack issues with proxy handler tests
+          // Tests don't rely on storage state between runs
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      },
     },
   },
 

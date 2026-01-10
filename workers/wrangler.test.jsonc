@@ -1,0 +1,37 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "hostname-proxy-test",
+  "main": "./hostname-proxy-test-worker.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // KV namespaces
+  "kv_namespaces": [
+    {
+      "binding": "TEST_KV",
+      "id": "placeholder-test-kv-id"
+    }
+  ],
+
+  // Durable Objects - minimal set for proxy testing
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DO",
+        "class_name": "TestDurableObject"
+      },
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDurableObject"
+      }
+    ]
+  },
+
+  // Migrations
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["TestDurableObject"]
+    }
+  ]
+}

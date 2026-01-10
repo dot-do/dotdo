@@ -107,11 +107,8 @@ export default defineWorkersConfig({
           verbose: process.env.DEBUG === 'true',
 
           // Compatibility settings
-          compatibilityDate: '2026-01-08',
+          compatibilityDate: '2025-09-06',
           compatibilityFlags: ['nodejs_compat', 'nodejs_compat_v2'],
-
-          // Enable outbound network access for CDN fetches (e.g., jsDelivr for WASM)
-          outboundService: 'internet',
         },
       },
     },
