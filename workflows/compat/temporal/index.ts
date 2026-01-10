@@ -172,6 +172,14 @@ export interface StepExecutionOptions {
   retries?: RetryOptions
 }
 
+/**
+ * Discriminated union for cached step results.
+ * Provides type-safe handling of success values vs errors.
+ */
+export type CachedStepResult<T = unknown> =
+  | { readonly status: 'success'; readonly value: T }
+  | { readonly status: 'error'; readonly error: Error }
+
 // ============================================================================
 // CFWORKFLOWS STORAGE STRATEGY - Uses native CF Workflows APIs
 // ============================================================================
@@ -188,19 +196,18 @@ export interface StepExecutionOptions {
  * in the current workflow context.
  */
 export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
-  private readonly stepResults = new Map<string, unknown>()
+  private readonly stepResults = new Map<string, CachedStepResult>()
 
   constructor(private readonly step: WorkflowStep) {}
 
   async executeStep<T>(name: string, fn: () => T | Promise<T>, options?: StepExecutionOptions): Promise<T> {
     // Check for cached result (replay)
-    if (this.stepResults.has(name)) {
-      const cached = this.stepResults.get(name)
-      // If cached value is an error, re-throw it
-      if (cached instanceof Error) {
-        throw cached
+    const cached = this.stepResults.get(name)
+    if (cached) {
+      if (cached.status === 'error') {
+        throw cached.error
       }
-      return cached as T
+      return cached.value as T
     }
 
     // Build step.do() options from execution options
@@ -212,13 +219,13 @@ export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
         ? await this.step.do(name, stepOptions, async () => fn())
         : await this.step.do(name, async () => fn())
 
-      // Cache the result
-      this.stepResults.set(name, result)
+      // Cache the result with discriminated union
+      this.stepResults.set(name, { status: 'success', value: result })
       return result
     } catch (error) {
       // Cache errors for deterministic replay
       const err = ensureError(error)
-      this.stepResults.set(name, err)
+      this.stepResults.set(name, { status: 'error', error: err })
       throw err
     }
   }
@@ -233,7 +240,7 @@ export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
     await this.step.sleep(name, durationStr)
 
     // Cache completion
-    this.stepResults.set(name, true)
+    this.stepResults.set(name, { status: 'success', value: true })
   }
 
   async isStepCompleted(name: string): Promise<boolean> {
@@ -241,15 +248,20 @@ export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
   }
 
   async getStepResult<T>(name: string): Promise<T | undefined> {
-    const result = this.stepResults.get(name)
-    if (result instanceof Error) {
-      throw result
+    const cached = this.stepResults.get(name)
+    if (!cached) return undefined
+    if (cached.status === 'error') {
+      throw cached.error
     }
-    return result as T | undefined
+    return cached.value as T
   }
 
   async setStepResult(name: string, result: unknown): Promise<void> {
-    this.stepResults.set(name, result)
+    if (result instanceof Error) {
+      this.stepResults.set(name, { status: 'error', error: result })
+    } else {
+      this.stepResults.set(name, { status: 'success', value: result })
+    }
   }
 
   private buildStepDoOptions(options?: StepExecutionOptions): StepDoOptions | undefined {
@@ -288,7 +300,7 @@ export class CFWorkflowsStorageStrategy implements WorkflowStorageStrategy {
  * Cost: sleep() uses setTimeout which is BILLABLE (consumes DO wall-clock time)
  */
 export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
-  private readonly stepResults = new Map<string, unknown>()
+  private readonly stepResults = new Map<string, CachedStepResult>()
   private readonly durableStorage: StepStorage
 
   constructor(storage?: StepStorage) {
@@ -297,18 +309,18 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
 
   async executeStep<T>(name: string, fn: () => T | Promise<T>, _options?: StepExecutionOptions): Promise<T> {
     // Check in-memory cache first
-    if (this.stepResults.has(name)) {
-      const cached = this.stepResults.get(name)
-      if (cached instanceof Error) {
-        throw cached
+    const cached = this.stepResults.get(name)
+    if (cached) {
+      if (cached.status === 'error') {
+        throw cached.error
       }
-      return cached as T
+      return cached.value as T
     }
 
     // Check durable storage for completed steps (survives worker restarts)
     const durableResult = await this.durableStorage.get(name)
     if (durableResult?.status === 'completed') {
-      this.stepResults.set(name, durableResult.result)
+      this.stepResults.set(name, { status: 'success', value: durableResult.result })
       return durableResult.result as T
     }
 
@@ -317,7 +329,7 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
       const result = await fn()
 
       // Store in both in-memory and durable storage
-      this.stepResults.set(name, result)
+      this.stepResults.set(name, { status: 'success', value: result })
       await this.durableStorage.set(name, {
         stepId: name,
         status: 'completed',
@@ -330,7 +342,7 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
       return result
     } catch (error) {
       const err = ensureError(error)
-      this.stepResults.set(name, err)
+      this.stepResults.set(name, { status: 'error', error: err })
       await this.durableStorage.set(name, {
         stepId: name,
         status: 'failed',
@@ -351,7 +363,7 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
     // Check durable storage
     const durableResult = await this.durableStorage.get(name)
     if (durableResult?.status === 'completed') {
-      this.stepResults.set(name, true)
+      this.stepResults.set(name, { status: 'success', value: true })
       return
     }
 
@@ -376,7 +388,7 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
       completedAt: Date.now(),
     })
 
-    this.stepResults.set(name, true)
+    this.stepResults.set(name, { status: 'success', value: true })
   }
 
   async isStepCompleted(name: string): Promise<boolean> {
@@ -390,12 +402,12 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
 
   async getStepResult<T>(name: string): Promise<T | undefined> {
     // Check in-memory first
-    if (this.stepResults.has(name)) {
-      const result = this.stepResults.get(name)
-      if (result instanceof Error) {
-        throw result
+    const cached = this.stepResults.get(name)
+    if (cached) {
+      if (cached.status === 'error') {
+        throw cached.error
       }
-      return result as T | undefined
+      return cached.value as T
     }
 
     // Check durable storage
@@ -408,16 +420,26 @@ export class InMemoryStorageStrategy implements WorkflowStorageStrategy {
   }
 
   async setStepResult(name: string, result: unknown): Promise<void> {
-    this.stepResults.set(name, result)
-    await this.durableStorage.set(name, {
-      stepId: name,
-      status: result instanceof Error ? 'failed' : 'completed',
-      result: result instanceof Error ? undefined : result,
-      error: result instanceof Error ? result.message : undefined,
-      attempts: 1,
-      createdAt: Date.now(),
-      completedAt: result instanceof Error ? undefined : Date.now(),
-    })
+    if (result instanceof Error) {
+      this.stepResults.set(name, { status: 'error', error: result })
+      await this.durableStorage.set(name, {
+        stepId: name,
+        status: 'failed',
+        error: result.message,
+        attempts: 1,
+        createdAt: Date.now(),
+      })
+    } else {
+      this.stepResults.set(name, { status: 'success', value: result })
+      await this.durableStorage.set(name, {
+        stepId: name,
+        status: 'completed',
+        result,
+        attempts: 1,
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+      })
+    }
   }
 
   /**
@@ -602,58 +624,58 @@ function warnNonDeterministic(
 
 export interface ActivityOptions {
   /** Start-to-close timeout */
-  startToCloseTimeout?: string | number
+  readonly startToCloseTimeout?: string | number
   /** Schedule-to-close timeout */
-  scheduleToCloseTimeout?: string | number
+  readonly scheduleToCloseTimeout?: string | number
   /** Schedule-to-start timeout */
-  scheduleToStartTimeout?: string | number
+  readonly scheduleToStartTimeout?: string | number
   /** Heartbeat timeout */
-  heartbeatTimeout?: string | number
+  readonly heartbeatTimeout?: string | number
   /** Retry policy */
-  retry?: RetryPolicy
+  readonly retry?: Readonly<RetryPolicy>
   /** Task queue */
-  taskQueue?: string
+  readonly taskQueue?: string
 }
 
 export interface LocalActivityOptions extends ActivityOptions {
   /** Local retry policy (uses shorter defaults) */
-  localRetryThreshold?: string | number
+  readonly localRetryThreshold?: string | number
 }
 
 export interface RetryPolicy {
   /** Initial retry interval */
-  initialInterval?: string | number
+  readonly initialInterval?: string | number
   /** Backoff coefficient (multiplier) */
-  backoffCoefficient?: number
+  readonly backoffCoefficient?: number
   /** Maximum retry interval */
-  maximumInterval?: string | number
+  readonly maximumInterval?: string | number
   /** Maximum number of attempts (including first try) */
-  maximumAttempts?: number
+  readonly maximumAttempts?: number
   /** Non-retryable error types */
-  nonRetryableErrorTypes?: string[]
+  readonly nonRetryableErrorTypes?: readonly string[]
 }
 
 export interface ChildWorkflowOptions {
   /** Workflow ID */
-  workflowId?: string
+  readonly workflowId?: string
   /** Task queue */
-  taskQueue?: string
+  readonly taskQueue?: string
   /** Workflow execution timeout */
-  workflowExecutionTimeout?: string | number
+  readonly workflowExecutionTimeout?: string | number
   /** Workflow run timeout */
-  workflowRunTimeout?: string | number
+  readonly workflowRunTimeout?: string | number
   /** Workflow task timeout */
-  workflowTaskTimeout?: string | number
+  readonly workflowTaskTimeout?: string | number
   /** Retry policy */
-  retry?: RetryPolicy
+  readonly retry?: Readonly<RetryPolicy>
   /** Cancellation type */
-  cancellationType?: CancellationType
+  readonly cancellationType?: CancellationType
   /** Parent close policy */
-  parentClosePolicy?: ParentClosePolicy
+  readonly parentClosePolicy?: ParentClosePolicy
   /** Memo */
-  memo?: Record<string, unknown>
+  readonly memo?: Readonly<Record<string, unknown>>
   /** Search attributes */
-  searchAttributes?: SearchAttributes
+  readonly searchAttributes?: Readonly<SearchAttributes>
 }
 
 export type CancellationType = 'WAIT_CANCELLATION_COMPLETED' | 'TRY_CANCEL' | 'ABANDON'
@@ -725,18 +747,18 @@ export interface TimerHandle extends Promise<void> {
 // SIGNAL, QUERY, UPDATE TYPES
 // ============================================================================
 
-export interface SignalDefinition<Args extends unknown[] = []> {
-  readonly name: string
+export interface SignalDefinition<Args extends unknown[] = [], Name extends string = string> {
+  readonly name: Name
   readonly type: 'signal'
 }
 
-export interface QueryDefinition<TResult = unknown, Args extends unknown[] = []> {
-  readonly name: string
+export interface QueryDefinition<TResult = unknown, Args extends unknown[] = [], Name extends string = string> {
+  readonly name: Name
   readonly type: 'query'
 }
 
-export interface UpdateDefinition<TResult = unknown, Args extends unknown[] = []> {
-  readonly name: string
+export interface UpdateDefinition<TResult = unknown, Args extends unknown[] = [], Name extends string = string> {
+  readonly name: Name
   readonly type: 'update'
 }
 
@@ -803,52 +825,52 @@ export type WorkflowExecutionStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANC
 
 export interface WorkflowClientOptions {
   /** Service connection (unused in compat) */
-  connection?: unknown
+  readonly connection?: unknown
   /** Namespace */
-  namespace?: string
+  readonly namespace?: string
   /** Data converter */
-  dataConverter?: unknown
+  readonly dataConverter?: unknown
   /** Interceptors */
-  interceptors?: unknown[]
+  readonly interceptors?: readonly unknown[]
   /** Durable storage */
-  storage?: StepStorage
+  readonly storage?: StepStorage
   /** DO state */
-  state?: DurableObjectState
+  readonly state?: DurableObjectState
 }
 
 export interface WorkflowStartOptions<TArgs extends unknown[]> {
   /** Task queue */
-  taskQueue: string
+  readonly taskQueue: string
   /** Workflow ID */
-  workflowId?: string
+  readonly workflowId?: string
   /** Workflow arguments */
-  args?: TArgs
+  readonly args?: TArgs
   /** Retry policy */
-  retry?: RetryPolicy
+  readonly retry?: Readonly<RetryPolicy>
   /** Workflow execution timeout */
-  workflowExecutionTimeout?: string | number
+  readonly workflowExecutionTimeout?: string | number
   /** Workflow run timeout */
-  workflowRunTimeout?: string | number
+  readonly workflowRunTimeout?: string | number
   /** Workflow task timeout */
-  workflowTaskTimeout?: string | number
+  readonly workflowTaskTimeout?: string | number
   /** Memo */
-  memo?: Record<string, unknown>
+  readonly memo?: Readonly<Record<string, unknown>>
   /** Search attributes */
-  searchAttributes?: SearchAttributes
+  readonly searchAttributes?: Readonly<SearchAttributes>
   /** Cron schedule */
-  cronSchedule?: string
+  readonly cronSchedule?: string
 }
 
 export interface SignalWithStartOptions<TSignalArgs extends unknown[], TWorkflowArgs extends unknown[]> extends WorkflowStartOptions<TWorkflowArgs> {
-  signal: SignalDefinition<TSignalArgs>
-  signalArgs: TSignalArgs
+  readonly signal: SignalDefinition<TSignalArgs>
+  readonly signalArgs: TSignalArgs
 }
 
 export interface ListWorkflowOptions {
   /** Search query (Temporal SQL-like syntax) */
-  query?: string
+  readonly query?: string
   /** Maximum number of results */
-  pageSize?: number
+  readonly pageSize?: number
 }
 
 // ============================================================================
@@ -1707,21 +1729,21 @@ function generateTimerId(): string {
 /**
  * Define a signal
  */
-export function defineSignal<Args extends unknown[] = []>(name: string): SignalDefinition<Args> {
+export function defineSignal<Args extends unknown[] = [], Name extends string = string>(name: Name): SignalDefinition<Args, Name> {
   return { name, type: 'signal' }
 }
 
 /**
  * Define a query
  */
-export function defineQuery<TResult = unknown, Args extends unknown[] = []>(name: string): QueryDefinition<TResult, Args> {
+export function defineQuery<TResult = unknown, Args extends unknown[] = [], Name extends string = string>(name: Name): QueryDefinition<TResult, Args, Name> {
   return { name, type: 'query' }
 }
 
 /**
  * Define an update
  */
-export function defineUpdate<TResult = unknown, Args extends unknown[] = []>(name: string): UpdateDefinition<TResult, Args> {
+export function defineUpdate<TResult = unknown, Args extends unknown[] = [], Name extends string = string>(name: Name): UpdateDefinition<TResult, Args, Name> {
   return { name, type: 'update' }
 }
 
@@ -2657,6 +2679,127 @@ export function makeContinueAsNewFunc<TArgs extends unknown[], TResult>(
   return (...args: TArgs) => {
     throw new ContinueAsNew(args, options)
   }
+}
+
+// ============================================================================
+// TEMPORAL ERROR CLASSES - Standard error types for workflow failures
+// ============================================================================
+
+/**
+ * Application-level failure that can be thrown from workflows or activities.
+ * Use this to signal business logic failures vs infrastructure errors.
+ *
+ * @example
+ * ```typescript
+ * import { ApplicationFailure } from '@dotdo/temporal'
+ *
+ * if (!user.hasPermission('admin')) {
+ *   throw new ApplicationFailure('User does not have admin permission', true)
+ * }
+ * ```
+ */
+export class ApplicationFailure extends Error {
+  readonly type = 'ApplicationFailure' as const
+
+  constructor(
+    message: string,
+    readonly nonRetryable: boolean = false,
+    readonly details?: unknown[]
+  ) {
+    super(message)
+    this.name = 'ApplicationFailure'
+  }
+
+  /**
+   * Create a non-retryable application failure
+   */
+  static nonRetryable(message: string, ...details: unknown[]): ApplicationFailure {
+    return new ApplicationFailure(message, true, details.length > 0 ? details : undefined)
+  }
+
+  /**
+   * Create a retryable application failure
+   */
+  static retryable(message: string, ...details: unknown[]): ApplicationFailure {
+    return new ApplicationFailure(message, false, details.length > 0 ? details : undefined)
+  }
+}
+
+/**
+ * Failure thrown when an activity execution fails.
+ * Contains information about the failed activity and the underlying cause.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await activities.processPayment(order)
+ * } catch (error) {
+ *   if (error instanceof ActivityFailure) {
+ *     console.log(`Activity ${error.activityType} failed: ${error.cause?.message}`)
+ *   }
+ * }
+ * ```
+ */
+export class ActivityFailure extends Error {
+  readonly type = 'ActivityFailure' as const
+
+  constructor(
+    readonly activityType: string,
+    readonly activityId: string,
+    readonly cause?: Error
+  ) {
+    super(`Activity ${activityType} (${activityId}) failed${cause ? `: ${cause.message}` : ''}`)
+    this.name = 'ActivityFailure'
+  }
+}
+
+/**
+ * Failure thrown when a child workflow execution fails.
+ * Contains information about the failed child workflow and the underlying cause.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await executeChild(childWorkflow, { workflowId: 'child-1' })
+ * } catch (error) {
+ *   if (error instanceof ChildWorkflowFailure) {
+ *     console.log(`Child workflow ${error.workflowType} failed: ${error.cause?.message}`)
+ *   }
+ * }
+ * ```
+ */
+export class ChildWorkflowFailure extends Error {
+  readonly type = 'ChildWorkflowFailure' as const
+
+  constructor(
+    readonly workflowType: string,
+    readonly workflowId: string,
+    readonly cause?: Error
+  ) {
+    super(`Child workflow ${workflowType} (${workflowId}) failed${cause ? `: ${cause.message}` : ''}`)
+    this.name = 'ChildWorkflowFailure'
+  }
+}
+
+/**
+ * Check if an error is an ApplicationFailure
+ */
+export function isApplicationFailure(error: unknown): error is ApplicationFailure {
+  return error instanceof ApplicationFailure
+}
+
+/**
+ * Check if an error is an ActivityFailure
+ */
+export function isActivityFailure(error: unknown): error is ActivityFailure {
+  return error instanceof ActivityFailure
+}
+
+/**
+ * Check if an error is a ChildWorkflowFailure
+ */
+export function isChildWorkflowFailure(error: unknown): error is ChildWorkflowFailure {
+  return error instanceof ChildWorkflowFailure
 }
 
 // ============================================================================
