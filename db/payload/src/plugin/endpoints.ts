@@ -303,13 +303,13 @@ export function createSyncEndpoint(
   return {
     path,
     method: 'post',
-    handler: async (req: Request, context: any) => {
+    handler: async (req) => {
       // Check for API key authentication
       const apiKey = req.headers.get('X-API-Key')
       const hasValidApiKey = apiKey && validApiKeys.has(apiKey)
 
       // Check for user session authentication
-      const user = (context as any).user as
+      const user = (req as any).user as
         | { id: string; role: string }
         | null
         | undefined
@@ -388,9 +388,9 @@ export function createWorkflowEndpoint(
   return {
     path,
     method: 'post',
-    handler: async (req: Request, context: any) => {
+    handler: async (req) => {
       // Check authentication
-      const user = (context as any).user as
+      const user = (req as any).user as
         | { id: string; role: string }
         | null
         | undefined
@@ -400,7 +400,7 @@ export function createWorkflowEndpoint(
       }
 
       // Parse request body
-      const body: WorkflowRequestBody = (await req.json?.()) ?? {}
+      const body = ((await req.json?.()) ?? {}) as Partial<WorkflowRequestBody>
 
       // Validate workflow name is provided
       if (!body.workflow) {
@@ -436,8 +436,8 @@ export function createWorkflowEndpoint(
 
         // Synchronous execution
         const result = await executeWorkflow(
-          body,
-          context as { payload: any },
+          body as WorkflowRequestBody,
+          { payload: (req as any).payload },
           resolvedConfig
         )
         return Response.json(result, { status: 200 })
