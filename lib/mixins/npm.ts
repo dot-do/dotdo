@@ -1050,7 +1050,19 @@ export function withNpm<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const value = (target as any)[prop]
           if (typeof value === 'function') {
-            return value.bind(target)
+            // Only bind if it has a bind method (not a Proxy or capability object)
+            if (typeof value.bind === 'function') {
+              // Don't bind capability functions that have custom properties
+              // (like $.bash which is both callable AND has .exec, .run, etc.)
+              const customProps = Object.getOwnPropertyNames(value).filter(
+                (p) => p !== 'length' && p !== 'name' && p !== 'prototype'
+              )
+              if (customProps.length > 0) {
+                // This is a capability object with methods, return as-is
+                return value
+              }
+              return value.bind(target)
+            }
           }
           return value
         },

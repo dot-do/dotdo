@@ -504,8 +504,8 @@ export class GitModule {
    * @returns Status object with branch and file information
    */
   async status(): Promise<GitStatus> {
-    // Normalize staged file names (strip leading slashes)
-    const staged = Array.from(this.stagedFiles).map(f => this.normalizePath(f))
+    // Return staged files as-is (preserving leading slashes for API consistency)
+    const staged = Array.from(this.stagedFiles)
 
     // Find unstaged changes by comparing current file content with committed snapshots
     const unstaged: string[] = []
@@ -520,12 +520,12 @@ export class GitModule {
             typeof currentContent === 'string' ? currentContent : new TextDecoder().decode(currentContent as ArrayBuffer)
           )
           if (currentHash !== committedHash && !this.stagedFiles.has(path)) {
-            unstaged.push(this.normalizePath(path))
+            unstaged.push(path)
           }
         } catch {
           // File was deleted - that's also an unstaged change
           if (!this.stagedFiles.has(path)) {
-            unstaged.push(this.normalizePath(path))
+            unstaged.push(path)
           }
         }
       }
@@ -1397,7 +1397,17 @@ export function withGit<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
           // Forward to original context (which includes fs)
           const value = (target as any)[prop]
           if (typeof value === 'function') {
-            return value.bind(target)
+            // Only bind if it has a bind method (not a Proxy or capability object)
+            if (typeof value.bind === 'function') {
+              // Don't bind capability functions that have custom properties
+              const customProps = Object.getOwnPropertyNames(value).filter(
+                (p) => p !== 'length' && p !== 'name' && p !== 'prototype'
+              )
+              if (customProps.length > 0) {
+                return value
+              }
+              return value.bind(target)
+            }
           }
           return value
         },

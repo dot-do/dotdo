@@ -1018,7 +1018,17 @@ export function withFs<TBase extends Constructor<{ $: WorkflowContext }>>(Base: 
           // Forward to original context
           const value = (target as any)[prop]
           if (typeof value === 'function') {
-            return value.bind(target)
+            // Only bind if it has a bind method (not a Proxy or capability object)
+            if (typeof value.bind === 'function') {
+              // Don't bind capability functions that have custom properties
+              const customProps = Object.getOwnPropertyNames(value).filter(
+                (p) => p !== 'length' && p !== 'name' && p !== 'prototype'
+              )
+              if (customProps.length > 0) {
+                return value
+              }
+              return value.bind(target)
+            }
           }
           return value
         },
