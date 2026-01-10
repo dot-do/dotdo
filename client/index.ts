@@ -101,8 +101,3 @@ export type {
   $ContextResult,
 } from './context'
 
-// =============================================================================
-// Legacy exports (kept for backward compatibility)
-// =============================================================================
-
-export { useTanStackDb } from './hooks/use-tanstack-db'

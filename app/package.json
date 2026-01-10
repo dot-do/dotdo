@@ -9,12 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dotdo/react": "workspace:*",
     "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/react-form": "^1.27.7",
     "@tanstack/react-router": "^1.144.0",
     "@tanstack/react-start": "^1.145.5",
     "@tanstack/react-table": "^8.21.3",
     "react": "^19.2.3",
+    "zod": "^3.23.0",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {

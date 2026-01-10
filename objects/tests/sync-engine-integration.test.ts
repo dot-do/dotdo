@@ -16,10 +16,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-// NOTE: SyncEngine was in packages/tanstack which has been migrated to db/tanstack.
+// NOTE: SyncEngine was in packages/tanstack which has been migrated to @dotdo/react.
 // The SyncEngine server component will be implemented in objects/ as part of a GREEN issue.
-// For now, we import types from db/tanstack and define placeholder types for SyncEngine.
-import type { ChangeMessage, SyncThing } from '../../db/tanstack/protocol'
+// For now, we import types from types/sync-protocol and define placeholder types for SyncEngine.
+import type { ChangeMessage, SyncThing } from '../../types/sync-protocol'
 
 // Interface for ThingsStore-like objects
 interface ThingsStoreLike {

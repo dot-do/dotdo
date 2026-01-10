@@ -2,11 +2,11 @@
  * Entity Collection Definitions
  *
  * TanStack DB collection definitions for all dotdo entities.
- * Each collection uses dotdoCollectionOptions to connect to the
+ * Each collection uses CollectionOptions to connect to the
  * real-time sync infrastructure via WebSocket.
  */
 
-import { dotdoCollectionOptions } from '../../db/tanstack/collection'
+import { CollectionOptions } from '@dotdo/react/tanstack'
 import { z } from 'zod'
 
 // =============================================================================
@@ -32,7 +32,7 @@ export const UserSchema = z.object({
 
 export type User = z.infer<typeof UserSchema>
 
-export const usersCollection = dotdoCollectionOptions({
+export const usersCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'User',
   schema: UserSchema,
@@ -59,7 +59,7 @@ export const SandboxSchema = z.object({
 
 export type Sandbox = z.infer<typeof SandboxSchema>
 
-export const sandboxesCollection = dotdoCollectionOptions({
+export const sandboxesCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'Sandbox',
   schema: SandboxSchema,
@@ -95,7 +95,7 @@ export const WorkflowSchema = z.object({
 
 export type Workflow = z.infer<typeof WorkflowSchema>
 
-export const workflowsCollection = dotdoCollectionOptions({
+export const workflowsCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'Workflow',
   schema: WorkflowSchema,
@@ -133,7 +133,7 @@ export const BrowserSchema = z.object({
 
 export type Browser = z.infer<typeof BrowserSchema>
 
-export const browsersCollection = dotdoCollectionOptions({
+export const browsersCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'Browser',
   schema: BrowserSchema,
@@ -166,7 +166,7 @@ export const IntegrationSchema = z.object({
 
 export type Integration = z.infer<typeof IntegrationSchema>
 
-export const integrationsCollection = dotdoCollectionOptions({
+export const integrationsCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'Integration',
   schema: IntegrationSchema,
@@ -201,7 +201,7 @@ export const ApprovalSchema = z.object({
 
 export type Approval = z.infer<typeof ApprovalSchema>
 
-export const approvalsCollection = dotdoCollectionOptions({
+export const approvalsCollection = CollectionOptions({
   doUrl: DO_URL,
   collection: 'Approval',
   schema: ApprovalSchema,

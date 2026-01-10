@@ -1,7 +1,10 @@
 /**
- * Protocol types shared between server and client
+ * Sync Protocol Types
  *
- * Defines the message format for WebSocket sync communication.
+ * Protocol types shared between server (Durable Objects) and client
+ * for WebSocket sync communication.
+ *
+ * @module types/sync-protocol
  */
 
 import { z } from 'zod'
