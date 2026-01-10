@@ -55,15 +55,33 @@ export interface InitialMessage {
   txid: number
 }
 
-export interface ChangeMessage {
-  type: 'change'
+export interface InsertMessage {
+  type: 'insert'
   collection: string
   branch: string | null
   txid: number
-  operation: 'insert' | 'update' | 'delete'
-  thing?: SyncThing
-  id?: string
+  key: string
+  data: SyncThing
 }
+
+export interface UpdateMessage {
+  type: 'update'
+  collection: string
+  branch: string | null
+  txid: number
+  key: string
+  data: SyncThing
+}
+
+export interface DeleteMessage {
+  type: 'delete'
+  collection: string
+  branch: string | null
+  txid: number
+  key: string
+}
+
+export type ChangeMessage = InsertMessage | UpdateMessage | DeleteMessage
 
 type ClientMessage = SubscribeMessage | UnsubscribeMessage
 type ServerMessage = InitialMessage | ChangeMessage
@@ -213,14 +231,15 @@ export class SyncEngine {
    */
   onThingCreated(thing: SyncThing, rowid: number): void {
     const collection = this.extractCollection(thing.$type)
-    this.broadcast(collection, thing.branch ?? null, {
-      type: 'change',
+    const message: InsertMessage = {
+      type: 'insert',
       collection,
       branch: thing.branch ?? null,
       txid: rowid,
-      operation: 'insert',
-      thing,
-    })
+      key: thing.$id,
+      data: thing,
+    }
+    this.broadcast(collection, thing.branch ?? null, message)
   }
 
   /**
@@ -228,28 +247,29 @@ export class SyncEngine {
    */
   onThingUpdated(thing: SyncThing, rowid: number): void {
     const collection = this.extractCollection(thing.$type)
-    this.broadcast(collection, thing.branch ?? null, {
-      type: 'change',
+    const message: UpdateMessage = {
+      type: 'update',
       collection,
       branch: thing.branch ?? null,
       txid: rowid,
-      operation: 'update',
-      thing,
-    })
+      key: thing.$id,
+      data: thing,
+    }
+    this.broadcast(collection, thing.branch ?? null, message)
   }
 
   /**
    * Notify when a thing is deleted
    */
   onThingDeleted(collection: string, id: string, branch: string | null, rowid: number): void {
-    this.broadcast(collection, branch, {
-      type: 'change',
+    const message: DeleteMessage = {
+      type: 'delete',
       collection,
       branch,
       txid: rowid,
-      operation: 'delete',
-      id,
-    })
+      key: id,
+    }
+    this.broadcast(collection, branch, message)
   }
 
   /**
@@ -301,7 +321,7 @@ export class SyncEngine {
     if (!state) return
 
     // Try to unsubscribe from all branches for this collection
-    Array.from(state.subscriptions.entries()).forEach(([key, sub]) => {
+    Array.from(state.subscriptions.values()).forEach((sub) => {
       if (sub.collection === message.collection) {
         this.unsubscribe(socket, message.collection, sub.branch)
       }
@@ -313,7 +333,7 @@ export class SyncEngine {
     if (!state) return
 
     // Remove all subscriptions
-    Array.from(state.subscriptions.entries()).forEach(([key, sub]) => {
+    Array.from(state.subscriptions.values()).forEach((sub) => {
       const subscriptionKey = this.getSubscriptionKey(sub.collection, sub.branch)
       const subscribers = this.collectionSubscribers.get(subscriptionKey)
       if (subscribers) {
@@ -374,8 +394,8 @@ export class SyncEngine {
       name: entity.name ?? undefined,
       data: entity.data ?? undefined,
       branch: entity.branch ?? null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: entity.createdAt ?? new Date().toISOString(),
+      updatedAt: entity.updatedAt ?? new Date().toISOString(),
     }
   }
 }

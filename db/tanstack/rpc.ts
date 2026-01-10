@@ -42,6 +42,9 @@ interface CapnWebResponse {
   error?: { code: string; message: string }
 }
 
+/** Default request timeout in milliseconds */
+const DEFAULT_TIMEOUT_MS = 30000
+
 /**
  * Configuration for the RPC client
  */
@@ -128,95 +131,103 @@ export class RPCClient {
    * Execute a Cap'n Web RPC request
    */
   private async _execute<T>(request: CapnWebRequest, expectedPromiseIds: string[]): Promise<T[]> {
-    const response = await fetch(this._config.url, {
-      method: 'POST',
-      headers: this._buildHeaders(),
-      body: JSON.stringify(request),
-    })
+    const timeout = this._config.timeout ?? DEFAULT_TIMEOUT_MS
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
 
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`)
-    }
-
-    let result: CapnWebResponse
     try {
-      result = await response.json()
-    } catch {
-      throw new Error('Invalid JSON response')
-    }
+      const response = await fetch(this._config.url, {
+        method: 'POST',
+        headers: this._buildHeaders(),
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      })
 
-    // Handle top-level error response
-    if (result.type === 'error' && result.error) {
-      throw new Error(result.error.message)
-    }
-
-    // Validate that we have results
-    if (!result.results || result.results.length === 0) {
-      throw new Error('No results in response')
-    }
-
-    // Build a map of our sent promiseIds to indices for response matching
-    const sentPromiseIdToIndex = new Map<string, number>()
-    for (let i = 0; i < expectedPromiseIds.length; i++) {
-      sentPromiseIdToIndex.set(expectedPromiseIds[i], i)
-    }
-
-    // Build a map of response promiseIds to results
-    const responsePromiseIdToResult = new Map<string, (typeof result.results)[number]>()
-    for (const r of result.results) {
-      responsePromiseIdToResult.set(r.promiseId, r)
-    }
-
-    // Try to match by promiseId first, fall back to positional matching
-    const values: T[] = new Array(expectedPromiseIds.length)
-    let matchedByPromiseId = false
-
-    // Check if any of our sent promiseIds match response promiseIds
-    for (const sentId of expectedPromiseIds) {
-      if (responsePromiseIdToResult.has(sentId)) {
-        matchedByPromiseId = true
-        break
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`)
       }
-    }
 
-    if (matchedByPromiseId) {
-      // Match by promiseId (server echoed our promiseIds)
-      for (const expectedId of expectedPromiseIds) {
-        if (!responsePromiseIdToResult.has(expectedId)) {
-          throw new Error(`Response missing expected promiseId: ${expectedId}`)
-        }
+      let result: CapnWebResponse
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error('Invalid JSON response')
       }
-      for (let i = 0; i < expectedPromiseIds.length; i++) {
-        const resultItem = responsePromiseIdToResult.get(expectedPromiseIds[i])!
-        if (resultItem.type === 'error' && resultItem.error) {
-          throw new Error(resultItem.error.message)
-        }
-        values[i] = resultItem.value as T
+
+      // Handle top-level error response
+      if (result.type === 'error' && result.error) {
+        throw new Error(result.error.message)
       }
-    } else {
-      // Positional matching - server assigned its own promiseIds
-      // Validate that response promiseIds follow the expected p-N pattern
-      // (for test/mock compatibility with p-1, p-2, etc.)
-      const validPromiseIdPattern = /^p-\d+$/
+
+      // Validate that we have results
+      if (!result.results || result.results.length === 0) {
+        throw new Error('No results in response')
+      }
+
+      // Build a map of response promiseIds to results
+      const responsePromiseIdToResult = new Map<string, (typeof result.results)[number]>()
       for (const r of result.results) {
-        if (!validPromiseIdPattern.test(r.promiseId)) {
-          throw new Error(`Response contains invalid promiseId: ${r.promiseId}`)
+        responsePromiseIdToResult.set(r.promiseId, r)
+      }
+
+      // Try to match by promiseId first, fall back to positional matching
+      const values: T[] = new Array(expectedPromiseIds.length)
+      let matchedByPromiseId = false
+
+      // Check if any of our sent promiseIds match response promiseIds
+      for (const sentId of expectedPromiseIds) {
+        if (responsePromiseIdToResult.has(sentId)) {
+          matchedByPromiseId = true
+          break
         }
       }
 
-      if (result.results.length !== expectedPromiseIds.length) {
-        throw new Error(`Response has ${result.results.length} results but expected ${expectedPromiseIds.length}`)
-      }
-      for (let i = 0; i < result.results.length; i++) {
-        const resultItem = result.results[i]
-        if (resultItem.type === 'error' && resultItem.error) {
-          throw new Error(resultItem.error.message)
+      if (matchedByPromiseId) {
+        // Match by promiseId (server echoed our promiseIds)
+        for (const expectedId of expectedPromiseIds) {
+          if (!responsePromiseIdToResult.has(expectedId)) {
+            throw new Error(`Response missing expected promiseId: ${expectedId}`)
+          }
         }
-        values[i] = resultItem.value as T
+        for (let i = 0; i < expectedPromiseIds.length; i++) {
+          const resultItem = responsePromiseIdToResult.get(expectedPromiseIds[i])!
+          if (resultItem.type === 'error' && resultItem.error) {
+            throw new Error(resultItem.error.message)
+          }
+          values[i] = resultItem.value as T
+        }
+      } else {
+        // Positional matching - server assigned its own promiseIds
+        // Validate that response promiseIds follow the expected p-N pattern
+        // (for test/mock compatibility with p-1, p-2, etc.)
+        const validPromiseIdPattern = /^p-\d+$/
+        for (const r of result.results) {
+          if (!validPromiseIdPattern.test(r.promiseId)) {
+            throw new Error(`Response contains invalid promiseId: ${r.promiseId}`)
+          }
+        }
+
+        if (result.results.length !== expectedPromiseIds.length) {
+          throw new Error(`Response has ${result.results.length} results but expected ${expectedPromiseIds.length}`)
+        }
+        for (let i = 0; i < result.results.length; i++) {
+          const resultItem = result.results[i]
+          if (resultItem.type === 'error' && resultItem.error) {
+            throw new Error(resultItem.error.message)
+          }
+          values[i] = resultItem.value as T
+        }
       }
+
+      return values
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeout}ms`)
+      }
+      throw error
+    } finally {
+      clearTimeout(timeoutId)
     }
-
-    return values
   }
 
   /**

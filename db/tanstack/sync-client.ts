@@ -14,6 +14,12 @@
  *   { type: 'delete', collection: 'Task', key: string, txid: number }
  */
 
+/** Base delay for reconnection in milliseconds */
+const RECONNECT_BASE_DELAY_MS = 1000
+
+/** Maximum delay for reconnection in milliseconds */
+const RECONNECT_MAX_DELAY_MS = 30000
+
 /**
  * Configuration for SyncClient
  */
@@ -195,8 +201,11 @@ export class SyncClient<T> {
    * Schedule a reconnection attempt with exponential backoff
    */
   private scheduleReconnect(): void {
-    // Calculate delay with exponential backoff, capped at 30 seconds
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
+    // Calculate delay with exponential backoff, capped at max delay
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts),
+      RECONNECT_MAX_DELAY_MS
+    )
     this.reconnectAttempts++
 
     this.reconnectTimer = setTimeout(() => {

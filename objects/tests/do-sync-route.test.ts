@@ -56,19 +56,41 @@ interface InitialMessage {
   txid: number
 }
 
-interface ChangeMessage {
-  type: 'change'
+interface InsertMessage {
+  type: 'insert'
   collection: string
   branch: string | null
   txid: number
-  operation: 'insert' | 'update' | 'delete'
-  thing?: {
+  key: string
+  data: {
     $id: string
     $type: string
     [key: string]: unknown
   }
-  id?: string // For delete operations
 }
+
+interface UpdateMessage {
+  type: 'update'
+  collection: string
+  branch: string | null
+  txid: number
+  key: string
+  data: {
+    $id: string
+    $type: string
+    [key: string]: unknown
+  }
+}
+
+interface DeleteMessage {
+  type: 'delete'
+  collection: string
+  branch: string | null
+  txid: number
+  key: string
+}
+
+type ChangeMessage = InsertMessage | UpdateMessage | DeleteMessage
 
 type ServerMessage = InitialMessage | ChangeMessage
 type ClientMessage = SubscribeMessage | UnsubscribeMessage
@@ -1101,10 +1123,9 @@ describe('DO /sync WebSocket Route', () => {
 
         await new Promise((resolve) => setTimeout(resolve, 50))
 
-        const changeMsg = messages.find((m) => (m as ServerMessage).type === 'change') as ChangeMessage | undefined
-        expect(changeMsg).toBeDefined()
-        expect(changeMsg?.operation).toBe('insert')
-        expect(changeMsg?.thing?.$id).toBe('task-new')
+        const insertMsg = messages.find((m) => (m as ServerMessage).type === 'insert') as InsertMessage | undefined
+        expect(insertMsg).toBeDefined()
+        expect(insertMsg?.data?.$id).toBe('task-new')
       }
     })
   })
