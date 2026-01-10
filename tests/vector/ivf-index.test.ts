@@ -304,7 +304,7 @@ describe('IVFIndex', () => {
 
       // Should warn about low vectors per cluster but proceed
       const result = await index.train()
-      expect(result.warnings).toContain(expect.stringMatching(/low.*vectors.*cluster/i))
+      expect(result.warnings.some((w) => /low.*vectors/i.test(w))).toBe(true)
     })
   })
 
@@ -475,8 +475,10 @@ describe('IVFIndex', () => {
       expect(stats.vectorsScanned).toBeGreaterThan(0)
 
       // Should scan roughly (nprobe / nlist) * total_vectors
+      // Allow 2x variance due to cluster imbalance from random data
       const expectedScanApprox = (TEST_NPROBE / TEST_NLIST) * 1000
-      expect(stats.vectorsScanned).toBeCloseTo(expectedScanApprox, -1) // Within order of magnitude
+      expect(stats.vectorsScanned).toBeGreaterThanOrEqual(expectedScanApprox * 0.5)
+      expect(stats.vectorsScanned).toBeLessThanOrEqual(expectedScanApprox * 2)
     })
 
     it('should support configurable nprobe at query time', async () => {

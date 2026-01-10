@@ -493,6 +493,7 @@ export class RerankFetcher {
     let totalRowGroupsScanned = 0
     let totalRowGroupsSkipped = 0
     let clustersAccessed = 0
+    let parallelFetches = 0
     let batchCount = 1
 
     // Handle batching if needed
@@ -501,41 +502,57 @@ export class RerankFetcher {
       batchCount = Math.ceil(ids.length / maxBatchSize)
     }
 
-    // Search each cluster file for the requested IDs
-    for (const clusterPath of clusterFiles) {
-      const { data, error, bytesRead, totalSize } = await this.fetchClusterData(
-        clusterPath.replace(this.config.vectorPrefix, '').replace('cluster-', '').replace('.parquet', '')
-      )
+    const concurrencyLimit = this.config.maxConcurrentRequests ?? 4
 
-      if (error) {
-        errors.push(error)
-        continue
+    // Process cluster files in parallel batches with early termination
+    for (let i = 0; i < clusterFiles.length && allMissing.size > 0; i += concurrencyLimit) {
+      const batch = clusterFiles.slice(i, i + concurrencyLimit)
+
+      // Create parallel tasks for this batch
+      const tasks = batch.map(clusterPath => async () => {
+        const clusterId = clusterPath
+          .replace(this.config.vectorPrefix, '')
+          .replace('cluster-', '')
+          .replace('.parquet', '')
+        return this.fetchClusterData(clusterId)
+      })
+
+      // Run batch in parallel
+      const { results, maxConcurrent } = await runWithConcurrencyLimit(tasks, concurrencyLimit)
+      parallelFetches = Math.max(parallelFetches, maxConcurrent)
+
+      // Process results
+      for (const result of results) {
+        if (!result) continue
+        const { data, error, bytesRead, totalSize } = result
+
+        if (error) {
+          errors.push(error)
+          continue
+        }
+
+        if (!data) continue
+
+        totalFileSize += totalSize
+        clustersAccessed++
+
+        const { vectors, rowGroupsScanned, rowGroupsSkipped } = this.extractVectors(
+          data,
+          Array.from(allMissing),
+          this.config.dimensions
+        )
+
+        for (const [id, vec] of vectors) {
+          allVectors.set(id, vec)
+          allMissing.delete(id)
+        }
+
+        // Calculate bytes read based on row groups accessed
+        const rowGroupBytes = totalSize / Math.ceil(data.vectorCount / data.rowGroupSize)
+        totalBytesRead += rowGroupsScanned * rowGroupBytes
+        totalRowGroupsScanned += rowGroupsScanned
+        totalRowGroupsSkipped += rowGroupsSkipped
       }
-
-      if (!data) continue
-
-      totalFileSize += totalSize
-      clustersAccessed++
-
-      const { vectors, found, rowGroupsScanned, rowGroupsSkipped } = this.extractVectors(
-        data,
-        Array.from(allMissing),
-        this.config.dimensions
-      )
-
-      for (const [id, vec] of vectors) {
-        allVectors.set(id, vec)
-        allMissing.delete(id)
-      }
-
-      // Calculate bytes read based on row groups accessed
-      const rowGroupBytes = totalSize / Math.ceil(data.vectorCount / data.rowGroupSize)
-      totalBytesRead += rowGroupsScanned * rowGroupBytes
-      totalRowGroupsScanned += rowGroupsScanned
-      totalRowGroupsSkipped += rowGroupsSkipped
-
-      // Stop if we found all requested IDs
-      if (allMissing.size === 0) break
     }
 
     const elapsed = performance.now() - startTime
@@ -548,7 +565,7 @@ export class RerankFetcher {
         vectorsFetched: allVectors.size,
         r2Subrequests: clustersAccessed,
         clustersAccessed,
-        parallelFetches: 1,
+        parallelFetches,
         bytesRead: totalBytesRead,
         totalFileSize,
         rowGroupsScanned: totalRowGroupsScanned,
