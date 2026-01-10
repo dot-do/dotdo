@@ -157,7 +157,7 @@ function createMockIcebergReader(artifacts: typeof MOCK_ARTIFACTS = MOCK_ARTIFAC
  * Creates a mock Cache API for testing.
  */
 function createMockCacheApi() {
-  const store = new Map<string, { response: Response; cachedAt: number; maxAge: number }>()
+  const store = new Map<string, { response: Response; cachedAt: number; maxAge: number; swrWindow: number }>()
 
   return {
     default: {
@@ -166,10 +166,10 @@ function createMockCacheApi() {
         const entry = store.get(url)
         if (!entry) return undefined
 
-        // Check if entry is still valid
+        // Check if entry is still valid (within max-age + stale-while-revalidate window)
         const age = (Date.now() - entry.cachedAt) / 1000
-        if (age > entry.maxAge) {
-          return undefined // Expired
+        if (age > entry.maxAge + entry.swrWindow) {
+          return undefined // Fully expired (past SWR window)
         }
 
         return entry.response.clone()
@@ -178,12 +178,15 @@ function createMockCacheApi() {
         const url = typeof request === 'string' ? request : request.url
         const cacheControl = response.headers.get('Cache-Control')
         const maxAgeMatch = cacheControl?.match(/max-age=(\d+)/)
+        const swrMatch = cacheControl?.match(/stale-while-revalidate=(\d+)/)
         const maxAge = maxAgeMatch ? parseInt(maxAgeMatch[1]) : 300
+        const swrWindow = swrMatch ? parseInt(swrMatch[1]) : 0
 
         store.set(url, {
           response: response.clone(),
           cachedAt: Date.now(),
           maxAge,
+          swrWindow,
         })
       }),
       delete: vi.fn(async (request: Request | string) => {
@@ -663,16 +666,18 @@ describe('Artifact Serve - SWR Caching', () => {
     const ctx = createContext()
     const config = createTenantConfig()
 
-    // Pre-populate cache with stale entry
+    // Pre-populate cache with stale entry (Date header indicates it's past max-age)
+    // max-age=300, and we want it to be 30 seconds past max-age (330 seconds old)
     const cachedResponse = new Response('# Stale Home', {
       headers: {
         'Content-Type': 'text/markdown; charset=utf-8',
         'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
         'X-Artifact-Source': 'cache',
+        'Date': new Date(Date.now() - 330000).toUTCString(), // 330 seconds ago (past max-age)
       },
     })
     await mockCache.default.put(request.url, cachedResponse)
-    // Make the entry stale (past max-age but within SWR window)
+    // Make the mock entry stale (past max-age but within SWR window)
     mockCache._setStale(request.url, 30) // 30 seconds past max-age
 
     const response = await handleServe(request, ctx, {
@@ -1067,6 +1072,17 @@ describe('Artifact Serve - Tenant Configuration', () => {
     const request = createRequest('/$.content/custom.do/Page/home.md')
     const ctx = createContext()
 
+    // Create reader with custom.do data
+    const customReader = createMockIcebergReader({
+      ...MOCK_ARTIFACTS,
+      'custom.do/Page/home': {
+        ns: 'custom.do',
+        type: 'Page',
+        id: 'home',
+        markdown: '# Custom Home',
+      },
+    } as typeof MOCK_ARTIFACTS)
+
     // Mock config loader that returns different config per namespace
     const mockConfigLoader = vi.fn(async (ns: string) => {
       if (ns === 'custom.do') {
@@ -1080,7 +1096,7 @@ describe('Artifact Serve - Tenant Configuration', () => {
 
     const response = await handleServe(request, ctx, {
       configLoader: mockConfigLoader,
-      reader: mockReader as never,
+      reader: customReader as never,
     })
 
     expect(mockConfigLoader).toHaveBeenCalledWith('custom.do')
