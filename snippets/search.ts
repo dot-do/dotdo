@@ -358,7 +358,7 @@ export function pruneBlocks<T>(
     }
 
     // Unbounded min (max-only constraint)
-    if (cond.min === undefined && cond.max !== undefined) {
+    if (cond.min === undefined && cond.max !== undefined && cond.max !== null) {
       if (maxInclusive) {
         return blockMin <= cond.max
       } else {
@@ -367,7 +367,7 @@ export function pruneBlocks<T>(
     }
 
     // Unbounded max (min-only constraint)
-    if (cond.max === undefined && cond.min !== undefined) {
+    if (cond.max === undefined && cond.min !== undefined && cond.min !== null) {
       if (minInclusive) {
         return blockMax >= cond.min
       } else {
@@ -376,7 +376,7 @@ export function pruneBlocks<T>(
     }
 
     // Both bounds specified
-    if (cond.min !== undefined && cond.max !== undefined) {
+    if (cond.min !== undefined && cond.min !== null && cond.max !== undefined && cond.max !== null) {
       let queryMinOverlaps: boolean
       let queryMaxOverlaps: boolean
 
@@ -856,7 +856,7 @@ const bloomFilterCache = new Map<string, BloomCacheEntry>()
 const puffinFileCache = new Map<string, PuffinCacheEntry>()
 
 /** In-flight Puffin file fetches for deduplication */
-const inFlightPuffinFetches = new Map<string, Promise<PuffinCacheEntry | null>>()
+const inFlightPuffinFetches = new Map<string, Promise<PuffinCacheEntry | undefined>>()
 
 /** Total bytes currently used by bloom filter cache */
 let bloomCacheTotalBytes = 0
@@ -943,7 +943,7 @@ export async function fetchBloomFilter(
       let inFlightPromise = inFlightPuffinFetches.get(url)
 
       if (!inFlightPromise) {
-        inFlightPromise = (async (): Promise<PuffinCacheEntry | null> => {
+        inFlightPromise = (async (): Promise<PuffinCacheEntry | undefined> => {
           try {
             let fullResponse: Response
             if (timeoutMs) {
@@ -953,7 +953,7 @@ export async function fetchBloomFilter(
             }
 
             if (!fullResponse.ok) {
-              return null
+              return undefined
             }
 
             const fullBytes = new Uint8Array(await fullResponse.arrayBuffer())
@@ -982,7 +982,7 @@ export async function fetchBloomFilter(
             try {
               reader = PuffinReader.fromBytes(fullBytes)
             } catch {
-              return null
+              return undefined
             }
 
             return {
@@ -2025,7 +2025,7 @@ export async function queryFullText(
 // Combined Query Router Types
 // ============================================================================
 
-import { buildIndexUrl, type SearchManifest } from '../db/iceberg/search-manifest'
+import { buildIndexUrl } from '../db/iceberg/search-manifest'
 
 /**
  * Range comparison operators.
@@ -2249,7 +2249,7 @@ export async function executeSearch(
   } = options
 
   const startTime = performance.now()
-  const timing: Record<string, number> = {}
+  const timing: { [key: string]: number; total_ms: number } = { total_ms: 0 }
   let subrequests = 0
   let budgetRemaining = maxSubrequests
 
