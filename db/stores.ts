@@ -13,6 +13,7 @@
 import { eq, and, or, desc, asc, isNull, sql } from 'drizzle-orm'
 import type { DODatabase, AppSchema } from '../types/drizzle'
 import * as schema from '../db'
+import { logBestEffortError } from '../lib/logging/error-logger'
 
 // ============================================================================
 // SQL INJECTION PREVENTION
@@ -729,16 +730,24 @@ export class ThingsStore {
     let typeId = 0
     try {
       typeId = await this.getTypeId(typeName)
-    } catch {
-      // Ignore errors from mock DB
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'getTypeId',
+        source: 'ThingStore.create',
+        context: { typeName, id },
+      })
     }
 
     // Check for duplicate (best-effort, may fail with mock DB)
     let existing: ThingEntity | null = null
     try {
       existing = await this.get(id, { branch, includeDeleted: true })
-    } catch {
-      // Ignore errors from mock DB
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'checkDuplicate',
+        source: 'ThingStore.create',
+        context: { id, branch },
+      })
     }
     if (existing) {
       throw new Error(`Thing with id '${id}' already exists`)
@@ -754,8 +763,12 @@ export class ThingsStore {
         data: data.data ?? null,
         deleted: false,
       })
-    } catch {
-      // Best-effort database insert
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'insert',
+        source: 'ThingStore.create',
+        context: { id, typeName, branch },
+      })
     }
 
     // Stream to Pipeline if configured
@@ -770,8 +783,12 @@ export class ThingsStore {
           data: data.data,
           timestamp: new Date().toISOString(),
         }])
-      } catch {
-        // Best-effort streaming
+      } catch (error) {
+        logBestEffortError(error, {
+          operation: 'stream',
+          source: 'ThingStore.create',
+          context: { id, typeName, verb: `${typeName}.created` },
+        })
       }
     }
 
@@ -779,8 +796,12 @@ export class ThingsStore {
     let created: ThingEntity | null = null
     try {
       created = await this.get(id, { branch })
-    } catch {
-      // Return a minimal entity if DB fails
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'getCreated',
+        source: 'ThingStore.create',
+        context: { id, branch },
+      })
     }
     return created ?? {
       $id: id,
@@ -1267,8 +1288,12 @@ export class EventsStore {
         streamed: false,
         createdAt: now,
       })
-    } catch {
-      // Best-effort database insert
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'insert',
+        source: 'EventsStore.emit',
+        context: { id, verb: options.verb, ns: this.ctx.ns },
+      })
     }
 
     // Stream to Pipeline if configured
@@ -1282,8 +1307,12 @@ export class EventsStore {
           data: options.data,
           timestamp: now.toISOString(),
         }])
-      } catch {
-        // Best-effort streaming
+      } catch (error) {
+        logBestEffortError(error, {
+          operation: 'stream',
+          source: 'EventsStore.emit',
+          context: { id, verb: options.verb, ns: this.ctx.ns },
+        })
       }
     }
 

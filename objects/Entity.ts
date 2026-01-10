@@ -3,6 +3,9 @@
  *
  * Base class for domain entities like Customer, Order, Product.
  * Provides CRUD operations, validation, and lifecycle hooks.
+ *
+ * Supports indexed queries via schema.indexes for O(k) lookups
+ * instead of O(n) full table scans.
  */
 
 import { DO, Env } from './DO'
@@ -32,6 +35,25 @@ export interface EntityRecord {
   version: number
 }
 
+/**
+ * Index entry structure stored in KV storage.
+ * Each index entry maps a field:value pair to a set of record IDs.
+ */
+interface IndexEntry {
+  ids: string[]
+}
+
+/**
+ * Normalize a value for use as an index key component.
+ * Handles null, undefined, and complex types.
+ */
+function normalizeIndexValue(value: unknown): string {
+  if (value === null) return '__null__'
+  if (value === undefined) return '__undefined__'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
 export class Entity extends DO {
   static override readonly $type: string = 'Entity'
 
@@ -40,6 +62,138 @@ export class Entity extends DO {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
   }
+
+  // ============================================================================
+  // INDEX KEY UTILITIES
+  // ============================================================================
+
+  /**
+   * Generate the storage key for an index entry.
+   * Format: index:{field}:{normalizedValue}
+   */
+  private getIndexKey(field: string, value: unknown): string {
+    return `index:${field}:${normalizeIndexValue(value)}`
+  }
+
+  /**
+   * Check if a field is configured for indexing in the schema.
+   */
+  private isIndexedField(field: string): boolean {
+    return this.schema?.indexes?.includes(field) ?? false
+  }
+
+  /**
+   * Get all indexed fields from the schema.
+   */
+  private getIndexedFields(): string[] {
+    return this.schema?.indexes ?? []
+  }
+
+  // ============================================================================
+  // INDEX MAINTENANCE
+  // ============================================================================
+
+  /**
+   * Add a record ID to the index for a specific field:value pair.
+   */
+  private async addToIndex(field: string, value: unknown, recordId: string): Promise<void> {
+    const key = this.getIndexKey(field, value)
+    const existing = (await this.ctx.storage.get(key)) as IndexEntry | undefined
+    const ids = existing?.ids ?? []
+
+    if (!ids.includes(recordId)) {
+      ids.push(recordId)
+      await this.ctx.storage.put(key, { ids })
+    }
+  }
+
+  /**
+   * Remove a record ID from the index for a specific field:value pair.
+   */
+  private async removeFromIndex(field: string, value: unknown, recordId: string): Promise<void> {
+    const key = this.getIndexKey(field, value)
+    const existing = (await this.ctx.storage.get(key)) as IndexEntry | undefined
+
+    if (existing) {
+      const ids = existing.ids.filter((id) => id !== recordId)
+      if (ids.length === 0) {
+        await this.ctx.storage.delete(key)
+      } else {
+        await this.ctx.storage.put(key, { ids })
+      }
+    }
+  }
+
+  /**
+   * Update indexes for a record being created.
+   * Adds the record ID to all indexed field values.
+   */
+  private async indexRecord(record: EntityRecord): Promise<void> {
+    const indexedFields = this.getIndexedFields()
+    for (const field of indexedFields) {
+      const value = record.data[field]
+      await this.addToIndex(field, value, record.id)
+    }
+  }
+
+  /**
+   * Update indexes when a record is being updated.
+   * Removes old index entries and adds new ones for changed values.
+   */
+  private async reindexRecord(oldRecord: EntityRecord, newRecord: EntityRecord): Promise<void> {
+    const indexedFields = this.getIndexedFields()
+    for (const field of indexedFields) {
+      const oldValue = oldRecord.data[field]
+      const newValue = newRecord.data[field]
+
+      // Only update index if value changed
+      if (normalizeIndexValue(oldValue) !== normalizeIndexValue(newValue)) {
+        await this.removeFromIndex(field, oldValue, oldRecord.id)
+        await this.addToIndex(field, newValue, newRecord.id)
+      }
+    }
+  }
+
+  /**
+   * Remove a record from all indexes.
+   */
+  private async unindexRecord(record: EntityRecord): Promise<void> {
+    const indexedFields = this.getIndexedFields()
+    for (const field of indexedFields) {
+      const value = record.data[field]
+      await this.removeFromIndex(field, value, record.id)
+    }
+  }
+
+  /**
+   * Rebuild all indexes from scratch.
+   * Useful after schema changes or for index recovery.
+   */
+  async rebuildIndexes(): Promise<{ indexed: number; fields: string[] }> {
+    const indexedFields = this.getIndexedFields()
+    if (indexedFields.length === 0) {
+      return { indexed: 0, fields: [] }
+    }
+
+    // Clear existing indexes
+    const indexKeys = await this.ctx.storage.list({ prefix: 'index:' })
+    for (const key of indexKeys.keys()) {
+      await this.ctx.storage.delete(key)
+    }
+
+    // Rebuild from all records
+    const records = await this.list()
+    for (const record of records) {
+      await this.indexRecord(record)
+    }
+
+    await this.emit('indexes.rebuilt', { count: records.length, fields: indexedFields })
+    return { indexed: records.length, fields: indexedFields }
+  }
+
+  // ============================================================================
+  // SCHEMA MANAGEMENT
+  // ============================================================================
 
   /**
    * Get entity schema
@@ -120,6 +274,10 @@ export class Entity extends DO {
     return result
   }
 
+  // ============================================================================
+  // CRUD OPERATIONS
+  // ============================================================================
+
   /**
    * Create a new entity record
    */
@@ -141,6 +299,10 @@ export class Entity extends DO {
     }
 
     await this.ctx.storage.put(`record:${record.id}`, record)
+
+    // Maintain indexes for indexed fields
+    await this.indexRecord(record)
+
     await this.emit('entity.created', { record })
 
     return record
@@ -175,6 +337,10 @@ export class Entity extends DO {
     }
 
     await this.ctx.storage.put(`record:${id}`, updated)
+
+    // Update indexes for changed indexed fields
+    await this.reindexRecord(record, updated)
+
     await this.emit('entity.updated', { record: updated, changes: data })
 
     return updated
@@ -188,6 +354,10 @@ export class Entity extends DO {
     if (!record) return false
 
     await this.ctx.storage.delete(`record:${id}`)
+
+    // Remove from all indexes
+    await this.unindexRecord(record)
+
     await this.emit('entity.deleted', { id, record })
 
     return true
@@ -212,13 +382,61 @@ export class Entity extends DO {
     return records
   }
 
+  // ============================================================================
+  // QUERY OPERATIONS
+  // ============================================================================
+
   /**
-   * Find records by field value
+   * Find records by field value.
+   * Uses index if the field is indexed, otherwise falls back to filtered list.
    */
   async find(field: string, value: unknown): Promise<EntityRecord[]> {
+    // Use index if field is indexed
+    if (this.isIndexedField(field)) {
+      return this.findWithIndex(field, value)
+    }
+
+    // Fall back to filtered list for non-indexed fields
     const all = await this.list()
     return all.filter((r) => r.data[field] === value)
   }
+
+  /**
+   * Find records using index lookup.
+   * This is O(k) where k is the number of matching records,
+   * instead of O(n) where n is total records.
+   *
+   * @throws Error if the field is not indexed
+   */
+  async findWithIndex(field: string, value: unknown): Promise<EntityRecord[]> {
+    if (!this.isIndexedField(field)) {
+      throw new Error(
+        `Field '${field}' is not indexed. Add it to schema.indexes or use find() for non-indexed queries.`
+      )
+    }
+
+    const key = this.getIndexKey(field, value)
+    const entry = (await this.ctx.storage.get(key)) as IndexEntry | undefined
+
+    if (!entry || entry.ids.length === 0) {
+      return []
+    }
+
+    // Fetch all matching records by ID
+    const records: EntityRecord[] = []
+    for (const id of entry.ids) {
+      const record = await this.get(id)
+      if (record) {
+        records.push(record)
+      }
+    }
+
+    return records
+  }
+
+  // ============================================================================
+  // HTTP HANDLERS
+  // ============================================================================
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)

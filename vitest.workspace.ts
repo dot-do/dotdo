@@ -92,8 +92,8 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -271,7 +271,7 @@ export default defineWorkspace([
   createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts']),
 
   // Reliability tests (error handling, promise handling, resilience)
-  createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts']),
+  createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts', 'tests/error-logging.test.ts']),
 
   // Platform behavior tests (subrequest limits, WebSocket limits, etc.)
   createNodeWorkspace('platform', ['tests/platform/**/*.test.ts']),

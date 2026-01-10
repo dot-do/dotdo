@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm'
 import * as schema from '../../db'
 import type { LifecycleContext, LifecycleModule } from './types'
 import type { ShardOptions, ShardResult, ShardStrategy, UnshardOptions } from '../../types/Lifecycle'
+import { logBestEffortError } from '../../lib/logging/error-logger'
 
 // Type for DO stub
 type DOStub = {
@@ -413,8 +414,12 @@ export class ShardModule implements LifecycleModule {
             if (state.things) allThings.push(...state.things)
             if (state.relationships) allRelationships.push(...state.relationships)
           }
-        } catch {
-          // Skip non-JSON responses
+        } catch (error) {
+          logBestEffortError(error, {
+            operation: 'parseShardState',
+            source: 'ShardModule.unshard',
+            context: { shardNs: endpoint.ns, shardIndex: endpoint.shardIndex },
+          })
         }
       }
     }
@@ -509,7 +514,12 @@ export class ShardModule implements LifecycleModule {
             lastCheck: new Date(),
             responseTime,
           }
-        } catch {
+        } catch (error) {
+          logBestEffortError(error, {
+            operation: 'healthCheck',
+            source: 'ShardModule.discoverShards',
+            context: { shardNs: endpoint.ns, shardIndex: endpoint.shardIndex },
+          })
           return { shardIndex: endpoint.shardIndex, healthy: false, lastCheck: new Date() }
         }
       })
@@ -587,7 +597,12 @@ export class ShardModule implements LifecycleModule {
             } else {
               shardResults.push({ shardIndex: endpoint.shardIndex, itemCount: 0, duration })
             }
-          } catch {
+          } catch (error) {
+            logBestEffortError(error, {
+              operation: 'parseQueryResult',
+              source: 'ShardModule.queryShards',
+              context: { shardNs: endpoint.ns, shardIndex: endpoint.shardIndex },
+            })
             shardResults.push({
               shardIndex: endpoint.shardIndex,
               itemCount: 0,
@@ -770,8 +785,12 @@ export class ShardModule implements LifecycleModule {
                 )
               }
             }
-          } catch {
-            // Best effort
+          } catch (error) {
+            logBestEffortError(error, {
+              operation: 'rebalance',
+              source: 'ShardModule.rebalanceShards',
+              context: { shardNs: removedShard.ns, shardIndex: removedShard.shardIndex, targetCount },
+            })
           }
         }
       }

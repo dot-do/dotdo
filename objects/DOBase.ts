@@ -85,6 +85,7 @@ import {
   type StoreContext,
   type ThingEntity,
 } from '../db/stores'
+import { logBestEffortError } from '../lib/logging/error-logger'
 import { parseNounId } from '../lib/noun-id'
 import {
   ai as aiFunc,
@@ -609,8 +610,13 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         // Absolute last resort - can't even log to DLQ
         console.error(`[CRITICAL] Failed to add system error to DLQ: ${errorType}`)
       })
-    } catch {
-      // Never throw from error handler
+    } catch (catchError) {
+      // Never throw from error handler, but log the failure
+      logBestEffortError(catchError, {
+        operation: 'emitSystemError',
+        source: 'DOBase.emitSystemError',
+        context: { errorType, originalEvent, ns: this.ns },
+      })
     }
   }
 
@@ -753,8 +759,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   protected async persistStepResult(stepId: string, result: unknown): Promise<void> {
     try {
       await this.ctx.storage.put(`step:${stepId}`, { result, completedAt: Date.now() })
-    } catch {
-      // Best effort persistence
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'persistStepResult',
+        source: 'DOBase.persistStepResult',
+        context: { stepId, ns: this.ns },
+      })
     }
   }
 
@@ -766,8 +776,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         const data = value as { result: unknown; completedAt: number }
         this._stepCache.set(stepId, data)
       }
-    } catch {
-      // Best effort loading
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'loadPersistedSteps',
+        source: 'DOBase.loadPersistedSteps',
+        context: { ns: this.ns },
+      })
     }
   }
 
@@ -818,8 +832,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         .update(schema.actions)
         .set(updateData)
         .where(eq(schema.actions.id, actionId))
-    } catch {
-      // Best effort status update
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'updateActionStatus',
+        source: 'DOBase.updateActionStatus',
+        context: { actionId, status, ns: this.ns },
+      })
     }
   }
 
@@ -829,8 +847,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         .update(schema.actions)
         .set({ options: JSON.stringify({ attempts }) })
         .where(eq(schema.actions.id, actionId))
-    } catch {
-      // Best effort update
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'updateActionAttempts',
+        source: 'DOBase.updateActionAttempts',
+        context: { actionId, attempts, ns: this.ns },
+      })
     }
   }
 
@@ -859,8 +881,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         .update(schema.actions)
         .set(updateData)
         .where(eq(schema.actions.id, actionId))
-    } catch {
-      // Best effort completion
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'completeAction',
+        source: 'DOBase.completeAction',
+        context: { actionId, ns: this.ns },
+      })
     }
   }
 
@@ -889,8 +915,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         .update(schema.actions)
         .set(updateData)
         .where(eq(schema.actions.id, actionId))
-    } catch {
-      // Best effort failure recording
+    } catch (catchError) {
+      logBestEffortError(catchError, {
+        operation: 'failAction',
+        source: 'DOBase.failAction',
+        context: { actionId, errorMessage: error.message, ns: this.ns },
+      })
     }
   }
 
