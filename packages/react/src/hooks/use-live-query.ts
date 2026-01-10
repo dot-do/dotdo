@@ -131,8 +131,8 @@ export function useLiveQuery<T extends BaseItem, R = T>(
       result = result.slice(config.offset)
     }
 
-    // Apply limit
-    if (config.limit) {
+    // Apply limit (check for undefined, not falsy, since 0 is valid)
+    if (config.limit !== undefined) {
       result = result.slice(0, config.limit)
     }
 

@@ -263,7 +263,7 @@ async function executeMutations(
       promiseId: `p-${index + 1}`,
       target: { type: 'root' as const },
       method,
-      args: [{ type: 'value' as const, value: { key: mutation.key, data: mutation.data } }],
+      args: [{ type: 'value' as const, value: mutation.data || { key: mutation.key } }],
     }
   })
 
