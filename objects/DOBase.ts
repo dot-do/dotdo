@@ -53,6 +53,11 @@ import {
   isCapnWebRequest,
   type CapnWebOptions,
 } from './transport/capnweb-target'
+import {
+  handleRestRequest,
+  handleGetIndex,
+  type RestRouterContext,
+} from './transport/rest-router'
 import type {
   WorkflowContext,
   DomainProxy,
@@ -2035,6 +2040,48 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // REST ROUTER CONTEXT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get REST router context for handling REST API requests.
+   * Provides the things store and namespace for CRUD operations.
+   */
+  protected getRestRouterContext(): RestRouterContext {
+    // Get the DO class type from static $type or constructor name
+    const DOClass = this.constructor as typeof DO & { $type?: string }
+    const doType = DOClass.$type || this.constructor.name
+
+    return {
+      things: this.things,
+      ns: this.ns,
+      contextUrl: 'https://dotdo.dev/context',
+      nouns: this.getRegisteredNouns(),
+      doType,
+    }
+  }
+
+  /**
+   * Get list of registered nouns for the index.
+   * Override in subclasses to provide custom noun list.
+   */
+  protected getRegisteredNouns(): Array<{ noun: string; plural: string }> {
+    // Return cached nouns from typeCache
+    // This is populated as types are used
+    const nouns: Array<{ noun: string; plural: string }> = []
+    for (const [noun] of this._typeCache) {
+      // Simple pluralization (subclasses can override for complex cases)
+      const plural = noun.endsWith('y')
+        ? noun.slice(0, -1) + 'ies'
+        : noun.endsWith('s') || noun.endsWith('x') || noun.endsWith('ch') || noun.endsWith('sh')
+        ? noun + 'es'
+        : noun + 's'
+      nouns.push({ noun, plural })
+    }
+    return nouns
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // MCP HANDLER
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2126,34 +2173,11 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         return this.#handleCapnWebRpc(request)
       }
 
-      // GET request - return discovery info
+      // GET request - return JSON-LD index with collections
       if (request.method === 'GET') {
-        return Response.json({
-          ns: this.ns,
-          $type: this.$type,
-          protocols: {
-            capnweb: {
-              description: 'Cap\'n Web RPC with promise pipelining',
-              methods: ['POST', 'WebSocket'],
-              endpoint: '/',
-            },
-            jsonrpc: {
-              description: 'JSON-RPC 2.0 + Chain RPC',
-              methods: ['POST', 'WebSocket'],
-              endpoint: '/rpc',
-            },
-            mcp: {
-              description: 'Model Context Protocol',
-              methods: ['POST'],
-              endpoint: '/mcp',
-            },
-            sync: {
-              description: 'TanStack DB sync protocol',
-              methods: ['WebSocket'],
-              endpoint: '/sync',
-            },
-          },
-        }, { headers: { 'Content-Type': 'application/json' } })
+        // Build REST router context for index generation
+        const restCtx = this.getRestRouterContext()
+        return handleGetIndex(restCtx, request)
       }
 
       // Other methods not supported at root
@@ -2223,6 +2247,22 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     if (this.app) {
       const response = await this.app.fetch(request, this.env)
       return response
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // REST API ROUTES (/:type and /:type/:id)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Handle REST routes for Things CRUD operations
+    // GET /customers → list customers
+    // GET /customers/cust-1 → get customer by id
+    // POST /customers → create customer
+    // PUT /customers/cust-1 → replace customer
+    // PATCH /customers/cust-1 → update customer (merge)
+    // DELETE /customers/cust-1 → delete customer
+    const restCtx = this.getRestRouterContext()
+    const restResponse = await handleRestRequest(request, restCtx)
+    if (restResponse) {
+      return restResponse
     }
 
     // Default: 404 Not Found
