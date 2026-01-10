@@ -273,7 +273,7 @@ describe('useConnectionState', () => {
 
       expect(() => {
         renderHook(() => useConnectionState())
-      }).toThrow('useDotdoContext must be used within a DotdoProvider')
+      }).toThrow('useDotdoContext must be used within a DO provider')
 
       spy.mockRestore()
     })

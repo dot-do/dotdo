@@ -28,6 +28,8 @@
  *   )
  * }
  * ```
+ *
+ * @module @dotdo/react
  */
 
 import * as React from 'react'
@@ -39,6 +41,9 @@ import type { BaseItem, CollectionConfig, SyncMessage, UseDotdoCollectionResult 
  *
  * Connects to a Durable Object via WebSocket and provides reactive data
  * with optimistic mutations.
+ *
+ * @param config - Collection configuration
+ * @returns Collection state and mutation methods
  */
 export function useCollection<T extends BaseItem>(
   config: CollectionConfig<T>
@@ -53,6 +58,10 @@ export function useCollection<T extends BaseItem>(
   const [txid, setTxid] = React.useState(0)
   const [pendingMutations, setPendingMutations] = React.useState(0)
 
+  // Refs for stable callbacks - avoids re-render dependencies
+  const dataRef = React.useRef<T[]>(data)
+  dataRef.current = data
+
   // Optimistic updates store
   const optimisticRef = React.useRef<Map<string, { type: 'insert' | 'update' | 'delete'; item: T | Partial<T> }>>(new Map())
 
@@ -62,7 +71,7 @@ export function useCollection<T extends BaseItem>(
   // Connection key
   const connectionKey = branch ? `${collection}:${branch}` : collection
 
-  // Derive URLs
+  // Derive URLs - memoized to prevent re-computation
   const wsUrl = React.useMemo(() => {
     return ns.replace(/^https?:/, (m) => m === 'https:' ? 'wss:' : 'ws:') + '/sync'
   }, [ns])
@@ -148,7 +157,7 @@ export function useCollection<T extends BaseItem>(
     }
   }, [connect, connectionKey, connections])
 
-  // RPC helper
+  // RPC helper - stable reference, doesn't depend on changing state
   const rpc = React.useCallback(async (method: string, args: unknown): Promise<unknown> => {
     const response = await fetch(rpcUrl, {
       method: 'POST',
@@ -177,7 +186,7 @@ export function useCollection<T extends BaseItem>(
     return result.results?.[0]?.value
   }, [rpcUrl, collection])
 
-  // Insert mutation with optimistic update
+  // Insert mutation with optimistic update - stable reference
   const insert = React.useCallback(async (item: T): Promise<void> => {
     // Optimistic update
     setData(prev => [...prev, item])
@@ -197,10 +206,10 @@ export function useCollection<T extends BaseItem>(
     }
   }, [rpc])
 
-  // Update mutation with optimistic update
+  // Update mutation with optimistic update - uses ref to avoid data dependency
   const update = React.useCallback(async (id: string, changes: Partial<T>): Promise<void> => {
-    // Store original for rollback
-    const original = data.find(item => item.$id === id)
+    // Use ref to get current data without causing re-renders
+    const original = dataRef.current.find(item => item.$id === id)
     if (!original) return
 
     // Optimistic update
@@ -223,12 +232,12 @@ export function useCollection<T extends BaseItem>(
     } finally {
       setPendingMutations(p => Math.max(0, p - 1))
     }
-  }, [data, rpc])
+  }, [rpc])
 
-  // Delete mutation with optimistic update
+  // Delete mutation with optimistic update - uses ref to avoid data dependency
   const deleteItem = React.useCallback(async (id: string): Promise<void> => {
-    // Store original for rollback
-    const original = data.find(item => item.$id === id)
+    // Use ref to get current data without causing re-renders
+    const original = dataRef.current.find(item => item.$id === id)
     if (!original) return
 
     // Optimistic update
@@ -247,7 +256,7 @@ export function useCollection<T extends BaseItem>(
     } finally {
       setPendingMutations(p => Math.max(0, p - 1))
     }
-  }, [data, rpc])
+  }, [rpc])
 
   // Refetch - reconnect to get fresh data
   const refetch = React.useCallback(() => {
@@ -258,7 +267,8 @@ export function useCollection<T extends BaseItem>(
     connect()
   }, [connect])
 
-  return {
+  // Memoize the return value to prevent unnecessary re-renders in consumers
+  return React.useMemo(() => ({
     data,
     isLoading,
     error,
@@ -268,5 +278,5 @@ export function useCollection<T extends BaseItem>(
     update,
     delete: deleteItem,
     refetch,
-  }
+  }), [data, isLoading, error, txid, pendingMutations, insert, update, deleteItem, refetch])
 }

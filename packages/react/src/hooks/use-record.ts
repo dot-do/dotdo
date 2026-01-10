@@ -2,6 +2,7 @@
  * useRecord - Single record hook with real-time updates
  *
  * Convenience hook for working with a single record from a collection.
+ * Wraps useCollection and filters to a specific record ID.
  *
  * @example
  * ```tsx
@@ -25,21 +26,37 @@
  *   )
  * }
  * ```
+ *
+ * @module @dotdo/react
  */
 
 import * as React from 'react'
 import { useCollection } from './use-collection'
 import type { BaseItem, CollectionConfig, UseRecordResult } from '../types'
 
+/**
+ * Configuration for useRecord hook.
+ *
+ * @typeParam T - The item type for the record
+ */
 export interface UseRecordConfig<T> extends CollectionConfig<T> {
-  /** The record ID to fetch */
+  /** The record ID to fetch and watch */
   id: string
 }
 
 /**
  * Hook for working with a single record from a collection.
  *
- * Provides real-time updates and convenient mutation methods.
+ * Provides real-time updates and convenient mutation methods bound
+ * to the specific record ID.
+ *
+ * @param config - Record configuration including collection name and ID
+ * @returns Record state and mutation methods
+ *
+ * @remarks
+ * This hook uses useCollection internally and filters to the specific ID.
+ * For better performance with large collections, consider using useDO
+ * with a direct RPC call instead.
  */
 export function useRecord<T extends BaseItem>(
   config: UseRecordConfig<T>
@@ -56,27 +73,28 @@ export function useRecord<T extends BaseItem>(
     refetch,
   } = useCollection<T>(collectionConfig)
 
-  // Find the specific record
+  // Find the specific record - memoized
   const data = React.useMemo(() => {
     return allData.find(item => item.$id === id) ?? null
   }, [allData, id])
 
-  // Bound update function
+  // Bound update function - stable reference
   const update = React.useCallback(async (changes: Partial<T>): Promise<void> => {
     await collectionUpdate(id, changes)
   }, [collectionUpdate, id])
 
-  // Bound delete function
+  // Bound delete function - stable reference
   const deleteRecord = React.useCallback(async (): Promise<void> => {
     await collectionDelete(id)
   }, [collectionDelete, id])
 
-  return {
+  // Memoize return value
+  return React.useMemo(() => ({
     data,
     isLoading,
     error,
     update,
     delete: deleteRecord,
     refetch,
-  }
+  }), [data, isLoading, error, update, deleteRecord, refetch])
 }

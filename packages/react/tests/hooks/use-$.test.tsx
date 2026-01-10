@@ -374,7 +374,7 @@ describe('use$', () => {
 
       expect(() => {
         renderHook(() => use$())
-      }).toThrow('useDotdoContext must be used within a DotdoProvider')
+      }).toThrow('useDotdoContext must be used within a DO provider')
 
       spy.mockRestore()
     })

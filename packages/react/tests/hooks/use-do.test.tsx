@@ -154,7 +154,7 @@ describe('useDO', () => {
 
       expect(() => {
         renderHook(() => useDO())
-      }).toThrow('useDotdoContext must be used within a DotdoProvider')
+      }).toThrow('useDotdoContext must be used within a DO provider')
 
       spy.mockRestore()
     })
@@ -167,7 +167,7 @@ describe('useDO', () => {
         // Should not reach here
         expect(true).toBe(false)
       } catch (error) {
-        expect((error as Error).message).toContain('DotdoProvider')
+        expect((error as Error).message).toContain('DO provider')
       }
 
       spy.mockRestore()

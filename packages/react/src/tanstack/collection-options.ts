@@ -1,7 +1,7 @@
 /**
  * TanStack DB Collection Options for dotdo
  *
- * Provides dotdoCollectionOptions factory for creating TanStack DB collections
+ * Provides CollectionOptions factory for creating TanStack DB collections
  * that sync with dotdo backends via WebSocket.
  *
  * @example
@@ -20,9 +20,12 @@
  *   // ...
  * }
  * ```
+ *
+ * @module @dotdo/react/tanstack
  */
 
 import type { z } from 'zod'
+import { SyncClient } from '../sync/sync-client'
 
 // =============================================================================
 // Types
@@ -32,12 +35,20 @@ import type { z } from 'zod'
  * Callbacks used by TanStack DB collection for sync operations
  */
 export interface CollectionCallbacks<T = unknown> {
+  /** Called at the start of a transaction */
   begin: () => void
+  /** Called with initial or batch data */
   onData: (items: T[]) => void
+  /** Called when a new item is inserted */
   onInsert: (item: T) => void
+  /** Called when an item is updated */
   onUpdate: (item: T) => void
+  /** Called when an item is deleted */
   onDelete: (item: { id: string }) => void
+  /** Called to commit a transaction */
   commit: (info: { txid: number }) => void
+  /** Called when a sync error occurs (optional) */
+  onError?: (error: Error) => void
 }
 
 /**
@@ -62,9 +73,13 @@ export interface DotdoCollectionConfig<T> {
  * Mutation from TanStack DB transaction
  */
 export interface Mutation<T> {
+  /** Unique key for the item */
   key: string
+  /** Modified item data (for insert) */
   modified?: T
+  /** Original item data (for update/delete) */
   original?: T
+  /** Changed fields (for update) */
   changes?: Partial<T>
 }
 
@@ -72,22 +87,32 @@ export interface Mutation<T> {
  * Mutation context from TanStack DB
  */
 export interface MutationContext<T> {
+  /** Transaction containing mutations */
   transaction: {
+    /** Array of mutations in this transaction */
     mutations: Array<Mutation<T>>
   }
+  /** Collection reference */
   collection: unknown
 }
 
 /**
- * Options returned by dotdoCollectionOptions for TanStack DB
+ * Options returned by CollectionOptions for TanStack DB
  */
 export interface DotdoCollectionOptionsResult<T> {
+  /** Unique identifier for this collection */
   id: string
+  /** Zod schema for validation */
   schema: z.ZodSchema<T>
+  /** Function to extract key from item */
   getKey: (item: T) => string
+  /** Subscribe to collection changes */
   subscribe: (callbacks: CollectionCallbacks<T>) => () => void
+  /** Handle insert mutations */
   onInsert: (ctx: MutationContext<T>) => Promise<{ txid: number }>
+  /** Handle update mutations */
   onUpdate: (ctx: MutationContext<T>) => Promise<{ txid: number }>
+  /** Handle delete mutations */
   onDelete: (ctx: MutationContext<T>) => Promise<{ txid: number }>
 }
 
@@ -119,113 +144,13 @@ interface CapnWebResponse {
 }
 
 // =============================================================================
-// SyncClient (internal)
+// Validation Helpers
 // =============================================================================
 
-const RECONNECT_BASE_DELAY_MS = 1000
-const RECONNECT_MAX_DELAY_MS = 30000
-
-interface SyncClientConfig {
-  doUrl: string
-  collection: string
-  branch?: string
-}
-
-class SyncClient<T> {
-  private config: SyncClientConfig
-  private ws: WebSocket | null = null
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private intentionalDisconnect = false
-
-  onInitial: (items: T[], txid: number) => void = () => {}
-  onChange: (op: 'insert' | 'update' | 'delete', item: T, txid: number) => void = () => {}
-  onDisconnect: () => void = () => {}
-
-  constructor(config: SyncClientConfig) {
-    this.config = config
-  }
-
-  connect(): void {
-    this.intentionalDisconnect = false
-    const wsUrl = `${this.config.doUrl}/sync`
-    this.ws = new WebSocket(wsUrl)
-
-    this.ws.addEventListener('open', () => {
-      this.reconnectAttempts = 0
-      const subscribeMsg: Record<string, string> = {
-        type: 'subscribe',
-        collection: this.config.collection,
-      }
-      if (this.config.branch) {
-        subscribeMsg.branch = this.config.branch
-      }
-      this.ws!.send(JSON.stringify(subscribeMsg))
-    })
-
-    this.ws.addEventListener('message', (event: MessageEvent) => {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'initial') {
-          this.onInitial(msg.data, msg.txid)
-        } else if (msg.type === 'insert' || msg.type === 'update') {
-          this.onChange(msg.type, msg.data, msg.txid)
-        } else if (msg.type === 'delete') {
-          const item = msg.data || { key: msg.key }
-          this.onChange('delete', item as T, msg.txid)
-        }
-      } catch {
-        // Malformed JSON - silently ignore
-      }
-    })
-
-    this.ws.addEventListener('close', () => {
-      this.onDisconnect()
-      if (!this.intentionalDisconnect) {
-        this.scheduleReconnect()
-      }
-    })
-
-    this.ws.addEventListener('error', () => {
-      // Error handling - onclose will fire after
-    })
-  }
-
-  disconnect(): void {
-    this.intentionalDisconnect = true
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    if (this.ws) {
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
-          type: 'unsubscribe',
-          collection: this.config.collection,
-        }))
-      }
-      this.ws.close()
-      this.ws = null
-    }
-  }
-
-  private scheduleReconnect(): void {
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts),
-      RECONNECT_MAX_DELAY_MS
-    )
-    this.reconnectAttempts++
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      this.connect()
-    }, delay)
-  }
-}
-
-// =============================================================================
-// Implementation
-// =============================================================================
-
+/**
+ * Validate that the doUrl is a valid URL
+ * @throws Error if URL is invalid
+ */
 function validateDoUrl(doUrl: string): void {
   try {
     new URL(doUrl)
@@ -234,18 +159,32 @@ function validateDoUrl(doUrl: string): void {
   }
 }
 
+/**
+ * Validate that the collection name is not empty
+ * @throws Error if collection name is empty
+ */
 function validateCollection(collection: string): void {
   if (!collection || collection.trim() === '') {
     throw new Error('Collection name cannot be empty')
   }
 }
 
+/**
+ * Convert WebSocket URL to HTTP URL for RPC
+ */
 function deriveRpcUrl(doUrl: string): string {
   let rpcUrl = doUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
   rpcUrl = rpcUrl.replace(/\/sync$/, '')
   return `${rpcUrl}/rpc`
 }
 
+// =============================================================================
+// RPC Execution
+// =============================================================================
+
+/**
+ * Execute mutations via Cap'n Web RPC
+ */
 async function executeMutations(
   rpcUrl: string,
   collection: string,
@@ -307,6 +246,10 @@ async function executeMutations(
   })
 }
 
+// =============================================================================
+// CollectionOptions Factory
+// =============================================================================
+
 /**
  * Create collection options for TanStack DB with dotdo sync.
  *
@@ -314,6 +257,27 @@ async function executeMutations(
  * - WebSocket sync for real-time updates via SyncClient
  * - Cap'n Web RPC for mutations with optimistic updates
  * - Automatic reconnection and error handling
+ *
+ * @param config - Configuration for the collection
+ * @returns Collection options compatible with TanStack DB
+ *
+ * @example
+ * ```tsx
+ * import { CollectionOptions } from '@dotdo/react/tanstack'
+ * import { z } from 'zod'
+ *
+ * const TaskSchema = z.object({
+ *   $id: z.string(),
+ *   title: z.string(),
+ *   status: z.enum(['todo', 'done']),
+ * })
+ *
+ * const taskOptions = CollectionOptions({
+ *   doUrl: 'wss://api.example.com/do/workspace',
+ *   collection: 'Task',
+ *   schema: TaskSchema,
+ * })
+ * ```
  */
 export function CollectionOptions<T extends { $id: string }>(
   config: DotdoCollectionConfig<T>
@@ -358,6 +322,11 @@ export function CollectionOptions<T extends { $id: string }>(
           callbacks.onDelete({ id: itemId })
         }
         callbacks.commit({ txid })
+      }
+
+      // Forward errors to callback if provided
+      client.onError = (error) => {
+        callbacks.onError?.(error)
       }
 
       client.connect()

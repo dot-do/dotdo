@@ -16,6 +16,28 @@
  *   )
  * }
  * ```
+ *
+ * @example
+ * With custom client configuration:
+ * ```tsx
+ * import { DO } from '@dotdo/react'
+ *
+ * function App() {
+ *   return (
+ *     <DO
+ *       ns="https://api.example.com/do/workspace"
+ *       config={{
+ *         timeout: 30000,
+ *         auth: { token: 'my-auth-token' },
+ *       }}
+ *     >
+ *       <MyApp />
+ *     </DO>
+ *   )
+ * }
+ * ```
+ *
+ * @module @dotdo/react
  */
 
 import * as React from 'react'
@@ -23,10 +45,13 @@ import { createClient, type DOClient, type ClientConfig } from '@dotdo/client'
 import { DotdoContext } from './context'
 import type { DotdoContextValue } from './types'
 
+/**
+ * Props for the DO provider component.
+ */
 export interface DOProps {
   /** Namespace URL for the Durable Object (http/https, will convert to ws/wss for sync) */
   ns: string
-  /** Optional client configuration */
+  /** Optional client configuration for timeout, auth, batching, etc. */
   config?: ClientConfig
   /** Child components */
   children: React.ReactNode
@@ -36,7 +61,11 @@ export interface DOProps {
  * Provider component for dotdo React bindings.
  *
  * Creates and manages the client instance and WebSocket connections
- * for real-time sync with Durable Objects.
+ * for real-time sync with Durable Objects. All hooks in the tree
+ * will use this provider's client and connection state.
+ *
+ * @param props - Provider props
+ * @returns React element wrapping children with context
  */
 export function DO({ ns, config, children }: DOProps): React.ReactElement {
   // Create client instance
