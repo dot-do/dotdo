@@ -13,7 +13,12 @@
  * - Commands receive correct args array
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { route, parseArgv, helpText, version } from '../index'
+import { commands } from '../commands'
+import * as bin from '../bin'
+import { fallback } from '../fallback'
+import pkg from '../../package.json'
 
 // Types for the CLI structure (these don't exist yet)
 type CommandHandler = (args: string[]) => Promise<void> | void
@@ -40,100 +45,73 @@ describe('CLI Router', () => {
   })
 
   describe('Help Display', () => {
-    it('shows help when invoked with no arguments', async () => {
-      // Import the router (should fail - module doesn't exist)
-      const { route } = await import('../index')
-
+    it('shows help when invoked with no arguments', () => {
       const result = route([])
       expect(result).toEqual({ type: 'help' })
     })
 
-    it('shows help when invoked with --help flag', async () => {
-      const { route } = await import('../index')
-
+    it('shows help when invoked with --help flag', () => {
       const result = route(['--help'])
       expect(result).toEqual({ type: 'help' })
     })
 
-    it('shows help when invoked with -h flag', async () => {
-      const { route } = await import('../index')
-
+    it('shows help when invoked with -h flag', () => {
       const result = route(['-h'])
       expect(result).toEqual({ type: 'help' })
     })
 
-    it('shows help when help command is used', async () => {
-      const { route } = await import('../index')
-
+    it('shows help when help command is used', () => {
       const result = route(['help'])
       expect(result).toEqual({ type: 'help' })
     })
   })
 
   describe('Version Display', () => {
-    it('shows version when invoked with --version flag', async () => {
-      const { route } = await import('../index')
-
+    it('shows version when invoked with --version flag', () => {
       const result = route(['--version'])
       expect(result).toEqual({ type: 'version' })
     })
 
-    it('shows version when invoked with -v flag', async () => {
-      const { route } = await import('../index')
-
+    it('shows version when invoked with -v flag', () => {
       const result = route(['-v'])
       expect(result).toEqual({ type: 'version' })
     })
   })
 
   describe('Command Routing', () => {
-    it('routes login command to login handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes login command to login handler', () => {
       const result = route(['login'])
       expect(result).toEqual({ type: 'command', name: 'login', args: [] })
     })
 
-    it('routes logout command to logout handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes logout command to logout handler', () => {
       const result = route(['logout'])
       expect(result).toEqual({ type: 'command', name: 'logout', args: [] })
     })
 
-    it('routes dev command to dev handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes dev command to dev handler', () => {
       const result = route(['dev'])
       expect(result).toEqual({ type: 'command', name: 'dev', args: [] })
     })
 
-    it('routes build command to build handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes build command to build handler', () => {
       const result = route(['build'])
       expect(result).toEqual({ type: 'command', name: 'build', args: [] })
     })
 
-    it('routes deploy command to deploy handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes deploy command to deploy handler', () => {
       const result = route(['deploy'])
       expect(result).toEqual({ type: 'command', name: 'deploy', args: [] })
     })
 
-    it('routes init command to init handler', async () => {
-      const { route } = await import('../index')
-
+    it('routes init command to init handler', () => {
       const result = route(['init'])
       expect(result).toEqual({ type: 'command', name: 'init', args: [] })
     })
   })
 
   describe('Argument Passing', () => {
-    it('passes arguments to dev command correctly', async () => {
-      const { route } = await import('../index')
-
+    it('passes arguments to dev command correctly', () => {
       const result = route(['dev', '--port', '3000'])
       expect(result).toEqual({
         type: 'command',
@@ -142,9 +120,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('passes multiple arguments to build command', async () => {
-      const { route } = await import('../index')
-
+    it('passes multiple arguments to build command', () => {
       const result = route(['build', '--minify', '--sourcemap', '--outdir', 'dist'])
       expect(result).toEqual({
         type: 'command',
@@ -153,9 +129,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('passes arguments with values correctly', async () => {
-      const { route } = await import('../index')
-
+    it('passes arguments with values correctly', () => {
       const result = route(['deploy', '--env', 'production', '--workers', '4'])
       expect(result).toEqual({
         type: 'command',
@@ -164,9 +138,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('handles positional arguments', async () => {
-      const { route } = await import('../index')
-
+    it('handles positional arguments', () => {
       const result = route(['init', 'my-project', '--template', 'basic'])
       expect(result).toEqual({
         type: 'command',
@@ -177,16 +149,12 @@ describe('CLI Router', () => {
   })
 
   describe('AI Fallback', () => {
-    it('falls through to AI for unknown commands', async () => {
-      const { route } = await import('../index')
-
+    it('falls through to AI for unknown commands', () => {
       const result = route(['unknown-command'])
       expect(result).toEqual({ type: 'fallback', input: ['unknown-command'] })
     })
 
-    it('falls through to AI for natural language input', async () => {
-      const { route } = await import('../index')
-
+    it('falls through to AI for natural language input', () => {
       const result = route(['create', 'a', 'new', 'react', 'component'])
       expect(result).toEqual({
         type: 'fallback',
@@ -194,9 +162,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('falls through to AI for commands starting with common phrases', async () => {
-      const { route } = await import('../index')
-
+    it('falls through to AI for commands starting with common phrases', () => {
       const result = route(['help', 'me', 'debug', 'this', 'error'])
       expect(result).toEqual({
         type: 'fallback',
@@ -204,9 +170,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('falls through to AI for question-like input', async () => {
-      const { route } = await import('../index')
-
+    it('falls through to AI for question-like input', () => {
       const result = route(['what', 'is', 'wrong', 'with', 'my', 'code'])
       expect(result).toEqual({
         type: 'fallback',
@@ -214,9 +178,7 @@ describe('CLI Router', () => {
       })
     })
 
-    it('falls through to AI for multi-word unknown commands', async () => {
-      const { route } = await import('../index')
-
+    it('falls through to AI for multi-word unknown commands', () => {
       const result = route(['fix', 'the', 'bug', 'in', 'main.ts'])
       expect(result).toEqual({
         type: 'fallback',
@@ -226,79 +188,57 @@ describe('CLI Router', () => {
   })
 
   describe('Argv Parsing', () => {
-    it('parseArgv strips node and script path from process.argv', async () => {
-      const { parseArgv } = await import('../index')
-
+    it('parseArgv strips node and script path from process.argv', () => {
       // Simulating process.argv: ['node', '/path/to/bin.ts', 'dev', '--port', '3000']
       const parsed = parseArgv(['node', '/path/to/bin.ts', 'dev', '--port', '3000'])
       expect(parsed).toEqual(['dev', '--port', '3000'])
     })
 
-    it('parseArgv handles empty argv after stripping', async () => {
-      const { parseArgv } = await import('../index')
-
+    it('parseArgv handles empty argv after stripping', () => {
       const parsed = parseArgv(['node', '/path/to/bin.ts'])
       expect(parsed).toEqual([])
     })
 
-    it('parseArgv handles bun runtime path', async () => {
-      const { parseArgv } = await import('../index')
-
+    it('parseArgv handles bun runtime path', () => {
       const parsed = parseArgv(['bun', '/path/to/bin.ts', 'login'])
       expect(parsed).toEqual(['login'])
     })
   })
 
   describe('Command Registry', () => {
-    it('exports a command registry with known commands', async () => {
-      const { commands } = await import('../commands')
-
+    it('exports a command registry with known commands', () => {
       expect(commands).toBeDefined()
       expect(commands instanceof Map || typeof commands === 'object').toBe(true)
     })
 
-    it('has login command registered', async () => {
-      const { commands } = await import('../commands')
-
+    it('has login command registered', () => {
       expect(commands.has?.('login') ?? 'login' in commands).toBe(true)
     })
 
-    it('has dev command registered', async () => {
-      const { commands } = await import('../commands')
-
+    it('has dev command registered', () => {
       expect(commands.has?.('dev') ?? 'dev' in commands).toBe(true)
     })
 
-    it('has build command registered', async () => {
-      const { commands } = await import('../commands')
-
+    it('has build command registered', () => {
       expect(commands.has?.('build') ?? 'build' in commands).toBe(true)
     })
 
-    it('has deploy command registered', async () => {
-      const { commands } = await import('../commands')
-
+    it('has deploy command registered', () => {
       expect(commands.has?.('deploy') ?? 'deploy' in commands).toBe(true)
     })
 
-    it('has init command registered', async () => {
-      const { commands } = await import('../commands')
-
+    it('has init command registered', () => {
       expect(commands.has?.('init') ?? 'init' in commands).toBe(true)
     })
   })
 
   describe('Entry Point (bin.ts)', () => {
-    it('exports a main function', async () => {
-      const bin = await import('../bin')
-
+    it('exports a main function', () => {
       expect(bin.main).toBeDefined()
       expect(typeof bin.main).toBe('function')
     })
 
-    it('main function is async', async () => {
-      const bin = await import('../bin')
-
+    it('main function is async', () => {
       // Check if it returns a Promise
       const result = bin.main(['--help'])
       expect(result).toBeInstanceOf(Promise)
@@ -306,38 +246,28 @@ describe('CLI Router', () => {
   })
 
   describe('Fallback Handler', () => {
-    it('exports a fallback handler', async () => {
-      const { fallback } = await import('../fallback')
-
+    it('exports a fallback handler', () => {
       expect(fallback).toBeDefined()
       expect(typeof fallback).toBe('function')
     })
 
     it('fallback handler accepts string array input', async () => {
-      const { fallback } = await import('../fallback')
-
       // Should not throw when called with array of strings
       await expect(fallback(['some', 'natural', 'language', 'input'])).resolves.not.toThrow()
     })
   })
 
   describe('Help Text Content', () => {
-    it('exports help text', async () => {
-      const { helpText } = await import('../index')
-
+    it('exports help text', () => {
       expect(helpText).toBeDefined()
       expect(typeof helpText).toBe('string')
     })
 
-    it('help text includes usage information', async () => {
-      const { helpText } = await import('../index')
-
+    it('help text includes usage information', () => {
       expect(helpText).toContain('Usage')
     })
 
-    it('help text includes available commands', async () => {
-      const { helpText } = await import('../index')
-
+    it('help text includes available commands', () => {
       expect(helpText).toContain('Commands')
       expect(helpText).toContain('login')
       expect(helpText).toContain('dev')
@@ -345,26 +275,19 @@ describe('CLI Router', () => {
       expect(helpText).toContain('deploy')
     })
 
-    it('help text includes AI fallback mention', async () => {
-      const { helpText } = await import('../index')
-
+    it('help text includes AI fallback mention', () => {
       // Should mention that unrecognized commands go to AI
       expect(helpText.toLowerCase()).toMatch(/ai|natural language|fallback/)
     })
   })
 
   describe('Version Information', () => {
-    it('exports version string', async () => {
-      const { version } = await import('../index')
-
+    it('exports version string', () => {
       expect(version).toBeDefined()
       expect(typeof version).toBe('string')
     })
 
-    it('version matches package.json', async () => {
-      const { version } = await import('../index')
-      const pkg = await import('../../package.json')
-
+    it('version matches package.json', () => {
       expect(version).toBe(pkg.version)
     })
   })

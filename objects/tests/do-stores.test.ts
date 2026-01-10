@@ -18,7 +18,10 @@
  * Tests without .skip verify store accessor presence and types.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+
+// Import DOBase for static state cleanup
+import { DO as DOBase } from '../DOBase'
 
 // ============================================================================
 // STORE TYPE DEFINITIONS
@@ -2046,6 +2049,11 @@ describe('DO Class Store Accessors', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new DO(mockState as any, mockEnv as any)
+  })
+
+  // Clear static state after each test to prevent accumulation across test runs
+  afterEach(() => {
+    DOBase._resetTestState()
   })
 
   it('exposes things store as property', () => {

@@ -35,6 +35,9 @@ export const DOTDO_TANSTACK_SYNC_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/dotdo
 /** @dotdo/client/adapters path for client adapter modules */
 export const DOTDO_CLIENT_ADAPTERS = resolve(PROJECT_ROOT, 'client/adapters')
 
+/** Global test setup file path for clearing static state between tests */
+export const GLOBAL_SETUP = resolve(PROJECT_ROOT, 'tests/config/global-setup.ts')
+
 /**
  * Shared test configuration settings applied to all test workspaces
  */

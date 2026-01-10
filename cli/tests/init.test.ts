@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import * as initModule from '../commands/init'
 
 // ============================================================================
 // Test Helpers
@@ -84,7 +85,7 @@ describe('do init', () => {
 
   describe('Project Scaffolding', () => {
     it('creates a new project directory with the given name', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const projectPath = path.join(tempDir, projectName)
 
@@ -95,7 +96,7 @@ describe('do init', () => {
     })
 
     it('creates src directory', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const srcPath = path.join(tempDir, projectName, 'src')
 
@@ -106,7 +107,7 @@ describe('do init', () => {
     })
 
     it('creates src/index.ts with Startup class template', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const indexPath = path.join(tempDir, projectName, 'src', 'index.ts')
 
@@ -125,7 +126,7 @@ describe('do init', () => {
     })
 
     it('creates wrangler.jsonc with proper configuration', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const wranglerPath = path.join(tempDir, projectName, 'wrangler.jsonc')
 
@@ -143,7 +144,7 @@ describe('do init', () => {
     })
 
     it('creates package.json with dotdo dependency', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const packagePath = path.join(tempDir, projectName, 'package.json')
 
@@ -161,7 +162,7 @@ describe('do init', () => {
     })
 
     it('creates tsconfig.json', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const tsconfigPath = path.join(tempDir, projectName, 'tsconfig.json')
 
@@ -182,7 +183,7 @@ describe('do init', () => {
 
   describe('Package.json Validation', () => {
     it('generates valid package.json with required scripts', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const packagePath = path.join(tempDir, projectName, 'package.json')
 
@@ -196,7 +197,7 @@ describe('do init', () => {
     })
 
     it('sets package.json as private by default', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const packagePath = path.join(tempDir, projectName, 'package.json')
 
@@ -207,7 +208,7 @@ describe('do init', () => {
     })
 
     it('sets module type in package.json', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const packagePath = path.join(tempDir, projectName, 'package.json')
 
@@ -224,7 +225,7 @@ describe('do init', () => {
 
   describe('Generated Code Quality', () => {
     it('generates syntactically valid TypeScript in src/index.ts', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-startup'
       const indexPath = path.join(tempDir, projectName, 'src', 'index.ts')
 
@@ -246,7 +247,7 @@ describe('do init', () => {
     })
 
     it('uses proper class name derived from project name', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'my-awesome-startup'
       const indexPath = path.join(tempDir, projectName, 'src', 'index.ts')
 
@@ -265,7 +266,7 @@ describe('do init', () => {
 
   describe('Error Handling', () => {
     it('throws error if project directory already exists', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectName = 'existing-project'
       const projectPath = path.join(tempDir, projectName)
 
@@ -276,19 +277,19 @@ describe('do init', () => {
     })
 
     it('throws error if no project name provided', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
 
       await expect(run([], { cwd: tempDir })).rejects.toThrow(/project name/)
     })
 
     it('throws error for invalid project name (starts with number)', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
 
       await expect(run(['123invalid'], { cwd: tempDir })).rejects.toThrow(/invalid.*name/i)
     })
 
     it('throws error for invalid project name (contains special chars)', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
 
       await expect(run(['my@project!'], { cwd: tempDir })).rejects.toThrow(/invalid.*name/i)
     })
@@ -303,7 +304,7 @@ describe('do init', () => {
       const output = captureConsole()
 
       try {
-        const { run } = await import('../../cli/commands/init')
+        const { run } = initModule
         const projectName = 'my-startup'
 
         await run([projectName], { cwd: tempDir })
@@ -321,7 +322,7 @@ describe('do init', () => {
       const output = captureConsole()
 
       try {
-        const { run } = await import('../../cli/commands/init')
+        const { run } = initModule
         const projectName = 'my-startup'
 
         await run([projectName], { cwd: tempDir })
@@ -345,7 +346,7 @@ describe('do init', () => {
 
   describe('Initialize in Current Directory', () => {
     it('initializes in current directory with "." argument', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectDir = path.join(tempDir, 'empty-project')
       fs.mkdirSync(projectDir)
 
@@ -357,7 +358,7 @@ describe('do init', () => {
     })
 
     it('uses directory name for class name when initializing with "."', async () => {
-      const { run } = await import('../../cli/commands/init')
+      const { run } = initModule
       const projectDir = path.join(tempDir, 'my-cool-project')
       fs.mkdirSync(projectDir)
 
@@ -374,15 +375,12 @@ describe('do init', () => {
 // ============================================================================
 
 describe('Init Command Module', () => {
-  it('exports a run function', async () => {
-    const initModule = await import('../../cli/commands/init')
-
+  it('exports a run function', () => {
     expect(initModule.run).toBeDefined()
     expect(typeof initModule.run).toBe('function')
   })
 
   it('run function is async', async () => {
-    const initModule = await import('../../cli/commands/init')
     const tempDir = createTempDir()
 
     try {
@@ -395,9 +393,7 @@ describe('Init Command Module', () => {
     }
   })
 
-  it('exports command metadata', async () => {
-    const initModule = await import('../../cli/commands/init')
-
+  it('exports command metadata', () => {
     expect(initModule.name).toBe('init')
     expect(initModule.description).toBeDefined()
     expect(typeof initModule.description).toBe('string')

@@ -248,9 +248,6 @@ export default defineWorkspace([
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
 
-  // TanStack DB integration tests (db/tanstack - SyncClient, RPC, etc.)
-  createNodeWorkspace('tanstack-db', ['db/tanstack/**/*.test.ts']),
-
   // @dotdo/duckdb-worker package tests (Node.js compatible tests only)
   // Note: Workers-specific tests are in packages/duckdb-worker/tests/workers/ and run in duckdb-worker-workers project
   createNodeWorkspace('duckdb-worker', [

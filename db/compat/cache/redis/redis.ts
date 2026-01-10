@@ -1802,6 +1802,12 @@ class Redis implements RedisInterface {
   private static pubSubChannels = new Map<string, Set<Redis>>()
   private static patternChannels = new Map<string, Set<Redis>>()
 
+  /** Reset all static state - ONLY for testing */
+  static _resetTestState(): void {
+    Redis.pubSubChannels.clear()
+    Redis.patternChannels.clear()
+  }
+
   constructor(options?: RedisOptions)
   constructor(port: number, host?: string, options?: RedisOptions)
   constructor(url: string, options?: RedisOptions)

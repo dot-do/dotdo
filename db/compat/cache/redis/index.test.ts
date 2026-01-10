@@ -1180,6 +1180,8 @@ describe('Pub/Sub commands', () => {
   afterEach(async () => {
     await publisher.quit()
     await subscriber.quit()
+    // Clean up static pubSub state to prevent cross-test pollution
+    RedisClient._resetTestState()
   })
 
   it('should publish and receive message', async () => {

@@ -12,8 +12,11 @@
  * - Lifecycle operations
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DO, type Env } from '../DO'
+
+// Import DOBase for static state cleanup (DO re-exports from DOFull which extends DOBase)
+import { DO as DOBase } from '../DOBase'
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import type * as schema from '../../db'
 
@@ -220,6 +223,11 @@ interface DurableObjectNamespace {
 // ============================================================================
 
 describe('DO Base Class', () => {
+  // Clear static state after each test to prevent accumulation across test runs
+  afterEach(() => {
+    DOBase._resetTestState()
+  })
+
   describe('Constructor', () => {
     let mockState: DurableObjectState
     let mockEnv: Env

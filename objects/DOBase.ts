@@ -1608,6 +1608,14 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     DO._circuitBreakers.set(targetNs, breaker)
   }
 
+  /**
+   * Reset all static state - ONLY for testing.
+   * This clears accumulated static Maps that persist across test runs.
+   */
+  static _resetTestState(): void {
+    DO._circuitBreakers.clear()
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // EVENT HANDLER MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
