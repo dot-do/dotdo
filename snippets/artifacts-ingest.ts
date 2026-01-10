@@ -15,6 +15,74 @@
  */
 
 // ============================================================================
+// Metrics Types & Interface
+// ============================================================================
+
+/**
+ * Error types for metric tracking.
+ */
+export type IngestErrorType = 'parse' | 'validation' | 'pipeline' | 'payload_size'
+
+/**
+ * Lightweight metrics interface for observability.
+ * Uses structured JSON logging that can be replaced with Analytics Engine.
+ */
+export interface ArtifactMetrics {
+  recordMetric(name: string, value: number, tags?: Record<string, string>): void
+  recordLatency(name: string, durationMs: number, tags?: Record<string, string>): void
+  recordError(name: string, error: Error, tags?: Record<string, string>): void
+}
+
+/**
+ * Default console-based metrics implementation.
+ * Outputs structured JSON logs for monitoring.
+ */
+export function createDefaultMetrics(): ArtifactMetrics {
+  const ts = () => new Date().toISOString()
+
+  return {
+    recordMetric(name: string, value: number, tags?: Record<string, string>) {
+      console.log(JSON.stringify({
+        type: 'metric',
+        name,
+        value,
+        tags,
+        ts: ts(),
+      }))
+    },
+
+    recordLatency(name: string, durationMs: number, tags?: Record<string, string>) {
+      console.log(JSON.stringify({
+        type: 'latency',
+        name,
+        durationMs,
+        tags,
+        ts: ts(),
+      }))
+    },
+
+    recordError(name: string, error: Error, tags?: Record<string, string>) {
+      console.log(JSON.stringify({
+        type: 'error',
+        name,
+        message: error.message,
+        tags,
+        ts: ts(),
+      }))
+    },
+  }
+}
+
+/**
+ * No-op metrics implementation for when metrics are disabled.
+ */
+export const noopMetrics: ArtifactMetrics = {
+  recordMetric() {},
+  recordLatency() {},
+  recordError() {},
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -71,6 +139,124 @@ export interface IngestResponse {
   failed?: number
   error?: string
   line?: number
+}
+
+/**
+ * Result of uploading a single chunk to the pipeline.
+ */
+export interface ChunkUploadResult {
+  chunkIndex: number
+  recordCount: number
+  success: boolean
+  error?: string
+  statusCode?: number
+  retries: number
+}
+
+/**
+ * Detailed information about chunk processing including retry details.
+ */
+export interface ChunkDetails {
+  total: number
+  succeeded: number
+  failed: number
+  retried: number
+}
+
+/**
+ * Error details for individual chunk failures.
+ */
+export interface ChunkError {
+  chunk: number
+  error: string
+  retries: number
+}
+
+// ============================================================================
+// Retry Logic
+// ============================================================================
+
+/**
+ * Options for the withRetry wrapper.
+ */
+export interface RetryOptions {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number
+  /** Base delay in milliseconds for exponential backoff (default: 100) */
+  baseDelayMs?: number
+  /** Maximum delay in milliseconds (default: 1000) */
+  maxDelayMs?: number
+}
+
+/**
+ * Result from a retry operation including metadata.
+ */
+export interface RetryResult<T> {
+  result: T
+  retries: number
+  success: boolean
+  error?: string
+}
+
+/**
+ * Sleep utility for delays between retries.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Executes a function with exponential backoff retry logic.
+ *
+ * @param fn - The async function to execute
+ * @param options - Retry configuration options
+ * @returns Promise resolving to the result with retry metadata
+ *
+ * @example
+ * ```typescript
+ * const result = await withRetry(
+ *   () => fetch(url),
+ *   { maxRetries: 3, baseDelayMs: 100 }
+ * )
+ * ```
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  options?: RetryOptions
+): Promise<RetryResult<T>> {
+  const maxRetries = options?.maxRetries ?? 3
+  const baseDelayMs = options?.baseDelayMs ?? 100
+  const maxDelayMs = options?.maxDelayMs ?? 1000
+
+  let lastError: Error | undefined
+  let retryCount = 0
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fn()
+      return {
+        result,
+        retries: retryCount,
+        success: true,
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+
+      if (attempt < maxRetries) {
+        retryCount++
+        // Exponential backoff: baseDelayMs * 2^attempt, capped at maxDelayMs
+        const delay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs)
+        await sleep(delay)
+      }
+    }
+  }
+
+  return {
+    result: undefined as T,
+    retries: retryCount,
+    success: false,
+    error: lastError?.message ?? 'Unknown error',
+  }
 }
 
 // ============================================================================
@@ -278,6 +464,59 @@ export function chunkArtifacts(records: ArtifactRecord[], maxBytes: number): Art
   return chunks
 }
 
+/**
+ * Streaming chunker that yields chunks as they fill up.
+ * Buffers only the current chunk being built, not the entire payload.
+ * Memory usage is O(chunkSize) instead of O(payloadSize).
+ *
+ * @param records - AsyncIterable of artifact records
+ * @param maxBytes - Maximum bytes per chunk (default: 1MB)
+ * @yields Chunks of records as they fill up
+ */
+export async function* chunkArtifactsStreaming(
+  records: AsyncIterable<ArtifactRecord>,
+  maxBytes: number
+): AsyncGenerator<ArtifactRecord[]> {
+  let currentChunk: ArtifactRecord[] = []
+  let currentSize = 2 // Account for "[]" wrapper
+
+  for await (const record of records) {
+    const recordJson = JSON.stringify(record)
+    const recordSize = recordJson.length + (currentChunk.length > 0 ? 1 : 0) // +1 for comma separator
+
+    // If single record is larger than maxBytes, put it in its own chunk
+    if (recordJson.length + 2 > maxBytes) {
+      // Flush current chunk if non-empty
+      if (currentChunk.length > 0) {
+        yield currentChunk
+        currentChunk = []
+        currentSize = 2
+      }
+      // Yield oversized record as its own chunk
+      yield [record]
+      continue
+    }
+
+    // Check if adding this record would exceed maxBytes
+    if (currentSize + recordSize > maxBytes) {
+      // Flush current chunk
+      if (currentChunk.length > 0) {
+        yield currentChunk
+      }
+      currentChunk = [record]
+      currentSize = 2 + recordJson.length
+    } else {
+      currentChunk.push(record)
+      currentSize += recordSize
+    }
+  }
+
+  // Don't forget the last chunk
+  if (currentChunk.length > 0) {
+    yield currentChunk
+  }
+}
+
 // ============================================================================
 // Pipeline Routing
 // ============================================================================
@@ -323,6 +562,11 @@ const MAX_PAYLOAD_SIZE = 10 * 1024 * 1024
  * Default chunk size in bytes (1MB).
  */
 const DEFAULT_CHUNK_SIZE = 1024 * 1024
+
+/**
+ * Default concurrency for parallel chunk uploads.
+ */
+const DEFAULT_UPLOAD_CONCURRENCY = 3
 
 /**
  * Estimated processing time buffers by mode (in milliseconds).
@@ -389,6 +633,8 @@ export interface IngestContext {
  */
 export interface IngestOptions {
   authenticatedNs?: string
+  /** Optional metrics instance for observability. Uses noopMetrics if not provided. */
+  metrics?: ArtifactMetrics
 }
 
 /**
@@ -411,6 +657,144 @@ function getPipelineUrl(mode: ArtifactMode, env?: IngestEnv): string {
   return getPipelineEndpoint(mode)
 }
 
+// ============================================================================
+// Parallel Chunk Upload with Retry
+// ============================================================================
+
+/**
+ * Default retry options for chunk uploads.
+ */
+const DEFAULT_RETRY_OPTIONS: RetryOptions = {
+  maxRetries: 3,
+  baseDelayMs: 100,
+  maxDelayMs: 1000,
+}
+
+/**
+ * Uploads a single chunk to the pipeline endpoint with retry logic.
+ *
+ * Uses exponential backoff (100ms, 200ms, 400ms) for transient failures.
+ * Network errors and 5xx responses trigger retries; 4xx responses do not.
+ *
+ * @param chunk - Array of artifact records to upload
+ * @param chunkIndex - Index of the chunk for result tracking
+ * @param endpoint - Pipeline URL to send to
+ * @param mode - Artifact mode for header
+ * @param retryOptions - Optional retry configuration
+ * @returns ChunkUploadResult with success/failure details and retry count
+ */
+async function uploadChunk(
+  chunk: ArtifactRecord[],
+  chunkIndex: number,
+  endpoint: string,
+  mode: ArtifactMode,
+  retryOptions: RetryOptions = DEFAULT_RETRY_OPTIONS
+): Promise<ChunkUploadResult> {
+  const retryResult = await withRetry(
+    async () => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Pipeline-Mode': mode,
+        },
+        body: JSON.stringify(chunk),
+      })
+
+      // Only retry on server errors (5xx), not client errors (4xx)
+      if (response.status >= 500) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      return response
+    },
+    retryOptions
+  )
+
+  if (retryResult.success && retryResult.result) {
+    const response = retryResult.result
+    if (response.ok) {
+      return {
+        chunkIndex,
+        recordCount: chunk.length,
+        success: true,
+        statusCode: response.status,
+        retries: retryResult.retries,
+      }
+    } else {
+      // 4xx errors - don't retry, report failure
+      return {
+        chunkIndex,
+        recordCount: chunk.length,
+        success: false,
+        error: `HTTP ${response.status}`,
+        statusCode: response.status,
+        retries: retryResult.retries,
+      }
+    }
+  }
+
+  // All retries exhausted or network error
+  return {
+    chunkIndex,
+    recordCount: chunk.length,
+    success: false,
+    error: retryResult.error ?? 'Unknown error',
+    retries: retryResult.retries,
+  }
+}
+
+/**
+ * Uploads chunks to the pipeline in parallel with concurrency control.
+ *
+ * Uses a semaphore-like pattern to limit concurrent uploads while maximizing
+ * throughput. Processes all chunks and returns detailed per-chunk results.
+ *
+ * @param chunks - Array of chunk arrays to upload
+ * @param endpoint - Pipeline endpoint URL
+ * @param mode - Artifact mode for the X-Pipeline-Mode header
+ * @param concurrency - Maximum concurrent uploads (default: 3)
+ * @returns Array of ChunkUploadResult for each chunk
+ */
+export async function uploadChunksParallel(
+  chunks: ArtifactRecord[][],
+  endpoint: string,
+  mode: ArtifactMode,
+  concurrency: number = DEFAULT_UPLOAD_CONCURRENCY
+): Promise<ChunkUploadResult[]> {
+  if (chunks.length === 0) {
+    return []
+  }
+
+  // For small number of chunks, just run them all in parallel
+  if (chunks.length <= concurrency) {
+    return Promise.all(
+      chunks.map((chunk, index) => uploadChunk(chunk, index, endpoint, mode))
+    )
+  }
+
+  // Use a pool pattern for concurrency control
+  const results: ChunkUploadResult[] = new Array(chunks.length)
+  let nextIndex = 0
+
+  async function processNext(): Promise<void> {
+    while (nextIndex < chunks.length) {
+      const currentIndex = nextIndex++
+      const result = await uploadChunk(chunks[currentIndex], currentIndex, endpoint, mode)
+      results[currentIndex] = result
+    }
+  }
+
+  // Start `concurrency` number of workers
+  const workers: Promise<void>[] = []
+  for (let i = 0; i < Math.min(concurrency, chunks.length); i++) {
+    workers.push(processNext())
+  }
+
+  await Promise.all(workers)
+  return results
+}
+
 /**
  * Main request handler for the artifact ingest endpoint.
  *
@@ -430,6 +814,8 @@ export async function handleIngest(
 ): Promise<Response | IngestResult> {
   const requestId = generateRequestId()
   const isIntegrationMode = env !== undefined
+  const metrics = options?.metrics ?? noopMetrics
+  const startTime = Date.now()
 
   // Method check
   if (request.method !== 'POST') {
@@ -519,6 +905,7 @@ export async function handleIngest(
           totalSize += buffer.length
 
           if (totalSize > MAX_PAYLOAD_SIZE) {
+            metrics.recordError('ingest.payload_size_error', new Error('Payload too large'), { mode, errorType: 'payload_size' })
             if (isIntegrationMode) {
               throw new Error('Payload too large')
             }
@@ -573,6 +960,7 @@ export async function handleIngest(
 
       if (totalSize > MAX_PAYLOAD_SIZE) {
         reader.releaseLock()
+        metrics.recordError('ingest.payload_size_error', new Error('Payload too large'), { mode, errorType: 'payload_size' })
         if (isIntegrationMode) {
           throw new Error('Payload too large')
         }
@@ -672,34 +1060,35 @@ export async function handleIngest(
   // Chunk artifacts
   const chunks = chunkArtifacts(artifacts, DEFAULT_CHUNK_SIZE)
 
-  // Send to Pipeline
+  // Send to Pipeline (parallel with concurrency control)
   const pipelineUrl = getPipelineUrl(mode, env)
+  const uploadResults = await uploadChunksParallel(chunks, pipelineUrl, mode)
+
+  // Aggregate results
   let acceptedCount = 0
   let failedChunks = 0
 
-  for (const chunk of chunks) {
-    try {
-      const response = await fetch(pipelineUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Pipeline-Mode': mode,
-        },
-        body: JSON.stringify(chunk),
-      })
-
-      if (response.ok) {
-        acceptedCount += chunk.length
-      } else {
-        failedChunks++
-      }
-    } catch {
+  for (const uploadResult of uploadResults) {
+    if (uploadResult.success) {
+      acceptedCount += uploadResult.recordCount
+    } else {
       failedChunks++
     }
   }
 
   // Calculate estimated availability time
   const estimatedAvailableAt = new Date(Date.now() + MODE_BUFFER_MS[mode]).toISOString()
+
+  // Record metrics
+  const durationMs = Date.now() - startTime
+  const baseTags = { mode, pipeline: mode, requestId }
+  metrics.recordLatency('ingest.latency', durationMs, baseTags)
+  metrics.recordMetric('ingest.records', artifacts.length, baseTags)
+  metrics.recordMetric('ingest.bytes', totalSize, baseTags)
+  metrics.recordMetric('ingest.chunks', chunks.length, baseTags)
+  if (failedChunks > 0) {
+    metrics.recordError('ingest.pipeline_error', new Error(`${failedChunks} chunks failed`), { ...baseTags, errorType: 'pipeline' })
+  }
 
   // Build result
   const result: IngestResult = {

@@ -40,11 +40,14 @@ import {
   parseJSONL,
   validateArtifact,
   chunkArtifacts,
+  chunkArtifactsStreaming,
   getPipelineEndpoint,
   handleIngest,
+  withRetry,
   type ArtifactRecord,
   type IngestResponse,
   type ArtifactMode,
+  type RetryOptions,
 } from '../artifacts-ingest'
 
 // ============================================================================
@@ -1337,5 +1340,577 @@ describe('Artifact Ingest - Performance', () => {
     expect(chunks.flat()).toHaveLength(1000)
     // Should chunk 1000 artifacts in under 50ms
     expect(duration).toBeLessThan(50)
+  })
+})
+
+// ============================================================================
+// Parallel Upload Tests
+// ============================================================================
+
+describe('Artifact Ingest - Parallel Upload', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('uploads chunks in parallel instead of sequentially', async () => {
+    const callTimes: number[] = []
+    const mockFetch = vi.fn(async () => {
+      callTimes.push(Date.now())
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    // Create artifacts that will be split into multiple chunks
+    const artifacts = Array.from({ length: 10 }, (_, i) =>
+      createArtifact({
+        id: `artifact-${i}`,
+        markdown: 'x'.repeat(200 * 1024), // ~200KB each, should create multiple chunks
+      })
+    )
+    const request = createIngestRequest(artifacts)
+
+    const start = Date.now()
+    const response = await handleIngest(request)
+    const totalTime = Date.now() - start
+
+    expect(response.status).toBe(200)
+
+    // With parallel upload (concurrency=3), if we have N chunks,
+    // we should complete in roughly (N/3) * 50ms instead of N * 50ms
+    const chunkCount = mockFetch.mock.calls.length
+    expect(chunkCount).toBeGreaterThan(1)
+
+    // If sequential, would take chunkCount * 50ms
+    // With parallelism, should take roughly ceil(chunkCount / 3) * 50ms
+    // Adding some tolerance for test flakiness
+    const sequentialTime = chunkCount * 50
+    expect(totalTime).toBeLessThan(sequentialTime * 0.8) // At least 20% faster
+  })
+
+  it('respects concurrency limit', async () => {
+    let concurrentCalls = 0
+    let maxConcurrent = 0
+    const mockFetch = vi.fn(async () => {
+      concurrentCalls++
+      maxConcurrent = Math.max(maxConcurrent, concurrentCalls)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      concurrentCalls--
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    // Create artifacts that will be split into 6+ chunks to test concurrency limit
+    const artifacts = Array.from({ length: 18 }, (_, i) =>
+      createArtifact({
+        id: `artifact-${i}`,
+        markdown: 'x'.repeat(200 * 1024), // ~200KB each
+      })
+    )
+    const request = createIngestRequest(artifacts)
+
+    await handleIngest(request)
+
+    // Default concurrency is 3, so max concurrent should not exceed 3
+    expect(maxConcurrent).toBeLessThanOrEqual(3)
+    expect(maxConcurrent).toBeGreaterThan(1) // Should be parallel, not sequential
+  })
+
+  it('handles partial failures correctly with parallel upload', async () => {
+    // Track which chunk is being processed (even with retries)
+    const chunkAttempts = new Map<number, number>()
+
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      // Parse the request body to identify which chunk this is
+      const body = JSON.parse(init?.body as string) as Array<{ id: string }>
+      const firstId = body[0]?.id
+      // Extract chunk identifier from the first artifact's id
+      const chunkId = parseInt(firstId?.replace('artifact-', '') ?? '0')
+
+      const attempts = (chunkAttempts.get(chunkId) ?? 0) + 1
+      chunkAttempts.set(chunkId, attempts)
+
+      // Persistently fail chunks 0 and 2 (fail all retry attempts)
+      if (chunkId === 0 || chunkId === 2) {
+        return new Response('Pipeline Error', { status: 500 })
+      }
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    // Create artifacts that will be split into multiple chunks
+    const artifacts = Array.from({ length: 15 }, (_, i) =>
+      createArtifact({
+        id: `artifact-${i}`,
+        markdown: 'x'.repeat(200 * 1024),
+      })
+    )
+    const request = createIngestRequest(artifacts)
+
+    const response = await handleIngest(request)
+    const body = await response.json()
+
+    // Should report partial success
+    expect(response.status).toBe(207)
+    expect(body.accepted).toBeGreaterThan(0)
+    expect(body.failed).toBeGreaterThan(0)
+  })
+
+  it('all chunks fail results in 500', async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response('Pipeline Error', { status: 500 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const artifacts = Array.from({ length: 10 }, (_, i) =>
+      createArtifact({
+        id: `artifact-${i}`,
+        markdown: 'x'.repeat(200 * 1024),
+      })
+    )
+    const request = createIngestRequest(artifacts)
+
+    const response = await handleIngest(request)
+    const body = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(body.accepted).toBe(0)
+    expect(body.failed).toBe(10)
+  })
+
+  it('handles network errors during parallel upload', async () => {
+    // Track which chunk is being processed (even with retries)
+    const failedChunks = new Set<number>()
+
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      // Parse the request body to identify which chunk this is
+      const body = JSON.parse(init?.body as string) as Array<{ id: string }>
+      const firstId = body[0]?.id
+      // Extract the first artifact's id number
+      const firstArtifactId = parseInt(firstId?.replace('artifact-', '') ?? '0')
+
+      // Fail the chunk containing artifact-0 (first chunk) with network error
+      if (firstArtifactId === 0) {
+        failedChunks.add(0)
+        throw new Error('Network error')
+      }
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const artifacts = Array.from({ length: 9 }, (_, i) =>
+      createArtifact({
+        id: `artifact-${i}`,
+        markdown: 'x'.repeat(200 * 1024),
+      })
+    )
+    const request = createIngestRequest(artifacts)
+
+    const response = await handleIngest(request)
+    const body = await response.json()
+
+    // Should handle network error gracefully and report partial success
+    expect(response.status).toBe(207)
+    expect(body.accepted).toBeGreaterThan(0)
+    expect(body.failed).toBeGreaterThan(0)
+  })
+})
+
+// ============================================================================
+// Retry Logic Tests
+// ============================================================================
+
+describe('Artifact Ingest - Retry Logic', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  describe('withRetry function', () => {
+    it('succeeds on first attempt without retries', async () => {
+      const fn = vi.fn().mockResolvedValue('success')
+
+      const result = await withRetry(fn)
+
+      expect(result.success).toBe(true)
+      expect(result.result).toBe('success')
+      expect(result.retries).toBe(0)
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries on failure and succeeds on second attempt', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('First failure'))
+        .mockResolvedValue('success')
+
+      const result = await withRetry(fn, { maxRetries: 3, baseDelayMs: 1 })
+
+      expect(result.success).toBe(true)
+      expect(result.result).toBe('success')
+      expect(result.retries).toBe(1)
+      expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries on failure and succeeds on third attempt', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('First failure'))
+        .mockRejectedValueOnce(new Error('Second failure'))
+        .mockResolvedValue('success')
+
+      const result = await withRetry(fn, { maxRetries: 3, baseDelayMs: 1 })
+
+      expect(result.success).toBe(true)
+      expect(result.result).toBe('success')
+      expect(result.retries).toBe(2)
+      expect(fn).toHaveBeenCalledTimes(3)
+    })
+
+    it('fails after exhausting all retries', async () => {
+      const fn = vi.fn().mockRejectedValue(new Error('Persistent failure'))
+
+      const result = await withRetry(fn, { maxRetries: 3, baseDelayMs: 1 })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Persistent failure')
+      expect(result.retries).toBe(3)
+      expect(fn).toHaveBeenCalledTimes(4) // Initial + 3 retries
+    })
+
+    it('respects maxRetries option', async () => {
+      const fn = vi.fn().mockRejectedValue(new Error('Failure'))
+
+      await withRetry(fn, { maxRetries: 2, baseDelayMs: 1 })
+
+      expect(fn).toHaveBeenCalledTimes(3) // Initial + 2 retries
+    })
+
+    it('uses exponential backoff', async () => {
+      const delays: number[] = []
+      let lastCallTime = 0
+
+      const fn = vi.fn(async () => {
+        const now = Date.now()
+        if (lastCallTime > 0) {
+          delays.push(now - lastCallTime)
+        }
+        lastCallTime = now
+        throw new Error('Failure')
+      })
+
+      await withRetry(fn, { maxRetries: 3, baseDelayMs: 50, maxDelayMs: 1000 })
+
+      // Delays should roughly double each time: ~50, ~100, ~200
+      // There are 3 delays between the 4 calls (initial + 3 retries)
+      expect(delays.length).toBe(3)
+      // Allow some timing tolerance
+      expect(delays[0]).toBeGreaterThanOrEqual(40)
+      expect(delays[1]).toBeGreaterThanOrEqual(80)
+      expect(delays[2]).toBeGreaterThanOrEqual(160)
+    })
+
+    it('caps delay at maxDelayMs', async () => {
+      const delays: number[] = []
+      let lastCallTime = 0
+
+      const fn = vi.fn(async () => {
+        const now = Date.now()
+        if (lastCallTime > 0) {
+          delays.push(now - lastCallTime)
+        }
+        lastCallTime = now
+        throw new Error('Failure')
+      })
+
+      // With baseDelayMs=100, delays would be 100, 200, 400, but maxDelayMs=150 caps them
+      await withRetry(fn, { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 150 })
+
+      // All delays should be capped at ~150ms
+      for (const delay of delays) {
+        expect(delay).toBeLessThanOrEqual(200) // Allow timing tolerance
+      }
+    })
+
+    it('preserves error message on failure', async () => {
+      const fn = vi.fn().mockRejectedValue(new Error('Specific error message'))
+
+      const result = await withRetry(fn, { maxRetries: 1, baseDelayMs: 1 })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Specific error message')
+    })
+
+    it('handles non-Error exceptions', async () => {
+      const fn = vi.fn().mockRejectedValue('String error')
+
+      const result = await withRetry(fn, { maxRetries: 1, baseDelayMs: 1 })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('String error')
+    })
+  })
+
+  describe('chunk upload retries', () => {
+    it('retries failed chunk uploads on 5xx errors', async () => {
+      let callCount = 0
+      const mockFetch = vi.fn(async () => {
+        callCount++
+        // First 2 calls fail with 500, then succeed
+        if (callCount <= 2) {
+          return new Response('Server Error', { status: 500 })
+        }
+        return new Response(JSON.stringify({ accepted: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const records = [createArtifact()]
+      const request = createIngestRequest(records)
+
+      const response = await handleIngest(request)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.accepted).toBe(1)
+      // Should have retried (at least 3 calls for a single chunk)
+      expect(mockFetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not retry on 4xx errors', async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response('Bad Request', { status: 400 })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const records = [createArtifact()]
+      const request = createIngestRequest(records)
+
+      const response = await handleIngest(request)
+
+      // Should fail without retries (only 1 call)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(response.status).toBe(500) // All chunks failed
+    })
+
+    it('retries on network errors', async () => {
+      let callCount = 0
+      const mockFetch = vi.fn(async () => {
+        callCount++
+        // First 2 calls throw network error, then succeed
+        if (callCount <= 2) {
+          throw new Error('Network error')
+        }
+        return new Response(JSON.stringify({ accepted: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const records = [createArtifact()]
+      const request = createIngestRequest(records)
+
+      const response = await handleIngest(request)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.accepted).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('fails chunk after exhausting all retries', async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response('Server Error', { status: 500 })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const records = [createArtifact()]
+      const request = createIngestRequest(records)
+
+      const response = await handleIngest(request)
+      const body = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(body.accepted).toBe(0)
+      expect(body.failed).toBe(1)
+      // Should have tried 4 times (initial + 3 retries)
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+    })
+
+    it('reports partial success when some chunks succeed after retry', async () => {
+      // Track which chunk is being processed
+      const chunkAttempts = new Map<number, number>()
+
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        // Parse the request body to identify which chunk this is
+        const body = JSON.parse(init?.body as string) as Array<{ id: string }>
+        const firstId = body[0]?.id
+        // Extract chunk identifier from the first artifact's id
+        const chunkId = parseInt(firstId?.replace('artifact-', '') ?? '0')
+
+        const attempts = (chunkAttempts.get(chunkId) ?? 0) + 1
+        chunkAttempts.set(chunkId, attempts)
+
+        // First chunk (containing artifact-0) fails all retry attempts
+        if (chunkId === 0) {
+          return new Response('Server Error', { status: 500 })
+        }
+        return new Response(JSON.stringify({ accepted: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      // Create artifacts that will be split into multiple chunks
+      const artifacts = Array.from({ length: 5 }, (_, i) =>
+        createArtifact({
+          id: `artifact-${i}`,
+          markdown: 'x'.repeat(300 * 1024), // ~300KB each, should create multiple chunks
+        })
+      )
+      const request = createIngestRequest(artifacts)
+
+      const response = await handleIngest(request)
+      const body = await response.json()
+
+      // Should report partial success
+      expect(response.status).toBe(207)
+      expect(body.accepted).toBeGreaterThan(0)
+      expect(body.failed).toBeGreaterThan(0)
+    })
+  })
+})
+
+// ============================================================================
+// Streaming Chunker Tests
+// ============================================================================
+
+describe('Artifact Ingest - Streaming Chunker', () => {
+  const ONE_MB = 1024 * 1024
+
+  async function* toAsyncIterable<T>(items: T[]): AsyncGenerator<T> {
+    for (const item of items) {
+      yield item
+    }
+  }
+
+  async function collectChunks(
+    gen: AsyncGenerator<ArtifactRecord[]>
+  ): Promise<ArtifactRecord[][]> {
+    const chunks: ArtifactRecord[][] = []
+    for await (const chunk of gen) {
+      chunks.push(chunk)
+    }
+    return chunks
+  }
+
+  it('yields chunks as they fill up', async () => {
+    const artifacts = Array.from({ length: 10 }, (_, i) =>
+      createArtifact({ id: `artifact-${i}`, markdown: 'x'.repeat(200 * 1024) })
+    )
+
+    const chunksReceived: number[] = []
+
+    async function* trackedIterable(): AsyncGenerator<ArtifactRecord> {
+      for (const artifact of artifacts) {
+        yield artifact
+      }
+    }
+
+    for await (const chunk of chunkArtifactsStreaming(trackedIterable(), ONE_MB)) {
+      chunksReceived.push(chunk.length)
+    }
+
+    expect(chunksReceived.length).toBeGreaterThan(1)
+    expect(chunksReceived.reduce((a, b) => a + b, 0)).toBe(10)
+  })
+
+  it('produces same results as non-streaming chunkArtifacts', async () => {
+    const artifacts = Array.from({ length: 100 }, (_, i) =>
+      createArtifact({ id: `artifact-${i}`, markdown: 'x'.repeat(10 * 1024) })
+    )
+
+    const syncChunks = chunkArtifacts(artifacts, ONE_MB)
+    const streamChunks = await collectChunks(
+      chunkArtifactsStreaming(toAsyncIterable(artifacts), ONE_MB)
+    )
+
+    expect(streamChunks.length).toBe(syncChunks.length)
+
+    for (let i = 0; i < syncChunks.length; i++) {
+      expect(streamChunks[i].length).toBe(syncChunks[i].length)
+    }
+  })
+
+  it('handles empty input', async () => {
+    const chunks = await collectChunks(
+      chunkArtifactsStreaming(toAsyncIterable([]), ONE_MB)
+    )
+    expect(chunks).toHaveLength(0)
+  })
+
+  it('handles single small artifact', async () => {
+    const artifacts = [createArtifact({ id: 'single' })]
+    const chunks = await collectChunks(
+      chunkArtifactsStreaming(toAsyncIterable(artifacts), ONE_MB)
+    )
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]).toHaveLength(1)
+  })
+
+  it('handles oversized artifact in its own chunk', async () => {
+    const hugeArtifact = createArtifact({
+      id: 'huge',
+      markdown: 'x'.repeat(2 * ONE_MB),
+    })
+    const normalArtifact = createArtifact({ id: 'normal' })
+
+    const chunks = await collectChunks(
+      chunkArtifactsStreaming(
+        toAsyncIterable([normalArtifact, hugeArtifact, normalArtifact]),
+        ONE_MB
+      )
+    )
+
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    const hugeChunk = chunks.find((c) => c.some((r) => r.id === 'huge'))
+    expect(hugeChunk).toBeDefined()
+    expect(hugeChunk!.length).toBe(1)
+  })
+
+  it('preserves artifact order across chunks', async () => {
+    const artifacts = Array.from({ length: 50 }, (_, i) =>
+      createArtifact({ id: `artifact-${i}` })
+    )
+
+    const chunks = await collectChunks(
+      chunkArtifactsStreaming(toAsyncIterable(artifacts), ONE_MB)
+    )
+
+    const flattened = chunks.flat()
+    expect(flattened.length).toBe(50)
+    expect(flattened[0].id).toBe('artifact-0')
+    expect(flattened[49].id).toBe('artifact-49')
   })
 })

@@ -8,6 +8,11 @@
  * @see docs/plans/2026-01-10-artifact-storage-design.md
  */
 
+import { type ArtifactMetrics, noopMetrics } from './artifacts-ingest'
+
+// Re-export metrics types for external use
+export { type ArtifactMetrics, noopMetrics, createDefaultMetrics } from './artifacts-ingest'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -56,6 +61,8 @@ export interface ServeOptions {
   config?: TenantConfig
   configLoader?: (ns: string) => Promise<TenantConfig>
   reader: IcebergReader
+  /** Optional metrics instance for observability. Uses noopMetrics if not provided. */
+  metrics?: ArtifactMetrics
 }
 
 /**
@@ -79,6 +86,8 @@ export interface IntegrationServeOptions {
   }
   tenantConfig?: TenantConfig
   authenticatedNs?: string
+  /** Optional metrics instance for observability. Uses noopMetrics if not provided. */
+  metrics?: ArtifactMetrics
 }
 
 /**
@@ -483,6 +492,8 @@ async function handleServeOriginal(
   options: ServeOptions
 ): Promise<Response> {
   const method = request.method.toUpperCase()
+  const metrics = options.metrics ?? noopMetrics
+  const startTime = Date.now()
 
   // Handle OPTIONS for CORS preflight
   if (method === 'OPTIONS') {
@@ -568,12 +579,19 @@ async function handleServeOriginal(
 
         if (isStale) {
           ctx.waitUntil(revalidateCache(cacheKey, parsed, config, options.reader, overrides))
+          // Record SWR revalidation
+          metrics.recordMetric('serve.swr_revalidation', 1, { ns, type, ext })
+          metrics.recordMetric('serve.cache_hit', 1, { ns, type, ext, stale: 'true' })
+          metrics.recordLatency('serve.latency', Date.now() - startTime, { ns, type, ext, source: 'cache' })
           return new Response(method === 'HEAD' ? null : cachedResponse.body, {
             status: cachedResponse.status,
             headers: responseHeaders,
           })
         }
 
+        // Fresh cache hit
+        metrics.recordMetric('serve.cache_hit', 1, { ns, type, ext, stale: 'false' })
+        metrics.recordLatency('serve.latency', Date.now() - startTime, { ns, type, ext, source: 'cache' })
         return new Response(method === 'HEAD' ? null : cachedResponse.body, {
           status: cachedResponse.status,
           headers: responseHeaders,
@@ -664,6 +682,10 @@ async function handleServeOriginal(
     }
   }
 
+  // Record cache miss and latency for parquet fetch
+  metrics.recordMetric('serve.cache_miss', 1, { ns, type, ext })
+  metrics.recordLatency('serve.latency', Date.now() - startTime, { ns, type, ext, source: 'parquet' })
+
   return response
 }
 
@@ -712,6 +734,8 @@ async function handleServeIntegrationInner(
   options: IntegrationServeOptions
 ): Promise<ServeResult> {
   const url = new URL(request.url)
+  const metrics = options.metrics ?? noopMetrics
+  const startTime = Date.now()
 
   // Parse path
   const parsed = parsePath(url)
@@ -805,10 +829,16 @@ async function handleServeIntegrationInner(
             }
           })()
           ctx.waitUntil(revalidatePromise)
+          // Record SWR revalidation
+          metrics.recordMetric('serve.swr_revalidation', 1, { ns, type, ext })
         }
 
         const cachedBody = await cachedResponse.text()
         const contentType = cachedResponse.headers.get('Content-Type') || getContentType(ext)
+
+        // Record cache hit metrics
+        metrics.recordMetric('serve.cache_hit', 1, { ns, type, ext, stale: String(isStale) })
+        metrics.recordLatency('serve.latency', Date.now() - startTime, { ns, type, ext, source: 'cache' })
 
         return {
           status: cachedResponse.status,
@@ -910,6 +940,10 @@ async function handleServeIntegrationInner(
       // Ignore cache put errors
     }
   }
+
+  // Record cache miss metrics
+  metrics.recordMetric('serve.cache_miss', 1, { ns, type, ext })
+  metrics.recordLatency('serve.latency', Date.now() - startTime, { ns, type, ext, source: 'parquet' })
 
   return {
     status: 200,
