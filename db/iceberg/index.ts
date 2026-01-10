@@ -77,3 +77,33 @@ export type {
   VectorMetric,
   IndexType,
 } from './search-manifest'
+
+// Inverted index exports
+export {
+  // Constants
+  INVERTED_INDEX_MAGIC,
+  INVERTED_INDEX_VERSION,
+  HEADER_SIZE,
+  MAX_TERM_LENGTH,
+  // Varint functions
+  encodeVarint,
+  decodeVarint,
+  varintSize,
+  // Posting list functions
+  encodePostingList,
+  decodePostingList,
+  // Classes
+  InvertedIndexWriter,
+  InvertedIndexReader,
+  // Helper functions
+  estimateInvertedIndexSize,
+  simpleTokenize,
+  createInvertedIndex,
+} from './inverted-index'
+
+export type {
+  Posting,
+  TermEntry,
+  RangeRequest as InvertedIndexRangeRequest,
+  InvertedIndexMetadata,
+} from './inverted-index'
