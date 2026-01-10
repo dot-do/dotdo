@@ -1334,6 +1334,10 @@ export class DO<E extends Env = Env> extends DOBase<E> {
       },
 
       async waitForCheckpoint(): Promise<ResumableCheckpoint> {
+        const pollInterval = 50
+        const maxWait = 60000
+        const startTime = Date.now()
+
         return new Promise((resolve, reject) => {
           const poll = async () => {
             const state = await self.ctx.storage.get<ResumableCloneState>(`resumable:${cloneId}`)
@@ -1341,11 +1345,18 @@ export class DO<E extends Env = Env> extends DOBase<E> {
               reject(new Error('Clone not found'))
               return
             }
+
             if (state.checkpoints.length > 0) {
               resolve(state.checkpoints[state.checkpoints.length - 1])
               return
             }
-            setTimeout(poll, 50)
+
+            if (Date.now() - startTime > maxWait) {
+              reject(new Error('Timeout waiting for checkpoint'))
+              return
+            }
+
+            setTimeout(poll, pollInterval)
           }
           poll()
         })

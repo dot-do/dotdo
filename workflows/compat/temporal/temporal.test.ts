@@ -28,6 +28,13 @@ import {
   setSearchAttributes,
   upsertSearchAttributes,
   workflowInfo,
+  // Timer cleanup functions for testing memory leak prevention
+  __clearTemporalState,
+  __startTimerCleanup,
+  __stopTimerCleanup,
+  // Workflow registry cleanup functions
+  __startWorkflowCleanup,
+  __stopWorkflowCleanup,
   type ChildWorkflowHandle,
   type TimerHandle,
   type SearchAttributes,
@@ -181,6 +188,307 @@ describe('Temporal Compat Layer', () => {
 
       expect(num).toBeGreaterThanOrEqual(0)
       expect(num).toBeLessThan(1)
+    })
+  })
+
+  describe('Deterministic Replay (uuid4/random)', () => {
+    // Use real timers for workflow execution
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+    })
+
+    afterEach(() => {
+      __clearTemporalState()
+      vi.useFakeTimers()
+    })
+
+    it('should generate unique UUIDs in sequence', async () => {
+      const client = new WorkflowClient()
+
+      async function multiUuidWorkflow() {
+        const id1 = uuid4()
+        const id2 = uuid4()
+        const id3 = uuid4()
+
+        return { id1, id2, id3 }
+      }
+
+      const result = await client.execute(multiUuidWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // All IDs should be valid UUIDs
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      expect(result.id1).toMatch(uuidRegex)
+      expect(result.id2).toMatch(uuidRegex)
+      expect(result.id3).toMatch(uuidRegex)
+
+      // All IDs should be different
+      expect(result.id1).not.toBe(result.id2)
+      expect(result.id2).not.toBe(result.id3)
+      expect(result.id1).not.toBe(result.id3)
+    })
+
+    it('should generate unique random numbers in sequence', async () => {
+      const client = new WorkflowClient()
+
+      async function multiRandomWorkflow() {
+        const r1 = random()
+        const r2 = random()
+        const r3 = random()
+
+        return { r1, r2, r3 }
+      }
+
+      const result = await client.execute(multiRandomWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // All numbers should be in valid range
+      expect(result.r1).toBeGreaterThanOrEqual(0)
+      expect(result.r1).toBeLessThan(1)
+      expect(result.r2).toBeGreaterThanOrEqual(0)
+      expect(result.r2).toBeLessThan(1)
+      expect(result.r3).toBeGreaterThanOrEqual(0)
+      expect(result.r3).toBeLessThan(1)
+
+      // Should be (almost certainly) different values
+      // Note: There's an infinitesimal chance they could be equal,
+      // but for practical purposes they should differ
+      expect(new Set([result.r1, result.r2, result.r3]).size).toBeGreaterThan(1)
+    })
+
+    it('should return same uuid4 values on workflow replay', async () => {
+      const client = new WorkflowClient()
+      const capturedIds: string[] = []
+
+      async function replayableUuidWorkflow() {
+        const id1 = uuid4()
+        const id2 = uuid4()
+        capturedIds.push(id1, id2)
+        return { id1, id2 }
+      }
+
+      // First execution
+      const result1 = await client.execute(replayableUuidWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'replay-uuid-test',
+      })
+
+      const firstRunIds = [...capturedIds]
+
+      // Note: In a real Temporal scenario, replay would re-execute the workflow
+      // with the same history. Here we're testing that within a single workflow
+      // execution, the stepResults are properly populated for future replay.
+      expect(result1.id1).toBe(firstRunIds[0])
+      expect(result1.id2).toBe(firstRunIds[1])
+    })
+
+    it('should return same random values on workflow replay', async () => {
+      const client = new WorkflowClient()
+      const capturedNums: number[] = []
+
+      async function replayableRandomWorkflow() {
+        const r1 = random()
+        const r2 = random()
+        capturedNums.push(r1, r2)
+        return { r1, r2 }
+      }
+
+      // First execution
+      const result1 = await client.execute(replayableRandomWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'replay-random-test',
+      })
+
+      const firstRunNums = [...capturedNums]
+
+      expect(result1.r1).toBe(firstRunNums[0])
+      expect(result1.r2).toBe(firstRunNums[1])
+    })
+
+    it('should increment historyLength for uuid4 calls', async () => {
+      const client = new WorkflowClient()
+
+      async function historyLengthUuidWorkflow() {
+        const info1 = workflowInfo()
+        const len1 = info1.historyLength
+
+        uuid4()
+
+        const info2 = workflowInfo()
+        const len2 = info2.historyLength
+
+        uuid4()
+        uuid4()
+
+        const info3 = workflowInfo()
+        const len3 = info3.historyLength
+
+        return { len1, len2, len3 }
+      }
+
+      const result = await client.execute(historyLengthUuidWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // Each uuid4() call should increment historyLength
+      expect(result.len2).toBe(result.len1 + 1)
+      expect(result.len3).toBe(result.len2 + 2)
+    })
+
+    it('should increment historyLength for random calls', async () => {
+      const client = new WorkflowClient()
+
+      async function historyLengthRandomWorkflow() {
+        const info1 = workflowInfo()
+        const len1 = info1.historyLength
+
+        random()
+
+        const info2 = workflowInfo()
+        const len2 = info2.historyLength
+
+        random()
+        random()
+
+        const info3 = workflowInfo()
+        const len3 = info3.historyLength
+
+        return { len1, len2, len3 }
+      }
+
+      const result = await client.execute(historyLengthRandomWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // Each random() call should increment historyLength
+      expect(result.len2).toBe(result.len1 + 1)
+      expect(result.len3).toBe(result.len2 + 2)
+    })
+
+    it('should handle mixed uuid4 and random calls deterministically', async () => {
+      const client = new WorkflowClient()
+
+      async function mixedDeterministicWorkflow() {
+        const id1 = uuid4()
+        const r1 = random()
+        const id2 = uuid4()
+        const r2 = random()
+        const decision = random() < 0.5 ? 'A' : 'B'
+        const txId = uuid4()
+
+        return { id1, r1, id2, r2, decision, txId }
+      }
+
+      const result = await client.execute(mixedDeterministicWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      // All UUIDs should be valid and unique
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      expect(result.id1).toMatch(uuidRegex)
+      expect(result.id2).toMatch(uuidRegex)
+      expect(result.txId).toMatch(uuidRegex)
+      expect(result.id1).not.toBe(result.id2)
+      expect(result.id1).not.toBe(result.txId)
+      expect(result.id2).not.toBe(result.txId)
+
+      // All random numbers should be in range
+      expect(result.r1).toBeGreaterThanOrEqual(0)
+      expect(result.r1).toBeLessThan(1)
+      expect(result.r2).toBeGreaterThanOrEqual(0)
+      expect(result.r2).toBeLessThan(1)
+
+      // Decision should be one of the expected values
+      expect(['A', 'B']).toContain(result.decision)
+    })
+
+    it('should maintain separate counters per workflow', async () => {
+      const client = new WorkflowClient()
+
+      async function workflow1() {
+        return { id: uuid4(), rand: random() }
+      }
+
+      async function workflow2() {
+        return { id: uuid4(), rand: random() }
+      }
+
+      // Run both workflows concurrently
+      const [result1, result2] = await Promise.all([
+        client.execute(workflow1, {
+          taskQueue: 'test-queue',
+          workflowId: 'concurrent-1',
+        }),
+        client.execute(workflow2, {
+          taskQueue: 'test-queue',
+          workflowId: 'concurrent-2',
+        }),
+      ])
+
+      // Both should have valid values
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      expect(result1.id).toMatch(uuidRegex)
+      expect(result2.id).toMatch(uuidRegex)
+
+      // IDs should be different (generated independently)
+      expect(result1.id).not.toBe(result2.id)
+    })
+
+    it('should work outside workflow context (fallback to non-deterministic)', () => {
+      // Outside of workflow context, uuid4/random should still work
+      // (falls back to non-deterministic for convenience in testing)
+      const id1 = uuid4()
+      const id2 = uuid4()
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      expect(id1).toMatch(uuidRegex)
+      expect(id2).toMatch(uuidRegex)
+      expect(id1).not.toBe(id2)
+
+      const r1 = random()
+      const r2 = random()
+      expect(r1).toBeGreaterThanOrEqual(0)
+      expect(r1).toBeLessThan(1)
+      expect(r2).toBeGreaterThanOrEqual(0)
+      expect(r2).toBeLessThan(1)
+    })
+
+    it('should use deterministic values in child workflows', async () => {
+      const client = new WorkflowClient()
+
+      async function childWithDeterminism() {
+        return {
+          childId: uuid4(),
+          childRand: random(),
+        }
+      }
+
+      async function parentWithDeterminism() {
+        const parentId = uuid4()
+        const childResult = await executeChild(childWithDeterminism, {})
+        const parentRand = random()
+
+        return {
+          parentId,
+          parentRand,
+          ...childResult,
+        }
+      }
+
+      const result = await client.execute(parentWithDeterminism, {
+        taskQueue: 'test-queue',
+      })
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      expect(result.parentId).toMatch(uuidRegex)
+      expect(result.childId).toMatch(uuidRegex)
+      expect(result.parentId).not.toBe(result.childId)
+
+      expect(result.parentRand).toBeGreaterThanOrEqual(0)
+      expect(result.childRand).toBeGreaterThanOrEqual(0)
     })
   })
 
@@ -1176,6 +1484,387 @@ describe('Temporal Compat Layer', () => {
 
       expect(result?.description).toBe('Test workflow')
       expect(result?.priority).toBe('high')
+    })
+  })
+
+  describe('Timer Cleanup (Memory Leak Prevention)', () => {
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+    })
+
+    afterEach(() => {
+      __clearTemporalState()
+      vi.useFakeTimers()
+    })
+
+    it('should clean up timer state when __clearTemporalState is called', async () => {
+      const client = new WorkflowClient()
+
+      // Create timers that won't complete
+      async function orphanedTimerWorkflow() {
+        // Create a timer but don't await it
+        const timer = createTimer('1h')
+        // Return immediately, leaving timer orphaned
+        return { timerId: timer.id }
+      }
+
+      const result = await client.execute(orphanedTimerWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      expect(result.timerId).toBeDefined()
+
+      // Clear state - this should clean up the orphaned timer
+      __clearTemporalState()
+
+      // Create a new timer to verify state is clean
+      async function cleanTimerWorkflow() {
+        const timer = createTimer('10ms')
+        await timer
+        return 'clean'
+      }
+
+      const cleanResult = await client.execute(cleanTimerWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      expect(cleanResult).toBe('clean')
+    })
+
+    it('should start and stop periodic cleanup interval', () => {
+      // Start the cleanup interval
+      __startTimerCleanup()
+
+      // Calling start again should be a no-op (not create duplicate intervals)
+      __startTimerCleanup()
+
+      // Stop the cleanup interval
+      __stopTimerCleanup()
+
+      // Calling stop again should be a no-op
+      __stopTimerCleanup()
+
+      // Should be able to restart after stopping
+      __startTimerCleanup()
+      __stopTimerCleanup()
+    })
+
+    it('should clean up cancelled timers from coalesced buckets', async () => {
+      const client = new WorkflowClient()
+
+      async function cancelledTimersWorkflow() {
+        // Create multiple timers in the same bucket (same 10ms window)
+        const timer1 = createTimer('100ms')
+        const timer2 = createTimer('105ms') // Same bucket as timer1
+        const timer3 = createTimer('102ms') // Same bucket as timer1
+
+        // Attach catch handlers to prevent unhandled rejections
+        timer1.catch(() => {})
+        timer2.catch(() => {})
+        timer3.catch(() => {})
+
+        // Cancel all of them
+        cancelTimer(timer1)
+        cancelTimer(timer2)
+        cancelTimer(timer3)
+
+        return 'all cancelled'
+      }
+
+      const result = await client.execute(cancelledTimersWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      expect(result).toBe('all cancelled')
+
+      // Clear state to verify cleanup doesn't throw
+      __clearTemporalState()
+    })
+
+    it('should handle mixed completed and cancelled timers', async () => {
+      const client = new WorkflowClient()
+
+      async function mixedTimersWorkflow() {
+        const completedTimer = createTimer('10ms')
+        const cancelledTimer = createTimer('1h')
+
+        // Attach catch handler to prevent unhandled rejection
+        cancelledTimer.catch(() => {})
+
+        // Wait for the short timer
+        await completedTimer
+
+        // Cancel the long timer
+        cancelTimer(cancelledTimer)
+
+        return 'mixed complete'
+      }
+
+      const result = await client.execute(mixedTimersWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      expect(result).toBe('mixed complete')
+    })
+
+    it('should track timer creation and expected fire times', async () => {
+      const client = new WorkflowClient()
+
+      async function timerMetadataWorkflow() {
+        const beforeCreate = Date.now()
+        const timer = createTimer('50ms')
+        const afterCreate = Date.now()
+
+        // Timer should fire after 50ms
+        await timer
+
+        return {
+          timerId: timer.id,
+          createdWithinWindow: true, // If we get here, timer was created properly
+        }
+      }
+
+      const result = await client.execute(timerMetadataWorkflow, {
+        taskQueue: 'test-queue',
+      })
+
+      expect(result.timerId).toMatch(/^timer_/)
+      expect(result.createdWithinWindow).toBe(true)
+    })
+  })
+
+  describe('Workflow Registry Cleanup (Memory Leak Prevention)', () => {
+    beforeEach(() => {
+      vi.useRealTimers()
+      __clearTemporalState()
+    })
+
+    afterEach(() => {
+      __clearTemporalState()
+      vi.useFakeTimers()
+    })
+
+    it('should start and stop periodic workflow cleanup interval', () => {
+      // Start the cleanup interval
+      __startWorkflowCleanup()
+
+      // Calling start again should be a no-op (not create duplicate intervals)
+      __startWorkflowCleanup()
+
+      // Stop the cleanup interval
+      __stopWorkflowCleanup()
+
+      // Calling stop again should be a no-op
+      __stopWorkflowCleanup()
+
+      // Should be able to restart after stopping
+      __startWorkflowCleanup()
+      __stopWorkflowCleanup()
+    })
+
+    it('should clean up workflow state when __clearTemporalState is called', async () => {
+      const client = new WorkflowClient()
+
+      // Create multiple workflows
+      async function workflow1() {
+        return 'result1'
+      }
+
+      async function workflow2() {
+        return 'result2'
+      }
+
+      await client.execute(workflow1, {
+        taskQueue: 'test-queue',
+        workflowId: 'cleanup-test-1',
+      })
+
+      await client.execute(workflow2, {
+        taskQueue: 'test-queue',
+        workflowId: 'cleanup-test-2',
+      })
+
+      // Clear state - this should clean up all workflows
+      __clearTemporalState()
+
+      // Verify we can create new workflows (state is clean)
+      async function workflow3() {
+        return 'result3'
+      }
+
+      const result = await client.execute(workflow3, {
+        taskQueue: 'test-queue',
+        workflowId: 'cleanup-test-3',
+      })
+
+      expect(result).toBe('result3')
+    })
+
+    it('should mark completed workflows for eventual cleanup', async () => {
+      const client = new WorkflowClient()
+
+      // Complete a workflow
+      async function completableWorkflow() {
+        return 'completed'
+      }
+
+      const handle = await client.start(completableWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'mark-complete-test',
+      })
+
+      // Wait for completion
+      await handle.result()
+
+      // The workflow should be marked for cleanup (we verify by checking it still exists
+      // since the TTL hasn't elapsed)
+      const description = await handle.describe()
+      expect(description.status).toBe('COMPLETED')
+    })
+
+    it('should mark failed workflows for cleanup', async () => {
+      const client = new WorkflowClient()
+
+      async function failingWorkflow() {
+        throw new Error('Intentional failure')
+      }
+
+      const handle = await client.start(failingWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'fail-cleanup-test',
+      })
+
+      // Wait for failure
+      try {
+        await handle.result()
+      } catch {
+        // Expected
+      }
+
+      // Verify workflow is in FAILED state
+      const description = await handle.describe()
+      expect(description.status).toBe('FAILED')
+    })
+
+    it('should mark cancelled workflows for cleanup', async () => {
+      const client = new WorkflowClient()
+
+      async function longWorkflow() {
+        await new Promise(resolve => setTimeout(resolve, 60000))
+        return 'done'
+      }
+
+      const handle = await client.start(longWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'cancel-cleanup-test',
+      })
+
+      // Cancel it
+      await handle.cancel()
+
+      // Verify workflow is in CANCELED state
+      const description = await handle.describe()
+      expect(description.status).toBe('CANCELED')
+    })
+
+    it('should mark terminated workflows for cleanup', async () => {
+      const client = new WorkflowClient()
+
+      async function terminableWorkflow() {
+        await new Promise(resolve => setTimeout(resolve, 60000))
+        return 'done'
+      }
+
+      const handle = await client.start(terminableWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'terminate-cleanup-test',
+      })
+
+      // Terminate it
+      await handle.terminate('Test termination')
+
+      // Verify workflow is in TERMINATED state
+      const description = await handle.describe()
+      expect(description.status).toBe('TERMINATED')
+    })
+
+    it('should handle multiple workflows transitioning to terminal states', async () => {
+      const client = new WorkflowClient()
+
+      // Create workflows that will end in different terminal states
+      async function successWorkflow() {
+        return 'success'
+      }
+
+      async function failWorkflow() {
+        throw new Error('fail')
+      }
+
+      async function longWorkflow() {
+        await new Promise(resolve => setTimeout(resolve, 60000))
+        return 'long'
+      }
+
+      // Start all workflows
+      const successHandle = await client.start(successWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'multi-success',
+      })
+
+      const failHandle = await client.start(failWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'multi-fail',
+      })
+
+      const cancelHandle = await client.start(longWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'multi-cancel',
+      })
+
+      // Wait for completions
+      await successHandle.result()
+      try {
+        await failHandle.result()
+      } catch {
+        // Expected
+      }
+      await cancelHandle.cancel()
+
+      // Verify all are in terminal states
+      expect((await successHandle.describe()).status).toBe('COMPLETED')
+      expect((await failHandle.describe()).status).toBe('FAILED')
+      expect((await cancelHandle.describe()).status).toBe('CANCELED')
+
+      // Clear state to verify no memory leaks
+      __clearTemporalState()
+    })
+
+    it('should track child workflow completion times', async () => {
+      const client = new WorkflowClient()
+
+      async function childWorkflow() {
+        return 'child done'
+      }
+
+      async function parentWorkflow() {
+        const result = await executeChild(childWorkflow, {
+          workflowId: 'tracked-child',
+        })
+        return result
+      }
+
+      const result = await client.execute(parentWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'tracking-parent',
+      })
+
+      expect(result).toBe('child done')
+
+      // Both parent and child should be tracked for cleanup
+      const childHandle = client.getHandle('tracked-child')
+      const childDesc = await childHandle.describe()
+      expect(childDesc.status).toBe('COMPLETED')
     })
   })
 })

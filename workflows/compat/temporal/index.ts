@@ -334,6 +334,10 @@ interface TimerState {
   resolve: () => void
   reject: (error: Error) => void
   timeoutId: ReturnType<typeof setTimeout> | null
+  /** Timestamp when timer was created, for staleness detection */
+  createdAt: number
+  /** Expected fire time for cleanup calculations */
+  expectedFireAt: number
 }
 
 // ============================================================================
@@ -418,6 +422,115 @@ const workflowFunctions = new Map<string, (...args: unknown[]) => Promise<unknow
 
 // Timer tracking - global for cancel operations by ID
 const activeTimers = new Map<string, TimerState>()
+
+// ============================================================================
+// WORKFLOW REGISTRY CLEANUP - Memory leak prevention
+// ============================================================================
+
+// Completed workflows are kept for a short TTL to allow result retrieval
+const WORKFLOW_COMPLETED_TTL_MS = 60 * 60 * 1000 // 1 hour
+// Maximum number of workflows to keep in registry (LRU eviction)
+const WORKFLOW_MAX_REGISTRY_SIZE = 10000
+// Cleanup interval for expired workflows
+const WORKFLOW_CLEANUP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+
+// Track completion times for TTL-based cleanup
+const workflowCompletionTimes = new Map<string, number>()
+
+let workflowCleanupIntervalId: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Terminal states that indicate a workflow has finished execution
+ */
+const TERMINAL_STATES: Set<WorkflowExecutionStatus> = new Set([
+  'COMPLETED',
+  'FAILED',
+  'CANCELED',
+  'TERMINATED',
+  'CONTINUED_AS_NEW',
+  'TIMED_OUT',
+])
+
+/**
+ * Check if a workflow status is terminal (finished)
+ */
+function isTerminalState(status: WorkflowExecutionStatus): boolean {
+  return TERMINAL_STATES.has(status)
+}
+
+/**
+ * Mark a workflow as completed and schedule cleanup.
+ * Called when a workflow transitions to a terminal state.
+ */
+function markWorkflowCompleted(workflowId: string): void {
+  workflowCompletionTimes.set(workflowId, Date.now())
+}
+
+/**
+ * Remove a workflow from the registry and cleanup tracking
+ */
+function removeWorkflow(workflowId: string): void {
+  workflows.delete(workflowId)
+  workflowCompletionTimes.delete(workflowId)
+}
+
+/**
+ * Clean up expired workflows (past TTL) and enforce LRU eviction.
+ * This runs periodically to prevent unbounded memory growth.
+ */
+function cleanupExpiredWorkflows(): void {
+  const now = Date.now()
+  const expiredIds: string[] = []
+
+  // Find workflows past their TTL
+  for (const [workflowId, completionTime] of workflowCompletionTimes) {
+    if (now - completionTime >= WORKFLOW_COMPLETED_TTL_MS) {
+      expiredIds.push(workflowId)
+    }
+  }
+
+  // Remove expired workflows
+  for (const workflowId of expiredIds) {
+    removeWorkflow(workflowId)
+  }
+
+  // LRU eviction if still over max size
+  if (workflows.size > WORKFLOW_MAX_REGISTRY_SIZE) {
+    // Sort completed workflows by completion time (oldest first)
+    const completedWorkflows = [...workflowCompletionTimes.entries()]
+      .sort((a, b) => a[1] - b[1])
+
+    // Evict oldest completed workflows until under limit
+    const excessCount = workflows.size - WORKFLOW_MAX_REGISTRY_SIZE
+    for (let i = 0; i < Math.min(excessCount, completedWorkflows.length); i++) {
+      removeWorkflow(completedWorkflows[i][0])
+    }
+  }
+}
+
+/**
+ * Start the periodic workflow cleanup (for production use).
+ * This should be called once when the module is loaded in a long-running process.
+ */
+export function __startWorkflowCleanup(): void {
+  if (workflowCleanupIntervalId === null) {
+    workflowCleanupIntervalId = setInterval(cleanupExpiredWorkflows, WORKFLOW_CLEANUP_INTERVAL_MS)
+    // Unref the interval so it doesn't prevent process exit
+    if (typeof workflowCleanupIntervalId === 'object' && 'unref' in workflowCleanupIntervalId) {
+      workflowCleanupIntervalId.unref()
+    }
+  }
+}
+
+/**
+ * Stop the periodic workflow cleanup.
+ */
+export function __stopWorkflowCleanup(): void {
+  if (workflowCleanupIntervalId !== null) {
+    clearInterval(workflowCleanupIntervalId)
+    workflowCleanupIntervalId = null
+  }
+}
 
 export function configure(opts: { storage?: StepStorage; state?: DurableObjectState; namespace?: string }): void {
   if (opts.storage) globalStorage = opts.storage
@@ -563,6 +676,79 @@ export function upsertSearchAttributes(attrs: SearchAttributes): void {
 const TIMER_COALESCE_WINDOW_MS = 10
 const coalescedTimerBuckets = new Map<number, TimerState[]>()
 
+// Periodic cleanup for stale timer buckets (memory leak prevention)
+// Timers are considered stale if they haven't fired 5 minutes past their expected time
+const TIMER_STALE_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
+const TIMER_CLEANUP_INTERVAL_MS = 5 * 60 * 1000 // Run cleanup every 5 minutes
+let timerCleanupIntervalId: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Clean up stale timer buckets that haven't fired.
+ * This handles cases where:
+ * - Workflows terminate without cancelling their timers
+ * - setTimeout fails to fire for some reason
+ * - Timers are orphaned due to errors
+ */
+function cleanupStaleTimerBuckets(): void {
+  const now = Date.now()
+  const bucketsToDelete: number[] = []
+
+  for (const [bucket, timers] of coalescedTimerBuckets) {
+    // Filter out stale timers from this bucket
+    const activeTimersInBucket = timers.filter((timer) => {
+      // Timer is stale if it's past its expected fire time + threshold
+      const isStale = timer.pending && now > timer.expectedFireAt + TIMER_STALE_THRESHOLD_MS
+
+      if (isStale) {
+        // Clean up the stale timer
+        timer.pending = false
+        if (timer.timeoutId) {
+          clearTimeout(timer.timeoutId)
+        }
+        activeTimers.delete(timer.id)
+      }
+
+      return !isStale
+    })
+
+    if (activeTimersInBucket.length === 0) {
+      bucketsToDelete.push(bucket)
+    } else if (activeTimersInBucket.length !== timers.length) {
+      // Update the bucket with only active timers
+      coalescedTimerBuckets.set(bucket, activeTimersInBucket)
+    }
+  }
+
+  // Delete empty buckets
+  for (const bucket of bucketsToDelete) {
+    coalescedTimerBuckets.delete(bucket)
+  }
+}
+
+/**
+ * Start the periodic timer cleanup (for production use).
+ * This should be called once when the module is loaded in a long-running process.
+ */
+export function __startTimerCleanup(): void {
+  if (timerCleanupIntervalId === null) {
+    timerCleanupIntervalId = setInterval(cleanupStaleTimerBuckets, TIMER_CLEANUP_INTERVAL_MS)
+    // Unref the interval so it doesn't prevent process exit
+    if (typeof timerCleanupIntervalId === 'object' && 'unref' in timerCleanupIntervalId) {
+      timerCleanupIntervalId.unref()
+    }
+  }
+}
+
+/**
+ * Stop the periodic timer cleanup.
+ */
+export function __stopTimerCleanup(): void {
+  if (timerCleanupIntervalId !== null) {
+    clearInterval(timerCleanupIntervalId)
+    timerCleanupIntervalId = null
+  }
+}
+
 /**
  * Create a cancellable timer with optional coalescing
  *
@@ -572,6 +758,7 @@ const coalescedTimerBuckets = new Map<number, TimerState[]>()
 export function createTimer(duration: string | number): TimerHandle {
   const ms = parseDuration(duration)
   const id = generateTimerId()
+  const now = Date.now()
 
   let resolveTimer: () => void
   let rejectTimer: (error: Error) => void
@@ -587,6 +774,8 @@ export function createTimer(duration: string | number): TimerHandle {
     resolve: resolveTimer!,
     reject: rejectTimer!,
     timeoutId: null,
+    createdAt: now,
+    expectedFireAt: now + ms,
   }
 
   activeTimers.set(id, timerState)
@@ -668,12 +857,43 @@ export function cancelTimer(timer: TimerHandle): void {
 /**
  * Clear all internal state (useful for testing)
  * Note: AsyncLocalStorage context is automatically cleaned up when execution ends
+ *
+ * This function properly cleans up all timer resources to prevent memory leaks:
+ * - Cancels all pending setTimeout calls
+ * - Clears all timer state maps
+ * - Stops the periodic cleanup interval
  */
 export function __clearTemporalState(): void {
   workflows.clear()
   workflowFunctions.clear()
+
+  // Clear workflow completion tracking (memory leak fix)
+  workflowCompletionTimes.clear()
+
+  // Properly cancel all active timers to prevent memory leaks
+  for (const timer of activeTimers.values()) {
+    if (timer.timeoutId) {
+      clearTimeout(timer.timeoutId)
+    }
+    timer.pending = false
+  }
   activeTimers.clear()
+
+  // Clear coalesced timer buckets (also cancel any timeouts)
+  for (const timers of coalescedTimerBuckets.values()) {
+    for (const timer of timers) {
+      if (timer.timeoutId) {
+        clearTimeout(timer.timeoutId)
+      }
+      timer.pending = false
+    }
+  }
   coalescedTimerBuckets.clear()
+
+  // Stop the periodic cleanup intervals
+  __stopTimerCleanup()
+  __stopWorkflowCleanup()
+
   globalNamespace = 'default'
 }
 
@@ -730,9 +950,14 @@ export function deprecatePatch(patchId: string): void {
 
 /**
  * Sleep for a duration (durable)
+ *
+ * This implementation persists sleep state to durable storage, ensuring that
+ * if a worker restarts during a sleep, the sleep completion is not lost.
+ * On replay, completed sleeps are skipped immediately.
  */
 export async function sleep(duration: string | number): Promise<void> {
-  const workflow = getCurrentWorkflow()
+  const ctx = getCurrentContext()
+  const workflow = ctx?.workflow ?? null
   if (!workflow) {
     throw new Error('sleep can only be called within a workflow')
   }
@@ -740,12 +965,43 @@ export async function sleep(duration: string | number): Promise<void> {
   const ms = parseDuration(duration)
   const stepId = `sleep:${ms}:${workflow.historyLength}`
 
-  // Check for replay
+  // Get storage from context, fallback to globalStorage
+  const storage = ctx?.storage ?? globalStorage
+
+  // Check durable storage first for completed sleep (survives worker restarts)
+  const existingResult = await storage.get(stepId)
+  if (existingResult?.status === 'completed') {
+    // Also populate in-memory cache for consistency
+    workflow.stepResults.set(stepId, true)
+    return
+  }
+
+  // Check in-memory cache for replay within same execution
   if (workflow.stepResults.has(stepId)) {
     return
   }
 
+  // Persist pending state before sleeping (in case of crash during sleep)
+  await storage.set(stepId, {
+    stepId,
+    status: 'pending',
+    attempts: 1,
+    createdAt: Date.now(),
+  })
+
   await new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Persist completed state to durable storage
+  await storage.set(stepId, {
+    stepId,
+    status: 'completed',
+    result: true,
+    attempts: 1,
+    createdAt: Date.now(),
+    completedAt: Date.now(),
+  })
+
+  // Also update in-memory cache
   workflow.stepResults.set(stepId, true)
   workflow.historyLength++
 }
@@ -762,7 +1018,18 @@ export async function condition(fn: () => boolean, timeout?: string | number): P
   const timeoutMs = timeout ? parseDuration(timeout) : undefined
   const startTime = Date.now()
 
-  while (!fn()) {
+  while (true) {
+    try {
+      if (fn()) {
+        break
+      }
+    } catch (error) {
+      // Log the error for debugging but let it propagate
+      const err = ensureError(error)
+      console.error(`[condition] Error in condition function: ${err.message}`)
+      throw err
+    }
+
     // Check timeout
     if (timeoutMs && Date.now() - startTime >= timeoutMs) {
       return false
@@ -919,10 +1186,12 @@ export async function startChild<T, TArgs extends unknown[]>(
         .then((result) => {
           childState.status = 'COMPLETED'
           childState.result = result
+          markWorkflowCompleted(workflowId)
         })
         .catch((error) => {
           childState.status = 'FAILED'
           childState.error = error
+          markWorkflowCompleted(workflowId)
         })
     })
   }
@@ -954,6 +1223,7 @@ export async function startChild<T, TArgs extends unknown[]>(
     },
     async cancel(): Promise<void> {
       childState.status = 'CANCELED'
+      markWorkflowCompleted(workflowId)
     },
   }
 }
@@ -1127,6 +1397,7 @@ export class WorkflowClient {
           .then((result) => {
             state.status = 'COMPLETED'
             state.result = result
+            markWorkflowCompleted(workflowId)
           })
           .catch((error) => {
             if (error instanceof ContinueAsNew) {
@@ -1135,6 +1406,7 @@ export class WorkflowClient {
               state.status = 'FAILED'
               state.error = error
             }
+            markWorkflowCompleted(workflowId)
           })
       })
     }
@@ -1354,21 +1626,122 @@ export class WorkflowClient {
 }
 
 // ============================================================================
-// UUID AND RANDOM
+// UUID AND RANDOM - Deterministic for Replay
 // ============================================================================
 
 /**
+ * Per-workflow counters for deterministic step IDs
+ * These are tracked per workflow execution to ensure each uuid4()/random() call
+ * gets a unique, deterministic step ID based on call order.
+ */
+const uuidCounters = new WeakMap<WorkflowState, number>()
+const randomCounters = new WeakMap<WorkflowState, number>()
+
+/**
  * Generate deterministic UUID (for replay)
+ *
+ * This function is deterministic within a workflow execution:
+ * - First execution: generates a new UUID and stores it
+ * - Replay: returns the same UUID that was generated before
+ *
+ * IMPORTANT: Must be called within a workflow context.
+ * The step ID is based on call order within the workflow, so
+ * uuid4() calls must happen in the same order on replay.
+ *
+ * @returns A UUID v4 string that is deterministic on replay
+ * @throws Error if called outside a workflow context
+ *
+ * @example
+ * ```typescript
+ * import { uuid4 } from '@dotdo/temporal'
+ *
+ * export async function orderWorkflow() {
+ *   // These IDs will be the same on replay
+ *   const orderId = uuid4()
+ *   const transactionId = uuid4()
+ *   return { orderId, transactionId }
+ * }
+ * ```
  */
 export function uuid4(): string {
-  return crypto.randomUUID()
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
+    // Outside workflow context - fall back to non-deterministic
+    // This allows usage in tests or non-workflow code
+    return crypto.randomUUID()
+  }
+
+  // Get and increment the counter for this workflow
+  const counter = uuidCounters.get(workflow) ?? 0
+  uuidCounters.set(workflow, counter + 1)
+
+  // Create deterministic step ID based on call order
+  const stepId = `uuid4:${counter}`
+
+  // Check for existing result (replay case)
+  if (workflow.stepResults.has(stepId)) {
+    return workflow.stepResults.get(stepId) as string
+  }
+
+  // Generate new UUID and store for replay
+  const id = crypto.randomUUID()
+  workflow.stepResults.set(stepId, id)
+  workflow.historyLength++
+
+  return id
 }
 
 /**
  * Get deterministic random number (for replay)
+ *
+ * This function is deterministic within a workflow execution:
+ * - First execution: generates a new random number and stores it
+ * - Replay: returns the same random number that was generated before
+ *
+ * IMPORTANT: Must be called within a workflow context.
+ * The step ID is based on call order within the workflow, so
+ * random() calls must happen in the same order on replay.
+ *
+ * @returns A number between 0 (inclusive) and 1 (exclusive)
+ * @throws Error if called outside a workflow context
+ *
+ * @example
+ * ```typescript
+ * import { random } from '@dotdo/temporal'
+ *
+ * export async function retryWorkflow() {
+ *   // This decision will be the same on replay
+ *   const shouldRetry = random() < 0.5
+ *   return { shouldRetry }
+ * }
+ * ```
  */
 export function random(): number {
-  return Math.random()
+  const workflow = getCurrentWorkflow()
+  if (!workflow) {
+    // Outside workflow context - fall back to non-deterministic
+    // This allows usage in tests or non-workflow code
+    return Math.random()
+  }
+
+  // Get and increment the counter for this workflow
+  const counter = randomCounters.get(workflow) ?? 0
+  randomCounters.set(workflow, counter + 1)
+
+  // Create deterministic step ID based on call order
+  const stepId = `random:${counter}`
+
+  // Check for existing result (replay case)
+  if (workflow.stepResults.has(stepId)) {
+    return workflow.stepResults.get(stepId) as number
+  }
+
+  // Generate new random number and store for replay
+  const num = Math.random()
+  workflow.stepResults.set(stepId, num)
+  workflow.historyLength++
+
+  return num
 }
 
 // ============================================================================

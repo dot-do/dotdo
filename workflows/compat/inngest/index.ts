@@ -905,6 +905,13 @@ export class Inngest {
       run.completedAt = Date.now()
       throw error
     } finally {
+      // Clear step results for this run (memory leak fix)
+      for (const key of this.stepResults.keys()) {
+        if (key.startsWith(`${runId}:`)) {
+          this.stepResults.delete(key)
+        }
+      }
+
       // Cleanup after a delay
       setTimeout(() => this.activeRuns.delete(runId), 60000)
     }
@@ -1324,6 +1331,15 @@ export class Inngest {
     } finally {
       // Cleanup run cancellation handler
       this.runCancellations.delete(runId)
+
+      // Clear step results for this run (memory leak fix)
+      // Step results are only needed during execution for memoization/replay
+      // Once execution completes (success or failure), they can be cleaned up
+      for (const key of this.stepResults.keys()) {
+        if (key.startsWith(`${runId}:`)) {
+          this.stepResults.delete(key)
+        }
+      }
 
       // Cleanup after a delay
       setTimeout(() => this.activeRuns.delete(runId), 60000)
