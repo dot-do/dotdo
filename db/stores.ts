@@ -587,8 +587,12 @@ export class ThingsStore {
       .orderBy(desc(schema.things.id))
 
     // Get the latest by rowid using raw SQL
+    // Note: For 'main' branch, we store NULL in the database, so we need IS NULL check
+    const branchSql = branch === 'main'
+      ? sql`branch IS NULL`
+      : sql`branch = ${branch}`
     const allVersions = await this.ctx.db.all(
-      sql`SELECT rowid as version, * FROM things WHERE id = ${id} AND (branch = ${branch === 'main' ? null : branch} OR (${branch === 'main'} AND branch IS NULL)) ORDER BY rowid DESC LIMIT 1`
+      sql`SELECT rowid as version, * FROM things WHERE id = ${id} AND ${branchSql} ORDER BY rowid DESC LIMIT 1`
     )
     const result = (allVersions as any[])[0]
 

@@ -38,6 +38,7 @@ import {
   defaultExcludes,
   CHDB_MOCK,
   PROJECT_ROOT,
+  GLOBAL_SETUP,
 } from './tests/config/vitest.shared'
 
 /**
@@ -49,6 +50,9 @@ function createNodeWorkspace(
   include: string[],
   options: { setupFiles?: string[] } = {}
 ) {
+  // Always include global setup, then any custom setup files
+  const setupFiles = [GLOBAL_SETUP, ...(options.setupFiles ?? [])]
+
   return {
     test: {
       ...sharedTestConfig,
@@ -56,7 +60,7 @@ function createNodeWorkspace(
       include,
       exclude: defaultExcludes,
       environment: 'node' as const,
-      ...(options.setupFiles && { setupFiles: options.setupFiles }),
+      setupFiles,
     },
     resolve: nodeResolveConfig,
   }
@@ -265,6 +269,24 @@ export default defineWorkspace([
   // @dotdo/client package tests (RPC Client SDK)
   createNodeWorkspace('client', ['packages/client/tests/**/*.test.ts']),
 
+  // @dotdo/react package tests (React hooks and components - jsdom environment)
+  {
+    test: {
+      ...sharedTestConfig,
+      name: 'react',
+      include: ['packages/react/tests/**/*.test.ts', 'packages/react/tests/**/*.test.tsx'],
+      exclude: defaultExcludes,
+      environment: 'jsdom' as const,
+    },
+    resolve: {
+      alias: {
+        ...(nodeResolveConfig?.alias || {}),
+        '@dotdo/client': resolve(PROJECT_ROOT, 'packages/client/src/index.ts'),
+        '@dotdo/react': resolve(PROJECT_ROOT, 'packages/react/src/index.ts'),
+      },
+    },
+  },
+
   // Client context tests ($.db proxy for SaasKit)
   createNodeWorkspace('client-context', ['client/tests/**/*.test.ts']),
 
@@ -336,7 +358,7 @@ export default defineWorkspace([
       globals: sharedTestConfig?.globals,
       name: 'workers-integration',
       include: ['workers/**/*.test.ts'],
-      exclude: [...defaultExcludes, 'workers/observability-tail/**'],
+      exclude: [...defaultExcludes, 'workers/observability-tail/**', 'workers/do-rest-integration.test.ts'],
       sequence: { concurrent: false },
       // Override pool options to use workers-specific wrangler config
       // Type assertion needed for @cloudflare/vitest-pool-workers specific options
@@ -345,6 +367,30 @@ export default defineWorkspace([
           wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.test.jsonc') },
           // Note: isolatedStorage disabled due to storage stack issues with proxy handler tests
           // Tests don't rely on storage state between runs
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // DO integration tests (DOBase REST router with real SQLite storage)
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig?.globals,
+      name: 'do-integration',
+      include: ['workers/do-rest-integration.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      // Override pool options to use DO-specific wrangler config with SQLite
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
+          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
+          // Tests use unique namespaces (uniqueNs()) for isolation instead
           isolatedStorage: false,
           singleWorker: true,
         },

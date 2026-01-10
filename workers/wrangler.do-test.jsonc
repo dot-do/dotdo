@@ -1,0 +1,25 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "do-integration-test",
+  "main": "./do-integration-test-worker.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects - TestDO with SQLite storage
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDO"
+      }
+    ]
+  },
+
+  // Migrations - Enable SQLite for TestDO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TestDO"]
+    }
+  ]
+}
