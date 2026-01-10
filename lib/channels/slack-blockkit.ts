@@ -2,6 +2,9 @@
  * Slack BlockKit Channel Adapter
  */
 
+import type { StyledAction, HumanResponse } from './types'
+import { parseActionId } from './base'
+
 export interface ApprovalBlocksOptions {
   message: string
   requestId: string
@@ -168,9 +171,7 @@ export class SlackBlockKitChannel {
 
     const actionId = actions[0].action_id
     // Parse action_id format: "action_requestId" (e.g., "approve_req-123")
-    const underscoreIndex = actionId.indexOf('_')
-    const action = underscoreIndex > -1 ? actionId.substring(0, underscoreIndex) : actionId
-    const requestId = underscoreIndex > -1 ? actionId.substring(underscoreIndex + 1) : undefined
+    const { action, requestId } = parseActionId(actionId)
 
     return {
       action,

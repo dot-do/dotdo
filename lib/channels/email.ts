@@ -2,6 +2,8 @@
  * Email Channel Adapter with HTML Templates
  */
 
+import type { HumanResponse } from './types'
+
 export interface ApprovalEmailOptions {
   message: string
   requestId: string

@@ -2,6 +2,9 @@
  * Discord Webhook Channel Adapter
  */
 
+import type { HumanResponse } from './types'
+import { buildActionId } from './base'
+
 export interface EmbedField {
   name: string
   value: string
@@ -88,7 +91,7 @@ export function buildActionRow(options: ActionRowOptions): DiscordActionRow {
     if (action.style === 'link') {
       button.url = action.value
     } else {
-      button.custom_id = `${action.value}_${options.requestId}`
+      button.custom_id = buildActionId(action.value, options.requestId)
     }
 
     return button

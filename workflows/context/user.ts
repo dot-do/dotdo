@@ -14,6 +14,18 @@
  * @module workflows/context/user
  */
 
+import {
+  type DurableObjectNamespace,
+  type DurableObjectId,
+  type DurableObjectStub,
+  DEFAULT_TIMEOUT,
+  getDOStub as getDOStubBase,
+  makeRequest as makeRequestBase,
+} from './human-base'
+
+// Re-export base types for backwards compatibility
+export type { DurableObjectNamespace, DurableObjectId, DurableObjectStub }
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -23,29 +35,6 @@
  */
 export interface UserProxyEnv {
   USER_DO: DurableObjectNamespace
-}
-
-/**
- * Durable Object namespace interface
- */
-interface DurableObjectNamespace {
-  get(id: DurableObjectId): DurableObjectStub
-  idFromName(name: string): DurableObjectId
-}
-
-/**
- * Durable Object ID interface
- */
-interface DurableObjectId {
-  toString(): string
-}
-
-/**
- * Durable Object stub interface
- */
-interface DurableObjectStub {
-  id: DurableObjectId
-  fetch(request: Request): Promise<Response>
 }
 
 /**
@@ -106,12 +95,6 @@ export interface UserProxyContext {
 }
 
 // ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const DEFAULT_TIMEOUT = 300000 // 5 minutes
-
-// ============================================================================
 // FACTORY FUNCTION
 // ============================================================================
 
@@ -128,8 +111,10 @@ export function createUserProxy(config: UserProxyConfig): UserProxyContext {
    * Get DO stub for user
    */
   function getDOStub(): DurableObjectStub {
-    const id = env.USER_DO.idFromName(userId)
-    return env.USER_DO.get(id)
+    return getDOStubBase({
+      namespace: env.USER_DO,
+      name: userId,
+    })
   }
 
   /**
@@ -137,15 +122,13 @@ export function createUserProxy(config: UserProxyConfig): UserProxyContext {
    */
   async function makeRequest(path: string, method: string, body?: Record<string, unknown>): Promise<Response> {
     const stub = getDOStub()
-    const url = `https://user.do${path}`
-
-    const request = new Request(url, {
+    return makeRequestBase({
+      stub,
+      baseUrl: 'https://user.do',
+      path,
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      body,
     })
-
-    return stub.fetch(request)
   }
 
   return {

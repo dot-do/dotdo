@@ -19,6 +19,23 @@
  * @module workflows/context/human
  */
 
+import {
+  type DurableObjectNamespace,
+  type DurableObjectId,
+  type DurableObjectStub,
+  DEFAULT_TIMEOUT,
+  InteractionTimeoutError,
+  withTimeout,
+  getDOStub as getDOStubBase,
+  makeRequest as makeRequestBase,
+  generateRequestId,
+  sanitizeHtml,
+} from './human-base'
+
+// Re-export base types and utilities for backwards compatibility
+export { InteractionTimeoutError, generateRequestId, sanitizeHtml }
+export type { DurableObjectNamespace, DurableObjectId, DurableObjectStub }
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -53,29 +70,6 @@ export interface HumanProxyEnv {
   NOTIFICATION_SERVICE_URL?: string
   SLACK_WEBHOOK_URL?: string
   SENDGRID_API_KEY?: string
-}
-
-/**
- * Durable Object namespace interface
- */
-interface DurableObjectNamespace {
-  get(id: DurableObjectId): DurableObjectStub
-  idFromName(name: string): DurableObjectId
-}
-
-/**
- * Durable Object ID interface
- */
-interface DurableObjectId {
-  toString(): string
-}
-
-/**
- * Durable Object stub interface
- */
-interface DurableObjectStub {
-  id: DurableObjectId
-  fetch(request: Request): Promise<Response>
 }
 
 /**
@@ -284,10 +278,11 @@ export interface HumanProxyContext {
 
 /**
  * Error thrown when human response times out
+ * Extends InteractionTimeoutError for backwards compatibility
  */
-export class HumanTimeoutError extends Error {
+export class HumanTimeoutError extends InteractionTimeoutError {
   constructor(timeout: number, requestType: string = 'request') {
-    super(`Human ${requestType} timed out after ${timeout}ms`)
+    super(timeout, `Human ${requestType}`)
     this.name = 'HumanTimeoutError'
   }
 }
@@ -317,48 +312,6 @@ export class HumanNotificationError extends Error {
 // ============================================================================
 
 const MAX_MESSAGE_LENGTH = 10000
-const DEFAULT_TIMEOUT = 300000 // 5 minutes
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Generate a unique request ID
- */
-function generateRequestId(): string {
-  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * Sanitize HTML to prevent XSS attacks
- */
-function sanitizeHtml(text: string): string {
-  return text
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<[^>]*>/g, '')
-}
-
-/**
- * Create a timeout promise
- */
-function createTimeout(ms: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new HumanTimeoutError(ms))
-    }, ms)
-  })
-}
-
-/**
- * Race a promise against a timeout
- */
-async function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
-  if (timeout <= 0) {
-    throw new HumanTimeoutError(timeout)
-  }
-  return Promise.race([promise, createTimeout(timeout)])
-}
 
 // ============================================================================
 // NOTIFICATION HELPERS
@@ -460,8 +413,10 @@ export function createHumanProxy(config: HumanProxyConfig): HumanProxyContext {
    */
   function getDOStub(role?: string): DurableObjectStub {
     const targetRole = role ?? defaultRole ?? 'default'
-    const id = env.HUMAN_DO.idFromName(targetRole)
-    return env.HUMAN_DO.get(id)
+    return getDOStubBase({
+      namespace: env.HUMAN_DO,
+      name: targetRole,
+    })
   }
 
   /**
@@ -474,18 +429,14 @@ export function createHumanProxy(config: HumanProxyConfig): HumanProxyContext {
     role?: string
   ): Promise<Response> {
     const stub = getDOStub(role)
-    const url = new URL(`https://human.do${path}`)
-    if (role) {
-      url.searchParams.set('role', role)
-    }
-
-    const request = new Request(url.toString(), {
+    return makeRequestBase({
+      stub,
+      baseUrl: 'https://human.do',
+      path,
       method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body,
+      queryParams: role ? { role } : undefined,
     })
-
-    return stub.fetch(request)
   }
 
   /**

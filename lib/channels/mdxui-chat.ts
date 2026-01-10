@@ -5,6 +5,8 @@
  * Supports action buttons, forms, MDX content, and real-time updates.
  */
 
+import type { Action, HumanResponse } from './types'
+
 export interface ChatAction {
   label: string
   value: string
