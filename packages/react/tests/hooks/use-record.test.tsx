@@ -682,14 +682,12 @@ describe('useRecord', () => {
 
       const ws = MockWebSocket.instances[0]
 
+      // Send initial data for task-1
       act(() => {
         ws.receiveMessage({
           type: 'initial',
           collection: 'Task',
-          data: [
-            { $id: 'task-1', title: 'First Task', status: 'todo' },
-            { $id: 'task-2', title: 'Second Task', status: 'done' },
-          ],
+          data: [{ $id: 'task-1', title: 'First Task', status: 'todo' }],
           txid: 1,
         })
       })
@@ -698,7 +696,23 @@ describe('useRecord', () => {
         expect(result.current.data?.title).toBe('First Task')
       })
 
+      // Change id - hook will send new subscription and set loading
       rerender({ id: 'task-2' })
+
+      // Should go back to loading state while waiting for new record
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(true)
+      })
+
+      // Send data for the new record (simulating server response to subscription)
+      act(() => {
+        ws.receiveMessage({
+          type: 'initial',
+          collection: 'Task',
+          data: [{ $id: 'task-2', title: 'Second Task', status: 'done' }],
+          txid: 2,
+        })
+      })
 
       await waitFor(() => {
         expect(result.current.data?.title).toBe('Second Task')

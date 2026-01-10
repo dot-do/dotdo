@@ -2,6 +2,26 @@
   "name": "@dotdo/client",
   "version": "0.1.0",
   "type": "module",
+  "description": "RPC Client SDK for Durable Objects with WebSocket, batching, and offline support",
+  "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/client#readme",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "keywords": [
+    "dotdo",
+    "durable-objects",
+    "cloudflare",
+    "rpc",
+    "websocket",
+    "client"
+  ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
