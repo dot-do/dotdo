@@ -436,18 +436,53 @@ describe('fetchDOLocation', () => {
   })
 
   describe('successful fetch', () => {
-    it('should fetch /cdn-cgi/trace endpoint', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        text: () => Promise.resolve(VALID_TRACE_RESPONSE),
-      })
+    it('should try cf.json first, fall back to trace', async () => {
+      // cf.json fails, trace succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('cf.json failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(VALID_TRACE_RESPONSE),
+        })
 
       await fetchDOLocation()
 
-      expect(mockFetch).toHaveBeenCalledTimes(1)
-      expect(mockFetch).toHaveBeenCalledWith(
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        'https://workers.cloudflare.com/cf.json'
+      )
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
         'https://cloudflare.com/cdn-cgi/trace'
       )
+    })
+
+    it('should use cf.json when available', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            colo: 'SJC',
+            country: 'US',
+            city: 'San Jose',
+            latitude: '37.3639',
+            longitude: '-121.929',
+            timezone: 'America/Los_Angeles',
+          }),
+      })
+
+      const result = await fetchDOLocation()
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://workers.cloudflare.com/cf.json'
+      )
+      expect(result.colo).toBe('sjc')
+      expect(result.coordinates).toEqual({
+        latitude: 37.3639,
+        longitude: -121.929,
+      })
     })
 
     it('should parse response and return DOLocation', async () => {

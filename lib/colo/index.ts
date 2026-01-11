@@ -12,8 +12,12 @@
 export {
   detectColoFromTrace,
   fetchDOLocation,
+  fetchDOLocationFromCfJson,
+  fetchDOLocationFromTrace,
   parseTraceResponse,
+  CLOUDFLARE_CF_JSON_URL,
   CLOUDFLARE_TRACE_URL,
+  type CfJsonData,
   type TraceData,
   type DOLocation as RawDOLocation,
 } from './detection'

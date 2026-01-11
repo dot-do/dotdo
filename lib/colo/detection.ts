@@ -2,8 +2,12 @@
  * DO Location Detection
  *
  * Detects Cloudflare colo location from within a Durable Object.
- * DOs can detect their colo by fetching `https://cloudflare.com/cdn-cgi/trace`
- * from within the DO. The response contains `colo=XXX` where XXX is a 3-letter IATA code.
+ *
+ * Primary method: `https://workers.cloudflare.com/cf.json` - returns JSON with
+ * colo, coordinates, country, and more metadata directly.
+ *
+ * Fallback: `https://cloudflare.com/cdn-cgi/trace` - returns key=value pairs
+ * with colo=XXX where XXX is a 3-letter IATA code.
  *
  * Reference: dotdo-c3g99 - DO location detection mechanism
  */
@@ -16,7 +20,14 @@ import { codeToCity } from '../../types/Location'
 // ============================================================================
 
 /**
- * Cloudflare's trace endpoint URL for detecting colo location
+ * Cloudflare's cf.json endpoint - returns JSON with rich location data
+ * Preferred over trace endpoint for simpler parsing and more data
+ */
+export const CLOUDFLARE_CF_JSON_URL = 'https://workers.cloudflare.com/cf.json'
+
+/**
+ * Cloudflare's trace endpoint URL for detecting colo location (fallback)
+ * @deprecated Use CLOUDFLARE_CF_JSON_URL instead
  */
 export const CLOUDFLARE_TRACE_URL = 'https://cloudflare.com/cdn-cgi/trace'
 
@@ -25,7 +36,59 @@ export const CLOUDFLARE_TRACE_URL = 'https://cloudflare.com/cdn-cgi/trace'
 // ============================================================================
 
 /**
+ * Response data from Cloudflare's cf.json endpoint
+ * Contains rich location and connection metadata
+ */
+export interface CfJsonData {
+  /** 3-letter colo code (IATA) - uppercase */
+  colo: string
+  /** Country code (ISO 3166-1 alpha-2) */
+  country: string
+  /** City name */
+  city: string
+  /** Continent code */
+  continent: string
+  /** Latitude */
+  latitude: string
+  /** Longitude */
+  longitude: string
+  /** Postal/ZIP code */
+  postalCode: string
+  /** Region/state code */
+  region: string
+  /** Region/state name */
+  regionCode: string
+  /** Timezone */
+  timezone: string
+  /** ASN number */
+  asn: number
+  /** ASN organization name */
+  asOrganization: string
+  /** HTTP protocol version */
+  httpProtocol: string
+  /** Request priority */
+  requestPriority: string
+  /** TLS cipher suite */
+  tlsCipher: string
+  /** TLS version */
+  tlsVersion: string
+  /** Client TCP RTT (ms) */
+  clientTcpRtt: number
+  /** Client trust score */
+  clientTrustScore: number
+  /** Is bot */
+  isEUCountry: string
+  /** Bot management fields */
+  botManagement?: {
+    score: number
+    staticResource: boolean
+    verifiedBot: boolean
+  }
+}
+
+/**
  * Parsed trace response data from Cloudflare's /cdn-cgi/trace endpoint
+ * @deprecated Prefer CfJsonData from cf.json endpoint
  */
 export interface TraceData {
   /** Cloudflare identifier */
@@ -68,14 +131,25 @@ export interface TraceData {
 export interface DOLocation {
   /** Normalized colo code (lowercase) */
   colo: ColoCode
-  /** IP address of the DO */
+  /** IP address of the DO (from trace) or empty string */
   ip: string
   /** Country code */
   loc: string
   /** When the location was detected */
   detectedAt: Date
-  /** Full trace data from Cloudflare */
+  /** Full trace data from Cloudflare (if from trace endpoint) */
   traceData: TraceData
+  /** Full cf.json data (if from cf.json endpoint) */
+  cfJsonData?: CfJsonData
+  /** Coordinates from cf.json */
+  coordinates?: {
+    latitude: number
+    longitude: number
+  }
+  /** City name from cf.json */
+  city?: string
+  /** Timezone from cf.json */
+  timezone?: string
 }
 
 // ============================================================================
@@ -170,19 +244,63 @@ export function detectColoFromTrace(traceResponse: string): ColoCode | null {
 }
 
 /**
- * Fetches and parses location from within a DO
+ * Fetches location from cf.json endpoint (preferred method)
  *
- * @returns Promise resolving to DOLocation with detected colo and metadata
- * @throws Error on network error, invalid response, or unknown colo code
+ * @returns Promise resolving to DOLocation with rich metadata
+ * @throws Error on network error or invalid response
  *
  * @example
  * ```ts
- * const location = await fetchDOLocation()
+ * const location = await fetchDOLocationFromCfJson()
  * console.log(location.colo) // 'sjc'
- * console.log(location.detectedAt) // Date
+ * console.log(location.coordinates) // { latitude: 37.36, longitude: -121.93 }
  * ```
  */
-export async function fetchDOLocation(): Promise<DOLocation> {
+export async function fetchDOLocationFromCfJson(): Promise<DOLocation> {
+  const response = await fetch(CLOUDFLARE_CF_JSON_URL)
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch cf.json endpoint: ${response.status} ${response.statusText}`
+    )
+  }
+
+  const cfData = (await response.json()) as CfJsonData
+
+  if (!cfData.colo) {
+    throw new Error('Missing colo in cf.json response')
+  }
+
+  const coloValue = cfData.colo.trim().toLowerCase()
+
+  if (!isValidColoCode(coloValue)) {
+    throw new Error(`Invalid or unknown colo code: ${cfData.colo}`)
+  }
+
+  return {
+    colo: coloValue,
+    ip: '', // Not available in cf.json
+    loc: cfData.country,
+    detectedAt: new Date(),
+    traceData: {} as TraceData, // Empty for cf.json source
+    cfJsonData: cfData,
+    coordinates: {
+      latitude: parseFloat(cfData.latitude),
+      longitude: parseFloat(cfData.longitude),
+    },
+    city: cfData.city,
+    timezone: cfData.timezone,
+  }
+}
+
+/**
+ * Fetches location from trace endpoint (fallback method)
+ *
+ * @returns Promise resolving to DOLocation with trace metadata
+ * @throws Error on network error, invalid response, or unknown colo code
+ * @deprecated Use fetchDOLocationFromCfJson for richer data
+ */
+export async function fetchDOLocationFromTrace(): Promise<DOLocation> {
   const response = await fetch(CLOUDFLARE_TRACE_URL)
 
   if (!response.ok) {
@@ -211,5 +329,32 @@ export async function fetchDOLocation(): Promise<DOLocation> {
     loc: traceData.loc,
     detectedAt: new Date(),
     traceData,
+  }
+}
+
+/**
+ * Fetches and parses location from within a DO
+ *
+ * Uses cf.json endpoint as primary source (richer data, simpler parsing).
+ * Falls back to trace endpoint if cf.json fails.
+ *
+ * @returns Promise resolving to DOLocation with detected colo and metadata
+ * @throws Error on network error, invalid response, or unknown colo code
+ *
+ * @example
+ * ```ts
+ * const location = await fetchDOLocation()
+ * console.log(location.colo) // 'sjc'
+ * console.log(location.coordinates) // { latitude: 37.36, longitude: -121.93 }
+ * console.log(location.detectedAt) // Date
+ * ```
+ */
+export async function fetchDOLocation(): Promise<DOLocation> {
+  try {
+    // Try cf.json first - richer data, simpler parsing
+    return await fetchDOLocationFromCfJson()
+  } catch {
+    // Fall back to trace endpoint
+    return await fetchDOLocationFromTrace()
   }
 }
