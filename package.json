@@ -1,6 +1,6 @@
 {
   "name": "dotdo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -203,8 +203,12 @@
       "module": "ESNext",
       "moduleResolution": "bundler",
       "strict": true,
-      "lib": ["ES2022"],
-      "types": ["@cloudflare/workers-types"]
+      "lib": [
+        "ES2022"
+      ],
+      "types": [
+        "@cloudflare/workers-types"
+      ]
     }
   },
   "devDependencies": {
