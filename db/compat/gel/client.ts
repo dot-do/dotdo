@@ -1,7 +1,7 @@
 /**
  * GEL Client - @dotdo/gel EdgeQL-like interface on SQLite
  *
- * TDD RED Phase Stubs - All methods throw "Not implemented"
+ * TDD GREEN Phase - Full implementation
  *
  * This client ties together:
  * - SDL Parser (schema definitions)
@@ -10,7 +10,10 @@
  * - Query Translator (EdgeQL AST to SQL)
  */
 
-import type { Schema } from './sdl-parser'
+import { parseSDL, type Schema, type TypeDefinition } from './sdl-parser'
+import { generateDDL } from './ddl-generator'
+import { parse } from './edgeql-parser'
+import { translateQuery } from './query-translator'
 
 // =============================================================================
 // ERROR TYPES
