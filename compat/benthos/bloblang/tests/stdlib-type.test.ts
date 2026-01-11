@@ -285,9 +285,10 @@ describe('Bloblang Stdlib Type Functions', () => {
       expect(array.call(arr)).toBe(arr)
     })
 
-    it('wraps nested array in array', () => {
+    it('returns nested array unchanged', () => {
       const nested = [[1, 2], [3, 4]]
-      expect(array.call(nested)).toEqual([nested])
+      expect(array.call(nested)).toEqual(nested)
+      expect(array.call(nested)).toBe(nested)
     })
   })
 

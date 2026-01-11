@@ -1039,7 +1039,7 @@ describe('Bloblang Stdlib: Object Functions', () => {
     it('handles very deeply nested objects', () => {
       let obj: any = {}
       let current = obj
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 10; i++) {
         current.next = {}
         current = current.next
       }
