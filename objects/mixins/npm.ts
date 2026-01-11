@@ -34,6 +34,11 @@
 import { createCapabilityMixin, type Constructor, type CapabilityContext } from './infrastructure'
 import type { FsCapability, WithFsContext } from './fs'
 
+// Core imports - shared with NpmDO for single source of truth
+import { satisfies, maxSatisfying } from '../../primitives/npmx/core/semver'
+import { createTarball } from '../../primitives/npmx/core/tarball'
+import { LRUCache } from '../../primitives/npmx/core/cache/lru'
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -187,102 +192,6 @@ export interface WithNpmContext extends WithFsContext {
 }
 
 // ============================================================================
-// SEMVER IMPLEMENTATION
-// ============================================================================
-
-interface SemVerParts {
-  major: number
-  minor: number
-  patch: number
-  prerelease?: string[]
-}
-
-function parseSemVer(version: string): SemVerParts | null {
-  const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?/)
-  if (!match) return null
-  return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
-    prerelease: match[4]?.split('.'),
-  }
-}
-
-function compareSemVer(a: string, b: string): number {
-  const parsedA = parseSemVer(a)
-  const parsedB = parseSemVer(b)
-  if (!parsedA || !parsedB) return 0
-
-  if (parsedA.major !== parsedB.major) return parsedA.major - parsedB.major
-  if (parsedA.minor !== parsedB.minor) return parsedA.minor - parsedB.minor
-  if (parsedA.patch !== parsedB.patch) return parsedA.patch - parsedB.patch
-
-  if (parsedA.prerelease && !parsedB.prerelease) return -1
-  if (!parsedA.prerelease && parsedB.prerelease) return 1
-
-  return 0
-}
-
-function satisfies(version: string, range: string): boolean {
-  const parsed = parseSemVer(version)
-  if (!parsed) return false
-
-  if (range === '*' || range === 'latest' || range === '') return true
-
-  if (/^\d+\.\d+\.\d+/.test(range)) {
-    return compareSemVer(version, range) === 0
-  }
-
-  if (range.startsWith('^')) {
-    const rangeVersion = parseSemVer(range.slice(1))
-    if (!rangeVersion) return false
-
-    if (rangeVersion.major === 0) {
-      if (rangeVersion.minor === 0) {
-        return parsed.major === 0 && parsed.minor === 0 && parsed.patch >= rangeVersion.patch
-      }
-      return parsed.major === 0 && parsed.minor === rangeVersion.minor && parsed.patch >= rangeVersion.patch
-    }
-
-    return (
-      parsed.major === rangeVersion.major &&
-      (parsed.minor > rangeVersion.minor || (parsed.minor === rangeVersion.minor && parsed.patch >= rangeVersion.patch))
-    )
-  }
-
-  if (range.startsWith('~')) {
-    const rangeVersion = parseSemVer(range.slice(1))
-    if (!rangeVersion) return false
-    return parsed.major === rangeVersion.major && parsed.minor === rangeVersion.minor && parsed.patch >= rangeVersion.patch
-  }
-
-  if (range.startsWith('>=')) return compareSemVer(version, range.slice(2).trim()) >= 0
-  if (range.startsWith('>') && !range.startsWith('>=')) return compareSemVer(version, range.slice(1).trim()) > 0
-  if (range.startsWith('<=')) return compareSemVer(version, range.slice(2).trim()) <= 0
-  if (range.startsWith('<') && !range.startsWith('<=')) return compareSemVer(version, range.slice(1).trim()) < 0
-
-  return compareSemVer(version, range) === 0
-}
-
-function maxSatisfying(versions: string[], range: string): string | null {
-  const validVersions = versions
-    .filter((v) => parseSemVer(v) !== null && !parseSemVer(v)?.prerelease)
-    .sort((a, b) => -compareSemVer(a, b))
-
-  if (range === 'latest' || range === '*') {
-    return validVersions[0] || null
-  }
-
-  for (const version of validVersions) {
-    if (satisfies(version, range)) {
-      return version
-    }
-  }
-
-  return null
-}
-
-// ============================================================================
 // REGISTRY FETCHER
 // ============================================================================
 
@@ -295,20 +204,24 @@ interface RegistryFetcher {
 }
 
 function createRegistryFetcher(registry: string = DEFAULT_REGISTRY): RegistryFetcher {
-  const cache = new Map<string, Promise<unknown>>()
+  // Use LRUCache to prevent OOM in long-running DOs (bounded to 100 entries)
+  const cache = new LRUCache<string, Promise<unknown>>({ maxSize: 100 })
 
   async function fetchPackageMetadata(name: string): Promise<{
     name: string
     versions: Record<string, ResolvedPackage>
     'dist-tags': Record<string, string>
   }> {
+    type PackageMetadata = {
+      name: string
+      versions: Record<string, ResolvedPackage>
+      'dist-tags': Record<string, string>
+    }
+
     const cacheKey = `${registry}/${name}`
-    if (cache.has(cacheKey)) {
-      return cache.get(cacheKey) as Promise<{
-        name: string
-        versions: Record<string, ResolvedPackage>
-        'dist-tags': Record<string, string>
-      }>
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      return cached as Promise<PackageMetadata>
     }
 
     const promise = fetch(`${registry}/${encodeURIComponent(name)}`, {
@@ -319,11 +232,7 @@ function createRegistryFetcher(registry: string = DEFAULT_REGISTRY): RegistryFet
     })
 
     cache.set(cacheKey, promise)
-    return promise as Promise<{
-      name: string
-      versions: Record<string, ResolvedPackage>
-      'dist-tags': Record<string, string>
-    }>
+    return promise as Promise<PackageMetadata>
   }
 
   return {
@@ -357,79 +266,6 @@ function createRegistryFetcher(registry: string = DEFAULT_REGISTRY): RegistryFet
       return latest
     },
   }
-}
-
-// ============================================================================
-// TARBALL CREATION
-// ============================================================================
-
-function createTarHeader(name: string, size: number, mode: number = 0o644): Uint8Array {
-  const header = new Uint8Array(512)
-  const encoder = new TextEncoder()
-
-  const nameBytes = encoder.encode(name.slice(0, 99))
-  header.set(nameBytes, 0)
-
-  const modeStr = mode.toString(8).padStart(7, '0') + '\0'
-  header.set(encoder.encode(modeStr), 100)
-
-  header.set(encoder.encode('0000000\0'), 108)
-  header.set(encoder.encode('0000000\0'), 116)
-
-  const sizeStr = size.toString(8).padStart(11, '0') + '\0'
-  header.set(encoder.encode(sizeStr), 124)
-
-  const mtime = Math.floor(Date.now() / 1000)
-    .toString(8)
-    .padStart(11, '0') + '\0'
-  header.set(encoder.encode(mtime), 136)
-
-  header.set(encoder.encode('        '), 148)
-  header[156] = 0x30
-
-  header.set(encoder.encode('ustar'), 257)
-  header[262] = 0x00
-  header.set(encoder.encode('00'), 263)
-
-  let checksum = 0
-  for (let i = 0; i < 512; i++) {
-    checksum += header[i]
-  }
-  const checksumStr = checksum.toString(8).padStart(6, '0') + '\0 '
-  header.set(encoder.encode(checksumStr), 148)
-
-  return header
-}
-
-async function createTarball(files: Array<{ path: string; content: Uint8Array }>): Promise<Uint8Array> {
-  const blocks: Uint8Array[] = []
-
-  for (const file of files) {
-    const header = createTarHeader(file.path, file.content.length)
-    blocks.push(header)
-    blocks.push(file.content)
-
-    const padding = 512 - (file.content.length % 512)
-    if (padding < 512) {
-      blocks.push(new Uint8Array(padding))
-    }
-  }
-
-  blocks.push(new Uint8Array(1024))
-
-  const totalSize = blocks.reduce((sum, block) => sum + block.length, 0)
-  const result = new Uint8Array(totalSize)
-
-  let offset = 0
-  for (const block of blocks) {
-    result.set(block, offset)
-    offset += block.length
-  }
-
-  const stream = new Blob([result]).stream()
-  const compressedStream = stream.pipeThrough(new CompressionStream('gzip'))
-  const compressedBlob = await new Response(compressedStream).blob()
-  return new Uint8Array(await compressedBlob.arrayBuffer())
 }
 
 // ============================================================================
@@ -605,7 +441,8 @@ class NpmModule implements NpmCapability {
       throw new Error(`No package.json found in ${dir}`)
     }
 
-    const files: Array<{ path: string; content: Uint8Array }> = []
+    // Core createTarball uses Map<string, Uint8Array> format
+    const files = new Map<string, Uint8Array>()
 
     const collectFiles = async (currentDir: string, prefix: string) => {
       const entries = await this.fs.list(currentDir)
@@ -622,10 +459,8 @@ class NpmModule implements NpmCapability {
           await collectFiles(fullPath, tarPath)
         } else {
           const content = await this.fs.read(fullPath, { encoding: 'utf-8' })
-          files.push({
-            path: `package/${tarPath}`,
-            content: new TextEncoder().encode(content as string),
-          })
+          // Use path with 'package/' prefix as key (npm pack convention)
+          files.set(`package/${tarPath}`, new TextEncoder().encode(content as string))
         }
       }
     }
