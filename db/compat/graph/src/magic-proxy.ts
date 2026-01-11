@@ -95,7 +95,8 @@ export interface MagicTraversal {
   [Symbol.asyncIterator](): AsyncIterableIterator<Thing>
 
   // Dynamic property access for relationship types
-  [relType: string]: MagicTraversal | ((...args: unknown[]) => unknown)
+  // Union includes all method return types for type compatibility
+  [relType: string]: MagicTraversal | ((...args: unknown[]) => unknown) | ((n: number) => MagicTraversal) | Promise<string[]> | Promise<Thing[]> | Promise<number> | Promise<Thing | null> | Promise<boolean> | (() => AsyncIterableIterator<Thing>)
 }
 
 // ============================================================================
