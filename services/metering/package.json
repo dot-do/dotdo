@@ -1,0 +1,61 @@
+{
+  "name": "@dotdo/metering",
+  "version": "0.1.0",
+  "description": "Usage metering system for all *.do services",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./counter": {
+      "types": "./dist/counter.d.ts",
+      "import": "./dist/counter.js"
+    },
+    "./aggregator": {
+      "types": "./dist/aggregator.d.ts",
+      "import": "./dist/aggregator.js"
+    },
+    "./limiter": {
+      "types": "./dist/limiter.d.ts",
+      "import": "./dist/limiter.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "keywords": [
+    "metering",
+    "usage",
+    "billing",
+    "cloudflare-workers",
+    "durable-objects",
+    "analytics"
+  ],
+  "author": "dotdo",
+  "license": "MIT"
+}

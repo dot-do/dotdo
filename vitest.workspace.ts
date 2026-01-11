@@ -236,6 +236,9 @@ export default defineWorkspace([
   // Tests for objects in tests/objects directory (mocked Durable Objects)
   createNodeWorkspace('tests-objects', ['tests/objects/**/*.test.ts']),
 
+  // Transport layer tests (auth-layer JWT, RPC, etc.)
+  createNodeWorkspace('transport', ['tests/transport/**/*.test.ts']),
+
   // CLI tests (device auth, config management)
   createNodeWorkspace('cli', ['cli/tests/**/*.test.ts']),
 
@@ -277,6 +280,9 @@ export default defineWorkspace([
   // @dotdo/client package tests (RPC Client SDK)
   createNodeWorkspace('client', ['packages/client/tests/**/*.test.ts']),
 
+  // @dotdo/rpc package tests (Universal SDK Wrapper)
+  createNodeWorkspace('rpc', ['packages/rpc/tests/**/*.test.ts']),
+
   // @dotdo/react package tests (React hooks and components - jsdom environment)
   {
     test: {
@@ -313,6 +319,9 @@ export default defineWorkspace([
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
 
+  // Agent tool adapters (Read, Write, Edit, Glob, Grep, Bash for Workers)
+  createNodeWorkspace('agent-tools', ['lib/agent/tools/tests/**/*.test.ts']),
+
   // LLM API tests (OpenAI/Anthropic-compatible routing)
   createNodeWorkspace('llm', ['llm/**/*.test.ts']),
 
@@ -323,7 +332,7 @@ export default defineWorkspace([
   createNodeWorkspace('benchmarks', ['tests/benchmarks/**/*.test.ts']),
 
   // Reliability tests (error handling, promise handling, resilience)
-  createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts', 'tests/error-logging.test.ts']),
+  createNodeWorkspace('reliability', ['tests/reliability/**/*.test.ts', 'tests/error-handling/**/*.test.ts', 'tests/error-logging.test.ts', 'tests/error-logging/**/*.test.ts']),
 
   // Platform behavior tests (subrequest limits, WebSocket limits, etc.)
   createNodeWorkspace('platform', ['tests/platform/**/*.test.ts']),
@@ -339,6 +348,9 @@ export default defineWorkspace([
 
   // DuckDB Iceberg extension tests (R2 Data Catalog integration)
   createNodeWorkspace('duckdb-iceberg', ['db/compat/sql/duckdb-wasm/iceberg/tests/**/*.test.ts']),
+
+  // Usage metering system tests (counters, aggregation, limits)
+  createNodeWorkspace('metering', ['services/metering/tests/**/*.test.ts']),
 
   // ============================================
   // Workers Environment Tests
