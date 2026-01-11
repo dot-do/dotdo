@@ -136,3 +136,21 @@ export type {
   ForwardCascadeResolverOptions,
   ShorthandReference,
 } from './resolvers/forward'
+
+// ============================================================================
+// MDX SCHEMA PARSER
+// ============================================================================
+
+export {
+  parseMdxSchema,
+  discoverSchemaFiles,
+  loadAndMergeSchemas,
+} from './mdx'
+
+export type {
+  MdxSchema,
+  MdxEntity,
+  MdxFieldType,
+  DiscoveryOptions,
+  MergedMdxSchema,
+} from './mdx'

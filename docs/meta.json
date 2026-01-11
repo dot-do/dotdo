@@ -1,4 +1,4 @@
 {
   "title": "dotdo",
-  "pages": ["index", "why-dotdo", "getting-started", "tutorials", "concepts", "architecture", "primitives", "agents", "humans", "security", "guides", "deployment", "observability", "migration", "---", "api", "cli", "compat", "mcp", "rpc", "sdk", "storage"]
+  "pages": ["index", "why-dotdo", "getting-started", "tutorials", "concepts", "architecture", "primitives", "agents", "humans", "security", "guides", "deployment", "observability", "migration", "---", "transport", "api", "cli", "compat", "mcp", "rpc", "sdk", "storage"]
 }

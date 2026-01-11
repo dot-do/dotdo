@@ -1,0 +1,201 @@
+---
+title: Protocol Comparison
+description: Feature-by-feature comparison of REST, RPC, and MCP transport protocols
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Protocol Comparison
+
+A detailed comparison of dotdo's three transport protocols across all relevant dimensions.
+
+## Core Characteristics
+
+| Aspect | REST | RPC | MCP |
+|--------|------|-----|-----|
+| **Protocol** | HTTP/JSON | Cap'n Web (WebSocket + HTTP) | JSON-RPC 2.0 over HTTP |
+| **Latency** | N round trips | 1 round trip (pipelining) | 1-2 round trips |
+| **Type Safety** | Manual (OpenAPI) | Strong (proxy types) | Tool schemas (JSON Schema) |
+| **Best For** | External APIs | Internal calls | AI agents |
+| **Complexity** | Low | Medium | Low |
+
+## Performance
+
+| Metric | REST | RPC | MCP |
+|--------|------|-----|-----|
+| **5 sequential calls** | 5 round trips | 1 round trip | 5 round trips |
+| **Latency (200ms RTT)** | 1000ms | 200ms | 1000ms |
+| **Batching** | Manual | Automatic (pipelining) | Manual (batch requests) |
+| **Streaming** | SSE/polling | WebSocket native | SSE for notifications |
+| **Connection reuse** | HTTP/2 | WebSocket persistent | Session-based |
+
+<Callout type="info" title="The Pipelining Advantage">
+RPC with promise pipelining sends entire call graphs in a single round trip. For chained operations, this is 5-10x faster than sequential REST calls.
+</Callout>
+
+## Developer Experience
+
+| Aspect | REST | RPC | MCP |
+|--------|------|-----|-----|
+| **Schema definition** | OpenAPI spec | Method signatures | `$mcp` config |
+| **Client generation** | Yes (codegen) | No (proxy) | Yes (tools/list) |
+| **Documentation** | Swagger UI | Code is contract | Auto from config |
+| **Debugging** | Browser DevTools | Custom inspector | JSON-RPC logs |
+| **Learning curve** | Minimal | Moderate | Minimal |
+
+## Features
+
+| Feature | REST | RPC | MCP |
+|--------|------|-----|-----|
+| **CRUD operations** | Native | Via methods | Via tools |
+| **Promise pipelining** | No | Yes | No |
+| **Real-time updates** | Polling/SSE | WebSocket | SSE (notifications) |
+| **Sessions** | Stateless | Optional | Built-in |
+| **Pagination** | Query params | Collection methods | Resource reads |
+| **Caching** | HTTP headers | Manual | Session-scoped |
+
+## Security
+
+| Aspect | REST | RPC | MCP |
+|--------|------|-----|-----|
+| **Authentication** | Bearer token, API key | Same (via headers) | Same (via headers) |
+| **Authorization** | Route-based | Method-based | Tool-based roles |
+| **Rate limiting** | Standard middleware | Same | Same |
+| **Audit logging** | Request logs | Method logs | Tool call logs |
+
+## Use Case Suitability
+
+| Use Case | REST | RPC | MCP |
+|----------|------|-----|-----|
+| Public API | Excellent | Poor | Poor |
+| Third-party integrations | Excellent | Poor | Moderate |
+| Mobile apps | Good | Good | Poor |
+| Web apps (simple) | Excellent | Overkill | Poor |
+| Web apps (complex) | Good | Excellent | Poor |
+| Service-to-service | Good | Excellent | Poor |
+| AI agent integration | Moderate | Poor | Excellent |
+| Real-time features | Moderate | Excellent | Moderate |
+| Bulk operations | Moderate | Excellent | Moderate |
+
+## Protocol Details
+
+### REST
+
+```
+Endpoints:
+  GET    /api/customers          → list()
+  POST   /api/customers          → create(body)
+  GET    /api/customers/:id      → get(id)
+  PUT    /api/customers/:id      → update(id, body)
+  DELETE /api/customers/:id      → delete(id)
+
+Headers:
+  Content-Type: application/json
+  Authorization: Bearer <token>
+
+Response:
+  200 OK + JSON body
+  201 Created + Location header
+  404 Not Found
+```
+
+[Full REST Documentation](/docs/api)
+
+### RPC
+
+```
+Transport:
+  WebSocket (preferred): wss://api.example.com/rpc
+  HTTP fallback: POST https://api.example.com/rpc
+
+Message format:
+  { method: 'Customer.search', args: ['acme'], pipeline: [...] }
+
+Pipeline graph:
+  [
+    { id: 0, method: 'priya', args: ['define MVP'] },
+    { id: 1, method: 'ralph', args: ['build'], deps: ['$0'] },
+    { id: 2, method: 'tom', args: ['ship'], deps: ['$1'] }
+  ]
+
+Response:
+  { result: <final value>, resolved: { '$0': ..., '$1': ... } }
+```
+
+[Full RPC Documentation](/docs/rpc)
+
+### MCP
+
+```
+Endpoint:
+  POST /mcp (JSON-RPC requests)
+  GET  /mcp (SSE notifications)
+  DELETE /mcp (terminate session)
+
+Request:
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": { "name": "search", "arguments": { "query": "acme" } }
+  }
+
+Response:
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": { "content": [{ "type": "text", "text": "[...]" }] }
+  }
+
+Session:
+  Mcp-Session-Id header for stateful interactions
+```
+
+[Full MCP Documentation](/docs/mcp)
+
+## When to Mix Protocols
+
+Most applications use multiple protocols:
+
+| Layer | Protocol | Reason |
+|-------|----------|--------|
+| Public API | REST | Third-party compatibility |
+| Internal services | RPC | Performance |
+| AI integrations | MCP | Agent tooling |
+| Admin dashboard | RPC | Real-time updates |
+| Mobile app | REST | Standard client libraries |
+
+<Callout type="warn" title="Don't Overthink It">
+Start with REST for external APIs, RPC for internal calls, MCP for AI. Refine based on actual usage patterns.
+</Callout>
+
+## Migration Paths
+
+### REST to RPC
+
+When REST performance becomes a bottleneck:
+
+1. Keep REST for external consumers
+2. Add RPC for internal service calls
+3. Use RPC for any operation requiring 3+ chained calls
+
+### Adding MCP
+
+When integrating AI agents:
+
+1. Add `$mcp` configuration to existing DOs
+2. Methods already exist - just expose as tools
+3. AI agents get tool discovery via `tools/list`
+
+## Summary
+
+| When you need... | Use... |
+|------------------|--------|
+| Standard API semantics | REST |
+| Maximum performance | RPC |
+| AI agent integration | MCP |
+| Public documentation | REST |
+| Real-time streaming | RPC |
+| Tool auto-discovery | MCP |
+| Minimal learning curve | REST or MCP |
+| Promise pipelining | RPC |
