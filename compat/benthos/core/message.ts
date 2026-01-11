@@ -142,12 +142,7 @@ export class BenthosMessage {
    */
   json(path?: string): unknown {
     if (this._jsonCache === undefined) {
-      try {
-        this._jsonCache = JSON.parse(this.content)
-      } catch {
-        // If content isn't valid JSON, return the raw string
-        this._jsonCache = this.content
-      }
+      this._jsonCache = JSON.parse(this.content)
     }
 
     if (!path) {
