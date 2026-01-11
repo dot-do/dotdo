@@ -367,7 +367,7 @@ State Change → Pipeline.send() → Stream Buffer → Sink → R2
 2. Create Stream with schema
 3. Create Sink pointing to R2 Data Catalog
 4. Add Pipeline binding to wrangler.toml
-5. Implement `env.PIPELINE.send()` in DO
+5. Implement `env.PIPELINE.send()` in DO (see `db/compat/sql/clickhouse/spikes/pipelines-write-poc.ts`)
 
 ### Phase 2: Schema and Transforms
 
