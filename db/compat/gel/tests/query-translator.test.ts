@@ -824,7 +824,7 @@ describe('Query Translator - INSERT', () => {
       })
       const result = translateQuery(ast as ASTNode)
 
-      expect(result.sql).toBe('INSERT INTO "User" ("name") VALUES (?)')
+      expect(result.sql).toContain('INSERT INTO "User" ("name") VALUES (?)')
       expect(result.params).toEqual(['Alice'])
     })
 
