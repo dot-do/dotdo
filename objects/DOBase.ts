@@ -118,6 +118,9 @@ import {
   canAccessVisibility,
   getHighestRole,
 } from '../types/introspect'
+import type { DOLocation } from '../types/Location'
+import { codeToCity, coloRegion, regionToCF } from '../types/Location'
+import { LocationCache, LOCATION_STORAGE_KEY } from '../lib/colo/caching'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -502,6 +505,161 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // LOCATION DETECTION & CACHING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Cached location instance (in-memory) */
+  private _cachedLocation?: DOLocation
+
+  /** Flag to track if location hook was already called */
+  private _locationHookCalled: boolean = false
+
+  /** Coordinates extracted from CF request headers */
+  private _extractedCoordinates?: { latitude: number; longitude: number }
+
+  /**
+   * Get the DO's location (with caching).
+   *
+   * On first call, detects location via Cloudflare's trace endpoint,
+   * caches it in storage, and calls the onLocationDetected hook.
+   * Subsequent calls return the cached location immediately.
+   *
+   * @returns Promise resolving to the DO's location
+   */
+  async getLocation(): Promise<DOLocation> {
+    // Return cached location if available
+    if (this._cachedLocation) {
+      return this._cachedLocation
+    }
+
+    // Check DO storage for persisted location
+    const cached = await this.ctx.storage.get<{
+      colo: string
+      city: string
+      region: string
+      cfHint: string
+      detectedAt: string | Date
+      coordinates?: { latitude: number; longitude: number }
+    }>(LOCATION_STORAGE_KEY)
+
+    if (cached) {
+      // Restore from storage
+      this._cachedLocation = Object.freeze({
+        colo: cached.colo,
+        city: cached.city,
+        region: cached.region,
+        cfHint: cached.cfHint,
+        detectedAt: cached.detectedAt instanceof Date
+          ? cached.detectedAt
+          : new Date(cached.detectedAt),
+        coordinates: cached.coordinates,
+      }) as DOLocation
+      return this._cachedLocation
+    }
+
+    // Detect fresh location
+    const location = await this._detectLocation()
+
+    // Cache in memory (frozen for immutability)
+    this._cachedLocation = Object.freeze(location) as DOLocation
+
+    // Persist to storage
+    await this.ctx.storage.put(LOCATION_STORAGE_KEY, {
+      colo: location.colo,
+      city: location.city,
+      region: location.region,
+      cfHint: location.cfHint,
+      detectedAt: location.detectedAt.toISOString(),
+      coordinates: location.coordinates,
+    })
+
+    // Call lifecycle hook (only once)
+    if (!this._locationHookCalled) {
+      this._locationHookCalled = true
+      try {
+        await this.onLocationDetected(this._cachedLocation)
+      } catch (error) {
+        // Log but don't propagate hook errors
+        console.error('Error in onLocationDetected hook:', error)
+      }
+    }
+
+    return this._cachedLocation
+  }
+
+  /**
+   * Internal method to detect location from Cloudflare's trace endpoint.
+   * Override in tests to provide mock location data.
+   *
+   * @returns Promise resolving to detected DOLocation
+   */
+  async _detectLocation(): Promise<DOLocation> {
+    try {
+      // Fetch from Cloudflare's trace endpoint
+      const response = await fetch('https://cloudflare.com/cdn-cgi/trace')
+      if (!response.ok) {
+        throw new Error(`Trace endpoint returned ${response.status}`)
+      }
+
+      const text = await response.text()
+      const lines = text.split('\n')
+      const data: Record<string, string> = {}
+
+      for (const line of lines) {
+        const [key, value] = line.split('=')
+        if (key && value) {
+          data[key.trim()] = value.trim()
+        }
+      }
+
+      const coloCode = (data.colo || 'lax').toLowerCase()
+      const city = codeToCity[coloCode as keyof typeof codeToCity] || 'LosAngeles'
+      const region = coloRegion[coloCode as keyof typeof coloRegion] || 'us-west'
+      const cfHint = regionToCF[region as keyof typeof regionToCF] || 'wnam'
+
+      const location: DOLocation = {
+        colo: coloCode,
+        city,
+        region,
+        cfHint,
+        detectedAt: new Date(),
+      }
+
+      // Add coordinates if extracted from request
+      if (this._extractedCoordinates) {
+        location.coordinates = this._extractedCoordinates
+      }
+
+      return location
+    } catch (error) {
+      // Fallback to default location on error
+      console.error('Failed to detect location:', error)
+      const location: DOLocation = {
+        colo: 'lax',
+        city: 'LosAngeles',
+        region: 'us-west',
+        cfHint: 'wnam',
+        detectedAt: new Date(),
+      }
+      if (this._extractedCoordinates) {
+        location.coordinates = this._extractedCoordinates
+      }
+      return location
+    }
+  }
+
+  /**
+   * Lifecycle hook called when location is first detected.
+   * Override in subclasses to perform custom actions.
+   *
+   * @param location - The detected DO location
+   */
+  protected async onLocationDetected(location: DOLocation): Promise<void> {
+    // Default implementation does nothing
+    // Subclasses can override to react to location detection
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // WORKFLOW CONTEXT ($)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -524,6 +682,12 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
   protected createWorkflowContext(): WorkflowContext {
     const self = this
+
+    // List of known properties for hasOwnProperty checks
+    const knownProperties = new Set([
+      'send', 'try', 'do', 'on', 'every', 'log', 'state', 'location',
+      'ai', 'write', 'summarize', 'list', 'extract', 'is', 'decide',
+    ])
 
     return new Proxy({} as WorkflowContext, {
       get(_, prop: string) {
@@ -548,6 +712,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           case 'state':
             return {}
 
+          // Location access (lazy, returns Promise)
+          case 'location':
+            return self.getLocation()
+
           // AI Functions - Generation
           case 'ai':
             return aiFunc
@@ -570,6 +738,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
             // Domain resolution: $.Noun(id)
             return (id: string) => self.createDomainProxy(prop, id)
         }
+      },
+      has(_, prop: string | symbol) {
+        // Support `in` operator and hasOwnProperty checks for known properties
+        return knownProperties.has(String(prop))
       },
     })
   }
@@ -2192,6 +2364,16 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
   protected override async handleFetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
+
+    // Extract coordinates from CF request headers if available
+    const cf = (request as Request & { cf?: { latitude?: string; longitude?: string } }).cf
+    if (cf?.latitude && cf?.longitude && !this._extractedCoordinates) {
+      const lat = parseFloat(cf.latitude)
+      const lng = parseFloat(cf.longitude)
+      if (!isNaN(lat) && !isNaN(lng)) {
+        this._extractedCoordinates = { latitude: lat, longitude: lng }
+      }
+    }
 
     // Built-in routes
     if (url.pathname === '/health') {

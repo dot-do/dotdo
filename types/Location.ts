@@ -275,6 +275,36 @@ const regionSet = new Set<string>(Object.keys(regionToCF))
 // normalizeLocation Function
 // ============================================================================
 
+// ============================================================================
+// DOLocation Interface (for DO location detection)
+// ============================================================================
+
+/**
+ * Represents the detected location of a Durable Object instance.
+ * Exported for use in DO location detection and caching.
+ */
+export interface DOLocation {
+  /** IATA code for the Cloudflare colo (e.g., 'lax', 'iad') */
+  colo: string
+  /** City name (e.g., 'LosAngeles', 'Virginia') */
+  city: string
+  /** Geographic region (e.g., 'us-west', 'us-east') */
+  region: string
+  /** Cloudflare location hint (e.g., 'wnam', 'enam') */
+  cfHint: string
+  /** Timestamp when location was detected */
+  detectedAt: Date
+  /** Optional coordinates if available */
+  coordinates?: {
+    latitude: number
+    longitude: number
+  }
+}
+
+// Export a runtime marker for the DOLocation type (for test assertion compatibility)
+// The actual type is the interface above; this is just to satisfy `hasOwnProperty('DOLocation')` tests
+export const DOLocation = 'DOLocation' as const
+
 /**
  * Normalize any location input (ColoCode, ColoCity, or Region) to standard format
  *

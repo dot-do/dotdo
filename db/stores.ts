@@ -360,6 +360,7 @@ export interface DOObjectEntity {
   shardKey?: string | null
   shardIndex?: number | null
   region?: string | null
+  colo?: string | null
   primary?: boolean | null
   cached?: Record<string, unknown> | null
   createdAt: Date
@@ -373,12 +374,27 @@ export interface ObjectsRegisterOptions {
   shardKey?: string
   shardIndex?: number
   region?: string
+  colo?: string
+  primary?: boolean
+}
+
+export interface ObjectsCreateOptions {
+  ns: string
+  doId: string
+  doClass: string
+  relation?: string
+  shardKey?: string
+  shardIndex?: number
+  region?: string
+  colo?: string
   primary?: boolean
 }
 
 export interface ObjectsListOptions {
   relation?: string
   class?: string
+  region?: string
+  colo?: string
 }
 
 // ============================================================================
@@ -1620,6 +1636,23 @@ export class SearchStore {
 export class ObjectsStore {
   constructor(private ctx: StoreContext) {}
 
+  /**
+   * Create a new object registration (alias for register with test-friendly signature)
+   */
+  async create(options: ObjectsCreateOptions): Promise<DOObjectEntity> {
+    return this.register({
+      ns: options.ns,
+      id: options.doId,
+      class: options.doClass,
+      relation: options.relation,
+      shardKey: options.shardKey,
+      shardIndex: options.shardIndex,
+      region: options.region,
+      colo: options.colo,
+      primary: options.primary,
+    })
+  }
+
   async register(options: ObjectsRegisterOptions): Promise<DOObjectEntity> {
     const now = new Date()
 
@@ -1654,6 +1687,7 @@ export class ObjectsStore {
       shardKey: options.shardKey ?? null,
       shardIndex: options.shardIndex ?? null,
       region: options.region ?? null,
+      colo: options.colo ?? null,
       primary: options.primary ?? null,
       createdAt: now,
     }
@@ -1669,6 +1703,8 @@ export class ObjectsStore {
     if (results.length === 0) return null
 
     const r = results[0]
+    // Extract colo from cached data if available (stored there since not in schema)
+    const cached = r.cached as Record<string, unknown> | null
     return {
       ns: r.ns,
       id: r.id,
@@ -1677,8 +1713,9 @@ export class ObjectsStore {
       shardKey: r.shardKey,
       shardIndex: r.shardIndex,
       region: r.region,
+      colo: cached?.colo as string | null ?? null,
       primary: r.primary,
-      cached: r.cached as Record<string, unknown> | null,
+      cached: cached,
       createdAt: r.createdAt,
     }
   }
@@ -1687,6 +1724,7 @@ export class ObjectsStore {
     const conditions: ReturnType<typeof eq>[] = []
     if (options.relation) conditions.push(eq(schema.objects.relation, options.relation as any))
     if (options.class) conditions.push(eq(schema.objects.class, options.class))
+    if (options.region) conditions.push(eq(schema.objects.region, options.region))
 
     let results
     if (conditions.length > 0) {
@@ -1700,18 +1738,30 @@ export class ObjectsStore {
         .from(schema.objects)
     }
 
-    return results.map((r) => ({
-      ns: r.ns,
-      id: r.id,
-      class: r.class,
-      relation: r.relation,
-      shardKey: r.shardKey,
-      shardIndex: r.shardIndex,
-      region: r.region,
-      primary: r.primary,
-      cached: r.cached as Record<string, unknown> | null,
-      createdAt: r.createdAt,
-    }))
+    // Map results and filter by colo if specified (colo is stored in cached field)
+    let mapped = results.map((r) => {
+      const cached = r.cached as Record<string, unknown> | null
+      return {
+        ns: r.ns,
+        id: r.id,
+        class: r.class,
+        relation: r.relation,
+        shardKey: r.shardKey,
+        shardIndex: r.shardIndex,
+        region: r.region,
+        colo: cached?.colo as string | null ?? null,
+        primary: r.primary,
+        cached: cached,
+        createdAt: r.createdAt,
+      }
+    })
+
+    // Filter by colo if specified (done in JS since colo is in cached JSON)
+    if (options.colo) {
+      mapped = mapped.filter((r) => r.colo === options.colo)
+    }
+
+    return mapped
   }
 
   async shards(key: string): Promise<DOObjectEntity[]> {
@@ -1720,18 +1770,22 @@ export class ObjectsStore {
       .from(schema.objects)
       .where(eq(schema.objects.shardKey, key))
 
-    return results.map((r) => ({
-      ns: r.ns,
-      id: r.id,
-      class: r.class,
-      relation: r.relation,
-      shardKey: r.shardKey,
-      shardIndex: r.shardIndex,
-      region: r.region,
-      primary: r.primary,
-      cached: r.cached as Record<string, unknown> | null,
-      createdAt: r.createdAt,
-    }))
+    return results.map((r) => {
+      const cached = r.cached as Record<string, unknown> | null
+      return {
+        ns: r.ns,
+        id: r.id,
+        class: r.class,
+        relation: r.relation,
+        shardKey: r.shardKey,
+        shardIndex: r.shardIndex,
+        region: r.region,
+        colo: cached?.colo as string | null ?? null,
+        primary: r.primary,
+        cached: cached,
+        createdAt: r.createdAt,
+      }
+    })
   }
 
   async primary(ns: string): Promise<DOObjectEntity | null> {
