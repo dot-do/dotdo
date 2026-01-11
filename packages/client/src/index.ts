@@ -9,6 +9,18 @@
  * - Request batching for efficiency
  * - Real-time event subscriptions
  * - Offline queue for resilience
+ *
+ * @example
+ * ```typescript
+ * // Pre-configured client (uses DOTDO_NAMESPACE env or localhost)
+ * import { $ } from '@dotdo/client'
+ * await $.Customer('alice').profile.email
+ *
+ * // Explicit namespace
+ * import { $Context } from '@dotdo/client'
+ * const $ = $Context('https://api.example.com')
+ * await $.User(id).update(data)
+ * ```
  */
 
 // =============================================================================
@@ -880,6 +892,201 @@ export function createClient<TMethods = Record<string, (...args: unknown[]) => u
 
   return proxy
 }
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+/**
+ * SDK configuration
+ */
+export interface SdkConfig {
+  /** Default namespace URL */
+  namespace?: string
+  /** Base URL for local development (default: http://localhost:8787) */
+  localUrl?: string
+  /** Whether we're in development mode */
+  isDev?: boolean
+}
+
+// Global config cache
+let _config: SdkConfig | null = null
+
+// Session cache for reusing connections
+const sessions = new Map<string, DOClient<unknown, unknown>>()
+
+/**
+ * Get or load the SDK configuration
+ */
+function getConfig(): SdkConfig {
+  if (_config) return _config
+
+  // Check environment variables
+  const namespace = typeof process !== 'undefined' ? process.env?.DOTDO_NAMESPACE : undefined
+  const localUrl = typeof process !== 'undefined' ? process.env?.DOTDO_LOCAL_URL : undefined
+  const isDev =
+    typeof process !== 'undefined'
+      ? process.env?.NODE_ENV === 'development' || process.env?.DOTDO_DEV === 'true'
+      : false
+
+  _config = {
+    namespace,
+    localUrl: localUrl || 'http://localhost:8787',
+    isDev,
+  }
+
+  return _config
+}
+
+/**
+ * Configure the SDK (call before using $)
+ */
+export function configure(config: SdkConfig): void {
+  _config = { ...getConfig(), ...config }
+}
+
+/**
+ * Get the effective namespace URL
+ */
+function getNamespace(): string {
+  const config = getConfig()
+
+  // In development, use local URL
+  if (config.isDev) {
+    return config.localUrl || 'http://localhost:8787'
+  }
+
+  // Use configured namespace
+  if (config.namespace) {
+    return config.namespace
+  }
+
+  // Fallback to local
+  return config.localUrl || 'http://localhost:8787'
+}
+
+/**
+ * Dispose of a session for a namespace
+ */
+export function disposeSession(namespace: string): void {
+  const session = sessions.get(namespace)
+  if (session) {
+    session.disconnect()
+    sessions.delete(namespace)
+  }
+}
+
+/**
+ * Dispose of all sessions
+ */
+export function disposeAllSessions(): void {
+  sessions.forEach((session) => {
+    session.disconnect()
+  })
+  sessions.clear()
+}
+
+// =============================================================================
+// $ and $Context
+// =============================================================================
+
+/**
+ * Create an RPC client for a specific namespace URL.
+ *
+ * @param namespace - The namespace URL (e.g., 'https://api.example.com')
+ * @returns An RPC client with promise pipelining support
+ *
+ * @example
+ * ```typescript
+ * import { $Context } from '@dotdo/client'
+ *
+ * const $ = $Context('https://api.example.com')
+ * await $.Customer('alice').profile.email
+ * ```
+ */
+export function $Context(namespace: string): DOClient<Record<string, unknown>, Record<string, unknown>> {
+  if (!namespace) {
+    throw new Error('Namespace URL is required')
+  }
+
+  // Check for existing session
+  const existing = sessions.get(namespace)
+  if (existing) {
+    return existing as DOClient<Record<string, unknown>, Record<string, unknown>>
+  }
+
+  // Create new client
+  const client = createClient(namespace)
+  sessions.set(namespace, client as DOClient<unknown, unknown>)
+
+  return client as DOClient<Record<string, unknown>, Record<string, unknown>>
+}
+
+/**
+ * Pre-configured RPC client.
+ *
+ * Uses namespace from:
+ * 1. DOTDO_NAMESPACE environment variable
+ * 2. Local dev server (http://localhost:8787) in development
+ *
+ * @example
+ * ```typescript
+ * import { $ } from '@dotdo/client'
+ *
+ * // Promise pipelining - these all batch into one round trip
+ * const [alice, bob] = await Promise.all([
+ *   $.Customer('alice'),
+ *   $.Customer('bob')
+ * ])
+ *
+ * // Deep chaining with pipelining
+ * await $.Customer('alice').orders.create({ product: 'widget' })
+ * ```
+ */
+export const $: DOClient<Record<string, unknown>, Record<string, unknown>> = new Proxy(
+  {} as DOClient<Record<string, unknown>, Record<string, unknown>>,
+  {
+    get(_target, prop) {
+      // Handle special properties
+      if (prop === 'connectionState' || prop === 'config' || prop === 'queuedCallCount') {
+        const namespace = getNamespace()
+        const client = $Context(namespace)
+        return client[prop as keyof typeof client]
+      }
+
+      // Handle methods
+      if (
+        prop === 'on' ||
+        prop === 'off' ||
+        prop === 'subscribe' ||
+        prop === 'configure' ||
+        prop === 'clearQueue' ||
+        prop === 'disconnect'
+      ) {
+        const namespace = getNamespace()
+        const client = $Context(namespace) as unknown as Record<string, unknown>
+        const method = client[prop]
+        if (typeof method === 'function') {
+          return (method as Function).bind(client)
+        }
+        return method
+      }
+
+      // For RPC methods, delegate to the namespace client
+      if (typeof prop === 'string') {
+        const namespace = getNamespace()
+        const client = $Context(namespace) as unknown as Record<string, unknown>
+        const method = client[prop]
+        if (typeof method === 'function') {
+          return method.bind(client)
+        }
+        return method
+      }
+
+      return undefined
+    },
+  }
+)
 
 // =============================================================================
 // Exports
