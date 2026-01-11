@@ -8,6 +8,8 @@
  * - Checkpoint coordination for distributed recovery
  */
 
+import { type MetricsCollector, noopMetrics, MetricNames } from './observability'
+
 /** Options for configuring the ExactlyOnceContext */
 export interface ExactlyOnceContextOptions {
   /** TTL for processed event IDs (ms) */
@@ -16,6 +18,8 @@ export interface ExactlyOnceContextOptions {
   maxBufferedEvents?: number
   /** Callback for delivering events */
   onDeliver?: (events: unknown[]) => Promise<void>
+  /** Optional metrics collector for observability */
+  metrics?: MetricsCollector
 }
 
 /** Checkpoint barrier for distributed coordination */
@@ -105,15 +109,20 @@ export class ExactlyOnceContext implements ExactlyOnceContextInterface {
   private epoch: number = 0
   private processingLocks: Map<string, Promise<unknown>> = new Map()
   private transactionLock: Promise<unknown> | null = null
+  private metrics: MetricsCollector
 
   constructor(options?: ExactlyOnceContextOptions) {
     this.options = options ?? {}
+    this.metrics = options?.metrics ?? noopMetrics
   }
 
   async processOnce<T>(eventId: string, fn: () => Promise<T>): Promise<T> {
+    const start = performance.now()
+
     // Check if already being processed (concurrent call)
     const existingLock = this.processingLocks.get(eventId)
     if (existingLock) {
+      this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_DUPLICATES)
       return existingLock as Promise<T>
     }
 
@@ -122,30 +131,51 @@ export class ExactlyOnceContext implements ExactlyOnceContextInterface {
     if (entry) {
       const ttl = this.options.eventIdTtl
       if (ttl === undefined || Date.now() - entry.timestamp < ttl) {
+        this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_DUPLICATES)
+        this.metrics.recordLatency(MetricNames.EXACTLY_ONCE_PROCESS_LATENCY, performance.now() - start)
         return entry.result as T
       }
       // TTL expired, remove entry
       this.processedIds.delete(eventId)
     }
 
-    // Create processing promise with lock
-    const processingPromise = (async () => {
-      try {
-        const result = await fn()
+    // RACE CONDITION FIX: Create a deferred promise pattern where we set the lock
+    // synchronously BEFORE any async work begins. This prevents concurrent calls
+    // from sneaking through between checking and setting the lock.
+    let resolvePromise!: (value: T | PromiseLike<T>) => void
+    let rejectPromise!: (error: unknown) => void
+    const processingPromise = new Promise<T>((resolve, reject) => {
+      resolvePromise = resolve
+      rejectPromise = reject
+    })
+
+    // Set lock immediately (synchronously) before any await
+    this.processingLocks.set(eventId, processingPromise)
+
+    const metrics = this.metrics
+    // Execute the async work and resolve/reject the deferred promise
+    // We use .then() to avoid dual paths that cause unhandled rejections
+    fn()
+      .then((result) => {
         // Mark as processed only on success
         this.processedIds.set(eventId, {
           timestamp: Date.now(),
           result,
         })
-        return result
-      } finally {
+        metrics.incrementCounter(MetricNames.EXACTLY_ONCE_PROCESSED)
+        metrics.recordGauge(MetricNames.EXACTLY_ONCE_PROCESSED_IDS, this.processedIds.size)
+        resolvePromise(result)
+      })
+      .catch((error) => {
+        rejectPromise(error)
+      })
+      .finally(() => {
         // Always release lock
         this.processingLocks.delete(eventId)
-      }
-    })()
+        metrics.recordLatency(MetricNames.EXACTLY_ONCE_PROCESS_LATENCY, performance.now() - start)
+      })
 
-    this.processingLocks.set(eventId, processingPromise)
-    return processingPromise as Promise<T>
+    return processingPromise
   }
 
   async isProcessed(eventId: string): Promise<boolean> {
@@ -161,74 +191,95 @@ export class ExactlyOnceContext implements ExactlyOnceContextInterface {
   }
 
   async transaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
-    // Wait for any existing transaction
-    while (this.transactionLock) {
-      await this.transactionLock
-    }
-
-    // Create a snapshot for rollback
-    const stateSnapshot = new Map(this.state)
-    const eventsSnapshot = [...this.pendingEvents]
-
-    // Transaction buffer for events
-    const txEvents: unknown[] = []
-
-    const tx: Transaction = {
-      get: async (key: string): Promise<unknown> => {
-        return this.state.get(key)
-      },
-      put: async (key: string, value: unknown): Promise<void> => {
-        this.state.set(key, value)
-      },
-      delete: async (key: string): Promise<void> => {
-        this.state.delete(key)
-      },
-      emit: (event: unknown): void => {
-        txEvents.push(event)
-      },
-    }
-
-    const txPromise = (async () => {
-      try {
-        const result = await fn(tx)
-        // Commit: add transaction events to pending
-        this.pendingEvents.push(...txEvents)
-        return result
-      } catch (error) {
-        // Rollback: restore state
-        this.state = stateSnapshot
-        this.pendingEvents = eventsSnapshot
-        throw error
-      } finally {
-        this.transactionLock = null
+    const start = performance.now()
+    try {
+      // Wait for any existing transaction
+      while (this.transactionLock) {
+        await this.transactionLock
       }
-    })()
 
-    this.transactionLock = txPromise
-    return txPromise
+      // Create a snapshot for rollback
+      const stateSnapshot = new Map(this.state)
+      const eventsSnapshot = [...this.pendingEvents]
+
+      // Transaction buffer for events
+      const txEvents: unknown[] = []
+
+      const tx: Transaction = {
+        get: async (key: string): Promise<unknown> => {
+          return this.state.get(key)
+        },
+        put: async (key: string, value: unknown): Promise<void> => {
+          this.state.set(key, value)
+        },
+        delete: async (key: string): Promise<void> => {
+          this.state.delete(key)
+        },
+        emit: (event: unknown): void => {
+          txEvents.push(event)
+        },
+      }
+
+      const txPromise = (async () => {
+        try {
+          const result = await fn(tx)
+          // Commit: add transaction events to pending
+          this.pendingEvents.push(...txEvents)
+          this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_TRANSACTIONS)
+          if (txEvents.length > 0) {
+            this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_EVENTS_EMITTED, undefined, txEvents.length)
+          }
+          this.metrics.recordGauge(MetricNames.EXACTLY_ONCE_BUFFERED_EVENTS, this.pendingEvents.length)
+          return result
+        } catch (error) {
+          // Rollback: restore state
+          this.state = stateSnapshot
+          this.pendingEvents = eventsSnapshot
+          this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_TRANSACTION_ROLLBACKS)
+          throw error
+        } finally {
+          this.transactionLock = null
+        }
+      })()
+
+      this.transactionLock = txPromise
+      return txPromise
+    } finally {
+      this.metrics.recordLatency(MetricNames.EXACTLY_ONCE_TRANSACTION_LATENCY, performance.now() - start)
+    }
   }
 
   emit(event: unknown): void {
     this.pendingEvents.push(event)
+    this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_EVENTS_EMITTED)
+    this.metrics.recordGauge(MetricNames.EXACTLY_ONCE_BUFFERED_EVENTS, this.pendingEvents.length)
   }
 
   async flush(): Promise<void> {
-    if (this.pendingEvents.length === 0) return
+    const start = performance.now()
+    try {
+      if (this.pendingEvents.length === 0) return
 
-    const eventsToDeliver = [...this.pendingEvents]
+      const eventsToDeliver = [...this.pendingEvents]
 
-    if (this.options.onDeliver) {
-      try {
-        await this.options.onDeliver(eventsToDeliver)
-        // Clear buffer only on success
+      if (this.options.onDeliver) {
+        try {
+          await this.options.onDeliver(eventsToDeliver)
+          // Clear buffer only on success
+          this.pendingEvents = []
+          this.metrics.incrementCounter(MetricNames.EXACTLY_ONCE_EVENTS_DELIVERED, undefined, eventsToDeliver.length)
+          this.metrics.recordGauge(MetricNames.EXACTLY_ONCE_BUFFERED_EVENTS, 0)
+        } catch (error) {
+          // Preserve events for retry
+          throw error
+        }
+      } else {
+        // No delivery handler, just clear
         this.pendingEvents = []
-      } catch (error) {
-        // Preserve events for retry
-        throw error
+        this.metrics.recordGauge(MetricNames.EXACTLY_ONCE_BUFFERED_EVENTS, 0)
       }
-    } else {
-      // No delivery handler, just clear
-      this.pendingEvents = []
+    } finally {
+      this.metrics.recordLatency(MetricNames.EXACTLY_ONCE_FLUSH_LATENCY, performance.now() - start)
     }
   }
 

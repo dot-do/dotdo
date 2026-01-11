@@ -15,6 +15,8 @@
  * @module db/primitives/typed-column-store
  */
 
+import { murmurHash3_32 } from './utils/murmur3'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -78,69 +80,6 @@ export interface TypedColumnStore {
   minMax(column: string): { min: number; max: number }
   distinctCount(column: string): number
   bloomFilter(column: string): BloomFilter
-}
-
-// ============================================================================
-// MurmurHash3 Implementation (for Bloom Filter)
-// ============================================================================
-
-/**
- * MurmurHash3 32-bit implementation
- */
-function murmurHash3_32(key: Uint8Array, seed: number = 0): number {
-  const c1 = 0xcc9e2d51
-  const c2 = 0x1b873593
-  const r1 = 15
-  const r2 = 13
-  const m = 5
-  const n = 0xe6546b64
-
-  let hash = seed >>> 0
-  const len = key.length
-  const nblocks = Math.floor(len / 4)
-
-  // Process 4-byte blocks
-  for (let i = 0; i < nblocks; i++) {
-    const offset = i * 4
-    let k =
-      (key[offset] & 0xff) |
-      ((key[offset + 1] & 0xff) << 8) |
-      ((key[offset + 2] & 0xff) << 16) |
-      ((key[offset + 3] & 0xff) << 24)
-
-    k = Math.imul(k, c1)
-    k = (k << r1) | (k >>> (32 - r1))
-    k = Math.imul(k, c2)
-
-    hash ^= k
-    hash = (hash << r2) | (hash >>> (32 - r2))
-    hash = Math.imul(hash, m) + n
-  }
-
-  // Process remaining bytes
-  const tailOffset = nblocks * 4
-  let k1 = 0
-  const tail = len & 3
-
-  if (tail >= 3) k1 ^= (key[tailOffset + 2] & 0xff) << 16
-  if (tail >= 2) k1 ^= (key[tailOffset + 1] & 0xff) << 8
-  if (tail >= 1) {
-    k1 ^= key[tailOffset] & 0xff
-    k1 = Math.imul(k1, c1)
-    k1 = (k1 << r1) | (k1 >>> (32 - r1))
-    k1 = Math.imul(k1, c2)
-    hash ^= k1
-  }
-
-  // Finalization
-  hash ^= len
-  hash ^= hash >>> 16
-  hash = Math.imul(hash, 0x85ebca6b)
-  hash ^= hash >>> 13
-  hash = Math.imul(hash, 0xc2b2ae35)
-  hash ^= hash >>> 16
-
-  return hash >>> 0
 }
 
 // ============================================================================
@@ -499,12 +438,27 @@ class GorillaCodec {
   }
 
   decode(data: Uint8Array): number[] {
-    if (data.length < 4) return []
+    // Validate minimum buffer size for header
+    if (data.length < 4) {
+      if (data.length === 0) return []
+      throw new Error('Gorilla decode error: Buffer too small - expected at least 4 bytes for header')
+    }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const length = view.getUint32(0, true)
 
     if (length === 0) return []
+
+    // Validate buffer has enough data for at least the first value (8 bytes = 64 bits)
+    // Header (4 bytes) + at least 8 bytes for first float
+    if (data.length < 12) {
+      throw new Error('Gorilla decode error: Buffer truncated - insufficient data for first value')
+    }
+
+    // Sanity check: prevent unreasonable length values that could cause memory issues
+    if (length > 100_000_000) {
+      throw new Error(`Gorilla decode error: Invalid length ${length} - exceeds maximum allowed (100M values)`)
+    }
 
     const reader = new BitReader(data.slice(4))
 
@@ -547,6 +501,11 @@ class GorillaCodec {
           if (meaningfulBits === 0) meaningfulBits = 64
 
           trailingZeros = 64 - leadingZeros - meaningfulBits
+
+          // Validate block structure
+          if (trailingZeros < 0) {
+            throw new Error(`Gorilla decode error: Invalid block structure at value ${i} - leadingZeros(${leadingZeros}) + meaningfulBits(${meaningfulBits}) > 64`)
+          }
 
           prevLeadingZeros = leadingZeros
           prevMeaningfulBits = meaningfulBits
@@ -664,12 +623,26 @@ class DeltaCodec {
   }
 
   decode(data: Uint8Array): number[] {
-    if (data.length < 4) return []
+    // Validate minimum buffer size for header
+    if (data.length < 4) {
+      if (data.length === 0) return []
+      throw new Error('Delta decode error: Buffer too small - expected at least 4 bytes for header')
+    }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const length = view.getUint32(0, true)
 
     if (length === 0) return []
+
+    // Validate buffer has enough data for header (4 bytes) + first value (8 bytes)
+    if (data.length < 12) {
+      throw new Error('Delta decode error: Buffer truncated - insufficient data for first value')
+    }
+
+    // Sanity check: prevent unreasonable length values that could cause memory issues
+    if (length > 100_000_000) {
+      throw new Error(`Delta decode error: Invalid length ${length} - exceeds maximum allowed (100M values)`)
+    }
 
     // Read first value
     const firstValue = Number(view.getBigInt64(4, true))
@@ -848,21 +821,59 @@ class RLECodec {
   }
 
   decode(data: Uint8Array): number[] {
-    if (data.length < 4) return []
+    // Validate minimum buffer size for header
+    if (data.length < 4) {
+      if (data.length === 0) return []
+      throw new Error('RLE decode error: Buffer too small - expected at least 4 bytes for header')
+    }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const originalLength = view.getUint32(0, true)
 
     if (originalLength === 0) return []
 
+    // Validate buffer has enough data for header (4 bytes) + numRuns (4 bytes)
+    if (data.length < 8) {
+      throw new Error('RLE decode error: Buffer truncated - insufficient data for run count')
+    }
+
+    // Sanity check: prevent unreasonable length values that could cause memory issues
+    if (originalLength > 100_000_000) {
+      throw new Error(`RLE decode error: Invalid original length ${originalLength} - exceeds maximum allowed (100M values)`)
+    }
+
     const numRuns = view.getUint32(4, true)
+
+    // Sanity check: number of runs should be reasonable
+    if (numRuns > 100_000_000) {
+      throw new Error(`RLE decode error: Invalid number of runs ${numRuns} - exceeds maximum allowed (100M runs)`)
+    }
+
+    // Validate buffer has enough data for all runs (each run is 12 bytes: 8B value + 4B count)
+    const expectedDataSize = 8 + numRuns * 12
+    if (data.length < expectedDataSize) {
+      throw new Error(`RLE decode error: Buffer truncated - expected ${expectedDataSize} bytes for ${numRuns} runs, got ${data.length}`)
+    }
+
     const values: number[] = []
 
     let offset = 8
+    let totalCount = 0
     for (let i = 0; i < numRuns; i++) {
       const value = view.getFloat64(offset, true)
       const count = view.getUint32(offset + 8, true)
       offset += 12
+
+      // Validate individual run count
+      if (count > 100_000_000) {
+        throw new Error(`RLE decode error: Invalid run count ${count} at run ${i} - exceeds maximum allowed`)
+      }
+
+      totalCount += count
+      // Check for overflow or mismatch
+      if (totalCount > originalLength) {
+        throw new Error(`RLE decode error: Run data exceeds declared original length (${totalCount} > ${originalLength})`)
+      }
 
       for (let j = 0; j < count; j++) {
         values.push(value)
@@ -907,17 +918,49 @@ class ZstdCodec {
   }
 
   decode(data: Uint8Array): number[] {
-    if (data.length < 8) return []
+    // Validate minimum buffer size for length field
+    if (data.length < 4) {
+      if (data.length === 0) return []
+      throw new Error('ZSTD decode error: Buffer too small - expected at least 4 bytes for header')
+    }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const length = view.getUint32(0, true)
 
+    // Empty array case - encoder outputs only 4 bytes with length=0
     if (length === 0) return []
 
+    // For non-empty data, we need the full header (8 bytes)
+    if (data.length < 8) {
+      throw new Error('ZSTD decode error: Buffer truncated - insufficient data for compressed length field')
+    }
+
+    // Sanity check: prevent unreasonable length values that could cause memory issues
+    if (length > 100_000_000) {
+      throw new Error(`ZSTD decode error: Invalid length ${length} - exceeds maximum allowed (100M values)`)
+    }
+
     const compressedLength = view.getUint32(4, true)
+
+    // Validate compressed length is reasonable
+    if (compressedLength > data.length - 8) {
+      throw new Error(`ZSTD decode error: Buffer truncated - compressed length ${compressedLength} exceeds available data ${data.length - 8}`)
+    }
+
+    // Sanity check: compressed data should not claim to be larger than possible
+    if (compressedLength > 1_000_000_000) {
+      throw new Error(`ZSTD decode error: Invalid compressed length ${compressedLength} - exceeds maximum allowed`)
+    }
+
     const compressed = data.slice(8, 8 + compressedLength)
 
     const decompressed = this.decompress(compressed, length * 8)
+
+    // Validate decompressed data is correct size
+    if (decompressed.length < length * 8) {
+      throw new Error(`ZSTD decode error: Decompressed data size mismatch - expected ${length * 8} bytes, got ${decompressed.length}`)
+    }
+
     const decompView = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength)
 
     const values: number[] = []
@@ -1046,6 +1089,66 @@ interface ColumnInfo {
   data: unknown[]
 }
 
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+/**
+ * Check if a column type is numeric (can be aggregated)
+ */
+function isNumericColumnType(type: ColumnType): type is 'int64' | 'float64' | 'timestamp' {
+  return type === 'int64' || type === 'float64' || type === 'timestamp'
+}
+
+/**
+ * Check if a column type is comparable (supports ordering operators)
+ */
+function isComparableColumnType(type: ColumnType): type is 'int64' | 'float64' | 'timestamp' | 'string' {
+  return type === 'int64' || type === 'float64' || type === 'timestamp' || type === 'string'
+}
+
+/**
+ * Check if a column type supports bloom filter/HLL operations
+ */
+function isHashableColumnType(type: ColumnType): type is 'int64' | 'float64' | 'string' | 'timestamp' {
+  return type === 'int64' || type === 'float64' || type === 'string' || type === 'timestamp'
+}
+
+/**
+ * Runtime check that a value is a number
+ */
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number'
+}
+
+/**
+ * Runtime check that a value is a string
+ */
+function isString(value: unknown): value is string {
+  return typeof value === 'string'
+}
+
+/**
+ * Runtime check that a value is number or string (for bloom filter/HLL)
+ */
+function isNumberOrString(value: unknown): value is number | string {
+  return typeof value === 'number' || typeof value === 'string'
+}
+
+/**
+ * Runtime check that a value is an array
+ */
+function isArray(value: unknown): value is unknown[] {
+  return Array.isArray(value)
+}
+
+/**
+ * Runtime check that a value is a [number, number] tuple
+ */
+function isNumberTuple(value: unknown): value is [number, number] {
+  return Array.isArray(value) && value.length === 2 && isNumber(value[0]) && isNumber(value[1])
+}
+
 class ColumnStoreImpl implements TypedColumnStore {
   private columns: Map<string, ColumnInfo> = new Map()
 
@@ -1139,7 +1242,7 @@ class ColumnStoreImpl implements TypedColumnStore {
     // Find matching row indices
     const matchingIndices: number[] = []
     for (let i = 0; i < col.data.length; i++) {
-      if (this.evaluatePredicate(col.data[i], predicate)) {
+      if (this.evaluatePredicate(col.data[i], predicate, col.type)) {
         matchingIndices.push(i)
       }
     }
@@ -1160,7 +1263,19 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Column '${column}' does not exist`)
     }
 
-    const values = col.data as number[]
+    // Validate that column type is numeric before aggregation
+    if (!isNumericColumnType(col.type)) {
+      throw new Error(`Cannot aggregate non-numeric column '${column}' (type: ${col.type})`)
+    }
+
+    // Now we know the column contains numbers, validate at runtime for safety
+    const values: number[] = []
+    for (const value of col.data) {
+      if (!isNumber(value)) {
+        throw new Error(`Invalid value in numeric column '${column}': expected number, got ${typeof value}`)
+      }
+      values.push(value)
+    }
 
     switch (fn) {
       case 'count':
@@ -1191,9 +1306,22 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Column '${column}' does not exist`)
     }
 
-    const values = col.data as number[]
-    if (values.length === 0) {
+    // Validate that column type is numeric
+    if (!isNumericColumnType(col.type)) {
+      throw new Error(`Cannot compute minMax on non-numeric column '${column}' (type: ${col.type})`)
+    }
+
+    if (col.data.length === 0) {
       throw new Error(`Column '${column}' is empty`)
+    }
+
+    // Validate and extract numeric values
+    const values: number[] = []
+    for (const value of col.data) {
+      if (!isNumber(value)) {
+        throw new Error(`Invalid value in numeric column '${column}': expected number, got ${typeof value}`)
+      }
+      values.push(value)
     }
 
     return {
@@ -1208,6 +1336,11 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Column '${column}' does not exist`)
     }
 
+    // Validate that column type supports hashing
+    if (!isHashableColumnType(col.type)) {
+      throw new Error(`Cannot compute distinctCount on column '${column}' (type: ${col.type})`)
+    }
+
     const values = col.data
 
     if (values.length === 0) return 0
@@ -1220,7 +1353,11 @@ class ColumnStoreImpl implements TypedColumnStore {
     // For large datasets, use HyperLogLog
     const hll = new HyperLogLog(14)
     for (const value of values) {
-      hll.add(value as number | string)
+      // Validate each value at runtime
+      if (!isNumberOrString(value)) {
+        throw new Error(`Invalid value in column '${column}': expected number or string, got ${typeof value}`)
+      }
+      hll.add(value)
     }
 
     return Math.round(hll.estimate())
@@ -1232,12 +1369,19 @@ class ColumnStoreImpl implements TypedColumnStore {
       throw new Error(`Column '${column}' does not exist`)
     }
 
-    const values = col.data as (number | string)[]
+    // Validate that column type supports hashing
+    if (!isHashableColumnType(col.type)) {
+      throw new Error(`Cannot create bloom filter for column '${column}' (type: ${col.type})`)
+    }
 
     // Create bloom filter with very low FPR for safety
-    const bloom = new BloomFilterImpl(Math.max(values.length, 100), 0.005)
+    const bloom = new BloomFilterImpl(Math.max(col.data.length, 100), 0.005)
 
-    for (const value of values) {
+    for (const value of col.data) {
+      // Validate each value at runtime
+      if (!isNumberOrString(value)) {
+        throw new Error(`Invalid value in column '${column}': expected number or string, got ${typeof value}`)
+      }
       bloom.add(value)
     }
 
@@ -1260,7 +1404,7 @@ class ColumnStoreImpl implements TypedColumnStore {
     }
   }
 
-  private evaluatePredicate(value: unknown, predicate: Predicate): boolean {
+  private evaluatePredicate(value: unknown, predicate: Predicate, columnType: ColumnType): boolean {
     const { op, value: predicateValue } = predicate
 
     switch (op) {
@@ -1269,18 +1413,75 @@ class ColumnStoreImpl implements TypedColumnStore {
       case '!=':
         return value !== predicateValue
       case '>':
-        return (value as number) > (predicateValue as number)
       case '<':
-        return (value as number) < (predicateValue as number)
       case '>=':
-        return (value as number) >= (predicateValue as number)
-      case '<=':
-        return (value as number) <= (predicateValue as number)
-      case 'in':
-        return (predicateValue as unknown[]).includes(value)
+      case '<=': {
+        // Validate that both value and predicate are comparable
+        if (!isComparableColumnType(columnType)) {
+          throw new Error(`Cannot use comparison operator '${op}' on non-comparable column type '${columnType}'`)
+        }
+
+        // For numeric types, validate both operands are numbers
+        if (columnType === 'int64' || columnType === 'float64' || columnType === 'timestamp') {
+          if (!isNumber(value)) {
+            throw new Error(`Invalid column value for comparison: expected number, got ${typeof value}`)
+          }
+          if (!isNumber(predicateValue)) {
+            throw new Error(`Invalid predicate value for comparison: expected number, got ${typeof predicateValue}`)
+          }
+
+          switch (op) {
+            case '>': return value > predicateValue
+            case '<': return value < predicateValue
+            case '>=': return value >= predicateValue
+            case '<=': return value <= predicateValue
+          }
+        }
+
+        // For string type, validate both operands are strings
+        if (columnType === 'string') {
+          if (!isString(value)) {
+            throw new Error(`Invalid column value for comparison: expected string, got ${typeof value}`)
+          }
+          if (!isString(predicateValue)) {
+            throw new Error(`Invalid predicate value for comparison: expected string, got ${typeof predicateValue}`)
+          }
+
+          switch (op) {
+            case '>': return value > predicateValue
+            case '<': return value < predicateValue
+            case '>=': return value >= predicateValue
+            case '<=': return value <= predicateValue
+          }
+        }
+
+        return false
+      }
+      case 'in': {
+        // Validate that predicateValue is an array
+        if (!isArray(predicateValue)) {
+          throw new Error(`Invalid predicate value for 'in' operator: expected array, got ${typeof predicateValue}`)
+        }
+        return predicateValue.includes(value)
+      }
       case 'between': {
-        const [min, max] = predicateValue as [number, number]
-        return (value as number) >= min && (value as number) <= max
+        // Validate that column type is numeric
+        if (columnType !== 'int64' && columnType !== 'float64' && columnType !== 'timestamp') {
+          throw new Error(`Cannot use 'between' operator on non-numeric column type '${columnType}'`)
+        }
+
+        // Validate predicate value is [number, number] tuple
+        if (!isNumberTuple(predicateValue)) {
+          throw new Error(`Invalid predicate value for 'between' operator: expected [number, number], got ${typeof predicateValue}`)
+        }
+
+        // Validate column value is number
+        if (!isNumber(value)) {
+          throw new Error(`Invalid column value for 'between' comparison: expected number, got ${typeof value}`)
+        }
+
+        const [min, max] = predicateValue
+        return value >= min && value <= max
       }
       default:
         return false

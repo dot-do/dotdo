@@ -11,8 +11,10 @@
  * - Bounded out-of-orderness (allow late events within a window)
  */
 
-/** Duration in milliseconds */
-export type Duration = number
+import { Duration, toMillis } from './utils/duration'
+
+// Re-export Duration for backwards compatibility
+export type { Duration } from './utils/duration'
 
 /** Unsubscribe function returned by callbacks */
 export type Unsubscribe = () => void
@@ -71,8 +73,8 @@ export class WatermarkService implements WatermarkServiceInterface {
   /** Whether the watermark has been initialized with a real value */
   private _initialized: boolean = false
 
-  /** Max lateness for bounded out-of-orderness */
-  private _maxLateness: Duration = 0
+  /** Max lateness for bounded out-of-orderness (in milliseconds) */
+  private _maxLateness: number = 0
 
   /** Map of source ID to watermark (event-time, before lateness adjustment) */
   private _sourceWatermarks: Map<string, number> = new Map()
@@ -159,7 +161,7 @@ export class WatermarkService implements WatermarkServiceInterface {
   }
 
   withBoundedOutOfOrderness(maxLateness: Duration): this {
-    this._maxLateness = maxLateness
+    this._maxLateness = toMillis(maxLateness)
     return this
   }
 

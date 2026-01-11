@@ -1341,3 +1341,202 @@ describe('Module Exports', () => {
     expect(Trigger.and).toBeDefined()
   })
 })
+
+// ============================================================================
+// Dispose/Cleanup Tests (Timer Leak Prevention)
+// ============================================================================
+
+describe('Dispose/Cleanup (Timer Leak Prevention)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  describe('WindowManager.dispose()', () => {
+    it('clears ProcessingTimeTrigger interval timer', () => {
+      const manager = new WindowManager(WindowManager.tumbling(hours(1)))
+      const trigger = new ProcessingTimeTrigger(seconds(10))
+      manager.withTrigger(trigger)
+
+      let triggerCount = 0
+      manager.onTrigger(() => {
+        triggerCount++
+      })
+
+      manager.process(createEvent('e1', 100, 0), ts(0))
+
+      // Timer should fire
+      vi.advanceTimersByTime(10000)
+      expect(triggerCount).toBe(1)
+
+      // Dispose the manager
+      manager.dispose()
+
+      // Timer should NOT fire after dispose
+      vi.advanceTimersByTime(10000)
+      expect(triggerCount).toBe(1) // Still 1, not 2
+    })
+
+    it('clears all window state', () => {
+      const manager = new WindowManager(WindowManager.tumbling(minutes(5)))
+
+      manager.process(createEvent('e1', 100, 0), ts(60000))
+      manager.process(createEvent('e2', 200, 0), ts(120000))
+
+      expect(manager.getActiveWindowCount()).toBe(1)
+
+      manager.dispose()
+
+      expect(manager.getActiveWindowCount()).toBe(0)
+    })
+
+    it('can be called multiple times safely', () => {
+      const manager = new WindowManager(WindowManager.tumbling(minutes(5)))
+        .withTrigger(new ProcessingTimeTrigger(seconds(10)))
+
+      manager.process(createEvent('e1', 100, 0), ts(0))
+
+      // Should not throw when called multiple times
+      expect(() => {
+        manager.dispose()
+        manager.dispose()
+        manager.dispose()
+      }).not.toThrow()
+    })
+
+    it('cleans up composite OR trigger with ProcessingTimeTrigger', () => {
+      // Create the trigger and manually set callback to test dispose
+      const processingTrigger = new ProcessingTimeTrigger<Event>(seconds(5))
+      const countTrigger = new CountTrigger<Event>(10)
+      const orTrigger = Trigger.or(processingTrigger, countTrigger)
+
+      let callCount = 0
+      processingTrigger.setCallback(() => callCount++)
+
+      // Verify timer is working
+      vi.advanceTimersByTime(5000)
+      expect(callCount).toBe(1)
+
+      // Dispose via the composite trigger
+      orTrigger.dispose()
+
+      // Timer should be cleared
+      vi.advanceTimersByTime(5000)
+      expect(callCount).toBe(1) // Still 1, not 2
+    })
+
+    it('cleans up composite AND trigger with ProcessingTimeTrigger', () => {
+      const manager = new WindowManager(WindowManager.tumbling(hours(1)))
+      const processingTrigger = new ProcessingTimeTrigger<Event>(seconds(5))
+      const countTrigger = new CountTrigger<Event>(10)
+      manager.withTrigger(Trigger.and(processingTrigger, countTrigger))
+
+      manager.process(createEvent('e1', 100, 0), ts(0))
+
+      manager.dispose()
+
+      // Just verify it doesn't throw and timer is cleared
+      expect(() => vi.advanceTimersByTime(10000)).not.toThrow()
+    })
+
+    it('cleans up PurgingTrigger wrapping ProcessingTimeTrigger', () => {
+      // Create the trigger and manually set callback to test dispose
+      const processingTrigger = new ProcessingTimeTrigger<Event>(seconds(5))
+      const purgingTrigger = new PurgingTrigger(processingTrigger)
+
+      let callCount = 0
+      processingTrigger.setCallback(() => callCount++)
+
+      // Verify timer is working
+      vi.advanceTimersByTime(5000)
+      expect(callCount).toBe(1)
+
+      // Dispose via the purging trigger
+      purgingTrigger.dispose()
+
+      // Timer should be cleared
+      vi.advanceTimersByTime(5000)
+      expect(callCount).toBe(1) // Should not increase
+    })
+  })
+
+  describe('ProcessingTimeTrigger.dispose()', () => {
+    it('clears the interval timer', () => {
+      const trigger = new ProcessingTimeTrigger(seconds(1))
+      let callCount = 0
+      trigger.setCallback(() => callCount++)
+
+      vi.advanceTimersByTime(1000)
+      expect(callCount).toBe(1)
+
+      trigger.dispose()
+
+      vi.advanceTimersByTime(5000)
+      expect(callCount).toBe(1) // No more callbacks
+    })
+
+    it('clears the callback reference', () => {
+      const trigger = new ProcessingTimeTrigger(seconds(1))
+      trigger.setCallback(() => {})
+      trigger.dispose()
+
+      // Setting a new callback after dispose should work
+      // (but the old callback should be gone)
+      expect(() => trigger.setCallback(() => {})).not.toThrow()
+    })
+
+    it('can be called before setCallback', () => {
+      const trigger = new ProcessingTimeTrigger(seconds(1))
+
+      // Should not throw
+      expect(() => trigger.dispose()).not.toThrow()
+    })
+  })
+
+  describe('Trigger.dispose() base class', () => {
+    it('EventTimeTrigger dispose does nothing but is callable', () => {
+      const trigger = new EventTimeTrigger()
+      expect(() => trigger.dispose()).not.toThrow()
+    })
+
+    it('CountTrigger dispose does nothing but is callable', () => {
+      const trigger = new CountTrigger(5)
+      expect(() => trigger.dispose()).not.toThrow()
+    })
+  })
+
+  describe('Memory leak scenarios', () => {
+    it('creating many WindowManagers with ProcessingTimeTrigger does not leak timers when disposed', () => {
+      const managers: WindowManager<Event>[] = []
+
+      // Create many managers with timers
+      for (let i = 0; i < 100; i++) {
+        const manager = new WindowManager<Event>(WindowManager.tumbling(hours(1)))
+          .withTrigger(new ProcessingTimeTrigger(milliseconds(100)))
+        manager.process(createEvent(`e${i}`, i, 0), ts(0))
+        managers.push(manager)
+      }
+
+      let totalTriggers = 0
+      for (const manager of managers) {
+        manager.onTrigger(() => totalTriggers++)
+      }
+
+      // All timers should fire once
+      vi.advanceTimersByTime(100)
+      expect(totalTriggers).toBe(100)
+
+      // Dispose all managers
+      for (const manager of managers) {
+        manager.dispose()
+      }
+
+      // No more triggers should fire
+      vi.advanceTimersByTime(1000)
+      expect(totalTriggers).toBe(100) // Still 100
+    })
+  })
+})

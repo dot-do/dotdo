@@ -9,6 +9,11 @@
  * - Schema versioning with rollback support
  */
 
+import { Duration, toMillis } from './utils/duration'
+
+// Re-export Duration for backwards compatibility
+export type { Duration } from './utils/duration'
+
 // ============================================================================
 // FIELD TYPES
 // ============================================================================
@@ -71,9 +76,33 @@ export interface SchemaVersion {
   description?: string
 }
 
+/**
+ * Retention policy for controlling history memory usage
+ */
+export interface HistoryRetentionPolicy {
+  /** Keep only the last N schema versions in history */
+  maxVersions?: number
+  /** Keep versions newer than this duration */
+  maxAge?: Duration
+}
+
+/**
+ * Statistics about history pruning operations
+ */
+export interface HistoryPruneStats {
+  /** Number of versions removed from history */
+  versionsRemoved: number
+  /** Oldest remaining version number */
+  oldestVersion: number | null
+  /** Newest remaining version number */
+  newestVersion: number | null
+}
+
 export interface SchemaEvolutionOptions {
   strictMode?: boolean
   allowTypeWidening?: boolean
+  /** Retention policy for schema history */
+  retention?: HistoryRetentionPolicy
 }
 
 // ============================================================================
@@ -100,6 +129,16 @@ export interface SchemaEvolution {
 
   // Get current schema
   getSchema(): Schema
+
+  // History retention management
+  /** Prune old versions from history based on retention policy */
+  prune(policy?: HistoryRetentionPolicy): Promise<HistoryPruneStats>
+  /** Alias for prune() - compact old versions from history based on retention policy */
+  compact(policy?: HistoryRetentionPolicy): Promise<HistoryPruneStats>
+  /** Get current retention policy */
+  getRetentionPolicy(): HistoryRetentionPolicy | undefined
+  /** Set retention policy */
+  setRetentionPolicy(policy: HistoryRetentionPolicy | undefined): void
 }
 
 // ============================================================================
@@ -344,9 +383,11 @@ class SchemaEvolutionImpl implements SchemaEvolution {
   private options: SchemaEvolutionOptions
   private currentSchema: Schema | null = null
   private history: SchemaVersion[] = []
+  private retentionPolicy: HistoryRetentionPolicy | undefined
 
   constructor(options: SchemaEvolutionOptions = {}) {
     this.options = options
+    this.retentionPolicy = options.retention
   }
 
   /**
@@ -755,6 +796,70 @@ class SchemaEvolutionImpl implements SchemaEvolution {
       return createEmptySchema()
     }
     return this.currentSchema
+  }
+
+  /**
+   * Prune old versions from history based on retention policy
+   * Uses provided policy or falls back to instance retention policy
+   */
+  async prune(policy?: HistoryRetentionPolicy): Promise<HistoryPruneStats> {
+    const effectivePolicy = policy ?? this.retentionPolicy
+
+    // If no policy is set, do nothing (backwards compatible - unlimited retention)
+    if (!effectivePolicy) {
+      return {
+        versionsRemoved: 0,
+        oldestVersion: this.history.length > 0 ? this.history[0].version : null,
+        newestVersion: this.history.length > 0 ? this.history[this.history.length - 1].version : null,
+      }
+    }
+
+    const now = Date.now()
+    const originalCount = this.history.length
+    let filteredHistory = this.history
+
+    // Apply maxAge filter - keep versions newer than cutoff
+    if (effectivePolicy.maxAge !== undefined) {
+      const maxAgeMs = toMillis(effectivePolicy.maxAge)
+      const cutoffTimestamp = now - maxAgeMs
+      filteredHistory = filteredHistory.filter(v => v.createdAt >= cutoffTimestamp)
+    }
+
+    // Apply maxVersions limit (keep the most recent N versions)
+    if (effectivePolicy.maxVersions !== undefined && filteredHistory.length > effectivePolicy.maxVersions) {
+      // History is sorted by version (ascending), so slice from the end
+      filteredHistory = filteredHistory.slice(-effectivePolicy.maxVersions)
+    }
+
+    const versionsRemoved = originalCount - filteredHistory.length
+    this.history = filteredHistory
+
+    return {
+      versionsRemoved,
+      oldestVersion: filteredHistory.length > 0 ? filteredHistory[0].version : null,
+      newestVersion: filteredHistory.length > 0 ? filteredHistory[filteredHistory.length - 1].version : null,
+    }
+  }
+
+  /**
+   * Alias for prune() - compact old versions from history based on retention policy
+   */
+  async compact(policy?: HistoryRetentionPolicy): Promise<HistoryPruneStats> {
+    return this.prune(policy)
+  }
+
+  /**
+   * Get the current retention policy
+   */
+  getRetentionPolicy(): HistoryRetentionPolicy | undefined {
+    return this.retentionPolicy
+  }
+
+  /**
+   * Set the retention policy
+   */
+  setRetentionPolicy(policy: HistoryRetentionPolicy | undefined): void {
+    this.retentionPolicy = policy
   }
 }
 

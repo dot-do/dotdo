@@ -12,52 +12,18 @@
  * @see https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/operators/windows/
  */
 
-// ============================================================================
-// Duration Types and Helpers
-// ============================================================================
+import {
+  DurationObject as Duration,
+  hours,
+  minutes,
+  seconds,
+  milliseconds,
+} from './utils/duration'
+import { type MetricsCollector, noopMetrics, MetricNames } from './observability'
 
-/**
- * Represents a time duration with conversion capabilities
- */
-export interface Duration {
-  toMillis(): number
-}
-
-class DurationImpl implements Duration {
-  constructor(private readonly ms: number) {}
-
-  toMillis(): number {
-    return this.ms
-  }
-}
-
-/**
- * Create a duration from hours
- */
-export function hours(n: number): Duration {
-  return new DurationImpl(n * 60 * 60 * 1000)
-}
-
-/**
- * Create a duration from minutes
- */
-export function minutes(n: number): Duration {
-  return new DurationImpl(n * 60 * 1000)
-}
-
-/**
- * Create a duration from seconds
- */
-export function seconds(n: number): Duration {
-  return new DurationImpl(n * 1000)
-}
-
-/**
- * Create a duration from milliseconds
- */
-export function milliseconds(n: number): Duration {
-  return new DurationImpl(n)
-}
+// Re-export Duration type and factory functions for backwards compatibility
+export type { DurationObject as Duration } from './utils/duration'
+export { hours, minutes, seconds, milliseconds } from './utils/duration'
 
 // ============================================================================
 // Window Types
@@ -277,6 +243,14 @@ export abstract class Trigger<T = unknown> {
   abstract onWatermark(ctx: TriggerContext<T>): TriggerResult
   abstract onProcessingTime(ctx: TriggerContext<T>): TriggerResult
 
+  /**
+   * Clean up any resources held by this trigger.
+   * Subclasses should override if they hold timers or other resources.
+   */
+  dispose(): void {
+    // Default implementation does nothing
+  }
+
   static or<T>(...triggers: Trigger<T>[]): Trigger<T> {
     return new OrTrigger(triggers)
   }
@@ -363,6 +337,14 @@ export class ProcessingTimeTrigger<T = unknown> extends Trigger<T> {
     }
   }
 
+  /**
+   * Clean up the interval timer to prevent memory leaks.
+   */
+  override dispose(): void {
+    this.clearTimer()
+    this.callback = null
+  }
+
   onElement(_ctx: TriggerContext<T>): TriggerResult {
     return TriggerResult.CONTINUE
   }
@@ -408,6 +390,10 @@ export class PurgingTrigger<T = unknown> extends Trigger<T> {
     }
     return result
   }
+
+  override dispose(): void {
+    this.innerTrigger.dispose()
+  }
 }
 
 // ============================================================================
@@ -452,6 +438,13 @@ class OrTrigger<T = unknown> extends Trigger<T> {
       }
     }
     return TriggerResult.CONTINUE
+  }
+
+  override dispose(): void {
+    for (const trigger of this.triggers) {
+      trigger.dispose()
+    }
+    this.firedTriggers.clear()
   }
 }
 
@@ -525,6 +518,22 @@ class AndTrigger<T = unknown> extends Trigger<T> {
 
     return this.checkAndFire(windowKey)
   }
+
+  override dispose(): void {
+    for (const trigger of this.triggers) {
+      trigger.dispose()
+    }
+    this.satisfiedTriggers.clear()
+  }
+}
+
+// ============================================================================
+// Window Manager Options
+// ============================================================================
+
+export interface WindowManagerOptions {
+  /** Optional metrics collector for observability */
+  metrics?: MetricsCollector
 }
 
 // ============================================================================
@@ -539,8 +548,14 @@ export class WindowManager<T = unknown> {
   private allowedLateness = 0
   private triggerCallback: ((window: Window, elements: T[]) => void) | null = null
   private keyExtractor: ((element: T) => string) | null = null
+  private metrics: MetricsCollector
 
-  constructor(private readonly assigner: WindowAssigner<T>) {}
+  constructor(
+    private readonly assigner: WindowAssigner<T>,
+    options?: WindowManagerOptions
+  ) {
+    this.metrics = options?.metrics ?? noopMetrics
+  }
 
   // -------------------------------------------------------------------------
   // Static Factory Methods
@@ -626,78 +641,92 @@ export class WindowManager<T = unknown> {
   }
 
   process(element: T, timestamp: number): void {
-    const key = this.keyExtractor ? this.keyExtractor(element) : undefined
+    const start = performance.now()
+    try {
+      const key = this.keyExtractor ? this.keyExtractor(element) : undefined
 
-    // Check if data is late (beyond watermark + allowed lateness)
-    if (this.assigner.type !== 'global' && this.assigner.type !== 'session') {
+      // Check if data is late (beyond watermark + allowed lateness)
+      if (this.assigner.type !== 'global' && this.assigner.type !== 'session') {
+        const windows = this.assign(element, timestamp)
+        for (const window of windows) {
+          if (window.end <= this.watermark - this.allowedLateness) {
+            // Data is too late
+            this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_LATE_DATA)
+            if (this.lateDataHandler) {
+              this.lateDataHandler(element, window)
+            }
+            return
+          }
+        }
+      }
+
+      // For session windows, we need special handling
+      if (this.assigner.type === 'session') {
+        this.processSessionElement(element, timestamp, key)
+        this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_ELEMENTS_PROCESSED)
+        return
+      }
+
       const windows = this.assign(element, timestamp)
+
       for (const window of windows) {
-        if (window.end <= this.watermark - this.allowedLateness) {
-          // Data is too late
-          if (this.lateDataHandler) {
-            this.lateDataHandler(element, window)
-          }
-          return
-        }
-      }
-    }
+        const windowKey = this.getWindowKey(window)
 
-    // For session windows, we need special handling
-    if (this.assigner.type === 'session') {
-      this.processSessionElement(element, timestamp, key)
-      return
-    }
-
-    const windows = this.assign(element, timestamp)
-
-    for (const window of windows) {
-      const windowKey = this.getWindowKey(window)
-
-      // Check if window is still accepting data (within allowed lateness)
-      if (window.end <= this.watermark) {
-        // Window has been triggered, check if within allowed lateness
-        if (window.end > this.watermark - this.allowedLateness) {
-          // Re-trigger the window with the late element
-          const existing = this.windows.get(windowKey)
-          if (existing) {
-            existing.elements.push(element)
-            this.fireTrigger(existing)
+        // Check if window is still accepting data (within allowed lateness)
+        if (window.end <= this.watermark) {
+          // Window has been triggered, check if within allowed lateness
+          if (window.end > this.watermark - this.allowedLateness) {
+            // Re-trigger the window with the late element
+            const existing = this.windows.get(windowKey)
+            if (existing) {
+              existing.elements.push(element)
+              this.fireTrigger(existing)
+            } else if (this.lateDataHandler) {
+              this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_LATE_DATA)
+              this.lateDataHandler(element, window)
+            }
           } else if (this.lateDataHandler) {
+            this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_LATE_DATA)
             this.lateDataHandler(element, window)
           }
-        } else if (this.lateDataHandler) {
-          this.lateDataHandler(element, window)
-        }
-        continue
-      }
-
-      let windowData = this.windows.get(windowKey)
-
-      if (!windowData) {
-        windowData = {
-          window,
-          elements: [],
-          triggered: false,
-          countSinceLastTrigger: 0,
-        }
-        this.windows.set(windowKey, windowData)
-      }
-
-      windowData.elements.push(element)
-      windowData.countSinceLastTrigger++
-
-      // Check element trigger
-      if (this.trigger) {
-        const ctx: TriggerContext<T> = {
-          window: windowData.window,
-          elements: windowData.elements,
-          watermark: this.watermark,
-          countSinceLastTrigger: windowData.countSinceLastTrigger,
+          continue
         }
 
-        const result = this.trigger.onElement(ctx)
-        this.handleTriggerResult(result, windowData)
+        let windowData = this.windows.get(windowKey)
+        const isNewWindow = !windowData
+
+        if (!windowData) {
+          windowData = {
+            window,
+            elements: [],
+            triggered: false,
+            countSinceLastTrigger: 0,
+          }
+          this.windows.set(windowKey, windowData)
+          this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_WINDOW_CREATED)
+        }
+
+        windowData.elements.push(element)
+        windowData.countSinceLastTrigger++
+
+        // Check element trigger
+        if (this.trigger) {
+          const ctx: TriggerContext<T> = {
+            window: windowData.window,
+            elements: windowData.elements,
+            watermark: this.watermark,
+            countSinceLastTrigger: windowData.countSinceLastTrigger,
+          }
+
+          const result = this.trigger.onElement(ctx)
+          this.handleTriggerResult(result, windowData)
+        }
       }
+
+      this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_ELEMENTS_PROCESSED)
+      this.metrics.recordGauge(MetricNames.WINDOW_MANAGER_ACTIVE_WINDOWS, this.windows.size)
+    } finally {
+      this.metrics.recordLatency(MetricNames.WINDOW_MANAGER_PROCESS_LATENCY, performance.now() - start)
     }
   }
 
@@ -767,53 +796,66 @@ export class WindowManager<T = unknown> {
   }
 
   advanceWatermark(timestamp: number): Window[] {
-    if (timestamp < this.watermark) {
-      throw new Error('Watermark cannot go backwards')
-    }
-
-    this.watermark = timestamp
-    const triggeredWindows: Window[] = []
-
-    // Check watermark trigger for all windows
-    for (const [windowKey, windowData] of this.windows) {
-      if (windowData.triggered && this.assigner.type !== 'session') continue
-
-      // For session windows, automatically trigger when watermark passes window end
-      if (this.assigner.type === 'session' && !windowData.triggered) {
-        if (this.watermark >= windowData.window.end) {
-          this.fireTrigger(windowData)
-          windowData.triggered = true
-          triggeredWindows.push(windowData.window)
-          continue
-        }
+    const start = performance.now()
+    try {
+      if (timestamp < this.watermark) {
+        throw new Error('Watermark cannot go backwards')
       }
 
-      if (this.trigger) {
-        const ctx: TriggerContext<T> = {
-          window: windowData.window,
-          elements: windowData.elements,
-          watermark: this.watermark,
-          countSinceLastTrigger: windowData.countSinceLastTrigger,
+      this.watermark = timestamp
+      const triggeredWindows: Window[] = []
+
+      // Check watermark trigger for all windows
+      for (const [windowKey, windowData] of this.windows) {
+        if (windowData.triggered && this.assigner.type !== 'session') continue
+
+        // For session windows, automatically trigger when watermark passes window end
+        if (this.assigner.type === 'session' && !windowData.triggered) {
+          if (this.watermark >= windowData.window.end) {
+            this.fireTrigger(windowData)
+            windowData.triggered = true
+            triggeredWindows.push(windowData.window)
+            this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_WINDOW_TRIGGERED)
+            continue
+          }
         }
 
-        const result = this.trigger.onWatermark(ctx)
-        if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
-          this.fireTrigger(windowData)
-          windowData.triggered = true
-          triggeredWindows.push(windowData.window)
+        if (this.trigger) {
+          const ctx: TriggerContext<T> = {
+            window: windowData.window,
+            elements: windowData.elements,
+            watermark: this.watermark,
+            countSinceLastTrigger: windowData.countSinceLastTrigger,
+          }
 
-          if (result === TriggerResult.FIRE_AND_PURGE) {
-            windowData.elements = []
-            windowData.countSinceLastTrigger = 0
+          const result = this.trigger.onWatermark(ctx)
+          if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
+            this.fireTrigger(windowData)
+            windowData.triggered = true
+            triggeredWindows.push(windowData.window)
+            this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_WINDOW_TRIGGERED)
+
+            if (result === TriggerResult.FIRE_AND_PURGE) {
+              windowData.elements = []
+              windowData.countSinceLastTrigger = 0
+            }
           }
         }
       }
+
+      // Clean up old windows beyond allowed lateness
+      const windowCountBefore = this.windows.size
+      this.cleanupOldWindows()
+      const windowsRemoved = windowCountBefore - this.windows.size
+      if (windowsRemoved > 0) {
+        this.metrics.incrementCounter(MetricNames.WINDOW_MANAGER_WINDOW_CLOSED, undefined, windowsRemoved)
+      }
+
+      this.metrics.recordGauge(MetricNames.WINDOW_MANAGER_ACTIVE_WINDOWS, this.windows.size)
+      return triggeredWindows
+    } finally {
+      this.metrics.recordLatency(MetricNames.WINDOW_MANAGER_ADVANCE_WATERMARK_LATENCY, performance.now() - start)
     }
-
-    // Clean up old windows beyond allowed lateness
-    this.cleanupOldWindows()
-
-    return triggeredWindows
   }
 
   private cleanupOldWindows(): void {
@@ -865,6 +907,33 @@ export class WindowManager<T = unknown> {
 
   getActiveWindowCount(): number {
     return this.windows.size
+  }
+
+  /**
+   * Dispose of all resources held by this WindowManager.
+   * This MUST be called when the WindowManager is no longer needed to prevent
+   * memory leaks from interval timers (especially ProcessingTimeTrigger).
+   *
+   * After calling dispose():
+   * - All timers are cleared
+   * - All window state is cleared
+   * - The trigger callback is removed
+   * - The WindowManager should not be used again
+   */
+  dispose(): void {
+    // Clean up trigger (especially important for ProcessingTimeTrigger)
+    if (this.trigger) {
+      this.trigger.dispose()
+      this.trigger = null
+    }
+
+    // Clear all window state
+    this.windows.clear()
+
+    // Clear callbacks
+    this.triggerCallback = null
+    this.lateDataHandler = null
+    this.keyExtractor = null
   }
 
   // -------------------------------------------------------------------------

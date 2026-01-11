@@ -17,6 +17,8 @@ import {
   type TimeRange,
   type SnapshotId,
   type SnapshotInfo,
+  type RetentionPolicy,
+  type PruneStats,
 } from '../temporal-store'
 
 // ============================================================================
@@ -1321,6 +1323,260 @@ describe('TemporalStore', () => {
         const username: string = result.value.username
         expect(username).toBe('alice')
       }
+    })
+  })
+
+  // ============================================================================
+  // RETENTION POLICY TESTS
+  // ============================================================================
+
+  describe('retention policy and pruning', () => {
+    describe('maxVersions limit', () => {
+      it('should keep only the last N versions per key when pruning', async () => {
+        const store = createTestStore()
+
+        // Add 10 versions of the same key
+        for (let i = 0; i < 10; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-10000 + i * 100))
+        }
+
+        // Prune to keep only last 3 versions
+        const stats = await store.prune({ maxVersions: 3 })
+
+        expect(stats.versionsRemoved).toBe(7)
+        expect(stats.keysAffected).toBe(1)
+        expect(stats.keysRemoved).toBe(0)
+
+        // Should still have the latest version accessible
+        const result = await store.get('key')
+        expect(result?.count).toBe(9)
+
+        // Oldest versions should be gone
+        const oldResult = await store.getAsOf('key', ts(-10000))
+        expect(oldResult).toBeNull()
+
+        // Newer versions should remain
+        const recentResult = await store.getAsOf('key', ts(-10000 + 900))
+        expect(recentResult?.count).toBe(9)
+      })
+
+      it('should handle maxVersions across multiple keys', async () => {
+        const store = createTestStore()
+
+        // Add 5 versions each to 3 keys
+        for (let k = 0; k < 3; k++) {
+          for (let v = 0; v < 5; v++) {
+            await store.put(`key:${k}`, { name: `K${k}V${v}`, count: v }, ts(-10000 + v * 100))
+          }
+        }
+
+        const stats = await store.prune({ maxVersions: 2 })
+
+        expect(stats.versionsRemoved).toBe(9) // 3 versions removed per key, 3 keys
+        expect(stats.keysAffected).toBe(3)
+        expect(stats.keysRemoved).toBe(0)
+      })
+
+      it('should not remove anything if under maxVersions limit', async () => {
+        const store = createTestStore()
+
+        await store.put('key', { name: 'V1', count: 1 }, ts(-2000))
+        await store.put('key', { name: 'V2', count: 2 }, ts(-1000))
+
+        const stats = await store.prune({ maxVersions: 5 })
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(stats.keysAffected).toBe(0)
+      })
+    })
+
+    describe('maxAge expiration', () => {
+      it('should remove versions older than maxAge', async () => {
+        const store = createTestStore()
+        const now = Date.now()
+
+        // Add versions at different ages
+        await store.put('key', { name: 'Old', count: 1 }, now - 10000) // 10 seconds ago
+        await store.put('key', { name: 'Recent', count: 2 }, now - 2000) // 2 seconds ago
+        await store.put('key', { name: 'Current', count: 3 }, now - 100) // 0.1 seconds ago
+
+        // Prune versions older than 5 seconds
+        const stats = await store.prune({ maxAge: 5000 })
+
+        expect(stats.versionsRemoved).toBe(1)
+        expect(stats.keysAffected).toBe(1)
+
+        // Latest should still be accessible
+        const result = await store.get('key')
+        expect(result?.name).toBe('Current')
+      })
+
+      it('should parse duration strings correctly', async () => {
+        const store = createTestStore()
+        const now = Date.now()
+
+        // Add old version
+        await store.put('key', { name: 'VeryOld', count: 1 }, now - 2 * 24 * 60 * 60 * 1000) // 2 days ago
+        await store.put('key', { name: 'Recent', count: 2 }, now - 1000) // 1 second ago
+
+        // Prune versions older than 1 day
+        const stats = await store.prune({ maxAge: '1d' })
+
+        expect(stats.versionsRemoved).toBe(1)
+      })
+
+      it('should handle various duration formats', async () => {
+        const store = createTestStore()
+        const now = Date.now()
+
+        await store.put('key', { name: 'Test', count: 1 }, now - 100)
+
+        // Test different formats don't throw
+        await expect(store.prune({ maxAge: '100ms' })).resolves.toBeDefined()
+        await expect(store.prune({ maxAge: '1s' })).resolves.toBeDefined()
+        await expect(store.prune({ maxAge: '30m' })).resolves.toBeDefined()
+        await expect(store.prune({ maxAge: '24h' })).resolves.toBeDefined()
+        await expect(store.prune({ maxAge: '7d' })).resolves.toBeDefined()
+        await expect(store.prune({ maxAge: '2w' })).resolves.toBeDefined()
+      })
+
+      it('should remove entire key when all versions expire', async () => {
+        const store = createTestStore()
+        const now = Date.now()
+
+        // Add only old versions
+        await store.put('oldKey', { name: 'Old', count: 1 }, now - 10000)
+
+        const stats = await store.prune({ maxAge: 5000 })
+
+        expect(stats.keysRemoved).toBe(1)
+
+        // Key should be gone
+        const result = await store.get('oldKey')
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('combined maxVersions and maxAge', () => {
+      it('should apply both constraints', async () => {
+        const store = createTestStore()
+        const now = Date.now()
+
+        // Add 10 versions, some old, some recent
+        for (let i = 0; i < 10; i++) {
+          const age = i < 5 ? 10000 : 1000 // First 5 are old, last 5 are recent
+          await store.put('key', { name: `V${i}`, count: i }, now - age + i * 10)
+        }
+
+        // maxAge will filter out the 5 old ones, maxVersions will keep only 2 of the remaining 5
+        const stats = await store.prune({ maxVersions: 2, maxAge: 5000 })
+
+        expect(stats.versionsRemoved).toBe(8) // 5 old + 3 recent that exceed maxVersions
+      })
+    })
+
+    describe('compact alias', () => {
+      it('should work the same as prune', async () => {
+        const store = createTestStore()
+
+        for (let i = 0; i < 5; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-5000 + i * 100))
+        }
+
+        const stats = await store.compact({ maxVersions: 2 })
+
+        expect(stats.versionsRemoved).toBe(3)
+      })
+    })
+
+    describe('retention policy configuration', () => {
+      it('should use constructor retention policy by default', async () => {
+        const store = createTemporalStore<TestValue>({ retention: { maxVersions: 2 } })
+
+        for (let i = 0; i < 5; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-5000 + i * 100))
+        }
+
+        // Prune without explicit policy should use constructor policy
+        const stats = await store.prune()
+
+        expect(stats.versionsRemoved).toBe(3)
+      })
+
+      it('should allow overriding with explicit policy', async () => {
+        const store = createTemporalStore<TestValue>({ retention: { maxVersions: 2 } })
+
+        for (let i = 0; i < 5; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-5000 + i * 100))
+        }
+
+        // Override with different maxVersions
+        const stats = await store.prune({ maxVersions: 4 })
+
+        expect(stats.versionsRemoved).toBe(1)
+      })
+
+      it('should get and set retention policy', async () => {
+        const store = createTestStore()
+
+        expect(store.getRetentionPolicy()).toBeUndefined()
+
+        store.setRetentionPolicy({ maxVersions: 5 })
+        expect(store.getRetentionPolicy()).toEqual({ maxVersions: 5 })
+
+        store.setRetentionPolicy({ maxVersions: 10, maxAge: '7d' })
+        expect(store.getRetentionPolicy()).toEqual({ maxVersions: 10, maxAge: '7d' })
+
+        store.setRetentionPolicy(undefined)
+        expect(store.getRetentionPolicy()).toBeUndefined()
+      })
+
+      it('should do nothing when no policy is set', async () => {
+        const store = createTestStore()
+
+        for (let i = 0; i < 10; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-10000 + i * 100))
+        }
+
+        // No policy configured
+        const stats = await store.prune()
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(stats.keysAffected).toBe(0)
+        expect(stats.keysRemoved).toBe(0)
+
+        // All versions should still exist
+        const result = await store.getAsOf('key', ts(-10000))
+        expect(result?.count).toBe(0)
+      })
+    })
+
+    describe('backwards compatibility', () => {
+      it('should maintain unlimited retention by default', async () => {
+        const store = createTestStore()
+
+        // Add many versions
+        for (let i = 0; i < 100; i++) {
+          await store.put('key', { name: `V${i}`, count: i }, ts(-100000 + i * 100))
+        }
+
+        // Should all be accessible without any policy
+        expect((await store.getAsOf('key', ts(-100000)))?.count).toBe(0)
+        expect((await store.get('key'))?.count).toBe(99)
+      })
+
+      it('should not affect existing behavior when no retention configured', async () => {
+        const store = createTestStore()
+
+        await store.put('key', { name: 'V1', count: 1 }, ts(-2000))
+        await store.put('key', { name: 'V2', count: 2 }, ts(-1000))
+        await store.put('key', { name: 'V3', count: 3 }, ts())
+
+        // All time-travel queries should work
+        expect((await store.getAsOf('key', ts(-2000)))?.name).toBe('V1')
+        expect((await store.getAsOf('key', ts(-1000)))?.name).toBe('V2')
+        expect((await store.get('key'))?.name).toBe('V3')
+      })
     })
   })
 })

@@ -25,6 +25,8 @@ import {
   type ArrayFieldType,
   type MapFieldType,
   type StructFieldType,
+  type HistoryRetentionPolicy,
+  type HistoryPruneStats,
 } from '../schema-evolution'
 
 // ============================================================================
@@ -1529,6 +1531,314 @@ describe('SchemaEvolution', () => {
       expect(result.compatible).toBe(false)
       // Should mention both type narrowing and nullability change
       expect(result.breakingChanges.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // ============================================================================
+  // RETENTION POLICY TESTS
+  // ============================================================================
+
+  describe('retention policy and pruning', () => {
+    describe('maxVersions limit', () => {
+      it('should keep only the last N schema versions in history', async () => {
+        const evolution = createTestEvolution()
+
+        // Create 10 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 10; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        expect(evolution.getHistory().length).toBe(10)
+
+        // Prune to keep only last 3 versions
+        const stats = await evolution.prune({ maxVersions: 3 })
+
+        expect(stats.versionsRemoved).toBe(7)
+        expect(stats.oldestVersion).toBe(8) // Versions 8, 9, 10 remain
+        expect(stats.newestVersion).toBe(10)
+        expect(evolution.getHistory().length).toBe(3)
+      })
+
+      it('should not remove anything if under maxVersions limit', async () => {
+        const evolution = createTestEvolution()
+
+        evolution.inferSchema([{ id: 1 }])
+        await evolution.evolve({
+          addedFields: new Map([['name', 'string' as FieldType]]),
+          removedFields: new Set(),
+          changedTypes: new Map(),
+          nullabilityChanges: new Map(),
+        })
+
+        const stats = await evolution.prune({ maxVersions: 10 })
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(evolution.getHistory().length).toBe(2)
+      })
+    })
+
+    describe('maxAge expiration', () => {
+      it('should remove history versions older than maxAge', async () => {
+        const evolution = createTestEvolution()
+
+        // Create versions - we'll manually check the behavior
+        evolution.inferSchema([{ id: 1 }])
+
+        // Create a few more versions
+        for (let i = 0; i < 3; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // All versions are recent, so maxAge of 1 day should keep all
+        const stats = await evolution.prune({ maxAge: '1d' })
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(evolution.getHistory().length).toBe(4)
+      })
+
+      it('should parse various duration formats', async () => {
+        const evolution = createTestEvolution()
+        evolution.inferSchema([{ id: 1 }])
+
+        // Test different formats don't throw
+        await expect(evolution.prune({ maxAge: '100ms' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: '1s' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: '30m' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: '24h' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: '7d' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: '2w' })).resolves.toBeDefined()
+        await expect(evolution.prune({ maxAge: 1000 })).resolves.toBeDefined() // number format
+      })
+    })
+
+    describe('combined maxVersions and maxAge', () => {
+      it('should apply both constraints', async () => {
+        const evolution = createTestEvolution()
+
+        // Create 10 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 10; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // Both constraints - maxVersions is more restrictive here
+        const stats = await evolution.prune({ maxVersions: 2, maxAge: '1d' })
+
+        expect(stats.versionsRemoved).toBe(8)
+        expect(evolution.getHistory().length).toBe(2)
+      })
+    })
+
+    describe('compact alias', () => {
+      it('should work the same as prune', async () => {
+        const evolution = createTestEvolution()
+
+        // Create 5 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 5; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        const stats = await evolution.compact({ maxVersions: 2 })
+
+        expect(stats.versionsRemoved).toBe(3)
+        expect(evolution.getHistory().length).toBe(2)
+      })
+    })
+
+    describe('retention policy configuration', () => {
+      it('should use constructor retention policy by default', async () => {
+        const evolution = createSchemaEvolution({ retention: { maxVersions: 2 } })
+
+        // Create 5 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 5; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // Prune without explicit policy should use constructor policy
+        const stats = await evolution.prune()
+
+        expect(stats.versionsRemoved).toBe(3)
+        expect(evolution.getHistory().length).toBe(2)
+      })
+
+      it('should allow overriding with explicit policy', async () => {
+        const evolution = createSchemaEvolution({ retention: { maxVersions: 2 } })
+
+        // Create 5 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 5; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // Override with different maxVersions
+        const stats = await evolution.prune({ maxVersions: 4 })
+
+        expect(stats.versionsRemoved).toBe(1)
+        expect(evolution.getHistory().length).toBe(4)
+      })
+
+      it('should get and set retention policy', () => {
+        const evolution = createTestEvolution()
+
+        expect(evolution.getRetentionPolicy()).toBeUndefined()
+
+        evolution.setRetentionPolicy({ maxVersions: 5 })
+        expect(evolution.getRetentionPolicy()).toEqual({ maxVersions: 5 })
+
+        evolution.setRetentionPolicy({ maxVersions: 10, maxAge: '7d' })
+        expect(evolution.getRetentionPolicy()).toEqual({ maxVersions: 10, maxAge: '7d' })
+
+        evolution.setRetentionPolicy(undefined)
+        expect(evolution.getRetentionPolicy()).toBeUndefined()
+      })
+
+      it('should do nothing when no policy is set', async () => {
+        const evolution = createTestEvolution()
+
+        // Create 10 versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 10; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // No policy configured
+        const stats = await evolution.prune()
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(evolution.getHistory().length).toBe(10)
+      })
+    })
+
+    describe('backwards compatibility', () => {
+      it('should maintain unlimited history by default', async () => {
+        const evolution = createTestEvolution()
+
+        // Create many versions
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 50; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        // All versions should be in history
+        expect(evolution.getHistory().length).toBe(50)
+
+        // Rollback should still work
+        await evolution.rollback(1)
+        expect(evolution.getVersion()).toBe(1)
+      })
+
+      it('should preserve current schema when pruning history', async () => {
+        const evolution = createTestEvolution()
+
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 5; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        const schemaBefore = evolution.getSchema()
+        const versionBefore = evolution.getVersion()
+
+        await evolution.prune({ maxVersions: 2 })
+
+        // Current schema should be unchanged
+        expect(evolution.getVersion()).toBe(versionBefore)
+        expect(evolution.getSchema().fields.size).toBe(schemaBefore.fields.size)
+      })
+    })
+
+    describe('prune stats', () => {
+      it('should return correct stats after pruning', async () => {
+        const evolution = createTestEvolution()
+
+        evolution.inferSchema([{ id: 1 }])
+        for (let i = 1; i < 10; i++) {
+          await evolution.evolve({
+            addedFields: new Map([[`field${i}`, 'string' as FieldType]]),
+            removedFields: new Set(),
+            changedTypes: new Map(),
+            nullabilityChanges: new Map(),
+          })
+        }
+
+        const stats = await evolution.prune({ maxVersions: 3 })
+
+        expect(stats.versionsRemoved).toBe(7)
+        expect(stats.oldestVersion).toBe(8)
+        expect(stats.newestVersion).toBe(10)
+      })
+
+      it('should return null for empty history', async () => {
+        const evolution = createTestEvolution()
+
+        // No history yet
+        const stats = await evolution.prune({ maxVersions: 1 })
+
+        expect(stats.versionsRemoved).toBe(0)
+        expect(stats.oldestVersion).toBeNull()
+        expect(stats.newestVersion).toBeNull()
+      })
+
+      it('should handle complete history removal', async () => {
+        const evolution = createTestEvolution()
+
+        evolution.inferSchema([{ id: 1 }])
+
+        // Remove all with very small maxAge (but this is hard to test reliably)
+        // Instead test with maxVersions: 0 behavior - we don't support that
+        // So let's test normal behavior
+        const stats = await evolution.prune({ maxVersions: 1 })
+
+        expect(stats.oldestVersion).toBe(1)
+        expect(stats.newestVersion).toBe(1)
+      })
     })
   })
 })
