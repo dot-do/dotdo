@@ -4,6 +4,7 @@
  * Hand-rolled recursive descent parser for EdgeDB/Gel SDL.
  * Parses SDL into a Schema intermediate representation (IR).
  *
+ * @module sdl-parser
  * @see spike-parser-findings.md for rationale on hand-rolled approach
  */
 
@@ -14,50 +15,97 @@ import type { Token } from './lexer'
 // TYPE DEFINITIONS
 // ============================================================================
 
+/**
+ * Location information for error reporting and source mapping.
+ */
 export interface SchemaLocation {
+  /** 1-based line number */
   line: number
+  /** 1-based column number */
   column: number
 }
 
+/**
+ * Constraint applied to a property or type.
+ * Maps to EdgeDB SDL constraint declarations.
+ */
 export interface PropertyConstraint {
+  /** Constraint type: exclusive, min_value, max_value, regexp, etc. */
   type: string
+  /** Numeric value for min/max constraints */
   value?: number
+  /** Regex pattern for regexp constraint */
   pattern?: string
+  /** String values for one_of constraint */
   values?: string[]
+  /** Property paths for exclusive constraints */
   on?: string[]
+  /** Expression for expression constraints */
   expr?: string
+  /** Whether constraint is delegated to subtypes */
   delegated?: boolean
 }
 
+/**
+ * Annotations attached to schema elements.
+ * Standard annotations include title and description.
+ */
 export interface PropertyAnnotations {
   title?: string
   description?: string
   [key: string]: string | undefined
 }
 
+/**
+ * Rewrite rule for automatic property value transformation.
+ */
 export interface RewriteRule {
+  /** When to apply the rewrite */
   trigger: 'insert' | 'update'
+  /** EdgeQL expression for the rewrite */
   expression: string
 }
 
+/**
+ * Property definition within a type.
+ * Properties hold scalar values or collections.
+ */
 export interface Property {
+  /** Property name */
   name: string
+  /** Scalar type (str, int32, uuid, etc.) */
   type: string
+  /** Whether property must have a value */
   required: boolean
+  /** Explicitly marked as optional */
   optional?: boolean
+  /** Cannot be modified after creation */
   readonly: boolean
+  /** Overloads inherited property */
   overloaded?: boolean
+  /** Static default value */
   default?: string | number | boolean
+  /** Dynamic default expression */
   defaultExpr?: string
+  /** Constraints on property values */
   constraints: PropertyConstraint[]
+  /** Annotations (title, description, etc.) */
   annotations?: PropertyAnnotations
+  /** Element type for array properties */
   elementType?: string
+  /** Types for unnamed tuple properties */
   tupleTypes?: string[]
+  /** Field types for named tuple properties */
   tupleFields?: Record<string, string>
+  /** Rewrite rules for auto-computed values */
   rewrites?: RewriteRule[]
+  /** Source location for error reporting */
   location?: SchemaLocation
 }
 
+/**
+ * Property attached to a link (edge attributes).
+ */
 export interface LinkProperty {
   name: string
   type: string
@@ -65,130 +113,257 @@ export interface LinkProperty {
   default?: string | number | boolean
 }
 
+/**
+ * Link definition - a relationship to another type.
+ */
 export interface Link {
+  /** Link name */
   name: string
+  /** Target type name */
   target: string
+  /** Whether link must have a value */
   required: boolean
+  /** Single or multi cardinality */
   cardinality: 'single' | 'multi'
+  /** Overloads inherited link */
   overloaded?: boolean
+  /** Properties attached to the link */
   properties?: LinkProperty[]
+  /** Constraints on the link */
   constraints?: PropertyConstraint[]
+  /** Behavior when target is deleted */
   onTargetDelete?: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Backlink definition - computed reverse traversal of a link.
+ */
 export interface Backlink {
+  /** Backlink name */
   name: string
+  /** Name of the forward link being reversed */
   forwardLink: string
+  /** Source type(s) that have the forward link */
   targetType: string | string[]
+  /** Single or multi cardinality */
   cardinality: 'single' | 'multi'
+  /** Complex backlink expression */
   expression?: string
+  /** Backlinks cannot have properties */
   properties?: undefined
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Computed property - value derived from an expression.
+ */
 export interface ComputedProperty {
+  /** Property name */
   name: string
+  /** EdgeQL expression to compute value */
   expression: string
+  /** Explicit return type */
   returnType?: string
+  /** Single or multi cardinality */
   cardinality?: 'single' | 'multi'
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Index definition for query optimization.
+ */
 export interface Index {
+  /** Properties to index */
   on: string[]
+  /** Expression index */
   expression?: string
+  /** Index type (e.g., fts::index) */
   using?: string
+  /** Deferred constraint checking */
   deferred?: boolean
+  /** Index annotations */
   annotations?: Record<string, string>
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Trigger definition for automated actions.
+ */
 export interface Trigger {
+  /** Trigger name */
   name: string
+  /** Before or after the event */
   timing: 'before' | 'after'
+  /** Event that fires the trigger */
   event: string
+  /** Optional condition expression */
   condition?: string
+  /** Action expression to execute */
   action: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Access policy for row-level security.
+ */
 export interface AccessPolicy {
+  /** Policy name */
   name: string
+  /** Operations to allow (select, insert, etc.) */
   allow: string[]
+  /** Condition expression for access */
   condition: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Complete type definition in the schema.
+ */
 export interface TypeDefinition {
+  /** Type name */
   name: string
+  /** Module containing this type */
   module?: string
+  /** Whether type is abstract (no table) */
   abstract: boolean
+  /** Parent type names */
   extends: string[]
+  /** Scalar properties */
   properties: Property[]
+  /** Links to other types */
   links: Link[]
+  /** Computed backlinks */
   backlinks: Backlink[]
+  /** Computed properties */
   computedProperties: ComputedProperty[]
+  /** Type-level constraints */
   constraints: PropertyConstraint[]
+  /** Indexes for this type */
   indexes: Index[]
+  /** Triggers for this type */
   triggers?: Trigger[]
+  /** Access policies for this type */
   accessPolicies?: AccessPolicy[]
+  /** Type annotations */
   annotations?: Record<string, string>
+  /** Doc comment */
   doc?: string
+  /** Raw SDL source */
   raw?: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Enum scalar type definition.
+ */
 export interface EnumDefinition {
+  /** Enum name */
   name: string
+  /** Enum values */
   values: string[]
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Module container for types and enums.
+ */
 export interface Module {
+  /** Module name */
   name: string
+  /** Types in this module */
   types: TypeDefinition[]
+  /** Enums in this module */
   enums: EnumDefinition[]
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Global variable definition.
+ */
 export interface GlobalDefinition {
+  /** Global name */
   name: string
+  /** Global type */
   type: string
+  /** Whether global is required */
   required?: boolean
+  /** Default value */
   default?: string | number | boolean
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Alias definition for query reuse.
+ */
 export interface AliasDefinition {
+  /** Alias name */
   name: string
+  /** EdgeQL expression */
   expression: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * User-defined function.
+ */
 export interface FunctionDefinition {
+  /** Function name */
   name: string
+  /** Function parameters */
   parameters: Array<{ name: string; type: string }>
+  /** Return type */
   returnType: string
+  /** Function body expression */
   body: string
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Custom scalar type extending a base type.
+ */
 export interface ScalarDefinition {
+  /** Scalar name */
   name: string
+  /** Base scalar type */
   extends: string
+  /** Constraints on values */
   constraints: PropertyConstraint[]
+  /** Source location */
   location?: SchemaLocation
 }
 
+/**
+ * Complete parsed schema containing all definitions.
+ */
 export interface Schema {
+  /** Object types */
   types: TypeDefinition[]
+  /** Enum definitions */
   enums: EnumDefinition[]
+  /** Module containers */
   modules: Module[]
+  /** Query aliases */
   aliases: AliasDefinition[]
+  /** Global variables */
   globals: GlobalDefinition[]
+  /** User functions */
   functions: FunctionDefinition[]
+  /** Custom scalar types */
   scalars: ScalarDefinition[]
+  /** Required extensions */
   extensions: string[]
 }
 
@@ -196,14 +371,49 @@ export interface Schema {
 // PARSER ERROR
 // ============================================================================
 
+/**
+ * Error thrown when SDL parsing fails.
+ * Includes line/column information and optional source context.
+ */
 class ParseError extends Error {
   constructor(
     message: string,
     public readonly line: number,
-    public readonly column: number
+    public readonly column: number,
+    source?: string
   ) {
-    super(`Parse error at line ${line}, column ${column}: ${message}`)
+    const context = source ? ParseError.getSourceContext(source, line, column) : ''
+    const fullMessage = context
+      ? `Parse error at line ${line}, column ${column}: ${message}\n${context}`
+      : `Parse error at line ${line}, column ${column}: ${message}`
+    super(fullMessage)
     this.name = 'ParseError'
+  }
+
+  /**
+   * Extract source context around the error location.
+   */
+  private static getSourceContext(source: string, line: number, column: number): string {
+    const lines = source.split('\n')
+    if (line < 1 || line > lines.length) return ''
+
+    const result: string[] = []
+    const startLine = Math.max(1, line - 1)
+    const endLine = Math.min(lines.length, line + 1)
+
+    for (let i = startLine; i <= endLine; i++) {
+      const lineNum = String(i).padStart(4, ' ')
+      const marker = i === line ? '>' : ' '
+      result.push(`${marker}${lineNum} | ${lines[i - 1]}`)
+
+      // Add caret pointing to error column
+      if (i === line) {
+        const padding = ' '.repeat(7 + column - 1)
+        result.push(`${padding}^`)
+      }
+    }
+
+    return result.join('\n')
   }
 }
 
@@ -263,6 +473,80 @@ const RESERVED_KEYWORDS = new Set([
   'like',
   'ilike',
 ])
+
+/**
+ * Token types that can be treated as identifiers in certain contexts.
+ * Keywords in EdgeDB/SDL can often appear as names in specific positions.
+ */
+const IDENTIFIER_LIKE_TOKENS = new Set([
+  TokenType.IDENTIFIER,
+  TokenType.REQUIRED,
+  TokenType.OPTIONAL,
+  TokenType.MULTI,
+  TokenType.SINGLE,
+  TokenType.ABSTRACT,
+  TokenType.TYPE,
+  TokenType.SCALAR,
+  TokenType.CONSTRAINT,
+  TokenType.INDEX,
+  TokenType.ANNOTATION,
+  TokenType.MODULE,
+  TokenType.ALIAS,
+  TokenType.FUNCTION,
+  TokenType.PROPERTY,
+  TokenType.LINK,
+  TokenType.EXTENDING,
+  TokenType.ENUM,
+  TokenType.FOR,
+  TokenType.IF,
+  TokenType.ELSE,
+  TokenType.WITH,
+  TokenType.SELECT,
+  TokenType.INSERT,
+  TokenType.UPDATE,
+  TokenType.DELETE,
+  TokenType.FILTER,
+  TokenType.ORDER,
+  TokenType.BY,
+  TokenType.LIMIT,
+  TokenType.OFFSET,
+])
+
+/**
+ * Extended set of token types that can be used as identifiers.
+ * Includes additional keywords that are valid in expectIdentifier context.
+ */
+const EXTENDED_IDENTIFIER_TOKENS = new Set([
+  ...IDENTIFIER_LIKE_TOKENS,
+  TokenType.TRUE,
+  TokenType.FALSE,
+  TokenType.AND,
+  TokenType.OR,
+  TokenType.NOT,
+  TokenType.IN,
+  TokenType.LIKE,
+  TokenType.ILIKE,
+  TokenType.IS,
+  TokenType.EXISTS,
+  TokenType.DISTINCT,
+  TokenType.UNION,
+  TokenType.INTERSECT,
+  TokenType.EXCEPT,
+])
+
+/**
+ * Check if a token type can be treated as an identifier.
+ */
+function isIdentifierLikeToken(type: TokenType): boolean {
+  return IDENTIFIER_LIKE_TOKENS.has(type)
+}
+
+/**
+ * Check if a token type can be used as an identifier in expectIdentifier context.
+ */
+function isExtendedIdentifierToken(type: TokenType): boolean {
+  return EXTENDED_IDENTIFIER_TOKENS.has(type)
+}
 
 // ============================================================================
 // SDL PARSER CLASS
@@ -709,12 +993,12 @@ class SDLParser {
 
     // Check for reserved keyword as type name - only if it's a keyword token (not backtick-quoted)
     if (isKeywordToken && RESERVED_KEYWORDS.has(name.toLowerCase())) {
-      throw new ParseError(`Cannot use reserved keyword '${name}' as type name`, startToken.line, startToken.column)
+      this.throwError(`Cannot use reserved keyword '${name}' as type name`, startToken)
     }
 
     // Check for invalid type name starting with number
     if (/^\d/.test(name)) {
-      throw new ParseError(`Type name cannot start with a number: ${name}`, startToken.line, startToken.column)
+      this.throwError(`Type name cannot start with a number: ${name}`, startToken)
     }
 
     this.skipCommentsAndWhitespace()
@@ -1702,11 +1986,15 @@ class SDLParser {
     return this.advance().value
   }
 
+  /**
+   * Parse and return a string literal value.
+   * @throws ParseError if current token is not a string
+   */
   private parseStringValue(): string {
     if (this.check(TokenType.STRING)) {
       return this.advance().value
     }
-    throw new ParseError('Expected string value', this.peek().line, this.peek().column)
+    this.throwError('Expected string value', this.peek())
   }
 
   private parseComputedExpression(): string {
@@ -1903,39 +2191,13 @@ class SDLParser {
     return this.peek().type === type
   }
 
+  /**
+   * Check if current token matches a specific identifier value.
+   * Handles keyword tokens that can appear as identifiers.
+   */
   private checkIdentifier(value: string): boolean {
     const token = this.peek()
-    return (token.type === TokenType.IDENTIFIER ||
-            token.type === TokenType.REQUIRED ||
-            token.type === TokenType.OPTIONAL ||
-            token.type === TokenType.MULTI ||
-            token.type === TokenType.SINGLE ||
-            token.type === TokenType.ABSTRACT ||
-            token.type === TokenType.TYPE ||
-            token.type === TokenType.SCALAR ||
-            token.type === TokenType.CONSTRAINT ||
-            token.type === TokenType.INDEX ||
-            token.type === TokenType.ANNOTATION ||
-            token.type === TokenType.MODULE ||
-            token.type === TokenType.ALIAS ||
-            token.type === TokenType.FUNCTION ||
-            token.type === TokenType.PROPERTY ||
-            token.type === TokenType.LINK ||
-            token.type === TokenType.EXTENDING ||
-            token.type === TokenType.ENUM ||
-            token.type === TokenType.FOR ||
-            token.type === TokenType.IF ||
-            token.type === TokenType.ELSE ||
-            token.type === TokenType.WITH ||
-            token.type === TokenType.SELECT ||
-            token.type === TokenType.INSERT ||
-            token.type === TokenType.UPDATE ||
-            token.type === TokenType.DELETE ||
-            token.type === TokenType.FILTER ||
-            token.type === TokenType.ORDER ||
-            token.type === TokenType.BY ||
-            token.type === TokenType.LIMIT ||
-            token.type === TokenType.OFFSET) &&
+    return isIdentifierLikeToken(token.type) &&
            token.value.toLowerCase() === value.toLowerCase()
   }
 
@@ -1954,74 +2216,59 @@ class SDLParser {
     return false
   }
 
+  /**
+   * Expect and consume a specific token type.
+   *
+   * @param type - Expected token type
+   * @param expected - Human-readable description (for error message)
+   * @returns The consumed token
+   * @throws ParseError if token doesn't match
+   */
   private expect(type: TokenType, expected: string): Token {
     if (!this.check(type)) {
-      throw new ParseError(`Expected '${expected}'`, this.peek().line, this.peek().column)
+      this.throwError(`Expected '${expected}'`, this.peek())
     }
     return this.advance()
   }
 
+  /**
+   * Expect and consume a keyword token by value.
+   *
+   * @param keyword - Keyword value to match
+   * @throws ParseError if current token doesn't match
+   */
   private expectKeyword(keyword: string): void {
     if (!this.checkIdentifier(keyword)) {
-      throw new ParseError(`Expected '${keyword}'`, this.peek().line, this.peek().column)
+      this.throwError(`Expected '${keyword}'`, this.peek())
     }
     this.advance()
   }
 
+  /**
+   * Expect and consume an identifier token.
+   * Accepts keyword tokens that can appear as identifiers in SDL.
+   *
+   * @param context - Description of what identifier is expected (for error message)
+   * @returns The identifier value
+   * @throws ParseError if current token is not an identifier
+   */
   private expectIdentifier(context: string): string {
     const token = this.peek()
 
     // Accept keywords as identifiers in certain contexts
-    if (token.type === TokenType.IDENTIFIER ||
-        token.type === TokenType.REQUIRED ||
-        token.type === TokenType.OPTIONAL ||
-        token.type === TokenType.MULTI ||
-        token.type === TokenType.SINGLE ||
-        token.type === TokenType.ABSTRACT ||
-        token.type === TokenType.TYPE ||
-        token.type === TokenType.SCALAR ||
-        token.type === TokenType.CONSTRAINT ||
-        token.type === TokenType.INDEX ||
-        token.type === TokenType.ANNOTATION ||
-        token.type === TokenType.MODULE ||
-        token.type === TokenType.ALIAS ||
-        token.type === TokenType.FUNCTION ||
-        token.type === TokenType.PROPERTY ||
-        token.type === TokenType.LINK ||
-        token.type === TokenType.EXTENDING ||
-        token.type === TokenType.ENUM ||
-        token.type === TokenType.TRUE ||
-        token.type === TokenType.FALSE ||
-        token.type === TokenType.SELECT ||
-        token.type === TokenType.INSERT ||
-        token.type === TokenType.UPDATE ||
-        token.type === TokenType.DELETE ||
-        token.type === TokenType.FILTER ||
-        token.type === TokenType.ORDER ||
-        token.type === TokenType.BY ||
-        token.type === TokenType.LIMIT ||
-        token.type === TokenType.OFFSET ||
-        token.type === TokenType.WITH ||
-        token.type === TokenType.FOR ||
-        token.type === TokenType.IF ||
-        token.type === TokenType.ELSE ||
-        token.type === TokenType.AND ||
-        token.type === TokenType.OR ||
-        token.type === TokenType.NOT ||
-        token.type === TokenType.IN ||
-        token.type === TokenType.LIKE ||
-        token.type === TokenType.ILIKE ||
-        token.type === TokenType.IS ||
-        token.type === TokenType.EXISTS ||
-        token.type === TokenType.DISTINCT ||
-        token.type === TokenType.UNION ||
-        token.type === TokenType.INTERSECT ||
-        token.type === TokenType.EXCEPT) {
+    if (isExtendedIdentifierToken(token.type)) {
       this.advance()
       return token.value
     }
 
-    throw new ParseError(`Expected ${context}`, token.line, token.column)
+    this.throwError(`Expected ${context}`, token)
+  }
+
+  /**
+   * Throw a parse error with source context.
+   */
+  private throwError(message: string, token: Token): never {
+    throw new ParseError(message, token.line, token.column, this.source)
   }
 
   private consumeOptionalSemicolon(): void {
@@ -2031,10 +2278,14 @@ class SDLParser {
     }
   }
 
+  /**
+   * Require and consume a semicolon.
+   * @throws ParseError if semicolon is missing
+   */
   private requireSemicolon(): void {
     this.skipCommentsAndWhitespace()
     if (!this.check(TokenType.SEMICOLON)) {
-      throw new ParseError(`Expected ';'`, this.peek().line, this.peek().column)
+      this.throwError(`Expected ';'`, this.peek())
     }
     this.advance()
   }
