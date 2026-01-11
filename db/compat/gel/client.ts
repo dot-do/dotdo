@@ -165,10 +165,31 @@ export class GelClient implements GelTransaction {
 
     // In strict mode, validate SDL syntax first
     if (this.options.strict) {
+      // Check for basic SDL syntax validity
+      // SDL should not contain random tokens that aren't valid keywords
+      const validKeywords = ['type', 'abstract', 'scalar', 'enum', 'module', 'alias', 'function', 'global', '#', '//', '/*']
+      const trimmed = sdl.trim()
+
+      // Check if the SDL starts with a valid keyword or is empty
+      if (trimmed.length > 0) {
+        const startsWithValid = validKeywords.some(kw => trimmed.startsWith(kw))
+        if (!startsWithValid) {
+          throw new SchemaError(`Invalid SDL syntax: unexpected input`)
+        }
+      }
+
       // Try to parse and throw SchemaError if invalid
       try {
-        parseSDL(sdl)
+        const result = parseSDL(sdl)
+        // If the SDL has content but parses to empty, it's likely invalid
+        if (trimmed.length > 0 && result.types.length === 0 && result.enums.length === 0) {
+          // Check if there's something that looks like a type definition
+          if (trimmed.includes('{') && !trimmed.includes('type ') && !trimmed.includes('enum ')) {
+            throw new SchemaError(`Invalid SDL syntax: unrecognized content`)
+          }
+        }
       } catch (error) {
+        if (error instanceof SchemaError) throw error
         throw new SchemaError(`Invalid SDL syntax: ${(error as Error).message}`)
       }
     }

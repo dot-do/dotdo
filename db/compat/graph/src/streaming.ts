@@ -85,11 +85,24 @@ export interface StreamingTraversal {
   // Direction modifier
   in: StreamingTraversal
 
-  // Type collection accessor
-  readonly [key: `$${string}`]: TypeCollectionAccessor
-
-  // Relationship traversal via property access
-  [relType: string]: StreamingTraversal | ((...args: unknown[]) => unknown)
+  // Dynamic property access - unified index signature for $ properties and relationship traversal
+  // Union includes all possible property types for type compatibility
+  [key: string]:
+    | StreamingTraversal
+    | TypeCollectionAccessor
+    | AsyncIterable<Thing>
+    | AsyncIterable<Thing[]>
+    | ((n: number) => StreamingTraversal)
+    | ((n: number) => AsyncIterable<Thing[]>)
+    | ((predicate: Record<string, unknown>) => StreamingTraversal)
+    | ((other: StreamingTraversal) => StreamingTraversal)
+    | (() => Promise<string[]>)
+    | (() => Promise<Thing[]>)
+    | (() => Promise<number>)
+    | (() => Promise<Thing | null>)
+    | (() => Promise<boolean>)
+    | (() => AsyncIterableIterator<Thing>)
+    | ((...args: unknown[]) => unknown)
 }
 
 /**

@@ -11,7 +11,7 @@
 // Types (re-exported from artifacts-types for backwards compatibility)
 // ============================================================================
 
-export { ArtifactMode } from './artifacts-types'
+export type { ArtifactMode } from './artifacts-types'
 import type { ArtifactMode } from './artifacts-types'
 
 export interface TenantArtifactConfig {

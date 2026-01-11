@@ -86,7 +86,7 @@ export const noopMetrics: ArtifactMetrics = {
 // Types (re-exported from artifacts-types for backwards compatibility)
 // ============================================================================
 
-export { ArtifactMode, ArtifactRecord } from './artifacts-types'
+export type { ArtifactMode, ArtifactRecord } from './artifacts-types'
 import type { ArtifactMode, ArtifactRecord } from './artifacts-types'
 
 /**
@@ -362,7 +362,7 @@ export function validateArtifact(record: unknown): ArtifactRecord {
     }
   }
 
-  return obj as ArtifactRecord
+  return obj as unknown as ArtifactRecord
 }
 
 // ============================================================================
