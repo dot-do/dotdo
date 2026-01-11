@@ -1,0 +1,61 @@
+{
+  "name": "@dotdo/cli",
+  "version": "0.1.0",
+  "description": "Self-contained CLI for Durable Objects development",
+  "type": "module",
+  "main": "./main.ts",
+  "bin": {
+    "dotdo": "./main.ts"
+  },
+  "files": [
+    "dist",
+    "commands",
+    "runtime",
+    "utils",
+    "main.ts",
+    "build.ts"
+  ],
+  "scripts": {
+    "start": "bun run main.ts",
+    "build": "bun build main.ts --compile --minify --outfile dotdo",
+    "build:ts": "bun run build.ts",
+    "build:all": "bun run build.ts",
+    "dev": "bun run main.ts dev",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "miniflare": "^3.20241205.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "@types/better-sqlite3": "^7.6.13",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "keywords": [
+    "cli",
+    "durable-objects",
+    "cloudflare",
+    "workers",
+    "bun"
+  ],
+  "author": "dotdo team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "cli"
+  }
+}

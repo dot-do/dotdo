@@ -1,0 +1,211 @@
+# =============================================================================
+# dotdo - Local Development Stack
+# Full-featured development environment with hot reload
+# =============================================================================
+#
+# Usage:
+#   docker-compose up              # Start all services
+#   docker-compose up -d           # Start in background
+#   docker-compose logs -f app     # Follow app logs
+#   docker-compose down            # Stop all services
+#   docker-compose down -v         # Stop and remove volumes
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Main Application - workerd/miniflare with hot reload
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.dev
+    container_name: dotdo-app
+    ports:
+      - "8787:8787"
+    volumes:
+      # Mount source for hot reload
+      - ../..:/app
+      # Preserve node_modules from container
+      - /app/node_modules
+      - /app/packages/duckdb-worker/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=8787
+      # libSQL connection
+      - TURSO_URL=http://turso-local:8080
+      - TURSO_TOKEN=
+      # MinIO (S3-compatible) for R2 emulation
+      - R2_ENDPOINT=http://minio:9000
+      - R2_ACCESS_KEY_ID=minioadmin
+      - R2_SECRET_ACCESS_KEY=minioadmin
+      - R2_BUCKET=dotdo-iceberg
+      # Logging
+      - LOG_LEVEL=debug
+    depends_on:
+      turso-local:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - dotdo-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8787/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Turso Local - libSQL server for local development
+  # https://github.com/tursodatabase/libsql
+  # ---------------------------------------------------------------------------
+  turso-local:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    container_name: dotdo-turso
+    ports:
+      - "8080:8080"      # HTTP API
+      - "5001:5001"      # gRPC
+    volumes:
+      - turso-data:/var/lib/sqld
+    environment:
+      - SQLD_NODE=primary
+      - SQLD_HTTP_LISTEN_ADDR=0.0.0.0:8080
+    networks:
+      - dotdo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MinIO - S3-compatible storage for R2 emulation
+  # https://min.io/
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: dotdo-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # Web Console
+    volumes:
+      - minio-data:/data
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    networks:
+      - dotdo-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MinIO Client - Create default bucket on startup
+  # ---------------------------------------------------------------------------
+  minio-setup:
+    image: minio/mc:latest
+    container_name: dotdo-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/dotdo-iceberg --ignore-existing;
+      mc anonymous set public myminio/dotdo-iceberg;
+      echo 'MinIO bucket created successfully';
+      exit 0;
+      "
+    networks:
+      - dotdo-network
+
+  # ---------------------------------------------------------------------------
+  # Traefik - Reverse Proxy with routing
+  # https://traefik.io/
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.2
+    container_name: dotdo-traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"          # HTTP
+      - "443:443"        # HTTPS
+      - "8081:8080"      # Traefik Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dotdo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # App behind Traefik (alternative routing)
+  # ---------------------------------------------------------------------------
+  app-proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.dev
+    container_name: dotdo-app-proxy
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=8787
+      - TURSO_URL=http://turso-local:8080
+      - R2_ENDPOINT=http://minio:9000
+      - R2_ACCESS_KEY_ID=minioadmin
+      - R2_SECRET_ACCESS_KEY=minioadmin
+      - R2_BUCKET=dotdo-iceberg
+    depends_on:
+      - turso-local
+      - minio
+    networks:
+      - dotdo-network
+    labels:
+      - "traefik.enable=true"
+      # Route *.dotdo.localhost to this service
+      - "traefik.http.routers.dotdo.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.dotdo.localhost`)"
+      - "traefik.http.routers.dotdo.entrypoints=web"
+      - "traefik.http.services.dotdo.loadbalancer.server.port=8787"
+      # Route api.dotdo.localhost
+      - "traefik.http.routers.dotdo-api.rule=Host(`api.dotdo.localhost`)"
+      - "traefik.http.routers.dotdo-api.entrypoints=web"
+      - "traefik.http.routers.dotdo-api.service=dotdo"
+    profiles:
+      - full
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  dotdo-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  turso-data:
+    driver: local
+  minio-data:
+    driver: local

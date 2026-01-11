@@ -1,0 +1,100 @@
+# =============================================================================
+# dotdo - Docker Ignore File
+# Reduce build context size and protect sensitive files
+# =============================================================================
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Dependencies - rebuilt in container
+node_modules
+packages/*/node_modules
+**/node_modules
+
+# Build outputs - rebuilt in container
+dist
+build
+*.tsbuildinfo
+
+# Development files
+*.log
+*.local
+.env
+.env.*
+!.env.example
+
+# IDE and editor
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+__tests__
+tests
+**/*.test.ts
+**/*.spec.ts
+
+# Documentation (not needed at runtime)
+docs
+*.md
+!README.md
+LICENSE
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Deployment configs (avoid recursion)
+deploy/docker
+deploy/helm
+deploy/fly
+deploy/aws
+deploy/gcp
+deploy/azure
+
+# Beads issue tracker
+.beads
+
+# Temporary and cache files
+tmp
+temp
+.cache
+.turbo
+.wrangler
+
+# Type test files
+types/tests
+
+# Examples
+examples
+
+# Playwright
+playwright-report
+test-results
+
+# Package manager locks (use only pnpm)
+package-lock.json
+yarn.lock
+
+# Changesets
+.changeset
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+credentials.json
+secrets.json

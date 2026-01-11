@@ -1,0 +1,78 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+===========================================
+  dotdo - Stateless Durable Objects
+===========================================
+
+1. Get the application URL by running:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "dotdo.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        You can watch the status by running:
+        kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "dotdo.fullname" . }}
+
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "dotdo.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "dotdo.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  echo "Visit http://127.0.0.1:{{ .Values.service.port }}"
+{{- end }}
+
+2. Check deployment status:
+  kubectl --namespace {{ .Release.Namespace }} get pods -l "app.kubernetes.io/name={{ include "dotdo.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+3. View logs:
+  kubectl --namespace {{ .Release.Namespace }} logs -l "app.kubernetes.io/name={{ include "dotdo.name" . }}" -f
+
+{{- if .Values.autoscaling.enabled }}
+
+4. Autoscaling is enabled:
+  Min replicas: {{ .Values.autoscaling.minReplicas }}
+  Max replicas: {{ .Values.autoscaling.maxReplicas }}
+
+  Check HPA status:
+  kubectl --namespace {{ .Release.Namespace }} get hpa {{ include "dotdo.fullname" . }}
+{{- end }}
+
+{{- if .Values.linkerd.enabled }}
+
+5. Linkerd service mesh is enabled:
+  Check meshed status:
+  linkerd --namespace {{ .Release.Namespace }} stat deploy/{{ include "dotdo.fullname" . }}
+{{- end }}
+
+{{- if .Values.prometheus.enabled }}
+
+6. Prometheus metrics are exposed at /metrics
+{{- if .Values.prometheus.serviceMonitor.enabled }}
+  ServiceMonitor is created for Prometheus Operator
+{{- end }}
+{{- end }}
+
+===========================================
+  Configuration
+===========================================
+
+Current configuration:
+  - Replicas: {{ .Values.replicaCount }}
+  - Image: {{ include "dotdo.image" . }}
+  - Service port: {{ .Values.service.port }}
+{{- if .Values.service.rpcPort }}
+  - RPC port: {{ .Values.service.rpcPort }}
+{{- end }}
+
+For consistent hash routing, ensure your ingress is configured to route
+based on the X-DO-ID header or request URI for DO affinity.
+
+For more information, visit: https://dotdo.dev
