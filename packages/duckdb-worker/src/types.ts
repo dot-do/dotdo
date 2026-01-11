@@ -111,14 +111,78 @@ export interface QueryResult<T = Record<string, unknown>> {
 }
 
 /**
+ * Prepared statement interface for reusable parameterized queries
+ *
+ * Prepared statements provide:
+ * 1. SQL injection safety - parameters are properly escaped
+ * 2. Performance - statement can be reused with different parameters
+ * 3. Type safety - results are typed
+ *
+ * @example
+ * ```typescript
+ * const stmt = await db.prepare<{ name: string }>('SELECT name FROM users WHERE id = $1')
+ * try {
+ *   const result1 = await stmt.execute([1])
+ *   const result2 = await stmt.execute([2])
+ * } finally {
+ *   await stmt.finalize()
+ * }
+ * ```
+ */
+export interface PreparedStatementInterface<T = Record<string, unknown>> {
+  /**
+   * Bind parameters to the prepared statement
+   * Parameters are bound by position ($1, $2, etc.)
+   *
+   * @param params Array of parameter values
+   */
+  bind(params: unknown[]): void
+
+  /**
+   * Execute the prepared statement
+   *
+   * @param params Optional parameters to bind before execution
+   * @returns Query result with typed rows
+   */
+  execute(params?: unknown[]): Promise<QueryResult<T>>
+
+  /**
+   * Finalize (destroy) the prepared statement
+   * Releases resources. The statement cannot be used after this.
+   */
+  finalize(): Promise<void>
+
+  /**
+   * Check if the statement has been finalized
+   */
+  isFinalized(): boolean
+}
+
+/**
  * Main DuckDB instance interface for query execution
  */
 export interface DuckDBInstance {
   /**
    * Execute a SQL query and return results
-   * @param sql - SQL query string
+   *
+   * When params are provided, the query is executed as a prepared statement
+   * for SQL injection safety.
+   *
+   * @param sql - SQL query string with $1, $2, ... placeholders for params
    * @param params - Optional query parameters for prepared statements
    * @returns Promise resolving to query results
+   *
+   * @example
+   * ```typescript
+   * // Without parameters (direct execution)
+   * const result = await db.query('SELECT * FROM users')
+   *
+   * // With parameters (prepared statement - SQL injection safe)
+   * const result = await db.query(
+   *   'SELECT * FROM users WHERE id = $1 AND active = $2',
+   *   [userId, true]
+   * )
+   * ```
    */
   query<T = Record<string, unknown>>(
     sql: string,
@@ -127,11 +191,62 @@ export interface DuckDBInstance {
 
   /**
    * Execute a SQL statement without returning results
-   * Useful for DDL statements (CREATE, DROP, etc.)
+   *
+   * Useful for DDL statements (CREATE, DROP, etc.) and DML
+   * statements where you don't need the result rows.
+   *
+   * When params are provided, the statement is executed as a prepared
+   * statement for SQL injection safety.
+   *
    * @param sql - SQL statement to execute
    * @param params - Optional query parameters
+   *
+   * @example
+   * ```typescript
+   * // Without parameters
+   * await db.exec('CREATE TABLE users (id INTEGER, name VARCHAR)')
+   *
+   * // With parameters (SQL injection safe)
+   * await db.exec(
+   *   'INSERT INTO users VALUES ($1, $2)',
+   *   [1, 'Alice']
+   * )
+   * ```
    */
   exec(sql: string, params?: unknown[]): Promise<void>
+
+  /**
+   * Create a prepared statement for reuse
+   *
+   * Prepared statements are useful when you need to execute the same
+   * query multiple times with different parameters. They provide:
+   * - SQL injection safety
+   * - Better performance for repeated queries
+   * - Explicit lifecycle management
+   *
+   * Always call finalize() when done to release resources.
+   *
+   * @param sql - SQL query string with $1, $2, ... placeholders
+   * @returns Prepared statement interface
+   *
+   * @example
+   * ```typescript
+   * const stmt = await db.prepare<{ name: string }>(
+   *   'SELECT name FROM users WHERE id = $1'
+   * )
+   * try {
+   *   for (const id of userIds) {
+   *     const result = await stmt.execute([id])
+   *     console.log(result.rows[0]?.name)
+   *   }
+   * } finally {
+   *   await stmt.finalize()
+   * }
+   * ```
+   */
+  prepare<T = Record<string, unknown>>(
+    sql: string
+  ): Promise<PreparedStatementInterface<T>>
 
   /**
    * Register an in-memory buffer as a named file

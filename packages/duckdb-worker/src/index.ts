@@ -21,6 +21,7 @@ export type {
   QueryResult,
   ColumnInfo,
   InstantiationResult,
+  PreparedStatementInterface,
 } from './types.js'
 
 export {

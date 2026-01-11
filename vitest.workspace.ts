@@ -332,6 +332,9 @@ export default defineWorkspace([
   // Security tests (audit, dependencies, etc.)
   createNodeWorkspace('security', ['tests/security/**/*.test.ts']),
 
+  // DuckDB Iceberg extension tests (R2 Data Catalog integration)
+  createNodeWorkspace('duckdb-iceberg', ['db/compat/sql/duckdb-wasm/iceberg/tests/**/*.test.ts']),
+
   // ============================================
   // Workers Environment Tests
   // ============================================
@@ -412,6 +415,42 @@ export default defineWorkspace([
       name: 'duckdb-wasm',
       include: ['db/compat/sql/duckdb-wasm/tests/**/*.test.ts'],
       exclude: defaultExcludes,
+      // Workers tests need sequential execution for stability
+      sequence: {
+        concurrent: false,
+      },
+    },
+  },
+
+  // DuckDB VSS (Vector Similarity Search) extension tests
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      ...sharedTestConfig,
+      name: 'duckdb-vss',
+      include: ['db/compat/sql/duckdb-wasm/vss/tests/**/*.test.ts'],
+      exclude: defaultExcludes,
+      // VSS tests need longer timeout for extension loading
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
+      // Workers tests need sequential execution for stability
+      sequence: {
+        concurrent: false,
+      },
+    },
+  },
+
+  // DuckDB FTS (Full Text Search) extension tests
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      ...sharedTestConfig,
+      name: 'duckdb-fts',
+      include: ['db/compat/sql/duckdb-wasm/fts/tests/**/*.test.ts'],
+      exclude: defaultExcludes,
+      // FTS tests need longer timeout for extension loading
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
       // Workers tests need sequential execution for stability
       sequence: {
         concurrent: false,

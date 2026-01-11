@@ -5,12 +5,13 @@
  * The WASM is built with Emscripten flags that eliminate GOT imports for Workers compatibility.
  */
 
-import type { DuckDBInstance, DuckDBConfig, QueryResult, ColumnInfo } from './types.js'
+import type { DuckDBInstance, DuckDBConfig, QueryResult, ColumnInfo, PreparedStatementInterface } from './types.js'
 import type { DuckDBModule, DuckDBModuleConfig } from '../wasm/duckdb-worker-cf.js'
 
 // Use Cloudflare-compatible loader (patched to not use import.meta.url)
 import createDuckDBLoader from '../wasm/duckdb-worker-cf.js'
 import { FileBufferRegistry } from './runtime.js'
+import { PreparedStatement, executeParameterized, validateParameterCount, type PreparedParamValue } from './prepared.js'
 
 // ============================================================================
 // Types for Emscripten Module Interface
@@ -699,21 +700,70 @@ export function createInstanceFromModule(
       sql: string,
       params?: unknown[]
     ): Promise<QueryResult<T>> {
+      if (isClosed) {
+        throw new Error('Database instance is closed')
+      }
+
+      // Use prepared statements when parameters are provided
       if (params !== undefined && params.length > 0) {
-        throw new Error(
-          'Parameterized queries are not yet supported. Use string interpolation with proper escaping.'
+        validateParameterCount(sql, params.length)
+        return executeParameterized<T>(
+          mod,
+          instanceConnPtr,
+          sql,
+          params as PreparedParamValue[],
+          bigIntMode
         )
       }
+
       return executeQuery(sql) as Promise<QueryResult<T>>
     },
 
     async exec(sql: string, params?: unknown[]): Promise<void> {
-      if (params !== undefined && params.length > 0) {
-        throw new Error(
-          'Parameterized queries are not yet supported. Use string interpolation with proper escaping.'
-        )
+      if (isClosed) {
+        throw new Error('Database instance is closed')
       }
+
+      // Use prepared statements when parameters are provided
+      if (params !== undefined && params.length > 0) {
+        validateParameterCount(sql, params.length)
+        await executeParameterized(
+          mod,
+          instanceConnPtr,
+          sql,
+          params as PreparedParamValue[],
+          bigIntMode
+        )
+        return
+      }
+
       await executeQuery(sql)
+    },
+
+    async prepare<T = Record<string, unknown>>(
+      sql: string
+    ): Promise<PreparedStatementInterface<T>> {
+      if (isClosed) {
+        throw new Error('Database instance is closed')
+      }
+
+      const stmt = new PreparedStatement<T>(mod, instanceConnPtr, sql, bigIntMode)
+
+      // Return an interface wrapper to hide internal implementation
+      return {
+        bind(params: unknown[]): void {
+          stmt.bind(params as PreparedParamValue[])
+        },
+        async execute(params?: unknown[]): Promise<QueryResult<T>> {
+          return stmt.execute(params as PreparedParamValue[] | undefined)
+        },
+        async finalize(): Promise<void> {
+          return stmt.finalize()
+        },
+        isFinalized(): boolean {
+          return stmt.isFinalized()
+        },
+      }
     },
 
     registerFileBuffer(name: string, buffer: ArrayBuffer | Uint8Array): void {
