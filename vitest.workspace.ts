@@ -308,6 +308,9 @@ export default defineWorkspace([
   // Agents SDK tests (Tool, Agent, Providers)
   createNodeWorkspace('agents', ['agents/**/*.test.ts']),
 
+  // LLM API tests (OpenAI/Anthropic-compatible routing)
+  createNodeWorkspace('llm', ['llm/**/*.test.ts']),
+
   // Streaming core tests (StreamBridge, pipelines integration)
   createNodeWorkspace('streaming', ['streaming/**/*.test.ts']),
 
