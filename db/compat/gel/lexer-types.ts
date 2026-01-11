@@ -131,6 +131,13 @@ export enum TokenType {
   GREATER_EQUAL = 'GREATER_EQUAL', // >=
 
   // -------------------------------------------------------------------------
+  // Operators - Optional comparison
+  // -------------------------------------------------------------------------
+  QUESTION = 'QUESTION', // ?
+  OPTIONAL_EQUALS = 'OPTIONAL_EQUALS', // ?=
+  OPTIONAL_NOT_EQUALS = 'OPTIONAL_NOT_EQUALS', // ?!=
+
+  // -------------------------------------------------------------------------
   // Operators - Arithmetic
   // -------------------------------------------------------------------------
   PLUS = 'PLUS', // +
@@ -139,6 +146,7 @@ export enum TokenType {
   DIVIDE = 'DIVIDE', // /
   MODULO = 'MODULO', // %
   POWER = 'POWER', // ^
+  PIPE = 'PIPE', // |
 
   // -------------------------------------------------------------------------
   // Operators - Annotation/Splat

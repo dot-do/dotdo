@@ -149,6 +149,12 @@ class Lexer {
       return
     }
 
+    // Multi-line comments /* ... */
+    if (ch === '/' && this.peek() === '*') {
+      this.scanMultiLineComment(startPos, startLine, startColumn)
+      return
+    }
+
     // Strings
     if (ch === "'" || ch === '"') {
       this.scanString(ch, startPos, startLine, startColumn, false)
@@ -195,6 +201,25 @@ class Lexer {
     while (!this.isAtEnd() && this.peek() !== '\n' && this.peek() !== '\r') {
       this.advance()
     }
+    if (this.preserveComments) {
+      const value = this.source.slice(start, this.pos)
+      this.addToken(TokenType.COMMENT, value, startPos, startLine, startColumn)
+    }
+  }
+
+  private scanMultiLineComment(startPos: number, startLine: number, startColumn: number): void {
+    this.advance() // consume *
+    const start = this.pos - 2 // include /*
+
+    while (!this.isAtEnd()) {
+      if (this.peek() === '*' && this.peek(1) === '/') {
+        this.advance() // consume *
+        this.advance() // consume /
+        break
+      }
+      this.advance()
+    }
+
     if (this.preserveComments) {
       const value = this.source.slice(start, this.pos)
       this.addToken(TokenType.COMMENT, value, startPos, startLine, startColumn)
@@ -566,8 +591,15 @@ class Lexer {
         if (this.peek() === '?') {
           this.advance()
           this.addToken(TokenType.COALESCE, '??', startPos, startLine, startColumn)
+        } else if (this.peek() === '!' && this.peek(1) === '=') {
+          this.advance() // !
+          this.advance() // =
+          this.addToken(TokenType.OPTIONAL_NOT_EQUALS, '?!=', startPos, startLine, startColumn)
+        } else if (this.peek() === '=') {
+          this.advance()
+          this.addToken(TokenType.OPTIONAL_EQUALS, '?=', startPos, startLine, startColumn)
         } else {
-          throw new LexerError(`Unexpected character: ${ch}`, startLine, startColumn, startPos)
+          this.addToken(TokenType.QUESTION, ch, startPos, startLine, startColumn)
         }
         break
       case '=':
@@ -608,6 +640,9 @@ class Lexer {
         break
       case '^':
         this.addToken(TokenType.POWER, ch, startPos, startLine, startColumn)
+        break
+      case '|':
+        this.addToken(TokenType.PIPE, ch, startPos, startLine, startColumn)
         break
       case '@':
         this.addToken(TokenType.AT, ch, startPos, startLine, startColumn)
