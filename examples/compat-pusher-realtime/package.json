@@ -1,0 +1,22 @@
+{
+  "name": "compat-pusher-realtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "@dotdo/pusher realtime example - WebSocket channels backed by Durable Objects",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "dotdo": "workspace:*",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.58.0"
+  }
+}

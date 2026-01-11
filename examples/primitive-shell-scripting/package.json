@@ -1,0 +1,25 @@
+{
+  "name": "primitive-shell-scripting",
+  "version": "1.0.0",
+  "private": true,
+  "description": "bashx demonstration - shell without VMs on Cloudflare's edge",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "dotdo": "workspace:*",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.58.0"
+  }
+}

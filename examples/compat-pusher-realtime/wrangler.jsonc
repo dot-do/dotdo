@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "compat-pusher-realtime",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev
+  "workers_dev": true,
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REALTIME_DO",
+        "class_name": "RealtimeDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO with WebSocket hibernation
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RealtimeDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production",
+    "PUSHER_APP_ID": "dotdo-realtime",
+    "PUSHER_KEY": "demo-key",
+    "PUSHER_SECRET": "demo-secret"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development",
+        "PUSHER_APP_ID": "dotdo-realtime-dev",
+        "PUSHER_KEY": "dev-key",
+        "PUSHER_SECRET": "dev-secret"
+      }
+    }
+  }
+}

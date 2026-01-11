@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "primitive-multi-tools",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects with all primitives: fs + git + bash + npm
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DEVOPS_DO",
+        "class_name": "DevOpsDO"
+      },
+      {
+        "name": "WORKSPACE_DO",
+        "class_name": "DevWorkspaceDO"
+      }
+    ]
+  },
+
+  // SQLite storage for filesystem and git index
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DevOpsDO", "DevWorkspaceDO"]
+    }
+  ],
+
+  // R2 bucket for git object storage (blobs, trees, commits)
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "devops-git-objects"
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "GITHUB_API_URL": "https://api.github.com",
+    "ENVIRONMENT": "production"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+
+  // For production, add secrets:
+  // wrangler secret put GITHUB_TOKEN
+  // wrangler secret put NPM_TOKEN
+  // wrangler secret put DEPLOY_KEY
+}

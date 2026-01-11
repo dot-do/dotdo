@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "workflow-event-choreography",
+  "main": "index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Five Durable Objects for event choreography:
+  // - OrderFlowDO: Simple event flow (single DO pattern)
+  // - OrderDO: Saga coordinator (multi-DO pattern)
+  // - PaymentDO: Payment processing
+  // - InventoryDO: Stock management
+  // - ShippingDO: Shipment tracking
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DO",
+        "class_name": "OrderFlowDO"
+      },
+      {
+        "name": "ORDER",
+        "class_name": "OrderDO"
+      },
+      {
+        "name": "PAYMENT",
+        "class_name": "PaymentDO"
+      },
+      {
+        "name": "INVENTORY",
+        "class_name": "InventoryDO"
+      },
+      {
+        "name": "SHIPPING",
+        "class_name": "ShippingDO"
+      }
+    ]
+  },
+
+  // SQLite storage for all DOs
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["OrderFlowDO", "OrderDO", "PaymentDO", "InventoryDO", "ShippingDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "API_NAME": "Order Event Choreography",
+    "API_VERSION": "2.0.0"
+  }
+}

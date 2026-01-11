@@ -1,0 +1,28 @@
+{
+  "name": "compat-duckdb-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time OLAP analytics on Cloudflare Workers with @dotdo/duckdb-worker",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@dotdo/duckdb-worker": "workspace:*",
+    "dotdo": "workspace:*",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "typescript": "^5.7.0",
+    "vitest": "3.0.4",
+    "wrangler": "^4.58.0"
+  }
+}

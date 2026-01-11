@@ -1,0 +1,52 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "social-feed-algorithm",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev
+  "workers_dev": true,
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FEED_DO",
+        "class_name": "FeedDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FeedDO"]
+    }
+  ],
+
+  // Algorithm configuration
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Ranking weights (can be overridden per variant)
+    "FRESHNESS_WEIGHT": "0.30",
+    "ENGAGEMENT_WEIGHT": "0.25",
+    "SOCIAL_WEIGHT": "0.25",
+    "INTEREST_WEIGHT": "0.20",
+    // Cache TTL in seconds
+    "FEED_CACHE_TTL": "300",
+    // Freshness decay half-life in hours
+    "FRESHNESS_HALF_LIFE": "12"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development",
+        "FEED_CACHE_TTL": "30"
+      }
+    }
+  }
+}

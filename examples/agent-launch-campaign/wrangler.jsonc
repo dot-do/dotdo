@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "agent-launch-campaign",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object for campaign orchestration
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CAMPAIGN",
+        "class_name": "LaunchCampaignDO",
+        "script_name": "agent-launch-campaign"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LaunchCampaignDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "API_NAME": "Launch Campaign",
+    "API_VERSION": "1.0.0"
+  }
+}

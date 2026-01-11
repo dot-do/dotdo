@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "error-handling-patterns",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev
+  "workers_dev": true,
+
+  // Three Durable Objects for error handling patterns:
+  // - RetryDO: Retry pattern with exponential backoff, retry budgets
+  // - CircuitDO: Circuit breaker pattern, service isolation
+  // - ErrorsDO: Dead letter queue, error aggregation, compensation
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RETRY_DO",
+        "class_name": "RetryDO"
+      },
+      {
+        "name": "CIRCUIT_DO",
+        "class_name": "CircuitDO"
+      },
+      {
+        "name": "ERRORS_DO",
+        "class_name": "ErrorsDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DOs
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RetryDO", "CircuitDO", "ErrorsDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}

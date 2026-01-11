@@ -1,0 +1,29 @@
+# SaaS Billing Cycle Example
+# Multi-DO subscription management with usage metering and dunning
+
+name = "saas-billing-cycle"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Four Durable Objects handle the billing lifecycle:
+# - SubscriptionDO: Per-customer subscription state, plan changes, lifecycle
+# - UsageDO: Per-subscription metered usage tracking
+# - InvoiceDO: Invoice generation and management
+# - PaymentDO: Payment processing with dunning (retry logic)
+
+[durable_objects]
+bindings = [
+  { name = "SUBSCRIPTION", class_name = "SubscriptionDO" },
+  { name = "USAGE", class_name = "UsageDO" },
+  { name = "INVOICE", class_name = "InvoiceDO" },
+  { name = "PAYMENT", class_name = "PaymentDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SubscriptionDO", "UsageDO", "InvoiceDO", "PaymentDO"]
+
+[vars]
+API_NAME = "SaaS Billing Cycle"
+API_VERSION = "2.0.0"

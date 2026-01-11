@@ -1,0 +1,26 @@
+name = "ecommerce-checkout"
+main = "index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Multi-DO Architecture
+# Each DO handles a specific domain concern
+[durable_objects]
+bindings = [
+  # Cart per customer
+  { name = "CART", class_name = "CartDO" },
+  # Global inventory
+  { name = "INVENTORY", class_name = "InventoryDO" },
+  # Checkout sessions
+  { name = "CHECKOUT", class_name = "CheckoutDO" },
+  # Orders
+  { name = "ORDER", class_name = "OrderDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CartDO", "InventoryDO", "CheckoutDO", "OrderDO"]
+
+[vars]
+API_NAME = "E-Commerce Checkout"
+API_VERSION = "2.0.0"

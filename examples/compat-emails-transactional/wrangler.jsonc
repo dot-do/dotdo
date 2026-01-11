@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "compat-emails-transactional",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev for development
+  "workers_dev": true,
+
+  // Durable Objects - each tenant gets isolated email management
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EMAIL_DO",
+        "class_name": "EmailDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EmailDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production",
+    "FROM_EMAIL": "noreply@example.com",
+    "FROM_NAME": "Example App"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}

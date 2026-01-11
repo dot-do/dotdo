@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-product-discovery",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev
+  "workers_dev": true,
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DISCOVERY_DO",
+        "class_name": "ProductDiscoveryDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ProductDiscoveryDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-code-review",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev for demo
+  "workers_dev": true,
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CODE_REVIEW_DO",
+        "class_name": "CodeReviewDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CodeReviewDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  // AI bindings for agent execution
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}
