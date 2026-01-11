@@ -96,8 +96,8 @@ export default defineWorkspace([
   // Durable Objects tests (mocked runtime)
   createNodeWorkspace('objects', ['objects/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),

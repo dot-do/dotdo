@@ -638,7 +638,9 @@ export class GitModule {
       for (const name of names) {
         try {
           const fullPath = path === '/' ? `/${name}` : `${path}/${name}`
-          const stat = await (this.fs as FsCapability).stat?.(fullPath)
+          // Cast via unknown to call stat which may exist on either interface
+          const fsWithStat = this.fs as unknown as { stat?: (path: string) => Promise<{ isDirectory: boolean }> }
+          const stat = await fsWithStat.stat?.(fullPath)
           results.push({ name, isDirectory: stat?.isDirectory ?? false })
         } catch {
           // Assume file if stat fails

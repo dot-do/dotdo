@@ -748,7 +748,9 @@ describe('GEL Client - Query Execution', () => {
     })
 
     it('throws CardinalityViolationError for multiple results', async () => {
-      // If there are multiple users, this should throw
+      // Set up mock to return multiple results
+      storage.all = () => [{ name: 'Alice' }, { name: 'Bob' }]
+
       await expect(
         client.querySingle(`select User { name }`)
       ).rejects.toThrow(CardinalityViolationError)
@@ -765,7 +767,9 @@ describe('GEL Client - Query Execution', () => {
 
   describe('queryRequired method', () => {
     it('returns single result when exists', async () => {
-      // Assuming data exists
+      // Set up mock to return exactly one result
+      storage.all = () => [{ name: 'Alice', email: 'alice@example.com' }]
+
       const result = await client.queryRequired(`
         select User { name } filter .email = 'alice@example.com'
       `)
@@ -782,6 +786,9 @@ describe('GEL Client - Query Execution', () => {
     })
 
     it('throws CardinalityViolationError for multiple results', async () => {
+      // Set up mock to return multiple results
+      storage.all = () => [{ name: 'Alice' }, { name: 'Bob' }]
+
       await expect(
         client.queryRequired(`select User { name }`)
       ).rejects.toThrow(CardinalityViolationError)

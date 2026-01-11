@@ -124,7 +124,10 @@ export class GelClient implements GelTransaction {
   private schema: Schema | null = null
   private closed = false
   private savepointCounter = 0
-  private inNestedTransaction = false
+  // Track our own transaction state
+  private _inTransaction = false
+  // Track inserted values for unique constraint validation
+  private insertedValues: Map<string, Set<string>> = new Map()
 
   constructor(storage: GelStorage, options: GelClientOptions = {}) {
     this.storage = storage
@@ -381,6 +384,11 @@ export class GelClient implements GelTransaction {
     try {
       // For INSERT statements, use run() and synthesize the result
       if (ast.type === 'InsertStatement') {
+        // Validate required fields before inserting
+        this.validateInsertRequiredFields(ast)
+        // Validate unique constraints
+        this.validateInsertUniqueConstraints(ast)
+
         // Remove RETURNING clause for run() since mock storage doesn't support it
         const sqlWithoutReturning = translated.sql.replace(/ RETURNING "id"$/, '')
         const runResult = this.storage.run(sqlWithoutReturning, boundParams)
@@ -535,6 +543,84 @@ export class GelClient implements GelTransaction {
   }
 
   /**
+   * Validate unique constraints for INSERT
+   */
+  private validateInsertUniqueConstraints(ast: any): void {
+    if (!this.schema) return
+
+    // Get the target type name
+    const targetName = ast.target?.replace(/^default::/, '') ?? ''
+    const typeDef = this.schema.types.find(t => t.name === targetName)
+    if (!typeDef) return
+
+    // Get the provided values from the INSERT
+    const data = ast.data?.assignments || []
+    const providedValues: Record<string, string> = {}
+    for (const assignment of data) {
+      const name = assignment.name
+      const value = assignment.value
+      if (value?.type === 'StringLiteral') {
+        providedValues[name] = value.value
+      }
+    }
+
+    // Check for exclusive constraints on properties
+    for (const prop of typeDef.properties) {
+      const hasExclusive = prop.constraints.some(c => c.type === 'exclusive')
+      if (hasExclusive && providedValues[prop.name]) {
+        const constraintKey = `${targetName}.${prop.name}`
+        const existingValues = this.insertedValues.get(constraintKey) ?? new Set()
+        const newValue = providedValues[prop.name]
+
+        if (existingValues.has(newValue)) {
+          throw new QueryError(`Constraint violation: UNIQUE constraint failed for ${prop.name}`)
+        }
+
+        // Track the new value
+        existingValues.add(newValue)
+        this.insertedValues.set(constraintKey, existingValues)
+      }
+    }
+  }
+
+  /**
+   * Validate that all required fields are provided for INSERT
+   */
+  private validateInsertRequiredFields(ast: any): void {
+    if (!this.schema) return
+
+    // Get the target type name
+    const targetName = ast.target?.replace(/^default::/, '') ?? ''
+    const typeDef = this.schema.types.find(t => t.name === targetName)
+    if (!typeDef) return
+
+    // Get the provided field names from the INSERT
+    const providedFields = new Set<string>()
+    const data = ast.data?.assignments || []
+    for (const assignment of data) {
+      providedFields.add(assignment.name)
+    }
+
+    // Check that all required properties are provided
+    for (const prop of typeDef.properties) {
+      if (prop.required && prop.default === undefined && prop.defaultExpr === undefined) {
+        if (!providedFields.has(prop.name)) {
+          throw new QueryError(`Missing required field: ${prop.name}`)
+        }
+      }
+    }
+
+    // Check that all required links are provided
+    for (const link of typeDef.links) {
+      if (link.required) {
+        if (!providedFields.has(link.name)) {
+          throw new QueryError(`Missing required field: ${link.name}`)
+        }
+      }
+    }
+  }
+
+  /**
    * Validate parameters against the query
    */
   private validateParams(edgeql: string, params?: Record<string, unknown>): void {
@@ -666,8 +752,8 @@ export class GelClient implements GelTransaction {
   async transaction<T>(fn: (tx: GelTransaction) => Promise<T>): Promise<T> {
     this.ensureOpen()
 
-    // Check if we're already in a transaction
-    if (this.storage.inTransaction) {
+    // Check if we're already in a transaction (use our own state)
+    if (this._inTransaction || this.storage.inTransaction) {
       // Use savepoint for nested transaction
       const savepointName = `sp_${++this.savepointCounter}`
 
@@ -685,13 +771,16 @@ export class GelClient implements GelTransaction {
     // For sync storage.transaction, we need to handle async properly
     // We'll manually manage BEGIN/COMMIT/ROLLBACK
     this.storage.exec('BEGIN')
+    this._inTransaction = true
 
     try {
       const result = await fn(this)
       this.storage.exec('COMMIT')
+      this._inTransaction = false
       return result
     } catch (error) {
       this.storage.exec('ROLLBACK')
+      this._inTransaction = false
       throw error
     }
   }
