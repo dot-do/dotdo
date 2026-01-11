@@ -6,11 +6,14 @@
   "compatibility_date": "2026-01-08",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Custom domain for the demo
-  "routes": [
-    { "pattern": "example.com.ai", "zone_name": "example.com.ai" },
-    { "pattern": "www.example.com.ai", "zone_name": "example.com.ai" }
-  ],
+  // Deploy to workers.dev until DNS is configured
+  "workers_dev": true,
+
+  // Custom domain for the demo (uncomment once DNS is configured)
+  // "routes": [
+  //   { "pattern": "example.com.ai", "zone_name": "example.com.ai" },
+  //   { "pattern": "www.example.com.ai", "zone_name": "example.com.ai" }
+  // ],
 
   // Durable Objects
   "durable_objects": {
