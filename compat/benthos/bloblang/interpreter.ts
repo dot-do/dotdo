@@ -153,15 +153,29 @@ export class Interpreter {
       return ctx.pipeValue
     }
 
+    // Check for $varname reference (local variable)
+    if (name.startsWith('$')) {
+      const varName = name.slice(1) // Remove the $ prefix
+      if (ctx.variables.has(varName)) {
+        return ctx.variables.get(varName)
+      }
+      // Also check with $ prefix (for env vars or explicit $ vars)
+      if (ctx.variables.has(name)) {
+        return ctx.variables.get(name)
+      }
+      return undefined
+    }
+
     // Check local variables first
     if (ctx.variables.has(name)) {
       return ctx.variables.get(name)
     }
 
     // Check if it's a property on root
-    const root = ctx.message.root as Record<string, unknown>
-    if (root && typeof root === 'object' && name in root) {
-      return root[name]
+    const result = ctx.message.jsonSafe()
+    const root = result !== undefined ? result : ctx.message.content
+    if (root && typeof root === 'object' && name in (root as Record<string, unknown>)) {
+      return (root as Record<string, unknown>)[name]
     }
 
     // Return undefined for unknown identifiers
@@ -813,10 +827,12 @@ export class Interpreter {
       return this.callPipeMethod(leftValue, methodName, [], pipeCtx)
     }
 
-    // If right side is a BinaryOp with an Identifier on the left (like `| length > 2`),
-    // resolve the identifier as a method call on the piped value first
+    // If right side is a BinaryOp, handle special cases
     if (node.right.type === 'BinaryOp') {
       const binOp = node.right as BinaryOpNode
+
+      // If left side of BinaryOp is an Identifier (like `| length > 2`),
+      // resolve the identifier as a method call on the piped value first
       if (binOp.left.type === 'Identifier') {
         const methodName = (binOp.left as IdentifierNode).name
         // Check if this is a known method that should be called on the pipe value
@@ -824,6 +840,25 @@ export class Interpreter {
           const methodResult = this.callPipeMethod(leftValue, methodName, [], pipeCtx)
           const rightResult = this.evalNode(binOp.right, pipeCtx)
           return this.evalBinaryOpValues(binOp.operator, methodResult, rightResult)
+        }
+      }
+
+      // If left side of BinaryOp is a Call (like `| from_json() + 8`),
+      // inject the piped value into that call
+      if (binOp.left.type === 'Call') {
+        const callNode = binOp.left as CallNode
+        if (callNode.function.type === 'Identifier') {
+          const funcName = (callNode.function as IdentifierNode).name
+          const args = callNode.arguments.map(arg => this.evalNode(arg, pipeCtx))
+          // Try as method on the piped value first, then as global function
+          let callResult: unknown
+          try {
+            callResult = this.callMethod(leftValue, funcName, args, pipeCtx)
+          } catch {
+            callResult = this.callFunction(funcName, [leftValue, ...args], pipeCtx)
+          }
+          const rightResult = this.evalNode(binOp.right, pipeCtx)
+          return this.evalBinaryOpValues(binOp.operator, callResult, rightResult)
         }
       }
     }
@@ -964,6 +999,13 @@ export class Interpreter {
   private evalAssign(node: AssignNode, ctx: InterpreterContext): unknown {
     const value = this.evalNode(node.value, ctx)
     const field = node.field
+
+    // Handle variable assignment ($varname = value)
+    if (field.startsWith('$')) {
+      const varName = field.slice(1) // Remove the $ prefix
+      ctx.variables.set(varName, value)
+      return value
+    }
 
     // Handle root assignment
     if (field === 'root') {

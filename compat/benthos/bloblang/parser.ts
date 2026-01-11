@@ -790,7 +790,7 @@ export class Parser {
       } as IdentifierNode
     }
 
-    // Environment variable (treat as identifier for function calls)
+    // Environment variable or local variable reference ($varname)
     if (this.match(TokenType.ENV_VAR)) {
       const t = this.advance()
       return {
@@ -886,32 +886,42 @@ export class Parser {
 
   /**
    * Parse let binding: let name = value in body
+   * OR variable declaration: let name = value (followed by ; or EOF)
    */
-  private parseLet(): LetNode {
+  private parseLet(): ASTNode {
     const letToken = this.advance() // consume 'let'
     const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected variable name after let')
     this.consume(TokenType.ASSIGN, "Expected '=' after variable name")
     // Parse value without allowing the 'in' operator (to avoid consuming 'in' keyword)
     const value = this.parseLetValue()
 
-    // Expect 'in' keyword (as IN token or identifier with value 'in')
-    const inToken = this.peek()
-    if (inToken.type !== TokenType.IN &&
-        !(inToken.type === TokenType.IDENTIFIER && inToken.value === 'in')) {
-      this.error("Expected 'in' after let value")
+    // Check if this is 'let x = val in body' or 'let x = val;' (statement style)
+    const nextToken = this.peek()
+    if (nextToken.type === TokenType.IN ||
+        (nextToken.type === TokenType.IDENTIFIER && nextToken.value === 'in')) {
+      // Functional style: let x = val in body
+      this.advance() // consume 'in'
+      const body = this.parseExpression()
+
+      return {
+        type: 'Let',
+        name: nameToken.value,
+        value,
+        body,
+        line: letToken.line,
+        column: letToken.column
+      } as LetNode
     }
-    this.advance() // consume 'in'
 
-    const body = this.parseExpression()
-
+    // Statement style: let x = val (followed by ; or EOF)
+    // Return a special VariableDecl-like node using Assign with a $ prefix
     return {
-      type: 'Let',
-      name: nameToken.value,
+      type: 'Assign',
+      field: `$${nameToken.value}`,
       value,
-      body,
       line: letToken.line,
       column: letToken.column
-    }
+    } as AssignNode
   }
 
   /**
