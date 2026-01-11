@@ -327,12 +327,12 @@ describe('Bloblang Interpreter', () => {
         'nonexistent',
         'optional'
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBeUndefined()
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBeUndefined()
     })
 
     it('returns undefined when chaining through null', () => {
+      const msgWithNull = createMessage({ nullField: null })
       const deepAst = ASTBuilder.memberAccess(
         ASTBuilder.memberAccess(
           ASTBuilder.root(),
@@ -342,9 +342,8 @@ describe('Bloblang Interpreter', () => {
         'nested',
         'optional'
       )
-      // const result = evaluate(deepAst, msg)
-      // expect(result).toBeUndefined()
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(deepAst, msgWithNull)
+      expect(result).toBeUndefined()
     })
   })
 
@@ -781,9 +780,8 @@ describe('Bloblang Interpreter', () => {
           { pattern: ASTBuilder.literal('Bob'), body: ASTBuilder.literal('not matched') }
         ]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('matched')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('matched')
     })
 
     it('evaluates match with default case', () => {
@@ -794,9 +792,8 @@ describe('Bloblang Interpreter', () => {
         ],
         ASTBuilder.literal('default matched')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('default matched')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('default matched')
     })
 
     it('evaluates match with numeric patterns', () => {
@@ -808,9 +805,8 @@ describe('Bloblang Interpreter', () => {
           { pattern: ASTBuilder.literal(3), body: ASTBuilder.literal('three') }
         ]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('two')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('two')
     })
 
     it('evaluates match returns undefined when no match and no default', () => {
@@ -820,9 +816,8 @@ describe('Bloblang Interpreter', () => {
           { pattern: ASTBuilder.literal('known'), body: ASTBuilder.literal('matched') }
         ]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBeUndefined()
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBeUndefined()
     })
   })
 
@@ -833,9 +828,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal(42),
         ASTBuilder.identifier('x')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(42)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(42)
     })
 
     it('evaluates let binding with expression', () => {
@@ -844,9 +838,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.binaryOp('+', ASTBuilder.literal(10), ASTBuilder.literal(5)),
         ASTBuilder.identifier('x')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(15)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(15)
     })
 
     it('evaluates nested let bindings', () => {
@@ -859,9 +852,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.binaryOp('+', ASTBuilder.identifier('x'), ASTBuilder.identifier('y'))
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(15)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(15)
     })
 
     it('shadows variables with let binding', () => {
@@ -870,9 +862,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('Bob'),
         ASTBuilder.identifier('name')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('Bob')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('Bob')
     })
 
     it('let binding creates scope', () => {
@@ -882,18 +873,18 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal(42),
         innerBody
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(42)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(42)
     })
   })
 
   describe('Function Calls', () => {
     it('calls stdlib function with no arguments', () => {
       const ast = ASTBuilder.call(ASTBuilder.identifier('now'))
-      // const result = evaluate(ast, msg)
-      // expect(typeof result).toBe('number')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      // now() returns ISO date string
+      expect(typeof result).toBe('string')
+      expect((result as string).length).toBeGreaterThan(10)
     })
 
     it('calls stdlib function with single argument', () => {
@@ -901,9 +892,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.identifier('length'),
         [ASTBuilder.literal('hello')]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(5)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(5)
     })
 
     it('calls stdlib function with multiple arguments', () => {
@@ -915,9 +905,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.literal(5)
         ]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('hello')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('hello')
     })
 
     it('calls method on object', () => {
@@ -929,9 +918,8 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO')
     })
 
     it('calls function on array literal', () => {
@@ -943,17 +931,18 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(3)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(3)
     })
   })
 
   describe('Arrow Functions and Maps', () => {
     it('evaluates simple arrow function', () => {
       const arrow = ASTBuilder.arrow('x', ASTBuilder.binaryOp('+', ASTBuilder.identifier('x'), ASTBuilder.literal(1)))
-      // Note: arrow functions are typically used as arguments, tested below
-      expect(true).toBe(true) // Placeholder
+      // Arrow functions as values should return an ArrowFunction object
+      const result = evaluate(arrow, msg)
+      expect(result).toBeDefined()
+      expect(typeof result).toBe('object')
     })
 
     it('maps over array with lambda', () => {
@@ -965,9 +954,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.arrow('x', ASTBuilder.binaryOp('*', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual([2, 4, 6])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([2, 4, 6])
     })
 
     it('filters array with lambda', () => {
@@ -979,9 +967,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.arrow('x', ASTBuilder.binaryOp('>', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual([3, 4])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([3, 4])
     })
 
     it('reduces array with lambda', () => {
@@ -996,9 +983,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.literal(0)
         ]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(3)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(3)
     })
 
     it('evaluates nested arrow functions', () => {
@@ -1006,8 +992,10 @@ describe('Bloblang Interpreter', () => {
         'x',
         ASTBuilder.arrow('y', ASTBuilder.binaryOp('+', ASTBuilder.identifier('x'), ASTBuilder.identifier('y')))
       )
-      // Higher-order functions tested elsewhere
-      expect(true).toBe(true) // Placeholder
+      // Nested arrow should produce an ArrowFunction containing another ArrowFunction
+      const result = evaluate(ast, msg)
+      expect(result).toBeDefined()
+      expect(typeof result).toBe('object')
     })
   })
 
@@ -1017,9 +1005,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('hello'),
         ASTBuilder.call(ASTBuilder.identifier('uppercase'), [])
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO')
     })
 
     it('pipes through multiple functions', () => {
@@ -1033,9 +1020,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.literal('_')
         ])
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO_WORLD')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO_WORLD')
     })
 
     it('pipes with method access', () => {
@@ -1047,9 +1033,8 @@ describe('Bloblang Interpreter', () => {
           'dot'
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO')
     })
 
     it('pipes array through map', () => {
@@ -1060,9 +1045,8 @@ describe('Bloblang Interpreter', () => {
           [ASTBuilder.arrow('x', ASTBuilder.binaryOp('*', ASTBuilder.identifier('x'), ASTBuilder.literal(2)))]
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual([2, 4, 6])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([2, 4, 6])
     })
   })
 
@@ -1081,9 +1065,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.literal(5)
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(26) // 2*3 + 4*5 = 6 + 20
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(26) // 2*3 + 4*5 = 6 + 20
     })
 
     it('evaluates expression with mixed operators', () => {
@@ -1096,9 +1079,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.binaryOp('+', ASTBuilder.literal(10), ASTBuilder.literal(20)),
         ASTBuilder.literal(0)
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(30)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(30)
     })
 
     it('evaluates complex transformation', () => {
@@ -1113,46 +1095,40 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.literal('CHILD')
         )}
       ])
-      // const result = evaluate(ast, msg)
-      // expect((result as any).result).toBe('ALICE')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect((result as Record<string, unknown>).result).toBe('ALICE')
     })
   })
 
   describe('Type Coercion and Truthiness', () => {
     it('coerces empty string to false', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.literal(''))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
     it('coerces non-empty string to true', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.literal('hello'))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(false)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(false)
     })
 
     it('coerces zero to false', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.literal(0))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
     it('coerces non-zero to true', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.literal(1))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(false)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(false)
     })
 
     it('coerces null to false', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.literal(null))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
     it('coerces undefined to false', () => {
@@ -1161,16 +1137,14 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('truthy'),
         ASTBuilder.literal('falsy')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('falsy')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('falsy')
     })
 
     it('numeric string coerces to number in arithmetic', () => {
       const ast = ASTBuilder.binaryOp('+', ASTBuilder.literal('5'), ASTBuilder.literal(3))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('53') // String concatenation, not addition
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('53') // String concatenation, not addition
     })
   })
 
@@ -1184,9 +1158,8 @@ describe('Bloblang Interpreter', () => {
         'nested',
         'dot'
       )
-      // const result = evaluate(ast, msg2)
-      // expect(result).toBeUndefined()
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg2)
+      expect(result).toBeUndefined()
     })
 
     it('handles undefined in operations', () => {
@@ -1195,9 +1168,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.memberAccess(ASTBuilder.root(), 'nonexistent', 'dot'),
         ASTBuilder.literal(5)
       )
-      // const result = evaluate(ast, msg)
-      // May result in undefined, null, or error depending on implementation
-      expect(true).toBe(true) // Placeholder
+      // Type-safe behavior: undefined + number should throw TypeError
+      expect(() => evaluate(ast, msg)).toThrow(TypeError)
     })
 
     it('handles invalid array index', () => {
@@ -1206,9 +1178,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal(999),
         'bracket'
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBeUndefined()
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBeUndefined()
     })
 
     it('handles negative array index', () => {
@@ -1217,18 +1188,17 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal(-1),
         'bracket'
       )
-      // const result = evaluate(ast, msg)
-      // May support negative indexing or return undefined
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      // Interpreter supports negative indexing - tags[-1] = 'admin'
+      expect(result).toBe('admin')
     })
   })
 
   describe('Scope and Variable Resolution', () => {
     it('resolves global variables', () => {
       const ast = ASTBuilder.memberAccess(ASTBuilder.root(), 'name', 'dot')
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('Alice')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('Alice')
     })
 
     it('resolves local variables in let binding', () => {
@@ -1237,9 +1207,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('local value'),
         ASTBuilder.identifier('localVar')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('local value')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('local value')
     })
 
     it('local variable shadows root property', () => {
@@ -1248,15 +1217,22 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal('Shadowed'),
         ASTBuilder.identifier('name')
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('Shadowed')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('Shadowed')
     })
 
     it('resolves function parameters in arrow functions', () => {
-      const arrow = ASTBuilder.arrow('item', ASTBuilder.identifier('item'))
-      // Arrow functions are normally used as arguments
-      expect(true).toBe(true) // Placeholder
+      // Test arrow function parameter resolution by using it in a map operation
+      const ast = ASTBuilder.call(
+        ASTBuilder.memberAccess(
+          ASTBuilder.array([ASTBuilder.literal(42)]),
+          'map',
+          'dot'
+        ),
+        [ASTBuilder.arrow('item', ASTBuilder.identifier('item'))]
+      )
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([42])
     })
 
     it('outer scope accessible from inner let binding', () => {
@@ -1269,9 +1245,8 @@ describe('Bloblang Interpreter', () => {
           ASTBuilder.identifier('y')
         )
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('Alice')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('Alice')
     })
   })
 
@@ -1279,9 +1254,8 @@ describe('Bloblang Interpreter', () => {
     it('preserves message metadata during evaluation', () => {
       const msg2 = createMessage({ value: 42 }, { 'key': 'test' })
       const ast = ASTBuilder.root()
-      // const result = evaluate(ast, msg2)
-      // expect(msg2.metadata.get('key')).toBe('test')
-      expect(true).toBe(true) // Placeholder
+      evaluate(ast, msg2)
+      expect(msg2.metadata.get('key')).toBe('test')
     })
 
     it('accesses meta values in metadata', () => {
@@ -1290,24 +1264,21 @@ describe('Bloblang Interpreter', () => {
         'source',
         'dot'
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('kafka')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('kafka')
     })
 
     it('returns all metadata as object', () => {
       const ast = ASTBuilder.meta()
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual({ source: 'kafka', partition: '0' })
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual({ source: 'kafka', partition: '0' })
     })
 
     it('handles message with JSON string content', () => {
       const msg2 = createMessage('{"key": "value"}')
       const ast = ASTBuilder.memberAccess(ASTBuilder.root(), 'key', 'dot')
-      // const result = evaluate(ast, msg2)
-      // expect(result).toBe('value')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg2)
+      expect(result).toBe('value')
     })
   })
 
@@ -1318,9 +1289,8 @@ describe('Bloblang Interpreter', () => {
         'length',
         'dot'
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(2)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(2)
     })
 
     it('joins array elements', () => {
@@ -1332,9 +1302,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.literal(', ')]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('user, admin')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('user, admin')
     })
 
     it('reverses array', () => {
@@ -1346,9 +1315,8 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual(['admin', 'user'])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual(['admin', 'user'])
     })
 
     it('sorts array', () => {
@@ -1364,9 +1332,8 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual([1, 2, 3])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual([1, 2, 3])
     })
   })
 
@@ -1380,9 +1347,8 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('HELLO')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('HELLO')
     })
 
     it('lowercases string', () => {
@@ -1394,9 +1360,8 @@ describe('Bloblang Interpreter', () => {
         ),
         []
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('hello')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('hello')
     })
 
     it('replaces substring', () => {
@@ -1408,9 +1373,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.literal('world'), ASTBuilder.literal('there')]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('hello there')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('hello there')
     })
 
     it('splits string', () => {
@@ -1422,9 +1386,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.literal(',')]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toEqual(['a', 'b', 'c'])
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toEqual(['a', 'b', 'c'])
     })
 
     it('gets substring', () => {
@@ -1436,9 +1399,8 @@ describe('Bloblang Interpreter', () => {
         ),
         [ASTBuilder.literal(0), ASTBuilder.literal(5)]
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('hello')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('hello')
     })
   })
 
@@ -1446,16 +1408,14 @@ describe('Bloblang Interpreter', () => {
     it('converts string to number in addition', () => {
       const ast = ASTBuilder.binaryOp('+', ASTBuilder.literal('10'), ASTBuilder.literal(5))
       // Should concatenate as strings: '105'
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe('105')
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe('105')
     })
 
     it('handles floating point arithmetic', () => {
       const ast = ASTBuilder.binaryOp('+', ASTBuilder.literal(0.1), ASTBuilder.literal(0.2))
-      // const result = evaluate(ast, msg)
-      // expect(Math.abs((result as number) - 0.3) < 0.0001).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Math.abs((result as number) - 0.3) < 0.0001).toBe(true)
     })
 
     it('handles large numbers', () => {
@@ -1464,9 +1424,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.literal(1e10),
         ASTBuilder.literal(1e10)
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(1e20)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(1e20)
     })
   })
 
@@ -1476,17 +1435,17 @@ describe('Bloblang Interpreter', () => {
       for (let i = 0; i < 5; i++) {
         ast = ASTBuilder.memberAccess(ast, `prop${i}`, 'dot')
       }
-      // Should handle deep nesting without stack overflow
-      expect(true).toBe(true) // Placeholder
+      // Should handle deep nesting without stack overflow - returns undefined for missing path
+      const result = evaluate(ast, msg)
+      expect(result).toBeUndefined()
     })
 
     it('evaluates large arrays', () => {
       const elements = Array.from({ length: 1000 }, (_, i) => ASTBuilder.literal(i))
       const ast = ASTBuilder.array(elements)
-      // const result = evaluate(ast, msg)
-      // expect(Array.isArray(result)).toBe(true)
-      // expect((result as unknown[]).length).toBe(1000)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Array.isArray(result)).toBe(true)
+      expect((result as unknown[]).length).toBe(1000)
     })
 
     it('evaluates objects with many properties', () => {
@@ -1495,17 +1454,15 @@ describe('Bloblang Interpreter', () => {
         value: ASTBuilder.literal(i)
       }))
       const ast = ASTBuilder.object(fields)
-      // const result = evaluate(ast, msg)
-      // expect(Object.keys(result as any).length).toBe(100)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Object.keys(result as Record<string, unknown>).length).toBe(100)
     })
 
     it('handles very long strings', () => {
       const longString = 'a'.repeat(10000)
       const ast = ASTBuilder.literal(longString)
-      // const result = evaluate(ast, msg)
-      // expect((result as string).length).toBe(10000)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect((result as string).length).toBe(10000)
     })
   })
 
@@ -1515,9 +1472,9 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.identifier('keys'),
         [ASTBuilder.root()]
       )
-      // const result = evaluate(ast, msg)
-      // expect(Array.isArray(result)).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Array.isArray(result)).toBe(true)
+      expect((result as string[]).length).toBeGreaterThan(0)
     })
 
     it('iterates over object values', () => {
@@ -1525,9 +1482,9 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.identifier('values'),
         [ASTBuilder.root()]
       )
-      // const result = evaluate(ast, msg)
-      // expect(Array.isArray(result)).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Array.isArray(result)).toBe(true)
+      expect((result as unknown[]).length).toBeGreaterThan(0)
     })
 
     it('gets object entries', () => {
@@ -1538,9 +1495,9 @@ describe('Bloblang Interpreter', () => {
           { key: 'b', value: ASTBuilder.literal(2) }
         ])]
       )
-      // const result = evaluate(ast, msg)
-      // expect(Array.isArray(result)).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(Array.isArray(result)).toBe(true)
+      expect(result).toEqual([['a', 1], ['b', 2]])
     })
   })
 
@@ -1551,16 +1508,14 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.binaryOp('&&', ASTBuilder.literal(false), ASTBuilder.literal(true)),
         ASTBuilder.literal(true)
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
     it('evaluates double negation', () => {
       const ast = ASTBuilder.unaryOp('!', ASTBuilder.unaryOp('!', ASTBuilder.literal(true)))
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
 
     it('evaluates chained comparisons indirectly', () => {
@@ -1569,9 +1524,8 @@ describe('Bloblang Interpreter', () => {
         ASTBuilder.binaryOp('<', ASTBuilder.literal(1), ASTBuilder.literal(2)),
         ASTBuilder.binaryOp('<', ASTBuilder.literal(2), ASTBuilder.literal(3))
       )
-      // const result = evaluate(ast, msg)
-      // expect(result).toBe(true)
-      expect(true).toBe(true) // Placeholder
+      const result = evaluate(ast, msg)
+      expect(result).toBe(true)
     })
   })
 

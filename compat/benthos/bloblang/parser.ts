@@ -87,6 +87,11 @@ const TOKEN_TO_OPERATOR: Record<string, BinaryOperator> = {
 export class Parser {
   private lexer: Lexer
   private currentToken: Token
+  /**
+   * When true, the 'in' operator is disabled in comparisons.
+   * Used when parsing let binding values to avoid consuming 'in' as an operator.
+   */
+  private disableInOperator: boolean = false
 
   constructor(lexer: Lexer) {
     this.lexer = lexer
@@ -410,24 +415,15 @@ export class Parser {
 
   /**
    * Parse comparison: expr < expr, expr > expr, expr <= expr, expr >= expr, expr in array
+   * Note: 'in' operator is disabled when disableInOperator flag is true (for let binding values)
    */
   private parseComparison(): ASTNode {
     let left = this.parseAdditive()
 
-    while (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE, TokenType.IN)) {
-      const opToken = this.advance()
-      if (opToken.type === TokenType.IN) {
-        // Handle 'in' operator for membership check
-        const right = this.parseAdditive()
-        left = {
-          type: 'BinaryOp',
-          operator: 'in' as BinaryOperator,
-          left,
-          right,
-          line: opToken.line,
-          column: opToken.column
-        } as BinaryOpNode
-      } else {
+    while (true) {
+      // Check for standard comparison operators
+      if (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)) {
+        const opToken = this.advance()
         const operator = TOKEN_TO_OPERATOR[opToken.type]
         const right = this.parseAdditive()
         left = {
@@ -438,6 +434,20 @@ export class Parser {
           line: opToken.line,
           column: opToken.column
         } as BinaryOpNode
+      } else if (!this.disableInOperator && this.match(TokenType.IN)) {
+        // Handle 'in' operator for membership check (only when not disabled)
+        const opToken = this.advance()
+        const right = this.parseAdditive()
+        left = {
+          type: 'BinaryOp',
+          operator: 'in' as BinaryOperator,
+          left,
+          right,
+          line: opToken.line,
+          column: opToken.column
+        } as BinaryOpNode
+      } else {
+        break
       }
     }
 
@@ -806,44 +816,57 @@ export class Parser {
 
   /**
    * Parse if expression: if condition then consequent else alternate
+   * Note: If expressions create their own parsing scope where 'in' operator is allowed,
+   * even when nested inside let bindings (to maintain backwards compatibility).
    */
   private parseIf(): IfNode {
     const ifToken = this.advance() // consume 'if'
-    const condition = this.parseOr() // parse condition without catching 'then'
 
-    // Expect 'then' keyword (as identifier)
-    const thenToken = this.peek()
-    if (thenToken.type !== TokenType.IDENTIFIER || thenToken.value !== 'then') {
-      this.error("Expected 'then' after if condition")
-    }
-    this.advance() // consume 'then'
+    // Temporarily enable 'in' operator inside if expressions (backwards compat)
+    const previousState = this.disableInOperator
+    this.disableInOperator = false
 
-    const consequent = this.parseOr()
+    try {
+      const condition = this.parseOr() // parse condition without catching 'then'
 
-    let alternate: ASTNode | undefined
+      // Expect 'then' keyword (as identifier)
+      const thenToken = this.peek()
+      if (thenToken.type !== TokenType.IDENTIFIER || thenToken.value !== 'then') {
+        this.error("Expected 'then' after if condition")
+      }
+      this.advance() // consume 'then'
 
-    // Check for 'else' keyword (as identifier)
-    const elseToken = this.peek()
-    if (elseToken.type === TokenType.IDENTIFIER && elseToken.value === 'else') {
-      this.advance() // consume 'else'
-      alternate = this.parseOr()
-    } else if (elseToken.type === TokenType.ELSE) {
-      this.advance() // consume 'else'
-      alternate = this.parseOr()
-    }
+      const consequent = this.parseOr()
 
-    return {
-      type: 'If',
-      condition,
-      consequent,
-      alternate,
-      line: ifToken.line,
-      column: ifToken.column
+      let alternate: ASTNode | undefined
+
+      // Check for 'else' keyword (as identifier)
+      const elseToken = this.peek()
+      if (elseToken.type === TokenType.IDENTIFIER && elseToken.value === 'else') {
+        this.advance() // consume 'else'
+        alternate = this.parseOr()
+      } else if (elseToken.type === TokenType.ELSE) {
+        this.advance() // consume 'else'
+        alternate = this.parseOr()
+      }
+
+      return {
+        type: 'If',
+        condition,
+        consequent,
+        alternate,
+        line: ifToken.line,
+        column: ifToken.column
+      }
+    } finally {
+      this.disableInOperator = previousState
     }
   }
 
   /**
    * Parse match expression: match input { case pattern: body ... default: body }
+   * Note: Match expressions create their own parsing scope where 'in' operator is allowed,
+   * even when nested inside let bindings (to maintain backwards compatibility).
    */
   private parseMatch(): MatchNode {
     const matchToken = this.advance() // consume 'match'
@@ -851,25 +874,33 @@ export class Parser {
 
     this.consume(TokenType.LBRACE, "Expected '{' after match input")
 
+    // Temporarily enable 'in' operator inside match expressions (backwards compat)
+    const previousState = this.disableInOperator
+    this.disableInOperator = false
+
     const cases: { pattern: ASTNode; body: ASTNode }[] = []
     let defaultCase: ASTNode | undefined
 
-    while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
-      // Check for 'case' keyword (as identifier)
-      const caseToken = this.peek()
-      if (caseToken.type === TokenType.IDENTIFIER && caseToken.value === 'case') {
-        this.advance() // consume 'case'
-        const pattern = this.parseOr()
-        this.consume(TokenType.COLON, "Expected ':' after case pattern")
-        const body = this.parseOr()
-        cases.push({ pattern, body })
-      } else if (caseToken.type === TokenType.IDENTIFIER && caseToken.value === 'default') {
-        this.advance() // consume 'default'
-        this.consume(TokenType.COLON, "Expected ':' after default")
-        defaultCase = this.parseOr()
-      } else {
-        break
+    try {
+      while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+        // Check for 'case' keyword (as identifier)
+        const caseToken = this.peek()
+        if (caseToken.type === TokenType.IDENTIFIER && caseToken.value === 'case') {
+          this.advance() // consume 'case'
+          const pattern = this.parseOr()
+          this.consume(TokenType.COLON, "Expected ':' after case pattern")
+          const body = this.parseOr()
+          cases.push({ pattern, body })
+        } else if (caseToken.type === TokenType.IDENTIFIER && caseToken.value === 'default') {
+          this.advance() // consume 'default'
+          this.consume(TokenType.COLON, "Expected ':' after default")
+          defaultCase = this.parseOr()
+        } else {
+          break
+        }
       }
+    } finally {
+      this.disableInOperator = previousState
     }
 
     this.consume(TokenType.RBRACE, "Expected '}' after match cases")
@@ -926,100 +957,16 @@ export class Parser {
 
   /**
    * Parse a let binding value expression (without the 'in' operator)
+   * Uses the disableInOperator flag to prevent 'in' from being consumed as an operator
    */
   private parseLetValue(): ASTNode {
-    return this.parseLetOr()
-  }
-
-  /**
-   * Parse OR for let values (no 'in' operator allowed)
-   */
-  private parseLetOr(): ASTNode {
-    let left = this.parseLetAnd()
-
-    while (this.match(TokenType.OR)) {
-      const opToken = this.advance()
-      const right = this.parseLetAnd()
-      left = {
-        type: 'BinaryOp',
-        operator: '||',
-        left,
-        right,
-        line: opToken.line,
-        column: opToken.column
-      } as BinaryOpNode
+    const previousState = this.disableInOperator
+    this.disableInOperator = true
+    try {
+      return this.parseOr()
+    } finally {
+      this.disableInOperator = previousState
     }
-
-    return left
-  }
-
-  /**
-   * Parse AND for let values
-   */
-  private parseLetAnd(): ASTNode {
-    let left = this.parseLetEquality()
-
-    while (this.match(TokenType.AND)) {
-      const opToken = this.advance()
-      const right = this.parseLetEquality()
-      left = {
-        type: 'BinaryOp',
-        operator: '&&',
-        left,
-        right,
-        line: opToken.line,
-        column: opToken.column
-      } as BinaryOpNode
-    }
-
-    return left
-  }
-
-  /**
-   * Parse equality for let values
-   */
-  private parseLetEquality(): ASTNode {
-    let left = this.parseLetComparison()
-
-    while (this.match(TokenType.EQ, TokenType.NEQ)) {
-      const opToken = this.advance()
-      const operator = TOKEN_TO_OPERATOR[opToken.type]
-      const right = this.parseLetComparison()
-      left = {
-        type: 'BinaryOp',
-        operator,
-        left,
-        right,
-        line: opToken.line,
-        column: opToken.column
-      } as BinaryOpNode
-    }
-
-    return left
-  }
-
-  /**
-   * Parse comparison for let values (no 'in' operator!)
-   */
-  private parseLetComparison(): ASTNode {
-    let left = this.parseAdditive()
-
-    // Note: we exclude TokenType.IN here to allow 'in' to be the let keyword
-    while (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)) {
-      const opToken = this.advance()
-      const operator = TOKEN_TO_OPERATOR[opToken.type]
-      const right = this.parseAdditive()
-      left = {
-        type: 'BinaryOp',
-        operator,
-        left,
-        right,
-        line: opToken.line,
-        column: opToken.column
-      } as BinaryOpNode
-    }
-
-    return left
   }
 
   /**

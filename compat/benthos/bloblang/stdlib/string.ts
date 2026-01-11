@@ -16,7 +16,7 @@ function validateString(value: unknown, functionName: string): string {
 /**
  * Helper function to validate array input
  */
-function validateArray(value: unknown, functionName: string): any[] {
+function validateArray(value: unknown, functionName: string): unknown[] {
   if (!Array.isArray(value)) {
     throw new TypeError(`${functionName} expects an array input, got ${typeof value}`)
   }
@@ -26,7 +26,7 @@ function validateArray(value: unknown, functionName: string): any[] {
 /**
  * Helper function to validate argument exists
  */
-function validateArgument(value: unknown, argName: string, functionName: string): any {
+function validateArgument(value: unknown, argName: string, functionName: string): unknown {
   if (value === undefined) {
     throw new Error(`${functionName} requires ${argName} argument`)
   }

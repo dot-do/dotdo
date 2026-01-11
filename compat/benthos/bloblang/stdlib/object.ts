@@ -7,7 +7,7 @@
  */
 
 // Type helper to check if value is a plain object (not array, not null)
-function isPlainObject(value: any): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
@@ -31,21 +31,21 @@ function deepClone<T>(value: T): T {
     return value
   }
   if (Array.isArray(value)) {
-    return value.map(deepClone) as any
+    return value.map(deepClone) as T
   }
-  const cloned: any = {}
+  const cloned: Record<string, unknown> = {}
   for (const key in value) {
     if (Object.prototype.hasOwnProperty.call(value, key)) {
-      cloned[key] = deepClone((value as any)[key])
+      cloned[key] = deepClone((value as Record<string, unknown>)[key])
     }
   }
-  return cloned
+  return cloned as T
 }
 
 /**
  * Returns array of all keys from an object
  */
-export function keys(obj: any): string[] {
+export function keys(obj: unknown): string[] {
   if (!isPlainObject(obj)) {
     throw new TypeError('keys() requires a plain object')
   }
@@ -55,7 +55,7 @@ export function keys(obj: any): string[] {
 /**
  * Returns array of all values from an object
  */
-export function values(obj: any): any[] {
+export function values(obj: unknown): unknown[] {
   if (!isPlainObject(obj)) {
     throw new TypeError('values() requires a plain object')
   }
@@ -65,7 +65,7 @@ export function values(obj: any): any[] {
 /**
  * Merges two objects (shallow merge, later values win)
  */
-export function merge(obj1: any, obj2: any): any {
+export function merge(obj1: unknown, obj2: unknown): Record<string, unknown> {
   if (!isPlainObject(obj1) || !isPlainObject(obj2)) {
     throw new TypeError('merge() requires two plain objects')
   }
@@ -75,11 +75,11 @@ export function merge(obj1: any, obj2: any): any {
 /**
  * Returns new object without specified keys
  */
-export function without(obj: any, keysToRemove: string[]): any {
+export function without(obj: unknown, keysToRemove: string[]): Record<string, unknown> {
   if (!isPlainObject(obj)) {
     throw new TypeError('without() requires a plain object')
   }
-  const result: any = {}
+  const result: Record<string, unknown> = {}
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key) && !keysToRemove.includes(key)) {
       result[key] = obj[key]
@@ -91,25 +91,25 @@ export function without(obj: any, keysToRemove: string[]): any {
 /**
  * Checks if a path exists in an object
  */
-export function exists(obj: any, path: Path): boolean {
+export function exists(obj: unknown, path: Path): boolean {
   if (!isPlainObject(obj)) {
     throw new TypeError('exists() requires a plain object')
   }
 
-  const keys = pathToArray(path)
-  if (keys.length === 0) {
+  const pathKeys = pathToArray(path)
+  if (pathKeys.length === 0) {
     return true // Empty path refers to root
   }
 
-  let current: any = obj
-  for (const key of keys) {
+  let current: unknown = obj
+  for (const key of pathKeys) {
     if (current === null || current === undefined || typeof current !== 'object') {
       return false
     }
     if (!Object.prototype.hasOwnProperty.call(current, key)) {
       return false
     }
-    current = current[key]
+    current = (current as Record<string, unknown>)[key]
   }
   return true
 }
@@ -117,25 +117,25 @@ export function exists(obj: any, path: Path): boolean {
 /**
  * Gets value at path, with optional default
  */
-export function get(obj: any, path: Path, defaultValue?: any): any {
+export function get(obj: unknown, path: Path, defaultValue?: unknown): unknown {
   if (!isPlainObject(obj)) {
     throw new TypeError('get() requires a plain object')
   }
 
-  const keys = pathToArray(path)
-  if (keys.length === 0) {
+  const pathKeys = pathToArray(path)
+  if (pathKeys.length === 0) {
     return obj // Empty path returns root
   }
 
-  let current: any = obj
-  for (const key of keys) {
+  let current: unknown = obj
+  for (const key of pathKeys) {
     if (current === null || current === undefined || typeof current !== 'object') {
       return defaultValue
     }
-    if (!(key in current)) {
+    if (!(key in (current as Record<string, unknown>))) {
       return defaultValue
     }
-    current = current[key]
+    current = (current as Record<string, unknown>)[key]
   }
   return current
 }
@@ -143,23 +143,23 @@ export function get(obj: any, path: Path, defaultValue?: any): any {
 /**
  * Sets value at path, creating intermediate objects as needed (immutable)
  */
-export function set(obj: any, path: Path, value: any): any {
+export function set(obj: unknown, path: Path, value: unknown): Record<string, unknown> {
   if (!isPlainObject(obj)) {
     throw new TypeError('set() requires a plain object')
   }
 
-  const keys = pathToArray(path)
-  if (keys.length === 0) {
-    return value // Empty path replaces root
+  const pathKeys = pathToArray(path)
+  if (pathKeys.length === 0) {
+    return value as Record<string, unknown> // Empty path replaces root
   }
 
   // Deep clone to ensure immutability
   const result = deepClone(obj)
 
-  let current: any = result
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i]
-    const nextKey = keys[i + 1]
+  let current: Record<string, unknown> = result
+  for (let i = 0; i < pathKeys.length - 1; i++) {
+    const key = pathKeys[i]
+    const nextKey = pathKeys[i + 1]
 
     // If next key is numeric, create array; otherwise create object
     if (!Object.prototype.hasOwnProperty.call(current, key) ||
@@ -175,10 +175,10 @@ export function set(obj: any, path: Path, value: any): any {
       // Clone the nested object/array for immutability
       current[key] = deepClone(current[key])
     }
-    current = current[key]
+    current = current[key] as Record<string, unknown>
   }
 
-  const lastKey = keys[keys.length - 1]
+  const lastKey = pathKeys[pathKeys.length - 1]
   current[lastKey] = value
 
   return result
@@ -188,13 +188,13 @@ export function set(obj: any, path: Path, value: any): any {
  * Deletes key at path (immutable)
  * Named deleteKey to avoid reserved word 'delete'
  */
-export function deleteKey(obj: any, path: Path): any {
+export function deleteKey(obj: unknown, path: Path): Record<string, unknown> | null {
   if (!isPlainObject(obj)) {
     throw new TypeError('deleteKey() requires a plain object')
   }
 
-  const keys = pathToArray(path)
-  if (keys.length === 0) {
+  const pathKeys = pathToArray(path)
+  if (pathKeys.length === 0) {
     return null // Deleting root returns null
   }
 
@@ -202,16 +202,16 @@ export function deleteKey(obj: any, path: Path): any {
   const result = deepClone(obj)
 
   // Navigate to parent of target
-  let current: any = result
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i]
+  let current: Record<string, unknown> = result
+  for (let i = 0; i < pathKeys.length - 1; i++) {
+    const key = pathKeys[i]
     if (!current || typeof current !== 'object' || !Object.prototype.hasOwnProperty.call(current, key)) {
       return result // Path doesn't exist, return unchanged
     }
-    current = current[key]
+    current = current[key] as Record<string, unknown>
   }
 
-  const lastKey = keys[keys.length - 1]
+  const lastKey = pathKeys[pathKeys.length - 1]
   if (current && typeof current === 'object' && Object.prototype.hasOwnProperty.call(current, lastKey)) {
     delete current[lastKey]
   }
@@ -222,7 +222,7 @@ export function deleteKey(obj: any, path: Path): any {
 /**
  * Maps each key using a transformation function
  */
-export function mapEachKey(obj: any, fn: (key: string, index: number) => string): any {
+export function mapEachKey(obj: unknown, fn: (key: string, index: number) => string): Record<string, unknown> {
   if (!isPlainObject(obj)) {
     throw new TypeError('mapEachKey() requires a plain object')
   }
@@ -230,7 +230,7 @@ export function mapEachKey(obj: any, fn: (key: string, index: number) => string)
     throw new TypeError('mapEachKey() requires a function as second argument')
   }
 
-  const result: any = {}
+  const result: Record<string, unknown> = {}
   const objKeys = Object.keys(obj)
 
   objKeys.forEach((key, index) => {
@@ -244,7 +244,7 @@ export function mapEachKey(obj: any, fn: (key: string, index: number) => string)
 /**
  * Parses JSON string to value
  */
-export function fromJson(jsonStr: any): any {
+export function fromJson(jsonStr: unknown): unknown {
   if (typeof jsonStr !== 'string') {
     throw new TypeError('fromJson() requires a string')
   }
@@ -257,7 +257,7 @@ export function fromJson(jsonStr: any): any {
 /**
  * Serializes value to JSON string
  */
-export function toJson(value: any): string {
+export function toJson(value: unknown): string {
   // Check for non-serializable types before attempting to stringify
   if (typeof value === 'function') {
     throw new TypeError('toJson() cannot serialize functions')

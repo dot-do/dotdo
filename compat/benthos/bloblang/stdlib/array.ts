@@ -8,21 +8,21 @@
 
 type PredicateFn<T> = (elem: T, idx: number) => boolean
 type MapFn<T, R> = (elem: T, idx: number) => R
-type SortByFn<T> = (elem: T, idx: number) => any
+type SortByFn<T> = (elem: T, idx: number) => unknown
 
-function assertArray(input: any, fnName: string): void {
+function assertArray(input: unknown, fnName: string): asserts input is unknown[] {
   if (!Array.isArray(input)) {
     throw new Error(`${fnName}: input must be an array`)
   }
 }
 
-function assertFunction(fn: any, fnName: string): void {
+function assertFunction(fn: unknown, fnName: string): asserts fn is Function {
   if (typeof fn !== 'function') {
     throw new Error(`${fnName}: function argument is required`)
   }
 }
 
-function assertNumber(val: any, fnName: string, paramName: string): void {
+function assertNumber(val: unknown, fnName: string, paramName: string): asserts val is number {
   if (typeof val !== 'number') {
     throw new Error(`${fnName}: ${paramName} must be a number`)
   }
@@ -54,7 +54,7 @@ export function filter<T>(this: T[], fn: PredicateFn<T>): T[] {
  * flatten() - Flatten nested arrays one level
  * Only flattens one level deep
  */
-export function flatten<T>(this: T[]): any[] {
+export function flatten<T>(this: T[]): unknown[] {
   assertArray(this, 'flatten')
 
   return this.flat(1)
@@ -151,7 +151,7 @@ export function unique<T>(this: T[]): T[] {
  * append(val) - Add element to end of array
  * Does not mutate original array
  */
-export function append<T>(this: T[], val: any): T[] {
+export function append<T>(this: T[], val: unknown): (T | unknown)[] {
   assertArray(this, 'append')
 
   return [...this, val]
@@ -161,7 +161,7 @@ export function append<T>(this: T[], val: any): T[] {
  * concat(arr) - Combine two arrays
  * Does not mutate original arrays
  */
-export function concat<T>(this: T[], arr: any[]): T[] {
+export function concat<T>(this: T[], arr: unknown[]): (T | unknown)[] {
   assertArray(this, 'concat')
 
   if (!Array.isArray(arr)) {
@@ -175,10 +175,10 @@ export function concat<T>(this: T[], arr: any[]): T[] {
  * contains(val) - Check if array contains value
  * Uses reference equality for objects
  */
-export function contains<T>(this: T[], val: any): boolean {
+export function contains<T>(this: T[], val: unknown): boolean {
   assertArray(this, 'contains')
 
-  return this.includes(val)
+  return this.includes(val as T)
 }
 
 /**

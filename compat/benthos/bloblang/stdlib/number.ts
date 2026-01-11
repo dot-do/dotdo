@@ -73,7 +73,7 @@ export function sum(array: number[]): number {
 /**
  * number() - Converts value to number
  */
-export function number(value: any): number {
+export function number(value: unknown): number {
   // Special handling for arrays and empty strings to return NaN
   if (Array.isArray(value)) {
     return NaN
@@ -87,7 +87,7 @@ export function number(value: any): number {
 /**
  * parseInteger() - Parses string to integer with optional base
  */
-export function parseInteger(value: any, base?: number): number {
+export function parseInteger(value: unknown, base?: number): number {
   // If it's already a number
   if (typeof value === 'number') {
     // Return NaN for Infinity
@@ -106,7 +106,7 @@ export function parseInteger(value: any, base?: number): number {
  * parseFloat() - Parses string to float
  * Exported as parseFloatFn to avoid conflict with global parseFloat
  */
-export function parseFloat(value: any): number {
+export function parseFloat(value: unknown): number {
   // If it's already a number, return as-is
   if (typeof value === 'number') {
     return value

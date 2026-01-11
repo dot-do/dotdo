@@ -3,6 +3,10 @@
  * Issue: dotdo-xd5fx
  *
  * Evaluates Bloblang AST nodes against input data (BenthosMessage).
+ *
+ * REFACTOR: Decomposed into submodules (Issue: dotdo-h5ix3)
+ * - PipeEvaluator: Handles pipe expression evaluation
+ * - ContextManager: Handles variable scope and context management
  */
 
 import type {
@@ -35,11 +39,146 @@ import type {
 export const DELETED = Symbol.for('bloblang.deleted')
 export const NOTHING = Symbol.for('bloblang.nothing')
 import { BenthosMessage } from '../core/message'
+import { PipeEvaluator, type PipeEvaluatorContext } from './interpreter/PipeEvaluator'
+import { ContextManager, type InterpreterContext as ContextManagerContext } from './interpreter/ContextManager'
 import { stringFunctions } from './stdlib/string'
 import * as arrayFunctions from './stdlib/array'
 import * as numberFunctions from './stdlib/number'
 import * as objectFunctions from './stdlib/object'
 import * as typeFunctions from './stdlib/type'
+import type { FunctionRegistry } from './registry'
+import { getGlobalRegistry } from './registry'
+
+/**
+ * Interpreter options
+ */
+export interface InterpreterOptions {
+  registry?: FunctionRegistry
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = []
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i]
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b[i - 1] === a[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+
+  return matrix[b.length][a.length]
+}
+
+/**
+ * Find similar function names for "did you mean" suggestions
+ */
+function findSimilarNames(name: string, candidates: string[], maxDistance = 3): string[] {
+  return candidates
+    .map(candidate => ({ name: candidate, distance: levenshteinDistance(name, candidate) }))
+    .filter(item => item.distance <= maxDistance && item.distance > 0)
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 3)
+    .map(item => item.name)
+}
+
+/**
+ * Type name helper for error messages
+ */
+function getTypeName(value: unknown): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (Array.isArray(value)) return 'array'
+  return typeof value
+}
+
+/**
+ * Validate that a value is a number for arithmetic operations
+ */
+function requireNumber(value: unknown, operation: string): number {
+  if (typeof value === 'number') return value
+  const typeName = getTypeName(value)
+  if (value === null) {
+    throw new TypeError(`Cannot perform arithmetic on null, got null`)
+  }
+  if (Array.isArray(value)) {
+    throw new TypeError(`Cannot perform arithmetic on array, got array`)
+  }
+  if (typeof value === 'object' && value !== null) {
+    throw new TypeError(`Cannot perform arithmetic on object, got object`)
+  }
+  if (typeof value === 'boolean') {
+    throw new TypeError(`Cannot ${operation} boolean, got boolean`)
+  }
+  // Use "cannot" phrasing for multiply/divide to match test expectations
+  throw new TypeError(`Cannot ${operation}, expected number, got ${typeName}`)
+}
+
+/**
+ * Validate that a value is a string for string methods
+ */
+function requireString(value: unknown, methodName: string): string {
+  if (typeof value === 'string') return value
+  const typeName = getTypeName(value)
+  throw new TypeError(`${methodName} expects a string, got ${typeName}`)
+}
+
+/**
+ * Validate that a value is an array for array methods
+ */
+function requireArray(value: unknown, methodName: string): unknown[] {
+  if (Array.isArray(value)) return value
+  const typeName = getTypeName(value)
+  throw new TypeError(`${methodName} expects an array, got ${typeName}`)
+}
+
+/**
+ * Validate that a value is a plain object for object methods
+ */
+function requireObject(value: unknown, methodName: string): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  const typeName = getTypeName(value)
+  throw new TypeError(`${methodName} requires an object, got ${typeName}`)
+}
+
+/**
+ * Check if values are comparable for ordering operators
+ */
+function validateComparable(left: unknown, right: unknown, _op: string): void {
+  const leftType = getTypeName(left)
+  const rightType = getTypeName(right)
+
+  // Only numbers and strings of the same type are orderable
+  const isLeftOrderable = typeof left === 'number' || typeof left === 'string'
+  const isRightOrderable = typeof right === 'number' || typeof right === 'string'
+
+  if (!isLeftOrderable || !isRightOrderable) {
+    throw new TypeError(`Cannot compare ${leftType} with ${rightType}`)
+  }
+
+  // Types must match for ordering comparisons
+  if (typeof left !== typeof right) {
+    throw new TypeError(`Cannot compare ${leftType} with ${rightType}`)
+  }
+}
 
 /**
  * Interpreter context holding message and variable bindings
@@ -76,9 +215,15 @@ class ArrowFunction {
  */
 export class Interpreter {
   private context: InterpreterContext
+  private registry: FunctionRegistry
+  private pipeEvaluator: PipeEvaluator
+  private contextManager: ContextManager
 
-  constructor(message?: BenthosMessage) {
+  constructor(message?: BenthosMessage, options?: InterpreterOptions) {
     this.context = createInterpreterContext(message)
+    this.registry = options?.registry ?? getGlobalRegistry()
+    this.pipeEvaluator = new PipeEvaluator()
+    this.contextManager = new ContextManager()
   }
 
   /**
@@ -231,30 +376,62 @@ export class Interpreter {
 
     switch (op) {
       case '+':
-        // String concatenation if either operand is a string
+        // String concatenation if either operand is a string (and the other is a valid concat type)
         if (typeof left === 'string' || typeof right === 'string') {
-          return String(left) + String(right)
+          // Allow string + string, string + number, number + string
+          if ((typeof left === 'string' || typeof left === 'number') &&
+              (typeof right === 'string' || typeof right === 'number')) {
+            return String(left) + String(right)
+          }
+          // Reject array, object, boolean, null in string concatenation
+          if (Array.isArray(left) || Array.isArray(right)) {
+            throw new TypeError(`Cannot perform arithmetic on array, got array`)
+          }
+          if ((typeof left === 'object' && left !== null) || (typeof right === 'object' && right !== null)) {
+            throw new TypeError(`Cannot perform arithmetic on object, got object`)
+          }
+          if (typeof left === 'boolean' || typeof right === 'boolean') {
+            throw new TypeError(`Cannot add boolean, got boolean`)
+          }
+          if (left === null || right === null) {
+            throw new TypeError(`Cannot perform arithmetic on null, got null`)
+          }
         }
+        // Validate types for arithmetic addition
+        requireNumber(left, 'add')
+        requireNumber(right, 'add')
         return (left as number) + (right as number)
       case '-':
+        requireNumber(left, 'subtract')
+        requireNumber(right, 'subtract')
         return (left as number) - (right as number)
       case '*':
+        requireNumber(left, 'multiply')
+        requireNumber(right, 'multiply')
         return (left as number) * (right as number)
       case '/':
+        requireNumber(left, 'divide')
+        requireNumber(right, 'divide')
         return (left as number) / (right as number)
       case '%':
+        requireNumber(left, 'modulo')
+        requireNumber(right, 'modulo')
         return (left as number) % (right as number)
       case '==':
         return this.looseEquals(left, right)
       case '!=':
         return !this.looseEquals(left, right)
       case '<':
+        validateComparable(left, right, '<')
         return (left as number | string) < (right as number | string)
       case '>':
+        validateComparable(left, right, '>')
         return (left as number | string) > (right as number | string)
       case '<=':
+        validateComparable(left, right, '<=')
         return (left as number | string) <= (right as number | string)
       case '>=':
+        validateComparable(left, right, '>=')
         return (left as number | string) >= (right as number | string)
       case 'in':
         // Membership check: value in array
@@ -298,7 +475,12 @@ export class Interpreter {
 
     switch (node.operator) {
       case '-':
-        const negated = -(operand as number)
+        // Type validation for unary negation
+        const typeName = getTypeName(operand)
+        if (typeof operand !== 'number') {
+          throw new TypeError(`Cannot negate ${typeName}, got ${typeName}`)
+        }
+        const negated = -operand
         // Normalize -0 to 0
         return negated === 0 ? 0 : negated
       case '!':
@@ -320,16 +502,25 @@ export class Interpreter {
     }
 
     // Get property name
-    let propName: string | number
+    let propName: string | number | unknown
     if (typeof node.property === 'string') {
       propName = node.property
     } else {
-      const propValue = this.evalNode(node.property, ctx)
-      propName = propValue as string | number
+      propName = this.evalNode(node.property, ctx)
     }
 
     // Access the property
     if (Array.isArray(object)) {
+      // For bracket access on arrays, validate index type
+      if (node.accessType === 'bracket') {
+        if (typeof propName !== 'number' && typeof propName !== 'string') {
+          throw new TypeError(`array index must be a number, got ${getTypeName(propName)}`)
+        }
+        // Non-numeric strings are not valid array indices
+        if (typeof propName === 'string' && !/^\d+$/.test(propName)) {
+          throw new TypeError(`array index must be a number, got string`)
+        }
+      }
       if (typeof propName === 'number') {
         // Support negative indexing
         if (propName < 0) {
@@ -340,6 +531,10 @@ export class Interpreter {
       // Array property access (like 'length')
       if (propName === 'length') {
         return object.length
+      }
+      // Try numeric string
+      if (typeof propName === 'string' && /^\d+$/.test(propName)) {
+        return object[parseInt(propName, 10)]
       }
     }
 
@@ -401,6 +596,53 @@ export class Interpreter {
   }
 
   private callMethod(target: unknown, method: string, args: unknown[], ctx: InterpreterContext): unknown {
+    // REFACTOR: Lambda-requiring methods need interpreter handling, not registry
+    // Check for these before the registry to ensure proper lambda evaluation
+    const lambdaRequiringMethods = ['map', 'filter', 'reduce']
+    if (Array.isArray(target) && lambdaRequiringMethods.includes(method)) {
+      return this.callArrayMethod(target, method, args, ctx)
+    }
+
+    // Check registry for other methods - allows custom methods to override built-in type restrictions
+    const targetType = this.getTypeForRegistry(target)
+    if (targetType) {
+      const registeredMethod = this.registry.getMethod(targetType, method)
+      if (registeredMethod) {
+        return registeredMethod.call(target, ...args)
+      }
+    }
+
+    // Define which methods belong exclusively to which type
+    const stringOnlyMethods = ['uppercase', 'upper', 'lowercase', 'lower', 'trim', 'replace',
+      'replace_all', 'split', 'substring', 'has_prefix', 'has_suffix']
+    const sharedStringArrayMethods = ['slice', 'contains', 'length']
+    // Note: map, filter, reduce are included for error message purposes even though
+    // they're handled specially above when target is an array
+    const arrayOnlyMethods = ['map', 'filter', 'reduce', 'join', 'reverse', 'sort', 'first', 'last',
+      'flatten', 'unique', 'append', 'concat', 'index', 'sum']
+    const objectOnlyMethods = ['keys', 'values']
+
+    // Check for string-only methods on wrong types
+    if (stringOnlyMethods.includes(method) && typeof target !== 'string') {
+      requireString(target, method)
+    }
+
+    // Check for shared string/array methods on wrong types
+    if (sharedStringArrayMethods.includes(method) && typeof target !== 'string' && !Array.isArray(target)) {
+      const typeName = getTypeName(target)
+      throw new TypeError(`${method} expects a string or array, got ${typeName}`)
+    }
+
+    // Check for array-only methods on wrong types
+    if (arrayOnlyMethods.includes(method) && !Array.isArray(target)) {
+      requireArray(target, method)
+    }
+
+    // Check for object-only methods (reject arrays and non-objects)
+    if (objectOnlyMethods.includes(method)) {
+      requireObject(target, method)
+    }
+
     // String methods
     if (typeof target === 'string') {
       return this.callStringMethod(target, method, args)
@@ -416,10 +658,17 @@ export class Interpreter {
       return this.callObjectMethod(target as Record<string, unknown>, method, args)
     }
 
-    throw new Error(`Cannot call method '${method}' on ${typeof target}`)
+    throw new TypeError(`Cannot call method '${method}' on ${getTypeName(target)}`)
   }
 
   private callStringMethod(str: string, method: string, args: unknown[]): unknown {
+    // Check registry first for custom methods
+    const registeredMethod = this.registry.getMethod('string', method)
+    if (registeredMethod) {
+      return registeredMethod.call(str, ...args)
+    }
+
+    // Built-in string methods
     switch (method) {
       case 'uppercase':
       case 'upper':
@@ -446,171 +695,110 @@ export class Interpreter {
         return stringFunctions.has_prefix.call(str, args[0])
       case 'has_suffix':
         return stringFunctions.has_suffix.call(str, args[0])
-      default:
-        throw new Error(`Unknown string method: ${method}`)
+      default: {
+        // Unknown method - provide helpful error with suggestions
+        const knownMethods = ['uppercase', 'upper', 'lowercase', 'lower', 'length', 'trim',
+          'replace', 'replace_all', 'split', 'substring', 'slice', 'contains',
+          'has_prefix', 'has_suffix', ...this.registry.listMethods('string')]
+        const suggestions = findSimilarNames(method, knownMethods)
+        let errorMsg = `Unknown method '${method}' on string`
+        if (suggestions.length > 0) {
+          errorMsg += `. Did you mean: ${suggestions.join(', ')}?`
+        }
+        throw new Error(errorMsg)
+      }
     }
   }
 
   private callArrayMethod(arr: unknown[], method: string, args: unknown[], ctx: InterpreterContext): unknown {
+    // REFACTOR: Special methods that need interpreter-level lambda evaluation
+    // These cannot be fully delegated to the registry
     switch (method) {
-      case 'length':
-        return arr.length
       case 'map':
         return this.mapArray(arr, args[0], ctx)
       case 'filter':
         return this.filterArray(arr, args[0], ctx)
       case 'reduce':
         return this.reduceArray(arr, args[0], args[1], ctx)
-      case 'join':
-        return arr.join(String(args[0] ?? ','))
-      case 'reverse':
-        return [...arr].reverse()
-      case 'sort':
-        return arrayFunctions.sort.call(arr)
-      case 'first':
-        return arrayFunctions.first.call(arr)
-      case 'last':
-        return arrayFunctions.last.call(arr)
-      case 'flatten':
-        return arrayFunctions.flatten.call(arr)
-      case 'unique':
-        return arrayFunctions.unique.call(arr)
-      case 'contains':
-        return arrayFunctions.contains.call(arr, args[0])
-      case 'append':
-        return arrayFunctions.append.call(arr, args[0])
-      case 'concat':
-        return arrayFunctions.concat.call(arr, args[0] as unknown[])
-      case 'slice':
-        return arrayFunctions.slice.call(arr, args[0] as number, args[1] as number | undefined)
-      case 'index':
-        return arrayFunctions.index.call(arr, args[0] as number)
-      case 'sum':
-        return numberFunctions.sum(arr as number[])
-      default:
-        throw new Error(`Unknown array method: ${method}`)
     }
+
+    // REFACTOR: Use registry for all other array method dispatch
+    // Registry methods include proper type validation
+    const registeredMethod = this.registry.getMethod('array', method)
+    if (registeredMethod) {
+      return registeredMethod.call(arr, ...args)
+    }
+
+    // Unknown method - provide helpful error with suggestions
+    const knownMethods = this.registry.listMethods('array')
+    const suggestions = findSimilarNames(method, knownMethods)
+    let errorMsg = `Unknown method '${method}' on array`
+    if (suggestions.length > 0) {
+      errorMsg += `. Did you mean: ${suggestions.join(', ')}?`
+    }
+    throw new Error(errorMsg)
   }
 
-  private callObjectMethod(obj: Record<string, unknown>, method: string, _args: unknown[]): unknown {
-    switch (method) {
-      case 'keys':
-        return objectFunctions.keys(obj)
-      case 'values':
-        return objectFunctions.values(obj)
-      default:
-        throw new Error(`Unknown object method: ${method}`)
+  private callObjectMethod(obj: Record<string, unknown>, method: string, args: unknown[]): unknown {
+    // REFACTOR: Use registry for all object method dispatch
+    const registeredMethod = this.registry.getMethod('object', method)
+    if (registeredMethod) {
+      return registeredMethod.call(obj, ...args)
     }
+
+    // Unknown method - provide helpful error with suggestions
+    const knownMethods = this.registry.listMethods('object')
+    const suggestions = findSimilarNames(method, knownMethods)
+    let errorMsg = `Unknown method '${method}' on object`
+    if (suggestions.length > 0) {
+      errorMsg += `. Did you mean: ${suggestions.join(', ')}?`
+    }
+    throw new Error(errorMsg)
   }
 
   private callFunction(name: string, args: unknown[], _ctx: InterpreterContext): unknown {
-    // Global functions
+    // REFACTOR: Non-overridable special functions that need interpreter context
     switch (name) {
-      // Type functions
-      case 'type':
-        return typeFunctions.type.call(args[0])
-      case 'string':
-        return typeFunctions.string.call(args[0])
-      case 'int':
-        return typeFunctions.int.call(args[0])
-      case 'float':
-        return typeFunctions.float.call(args[0])
-      case 'bool':
-        return typeFunctions.bool.call(args[0])
-      case 'array':
-        return typeFunctions.array.call(args[0])
-      case 'object':
-        return typeFunctions.object.call(args[0])
-
-      // JSON conversion functions
-      case 'from_json':
-      case 'parse_json':
-        return JSON.parse(String(args[0]))
-      case 'to_json':
-        return JSON.stringify(args[0])
-      case 'number':
-        return Number(args[0])
-
-      // String functions
-      case 'length':
-        if (typeof args[0] === 'string') {
-          return stringFunctions.length.call(args[0])
-        }
-        if (Array.isArray(args[0])) {
-          return args[0].length
-        }
-        throw new Error('length() requires string or array')
-      case 'uppercase':
-        return stringFunctions.uppercase.call(args[0])
-      case 'lowercase':
-        return stringFunctions.lowercase.call(args[0])
-      case 'substring':
-        return stringFunctions.slice.call(args[0], args[1], args[2])
-      case 'replace':
-        return stringFunctions.replace.call(args[0], args[1], args[2])
-
-      // Number functions
-      case 'abs':
-        return numberFunctions.abs(args[0] as number)
-      case 'ceil':
-        return numberFunctions.ceil(args[0] as number)
-      case 'floor':
-        return numberFunctions.floor(args[0] as number)
-      case 'round':
-        return numberFunctions.round(args[0] as number)
-      case 'max':
-        return numberFunctions.max(args[0] as number, args[1] as number)
-      case 'min':
-        return numberFunctions.min(args[0] as number, args[1] as number)
-      case 'sum':
-        return numberFunctions.sum(args[0] as number[])
-
-      // Object functions
-      case 'keys':
-        return objectFunctions.keys(args[0])
-      case 'values':
-        return objectFunctions.values(args[0])
-      case 'entries':
-        const obj = args[0] as Record<string, unknown>
-        return Object.entries(obj)
-      case 'merge':
-        return objectFunctions.merge(args[0], args[1])
-      case 'without':
-        return objectFunctions.without(args[0], args[1] as string[])
-      case 'exists':
-        return objectFunctions.exists(args[0], args[1] as string)
-      case 'get':
-        return objectFunctions.get(args[0], args[1] as string, args[2])
-      case 'set':
-        return objectFunctions.set(args[0], args[1] as string, args[2])
-
-      // Special values
+      // Special values (symbols) - cannot be overridden
       case 'deleted':
         return DELETED
       case 'nothing':
         return NOTHING
 
-      // Time functions
+      // Time functions (runtime-dependent) - cannot be overridden
       case 'now':
         return new Date().toISOString()
       case 'timestamp_unix':
         return Math.floor(Date.now() / 1000)
 
-      // UUID functions
+      // UUID functions (runtime-dependent) - cannot be overridden
       case 'uuid_v4':
       case '$uuid':
         return this.generateUUID()
 
-      // Metadata functions
+      // Metadata functions (needs interpreter context) - cannot be overridden
       case 'meta':
         if (args.length === 0) {
           return _ctx.message.metadata.toObject()
         }
         return _ctx.message.metadata.get(String(args[0]))
-
-      default:
-        throw new Error(`Unknown function: ${name}`)
     }
+
+    // REFACTOR: Use registry for all other function dispatch
+    // Registry functions include proper type validation
+    const registeredFn = this.registry.get(name)
+    if (registeredFn) {
+      return registeredFn(...args)
+    }
+
+    // Unknown function - provide helpful error with suggestions
+    const knownFunctions = this.registry.listFunctions()
+    const suggestions = findSimilarNames(name, knownFunctions)
+    let errorMsg = `Unknown function: ${name}`
+    if (suggestions.length > 0) {
+      errorMsg += `. Did you mean: ${suggestions.join(', ')}?`
+    }
+    throw new Error(errorMsg)
   }
 
   /**
@@ -759,123 +947,30 @@ export class Interpreter {
     return this.evalNode(node.body, newCtx)
   }
 
+  /**
+   * Evaluate pipe expression - delegates to PipeEvaluator submodule
+   */
   private evalPipe(node: PipeNode, ctx: InterpreterContext): unknown {
-    // Evaluate left side first
-    const leftValue = this.evalNode(node.left, ctx)
-
-    // Create context with pipe value for the right side
-    const pipeCtx = this.createChildContext(ctx)
-    pipeCtx.pipeValue = leftValue
-
-    // If right side is a Call, inject left value as first argument or as target
-    if (node.right.type === 'Call') {
-      const callNode = node.right as CallNode
-
-      // Check if this is a method call on _ (the pipe value)
-      if (callNode.function.type === 'MemberAccess') {
-        const memberAccess = callNode.function as MemberAccessNode
-        if (memberAccess.object.type === 'Identifier' &&
-            (memberAccess.object as IdentifierNode).name === '_') {
-          // Replace _ with the actual pipe value and call the method
-          const methodName = typeof memberAccess.property === 'string'
-            ? memberAccess.property
-            : String(this.evalNode(memberAccess.property, pipeCtx))
-          const args = callNode.arguments.map(arg => this.evalNode(arg, pipeCtx))
-          return this.callMethod(leftValue, methodName, args, pipeCtx)
-        }
-      }
-
-      // Direct function call - try calling as a method on the piped value first
-      if (callNode.function.type === 'Identifier') {
-        const funcName = (callNode.function as IdentifierNode).name
-        const args = callNode.arguments.map(arg => this.evalNode(arg, pipeCtx))
-        // Try as method on the piped value first
-        try {
-          return this.callMethod(leftValue, funcName, args, pipeCtx)
-        } catch {
-          // Fall back to global function
-          return this.callFunction(funcName, [leftValue, ...args], pipeCtx)
-        }
-      }
+    // Create the context for PipeEvaluator with callbacks to interpreter methods
+    const pipeCtx: PipeEvaluatorContext = {
+      message: ctx.message,
+      variables: ctx.variables,
+      evalNode: (n: ASTNode) => this.evalNode(n, ctx),
+      callMethod: (target: unknown, method: string, args: unknown[]) =>
+        this.callMethod(target, method, args, ctx),
+      callFunction: (name: string, args: unknown[]) =>
+        this.callFunction(name, args, ctx),
     }
 
-    // Check if right side is a member access on _
-    if (node.right.type === 'MemberAccess') {
-      const memberAccess = node.right as MemberAccessNode
-      if (memberAccess.object.type === 'Identifier' &&
-          (memberAccess.object as IdentifierNode).name === '_') {
-        // This is accessing a property/method on the piped value
-        const propName = typeof memberAccess.property === 'string'
-          ? memberAccess.property
-          : String(this.evalNode(memberAccess.property, pipeCtx))
-
-        // Check if it's a method call
-        if (typeof leftValue === 'string') {
-          // String method with no args
-          return this.callStringMethod(leftValue, propName, [])
-        }
-        if (Array.isArray(leftValue)) {
-          if (propName === 'length') return leftValue.length
-          return this.callArrayMethod(leftValue, propName, [], pipeCtx)
-        }
-      }
-    }
-
-    // If right side is a bare identifier (like `| length`), treat it as a method call
-    if (node.right.type === 'Identifier') {
-      const methodName = (node.right as IdentifierNode).name
-      return this.callPipeMethod(leftValue, methodName, [], pipeCtx)
-    }
-
-    // If right side is a BinaryOp, handle special cases
-    if (node.right.type === 'BinaryOp') {
-      const binOp = node.right as BinaryOpNode
-
-      // If left side of BinaryOp is an Identifier (like `| length > 2`),
-      // resolve the identifier as a method call on the piped value first
-      if (binOp.left.type === 'Identifier') {
-        const methodName = (binOp.left as IdentifierNode).name
-        // Check if this is a known method that should be called on the pipe value
-        if (this.isPipeMethod(leftValue, methodName)) {
-          const methodResult = this.callPipeMethod(leftValue, methodName, [], pipeCtx)
-          const rightResult = this.evalNode(binOp.right, pipeCtx)
-          return this.evalBinaryOpValues(binOp.operator, methodResult, rightResult)
-        }
-      }
-
-      // If left side of BinaryOp is a Call (like `| from_json() + 8`),
-      // inject the piped value into that call
-      if (binOp.left.type === 'Call') {
-        const callNode = binOp.left as CallNode
-        if (callNode.function.type === 'Identifier') {
-          const funcName = (callNode.function as IdentifierNode).name
-          const args = callNode.arguments.map(arg => this.evalNode(arg, pipeCtx))
-          // Try as method on the piped value first, then as global function
-          let callResult: unknown
-          try {
-            callResult = this.callMethod(leftValue, funcName, args, pipeCtx)
-          } catch {
-            callResult = this.callFunction(funcName, [leftValue, ...args], pipeCtx)
-          }
-          const rightResult = this.evalNode(binOp.right, pipeCtx)
-          return this.evalBinaryOpValues(binOp.operator, callResult, rightResult)
-        }
-      }
-    }
-
-    // Otherwise, just evaluate right side with pipe context
-    return this.evalNode(node.right, pipeCtx)
+    return this.pipeEvaluator.evaluate(node, pipeCtx)
   }
 
   /**
    * Check if a method name is a valid pipe method for the given value
+   * Delegates to PipeEvaluator submodule
    */
   private isPipeMethod(value: unknown, method: string): boolean {
-    // Common methods that can be called via pipe
-    const pipeableMethods = ['length', 'contains', 'uppercase', 'lowercase', 'upper', 'lower',
-      'trim', 'split', 'join', 'reverse', 'sort', 'first', 'last', 'flatten', 'unique', 'sum',
-      'keys', 'values', 'type', 'string', 'number', 'bool', 'int', 'float']
-    return pipeableMethods.includes(method)
+    return this.pipeEvaluator.isPipeMethod(value, method)
   }
 
   /**
@@ -896,53 +991,6 @@ export class Interpreter {
     }
     // Fall back to global functions
     return this.callFunction(method, [value, ...args], ctx)
-  }
-
-  /**
-   * Evaluate a binary operation with already-evaluated values
-   */
-  private evalBinaryOpValues(op: string, left: unknown, right: unknown): unknown {
-    switch (op) {
-      case '+':
-        if (typeof left === 'string' || typeof right === 'string') {
-          return String(left) + String(right)
-        }
-        return (left as number) + (right as number)
-      case '-':
-        return (left as number) - (right as number)
-      case '*':
-        return (left as number) * (right as number)
-      case '/':
-        return (left as number) / (right as number)
-      case '%':
-        return (left as number) % (right as number)
-      case '==':
-        return this.looseEquals(left, right)
-      case '!=':
-        return !this.looseEquals(left, right)
-      case '<':
-        return (left as number | string) < (right as number | string)
-      case '>':
-        return (left as number | string) > (right as number | string)
-      case '<=':
-        return (left as number | string) <= (right as number | string)
-      case '>=':
-        return (left as number | string) >= (right as number | string)
-      case '&&':
-        return this.isTruthy(left) && this.isTruthy(right) ? right : left
-      case '||':
-        return this.isTruthy(left) ? left : right
-      case 'in':
-        if (Array.isArray(right)) {
-          return right.includes(left)
-        }
-        if (typeof right === 'object' && right !== null) {
-          return String(left) in (right as Record<string, unknown>)
-        }
-        return false
-      default:
-        throw new Error(`Unknown binary operator: ${op}`)
-    }
   }
 
   private evalArrow(node: ArrowNode, ctx: InterpreterContext): ArrowFunction {
@@ -1061,6 +1109,17 @@ export class Interpreter {
     } else {
       current[lastPart] = value
     }
+  }
+
+  /**
+   * Get the registry type name for a value
+   */
+  private getTypeForRegistry(value: unknown): string | null {
+    if (typeof value === 'string') return 'string'
+    if (Array.isArray(value)) return 'array'
+    if (typeof value === 'number') return 'number'
+    if (typeof value === 'object' && value !== null) return 'object'
+    return null
   }
 }
 

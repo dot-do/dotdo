@@ -15,7 +15,7 @@
  * - arrays/objects: JSON.stringify()
  */
 export const string = {
-  call(value: any): string {
+  call(value: unknown): string {
     if (typeof value === 'string') return value
     if (typeof value === 'number' || typeof value === 'boolean') return String(value)
     if (value === null) return 'null'
@@ -31,7 +31,7 @@ export const string = {
  * Throws on invalid conversions
  */
 export const int = {
-  call(value: any): number {
+  call(value: unknown): number {
     if (typeof value === 'number') {
       return Math.trunc(value)
     }
@@ -55,7 +55,7 @@ export const int = {
  * Throws on invalid conversions
  */
 export const float = {
-  call(value: any): number {
+  call(value: unknown): number {
     if (typeof value === 'number') {
       return value
     }
@@ -80,7 +80,7 @@ export const float = {
  * Truthy: everything else
  */
 export const bool = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     // Explicit false values
     if (value === false || value === null) return false
 
@@ -111,7 +111,7 @@ export const bool = {
  * Returns same reference for arrays
  */
 export const array = {
-  call(value: any): any[] {
+  call(value: unknown): unknown[] {
     if (Array.isArray(value)) return value
     return [value]
   }
@@ -123,15 +123,15 @@ export const array = {
  * Throws on invalid input
  */
 export const object = {
-  call(value: any): Record<string, any> {
+  call(value: unknown): Record<string, unknown> {
     // Return objects unchanged
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      return value
+      return value as Record<string, unknown>
     }
 
     // Convert entries array to object
     if (Array.isArray(value)) {
-      const result: Record<string, any> = {}
+      const result: Record<string, unknown> = {}
       for (const entry of value) {
         if (Array.isArray(entry) && entry.length >= 2) {
           const [key, val] = entry
@@ -155,7 +155,7 @@ export const object = {
  * Types: string, number, bool, array, object, null
  */
 export const type = {
-  call(value: any): string {
+  call(value: unknown): string {
     if (value === null) return 'null'
     if (Array.isArray(value)) return 'array'
     if (typeof value === 'boolean') return 'bool'
@@ -170,7 +170,7 @@ export const type = {
  * Type check: is string?
  */
 export const isString = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return typeof value === 'string'
   }
 }
@@ -179,7 +179,7 @@ export const isString = {
  * Type check: is number?
  */
 export const isNumber = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return typeof value === 'number'
   }
 }
@@ -188,7 +188,7 @@ export const isNumber = {
  * Type check: is boolean?
  */
 export const isBool = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return typeof value === 'boolean'
   }
 }
@@ -197,7 +197,7 @@ export const isBool = {
  * Type check: is array?
  */
 export const isArray = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return Array.isArray(value)
   }
 }
@@ -206,7 +206,7 @@ export const isArray = {
  * Type check: is object (not array)?
  */
 export const isObject = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
   }
 }
@@ -215,7 +215,7 @@ export const isObject = {
  * Type check: is null?
  */
 export const isNull = {
-  call(value: any): boolean {
+  call(value: unknown): boolean {
     return value === null
   }
 }
@@ -224,7 +224,7 @@ export const isNull = {
  * Throw if null, return value otherwise
  */
 export const notNull = {
-  call(value: any): any {
+  call(value: unknown): unknown {
     if (value === null) {
       throw new Error('Value is null but was required')
     }
@@ -236,7 +236,7 @@ export const notNull = {
  * Return default if value is null or undefined
  */
 export const or = {
-  call(value: any, defaultValue: any): any {
+  call(value: unknown, defaultValue: unknown): unknown {
     if (value === null || value === undefined) {
       return defaultValue
     }
@@ -249,7 +249,7 @@ export const or = {
  * Named catch_ to avoid reserved word 'catch'
  */
 export const catch_ = {
-  call(value: any, defaultValue: any): any {
+  call(value: unknown, defaultValue: unknown): unknown {
     if (value instanceof Error) {
       return defaultValue
     }
