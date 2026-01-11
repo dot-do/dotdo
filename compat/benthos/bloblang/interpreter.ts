@@ -169,11 +169,22 @@ export class Interpreter {
   }
 
   private evalRoot(_node: RootNode, ctx: InterpreterContext): unknown {
-    return ctx.message.root
+    // Use jsonSafe to handle non-JSON content gracefully
+    const result = ctx.message.jsonSafe()
+    if (result === undefined) {
+      // If content isn't valid JSON, return the raw string
+      return ctx.message.content
+    }
+    return result
   }
 
   private evalThis(_node: ThisNode, ctx: InterpreterContext): unknown {
-    return ctx.message.root
+    // Use jsonSafe to handle non-JSON content gracefully
+    const result = ctx.message.jsonSafe()
+    if (result === undefined) {
+      return ctx.message.content
+    }
+    return result
   }
 
   private evalMeta(_node: MetaNode, ctx: InterpreterContext): unknown {
