@@ -11,14 +11,21 @@
  * - Event handlers that log for demo visibility
  * - Scheduled job demos
  * - Read-only public access (data resets hourly)
+ *
+ * NOTE: This is a simplified standalone implementation that doesn't require the full
+ * dotdo database schema. It uses in-memory data for the demo.
  */
 
-import { DO } from '../../../objects/DO'
-import type { Thing } from '../../../types/Thing'
+import { DurableObject } from 'cloudflare:workers'
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+interface Thing {
+  $id: string
+  $type: string
+}
 
 interface CustomerData {
   email: string
@@ -112,7 +119,7 @@ const DEMO_ORDERS: Record<string, OrderData> = {
   'ord-123': {
     customer: 'alice',
     items: [
-      { sku: 'WIDGET-001', name: 'Premium Widget', qty: 2, price: 99.50 },
+      { sku: 'WIDGET-001', name: 'Premium Widget', qty: 2, price: 99.5 },
       { sku: 'GADGET-002', name: 'Smart Gadget', qty: 1, price: 100 },
     ],
     total: 299,
@@ -121,18 +128,14 @@ const DEMO_ORDERS: Record<string, OrderData> = {
   },
   'ord-456': {
     customer: 'bob',
-    items: [
-      { sku: 'ENTERPRISE-001', name: 'Enterprise Suite', qty: 1, price: 1299 },
-    ],
+    items: [{ sku: 'ENTERPRISE-001', name: 'Enterprise Suite', qty: 1, price: 1299 }],
     total: 1299,
     status: 'pending',
     createdAt: '2024-06-20T14:00:00Z',
   },
   'ord-789': {
     customer: 'jane',
-    items: [
-      { sku: 'STARTER-001', name: 'Starter Pack', qty: 1, price: 49 },
-    ],
+    items: [{ sku: 'STARTER-001', name: 'Starter Pack', qty: 1, price: 49 }],
     total: 49,
     status: 'delivered',
     createdAt: '2024-06-01T08:00:00Z',
@@ -189,7 +192,7 @@ const DEMO_PRODUCTS: Record<string, ProductData> = {
   'WIDGET-001': {
     name: 'Premium Widget',
     sku: 'WIDGET-001',
-    price: 99.50,
+    price: 99.5,
     stock: 150,
   },
   'GADGET-002': {
@@ -216,146 +219,11 @@ const DEMO_PRODUCTS: Record<string, ProductData> = {
 // EXAMPLE DO CLASS
 // ============================================================================
 
-export class ExampleDO extends DO {
-  static readonly $type = 'ExampleDO'
+interface Env {
+  ENVIRONMENT?: string
+}
 
-  // Track last reset time for hourly data reset
-  private lastResetTime: number = 0
-
-  /**
-   * Called when the DO starts. Sets up event handlers and schedules.
-   */
-  async onStart(): Promise<void> {
-    await this.seedDemoData()
-    this.registerEventHandlers()
-    this.registerScheduledJobs()
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DATA SEEDING
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private async seedDemoData(): Promise<void> {
-    // Check if we need to reset (hourly)
-    const now = Date.now()
-    if (this.lastResetTime && now - this.lastResetTime < 3600000) {
-      return // Less than 1 hour since last reset
-    }
-
-    console.log('[ExampleDO] Seeding demo data...')
-
-    // Register nouns
-    await this.registerNoun('Customer', { plural: 'Customers', description: 'Customer accounts' })
-    await this.registerNoun('Order', { plural: 'Orders', description: 'Customer orders' })
-    await this.registerNoun('Invoice', { plural: 'Invoices', description: 'Payment invoices' })
-    await this.registerNoun('Product', { plural: 'Products', description: 'Product catalog' })
-    await this.registerNoun('Expense', { plural: 'Expenses', description: 'Expense reports' })
-    await this.registerNoun('Payment', { plural: 'Payments', description: 'Payment transactions' })
-
-    // Seed customers
-    const customers = this.collection<Thing & CustomerData>('Customer')
-    for (const [id, data] of Object.entries(DEMO_CUSTOMERS)) {
-      await customers.create({ $id: id, $type: 'Customer', ...data })
-    }
-
-    // Seed orders
-    const orders = this.collection<Thing & OrderData>('Order')
-    for (const [id, data] of Object.entries(DEMO_ORDERS)) {
-      await orders.create({ $id: id, $type: 'Order', ...data })
-    }
-
-    // Seed invoices
-    const invoices = this.collection<Thing & InvoiceData>('Invoice')
-    for (const [id, data] of Object.entries(DEMO_INVOICES)) {
-      await invoices.create({ $id: id, $type: 'Invoice', ...data })
-    }
-
-    // Seed products
-    const products = this.collection<Thing & ProductData>('Product')
-    for (const [id, data] of Object.entries(DEMO_PRODUCTS)) {
-      await products.create({ $id: id, $type: 'Product', ...data })
-    }
-
-    // Seed expenses
-    const expenses = this.collection<Thing & ExpenseData>('Expense')
-    for (const [id, data] of Object.entries(DEMO_EXPENSES)) {
-      await expenses.create({ $id: id, $type: 'Expense', ...data })
-    }
-
-    this.lastResetTime = now
-    console.log('[ExampleDO] Demo data seeded successfully')
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EVENT HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private registerEventHandlers(): void {
-    // Customer events
-    this.$.on.Customer.signup(async (event) => {
-      console.log('[Event] Customer.signup:', event.data)
-      // In production: send welcome email, update CRM, etc.
-    })
-
-    this.$.on.Customer.upgraded(async (event) => {
-      console.log('[Event] Customer.upgraded:', event.data)
-      // In production: notify sales team, update billing
-    })
-
-    // Order events
-    this.$.on.Order.placed(async (event) => {
-      console.log('[Event] Order.placed:', event.data)
-      // In production: decrement inventory, create invoice
-    })
-
-    this.$.on.Order.shipped(async (event) => {
-      console.log('[Event] Order.shipped:', event.data)
-      // In production: send tracking email, update status
-    })
-
-    // Payment events
-    this.$.on.Payment.completed(async (event) => {
-      console.log('[Event] Payment.completed:', event.data)
-      // In production: mark invoice paid, send receipt
-    })
-
-    this.$.on.Payment.failed(async (event) => {
-      console.log('[Event] Payment.failed:', event.data)
-      // In production: retry logic, notify customer
-    })
-
-    // Invoice events
-    this.$.on.Invoice.overdue(async (event) => {
-      console.log('[Event] Invoice.overdue:', event.data)
-      // In production: escalation workflow, send reminder
-    })
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SCHEDULED JOBS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private registerScheduledJobs(): void {
-    // Weekly metrics (every Monday at 9am)
-    this.$.every.Monday.at('9am')(async () => {
-      console.log('[Schedule] Weekly metrics report')
-      const stats = await this.getStats()
-      console.log('[Schedule] Stats:', stats)
-    })
-
-    // Daily digest (every day at 6am)
-    this.$.every.day.at('6am')(async () => {
-      console.log('[Schedule] Daily digest')
-    })
-
-    // Hourly health check
-    this.$.every.hour(async () => {
-      console.log('[Schedule] Health check - OK')
-      // Reset demo data hourly
-      await this.seedDemoData()
-    })
-  }
-
+export class ExampleDO extends DurableObject<Env> {
   // ═══════════════════════════════════════════════════════════════════════════
   // NOUN METHODS - Customer
   // ═══════════════════════════════════════════════════════════════════════════
@@ -363,28 +231,31 @@ export class ExampleDO extends DO {
   /**
    * Get a customer by ID
    */
-  async Customer(id: string): Promise<Thing & CustomerData | null> {
-    const customers = this.collection<Thing & CustomerData>('Customer')
-    return customers.get(id)
+  Customer(id: string): (Thing & CustomerData) | null {
+    const data = DEMO_CUSTOMERS[id]
+    if (!data) return null
+    return { $id: id, $type: 'Customer', ...data }
   }
 
   /**
    * List all customers
    */
-  async Customers(): Promise<Array<Thing & CustomerData>> {
-    const customers = this.collection<Thing & CustomerData>('Customer')
-    return customers.list()
+  Customers(): Array<Thing & CustomerData> {
+    return Object.entries(DEMO_CUSTOMERS).map(([id, data]) => ({
+      $id: id,
+      $type: 'Customer',
+      ...data,
+    }))
   }
 
   /**
    * Get customer profile
    */
-  async getProfile(customerId: string): Promise<{ customer: Thing & CustomerData; orders: number; totalSpent: number } | null> {
-    const customer = await this.Customer(customerId)
+  getProfile(customerId: string): { customer: Thing & CustomerData; orders: number; totalSpent: number } | null {
+    const customer = this.Customer(customerId)
     if (!customer) return null
 
-    const orders = this.collection<Thing & OrderData>('Order')
-    const customerOrders = await orders.find({ customer: customerId })
+    const customerOrders = Object.values(DEMO_ORDERS).filter((o) => o.customer === customerId)
     const totalSpent = customerOrders.reduce((sum, o) => sum + o.total, 0)
 
     return {
@@ -401,25 +272,34 @@ export class ExampleDO extends DO {
   /**
    * Get an order by ID
    */
-  async Order(id: string): Promise<Thing & OrderData | null> {
-    const orders = this.collection<Thing & OrderData>('Order')
-    return orders.get(id)
+  Order(id: string): (Thing & OrderData) | null {
+    const data = DEMO_ORDERS[id]
+    if (!data) return null
+    return { $id: id, $type: 'Order', ...data }
   }
 
   /**
    * List all orders
    */
-  async Orders(): Promise<Array<Thing & OrderData>> {
-    const orders = this.collection<Thing & OrderData>('Order')
-    return orders.list()
+  Orders(): Array<Thing & OrderData> {
+    return Object.entries(DEMO_ORDERS).map(([id, data]) => ({
+      $id: id,
+      $type: 'Order',
+      ...data,
+    }))
   }
 
   /**
    * Get orders for a customer
    */
-  async getOrdersForCustomer(customerId: string): Promise<Array<Thing & OrderData>> {
-    const orders = this.collection<Thing & OrderData>('Order')
-    return orders.find({ customer: customerId })
+  getOrdersForCustomer(customerId: string): Array<Thing & OrderData> {
+    return Object.entries(DEMO_ORDERS)
+      .filter(([, data]) => data.customer === customerId)
+      .map(([id, data]) => ({
+        $id: id,
+        $type: 'Order',
+        ...data,
+      }))
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -429,25 +309,34 @@ export class ExampleDO extends DO {
   /**
    * Get an invoice by ID
    */
-  async Invoice(id: string): Promise<Thing & InvoiceData | null> {
-    const invoices = this.collection<Thing & InvoiceData>('Invoice')
-    return invoices.get(id)
+  Invoice(id: string): (Thing & InvoiceData) | null {
+    const data = DEMO_INVOICES[id]
+    if (!data) return null
+    return { $id: id, $type: 'Invoice', ...data }
   }
 
   /**
    * List all invoices
    */
-  async Invoices(): Promise<Array<Thing & InvoiceData>> {
-    const invoices = this.collection<Thing & InvoiceData>('Invoice')
-    return invoices.list()
+  Invoices(): Array<Thing & InvoiceData> {
+    return Object.entries(DEMO_INVOICES).map(([id, data]) => ({
+      $id: id,
+      $type: 'Invoice',
+      ...data,
+    }))
   }
 
   /**
    * Get overdue invoices
    */
-  async getOverdueInvoices(): Promise<Array<Thing & InvoiceData>> {
-    const invoices = this.collection<Thing & InvoiceData>('Invoice')
-    return invoices.find({ status: 'overdue' })
+  getOverdueInvoices(): Array<Thing & InvoiceData> {
+    return Object.entries(DEMO_INVOICES)
+      .filter(([, data]) => data.status === 'overdue')
+      .map(([id, data]) => ({
+        $id: id,
+        $type: 'Invoice',
+        ...data,
+      }))
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -457,24 +346,28 @@ export class ExampleDO extends DO {
   /**
    * Get a product by SKU
    */
-  async Product(sku: string): Promise<Thing & ProductData | null> {
-    const products = this.collection<Thing & ProductData>('Product')
-    return products.get(sku)
+  Product(sku: string): (Thing & ProductData) | null {
+    const data = DEMO_PRODUCTS[sku]
+    if (!data) return null
+    return { $id: sku, $type: 'Product', ...data }
   }
 
   /**
    * List all products
    */
-  async Products(): Promise<Array<Thing & ProductData>> {
-    const products = this.collection<Thing & ProductData>('Product')
-    return products.list()
+  Products(): Array<Thing & ProductData> {
+    return Object.entries(DEMO_PRODUCTS).map(([sku, data]) => ({
+      $id: sku,
+      $type: 'Product',
+      ...data,
+    }))
   }
 
   /**
    * Check inventory level
    */
-  async checkInventory(sku: string): Promise<{ sku: string; stock: number; available: boolean } | null> {
-    const product = await this.Product(sku)
+  checkInventory(sku: string): { sku: string; stock: number; available: boolean } | null {
+    const product = DEMO_PRODUCTS[sku]
     if (!product) return null
     return {
       sku: product.sku,
@@ -490,25 +383,34 @@ export class ExampleDO extends DO {
   /**
    * Get an expense by ID
    */
-  async Expense(id: string): Promise<Thing & ExpenseData | null> {
-    const expenses = this.collection<Thing & ExpenseData>('Expense')
-    return expenses.get(id)
+  Expense(id: string): (Thing & ExpenseData) | null {
+    const data = DEMO_EXPENSES[id]
+    if (!data) return null
+    return { $id: id, $type: 'Expense', ...data }
   }
 
   /**
    * List all expenses
    */
-  async Expenses(): Promise<Array<Thing & ExpenseData>> {
-    const expenses = this.collection<Thing & ExpenseData>('Expense')
-    return expenses.list()
+  Expenses(): Array<Thing & ExpenseData> {
+    return Object.entries(DEMO_EXPENSES).map(([id, data]) => ({
+      $id: id,
+      $type: 'Expense',
+      ...data,
+    }))
   }
 
   /**
    * Get expenses pending approval
    */
-  async getPendingExpenses(): Promise<Array<Thing & ExpenseData>> {
-    const expenses = this.collection<Thing & ExpenseData>('Expense')
-    return expenses.find({ status: 'pending' })
+  getPendingExpenses(): Array<Thing & ExpenseData> {
+    return Object.entries(DEMO_EXPENSES)
+      .filter(([, data]) => data.status === 'pending')
+      .map(([id, data]) => ({
+        $id: id,
+        $type: 'Expense',
+        ...data,
+      }))
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -518,24 +420,24 @@ export class ExampleDO extends DO {
   /**
    * Get dashboard stats
    */
-  async getStats(): Promise<{
+  getStats(): {
     customers: number
     orders: number
     revenue: number
     pendingInvoices: number
     overdueInvoices: number
-  }> {
-    const customers = await this.Customers()
-    const orders = await this.Orders()
-    const invoices = await this.Invoices()
+  } {
+    const customers = Object.keys(DEMO_CUSTOMERS).length
+    const orders = Object.keys(DEMO_ORDERS).length
+    const invoices = Object.values(DEMO_INVOICES)
 
-    const revenue = orders.reduce((sum, o) => sum + o.total, 0)
+    const revenue = Object.values(DEMO_ORDERS).reduce((sum, o) => sum + o.total, 0)
     const pendingInvoices = invoices.filter((i) => i.status === 'pending').length
     const overdueInvoices = invoices.filter((i) => i.status === 'overdue').length
 
     return {
-      customers: customers.length,
-      orders: orders.length,
+      customers,
+      orders,
       revenue,
       pendingInvoices,
       overdueInvoices,
@@ -543,69 +445,51 @@ export class ExampleDO extends DO {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // EMAIL (Demo methods - just log in demo mode)
+  // HTTP HANDLER
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Send email (demo - just logs)
-   */
-  async sendEmail(to: string, subject: string, body: string): Promise<{ sent: boolean; messageId: string }> {
-    const messageId = crypto.randomUUID()
-    console.log(`[Email] To: ${to}, Subject: ${subject}, Body: ${body.slice(0, 100)}...`)
-    return { sent: true, messageId }
-  }
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
 
-  /**
-   * Notify customer
-   */
-  async notifyCustomer(customerId: string, message: string): Promise<boolean> {
-    const customer = await this.Customer(customerId)
-    if (!customer) return false
+    // Handle RPC endpoint
+    if (url.pathname === '/rpc' && request.method === 'POST') {
+      try {
+        const body = (await request.json()) as {
+          jsonrpc: string
+          id: number
+          method: string
+          params?: unknown[]
+        }
+        const { method, params = [], id } = body
 
-    await this.sendEmail(customer.email, 'Notification from example.com.ai', message)
-    return true
-  }
+        // Call the method on this DO
+        const methodFn = (this as unknown as Record<string, (...args: unknown[]) => unknown>)[method]
+        if (typeof methodFn !== 'function') {
+          return Response.json(
+            {
+              jsonrpc: '2.0',
+              id,
+              error: { code: -32601, message: `Method '${method}' not found` },
+            },
+            { status: 400 }
+          )
+        }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RPC/MCP EXPOSED METHODS
-  // ═══════════════════════════════════════════════════════════════════════════
+        const result = methodFn.apply(this, params)
+        return Response.json({ jsonrpc: '2.0', id, result })
+      } catch (error) {
+        return Response.json(
+          {
+            jsonrpc: '2.0',
+            id: 0,
+            error: { code: -32603, message: String(error) },
+          },
+          { status: 500 }
+        )
+      }
+    }
 
-  static $mcp = {
-    tools: {
-      getStats: {
-        description: 'Get dashboard statistics including customer count, orders, and revenue',
-        inputSchema: {},
-      },
-      Customer: {
-        description: 'Get a customer by ID',
-        inputSchema: { id: { type: 'string', description: 'Customer ID (e.g., "alice", "bob")' } },
-        required: ['id'],
-      },
-      Order: {
-        description: 'Get an order by ID',
-        inputSchema: { id: { type: 'string', description: 'Order ID (e.g., "ord-123")' } },
-        required: ['id'],
-      },
-      Invoice: {
-        description: 'Get an invoice by ID',
-        inputSchema: { id: { type: 'string', description: 'Invoice ID (e.g., "inv-001")' } },
-        required: ['id'],
-      },
-      checkInventory: {
-        description: 'Check product inventory level',
-        inputSchema: { sku: { type: 'string', description: 'Product SKU (e.g., "WIDGET-001")' } },
-        required: ['sku'],
-      },
-      getOverdueInvoices: {
-        description: 'Get all overdue invoices',
-        inputSchema: {},
-      },
-      getPendingExpenses: {
-        description: 'Get all expenses pending approval',
-        inputSchema: {},
-      },
-    },
-    resources: ['customers', 'orders', 'invoices', 'products', 'expenses'],
+    return new Response('Not Found', { status: 404 })
   }
 }
 

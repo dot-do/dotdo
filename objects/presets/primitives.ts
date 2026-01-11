@@ -153,12 +153,9 @@ const WithBashBase = withBash(WithGitBase, {
 })
 
 /**
- * Add npm on top (uses $.fs and $.bash)
+ * Add npm on top (uses $.fs and $.bash automatically from $)
  */
-const ComposedBase = withNpm(WithBashBase, {
-  fs: (instance) => (instance as any).$.fs,
-  bash: (instance) => (instance as any).$.bash,
-})
+const ComposedBase = withNpm(WithBashBase)
 
 // ============================================================================
 // PRESET CLASS
@@ -220,15 +217,18 @@ export class DOWithPrimitives extends ComposedBase {
 
   /**
    * Static list of capabilities provided by this preset.
+   * Cast to any[] for compatibility with mixin static capabilities type.
    */
-  static readonly capabilities = ['fs', 'git', 'bash', 'npm'] as const
+  static override capabilities = ['fs', 'git', 'bash', 'npm'] as string[]
 
   /**
-   * Override $ getter to provide proper typing.
+   * Get the primitives context with proper typing.
    * The actual capabilities are injected by the mixins.
+   * Uses a type assertion since mixins set $ as a class field.
    */
-  override get $(): PrimitivesContext {
-    return super.$ as PrimitivesContext
+  getPrimitivesContext(): PrimitivesContext {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this as any).$ as PrimitivesContext
   }
 }
 
