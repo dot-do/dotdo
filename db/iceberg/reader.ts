@@ -26,6 +26,7 @@ import type {
   Visibility,
   AuthContext,
 } from './types'
+import { ParquetReader, type ParquetReadOptions } from './parquet'
 
 // ============================================================================
 // Constants
@@ -150,6 +151,9 @@ export class IcebergReader {
   /** TTL-based metadata cache keyed by table name */
   private readonly metadataCache = new Map<string, CacheEntry<IcebergMetadata>>()
 
+  /** Parquet reader for data file access */
+  private readonly parquetReader: ParquetReader
+
   /**
    * Create a new IcebergReader.
    *
@@ -192,6 +196,7 @@ export class IcebergReader {
     this.basePath = options.basePath ?? DEFAULT_BASE_PATH
     this.cacheEnabled = options.cacheMetadata ?? true
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+    this.parquetReader = new ParquetReader(bucket)
   }
 
   /**
@@ -330,19 +335,14 @@ export class IcebergReader {
       return null
     }
 
-    // Load and parse the data file
-    const record = await this.loadRecordFromFile<T>(fileInfo.filePath, id)
+    // Load and parse the data file with column projection
+    const record = await this.loadRecordFromFile<T>(fileInfo.filePath, id, columns)
     if (!record) {
       return null
     }
 
     // Verify record-level authorization for org/user visibility
     this.checkRecordAuthorization(record, partition.visibility, auth)
-
-    // Note: Column filtering is accepted for API completeness but returns full record.
-    // Full Parquet column projection would be implemented when using actual Parquet reader.
-    // The current implementation uses JSON mock format for testing.
-    void columns // Acknowledge parameter for future optimization
 
     return record
   }
@@ -515,18 +515,31 @@ export class IcebergReader {
 
   /**
    * Load a specific record from a data file.
+   *
+   * Supports both Parquet files (using parquet-wasm) and JSON files (for testing).
+   * Parquet files are detected by the .parquet extension.
+   *
+   * @param filePath - Path to the data file in R2
+   * @param id - Record ID to find
+   * @param columns - Optional columns to project (for Parquet only)
+   * @returns The record if found, null otherwise
    */
   private async loadRecordFromFile<T extends IcebergRecord>(
     filePath: string,
-    id: string
+    id: string,
+    columns?: string[]
   ): Promise<T | null> {
+    // Check if this is a Parquet file
+    if (filePath.endsWith('.parquet')) {
+      return this.parquetReader.findRecord<T>(filePath, id, { columns })
+    }
+
+    // Fallback: JSON format for testing and backward compatibility
     const obj = await this.bucket.get(filePath)
     if (!obj) {
       return null
     }
 
-    // Note: In production, this would use Parquet reading with column projection
-    // Current implementation uses JSON for testing
     const data = await obj.json<{ records: T[] }>()
     if (!data.records) {
       return null

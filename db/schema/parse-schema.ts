@@ -112,6 +112,20 @@ function parseField(name: string, value: unknown): LegacyParsedField {
         // Array of primitives or references: ['string'] or ['->Type']
         const parsed = parseFieldValue(firstElement)
         Object.assign(field, parsed)
+
+        // Check for array constraints in second element: ['->Type', { minItems: 2, maxItems: 5 }]
+        if (value.length > 1) {
+          const constraints = value[1]
+          if (typeof constraints === 'object' && constraints !== null) {
+            const constraintsObj = constraints as Record<string, unknown>
+            if (constraintsObj.minItems !== undefined) {
+              (field as Record<string, unknown>).minItems = constraintsObj.minItems
+            }
+            if (constraintsObj.maxItems !== undefined) {
+              (field as Record<string, unknown>).maxItems = constraintsObj.maxItems
+            }
+          }
+        }
       } else if (typeof firstElement === 'object' && firstElement !== null) {
         // Array of nested objects: [{ product: '->Product', quantity: 'number' }]
         field.isNested = true

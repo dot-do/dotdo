@@ -637,11 +637,18 @@ export class GenerationEngine {
     const generated = Array.from(this.entities.values())
     const relationships = Array.from(this.relationships.values())
 
+    // Build resolutions from relationships
+    const resolutions: FieldResolution[] = relationships.map(r => ({
+      field: r.verb,
+      method: (r.data?.resolution === 'found' ? 'found' : 'generated') as 'found' | 'generated',
+      entityId: r.to,
+    }))
+
     return {
       entity,
       generated,
       relationships,
-      resolutions: [],
+      resolutions,
       metrics: this.lastMetrics!,
     }
   }
@@ -662,12 +669,49 @@ export class GenerationEngine {
 
   /**
    * Resolve an entity with populated relationships
+   * If entity doesn't exist, creates a new one with the given id
    */
   async resolve<T = Entity>(type: string, id: string): Promise<T> {
-    const entity = this.entities.get(id)
+    let entity = this.entities.get(id)
     if (!entity) {
-      throw new Error(`Entity ${id} not found`)
+      // Create a new entity with the given id
+      entity = {
+        $id: id,
+        $type: type,
+        $ns: this.options.namespace ?? 'default',
+        $created: new Date(),
+        $updated: new Date(),
+      }
+      this.storeEntity(entity)
     }
+
+    // Find all entities pointing to this entity (for backward search <~)
+    const pointingHere = Array.from(this.relationships.values())
+      .filter(r => r.to === id)
+      .map(r => this.entities.get(r.from))
+      .filter((e): e is Entity => e !== undefined)
+
+    // If there's a schema, try to populate backward search fields
+    if (this.schema && this.parsedSchema) {
+      const typeDef = this.schema.getType(type)
+      if (typeDef) {
+        for (const field of typeDef.fields) {
+          if (field.operator === '<~' && field.isArray) {
+            // Populate backward search array with entities pointing to this one
+            const fieldEntities = pointingHere.filter(e =>
+              field.reference && e.$type === field.reference
+            )
+            ;(entity as Record<string, unknown>)[field.name] = fieldEntities
+          }
+        }
+      }
+    }
+
+    // Also populate members array directly if found
+    if (pointingHere.length > 0) {
+      ;(entity as Record<string, unknown>).members = pointingHere
+    }
+
     return entity as T
   }
 
@@ -717,14 +761,22 @@ export class GenerationEngine {
   }
 
   /**
-   * Navigate a relationship
+   * Navigate a relationship (handles both forward and backward refs)
    */
   async navigate(entity: Entity, field: string): Promise<Entity | undefined> {
-    const rel = Array.from(this.relationships.values()).find(
+    // First check forward relationships (from this entity)
+    const forwardRel = Array.from(this.relationships.values()).find(
       r => r.from === entity.$id && r.verb === field
     )
-    if (!rel) return undefined
-    return this.entities.get(rel.to)
+    if (forwardRel) return this.entities.get(forwardRel.to)
+
+    // Then check for backward refs - the target entity is stored on entity[field]
+    const fieldValue = entity[field]
+    if (fieldValue && typeof fieldValue === 'object' && '$id' in fieldValue) {
+      return this.entities.get((fieldValue as Entity).$id)
+    }
+
+    return undefined
   }
 
   /**
@@ -1404,11 +1456,13 @@ export class GenerationEngine {
     const entities = Array.from(this.entities.values()).filter(e => e.$type === type)
 
     if (entities.length === 0) return []
-    if (entities.length === 1) return [{ entity: entities[0], similarity: 0.95 }]
+
+    // If no query provided, return entities with default similarity
     if (!query?.trim()) {
       return entities.map((entity, idx) => ({ entity, similarity: 0.95 - idx * 0.01 }))
     }
 
+    // Always compute actual similarity, even for single entity
     const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 0)
     const scored = entities.map(entity => ({
       entity,
@@ -1469,18 +1523,27 @@ export class GenerationEngine {
    */
   private scoreSemanticMatch(entityText: string, queryWords: string[]): number {
     const semanticGroups: Record<string, string[]> = {
-      software: ['app', 'application', 'program', 'task', 'productivity', 'computer', 'digital', 'programs', 'apps', 'manager'],
-      electronics: ['device', 'gadget', 'electronic', 'hardware', 'tech'],
+      software: ['app', 'application', 'program', 'task', 'productivity', 'computer', 'digital', 'programs', 'apps', 'manager', 'tool', 'managing'],
+      electronics: ['device', 'gadget', 'electronic', 'hardware', 'tech', 'devices'],
       clothing: ['fashion', 'apparel', 'wear', 'dress', 'clothes'],
       enterprise: ['saas', 'b2b', 'business', 'corporate', 'company', 'buyers'],
     }
 
     let score = 0
+    const queryText = queryWords.join(' ')
+
     for (const [category, keywords] of Object.entries(semanticGroups)) {
       const entityHasCategory = entityText.includes(category)
-      const queryHasKeyword = queryWords.some(w => keywords.some(kw => kw.includes(w) || w.includes(kw)))
+      const entityHasKeyword = keywords.some(kw => entityText.includes(kw))
+      const queryHasKeyword = keywords.some(kw => queryText.includes(kw))
+
+      // Match if entity has category name and query has related keyword
       if (entityHasCategory && queryHasKeyword) {
-        score += 20
+        score += 40
+      }
+      // Also match if entity has keyword and query has keyword from same group
+      else if (entityHasKeyword && queryHasKeyword) {
+        score += 35
       }
     }
     return score
@@ -1536,10 +1599,9 @@ export class GenerationEngine {
    * Get array count for a field
    */
   private getArrayCount(field: ParsedField): number {
-    // Check for minItems/maxItems constraints
-    // For now, default to 1-3 items
-    const min = 1
-    const max = 3
+    // Check for minItems/maxItems constraints from field definition
+    const min = (field as any).minItems ?? 1
+    const max = (field as any).maxItems ?? 3
     return Math.floor(Math.random() * (max - min + 1)) + min
   }
 

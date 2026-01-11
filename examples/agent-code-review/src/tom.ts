@@ -46,7 +46,7 @@ import {
   TRAITS,
   ROLE_DEFINITIONS,
   type AgentPersona,
-} from '../../../agents/named/personas'
+} from '../../../agents/named/factory'
 
 // ============================================================================
 // PERSONA COMPOSITION
@@ -274,7 +274,7 @@ ${artifact.content}
 Provide a thorough code review covering architecture, security, performance, style, and correctness.
 Include both issues and positive patterns. Approve only if the code meets production standards.`
 
-  const response = await env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
+  const response = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<Ai['run']>[0], {
     messages: [
       { role: 'system', content: TOM_REVIEW_PROMPT },
       { role: 'user', content: prompt },
@@ -349,7 +349,7 @@ Respond with JSON:
   "issues": ["list of critical issues only"]
 }`
 
-  const response = await env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
+  const response = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<Ai['run']>[0], {
     messages: [
       { role: 'system', content: 'You are Tom, a tech lead doing a quick code check.' },
       { role: 'user', content: prompt },

@@ -87,5 +87,49 @@
       "tag": "v5",
       "new_classes": ["SandboxDO"]
     }
+  ],
+
+  // R2 Buckets
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS_LAKE",
+      "bucket_name": "artifacts-lake"
+    }
+  ],
+
+  // Cloudflare Pipelines for artifact storage
+  // Pipelines are created via CLI: npx wrangler pipelines create <name> ...
+  // See: db/spikes/pipelines-write-path-design.md
+  //
+  // Pipeline configurations (to be created via wrangler CLI):
+  //
+  // artifacts-preview: Small batches (100KB, 5s) for dev/testing
+  //   npx wrangler pipelines create artifacts-preview \
+  //     --batch-max-mb 0.1 --batch-max-rows 1000 --batch-max-seconds 5 \
+  //     --r2 artifacts-lake --partition-by ns,type
+  //
+  // artifacts-build: Balanced batches (1MB, 30s) for CI/CD
+  //   npx wrangler pipelines create artifacts-build \
+  //     --batch-max-mb 1 --batch-max-rows 10000 --batch-max-seconds 30 \
+  //     --r2 artifacts-lake --partition-by ns,type
+  //
+  // artifacts-bulk: Large batches (5MB, 120s) for migrations/analytics
+  //   npx wrangler pipelines create artifacts-bulk \
+  //     --batch-max-mb 5 --batch-max-rows 100000 --batch-max-seconds 120 \
+  //     --r2 artifacts-lake --partition-by ns,type
+  //
+  "pipelines": [
+    {
+      "pipeline": "artifacts-preview",
+      "binding": "ARTIFACTS_PREVIEW"
+    },
+    {
+      "pipeline": "artifacts-build",
+      "binding": "ARTIFACTS_BUILD"
+    },
+    {
+      "pipeline": "artifacts-bulk",
+      "binding": "ARTIFACTS_BULK"
+    }
   ]
 }

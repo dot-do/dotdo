@@ -256,7 +256,7 @@ ${spec.constraints ? `## Constraints\n${spec.constraints.map((c, i) => `${i + 1}
 
 ${spec.examples ? `## Examples\n${spec.examples.join('\n\n')}` : ''}`
 
-    const response = await this.env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
+    const response = await this.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<Ai['run']>[0], {
       messages: [
         { role: 'system', content: RALPH_SYSTEM_PROMPT },
         { role: 'user', content: prompt },
@@ -311,7 +311,7 @@ ${i + 1}. [${c.severity.toUpperCase()}] (${c.category})${c.line ? ` Line ${c.lin
 
 Please address ALL the feedback and improve the code.`
 
-    const response = await this.env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
+    const response = await this.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<Ai['run']>[0], {
       messages: [
         { role: 'system', content: RALPH_IMPROVE_PROMPT },
         { role: 'user', content: prompt },
@@ -367,7 +367,7 @@ ${artifact.content}
 Provide a thorough code review covering architecture, security, performance, style, and correctness.
 Approve only if the code meets production standards.`
 
-    const response = await this.env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
+    const response = await this.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<Ai['run']>[0], {
       messages: [
         { role: 'system', content: TOM_REVIEW_PROMPT },
         { role: 'user', content: prompt },

@@ -28,6 +28,20 @@
 
 export { IcebergReader } from './reader'
 
+// Parquet reader exports
+export {
+  ParquetReader,
+  readParquetFromR2,
+  findRecordInParquet,
+  parseParquetBytes,
+} from './parquet'
+
+export type {
+  ParquetReadOptions,
+  ParquetReadResult,
+  ParquetFileStats,
+} from './parquet'
+
 export type {
   // Metadata types
   IcebergMetadata,
