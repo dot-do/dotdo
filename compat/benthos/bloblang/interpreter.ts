@@ -497,7 +497,21 @@ export class Interpreter {
 
       // Time functions
       case 'now':
-        return Date.now()
+        return new Date().toISOString()
+      case 'timestamp_unix':
+        return Math.floor(Date.now() / 1000)
+
+      // UUID functions
+      case 'uuid_v4':
+      case '$uuid':
+        return this.generateUUID()
+
+      // Metadata functions
+      case 'meta':
+        if (args.length === 0) {
+          return _ctx.message.metadata.toObject()
+        }
+        return _ctx.message.metadata.get(String(args[0]))
 
       default:
         throw new Error(`Unknown function: ${name}`)
@@ -671,6 +685,23 @@ export class Interpreter {
       variables: new Map(parent.variables),
       pipeValue: parent.pipeValue,
     }
+  }
+
+  private generateUUID(): string {
+    // Generate random bytes
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+
+    // Set version (4) in the 7th byte, bits 12-15
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+
+    // Set variant (10xx) in the 9th byte, bits 6-7
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+    // Convert to hex string with dashes
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
   }
 }
 

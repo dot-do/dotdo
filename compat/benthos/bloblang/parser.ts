@@ -149,7 +149,12 @@ export class Parser {
 
     // Ensure we consumed all tokens (except EOF)
     if (!this.check(TokenType.EOF)) {
-      // Could be additional expressions, which is OK for some cases
+      const token = this.peek()
+      throw new ParseError(
+        `Unexpected token after expression: ${token.type} (${token.value})`,
+        token.line,
+        token.column
+      )
     }
 
     return ast
@@ -163,12 +168,48 @@ export class Parser {
   }
 
   /**
-   * Parse assignment: identifier = expression
+   * Parse assignment: identifier = expression or root = expression
    */
   private parseAssignment(): ASTNode {
     // Look ahead to check if this is an assignment
-    // Assignment requires: IDENTIFIER = expression
+    // Assignment requires: (IDENTIFIER | ROOT) = expression
     // But we need to distinguish from comparison ==
+
+    // Handle root = <expr>
+    if (this.check(TokenType.ROOT)) {
+      const next = this.peekNext()
+      if (next.type === TokenType.ASSIGN) {
+        const rootToken = this.advance() // consume root
+        this.advance() // consume =
+        const value = this.parsePipe()
+        return {
+          type: 'Assign',
+          field: 'root',
+          value,
+          line: rootToken.line,
+          column: rootToken.column
+        } as AssignNode
+      }
+      // Also handle root.field = <expr>
+      if (next.type === TokenType.DOT) {
+        const rootToken = this.advance() // consume root
+        this.advance() // consume .
+        const fieldPath = this.parseFieldPath()
+        if (this.check(TokenType.ASSIGN)) {
+          this.advance() // consume =
+          const value = this.parsePipe()
+          return {
+            type: 'Assign',
+            field: `root.${fieldPath}`,
+            value,
+            line: rootToken.line,
+            column: rootToken.column
+          } as AssignNode
+        }
+      }
+    }
+
+    // Handle identifier = <expr>
     if (this.check(TokenType.IDENTIFIER)) {
       const next = this.peekNext()
       if (next.type === TokenType.ASSIGN) {
@@ -185,7 +226,41 @@ export class Parser {
       }
     }
 
+    // Handle meta() = <expr>
+    if (this.check(TokenType.META)) {
+      const metaToken = this.advance() // consume meta
+      this.consume(TokenType.LPAREN, 'Expected ( after meta')
+      const keyToken = this.consume(TokenType.STRING, 'Expected string key in meta()')
+      this.consume(TokenType.RPAREN, 'Expected ) after meta key')
+      if (this.check(TokenType.ASSIGN)) {
+        this.advance() // consume =
+        const value = this.parsePipe()
+        return {
+          type: 'Assign',
+          field: `meta("${keyToken.value}")`,
+          value,
+          line: metaToken.line,
+          column: metaToken.column
+        } as AssignNode
+      }
+    }
+
     return this.parsePipe()
+  }
+
+  /**
+   * Parse a field path like field.subfield.subsubfield
+   */
+  private parseFieldPath(): string {
+    const parts: string[] = []
+    parts.push(this.consume(TokenType.IDENTIFIER, 'Expected field name').value)
+
+    while (this.match(TokenType.DOT)) {
+      this.advance()
+      parts.push(this.consume(TokenType.IDENTIFIER, 'Expected field name after .').value)
+    }
+
+    return parts.join('.')
   }
 
   /**
@@ -398,11 +473,21 @@ export class Parser {
     while (true) {
       if (this.match(TokenType.DOT)) {
         const dotToken = this.advance()
-        const propToken = this.consume(TokenType.IDENTIFIER, 'Expected property name after .')
+        // Allow keywords as property names (e.g., .map(), .length())
+        let propName: string
+        if (this.match(TokenType.IDENTIFIER)) {
+          propName = this.advance().value
+        } else if (this.match(TokenType.MAP)) {
+          propName = this.advance().value
+        } else if (this.match(TokenType.LET, TokenType.IF, TokenType.MATCH)) {
+          propName = this.advance().value
+        } else {
+          this.error('Expected property name after .')
+        }
         left = {
           type: 'MemberAccess',
           object: left,
-          property: propToken.value,
+          property: propName,
           accessType: 'dot',
           line: dotToken.line,
           column: dotToken.column
@@ -602,12 +687,53 @@ export class Parser {
       return expr
     }
 
+    // Shorthand field access: .field is equivalent to root.field
+    // Also handle . by itself as equivalent to root
+    if (this.match(TokenType.DOT)) {
+      const dotToken = this.advance()
+
+      // Check if there's an identifier after the dot
+      if (this.check(TokenType.IDENTIFIER)) {
+        const propToken = this.advance()
+        return {
+          type: 'MemberAccess',
+          object: {
+            type: 'Root',
+            line: dotToken.line,
+            column: dotToken.column
+          } as RootNode,
+          property: propToken.value,
+          accessType: 'dot',
+          line: dotToken.line,
+          column: dotToken.column
+        } as MemberAccessNode
+      }
+
+      // If no identifier follows, . means root
+      return {
+        type: 'Root',
+        line: dotToken.line,
+        column: dotToken.column
+      } as RootNode
+    }
+
     // Identifier
     if (this.match(TokenType.IDENTIFIER)) {
       const t = this.advance()
       return {
         type: 'Identifier',
         name: t.value,
+        line: t.line,
+        column: t.column
+      } as IdentifierNode
+    }
+
+    // Environment variable (treat as identifier for function calls)
+    if (this.match(TokenType.ENV_VAR)) {
+      const t = this.advance()
+      return {
+        type: 'Identifier',
+        name: `$${t.value}`,
         line: t.line,
         column: t.column
       } as IdentifierNode
@@ -788,6 +914,10 @@ export class Parser {
     } else if (this.match(TokenType.IDENTIFIER)) {
       const keyToken = this.advance()
       key = keyToken.value
+    } else if (this.match(TokenType.ROOT, TokenType.THIS, TokenType.META, TokenType.IF, TokenType.MATCH, TokenType.LET, TokenType.MAP)) {
+      // Allow keywords as object keys
+      const keyToken = this.advance()
+      key = keyToken.value || keyToken.type.toLowerCase()
     } else {
       this.error('Expected object key (identifier or string)')
     }
