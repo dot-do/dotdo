@@ -13,7 +13,16 @@
  */
 
 import type { ColoCode } from '../../types/Location'
-import { codeToCity } from '../../types/Location'
+import { codeToCity, coloRegion, regionToCF } from '../../types/Location'
+import {
+  type DOLocation,
+  type CfJsonData,
+  type TraceData,
+  createDOLocation,
+} from '../../types/DOLocation'
+
+// Re-export types for backward compatibility
+export type { DOLocation, CfJsonData, TraceData }
 
 // ============================================================================
 // Constants
@@ -30,127 +39,6 @@ export const CLOUDFLARE_CF_JSON_URL = 'https://workers.cloudflare.com/cf.json'
  * @deprecated Use CLOUDFLARE_CF_JSON_URL instead
  */
 export const CLOUDFLARE_TRACE_URL = 'https://cloudflare.com/cdn-cgi/trace'
-
-// ============================================================================
-// Types
-// ============================================================================
-
-/**
- * Response data from Cloudflare's cf.json endpoint
- * Contains rich location and connection metadata
- */
-export interface CfJsonData {
-  /** 3-letter colo code (IATA) - uppercase */
-  colo: string
-  /** Country code (ISO 3166-1 alpha-2) */
-  country: string
-  /** City name */
-  city: string
-  /** Continent code */
-  continent: string
-  /** Latitude */
-  latitude: string
-  /** Longitude */
-  longitude: string
-  /** Postal/ZIP code */
-  postalCode: string
-  /** Region/state code */
-  region: string
-  /** Region/state name */
-  regionCode: string
-  /** Timezone */
-  timezone: string
-  /** ASN number */
-  asn: number
-  /** ASN organization name */
-  asOrganization: string
-  /** HTTP protocol version */
-  httpProtocol: string
-  /** Request priority */
-  requestPriority: string
-  /** TLS cipher suite */
-  tlsCipher: string
-  /** TLS version */
-  tlsVersion: string
-  /** Client TCP RTT (ms) */
-  clientTcpRtt: number
-  /** Client trust score */
-  clientTrustScore: number
-  /** Is bot */
-  isEUCountry: string
-  /** Bot management fields */
-  botManagement?: {
-    score: number
-    staticResource: boolean
-    verifiedBot: boolean
-  }
-}
-
-/**
- * Parsed trace response data from Cloudflare's /cdn-cgi/trace endpoint
- * @deprecated Prefer CfJsonData from cf.json endpoint
- */
-export interface TraceData {
-  /** Cloudflare identifier */
-  fl: string
-  /** Host */
-  h: string
-  /** IP address */
-  ip: string
-  /** Timestamp */
-  ts: string
-  /** Visit scheme (http/https) */
-  visit_scheme: string
-  /** User agent */
-  uag: string
-  /** 3-letter colo code (IATA) */
-  colo: string
-  /** Sliver */
-  sliver: string
-  /** HTTP version */
-  http: string
-  /** Country code */
-  loc: string
-  /** TLS version */
-  tls: string
-  /** SNI status */
-  sni: string
-  /** WARP status */
-  warp: string
-  /** Gateway status */
-  gateway: string
-  /** RBI status */
-  rbi: string
-  /** Key exchange algorithm */
-  kex: string
-}
-
-/**
- * Location information for a Durable Object
- */
-export interface DOLocation {
-  /** Normalized colo code (lowercase) */
-  colo: ColoCode
-  /** IP address of the DO (from trace) or empty string */
-  ip: string
-  /** Country code */
-  loc: string
-  /** When the location was detected */
-  detectedAt: Date
-  /** Full trace data from Cloudflare (if from trace endpoint) */
-  traceData: TraceData
-  /** Full cf.json data (if from cf.json endpoint) */
-  cf?: CfJsonData
-  /** Coordinates from cf.json */
-  coordinates?: {
-    latitude: number
-    longitude: number
-  }
-  /** City name from cf.json */
-  city?: string
-  /** Timezone from cf.json */
-  timezone?: string
-}
 
 // ============================================================================
 // Helper: Valid ColoCode Set
@@ -173,7 +61,7 @@ function isValidColoCode(code: string): code is ColoCode {
  * Parses all fields from trace response
  *
  * @param response - Raw response from /cdn-cgi/trace endpoint
- * @returns Typed TraceData object with all parsed fields
+ * @returns TraceData object with parsed fields (all fields are optional)
  *
  * @example
  * ```ts
@@ -183,7 +71,7 @@ function isValidColoCode(code: string): code is ColoCode {
  * ```
  */
 export function parseTraceResponse(response: string): TraceData {
-  const result: Record<string, string> = {}
+  const result: TraceData = {}
 
   // Split by various line ending styles (CRLF, LF, CR)
   const lines = response.split(/\r\n|\n|\r/)
@@ -196,13 +84,13 @@ export function parseTraceResponse(response: string): TraceData {
     const eqIndex = trimmedLine.indexOf('=')
     if (eqIndex === -1) continue
 
-    const key = trimmedLine.substring(0, eqIndex)
+    const key = trimmedLine.substring(0, eqIndex) as keyof TraceData
     const value = trimmedLine.substring(eqIndex + 1)
 
     result[key] = value
   }
 
-  return result as unknown as TraceData
+  return result
 }
 
 /**
@@ -253,7 +141,7 @@ export function detectColoFromTrace(traceResponse: string): ColoCode | null {
  * ```ts
  * const location = await fetchDOLocationFromCfJson()
  * console.log(location.colo) // 'sjc'
- * console.log(location.coordinates) // { latitude: 37.36, longitude: -121.93 }
+ * console.log(location.coordinates) // { lat: 37.36, lng: -121.93 }
  * ```
  */
 export async function fetchDOLocationFromCfJson(): Promise<DOLocation> {
@@ -277,20 +165,15 @@ export async function fetchDOLocationFromCfJson(): Promise<DOLocation> {
     throw new Error(`Invalid or unknown colo code: ${cfData.colo}`)
   }
 
-  return {
-    colo: coloValue,
-    ip: '', // Not available in cf.json
-    loc: cfData.country,
-    detectedAt: new Date(),
-    traceData: {} as TraceData, // Empty for cf.json source
+  const lat = parseFloat(cfData.latitude)
+  const lng = parseFloat(cfData.longitude)
+
+  return createDOLocation(coloValue, {
+    coordinates: isFinite(lat) && isFinite(lng) ? { lat, lng } : undefined,
     cf: cfData,
-    coordinates: {
-      latitude: parseFloat(cfData.latitude),
-      longitude: parseFloat(cfData.longitude),
-    },
-    city: cfData.city,
+    country: cfData.country,
     timezone: cfData.timezone,
-  }
+  })
 }
 
 /**
@@ -323,13 +206,11 @@ export async function fetchDOLocationFromTrace(): Promise<DOLocation> {
     throw new Error(`Invalid or unknown colo code: ${rawColo}`)
   }
 
-  return {
-    colo,
+  return createDOLocation(colo, {
+    trace: traceData,
     ip: traceData.ip,
-    loc: traceData.loc,
-    detectedAt: new Date(),
-    traceData,
-  }
+    country: traceData.loc,
+  })
 }
 
 /**

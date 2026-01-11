@@ -13,8 +13,11 @@
  */
 
 import type { ColoCode, ColoCity, Region, CFLocationHint } from '../../types/Location'
-import { codeToCity, coloRegion, regionToCF } from '../../types/Location'
+import { type DOLocation, type CfJsonData, type TraceData } from '../../types/DOLocation'
 import { fetchDOLocation } from './detection'
+
+// Re-export canonical DOLocation type
+export type { DOLocation }
 
 // ============================================================================
 // Storage Key Constants
@@ -31,26 +34,6 @@ export const LOCATION_STORAGE_KEY = 'do:location'
 export const LOCATION_CACHE_VERSION = 1
 
 // ============================================================================
-// DOLocation Type
-// ============================================================================
-
-/**
- * Represents the detected location of a Durable Object instance
- */
-export interface DOLocation {
-  /** IATA code for the Cloudflare colo (e.g., 'lax', 'iad') */
-  colo: ColoCode
-  /** Geographic region (e.g., 'us-west', 'us-east') */
-  region: Region
-  /** City name (e.g., 'LosAngeles', 'Virginia') */
-  city: ColoCity
-  /** Cloudflare location hint (e.g., 'wnam', 'enam') */
-  cfHint: CFLocationHint
-  /** Timestamp when location was detected */
-  detectedAt: Date
-}
-
-// ============================================================================
 // Serialization Helpers
 // ============================================================================
 
@@ -62,37 +45,59 @@ interface SerializedDOLocation {
   region: Region
   city: ColoCity
   cfHint: CFLocationHint
-  detectedAt: string | Date
+  detectedAt: string
+  coordinates?: { lat: number; lng: number }
+  cf?: CfJsonData
+  trace?: TraceData
+  ip?: string
+  country?: string
+  timezone?: string
 }
 
 /**
  * Serialize DOLocation for storage
  */
 function serializeDOLocation(location: DOLocation): SerializedDOLocation {
-  return {
+  const serialized: SerializedDOLocation = {
     colo: location.colo,
     region: location.region,
     city: location.city,
     cfHint: location.cfHint,
     detectedAt: location.detectedAt instanceof Date
       ? location.detectedAt.toISOString()
-      : location.detectedAt,
+      : new Date(location.detectedAt).toISOString(),
   }
+
+  if (location.coordinates) serialized.coordinates = location.coordinates
+  if (location.cf) serialized.cf = location.cf
+  if (location.trace) serialized.trace = location.trace
+  if (location.ip) serialized.ip = location.ip
+  if (location.country) serialized.country = location.country
+  if (location.timezone) serialized.timezone = location.timezone
+
+  return serialized
 }
 
 /**
  * Deserialize DOLocation from storage
  */
 function deserializeDOLocation(serialized: SerializedDOLocation): DOLocation {
-  return {
+  const location: DOLocation = {
     colo: serialized.colo,
     region: serialized.region,
     city: serialized.city,
     cfHint: serialized.cfHint,
-    detectedAt: serialized.detectedAt instanceof Date
-      ? serialized.detectedAt
-      : new Date(serialized.detectedAt),
+    detectedAt: new Date(serialized.detectedAt),
   }
+
+  if (serialized.coordinates) location.coordinates = serialized.coordinates
+  if (serialized.cf) location.cf = serialized.cf
+  if (serialized.trace) location.trace = serialized.trace
+  if (serialized.ip) location.ip = serialized.ip
+  if (serialized.country) location.country = serialized.country
+  if (serialized.timezone) location.timezone = serialized.timezone
+
+  return location
 }
 
 // ============================================================================
@@ -219,22 +224,8 @@ export async function getOrDetectLocation(
     return cached
   }
 
-  // Detect location (returns detection module's DOLocation format)
-  const detected = await fetchDOLocation()
-
-  // Convert to caching module's DOLocation format
-  const colo = detected.colo
-  const city = codeToCity[colo]
-  const region = coloRegion[colo]
-  const cfHint = regionToCF[region]
-
-  const location: DOLocation = {
-    colo,
-    city,
-    region,
-    cfHint,
-    detectedAt: detected.detectedAt,
-  }
+  // Detect location (returns canonical DOLocation with all fields populated)
+  const location = await fetchDOLocation()
 
   // Cache the result
   await cache.set(location)

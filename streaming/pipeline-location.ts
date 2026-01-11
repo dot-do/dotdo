@@ -7,6 +7,10 @@
  */
 
 import type { ColoCode, Region, CFLocationHint } from '../types/Location'
+import type { DOLocation } from '../types/DOLocation'
+
+// Re-export DOLocation for convenience
+export type { DOLocation }
 
 // ============================================================================
 // Types
@@ -47,22 +51,6 @@ export interface PipelineEvent {
 }
 
 /**
- * DO location information
- */
-export interface DOLocation {
-  /** Colo code (IATA) */
-  colo: ColoCode
-  /** Geographic region */
-  region: Region
-  /** Cloudflare location hint */
-  cfHint: CFLocationHint
-  /** When location was detected */
-  detectedAt: string
-  /** How location was detected */
-  source: string
-}
-
-/**
  * Analytics event schema for R2 Iceberg queries
  */
 export interface ColoAnalyticsEvent {
@@ -93,24 +81,15 @@ export interface ColoAnalyticsEvent {
  *
  * @param event - The base pipeline event (without _meta)
  * @param location - The DO's detected location (may be undefined)
- * @returns A new PipelineEvent with _meta populated
+ * @returns A new PipelineEvent with _meta populated (only if location is available)
  */
 export function enrichEventWithLocation(
   event: Omit<PipelineEvent, '_meta'>,
   location: DOLocation | undefined
 ): PipelineEvent {
-  // Handle undefined location gracefully
+  // If no location, return event without _meta
   if (!location) {
-    return {
-      ...event,
-      _meta: {
-        colo: undefined as unknown as ColoCode,
-        region: undefined as unknown as Region,
-        cfHint: undefined as unknown as CFLocationHint,
-        ns: event.source || event.$context,
-        timestamp: new Date().toISOString(),
-      },
-    }
+    return { ...event }
   }
 
   // Create new event with _meta (immutable - don't modify original)

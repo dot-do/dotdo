@@ -35,15 +35,18 @@ import type { DOLocation } from '../caching'
 
 /**
  * Mock fetchDOLocation to avoid network calls during caching tests.
- * Returns a mock location that matches the expected DOLocation format.
+ * Returns a mock location that matches the canonical DOLocation format.
  */
 vi.mock('../detection', () => ({
   fetchDOLocation: vi.fn().mockResolvedValue({
     colo: 'sjc',
-    ip: '192.0.2.1',
-    loc: 'US',
+    city: 'SanJose',
+    region: 'us-west',
+    cfHint: 'wnam',
     detectedAt: new Date('2024-01-15T10:30:00Z'),
-    traceData: {
+    ip: '192.0.2.1',
+    country: 'US',
+    trace: {
       fl: 'test',
       h: 'cloudflare.com',
       ip: '192.0.2.1',

@@ -480,22 +480,25 @@ describe('fetchDOLocation', () => {
       )
       expect(result.colo).toBe('sjc')
       expect(result.coordinates).toEqual({
-        latitude: 37.3639,
-        longitude: -121.929,
+        lat: 37.3639,
+        lng: -121.929,
       })
     })
 
     it('should parse response and return DOLocation', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        text: () => Promise.resolve(VALID_TRACE_RESPONSE),
-      })
+      // cf.json fails, falls back to trace
+      mockFetch
+        .mockRejectedValueOnce(new Error('cf.json failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(VALID_TRACE_RESPONSE),
+        })
 
       const result = await fetchDOLocation()
 
       expect(result.colo).toBe('sjc')
       expect(result.ip).toBe('203.0.113.50')
-      expect(result.loc).toBe('US')
+      expect(result.country).toBe('US')
     })
 
     it('should include detectedAt timestamp', async () => {
@@ -503,10 +506,13 @@ describe('fetchDOLocation', () => {
       const now = new Date('2024-01-11T12:00:00Z')
       vi.setSystemTime(now)
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        text: () => Promise.resolve(VALID_TRACE_RESPONSE),
-      })
+      // cf.json fails, falls back to trace
+      mockFetch
+        .mockRejectedValueOnce(new Error('cf.json failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(VALID_TRACE_RESPONSE),
+        })
 
       const result = await fetchDOLocation()
 
@@ -515,32 +521,42 @@ describe('fetchDOLocation', () => {
     })
 
     it('should return DOLocation with all expected fields', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        text: () => Promise.resolve(VALID_TRACE_RESPONSE),
-      })
+      // cf.json fails, falls back to trace
+      mockFetch
+        .mockRejectedValueOnce(new Error('cf.json failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(VALID_TRACE_RESPONSE),
+        })
 
       const result = await fetchDOLocation()
 
-      // Verify structure of DOLocation
+      // Verify structure of DOLocation - canonical fields
       expect(result).toHaveProperty('colo')
-      expect(result).toHaveProperty('ip')
-      expect(result).toHaveProperty('loc')
+      expect(result).toHaveProperty('city')
+      expect(result).toHaveProperty('region')
+      expect(result).toHaveProperty('cfHint')
       expect(result).toHaveProperty('detectedAt')
-      expect(result).toHaveProperty('traceData')
+      // Optional fields from trace
+      expect(result).toHaveProperty('ip')
+      expect(result).toHaveProperty('country')
+      expect(result).toHaveProperty('trace')
     })
 
     it('should include full TraceData in result', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        text: () => Promise.resolve(VALID_TRACE_RESPONSE),
-      })
+      // cf.json fails, falls back to trace
+      mockFetch
+        .mockRejectedValueOnce(new Error('cf.json failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(VALID_TRACE_RESPONSE),
+        })
 
       const result = await fetchDOLocation()
 
-      expect(result.traceData).toBeDefined()
-      expect(result.traceData.fl).toBe('123f456')
-      expect(result.traceData.http).toBe('http/2')
+      expect(result.trace).toBeDefined()
+      expect(result.trace?.fl).toBe('123f456')
+      expect(result.trace?.http).toBe('http/2')
     })
   })
 

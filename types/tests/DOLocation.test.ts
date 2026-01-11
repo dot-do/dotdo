@@ -818,8 +818,9 @@ describe('createDOLocation Factory Function', () => {
       const location = createDOLocation('lhr')
       const after = Date.now()
 
-      expect(location.detectedAt).toBeGreaterThanOrEqual(before)
-      expect(location.detectedAt).toBeLessThanOrEqual(after)
+      expect(location.detectedAt).toBeInstanceOf(Date)
+      expect(location.detectedAt.getTime()).toBeGreaterThanOrEqual(before)
+      expect(location.detectedAt.getTime()).toBeLessThanOrEqual(after)
     })
 
     it('should return DOLocation type', () => {

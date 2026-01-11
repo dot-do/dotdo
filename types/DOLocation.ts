@@ -3,10 +3,15 @@
  *
  * Issue: dotdo-gm44s - DO Location types
  *
+ * CANONICAL SOURCE OF TRUTH for all DO location types.
+ * All other modules should import from here.
+ *
  * Provides types for Durable Object location detection:
  * - DOLocation interface (base location info for a DO)
  * - DOLocationInfo interface (extended location info with DO metadata)
  * - ColoMetadata interface (external colo data from WHERE-DOs-Live)
+ * - CfJsonData interface (response from workers.cloudflare.com/cf.json)
+ * - TraceData interface (response from /cdn-cgi/trace)
  * - createDOLocation factory function
  */
 
@@ -24,11 +29,92 @@ import {
 } from './Location'
 
 // ============================================================================
+// Raw Detection Types
+// ============================================================================
+
+/**
+ * Response data from Cloudflare's cf.json endpoint
+ * Contains rich location and connection metadata
+ */
+export interface CfJsonData {
+  /** 3-letter colo code (IATA) - uppercase */
+  colo: string
+  /** Country code (ISO 3166-1 alpha-2) */
+  country: string
+  /** City name */
+  city: string
+  /** Continent code */
+  continent: string
+  /** Latitude */
+  latitude: string
+  /** Longitude */
+  longitude: string
+  /** Postal/ZIP code */
+  postalCode?: string
+  /** Region/state code */
+  region?: string
+  /** Region/state name */
+  regionCode?: string
+  /** Timezone */
+  timezone: string
+  /** ASN number */
+  asn?: number
+  /** ASN organization name */
+  asOrganization?: string
+  /** HTTP protocol version */
+  httpProtocol?: string
+  /** TLS version */
+  tlsVersion?: string
+  /** Client TCP RTT (ms) */
+  clientTcpRtt?: number
+}
+
+/**
+ * Parsed trace response data from Cloudflare's /cdn-cgi/trace endpoint
+ */
+export interface TraceData {
+  /** Cloudflare identifier */
+  fl?: string
+  /** Host */
+  h?: string
+  /** IP address */
+  ip?: string
+  /** Timestamp */
+  ts?: string
+  /** Visit scheme (http/https) */
+  visit_scheme?: string
+  /** User agent */
+  uag?: string
+  /** 3-letter colo code (IATA) */
+  colo?: string
+  /** Sliver */
+  sliver?: string
+  /** HTTP version */
+  http?: string
+  /** Country code */
+  loc?: string
+  /** TLS version */
+  tls?: string
+  /** SNI status */
+  sni?: string
+  /** WARP status */
+  warp?: string
+  /** Gateway status */
+  gateway?: string
+  /** RBI status */
+  rbi?: string
+  /** Key exchange algorithm */
+  kex?: string
+}
+
+// ============================================================================
 // DOLocation Interface
 // ============================================================================
 
 /**
- * Represents the detected location of a Durable Object instance
+ * Represents the detected location of a Durable Object instance.
+ *
+ * This is the canonical DOLocation type - all modules should use this.
  */
 export interface DOLocation {
   /** IATA code for the Cloudflare colo (e.g., 'lax', 'iad') */
@@ -39,13 +125,23 @@ export interface DOLocation {
   region: Region
   /** Cloudflare location hint (e.g., 'wnam', 'enam') */
   cfHint: CFLocationHint
-  /** Timestamp when location was detected (Unix timestamp) */
-  detectedAt: number
+  /** Timestamp when location was detected */
+  detectedAt: Date
   /** Optional coordinates */
   coordinates?: {
     lat: number
     lng: number
   }
+  /** Raw cf.json data (when detected via cf.json endpoint) */
+  cf?: CfJsonData
+  /** Raw trace data (when detected via trace endpoint) */
+  trace?: TraceData
+  /** IP address (from trace endpoint) */
+  ip?: string
+  /** Country code (from trace or cf.json) */
+  country?: string
+  /** Timezone (from cf.json) */
+  timezone?: string
 }
 
 // ============================================================================
@@ -103,7 +199,17 @@ export interface CreateDOLocationOptions {
     lng: number
   }
   /** Custom timestamp */
-  detectedAt?: number
+  detectedAt?: Date
+  /** Raw cf.json data */
+  cf?: CfJsonData
+  /** Raw trace data */
+  trace?: TraceData
+  /** IP address */
+  ip?: string
+  /** Country code */
+  country?: string
+  /** Timezone */
+  timezone?: string
 }
 
 /**
@@ -116,7 +222,7 @@ export interface CreateDOLocationOptions {
  * @example
  * ```ts
  * const location = createDOLocation('iad')
- * // { colo: 'iad', city: 'Virginia', region: 'us-east', cfHint: 'enam', detectedAt: ... }
+ * // { colo: 'iad', city: 'Virginia', region: 'us-east', cfHint: 'enam', detectedAt: Date }
  * ```
  */
 export function createDOLocation(
@@ -134,11 +240,26 @@ export function createDOLocation(
     city,
     region: normalized.region,
     cfHint: normalized.cfHint,
-    detectedAt: options?.detectedAt ?? Date.now(),
+    detectedAt: options?.detectedAt ?? new Date(),
   }
 
   if (options?.coordinates) {
     result.coordinates = options.coordinates
+  }
+  if (options?.cf) {
+    result.cf = options.cf
+  }
+  if (options?.trace) {
+    result.trace = options.trace
+  }
+  if (options?.ip) {
+    result.ip = options.ip
+  }
+  if (options?.country) {
+    result.country = options.country
+  }
+  if (options?.timezone) {
+    result.timezone = options.timezone
   }
 
   return result
