@@ -8,21 +8,172 @@
 
 import { createPipelinePromise, PipelineExpression, isPipelinePromise } from './pipeline-promise'
 
-// Registry for event handlers
-const eventHandlers = new Map<string, Function[]>()
+// ============================================================================
+// Handler Registration with Cleanup Support
+// ============================================================================
 
+/**
+ * Unsubscribe function returned when registering a handler
+ */
+export type Unsubscribe = () => boolean
+
+/**
+ * Handler registration metadata for tracking and cleanup
+ */
+export interface HandlerRegistration {
+  handler: Function
+  eventKey: string
+  context?: string
+  registeredAt: number
+}
+
+// Registry for event handlers with metadata
+const eventHandlers = new Map<string, HandlerRegistration[]>()
+
+// Index for fast context-based cleanup
+const contextIndex = new Map<string, Set<string>>()
+
+/**
+ * Get all registered handlers for an event key
+ */
 export function getRegisteredHandlers(eventKey: string): Function[] {
+  return (eventHandlers.get(eventKey) || []).map(r => r.handler)
+}
+
+/**
+ * Get handler registrations with metadata
+ */
+export function getHandlerRegistrations(eventKey: string): HandlerRegistration[] {
   return eventHandlers.get(eventKey) || []
 }
 
-export function clearHandlers(): void {
-  eventHandlers.clear()
+/**
+ * Get total count of registered handlers across all events
+ */
+export function getHandlerCount(): number {
+  let count = 0
+  for (const registrations of eventHandlers.values()) {
+    count += registrations.length
+  }
+  return count
 }
 
-function registerHandler(eventKey: string, handler: Function): void {
-  const handlers = eventHandlers.get(eventKey) || []
-  handlers.push(handler)
-  eventHandlers.set(eventKey, handlers)
+/**
+ * Get all event keys that have registered handlers
+ */
+export function getRegisteredEventKeys(): string[] {
+  return Array.from(eventHandlers.keys())
+}
+
+/**
+ * Clear all handlers (for testing or full reset)
+ */
+export function clearHandlers(): void {
+  eventHandlers.clear()
+  contextIndex.clear()
+}
+
+/**
+ * Clear all handlers registered under a specific context
+ * Use this when a Durable Object is being destroyed
+ *
+ * @param context - The context identifier (e.g., DO namespace)
+ * @returns Number of handlers removed
+ */
+export function clearHandlersByContext(context: string): number {
+  const eventKeys = contextIndex.get(context)
+  if (!eventKeys) return 0
+
+  let removedCount = 0
+  for (const eventKey of eventKeys) {
+    const registrations = eventHandlers.get(eventKey)
+    if (!registrations) continue
+
+    const remaining = registrations.filter(r => r.context !== context)
+    const removed = registrations.length - remaining.length
+    removedCount += removed
+
+    if (remaining.length === 0) {
+      eventHandlers.delete(eventKey)
+    } else {
+      eventHandlers.set(eventKey, remaining)
+    }
+  }
+
+  contextIndex.delete(context)
+  return removedCount
+}
+
+/**
+ * Unregister a specific handler by event key and handler reference
+ *
+ * @param eventKey - The event key (e.g., "Customer.signup")
+ * @param handler - The handler function to remove
+ * @returns true if handler was found and removed
+ */
+export function unregisterHandler(eventKey: string, handler: Function): boolean {
+  const registrations = eventHandlers.get(eventKey)
+  if (!registrations) return false
+
+  const index = registrations.findIndex(r => r.handler === handler)
+  if (index === -1) return false
+
+  const [removed] = registrations.splice(index, 1)
+
+  // Clean up context index
+  if (removed.context) {
+    const contextEvents = contextIndex.get(removed.context)
+    if (contextEvents) {
+      // Only remove from index if no more handlers for this event/context combo
+      const hasMoreInContext = registrations.some(r => r.context === removed.context)
+      if (!hasMoreInContext) {
+        contextEvents.delete(eventKey)
+        if (contextEvents.size === 0) {
+          contextIndex.delete(removed.context)
+        }
+      }
+    }
+  }
+
+  // Clean up empty event key
+  if (registrations.length === 0) {
+    eventHandlers.delete(eventKey)
+  }
+
+  return true
+}
+
+/**
+ * Register a handler and return an unsubscribe function
+ *
+ * @param eventKey - The event key (e.g., "Customer.signup" or "schedule:0 9 * * 1")
+ * @param handler - The handler function
+ * @param context - Optional context for grouped cleanup (e.g., DO namespace)
+ * @returns Unsubscribe function that removes this handler
+ */
+function registerHandler(eventKey: string, handler: Function, context?: string): Unsubscribe {
+  const registrations = eventHandlers.get(eventKey) || []
+
+  const registration: HandlerRegistration = {
+    handler,
+    eventKey,
+    context,
+    registeredAt: Date.now(),
+  }
+
+  registrations.push(registration)
+  eventHandlers.set(eventKey, registrations)
+
+  // Update context index for fast cleanup
+  if (context) {
+    if (!contextIndex.has(context)) {
+      contextIndex.set(context, new Set())
+    }
+    contextIndex.get(context)!.add(eventKey)
+  }
+
+  // Return unsubscribe function
+  return () => unregisterHandler(eventKey, handler)
 }
 
 // ============================================================================

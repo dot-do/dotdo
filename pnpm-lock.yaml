@@ -326,6 +326,68 @@ importers:
         specifier: ^3.0.0
         version: 3.70.0(graphql@16.12.0)(typescript@5.9.3)
 
+  examples/custom-do:
+    dependencies:
+      dotdo:
+        specifier: workspace:*
+        version: link:../..
+      hono:
+        specifier: ^4.6.0
+        version: 4.11.3
+    devDependencies:
+      wrangler:
+        specifier: ^3.99.0
+        version: 3.114.16(@cloudflare/workers-types@4.20260108.0)
+
+  examples/example.com.ai:
+    dependencies:
+      dotdo:
+        specifier: workspace:*
+        version: link:../..
+      hono:
+        specifier: ^4.6.0
+        version: 4.11.3
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20241230.0
+        version: 4.20260108.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      wrangler:
+        specifier: ^4.58.0
+        version: 4.58.0(@cloudflare/workers-types@4.20260108.0)
+
+  examples/hateoas-api:
+    dependencies:
+      dotdo:
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      wrangler:
+        specifier: ^3.99.0
+        version: 3.114.16(@cloudflare/workers-types@4.20260108.0)
+
+  examples/jsonapi:
+    dependencies:
+      dotdo:
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      wrangler:
+        specifier: ^3.99.0
+        version: 3.114.16(@cloudflare/workers-types@4.20260108.0)
+
+  examples/simple-api:
+    dependencies:
+      dotdo:
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      wrangler:
+        specifier: ^3.99.0
+        version: 3.114.16(@cloudflare/workers-types@4.20260108.0)
+
   packages/client:
     devDependencies:
       tsup:

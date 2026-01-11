@@ -53,6 +53,7 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**/*.ts",
-    "api/tests/**/*"
+    "api/tests/**/*",
+    "**/spikes/**"
   ]
 }
