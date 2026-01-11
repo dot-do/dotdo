@@ -2,6 +2,7 @@
  * $() Client SDK Tests
  *
  * Tests for the Cap'n Web RPC client.
+ * These tests verify that sdk/client.ts correctly re-exports from @dotdo/client.
  *
  * Note: Since capnweb uses its own transport layer (WebSocket/HTTP batch),
  * we test the SDK's API surface and configuration rather than mocking
@@ -11,16 +12,19 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-// Import the implementation under test
+// Import the implementation under test - this now re-exports from @dotdo/client
 import {
   $,
   $Context,
   configure,
   disposeSession,
   disposeAllSessions,
+  createClient,
   type ChainStep,
   type RpcClient,
   type SdkConfig,
+  type DOClient,
+  type ClientConfig,
 } from './client'
 
 // =============================================================================
@@ -253,6 +257,49 @@ describe('$() client SDK', () => {
       // May be undefined or a string
       expect(tag === undefined || typeof tag === 'string').toBe(true)
     })
+  })
+})
+
+// =============================================================================
+// Backwards Compatibility Tests
+// =============================================================================
+
+describe('backwards compatibility', () => {
+  beforeEach(() => {
+    disposeAllSessions()
+  })
+
+  afterEach(() => {
+    disposeAllSessions()
+  })
+
+  it('createClient works as alias for $Context', () => {
+    const client = createClient('https://startups.studio')
+    expect(client).toBeDefined()
+  })
+
+  it('createClient accepts config (ignored)', () => {
+    // The config is ignored in the new implementation but should not throw
+    const client = createClient('https://startups.studio', {
+      timeout: 5000,
+      batching: true,
+    })
+    expect(client).toBeDefined()
+  })
+
+  it('DOClient type is exported', () => {
+    // DOClient is now an alias for RpcClient
+    const client: DOClient<{ foo(): void }> = $Context('https://example.com')
+    expect(client).toBeDefined()
+  })
+
+  it('ClientConfig type is exported', () => {
+    const config: ClientConfig = {
+      timeout: 5000,
+      batchWindow: 10,
+      maxBatchSize: 100,
+    }
+    expect(config.timeout).toBe(5000)
   })
 })
 

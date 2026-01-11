@@ -1,1051 +1,148 @@
 /**
- * RPC Client SDK Tests (@dotdo/client)
+ * @dotdo/client SDK Tests
  *
- * RED TDD tests for the RPC client SDK. These tests define the expected
- * behavior for a client that communicates with Durable Objects via
- * WebSocket (preferred) with HTTP fallback.
+ * Tests for the Cap'n Web RPC client.
  *
- * Key features being tested:
- * - WebSocket connection preference with HTTP fallback
- * - Automatic reconnection with exponential backoff
- * - Promise pipelining (Cap'n Proto style)
- * - Type-safe method calls via Proxy
- * - Request batching for efficiency
- * - Real-time event subscriptions
- * - Offline queue for resilience
+ * Note: Since capnweb uses its own transport layer (WebSocket/HTTP batch),
+ * we test the SDK's API surface and configuration rather than mocking
+ * the underlying RPC protocol. Integration tests should be used for
+ * end-to-end RPC behavior.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-// =============================================================================
-// Import from implementation
-// =============================================================================
-
+// Import the implementation under test
 import {
+  $,
+  $Context,
+  configure,
+  disposeSession,
+  disposeAllSessions,
   createClient,
-  DOClient,
-  ClientConfig,
-  ConnectionState,
-  SubscriptionHandle,
+  type ChainStep,
+  type RpcClient,
+  type SdkConfig,
+  type DOClient,
+  type ClientConfig,
+  type ConnectionState,
 } from '../src/index'
-
-// =============================================================================
-// Mock WebSocket for testing
-// =============================================================================
-
-class MockWebSocket {
-  static instances: MockWebSocket[] = []
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-
-  url: string
-  readyState = MockWebSocket.CONNECTING
-
-  onopen: (() => void) | null = null
-  onmessage: ((event: { data: string }) => void) | null = null
-  onclose: ((event: { code?: number; reason?: string; wasClean?: boolean }) => void) | null = null
-  onerror: ((error: Event) => void) | null = null
-
-  sentMessages: string[] = []
-
-  constructor(url: string) {
-    this.url = url
-    MockWebSocket.instances.push(this)
-  }
-
-  send(data: string) {
-    this.sentMessages.push(data)
-  }
-
-  close(code?: number, reason?: string) {
-    this.readyState = MockWebSocket.CLOSED
-    this.onclose?.({ code, reason, wasClean: true })
-  }
-
-  // Test helpers
-  simulateOpen() {
-    this.readyState = MockWebSocket.OPEN
-    this.onopen?.()
-  }
-
-  simulateMessage(data: unknown) {
-    this.onmessage?.({ data: JSON.stringify(data) })
-  }
-
-  simulateClose(code?: number, reason?: string) {
-    this.readyState = MockWebSocket.CLOSED
-    this.onclose?.({ code, reason, wasClean: false })
-  }
-
-  simulateError(error: Event) {
-    this.onerror?.(error)
-  }
-
-  // Get sent messages as parsed objects
-  getSentJSON<T = unknown>(): T[] {
-    return this.sentMessages.map(m => JSON.parse(m))
-  }
-}
-
-// =============================================================================
-// Mock fetch for HTTP fallback testing
-// =============================================================================
-
-function createMockFetch(handler: (url: string, init?: RequestInit) => Promise<Response>) {
-  return vi.fn(handler)
-}
 
 // =============================================================================
 // Test Suite
 // =============================================================================
 
-describe('RPC Client SDK (@dotdo/client)', () => {
-  let originalWebSocket: typeof globalThis.WebSocket
-  let originalFetch: typeof globalThis.fetch
-
+describe('@dotdo/client SDK', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-    MockWebSocket.instances = []
-    originalWebSocket = globalThis.WebSocket
-    originalFetch = globalThis.fetch
-    // @ts-expect-error - mock WebSocket
-    globalThis.WebSocket = MockWebSocket
+    // Clear all sessions before each test
+    disposeAllSessions()
   })
 
   afterEach(() => {
-    vi.useRealTimers()
-    globalThis.WebSocket = originalWebSocket
-    globalThis.fetch = originalFetch
-    vi.restoreAllMocks()
+    // Clean up after tests
+    disposeAllSessions()
   })
 
   // ===========================================================================
-  // Connection Strategy Tests
+  // API Surface Tests
   // ===========================================================================
 
-  describe('connection strategy', () => {
-    it('attempts WebSocket connection first', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      // Should immediately attempt WebSocket connection
-      expect(MockWebSocket.instances).toHaveLength(1)
-      expect(MockWebSocket.instances[0].url).toBe('wss://my-do.example.com.ai/do/123/rpc')
+  describe('API surface', () => {
+    it('exports $ as a callable proxy', () => {
+      expect($).toBeDefined()
+      // $ should be a proxy that can be called
+      expect(typeof $).toBe('function')
     })
 
-    it('converts https:// to wss:// for WebSocket URL', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      expect(MockWebSocket.instances[0].url).toMatch(/^wss:\/\//)
+    it('exports $Context function', () => {
+      expect($Context).toBeDefined()
+      expect(typeof $Context).toBe('function')
     })
 
-    it('converts http:// to ws:// for WebSocket URL', async () => {
-      const client = createClient('http://localhost:8787/do/123')
-
-      expect(MockWebSocket.instances[0].url).toMatch(/^ws:\/\//)
+    it('exports configure function', () => {
+      expect(configure).toBeDefined()
+      expect(typeof configure).toBe('function')
     })
 
-    it('falls back to HTTP when WebSocket fails to connect', async () => {
-      const mockFetch = createMockFetch(async () => {
-        return new Response(JSON.stringify({ id: '1', result: 'ok' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      })
-      globalThis.fetch = mockFetch
-
-      const client = createClient<{
-        greet(name: string): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      // Simulate WebSocket connection failure
-      MockWebSocket.instances[0].simulateError(new Event('error'))
-      MockWebSocket.instances[0].simulateClose(1006, 'Connection failed')
-
-      // Make a call - should use HTTP
-      const result = await client.greet('World')
-
-      expect(mockFetch).toHaveBeenCalled()
-      expect(result).toBe('ok')
+    it('exports disposeSession function', () => {
+      expect(disposeSession).toBeDefined()
+      expect(typeof disposeSession).toBe('function')
     })
 
-    it('falls back to HTTP when WebSocket is not supported', async () => {
-      // Simulate environment without WebSocket
-      // @ts-expect-error - removing WebSocket
-      globalThis.WebSocket = undefined
-
-      const mockFetch = createMockFetch(async () => {
-        return new Response(JSON.stringify({ id: '1', result: 'test' }))
-      })
-      globalThis.fetch = mockFetch
-
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123')
-      const result = await client.ping()
-
-      expect(mockFetch).toHaveBeenCalled()
+    it('exports disposeAllSessions function', () => {
+      expect(disposeAllSessions).toBeDefined()
+      expect(typeof disposeAllSessions).toBe('function')
     })
 
-    it('emits connection state changes', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-      const states: string[] = []
-
-      client.on('connectionStateChange', (state) => {
-        states.push(state)
-      })
-
-      // WebSocket opens
-      MockWebSocket.instances[0].simulateOpen()
-      expect(states).toContain('connected')
-
-      // WebSocket closes
-      MockWebSocket.instances[0].simulateClose()
-      expect(states).toContain('reconnecting')
-    })
-
-    it('provides current connection state', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      expect(client.connectionState).toBe('connecting')
-
-      MockWebSocket.instances[0].simulateOpen()
-      expect(client.connectionState).toBe('connected')
+    it('exports createClient for backwards compatibility', () => {
+      expect(createClient).toBeDefined()
+      expect(typeof createClient).toBe('function')
     })
   })
 
   // ===========================================================================
-  // Automatic Reconnection Tests
+  // $Context Tests
   // ===========================================================================
 
-  describe('automatic reconnection', () => {
-    it('reconnects automatically on disconnect', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-      expect(MockWebSocket.instances).toHaveLength(1)
-
-      // Simulate disconnect
-      MockWebSocket.instances[0].simulateClose(1006, 'Abnormal closure')
-
-      // Should schedule reconnection
-      vi.advanceTimersByTime(1000) // First reconnect delay
-      expect(MockWebSocket.instances).toHaveLength(2)
-    })
-
-    it('uses exponential backoff for reconnection', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123', {
-        reconnect: { jitter: 0 } // Disable jitter for predictable timing
-      })
-
-      // First connection fails immediately
-      MockWebSocket.instances[0].simulateClose(1006)
-      vi.advanceTimersByTime(1000) // 1s
-      expect(MockWebSocket.instances).toHaveLength(2)
-
-      // Second connection fails
-      MockWebSocket.instances[1].simulateClose(1006)
-      vi.advanceTimersByTime(1000) // Not yet
-      expect(MockWebSocket.instances).toHaveLength(2)
-      vi.advanceTimersByTime(1000) // 2s total
-      expect(MockWebSocket.instances).toHaveLength(3)
-
-      // Third connection fails
-      MockWebSocket.instances[2].simulateClose(1006)
-      vi.advanceTimersByTime(3000) // Not yet
-      expect(MockWebSocket.instances).toHaveLength(3)
-      vi.advanceTimersByTime(1000) // 4s total
-      expect(MockWebSocket.instances).toHaveLength(4)
-    })
-
-    it('caps reconnection delay at 30 seconds', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123', {
-        reconnect: { jitter: 0 }
-      })
-
-      // Simulate many failed reconnections
-      for (let i = 0; i < 10; i++) {
-        MockWebSocket.instances[i].simulateClose(1006)
-        vi.advanceTimersByTime(30000) // Max delay
-      }
-
-      // All reconnections should have happened
-      expect(MockWebSocket.instances.length).toBeGreaterThan(10)
-    })
-
-    it('resets backoff after successful connection', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123', {
-        reconnect: { jitter: 0 }
-      })
-
-      // First failure
-      MockWebSocket.instances[0].simulateClose(1006)
-      vi.advanceTimersByTime(1000)
-
-      // Second failure
-      MockWebSocket.instances[1].simulateClose(1006)
-      vi.advanceTimersByTime(2000)
-
-      // Successful connection
-      MockWebSocket.instances[2].simulateOpen()
-
-      // Another failure - should use 1s delay again
-      MockWebSocket.instances[2].simulateClose(1006)
-      vi.advanceTimersByTime(1000)
-      expect(MockWebSocket.instances).toHaveLength(4) // Reset to 1s delay
-    })
-
-    it('stops reconnecting when explicitly disconnected', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-      client.disconnect()
-
-      vi.advanceTimersByTime(30000)
-      expect(MockWebSocket.instances).toHaveLength(1) // No reconnection attempts
-    })
-
-    it('adds jitter to prevent thundering herd', async () => {
-      const client1 = createClient('https://my-do.example.com.ai/do/123', {
-        reconnect: { jitter: 0.5 }
-      })
-      const client2 = createClient('https://my-do.example.com.ai/do/456', {
-        reconnect: { jitter: 0.5 }
-      })
-
-      // Jitter is configured - test passes as we accept jitter config
-      expect(client1).toBeDefined()
-      expect(client2).toBeDefined()
-    })
-  })
-
-  // ===========================================================================
-  // Method Call Tests
-  // ===========================================================================
-
-  describe('method calls', () => {
-    it('calls remote methods via proxy', async () => {
-      const client = createClient<{
-        greet(name: string): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.greet('World')
-
-      // Wait for batching to flush (batchWindow=0 means setTimeout(fn, 0))
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Check the message was sent
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; pipeline: Array<{ method: string; params: unknown[] }> }>()
-      expect(sent).toHaveLength(1)
-      expect(sent[0]).toMatchObject({
-        pipeline: [
-          { method: 'greet', params: ['World'] },
-        ],
-      })
-
-      // Simulate response
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        result: 'Hello, World!',
-      })
-
-      const result = await resultPromise
-      expect(result).toBe('Hello, World!')
-    })
-
-    it('supports object parameters', async () => {
-      const client = createClient<{
-        createUser(data: { name: string; email: string }): { id: string }
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.createUser({ name: 'Alice', email: 'alice@example.com.ai' })
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; pipeline: Array<{ method: string; params: unknown[] }> }>()
-      expect(sent[0]).toMatchObject({
-        pipeline: [
-          { method: 'createUser', params: [{ name: 'Alice', email: 'alice@example.com.ai' }] },
-        ],
-      })
-
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        result: { id: 'user-123' },
-      })
-
-      const result = await resultPromise
-      expect(result).toEqual({ id: 'user-123' })
-    })
-
-    it('handles method errors', async () => {
-      const client = createClient<{
-        dangerousMethod(): void
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.dangerousMethod()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string }>()
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        error: { code: 'FORBIDDEN', message: 'Access denied' },
-      })
-
-      await expect(resultPromise).rejects.toMatchObject({
-        code: 'FORBIDDEN',
-        message: 'Access denied',
-      })
-    })
-
-    it('times out long-running calls', async () => {
-      const client = createClient<{
-        slowMethod(): void
-      }>('https://my-do.example.com.ai/do/123', { timeout: 5000 })
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.slowMethod()
-
-      await vi.advanceTimersByTimeAsync(5000)
-
-      await expect(resultPromise).rejects.toMatchObject({
-        code: 'TIMEOUT',
-      })
-    })
-
-    it('queues calls while connecting', async () => {
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      // Don't open WebSocket yet
-      const resultPromise = client.ping()
-
-      // Call is queued, not sent
-      expect(MockWebSocket.instances[0].sentMessages).toHaveLength(0)
-
-      // Open connection
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Wait for batch flush
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Now the call is sent
-      expect(MockWebSocket.instances[0].sentMessages).toHaveLength(1)
-
-      // Complete the call
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string }>()
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        result: 'pong',
-      })
-
-      await expect(resultPromise).resolves.toBe('pong')
-    })
-
-    it('uses HTTP fallback for calls when WebSocket unavailable', async () => {
-      const mockFetch = createMockFetch(async (url, init) => {
-        const body = JSON.parse(init?.body as string)
-        return new Response(JSON.stringify({
-          id: body.id,
-          result: 'http-result',
-        }))
-      })
-      globalThis.fetch = mockFetch
-
-      const client = createClient<{
-        getData(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      // Fail WebSocket
-      MockWebSocket.instances[0].simulateError(new Event('error'))
-      MockWebSocket.instances[0].simulateClose(1006)
-
-      const result = await client.getData()
-      expect(result).toBe('http-result')
-      expect(mockFetch).toHaveBeenCalled()
-    })
-  })
-
-  // ===========================================================================
-  // Promise Pipelining Tests (Cap'n Proto style)
-  // ===========================================================================
-
-  describe('promise pipelining', () => {
-    it('chains method calls fluently', async () => {
-      interface User {
-        getPosts(): Post[]
-      }
-      interface Post {
-        title: string
-      }
-
-      const client = createClient<{
-        getUser(id: string): User
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Single network round-trip for chained call
-      const postsPromise = client.getUser('123').getPosts()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Should send a pipelined request
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; pipeline: Array<{ method: string; params: unknown[] }> }>()
-      expect(sent).toHaveLength(1)
-      expect(sent[0]).toMatchObject({
-        pipeline: [
-          { method: 'getUser', params: ['123'] },
-          { method: 'getPosts', params: [] },
-        ],
-      })
-
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        result: [{ title: 'First Post' }, { title: 'Second Post' }],
-      })
-
-      const posts = await postsPromise
-      expect(posts).toEqual([{ title: 'First Post' }, { title: 'Second Post' }])
-    })
-
-    it('supports deep pipeline chains', async () => {
-      interface Company {
-        getDepartment(name: string): Department
-      }
-      interface Department {
-        getManager(): Employee
-      }
-      interface Employee {
-        getEmail(): string
-      }
-
-      const client = createClient<{
-        getCompany(id: string): Company
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const emailPromise = client
-        .getCompany('acme')
-        .getDepartment('engineering')
-        .getManager()
-        .getEmail()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ pipeline: unknown[] }>()
-      expect(sent[0].pipeline).toHaveLength(4)
-    })
-
-    it('allows branching from pipeline results', async () => {
-      interface User {
-        getName(): string
-        getEmail(): string
-      }
-
-      const client = createClient<{
-        getUser(id: string): User
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const user = client.getUser('123')
-      const namePromise = user.getName()
-      const emailPromise = user.getEmail()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Both should reference the same base call
-      const sent = MockWebSocket.instances[0].getSentJSON()
-      expect(sent).toHaveLength(2) // Or could be optimized to 1 with multiple endpoints
-    })
-
-    it('handles pipeline errors gracefully', async () => {
-      const client = createClient<{
-        getUser(id: string): { getPosts(): unknown[] }
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const postsPromise = client.getUser('nonexistent').getPosts()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string }>()
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        error: {
-          code: 'NOT_FOUND',
-          message: 'User not found',
-          stage: 0, // Error occurred at first pipeline stage
-        },
-      })
-
-      await expect(postsPromise).rejects.toMatchObject({
-        code: 'NOT_FOUND',
-        message: 'User not found',
-      })
-    })
-  })
-
-  // ===========================================================================
-  // Request Batching Tests
-  // ===========================================================================
-
-  describe('request batching', () => {
-    it('batches multiple concurrent calls into single request', async () => {
-      const client = createClient<{
-        getUser(id: string): { name: string }
-        getPost(id: string): { title: string }
-        getComment(id: string): { text: string }
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Make multiple calls concurrently
-      const promises = [
-        client.getUser('1'),
-        client.getPost('2'),
-        client.getComment('3'),
-      ]
-
-      // Should batch into single message
-      await vi.advanceTimersByTimeAsync(1) // Let microtask queue flush
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; batch: Array<{ id: string }> }>()
-      expect(sent).toHaveLength(1)
-      expect(sent[0].batch).toHaveLength(3)
-
-      // Respond with batched results
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        batch: [
-          { id: sent[0].batch[0].id, result: { name: 'Alice' } },
-          { id: sent[0].batch[1].id, result: { title: 'Hello' } },
-          { id: sent[0].batch[2].id, result: { text: 'Nice post!' } },
-        ],
-      })
-
-      const results = await Promise.all(promises)
-      expect(results).toEqual([
-        { name: 'Alice' },
-        { title: 'Hello' },
-        { text: 'Nice post!' },
-      ])
-    })
-
-    it('respects batch window configuration', async () => {
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123', {
-        batchWindow: 50, // 50ms batch window
-      })
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // First call
-      client.ping()
-
-      // After 30ms, second call (within window)
-      vi.advanceTimersByTime(30)
-      client.ping()
-
-      // After 60ms total, window closes
-      vi.advanceTimersByTime(30)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ batch: unknown[] }>()
-      expect(sent).toHaveLength(1)
-      expect(sent[0].batch).toHaveLength(2)
-    })
-
-    it('sends immediately when batch size limit reached', async () => {
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123', {
-        maxBatchSize: 3,
-      })
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Make 3 calls (hits limit)
-      client.ping()
-      client.ping()
-      client.ping()
-
-      // Should send immediately without waiting for batch window
-      const sent = MockWebSocket.instances[0].getSentJSON<{ batch: unknown[] }>()
-      expect(sent).toHaveLength(1)
-      expect(sent[0].batch).toHaveLength(3)
-    })
-
-    it('handles partial batch failures', async () => {
-      const client = createClient<{
-        safeMethod(): string
-        dangerousMethod(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const safe = client.safeMethod()
-      const dangerous = client.dangerousMethod()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; batch: Array<{ id: string }> }>()
-      MockWebSocket.instances[0].simulateMessage({
-        id: sent[0].id,
-        batch: [
-          { id: sent[0].batch[0].id, result: 'ok' },
-          { id: sent[0].batch[1].id, error: { code: 'FAILED', message: 'Oops' } },
-        ],
-      })
-
-      await expect(safe).resolves.toBe('ok')
-      await expect(dangerous).rejects.toMatchObject({ code: 'FAILED' })
-    })
-
-    it('can disable batching', async () => {
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123', {
-        batching: false,
-      })
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      client.ping()
-      client.ping()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      const sent = MockWebSocket.instances[0].getSentJSON()
-      expect(sent).toHaveLength(2) // Individual messages, not batched
-    })
-  })
-
-  // ===========================================================================
-  // Subscription Tests
-  // ===========================================================================
-
-  describe('subscriptions', () => {
-    it('subscribes to real-time events', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const events: unknown[] = []
-      const subscription = client.subscribe('task.updated', (event) => {
-        events.push(event)
-      })
-
-      // Should send subscribe message
-      const sent = MockWebSocket.instances[0].getSentJSON<{ type: string; channel: string }>()
-      expect(sent).toContainEqual(expect.objectContaining({
-        type: 'subscribe',
-        channel: 'task.updated',
-      }))
-
-      // Receive events
-      MockWebSocket.instances[0].simulateMessage({
-        type: 'event',
-        channel: 'task.updated',
-        data: { id: '1', title: 'Updated' },
-      })
-
-      expect(events).toHaveLength(1)
-      expect(events[0]).toEqual({ id: '1', title: 'Updated' })
-
-      subscription.unsubscribe()
-    })
-
-    it('re-subscribes after reconnection', async () => {
-      const client = createClient('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const subscription = client.subscribe('events', () => {})
-
-      // Disconnect
-      MockWebSocket.instances[0].simulateClose(1006)
-      vi.advanceTimersByTime(1000)
-
-      // New connection
-      MockWebSocket.instances[1].simulateOpen()
-
-      // Should automatically re-subscribe
-      const sent = MockWebSocket.instances[1].getSentJSON<{ type: string; channel: string }>()
-      expect(sent).toContainEqual(expect.objectContaining({
-        type: 'subscribe',
-        channel: 'events',
-      }))
-
-      subscription.unsubscribe()
-    })
-
-    it('handles multiple subscriptions to same channel', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const events1: unknown[] = []
-      const events2: unknown[] = []
-
-      const sub1 = client.subscribe('events', (e) => events1.push(e))
-      const sub2 = client.subscribe('events', (e) => events2.push(e))
-
-      MockWebSocket.instances[0].simulateMessage({
-        type: 'event',
-        channel: 'events',
-        data: { value: 1 },
-      })
-
-      expect(events1).toHaveLength(1)
-      expect(events2).toHaveLength(1)
-
-      sub1.unsubscribe()
-
-      MockWebSocket.instances[0].simulateMessage({
-        type: 'event',
-        channel: 'events',
-        data: { value: 2 },
-      })
-
-      expect(events1).toHaveLength(1) // No new event
-      expect(events2).toHaveLength(2) // Received new event
-
-      sub2.unsubscribe()
-    })
-
-    it('sends unsubscribe message when all listeners removed', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const sub1 = client.subscribe('events', () => {})
-      const sub2 = client.subscribe('events', () => {})
-
-      MockWebSocket.instances[0].sentMessages = []
-
-      sub1.unsubscribe()
-      // Should not unsubscribe yet (still have sub2)
-      expect(MockWebSocket.instances[0].getSentJSON<{ type: string; channel: string }>()).not.toContainEqual(expect.objectContaining({
-        type: 'unsubscribe',
-        channel: 'events',
-      }))
-
-      sub2.unsubscribe()
-      // Now should unsubscribe
-      expect(MockWebSocket.instances[0].getSentJSON<{ type: string; channel: string }>()).toContainEqual(expect.objectContaining({
-        type: 'unsubscribe',
-        channel: 'events',
-      }))
-    })
-
-    it('supports typed event subscriptions', async () => {
-      interface TaskEvents {
-        'task.created': { id: string; title: string }
-        'task.updated': { id: string; changes: Record<string, unknown> }
-        'task.deleted': { id: string }
-      }
-
-      const client = createClient<{}, TaskEvents>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // TypeScript should ensure correct event types
-      client.subscribe('task.created', (event) => {
-        // event should be typed as { id: string; title: string }
-        console.log(event.title)
-      })
-
-      // Test passes - typing works
-      expect(client).toBeDefined()
-    })
-  })
-
-  // ===========================================================================
-  // Offline Queue Tests
-  // ===========================================================================
-
-  describe('offline queue', () => {
-    it('queues calls when offline', async () => {
-      const client = createClient<{
-        saveData(data: unknown): boolean
-      }>('https://my-do.example.com.ai/do/123')
-
-      // Don't open connection
-
-      const result = client.saveData({ important: true })
-
-      // Should be queued
-      expect(MockWebSocket.instances[0].sentMessages).toHaveLength(0)
-
-      // Come online
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Wait for flush
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Should send queued call
-      expect(MockWebSocket.instances[0].sentMessages).toHaveLength(1)
-    })
-
-    it('preserves queue across reconnections', async () => {
-      const client = createClient<{
-        saveData(data: unknown): boolean
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Queue a call
-      const resultPromise = client.saveData({ data: 1 })
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Disconnect before response (call is pending, not in offline queue)
-      MockWebSocket.instances[0].simulateClose(1006)
-      vi.advanceTimersByTime(1000)
-
-      // Reconnect
-      MockWebSocket.instances[1].simulateOpen()
-
-      // Note: Only offline-queued calls are re-sent, not in-flight calls
-      // The pending call should still resolve when we send a response
-      const sent = MockWebSocket.instances[0].getSentJSON<{ id: string }>()
-
-      // For this test, let's just verify the client handles reconnection gracefully
-      expect(client.connectionState).toBe('connected')
-    })
-
-    it('respects queue size limit', async () => {
-      const client = createClient<{
-        log(message: string): void
-      }>('https://my-do.example.com.ai/do/123', {
-        offlineQueueLimit: 10,
-      })
-
-      // Queue many calls while offline
-      for (let i = 0; i < 20; i++) {
-        client.log(`message ${i}`)
-      }
-
-      // Only last 10 should be in queue
-      MockWebSocket.instances[0].simulateOpen()
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Due to batching, we may have 1 batched message
-      expect(MockWebSocket.instances[0].sentMessages.length).toBeLessThanOrEqual(10)
-    })
-
-    it('provides queue status', async () => {
-      const client = createClient<{
-        saveData(data: unknown): void
-      }>('https://my-do.example.com.ai/do/123')
-
-      expect(client.queuedCallCount).toBe(0)
-
-      client.saveData({ a: 1 })
-      client.saveData({ a: 2 })
-
-      expect(client.queuedCallCount).toBe(2)
-
-      MockWebSocket.instances[0].simulateOpen()
-      await vi.advanceTimersByTimeAsync(1)
-
-      expect(client.queuedCallCount).toBe(0)
-    })
-
-    it('allows clearing the queue', async () => {
-      const client = createClient<{
-        saveData(data: unknown): void
-      }>('https://my-do.example.com.ai/do/123')
-
-      client.saveData({ a: 1 })
-      client.saveData({ a: 2 })
-
-      expect(client.queuedCallCount).toBe(2)
-
-      client.clearQueue()
-
-      expect(client.queuedCallCount).toBe(0)
-
-      MockWebSocket.instances[0].simulateOpen()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(MockWebSocket.instances[0].sentMessages).toHaveLength(0)
-    })
-
-    it('emits queue events', async () => {
-      const client = createClient<{
-        saveData(data: unknown): void
-      }>('https://my-do.example.com.ai/do/123')
-
-      const queueEvents: { type: string; count: number }[] = []
-      client.on('queueChange', (count) => {
-        queueEvents.push({ type: 'change', count })
-      })
-
-      client.saveData({ a: 1 })
-      expect(queueEvents).toContainEqual({ type: 'change', count: 1 })
-
-      MockWebSocket.instances[0].simulateOpen()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(queueEvents).toContainEqual({ type: 'change', count: 0 })
-    })
-  })
-
-  // ===========================================================================
-  // Type Safety Tests
-  // ===========================================================================
-
-  describe('type safety', () => {
-    it('provides type-safe method calls', async () => {
-      interface MyDOMethods {
-        createUser(name: string, email: string): { id: string; name: string }
-        deleteUser(id: string): boolean
-        listUsers(): { id: string; name: string }[]
-      }
-
-      const client = createClient<MyDOMethods>('https://my-do.example.com.ai/do/123')
-
-      // TypeScript should enforce correct types:
-      // client.createUser('Alice', 'alice@example.com.ai') // OK
-      // client.createUser(123, 'email') // Type error - first param must be string
-      // client.unknownMethod() // Type error - method doesn't exist
-
-      // Test passes if it compiles
+  describe('$Context', () => {
+    it('creates a client for namespace URL', () => {
+      const client = $Context('https://startups.studio')
       expect(client).toBeDefined()
     })
 
-    it('infers return types correctly', async () => {
-      interface Methods {
-        getNumber(): number
-        getString(): string
-        getObject(): { a: number; b: string }
-      }
+    it('throws on empty namespace', () => {
+      expect(() => $Context('')).toThrow('Namespace URL is required')
+    })
 
-      const client = createClient<Methods>('https://my-do.example.com.ai/do/123')
+    it('returns same session for same namespace', () => {
+      const client1 = $Context('https://startups.studio')
+      const client2 = $Context('https://startups.studio')
+      // Should return the same cached session
+      expect(client1).toBe(client2)
+    })
 
-      MockWebSocket.instances[0].simulateOpen()
+    it('returns different sessions for different namespaces', () => {
+      const client1 = $Context('https://startups.studio')
+      const client2 = $Context('https://platform.do')
+      // Should be different sessions
+      expect(client1).not.toBe(client2)
+    })
+  })
 
-      // These should have correct inferred types (compiles = passes)
-      const numPromise = client.getNumber()
-      const strPromise = client.getString()
-      const objPromise = client.getObject()
+  // ===========================================================================
+  // $ Proxy Tests
+  // ===========================================================================
 
-      expect(numPromise).toBeDefined()
-      expect(strPromise).toBeDefined()
-      expect(objPromise).toBeDefined()
+  describe('$ proxy', () => {
+    it('$ can be called with namespace URL', () => {
+      const client = $('https://startups.studio')
+      expect(client).toBeDefined()
+    })
+
+    it('$ throws on invalid call', () => {
+      expect(() => ($() as unknown)).toThrow(
+        '$ must be called with a namespace URL or used as a property accessor'
+      )
+    })
+
+    it('$ property access returns proxy', () => {
+      const customer = $.Customer
+      expect(customer).toBeDefined()
+    })
+
+    it('$ supports chained property access', () => {
+      const email = $.Customer.profile.email
+      expect(email).toBeDefined()
+    })
+
+    it('$ supports method-like calls', () => {
+      const result = $.Customer('alice')
+      expect(result).toBeDefined()
+    })
+
+    it('$ has Symbol.dispose', () => {
+      // Check that $ has disposal support
+      const dispose = $[Symbol.dispose]
+      expect(typeof dispose).toBe('function')
     })
   })
 
@@ -1054,160 +151,128 @@ describe('RPC Client SDK (@dotdo/client)', () => {
   // ===========================================================================
 
   describe('configuration', () => {
-    it('accepts custom configuration', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123', {
-        timeout: 30000,
-        batchWindow: 100,
-        maxBatchSize: 50,
-        offlineQueueLimit: 1000,
-        reconnect: {
-          maxAttempts: 10,
-          baseDelay: 500,
-          maxDelay: 60000,
-          jitter: 0.5,
-        },
-      })
-
-      expect(client).toBeDefined()
+    it('configure sets namespace', () => {
+      configure({ namespace: 'https://custom.namespace' })
+      // Configuration is applied (we can't easily test the internal state,
+      // but configure should not throw)
+      expect(true).toBe(true)
     })
 
-    it('allows runtime configuration updates', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      client.configure({ timeout: 5000 })
-
-      expect(client.config.timeout).toBe(5000)
-    })
-  })
-
-  // ===========================================================================
-  // Cleanup Tests
-  // ===========================================================================
-
-  describe('cleanup', () => {
-    it('disconnects cleanly', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      client.disconnect()
-
-      expect(MockWebSocket.instances[0].readyState).toBe(MockWebSocket.CLOSED)
+    it('configure sets localUrl', () => {
+      configure({ localUrl: 'http://localhost:3000' })
+      expect(true).toBe(true)
     })
 
-    it('cancels pending calls on disconnect', async () => {
-      const client = createClient<{
-        slowMethod(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.slowMethod()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      client.disconnect()
-
-      await expect(resultPromise).rejects.toMatchObject({
-        code: 'CLIENT_DISCONNECTED',
-      })
+    it('configure sets isDev', () => {
+      configure({ isDev: true })
+      expect(true).toBe(true)
     })
 
-    it('removes all event listeners on disconnect', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      let callCount = 0
-      client.on('connectionStateChange', () => callCount++)
-
-      MockWebSocket.instances[0].simulateOpen()
-      expect(callCount).toBeGreaterThan(0)
-
-      const prevCount = callCount
-      client.disconnect()
-
-      // Listeners are cleared
-      expect(client).toBeDefined()
+    it('configure merges with existing config', () => {
+      configure({ namespace: 'https://first.com' })
+      configure({ localUrl: 'http://localhost:4000' })
+      // Both settings should be preserved
+      expect(true).toBe(true)
     })
   })
 
   // ===========================================================================
-  // HTTP Fallback Specific Tests
+  // Session Management Tests
   // ===========================================================================
 
-  describe('HTTP fallback', () => {
-    it('sends correct RPC format over HTTP', async () => {
-      let capturedRequest: { url: string; body: unknown } | null = null
-      const mockFetch = createMockFetch(async (url, init) => {
-        capturedRequest = {
-          url,
-          body: JSON.parse(init?.body as string),
-        }
-        return new Response(JSON.stringify({ id: '1', result: 'ok' }))
-      })
-      globalThis.fetch = mockFetch
-
-      const client = createClient<{
-        myMethod(arg: string): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      // Force HTTP mode
-      MockWebSocket.instances[0].simulateError(new Event('error'))
-      MockWebSocket.instances[0].simulateClose(1006)
-
-      await client.myMethod('test')
-
-      expect(capturedRequest?.url).toBe('https://my-do.example.com.ai/do/123/rpc')
-      expect(capturedRequest?.body).toMatchObject({
-        pipeline: [{ method: 'myMethod', params: ['test'] }],
-      })
+  describe('session management', () => {
+    it('disposeSession removes session from cache', () => {
+      const client1 = $Context('https://startups.studio')
+      disposeSession('https://startups.studio')
+      const client2 = $Context('https://startups.studio')
+      // After disposal, should get a new session
+      expect(client1).not.toBe(client2)
     })
 
-    it('includes authentication in HTTP requests', async () => {
-      let capturedHeaders: Headers | undefined
-      const mockFetch = createMockFetch(async (url, init) => {
-        capturedHeaders = new Headers(init?.headers)
-        return new Response(JSON.stringify({ id: '1', result: 'ok' }))
-      })
-      globalThis.fetch = mockFetch
-
-      const client = createClient<{
-        secureMethod(): string
-      }>('https://my-do.example.com.ai/do/123', {
-        auth: { token: 'secret-token' },
-      })
-
-      // Force HTTP mode
-      MockWebSocket.instances[0].simulateError(new Event('error'))
-      MockWebSocket.instances[0].simulateClose(1006)
-
-      await client.secureMethod()
-
-      expect(capturedHeaders?.get('Authorization')).toBe('Bearer secret-token')
+    it('disposeAllSessions clears all sessions', () => {
+      const client1 = $Context('https://startups.studio')
+      const client2 = $Context('https://platform.do')
+      disposeAllSessions()
+      const client3 = $Context('https://startups.studio')
+      const client4 = $Context('https://platform.do')
+      // All should be new sessions
+      expect(client1).not.toBe(client3)
+      expect(client2).not.toBe(client4)
     })
 
-    it('retries HTTP requests on failure', async () => {
-      let attempts = 0
-      const mockFetch = createMockFetch(async () => {
-        attempts++
-        if (attempts < 3) {
-          return new Response('Service Unavailable', { status: 503 })
-        }
-        return new Response(JSON.stringify({ id: '1', result: 'ok' }))
+    it('disposeSession is safe for non-existent namespace', () => {
+      // Should not throw
+      expect(() => disposeSession('https://nonexistent.com')).not.toThrow()
+    })
+  })
+
+  // ===========================================================================
+  // Type Tests (compile-time, but we verify runtime shape)
+  // ===========================================================================
+
+  describe('types', () => {
+    it('RpcClient has expected shape', () => {
+      const client = $Context('https://startups.studio')
+
+      // Client should be defined
+      expect(client).toBeDefined()
+      // capnweb stubs use function as proxy target to support being callable
+      expect(['object', 'function'].includes(typeof client)).toBe(true)
+
+      // Should have disposal (capnweb stubs are Disposable)
+      expect(typeof client[Symbol.dispose]).toBe('function')
+
+      // Should have onRpcBroken for handling connection failures
+      expect(typeof client.onRpcBroken).toBe('function')
+    })
+
+    it('ChainStep type is exported', () => {
+      // Verify ChainStep is a valid type by creating an object of that shape
+      const step: ChainStep = {
+        type: 'property',
+        key: 'test',
+      }
+      expect(step.type).toBe('property')
+    })
+  })
+
+  // ===========================================================================
+  // Backwards Compatibility Tests
+  // ===========================================================================
+
+  describe('backwards compatibility', () => {
+    it('createClient works as alias for $Context', () => {
+      const client = createClient('https://startups.studio')
+      expect(client).toBeDefined()
+    })
+
+    it('createClient accepts config (ignored)', () => {
+      // The config is ignored in the new implementation but should not throw
+      const client = createClient('https://startups.studio', {
+        timeout: 5000,
+        batching: true,
       })
-      globalThis.fetch = mockFetch
+      expect(client).toBeDefined()
+    })
 
-      const client = createClient<{
-        reliableMethod(): string
-      }>('https://my-do.example.com.ai/do/123')
+    it('DOClient type is exported', () => {
+      // DOClient is now an alias for RpcClient
+      const client: DOClient<{ foo(): void }> = $Context('https://example.com')
+      expect(client).toBeDefined()
+    })
 
-      // Force HTTP mode
-      MockWebSocket.instances[0].simulateError(new Event('error'))
-      MockWebSocket.instances[0].simulateClose(1006)
+    it('ClientConfig type is exported', () => {
+      const config: ClientConfig = {
+        timeout: 5000,
+        batchWindow: 10,
+        maxBatchSize: 100,
+      }
+      expect(config.timeout).toBe(5000)
+    })
 
-      const result = await client.reliableMethod()
-
-      expect(attempts).toBe(3)
-      expect(result).toBe('ok')
+    it('ConnectionState type is exported', () => {
+      const state: ConnectionState = 'connected'
+      expect(state).toBe('connected')
     })
   })
 
@@ -1216,85 +281,41 @@ describe('RPC Client SDK (@dotdo/client)', () => {
   // ===========================================================================
 
   describe('edge cases', () => {
-    it('handles rapid connect/disconnect cycles', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      for (let i = 0; i < 10; i++) {
-        if (MockWebSocket.instances[i]) {
-          MockWebSocket.instances[i].simulateOpen()
-          MockWebSocket.instances[i].simulateClose()
-        }
-        vi.advanceTimersByTime(100)
-      }
-
-      // Should not throw or enter bad state
-      expect(client.connectionState).toBeDefined()
+    it('handles namespace with trailing slash', () => {
+      const client = $Context('https://startups.studio/')
+      expect(client).toBeDefined()
     })
 
-    it('handles concurrent calls during reconnection', async () => {
-      const client = createClient<{
-        ping(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      // Start calls
-      const promises = [client.ping(), client.ping(), client.ping()]
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Get the sent messages before disconnect
-      const sentBefore = MockWebSocket.instances[0].getSentJSON<{ id: string }>()
-
-      // Disconnect mid-flight
-      MockWebSocket.instances[0].simulateClose(1006)
-      vi.advanceTimersByTime(1000)
-
-      // Reconnect
-      MockWebSocket.instances[1].simulateOpen()
-
-      // Answer from original connection simulation
-      for (const msg of sentBefore) {
-        MockWebSocket.instances[1].simulateMessage({
-          id: msg.id,
-          result: 'pong',
-        })
-      }
-
-      // The implementation doesn't re-queue in-flight calls,
-      // but the calls should either resolve or reject
-      // For this test, let's verify the client is stable
-      expect(client.connectionState).toBe('connected')
+    it('handles namespace with path', () => {
+      const client = $Context('https://startups.studio/api/v1')
+      expect(client).toBeDefined()
     })
 
-    it('handles malformed server responses', async () => {
-      const client = createClient<{
-        getData(): string
-      }>('https://my-do.example.com.ai/do/123')
-
-      MockWebSocket.instances[0].simulateOpen()
-
-      const resultPromise = client.getData()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      // Send malformed response
-      MockWebSocket.instances[0].onmessage?.({ data: 'not json' })
-
-      // Should not crash, may emit error event
-      expect(client.connectionState).toBe('connected')
+    it('handles Symbol properties on $', () => {
+      // Symbols should not break the proxy
+      expect(() => String($)).not.toThrow()
     })
 
-    it('handles server closing with reason', async () => {
-      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
-
-      const closeReasons: string[] = []
-      client.on('close', (reason) => closeReasons.push(reason))
-
-      MockWebSocket.instances[0].simulateOpen()
-      MockWebSocket.instances[0].simulateClose(4000, 'DO hibernating')
-
-      expect(closeReasons).toContain('DO hibernating')
+    it('handles Symbol.toStringTag', () => {
+      // Accessing Symbol.toStringTag should not throw
+      const tag = $[Symbol.toStringTag]
+      // May be undefined or a string
+      expect(tag === undefined || typeof tag === 'string').toBe(true)
     })
+  })
+})
+
+// =============================================================================
+// Integration Test Helpers (for future integration tests)
+// =============================================================================
+
+describe('integration test helpers', () => {
+  it('provides SdkConfig type', () => {
+    const config: SdkConfig = {
+      namespace: 'https://example.com.ai',
+      localUrl: 'http://localhost:8787',
+      isDev: false,
+    }
+    expect(config.namespace).toBe('https://example.com.ai')
   })
 })

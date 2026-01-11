@@ -4,6 +4,7 @@
  * Cap'n Web RPC client with WebSocket-first + HTTP batch fallback.
  * Provides automatic promise pipelining for optimal performance.
  *
+ * @deprecated Import from '@dotdo/client' instead
  * @module sdk
  */
 
@@ -15,10 +16,15 @@ export {
   // Session management
   disposeSession,
   disposeAllSessions,
+  // Legacy exports for backwards compatibility
+  createClient,
   // Types
   type ChainStep, // @deprecated - kept for backwards compatibility
   type RpcError,
   type RpcPromise,
   type RpcClient,
   type SdkConfig,
-} from './client.js'
+  type DOClient,
+  type ClientConfig,
+  type ConnectionState,
+} from '@dotdo/client'
