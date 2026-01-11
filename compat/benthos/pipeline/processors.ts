@@ -159,7 +159,8 @@ export class MappingProcessor implements Processor {
 
     // After evaluation, get the final state from the message
     // The interpreter modifies the message directly for assignments
-    const currentData = msg.root
+    // Use jsonSafe() to handle non-JSON content gracefully
+    const currentData = msg.jsonSafe() ?? msg.content
     const currentMetadata = msg.metadata.toObject()
 
     // If the result is not an assignment (just an expression), use it as root
