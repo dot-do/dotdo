@@ -42,11 +42,22 @@ export interface MetaNode extends BaseNode {
   type: 'Meta'
 }
 
+// Deleted marker node (for removing fields in mappings)
+export interface DeletedNode extends BaseNode {
+  type: 'Deleted'
+}
+
+// Nothing marker node (for null/absent values)
+export interface NothingNode extends BaseNode {
+  type: 'Nothing'
+}
+
 // Binary operators
 export type BinaryOperator =
   | '+' | '-' | '*' | '/' | '%'        // Arithmetic
   | '==' | '!=' | '<' | '>' | '<=' | '>='  // Comparison
   | '&&' | '||'                        // Logical
+  | 'in'                               // Membership
 
 export interface BinaryOpNode extends BaseNode {
   type: 'BinaryOp'
@@ -150,6 +161,12 @@ export interface AssignNode extends BaseNode {
   value: ASTNode
 }
 
+// Sequence node (multiple statements separated by ; or newline)
+export interface SequenceNode extends BaseNode {
+  type: 'Sequence'
+  statements: ASTNode[]
+}
+
 // Union type of all AST nodes
 export type ASTNode =
   | LiteralNode
@@ -157,6 +174,8 @@ export type ASTNode =
   | RootNode
   | ThisNode
   | MetaNode
+  | DeletedNode
+  | NothingNode
   | BinaryOpNode
   | UnaryOpNode
   | MemberAccessNode
@@ -170,6 +189,7 @@ export type ASTNode =
   | PipeNode
   | ArrowNode
   | AssignNode
+  | SequenceNode
 
 // Type guards
 export function isLiteralNode(node: ASTNode): node is LiteralNode {
@@ -190,6 +210,14 @@ export function isThisNode(node: ASTNode): node is ThisNode {
 
 export function isMetaNode(node: ASTNode): node is MetaNode {
   return node.type === 'Meta'
+}
+
+export function isDeletedNode(node: ASTNode): node is DeletedNode {
+  return node.type === 'Deleted'
+}
+
+export function isNothingNode(node: ASTNode): node is NothingNode {
+  return node.type === 'Nothing'
 }
 
 export function isBinaryOpNode(node: ASTNode): node is BinaryOpNode {
@@ -242,4 +270,8 @@ export function isArrowNode(node: ASTNode): node is ArrowNode {
 
 export function isAssignNode(node: ASTNode): node is AssignNode {
   return node.type === 'Assign'
+}
+
+export function isSequenceNode(node: ASTNode): node is SequenceNode {
+  return node.type === 'Sequence'
 }

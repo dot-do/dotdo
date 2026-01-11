@@ -14,6 +14,8 @@ import {
   RootNode,
   ThisNode,
   MetaNode,
+  DeletedNode,
+  NothingNode,
   BinaryOpNode,
   UnaryOpNode,
   MemberAccessNode,
@@ -26,6 +28,7 @@ import {
   PipeNode,
   ArrowNode,
   AssignNode,
+  SequenceNode,
   BinaryOperator,
   UnaryOperator,
   LiteralKind
@@ -117,6 +120,26 @@ export class Parser {
     return false
   }
 
+  /**
+   * Check if current token is a keyword that can be used as an identifier
+   * (for property access like .deleted, .nothing, etc.)
+   */
+  private isKeywordAsIdentifier(): boolean {
+    const type = this.peek().type
+    return type === TokenType.DELETED ||
+           type === TokenType.NOTHING ||
+           type === TokenType.ERROR ||
+           type === TokenType.ROOT ||
+           type === TokenType.THIS ||
+           type === TokenType.META ||
+           type === TokenType.IF ||
+           type === TokenType.ELSE ||
+           type === TokenType.MATCH ||
+           type === TokenType.LET ||
+           type === TokenType.MAP ||
+           type === TokenType.IN
+  }
+
   private consume(type: TokenType, message: string): Token {
     if (this.check(type)) {
       return this.advance()
@@ -131,7 +154,8 @@ export class Parser {
   }
 
   /**
-   * Parse the source and return an AST node
+   * Parse the source and return an AST node.
+   * Handles multiple statements separated by semicolons.
    */
   parse(): ASTNode {
     // Handle empty input
@@ -145,7 +169,20 @@ export class Parser {
       } as LiteralNode
     }
 
-    const ast = this.parseExpression()
+    const statements: ASTNode[] = []
+    const startToken = this.peek()
+
+    // Parse first statement
+    statements.push(this.parseStatement())
+
+    // Parse additional statements separated by semicolons
+    while (this.match(TokenType.SEMICOLON)) {
+      this.advance() // consume ;
+      // Don't require a statement after trailing semicolon
+      if (!this.check(TokenType.EOF)) {
+        statements.push(this.parseStatement())
+      }
+    }
 
     // Ensure we consumed all tokens (except EOF)
     if (!this.check(TokenType.EOF)) {
@@ -157,7 +194,25 @@ export class Parser {
       )
     }
 
-    return ast
+    // If there's only one statement, return it directly
+    if (statements.length === 1) {
+      return statements[0]
+    }
+
+    // Otherwise, return a Sequence node
+    return {
+      type: 'Sequence',
+      statements,
+      line: startToken.line,
+      column: startToken.column
+    } as SequenceNode
+  }
+
+  /**
+   * Parse a single statement (expression or assignment)
+   */
+  private parseStatement(): ASTNode {
+    return this.parseExpression()
   }
 
   /**
@@ -168,99 +223,77 @@ export class Parser {
   }
 
   /**
-   * Parse assignment: identifier = expression or root = expression
+   * Parse assignment: target = expression
+   * Supports: root = expr, root.field = expr, identifier = expr, meta("key") = expr
    */
   private parseAssignment(): ASTNode {
-    // Look ahead to check if this is an assignment
-    // Assignment requires: (IDENTIFIER | ROOT) = expression
-    // But we need to distinguish from comparison ==
+    // Parse the left side first
+    const left = this.parsePipe()
 
-    // Handle root = <expr>
-    if (this.check(TokenType.ROOT)) {
-      const next = this.peekNext()
-      if (next.type === TokenType.ASSIGN) {
-        const rootToken = this.advance() // consume root
-        this.advance() // consume =
-        const value = this.parsePipe()
-        return {
-          type: 'Assign',
-          field: 'root',
-          value,
-          line: rootToken.line,
-          column: rootToken.column
-        } as AssignNode
+    // Check if this is an assignment
+    if (this.check(TokenType.ASSIGN)) {
+      const assignToken = this.advance() // consume =
+      const value = this.parsePipe()
+
+      // Convert the left side to a field path for AssignNode
+      const field = this.astToFieldPath(left)
+      if (field === null) {
+        throw new ParseError(
+          'Invalid assignment target',
+          assignToken.line,
+          assignToken.column
+        )
       }
-      // Also handle root.field = <expr>
-      if (next.type === TokenType.DOT) {
-        const rootToken = this.advance() // consume root
-        this.advance() // consume .
-        const fieldPath = this.parseFieldPath()
-        if (this.check(TokenType.ASSIGN)) {
-          this.advance() // consume =
-          const value = this.parsePipe()
-          return {
-            type: 'Assign',
-            field: `root.${fieldPath}`,
-            value,
-            line: rootToken.line,
-            column: rootToken.column
-          } as AssignNode
-        }
-      }
+
+      return {
+        type: 'Assign',
+        field,
+        value,
+        line: left.line,
+        column: left.column
+      } as AssignNode
     }
 
-    // Handle identifier = <expr>
-    if (this.check(TokenType.IDENTIFIER)) {
-      const next = this.peekNext()
-      if (next.type === TokenType.ASSIGN) {
-        const idToken = this.advance() // consume identifier
-        this.advance() // consume =
-        const value = this.parsePipe()
-        return {
-          type: 'Assign',
-          field: idToken.value,
-          value,
-          line: idToken.line,
-          column: idToken.column
-        } as AssignNode
-      }
-    }
-
-    // Handle meta() = <expr>
-    if (this.check(TokenType.META)) {
-      const metaToken = this.advance() // consume meta
-      this.consume(TokenType.LPAREN, 'Expected ( after meta')
-      const keyToken = this.consume(TokenType.STRING, 'Expected string key in meta()')
-      this.consume(TokenType.RPAREN, 'Expected ) after meta key')
-      if (this.check(TokenType.ASSIGN)) {
-        this.advance() // consume =
-        const value = this.parsePipe()
-        return {
-          type: 'Assign',
-          field: `meta("${keyToken.value}")`,
-          value,
-          line: metaToken.line,
-          column: metaToken.column
-        } as AssignNode
-      }
-    }
-
-    return this.parsePipe()
+    return left
   }
 
   /**
-   * Parse a field path like field.subfield.subsubfield
+   * Convert an AST node to a field path string for assignment.
+   * Returns null if the node is not a valid assignment target.
    */
-  private parseFieldPath(): string {
-    const parts: string[] = []
-    parts.push(this.consume(TokenType.IDENTIFIER, 'Expected field name').value)
-
-    while (this.match(TokenType.DOT)) {
-      this.advance()
-      parts.push(this.consume(TokenType.IDENTIFIER, 'Expected field name after .').value)
+  private astToFieldPath(node: ASTNode): string | null {
+    switch (node.type) {
+      case 'Root':
+        return 'root'
+      case 'Identifier':
+        return (node as IdentifierNode).name
+      case 'MemberAccess': {
+        const ma = node as MemberAccessNode
+        const objectPath = this.astToFieldPath(ma.object)
+        if (objectPath === null) return null
+        if (typeof ma.property === 'string') {
+          return `${objectPath}.${ma.property}`
+        }
+        // Bracket access with expression - convert if it's a string literal
+        if (ma.property.type === 'Literal' && (ma.property as LiteralNode).kind === 'string') {
+          return `${objectPath}["${(ma.property as LiteralNode).value}"]`
+        }
+        return null
+      }
+      case 'Call': {
+        // Handle meta("key") = expr
+        const call = node as CallNode
+        if (call.function.type === 'Meta' && call.arguments.length === 1) {
+          const arg = call.arguments[0]
+          if (arg.type === 'Literal' && (arg as LiteralNode).kind === 'string') {
+            return `meta("${(arg as LiteralNode).value}")`
+          }
+        }
+        return null
+      }
+      default:
+        return null
     }
-
-    return parts.join('.')
   }
 
   /**
@@ -376,23 +409,36 @@ export class Parser {
   }
 
   /**
-   * Parse comparison: expr < expr, expr > expr, expr <= expr, expr >= expr
+   * Parse comparison: expr < expr, expr > expr, expr <= expr, expr >= expr, expr in array
    */
   private parseComparison(): ASTNode {
     let left = this.parseAdditive()
 
-    while (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)) {
+    while (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE, TokenType.IN)) {
       const opToken = this.advance()
-      const operator = TOKEN_TO_OPERATOR[opToken.type]
-      const right = this.parseAdditive()
-      left = {
-        type: 'BinaryOp',
-        operator,
-        left,
-        right,
-        line: opToken.line,
-        column: opToken.column
-      } as BinaryOpNode
+      if (opToken.type === TokenType.IN) {
+        // Handle 'in' operator for membership check
+        const right = this.parseAdditive()
+        left = {
+          type: 'BinaryOp',
+          operator: 'in' as BinaryOperator,
+          left,
+          right,
+          line: opToken.line,
+          column: opToken.column
+        } as BinaryOpNode
+      } else {
+        const operator = TOKEN_TO_OPERATOR[opToken.type]
+        const right = this.parseAdditive()
+        left = {
+          type: 'BinaryOp',
+          operator,
+          left,
+          right,
+          line: opToken.line,
+          column: opToken.column
+        } as BinaryOpNode
+      }
     }
 
     return left
@@ -473,13 +519,9 @@ export class Parser {
     while (true) {
       if (this.match(TokenType.DOT)) {
         const dotToken = this.advance()
-        // Allow keywords as property names (e.g., .map(), .length())
+        // Allow keywords as property names (e.g., .map(), .length(), .deleted)
         let propName: string
-        if (this.match(TokenType.IDENTIFIER)) {
-          propName = this.advance().value
-        } else if (this.match(TokenType.MAP)) {
-          propName = this.advance().value
-        } else if (this.match(TokenType.LET, TokenType.IF, TokenType.MATCH)) {
+        if (this.match(TokenType.IDENTIFIER) || this.isKeywordAsIdentifier()) {
           propName = this.advance().value
         } else {
           this.error('Expected property name after .')
@@ -643,6 +685,26 @@ export class Parser {
       } as MetaNode
     }
 
+    // Deleted marker (for removing fields in mappings)
+    if (this.match(TokenType.DELETED)) {
+      const t = this.advance()
+      return {
+        type: 'Deleted',
+        line: t.line,
+        column: t.column
+      } as DeletedNode
+    }
+
+    // Nothing marker (for null/absent values)
+    if (this.match(TokenType.NOTHING)) {
+      const t = this.advance()
+      return {
+        type: 'Nothing',
+        line: t.line,
+        column: t.column
+      } as NothingNode
+    }
+
     // Map keyword treated as identifier (for function calls like map(x -> x))
     if (this.check(TokenType.MAP)) {
       const t = this.advance()
@@ -692,8 +754,8 @@ export class Parser {
     if (this.match(TokenType.DOT)) {
       const dotToken = this.advance()
 
-      // Check if there's an identifier after the dot
-      if (this.check(TokenType.IDENTIFIER)) {
+      // Check if there's an identifier (or keyword used as identifier) after the dot
+      if (this.check(TokenType.IDENTIFIER) || this.isKeywordAsIdentifier()) {
         const propToken = this.advance()
         return {
           type: 'MemberAccess',
@@ -829,11 +891,13 @@ export class Parser {
     const letToken = this.advance() // consume 'let'
     const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected variable name after let')
     this.consume(TokenType.ASSIGN, "Expected '=' after variable name")
-    const value = this.parseOr()
+    // Parse value without allowing the 'in' operator (to avoid consuming 'in' keyword)
+    const value = this.parseLetValue()
 
-    // Expect 'in' keyword (as identifier)
+    // Expect 'in' keyword (as IN token or identifier with value 'in')
     const inToken = this.peek()
-    if (inToken.type !== TokenType.IDENTIFIER || inToken.value !== 'in') {
+    if (inToken.type !== TokenType.IN &&
+        !(inToken.type === TokenType.IDENTIFIER && inToken.value === 'in')) {
       this.error("Expected 'in' after let value")
     }
     this.advance() // consume 'in'
@@ -848,6 +912,104 @@ export class Parser {
       line: letToken.line,
       column: letToken.column
     }
+  }
+
+  /**
+   * Parse a let binding value expression (without the 'in' operator)
+   */
+  private parseLetValue(): ASTNode {
+    return this.parseLetOr()
+  }
+
+  /**
+   * Parse OR for let values (no 'in' operator allowed)
+   */
+  private parseLetOr(): ASTNode {
+    let left = this.parseLetAnd()
+
+    while (this.match(TokenType.OR)) {
+      const opToken = this.advance()
+      const right = this.parseLetAnd()
+      left = {
+        type: 'BinaryOp',
+        operator: '||',
+        left,
+        right,
+        line: opToken.line,
+        column: opToken.column
+      } as BinaryOpNode
+    }
+
+    return left
+  }
+
+  /**
+   * Parse AND for let values
+   */
+  private parseLetAnd(): ASTNode {
+    let left = this.parseLetEquality()
+
+    while (this.match(TokenType.AND)) {
+      const opToken = this.advance()
+      const right = this.parseLetEquality()
+      left = {
+        type: 'BinaryOp',
+        operator: '&&',
+        left,
+        right,
+        line: opToken.line,
+        column: opToken.column
+      } as BinaryOpNode
+    }
+
+    return left
+  }
+
+  /**
+   * Parse equality for let values
+   */
+  private parseLetEquality(): ASTNode {
+    let left = this.parseLetComparison()
+
+    while (this.match(TokenType.EQ, TokenType.NEQ)) {
+      const opToken = this.advance()
+      const operator = TOKEN_TO_OPERATOR[opToken.type]
+      const right = this.parseLetComparison()
+      left = {
+        type: 'BinaryOp',
+        operator,
+        left,
+        right,
+        line: opToken.line,
+        column: opToken.column
+      } as BinaryOpNode
+    }
+
+    return left
+  }
+
+  /**
+   * Parse comparison for let values (no 'in' operator!)
+   */
+  private parseLetComparison(): ASTNode {
+    let left = this.parseAdditive()
+
+    // Note: we exclude TokenType.IN here to allow 'in' to be the let keyword
+    while (this.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)) {
+      const opToken = this.advance()
+      const operator = TOKEN_TO_OPERATOR[opToken.type]
+      const right = this.parseAdditive()
+      left = {
+        type: 'BinaryOp',
+        operator,
+        left,
+        right,
+        line: opToken.line,
+        column: opToken.column
+      } as BinaryOpNode
+    }
+
+    return left
   }
 
   /**

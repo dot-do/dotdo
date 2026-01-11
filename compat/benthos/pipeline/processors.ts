@@ -15,7 +15,7 @@ import {
   isBatch
 } from '../core/message'
 import { parse } from '../bloblang/parser'
-import { Interpreter } from '../bloblang/interpreter'
+import { Interpreter, DELETED, NOTHING } from '../bloblang/interpreter'
 import type { ASTNode, AssignNode } from '../bloblang/ast'
 
 // ============================================================================
@@ -151,62 +151,46 @@ export class MappingProcessor implements Processor {
    * Apply the mapping to a message
    */
   private applyMapping(msg: BenthosMessage): BenthosMessage {
-    // For Bloblang mappings, we need to evaluate in a special context
-    // where we can capture both the resulting data and metadata changes
+    // Use the Interpreter to evaluate the entire AST
+    // The parser handles sequences (semicolon-separated statements)
+    // and the interpreter handles assignments to root/fields/meta
+    const interpreter = new Interpreter(msg)
+    const result = interpreter.evaluate(this.ast)
 
-    // Parse the expression to handle different forms
-    // Split by newlines or semicolons to handle multiple statements
-    const statements = this.expression.split(/[;\n]+/).map(s => s.trim()).filter(Boolean)
+    // After evaluation, get the final state from the message
+    // The interpreter modifies the message directly for assignments
+    const currentData = msg.root
+    const currentMetadata = msg.metadata.toObject()
 
-    let currentData: unknown = msg.json()
-    let currentMetadata = msg.metadata.toObject()
-    let hasDataChange = false
-
-    for (const statement of statements) {
-      if (!statement) continue
-
-      try {
-        const stmtAst = parse(statement)
-        const result = this.evaluateStatement(stmtAst, msg, currentData, currentMetadata)
-
-        if (result.data !== undefined) {
-          currentData = result.data
-          hasDataChange = true
-        }
-        if (result.metadata) {
-          currentMetadata = { ...currentMetadata, ...result.metadata }
-        }
-      } catch (err) {
-        // If it's a single statement (original case), just evaluate normally
-        if (statements.length === 1) {
-          const interpreter = new Interpreter(msg)
-          const evalResult = interpreter.evaluate(this.ast)
-          // Only use the result if it's defined
-          if (evalResult !== undefined) {
-            currentData = evalResult
-          }
-        } else {
-          throw err
-        }
+    // If the result is not an assignment (just an expression), use it as root
+    // Unless the result is undefined (meaning it was an assignment)
+    let finalData = currentData
+    if (result !== undefined && result !== DELETED && this.ast.type !== 'Assign' && this.ast.type !== 'Sequence') {
+      finalData = result
+    } else if (result !== undefined && result !== DELETED && this.ast.type === 'Assign') {
+      // Assignment returns the assigned value, but we use the modified message
+      finalData = currentData
+    } else if (result !== undefined && result !== DELETED && this.ast.type === 'Sequence') {
+      // For sequences, check if the last statement is an expression (not assignment)
+      // If so, that's the result. Otherwise, use the modified message.
+      const seqNode = this.ast as import('../bloblang/ast').SequenceNode
+      const lastStmt = seqNode.statements[seqNode.statements.length - 1]
+      if (lastStmt && lastStmt.type !== 'Assign') {
+        finalData = result
       }
     }
 
     // Create message with the result
-    // BenthosMessage constructor has special handling:
-    // - Strings are treated as raw content (not JSON)
-    // - Other types (objects, numbers, booleans, null) are JSON-stringified
-    // For Bloblang mappings that produce primitive strings, we need to create a message
-    // with properly formatted JSON bytes
-    if (typeof currentData === 'string') {
+    if (typeof finalData === 'string') {
       // For string results, create message with JSON-encoded bytes
-      const jsonString = JSON.stringify(currentData)
+      const jsonString = JSON.stringify(finalData)
       const bytes = new TextEncoder().encode(jsonString)
-      const msg = new BenthosMessage(bytes, currentMetadata)
+      const resultMsg = new BenthosMessage(bytes, currentMetadata)
       // Set the JSON cache to the actual value
-      ;(msg as any)._jsonCache = currentData
-      return msg
+      ;(resultMsg as any)._jsonCache = finalData
+      return resultMsg
     }
-    return new BenthosMessage(currentData, currentMetadata)
+    return new BenthosMessage(finalData, currentMetadata)
   }
 
   /**
@@ -281,9 +265,12 @@ export class MappingProcessor implements Processor {
 
     const lastPart = parts[parts.length - 1]
 
-    // Handle deleted() function
-    if (value && typeof value === 'object' && '__deleted__' in value) {
+    // Handle deleted() function - check for DELETED symbol
+    if (value === DELETED) {
       delete current[lastPart]
+    } else if (value === NOTHING) {
+      // NOTHING means don't change the value
+      return
     } else {
       current[lastPart] = value
     }

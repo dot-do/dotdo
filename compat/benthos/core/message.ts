@@ -118,6 +118,19 @@ export class BenthosMessage {
   }
 
   /**
+   * Setter for root - updates the internal JSON cache and content bytes
+   */
+  set root(value: unknown) {
+    this._jsonCache = value
+    // Update the underlying bytes to match
+    if (typeof value === 'string') {
+      this._bytes = new TextEncoder().encode(value)
+    } else {
+      this._bytes = new TextEncoder().encode(JSON.stringify(value))
+    }
+  }
+
+  /**
    * Benthos-compatible meta() accessor
    */
   meta(key: string): string | undefined {
@@ -129,7 +142,12 @@ export class BenthosMessage {
    */
   json(path?: string): unknown {
     if (this._jsonCache === undefined) {
-      this._jsonCache = JSON.parse(this.content)
+      try {
+        this._jsonCache = JSON.parse(this.content)
+      } catch {
+        // If content isn't valid JSON, return the raw string
+        this._jsonCache = this.content
+      }
     }
 
     if (!path) {

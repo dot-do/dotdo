@@ -27,6 +27,7 @@ export enum TokenType {
   DELETED = 'DELETED',
   NOTHING = 'NOTHING',
   ERROR = 'ERROR',
+  IN = 'IN',
 
   // Operators
   ASSIGN = 'ASSIGN',
@@ -59,6 +60,7 @@ export enum TokenType {
   DOT = 'DOT',
   COMMA = 'COMMA',
   COLON = 'COLON',
+  SEMICOLON = 'SEMICOLON',
   PIPE = 'PIPE',
   ARROW = 'ARROW',
   OPTIONAL_CHAIN = 'OPTIONAL_CHAIN',
@@ -94,7 +96,8 @@ const KEYWORDS: Record<string, TokenType> = {
   'null': TokenType.NULL,
   'deleted': TokenType.DELETED,
   'nothing': TokenType.NOTHING,
-  'error': TokenType.ERROR
+  'error': TokenType.ERROR,
+  'in': TokenType.IN
 }
 
 export class LexerError extends Error {
@@ -411,6 +414,7 @@ export class Lexer implements Iterable<Token> {
       case '.': return this.makeToken(TokenType.DOT, '.', startLine, startColumn)
       case ',': return this.makeToken(TokenType.COMMA, ',', startLine, startColumn)
       case ':': return this.makeToken(TokenType.COLON, ':', startLine, startColumn)
+      case ';': return this.makeToken(TokenType.SEMICOLON, ';', startLine, startColumn)
       case '|': return this.makeToken(TokenType.PIPE, '|', startLine, startColumn)
       case '?': return this.makeToken(TokenType.IDENTIFIER, '?', startLine, startColumn) // Standalone ? is rare
       case '&': throw new LexerError(`Unexpected character: ${c} (did you mean &&?)`, startLine, startColumn)

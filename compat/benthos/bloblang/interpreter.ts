@@ -12,6 +12,8 @@ import type {
   RootNode,
   ThisNode,
   MetaNode,
+  DeletedNode,
+  NothingNode,
   BinaryOpNode,
   UnaryOpNode,
   MemberAccessNode,
@@ -23,7 +25,15 @@ import type {
   LetNode,
   PipeNode,
   ArrowNode,
+  AssignNode,
+  SequenceNode,
 } from './ast'
+
+/**
+ * Special symbols for Bloblang values
+ */
+export const DELETED = Symbol.for('bloblang.deleted')
+export const NOTHING = Symbol.for('bloblang.nothing')
 import { BenthosMessage } from '../core/message'
 import { stringFunctions } from './stdlib/string'
 import * as arrayFunctions from './stdlib/array'
@@ -93,6 +103,10 @@ export class Interpreter {
         return this.evalThis(node, ctx)
       case 'Meta':
         return this.evalMeta(node, ctx)
+      case 'Deleted':
+        return DELETED
+      case 'Nothing':
+        return NOTHING
       case 'BinaryOp':
         return this.evalBinaryOp(node, ctx)
       case 'UnaryOp':
@@ -119,8 +133,9 @@ export class Interpreter {
         // Map nodes are typically used as method calls
         return undefined
       case 'Assign':
-        // Assign nodes are for mappings, not expressions
-        return undefined
+        return this.evalAssign(node as AssignNode, ctx)
+      case 'Sequence':
+        return this.evalSequence(node as SequenceNode, ctx)
       default:
         throw new Error(`Unknown node type: ${(node as ASTNode).type}`)
     }
@@ -216,12 +231,27 @@ export class Interpreter {
         return (left as number | string) <= (right as number | string)
       case '>=':
         return (left as number | string) >= (right as number | string)
+      case 'in':
+        // Membership check: value in array
+        if (Array.isArray(right)) {
+          return right.includes(left)
+        }
+        // For objects, check if key exists
+        if (typeof right === 'object' && right !== null) {
+          return String(left) in (right as Record<string, unknown>)
+        }
+        return false
       default:
         throw new Error(`Unknown binary operator: ${op}`)
     }
   }
 
   private looseEquals(left: unknown, right: unknown): boolean {
+    // Treat undefined and null as equal (Bloblang semantics)
+    if ((left === undefined || left === null) && (right === undefined || right === null)) {
+      return true
+    }
+
     // Same type comparison
     if (typeof left === typeof right) {
       return left === right
@@ -298,6 +328,22 @@ export class Interpreter {
   private evalCall(node: CallNode, ctx: InterpreterContext): unknown {
     const args = node.arguments.map(arg => this.evalNode(arg, ctx))
 
+    // Handle deleted() and nothing() as special functions
+    if (node.function.type === 'Deleted') {
+      return DELETED
+    }
+    if (node.function.type === 'Nothing') {
+      return NOTHING
+    }
+
+    // Handle meta() calls
+    if (node.function.type === 'Meta') {
+      if (args.length === 0) {
+        return ctx.message.metadata.toObject()
+      }
+      return ctx.message.metadata.get(String(args[0]))
+    }
+
     // Handle method calls (e.g., "hello".uppercase())
     if (node.function.type === 'MemberAccess') {
       const memberAccess = node.function as MemberAccessNode
@@ -305,6 +351,11 @@ export class Interpreter {
       const methodName = typeof memberAccess.property === 'string'
         ? memberAccess.property
         : String(this.evalNode(memberAccess.property, ctx))
+
+      // For array methods that need lambdas, pass AST nodes if not arrow functions
+      if (Array.isArray(target) && ['map', 'filter', 'reduce'].includes(methodName)) {
+        return this.callArrayMethodWithAST(target, methodName, node.arguments, args, ctx)
+      }
 
       return this.callMethod(target, methodName, args, ctx)
     }
@@ -346,8 +397,10 @@ export class Interpreter {
   private callStringMethod(str: string, method: string, args: unknown[]): unknown {
     switch (method) {
       case 'uppercase':
+      case 'upper':
         return stringFunctions.uppercase.call(str)
       case 'lowercase':
+      case 'lower':
         return stringFunctions.lowercase.call(str)
       case 'length':
         return stringFunctions.length.call(str)
@@ -407,6 +460,8 @@ export class Interpreter {
         return arrayFunctions.slice.call(arr, args[0] as number, args[1] as number | undefined)
       case 'index':
         return arrayFunctions.index.call(arr, args[0] as number)
+      case 'sum':
+        return numberFunctions.sum(arr as number[])
       default:
         throw new Error(`Unknown array method: ${method}`)
     }
@@ -441,6 +496,15 @@ export class Interpreter {
         return typeFunctions.array.call(args[0])
       case 'object':
         return typeFunctions.object.call(args[0])
+
+      // JSON conversion functions
+      case 'from_json':
+      case 'parse_json':
+        return JSON.parse(String(args[0]))
+      case 'to_json':
+        return JSON.stringify(args[0])
+      case 'number':
+        return Number(args[0])
 
       // String functions
       case 'length':
@@ -495,6 +559,12 @@ export class Interpreter {
       case 'set':
         return objectFunctions.set(args[0], args[1] as string, args[2])
 
+      // Special values
+      case 'deleted':
+        return DELETED
+      case 'nothing':
+        return NOTHING
+
       // Time functions
       case 'now':
         return new Date().toISOString()
@@ -518,6 +588,63 @@ export class Interpreter {
     }
   }
 
+  /**
+   * Handle array methods that need to receive AST nodes for lambdas
+   */
+  private callArrayMethodWithAST(arr: unknown[], method: string, astArgs: ASTNode[], evaluatedArgs: unknown[], ctx: InterpreterContext): unknown {
+    switch (method) {
+      case 'map':
+        return this.mapArrayWithAST(arr, astArgs[0], evaluatedArgs[0], ctx)
+      case 'filter':
+        return this.filterArrayWithAST(arr, astArgs[0], evaluatedArgs[0], ctx)
+      case 'reduce':
+        return this.reduceArray(arr, evaluatedArgs[0], evaluatedArgs[1], ctx)
+      default:
+        throw new Error(`Unknown array method: ${method}`)
+    }
+  }
+
+  private mapArrayWithAST(arr: unknown[], astArg: ASTNode, evaluatedArg: unknown, ctx: InterpreterContext): unknown[] {
+    // If the evaluated arg is already an ArrowFunction, use it
+    if (evaluatedArg instanceof ArrowFunction) {
+      return arr.map((elem, _idx) => {
+        const newCtx = this.createChildContext(ctx)
+        newCtx.variables.set(evaluatedArg.parameter, elem)
+        return this.evalNode(evaluatedArg.body, newCtx)
+      })
+    }
+
+    // Otherwise, use the AST node directly, treating 'this' as the current element
+    return arr.map((elem, _idx) => {
+      const newCtx = this.createChildContext(ctx)
+      // Create a temporary message with the element as root for 'this' reference
+      const elemMsg = new BenthosMessage(elem, ctx.message.metadata.toObject())
+      newCtx.message = elemMsg
+      return this.evalNode(astArg, newCtx)
+    })
+  }
+
+  private filterArrayWithAST(arr: unknown[], astArg: ASTNode, evaluatedArg: unknown, ctx: InterpreterContext): unknown[] {
+    // If the evaluated arg is already an ArrowFunction, use it
+    if (evaluatedArg instanceof ArrowFunction) {
+      return arr.filter((elem, _idx) => {
+        const newCtx = this.createChildContext(ctx)
+        newCtx.variables.set(evaluatedArg.parameter, elem)
+        const result = this.evalNode(evaluatedArg.body, newCtx)
+        return this.isTruthy(result)
+      })
+    }
+
+    // Otherwise, use the AST node directly, treating 'this' as the current element
+    return arr.filter((elem, _idx) => {
+      const newCtx = this.createChildContext(ctx)
+      const elemMsg = new BenthosMessage(elem, ctx.message.metadata.toObject())
+      newCtx.message = elemMsg
+      const result = this.evalNode(astArg, newCtx)
+      return this.isTruthy(result)
+    })
+  }
+
   private mapArray(arr: unknown[], mapperArg: unknown, ctx: InterpreterContext): unknown[] {
     if (mapperArg instanceof ArrowFunction) {
       return arr.map((elem, _idx) => {
@@ -526,7 +653,7 @@ export class Interpreter {
         return this.evalNode(mapperArg.body, newCtx)
       })
     }
-    throw new Error('map() requires a lambda function')
+    throw new Error('map() requires a lambda function (use x -> expr syntax)')
   }
 
   private filterArray(arr: unknown[], predicateArg: unknown, ctx: InterpreterContext): unknown[] {
@@ -633,11 +760,17 @@ export class Interpreter {
         }
       }
 
-      // Direct function call - inject left value as first argument
+      // Direct function call - try calling as a method on the piped value first
       if (callNode.function.type === 'Identifier') {
         const funcName = (callNode.function as IdentifierNode).name
         const args = callNode.arguments.map(arg => this.evalNode(arg, pipeCtx))
-        return this.callFunction(funcName, [leftValue, ...args], pipeCtx)
+        // Try as method on the piped value first
+        try {
+          return this.callMethod(leftValue, funcName, args, pipeCtx)
+        } catch {
+          // Fall back to global function
+          return this.callFunction(funcName, [leftValue, ...args], pipeCtx)
+        }
       }
     }
 
@@ -663,8 +796,107 @@ export class Interpreter {
       }
     }
 
+    // If right side is a bare identifier (like `| length`), treat it as a method call
+    if (node.right.type === 'Identifier') {
+      const methodName = (node.right as IdentifierNode).name
+      return this.callPipeMethod(leftValue, methodName, [], pipeCtx)
+    }
+
+    // If right side is a BinaryOp with an Identifier on the left (like `| length > 2`),
+    // resolve the identifier as a method call on the piped value first
+    if (node.right.type === 'BinaryOp') {
+      const binOp = node.right as BinaryOpNode
+      if (binOp.left.type === 'Identifier') {
+        const methodName = (binOp.left as IdentifierNode).name
+        // Check if this is a known method that should be called on the pipe value
+        if (this.isPipeMethod(leftValue, methodName)) {
+          const methodResult = this.callPipeMethod(leftValue, methodName, [], pipeCtx)
+          const rightResult = this.evalNode(binOp.right, pipeCtx)
+          return this.evalBinaryOpValues(binOp.operator, methodResult, rightResult)
+        }
+      }
+    }
+
     // Otherwise, just evaluate right side with pipe context
     return this.evalNode(node.right, pipeCtx)
+  }
+
+  /**
+   * Check if a method name is a valid pipe method for the given value
+   */
+  private isPipeMethod(value: unknown, method: string): boolean {
+    // Common methods that can be called via pipe
+    const pipeableMethods = ['length', 'contains', 'uppercase', 'lowercase', 'upper', 'lower',
+      'trim', 'split', 'join', 'reverse', 'sort', 'first', 'last', 'flatten', 'unique', 'sum',
+      'keys', 'values', 'type', 'string', 'number', 'bool', 'int', 'float']
+    return pipeableMethods.includes(method)
+  }
+
+  /**
+   * Call a method on a piped value
+   */
+  private callPipeMethod(value: unknown, method: string, args: unknown[], ctx: InterpreterContext): unknown {
+    // Try calling as a method on the value
+    if (typeof value === 'string') {
+      if (method === 'length') return value.length
+      return this.callStringMethod(value, method, args)
+    }
+    if (Array.isArray(value)) {
+      if (method === 'length') return value.length
+      return this.callArrayMethod(value, method, args, ctx)
+    }
+    if (typeof value === 'object' && value !== null) {
+      return this.callObjectMethod(value as Record<string, unknown>, method, args)
+    }
+    // Fall back to global functions
+    return this.callFunction(method, [value, ...args], ctx)
+  }
+
+  /**
+   * Evaluate a binary operation with already-evaluated values
+   */
+  private evalBinaryOpValues(op: string, left: unknown, right: unknown): unknown {
+    switch (op) {
+      case '+':
+        if (typeof left === 'string' || typeof right === 'string') {
+          return String(left) + String(right)
+        }
+        return (left as number) + (right as number)
+      case '-':
+        return (left as number) - (right as number)
+      case '*':
+        return (left as number) * (right as number)
+      case '/':
+        return (left as number) / (right as number)
+      case '%':
+        return (left as number) % (right as number)
+      case '==':
+        return this.looseEquals(left, right)
+      case '!=':
+        return !this.looseEquals(left, right)
+      case '<':
+        return (left as number | string) < (right as number | string)
+      case '>':
+        return (left as number | string) > (right as number | string)
+      case '<=':
+        return (left as number | string) <= (right as number | string)
+      case '>=':
+        return (left as number | string) >= (right as number | string)
+      case '&&':
+        return this.isTruthy(left) && this.isTruthy(right) ? right : left
+      case '||':
+        return this.isTruthy(left) ? left : right
+      case 'in':
+        if (Array.isArray(right)) {
+          return right.includes(left)
+        }
+        if (typeof right === 'object' && right !== null) {
+          return String(left) in (right as Record<string, unknown>)
+        }
+        return false
+      default:
+        throw new Error(`Unknown binary operator: ${op}`)
+    }
   }
 
   private evalArrow(node: ArrowNode, ctx: InterpreterContext): ArrowFunction {
@@ -702,6 +934,80 @@ export class Interpreter {
     const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+  }
+
+  /**
+   * Evaluate a sequence of statements, returning the result of the last one
+   */
+  private evalSequence(node: SequenceNode, ctx: InterpreterContext): unknown {
+    let result: unknown = undefined
+    for (const statement of node.statements) {
+      result = this.evalNode(statement, ctx)
+    }
+    return result
+  }
+
+  /**
+   * Evaluate an assignment, modifying the message and returning the assigned value
+   */
+  private evalAssign(node: AssignNode, ctx: InterpreterContext): unknown {
+    const value = this.evalNode(node.value, ctx)
+    const field = node.field
+
+    // Handle root assignment
+    if (field === 'root') {
+      ctx.message.root = value
+      return value
+    }
+
+    // Handle root.field assignment
+    if (field.startsWith('root.')) {
+      const path = field.slice(5) // Remove 'root.'
+      this.setNestedValue(ctx.message.root, path, value)
+      return value
+    }
+
+    // Handle meta("key") assignment
+    if (field.startsWith('meta("') && field.endsWith('")')) {
+      const key = field.slice(6, -2) // Extract key from meta("key")
+      if (value === DELETED) {
+        ctx.message.metadata.delete(key)
+      } else {
+        ctx.message.metadata.set(key, String(value))
+      }
+      return value
+    }
+
+    // Handle simple field assignment (treated as root.field)
+    this.setNestedValue(ctx.message.root, field, value)
+    return value
+  }
+
+  /**
+   * Set a nested value in an object using dot notation path
+   */
+  private setNestedValue(obj: unknown, path: string, value: unknown): void {
+    if (typeof obj !== 'object' || obj === null) {
+      return
+    }
+
+    const parts = path.split('.')
+    let current = obj as Record<string, unknown>
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i]
+      if (!(part in current) || typeof current[part] !== 'object') {
+        current[part] = {}
+      }
+      current = current[part] as Record<string, unknown>
+    }
+
+    const lastPart = parts[parts.length - 1]
+    if (value === DELETED) {
+      delete current[lastPart]
+    } else {
+      current[lastPart] = value
+    }
   }
 }
 
