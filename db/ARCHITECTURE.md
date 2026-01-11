@@ -42,16 +42,16 @@ UPDATE storage SET value = ? WHERE key = '_meta';      // Metadata (count, dimen
 │ Tier 1: DO SQLite (Hot)                                                         │
 │ ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │ │ Columnar Storage:                                                           │ │
-│ │ • Row: "ids"        → ["id1", "id2", "id3", ...]                           │ │
-│ │ • Row: "types"      → ["User", "Order", "Product", ...]                    │ │
-│ │ • Row: "data"       → [{...}, {...}, {...}, ...]                           │ │
+│ │ • Row: "ids"        → ["id1", "id2", "id3", ...]                            │ │
+│ │ • Row: "types"      → ["User", "Order", "Product", ...]                     │ │
+│ │ • Row: "data"       → [{...}, {...}, {...}, ...]                            │ │
 │ │ • Row: "embeddings" → <binary: packed Float32Arrays>                        │ │
 │ │ • Row: "timestamps" → {created: [...], updated: [...]}                      │ │
 │ │ • Row: "_meta"      → {count: 1000, embeddingDim: 1536}                     │ │
 │ │                                                                             │ │
 │ │ Index Layer:                                                                │ │
 │ │ • Row: "bloom:data.email" → <bloom filter bitmap>                           │ │
-│ │ • Row: "minmax:createdAt" → {partitions: [{key, min, max}, ...]}           │ │
+│ │ • Row: "minmax:createdAt" → {partitions: [{key, min, max}, ...]}            │ │
 │ │ • Row: "_manifest"        → <Iceberg manifest summary>                      │ │
 │ │                                                                             │ │
 │ │ Access: <1ms | Cost: $0.001/M reads                                         │ │
@@ -70,8 +70,8 @@ UPDATE storage SET value = ? WHERE key = '_meta';      // Metadata (count, dimen
 │ ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │ │ things/                                                                     │ │
 │ │ ├── type=User/                                                              │ │
-│ │ │   ├── dt=2024-01-01/data.parquet                                         │ │
-│ │ │   ├── dt=2024-01-02/data.parquet                                         │ │
+│ │ │   ├── dt=2024-01-01/data.parquet                                          │ │
+│ │ │   ├── dt=2024-01-02/data.parquet                                          │ │
 │ │ │   └── ...                                                                 │ │
 │ │ ├── type=Order/                                                             │ │
 │ │ │   └── ...                                                                 │ │
