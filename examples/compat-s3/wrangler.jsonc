@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "compat-s3",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev for development
+  "workers_dev": true,
+
+  // R2 bucket for blob storage
+  "r2_buckets": [
+    {
+      "binding": "R2_STORAGE",
+      "bucket_name": "s3-compat-storage"
+    }
+  ],
+
+  // Durable Objects - bucket metadata and API coordination
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "S3_DO",
+        "class_name": "S3DO"
+      },
+      {
+        "name": "BUCKET_DO",
+        "class_name": "BucketDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["S3DO", "BucketDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production",
+    "DEFAULT_PART_SIZE": "5242880",
+    "MAX_PARTS": "10000",
+    "PRESIGNED_URL_EXPIRY": "3600"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}

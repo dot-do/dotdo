@@ -1,0 +1,37 @@
+{
+  "name": "compat-mongo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MongoDB-compatible API layer for Durable Objects with SQLite storage",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "mongodb",
+    "mongo",
+    "mongoose",
+    "durable-objects",
+    "cloudflare-workers",
+    "nosql",
+    "document-database"
+  ],
+  "dependencies": {
+    "dotdo": "workspace:*",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.58.0"
+  }
+}

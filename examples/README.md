@@ -99,6 +99,8 @@ export default app
 | [jsonapi](./jsonapi) | JSON:API | Ember/React-friendly standard |
 | [simple-api](./simple-api) | Simple | Minimal overhead |
 | [custom-do](./custom-do) | Custom | Full control with Hono |
+| [agent-code-review](./agent-code-review) | Agents | Ralph + Tom AI code review loop |
+| [example.com.ai](./example.com.ai) | Demo | Live demo for documentation |
 
 ## DO Classes
 

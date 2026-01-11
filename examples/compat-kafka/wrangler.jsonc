@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "compat-kafka",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to workers.dev for development
+  "workers_dev": true,
+
+  // Durable Objects - Kafka components
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "KAFKA_DO",
+        "class_name": "KafkaDO"
+      },
+      {
+        "name": "TOPIC_DO",
+        "class_name": "TopicDO"
+      },
+      {
+        "name": "CONSUMER_GROUP_DO",
+        "class_name": "ConsumerGroupDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["KafkaDO", "TopicDO", "ConsumerGroupDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production",
+    "DEFAULT_RETENTION_MS": "604800000",
+    "DEFAULT_REPLICATION_FACTOR": "1",
+    "DEFAULT_NUM_PARTITIONS": "3"
+  },
+
+  // Development environment
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}
