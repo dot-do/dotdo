@@ -674,15 +674,17 @@ interface FileMetadata {
  *
  * - Ensures path starts with `/`
  * - Removes trailing slash (except for root `/`)
+ * - Collapses multiple consecutive slashes into single slash
  *
  * @param path - The path to normalize
  * @returns Normalized path string
  *
  * @example
  * ```typescript
- * normalizePath('foo/bar')   // '/foo/bar'
- * normalizePath('/foo/bar/') // '/foo/bar'
- * normalizePath('/')         // '/'
+ * normalizePath('foo/bar')    // '/foo/bar'
+ * normalizePath('/foo/bar/')  // '/foo/bar'
+ * normalizePath('/')          // '/'
+ * normalizePath('//foo//bar') // '/foo/bar'
  * ```
  */
 function normalizePath(path: string): string {
@@ -690,6 +692,8 @@ function normalizePath(path: string): string {
   if (!path.startsWith('/')) {
     path = '/' + path
   }
+  // Collapse multiple consecutive slashes into single slash
+  path = path.replace(/\/+/g, '/')
   // Remove trailing slash except for root
   if (path !== '/' && path.endsWith('/')) {
     path = path.slice(0, -1)
