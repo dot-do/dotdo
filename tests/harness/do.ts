@@ -77,6 +77,9 @@ export interface MockDurableObjectStorage {
   delete(keys: string[]): Promise<number>
   deleteAll(): Promise<void>
 
+  // Transaction support
+  transactionSync<T>(closure: () => T): T
+
   // Alarm methods (on storage in Cloudflare Workers)
   getAlarm(): Promise<number | null>
   setAlarm(time: Date | number): Promise<void>
@@ -613,6 +616,32 @@ export function createMockStorage(
     async deleteAll(): Promise<void> {
       operations.push({ type: 'deleteAll', timestamp: Date.now() })
       data.clear()
+    },
+
+    transactionSync<T>(closure: () => T): T {
+      // Create a snapshot of the data for rollback on error
+      const snapshot = new Map(data)
+      const sqlSnapshots = new Map<string, unknown[]>()
+      sqlTables.forEach((tableData, tableName) => {
+        sqlSnapshots.set(tableName, [...tableData])
+      })
+
+      try {
+        return closure()
+      } catch (error) {
+        // Rollback: restore the data from snapshot
+        data.clear()
+        snapshot.forEach((value, key) => {
+          data.set(key, value)
+        })
+
+        // Rollback SQL tables
+        sqlSnapshots.forEach((tableData, tableName) => {
+          sqlTables.set(tableName, tableData)
+        })
+
+        throw error
+      }
     },
 
     async getAlarm(): Promise<number | null> {

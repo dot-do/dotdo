@@ -485,6 +485,97 @@ describe('Mock SQL Storage', () => {
 })
 
 // ============================================================================
+// TESTS: TRANSACTION SUPPORT
+// ============================================================================
+
+describe('transactionSync', () => {
+  it('executes closure and returns result', () => {
+    const storage = createMockStorage()
+
+    const result = storage.transactionSync(() => {
+      storage.data.set('key', 'value')
+      return 42
+    })
+
+    expect(result).toBe(42)
+    expect(storage.data.get('key')).toBe('value')
+  })
+
+  it('commits changes on success', () => {
+    const storage = createMockStorage({ existing: 'data' })
+
+    storage.transactionSync(() => {
+      storage.data.set('new-key', 'new-value')
+      storage.data.delete('existing')
+    })
+
+    expect(storage.data.get('new-key')).toBe('new-value')
+    expect(storage.data.has('existing')).toBe(false)
+  })
+
+  it('rolls back changes on error', () => {
+    const storage = createMockStorage({ existing: 'data' })
+
+    expect(() => {
+      storage.transactionSync(() => {
+        storage.data.set('new-key', 'new-value')
+        storage.data.delete('existing')
+        throw new Error('Simulated failure')
+      })
+    }).toThrow('Simulated failure')
+
+    // Changes should be rolled back
+    expect(storage.data.get('existing')).toBe('data')
+    expect(storage.data.has('new-key')).toBe(false)
+  })
+
+  it('rolls back SQL table changes on error', () => {
+    const sqlData = new Map([
+      ['users', [{ id: 1, name: 'Alice' }]],
+    ])
+    const storage = createMockStorage(undefined, sqlData)
+
+    expect(() => {
+      storage.transactionSync(() => {
+        // Modify the SQL table
+        const users = sqlData.get('users')!
+        users.push({ id: 2, name: 'Bob' })
+        throw new Error('Simulated failure')
+      })
+    }).toThrow('Simulated failure')
+
+    // SQL table changes should be rolled back
+    expect(sqlData.get('users')).toEqual([{ id: 1, name: 'Alice' }])
+  })
+
+  it('supports nested operations within transaction', () => {
+    const storage = createMockStorage()
+
+    storage.transactionSync(() => {
+      storage.data.set('a', 1)
+      storage.data.set('b', 2)
+      storage.data.set('c', 3)
+    })
+
+    expect(storage.data.size).toBe(3)
+    expect(storage.data.get('a')).toBe(1)
+    expect(storage.data.get('b')).toBe(2)
+    expect(storage.data.get('c')).toBe(3)
+  })
+
+  it('propagates thrown error after rollback', () => {
+    const storage = createMockStorage()
+    const customError = new Error('Custom error')
+
+    expect(() => {
+      storage.transactionSync(() => {
+        throw customError
+      })
+    }).toThrow(customError)
+  })
+})
+
+// ============================================================================
 // TESTS: MOCK STATE
 // ============================================================================
 

@@ -266,6 +266,11 @@ export default defineWorkspace([
     'packages/duckdb-worker/tests/e2e/**/*.test.ts',
   ]),
 
+  // @dotdo/duckdb-worker distributed query layer tests
+  createNodeWorkspace('duckdb-distributed', [
+    'packages/duckdb-worker/src/distributed/tests/**/*.test.ts',
+  ]),
+
   // @dotdo/worker-helpers package tests (Customer Worker Helpers)
   createNodeWorkspace('worker-helpers', ['packages/worker-helpers/tests/**/*.test.ts']),
 
