@@ -140,7 +140,7 @@ export interface DOLocation {
   /** Full trace data from Cloudflare (if from trace endpoint) */
   traceData: TraceData
   /** Full cf.json data (if from cf.json endpoint) */
-  cfJsonData?: CfJsonData
+  cf?: CfJsonData
   /** Coordinates from cf.json */
   coordinates?: {
     latitude: number
@@ -283,7 +283,7 @@ export async function fetchDOLocationFromCfJson(): Promise<DOLocation> {
     loc: cfData.country,
     detectedAt: new Date(),
     traceData: {} as TraceData, // Empty for cf.json source
-    cfJsonData: cfData,
+    cf: cfData,
     coordinates: {
       latitude: parseFloat(cfData.latitude),
       longitude: parseFloat(cfData.longitude),
