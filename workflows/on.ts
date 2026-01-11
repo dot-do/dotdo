@@ -34,10 +34,19 @@ const eventHandlers = new Map<string, HandlerRegistration[]>()
 const contextIndex = new Map<string, Set<string>>()
 
 /**
- * Get all registered handlers for an event key
+ * Get all registered handlers for an event key.
+ * If context is provided, only returns handlers registered with that context.
+ *
+ * @param eventKey - The event key (e.g., "Customer.signup")
+ * @param context - Optional context to filter handlers by (e.g., DO namespace)
+ * @returns Array of handler functions
  */
-export function getRegisteredHandlers(eventKey: string): Function[] {
-  return (eventHandlers.get(eventKey) || []).map(r => r.handler)
+export function getRegisteredHandlers(eventKey: string, context?: string): Function[] {
+  const registrations = eventHandlers.get(eventKey) || []
+  if (context !== undefined) {
+    return registrations.filter(r => r.context === context).map(r => r.handler)
+  }
+  return registrations.map(r => r.handler)
 }
 
 /**
@@ -48,12 +57,20 @@ export function getHandlerRegistrations(eventKey: string): HandlerRegistration[]
 }
 
 /**
- * Get total count of registered handlers across all events
+ * Get total count of registered handlers across all events.
+ * If context is provided, only counts handlers registered with that context.
+ *
+ * @param context - Optional context to filter handlers by (e.g., DO namespace)
+ * @returns Total handler count
  */
-export function getHandlerCount(): number {
+export function getHandlerCount(context?: string): number {
   let count = 0
   for (const registrations of eventHandlers.values()) {
-    count += registrations.length
+    if (context !== undefined) {
+      count += registrations.filter(r => r.context === context).length
+    } else {
+      count += registrations.length
+    }
   }
   return count
 }

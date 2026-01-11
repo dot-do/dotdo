@@ -132,56 +132,108 @@ export function createNounId(value: string): NounId {
 }
 
 // ============================================================================
+// ID FORMAT PATTERNS
+// ============================================================================
+
+/**
+ * Regex patterns for validating ID formats.
+ */
+export const ID_PATTERNS = {
+  /**
+   * ThingId: lowercase alphanumeric slug with dashes and dots allowed.
+   * Must start with a letter. No leading/trailing special chars.
+   * Excludes 'evt-' prefix to distinguish from EventId.
+   * Examples: 'acme', 'my-startup', 'headless.ly', 'tenant-123'
+   */
+  thingId: /^[a-z][a-z0-9]*(?:[-.]?[a-z0-9]+)*$/,
+
+  /**
+   * Pattern to exclude EventId format from ThingId.
+   */
+  eventIdPrefix: /^evt-/i,
+
+  /**
+   * ActionId: UUID v4 format (8-4-4-4-12 hex pattern).
+   * The version nibble must be 4, variant nibble must be 8, 9, a, or b.
+   * Example: '550e8400-e29b-41d4-a716-446655440000'
+   */
+  actionId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+
+  /**
+   * EventId: 'evt-' prefix followed by alphanumeric identifier.
+   * Examples: 'evt-123', 'evt-abc456', 'evt-a1b2c3'
+   */
+  eventId: /^evt-[a-z0-9]+$/i,
+
+  /**
+   * NounId: PascalCase identifier (must start with uppercase letter).
+   * Examples: 'Startup', 'Customer', 'PaymentMethod'
+   */
+  nounId: /^[A-Z][a-zA-Z0-9]*$/,
+} as const
+
+// ============================================================================
 // TYPE GUARDS
 // ============================================================================
 
 /**
- * Type guard that narrows a string to ThingId.
- * At runtime, this always returns true since ThingId is just a branded string.
- * The value is in the type narrowing for TypeScript.
+ * Type guard that narrows unknown to ThingId.
+ * Validates that the value is a string matching the ThingId format (lowercase slug).
+ * Rejects strings that match EventId format (evt-* prefix).
  *
- * @param value - The string to check
- * @returns true, narrowing the type to ThingId
+ * @param value - The value to check
+ * @returns true if the value is a valid ThingId format, narrowing the type
  *
  * @example
- * const maybeId: string = 'thing-123'
+ * const maybeId: unknown = 'my-startup'
  * if (isThingId(maybeId)) {
  *   // maybeId is now typed as ThingId
  *   processThingId(maybeId)
  * }
  */
-export function isThingId(value: string): value is ThingId {
-  return typeof value === 'string'
+export function isThingId(value: unknown): value is ThingId {
+  if (typeof value !== 'string') return false
+  // Reject excessively long strings (security/DoS protection)
+  if (value.length > 255) return false
+  // Exclude EventId format (evt-* prefix)
+  if (ID_PATTERNS.eventIdPrefix.test(value)) return false
+  return ID_PATTERNS.thingId.test(value)
 }
 
 /**
- * Type guard that narrows a string to ActionId.
+ * Type guard that narrows unknown to ActionId.
+ * Validates that the value is a string matching UUID v4 format.
  *
- * @param value - The string to check
- * @returns true, narrowing the type to ActionId
+ * @param value - The value to check
+ * @returns true if the value is a valid ActionId format, narrowing the type
  */
-export function isActionId(value: string): value is ActionId {
-  return typeof value === 'string'
+export function isActionId(value: unknown): value is ActionId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.actionId.test(value)
 }
 
 /**
- * Type guard that narrows a string to EventId.
+ * Type guard that narrows unknown to EventId.
+ * Validates that the value is a string with the 'evt-' prefix followed by alphanumeric id.
  *
- * @param value - The string to check
- * @returns true, narrowing the type to EventId
+ * @param value - The value to check
+ * @returns true if the value is a valid EventId format, narrowing the type
  */
-export function isEventId(value: string): value is EventId {
-  return typeof value === 'string'
+export function isEventId(value: unknown): value is EventId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.eventId.test(value)
 }
 
 /**
- * Type guard that narrows a string to NounId.
+ * Type guard that narrows unknown to NounId.
+ * Validates that the value is a string in PascalCase format.
  *
- * @param value - The string to check
- * @returns true, narrowing the type to NounId
+ * @param value - The value to check
+ * @returns true if the value is a valid NounId format, narrowing the type
  */
-export function isNounId(value: string): value is NounId {
-  return typeof value === 'string'
+export function isNounId(value: unknown): value is NounId {
+  if (typeof value !== 'string') return false
+  return ID_PATTERNS.nounId.test(value)
 }
 
 // ============================================================================

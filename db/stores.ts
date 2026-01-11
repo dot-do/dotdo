@@ -14,6 +14,7 @@ import { eq, and, or, desc, asc, isNull, sql } from 'drizzle-orm'
 import type { DODatabase, AppSchema } from '../types/drizzle'
 import * as schema from '../db'
 import { logBestEffortError } from '../lib/logging/error-logger'
+import { safeJsonParse } from '../lib/safe-stringify'
 
 // ============================================================================
 // SQL INJECTION PREVENTION
@@ -588,7 +589,9 @@ export class ThingsStore {
         $id: targetRow.id,
         $type: typeName,
         name: targetRow.name,
-        data: typeof targetRow.data === 'string' ? JSON.parse(targetRow.data) : targetRow.data,
+        data: typeof targetRow.data === 'string'
+          ? safeJsonParse(targetRow.data, null, { context: 'ThingsStore.get.version' })
+          : targetRow.data,
         branch: targetRow.branch,
         version: targetRow.version,
         deleted: !!targetRow.deleted,
@@ -624,7 +627,9 @@ export class ThingsStore {
       $id: result.id,
       $type: typeName,
       name: result.name,
-      data: typeof result.data === 'string' ? JSON.parse(result.data) : result.data,
+      data: typeof result.data === 'string'
+        ? safeJsonParse(result.data, null, { context: 'ThingsStore.get.latest' })
+        : result.data,
       branch: result.branch,
       version: result.version,
       deleted: !!result.deleted,
@@ -726,7 +731,9 @@ export class ThingsStore {
         $id: row.id,
         $type: typeName,
         name: row.name,
-        data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
+        data: typeof row.data === 'string'
+          ? safeJsonParse(row.data, null, { context: 'ThingsStore.list' })
+          : row.data,
         branch: row.branch,
         version: row.version,
         deleted: !!row.deleted,
@@ -907,7 +914,9 @@ export class ThingsStore {
         $id: row.id,
         $type: typeName,
         name: row.name,
-        data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
+        data: typeof row.data === 'string'
+          ? safeJsonParse(row.data, null, { context: 'ThingsStore.versions' })
+          : row.data,
         branch: row.branch,
         version: row.version,
         deleted: !!row.deleted,
@@ -1897,7 +1906,9 @@ export class ObjectsStore {
         shardIndex: r.shard_index,
         region: r.region,
         primary: r.primary,
-        cached: r.cached ? JSON.parse(r.cached) : null,
+        cached: r.cached
+          ? safeJsonParse(r.cached, null, { context: 'ObjectsStore.getGlobal' })
+          : null,
         createdAt: new Date(r.created_at),
       }
     } catch (error) {
@@ -2104,6 +2115,14 @@ export class DLQStore {
     }
 
     return { replayed, failed }
+  }
+
+  /**
+   * Retry a DLQ entry by replaying it.
+   * Alias for replay() to match expected DLQStore interface.
+   */
+  async retry(id: string): Promise<DLQReplayResult> {
+    return this.replay(id)
   }
 
   async remove(id: string): Promise<boolean> {

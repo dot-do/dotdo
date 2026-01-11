@@ -27,10 +27,13 @@ export interface AgentPersona {
   instructions: string
 }
 
+import type { AgentProvider, AgentConfig as BaseAgentConfig, Agent as ProviderAgent, AgentResult } from '../types'
+
 export interface AgentConfig {
   temperature?: number
   maxTokens?: number
   model?: string
+  provider?: AgentProvider
 }
 
 export interface PipelinePromise<T> extends Promise<T> {
@@ -150,6 +153,12 @@ export interface NamedAgent {
 
   /** Approval method (for reviewers like Tom, Quinn) */
   approve?(input: unknown): Promise<{ approved: boolean; feedback?: string }>
+
+  /** The provider used by this agent (if configured) */
+  provider?: AgentProvider
+
+  /** Create agent with a different provider */
+  withProvider(provider: AgentProvider): NamedAgent
 }
 
 // ============================================================================
@@ -586,8 +595,39 @@ async function executeToolsFromPrompt(
 async function executeAgent(
   persona: AgentPersona,
   prompt: string,
-  _config: AgentConfig = {}
+  _config: AgentConfig = {},
+  conversationMessages?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<string | AgentResultWithTools> {
+  // If a provider is configured, use it instead of direct SDK calls
+  if (_config.provider) {
+    const provider = _config.provider
+
+    // Build the agent config for the provider
+    const agentConfig: BaseAgentConfig = {
+      id: persona.name.toLowerCase(),
+      name: persona.name,
+      instructions: persona.instructions,
+      model: _config.model || 'default',
+      providerOptions: {
+        temperature: _config.temperature,
+        maxTokens: _config.maxTokens,
+      },
+    }
+
+    // Create an agent instance from the provider
+    const agent = provider.createAgent(agentConfig)
+
+    // Build messages array including conversation history
+    const messages = conversationMessages
+      ? [...conversationMessages.map(m => ({ role: m.role, content: m.content })), { role: 'user' as const, content: prompt }]
+      : [{ role: 'user' as const, content: prompt }]
+
+    // Run the agent
+    const result = await agent.run({ prompt, messages })
+
+    return createAgentResult(result.text, [])
+  }
+
   // In mock mode, try to execute tools from the prompt
   if (mockMode) {
     const toolCalls: ToolCallRecord[] = []
@@ -702,6 +742,10 @@ function isTemplateStringsArray(arg: unknown): arg is TemplateStringsArray {
  * Create a named agent from a persona
  */
 export function createNamedAgent(persona: AgentPersona, config: AgentConfig = {}): NamedAgent {
+  // Per-instance conversation history when using a provider
+  // This isolates context per agent instance rather than per persona name
+  const instanceConversation: Array<{ role: 'user' | 'assistant'; content: string }> = []
+
   // Create the callable function (handles both template literal and function call)
   const agent = function (
     stringsOrInput: TemplateStringsArray | string | object,
@@ -718,6 +762,20 @@ export function createNamedAgent(persona: AgentPersona, config: AgentConfig = {}
     } else {
       // Object: priya({ task: 'build auth', context: { ... } })
       prompt = JSON.stringify(stringsOrInput, null, 2)
+    }
+
+    // If using a provider, maintain conversation context per instance
+    if (config.provider) {
+      // Add user message to instance context before executing
+      instanceConversation.push({ role: 'user', content: prompt })
+
+      return createPipelinePromise(
+        executeAgent(persona, prompt, config, instanceConversation.slice(0, -1)).then(result => {
+          // Add assistant response to instance context
+          instanceConversation.push({ role: 'assistant', content: result.toString() })
+          return result
+        })
+      )
     }
 
     return createPipelinePromise(executeAgent(persona, prompt, config))
@@ -752,6 +810,20 @@ export function createNamedAgent(persona: AgentPersona, config: AgentConfig = {}
   // Add withConfig method
   agent.withConfig = (newConfig: AgentConfig): NamedAgent => {
     return createNamedAgent(persona, { ...config, ...newConfig })
+  }
+
+  // Add withProvider method for runtime provider switching
+  agent.withProvider = (provider: AgentProvider): NamedAgent => {
+    return createNamedAgent(persona, { ...config, provider })
+  }
+
+  // Expose the provider if configured
+  if (config.provider) {
+    Object.defineProperty(agent, 'provider', {
+      value: config.provider,
+      writable: false,
+      enumerable: true,
+    })
   }
 
   // Add reset method (clears conversation context)

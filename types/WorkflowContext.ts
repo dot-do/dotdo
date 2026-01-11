@@ -2,6 +2,87 @@ import type { RpcPromise } from './fn'
 import type { Thing } from './Thing'
 
 // ============================================================================
+// NOUN REGISTRY - Extensible registry for domain nouns
+// ============================================================================
+
+/**
+ * NounRegistry - Interface for registering domain nouns with typed payloads
+ *
+ * This interface is designed for module augmentation. Extend it in your
+ * domain code to register nouns with their entity shapes.
+ *
+ * @example
+ * ```typescript
+ * // In your domain types:
+ * declare module '../types/WorkflowContext' {
+ *   interface NounRegistry {
+ *     Customer: { id: string; email: string; name: string }
+ *     Invoice: { id: string; amount: number; status: string }
+ *     Order: { id: string; items: string[]; total: number }
+ *   }
+ * }
+ * ```
+ *
+ * After registration, $.Customer, $.Invoice, $.Order will be properly typed
+ * and provide autocomplete. Accessing unregistered nouns will be a type error.
+ */
+export interface NounRegistry {
+  // Default nouns for the framework - extend via module augmentation
+  Customer: unknown
+  Invoice: unknown
+  Order: unknown
+  Payment: unknown
+  Startup: unknown
+  User: unknown
+}
+
+/**
+ * NounAccessors - Mapped type providing typed noun access
+ *
+ * Each key in NounRegistry becomes a callable (id: string) => DomainProxy
+ * property on WorkflowContext.
+ */
+export type NounAccessors = {
+  [K in keyof NounRegistry]: (id: string) => DomainProxy
+}
+
+/**
+ * Type guard to check if a string is a valid registered noun
+ *
+ * @example
+ * ```typescript
+ * const maybeNoun: string = 'Customer'
+ * if (isValidNoun(maybeNoun)) {
+ *   // maybeNoun is now typed as keyof NounRegistry
+ *   $[maybeNoun](id) // type-safe access
+ * }
+ * ```
+ */
+export function isValidNoun<K extends keyof NounRegistry>(
+  noun: string
+): noun is K & string {
+  // Runtime check - can be enhanced with actual registry lookup
+  const registeredNouns = ['Customer', 'Invoice', 'Order', 'Payment', 'Startup', 'User']
+  return registeredNouns.includes(noun)
+}
+
+/**
+ * Safely access a noun from WorkflowContext with type narrowing
+ *
+ * @example
+ * ```typescript
+ * const customerAccessor = getNoun($, 'Customer')
+ * const proxy = customerAccessor('cust-123')
+ * ```
+ */
+export function getNoun<K extends keyof NounRegistry>(
+  ctx: WorkflowContext,
+  noun: K
+): (id: string) => DomainProxy {
+  return ctx[noun] as (id: string) => DomainProxy
+}
+
+// ============================================================================
 // AI FUNCTION TYPES
 // ============================================================================
 
@@ -109,7 +190,7 @@ export interface ActionError {
 // WORKFLOW CONTEXT ($) - The unified interface for all DO operations
 // ============================================================================
 
-export interface WorkflowContext {
+export interface WorkflowContext extends NounAccessors {
   // ═══════════════════════════════════════════════════════════════════════════
   // EXECUTION MODES (different durability levels)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -223,12 +304,10 @@ export interface WorkflowContext {
   // DOMAIN RESOLUTION (cross-DO)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Resolve and call methods on other DOs
-   * $.Startup('acme').prioritize()
-   * $.Invoice(id).send()
-   */
-  [Noun: string]: ((id: string) => DomainProxy) | unknown
+  // Noun accessors are now provided by extending NounAccessors
+  // $.Startup('acme').prioritize()
+  // $.Invoice(id).send()
+  // Register additional nouns via module augmentation of NounRegistry
 
   // ═══════════════════════════════════════════════════════════════════════════
   // BRANCHING & VERSION CONTROL

@@ -77,7 +77,7 @@ function createExtendedContext(baseContext: WorkflowContext): ExtendedWorkflowCo
       }
 
       // Delegate to base context
-      return (target as Record<string, unknown>)[prop]
+      return (target as unknown as Record<string, unknown>)[prop]
     },
   })
 }
