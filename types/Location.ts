@@ -276,34 +276,17 @@ const regionSet = new Set<string>(Object.keys(regionToCF))
 // ============================================================================
 
 // ============================================================================
-// DOLocation Interface (for DO location detection)
+// DOLocation Re-export (canonical source is types/DOLocation.ts)
 // ============================================================================
 
-/**
- * Represents the detected location of a Durable Object instance.
- * Exported for use in DO location detection and caching.
- */
-export interface DOLocation {
-  /** IATA code for the Cloudflare colo (e.g., 'lax', 'iad') */
-  colo: string
-  /** City name (e.g., 'LosAngeles', 'Virginia') */
-  city: string
-  /** Geographic region (e.g., 'us-west', 'us-east') */
-  region: string
-  /** Cloudflare location hint (e.g., 'wnam', 'enam') */
-  cfHint: string
-  /** Timestamp when location was detected */
-  detectedAt: Date
-  /** Optional coordinates if available */
-  coordinates?: {
-    latitude: number
-    longitude: number
-  }
-}
+// Re-export DOLocation from the canonical source for backwards compatibility
+// The canonical DOLocation interface is defined in types/DOLocation.ts
+export type { DOLocation } from './DOLocation'
 
-// Export a runtime marker for the DOLocation type (for test assertion compatibility)
-// The actual type is the interface above; this is just to satisfy `hasOwnProperty('DOLocation')` tests
-export const DOLocation = 'DOLocation' as const
+// Runtime marker for the DOLocation type (for test assertion compatibility)
+// This satisfies `hasOwnProperty('DOLocation')` tests
+// Note: Named differently to avoid TS2323 redeclare conflict with type re-export
+export const DOLocationMarker = 'DOLocation' as const
 
 /**
  * Normalize any location input (ColoCode, ColoCity, or Region) to standard format

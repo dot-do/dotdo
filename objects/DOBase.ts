@@ -119,6 +119,7 @@ import {
   getHighestRole,
 } from '../types/introspect'
 import type { DOLocation } from '../types/Location'
+import type { ColoCode, ColoCity, Region, CFLocationHint } from '../types/Location'
 import { codeToCity, coloRegion, regionToCF } from '../types/Location'
 import { LocationCache, LOCATION_STORAGE_KEY } from '../lib/colo/caching'
 
@@ -515,7 +516,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   private _locationHookCalled: boolean = false
 
   /** Coordinates extracted from CF request headers */
-  private _extractedCoordinates?: { latitude: number; longitude: number }
+  private _extractedCoordinates?: { lat: number; lng: number }
 
   /**
    * Get the DO's location (with caching).
@@ -533,26 +534,33 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     }
 
     // Check DO storage for persisted location
+    // Note: Storage may have legacy format with latitude/longitude or new format with lat/lng
     const cached = await this.ctx.storage.get<{
       colo: string
       city: string
       region: string
       cfHint: string
       detectedAt: string | Date
-      coordinates?: { latitude: number; longitude: number }
+      coordinates?: { lat?: number; lng?: number; latitude?: number; longitude?: number }
     }>(LOCATION_STORAGE_KEY)
 
     if (cached) {
-      // Restore from storage
+      // Restore from storage, converting coordinates to canonical format if needed
+      const coords = cached.coordinates
+        ? {
+            lat: cached.coordinates.lat ?? cached.coordinates.latitude ?? 0,
+            lng: cached.coordinates.lng ?? cached.coordinates.longitude ?? 0,
+          }
+        : undefined
       this._cachedLocation = Object.freeze({
-        colo: cached.colo,
-        city: cached.city,
-        region: cached.region,
-        cfHint: cached.cfHint,
+        colo: cached.colo as ColoCode,
+        city: cached.city as ColoCity,
+        region: cached.region as Region,
+        cfHint: cached.cfHint as CFLocationHint,
         detectedAt: cached.detectedAt instanceof Date
           ? cached.detectedAt
           : new Date(cached.detectedAt),
-        coordinates: cached.coordinates,
+        coordinates: coords,
       }) as DOLocation
       return this._cachedLocation
     }
@@ -612,10 +620,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         }
       }
 
-      const coloCode = (data.colo || 'lax').toLowerCase()
-      const city = codeToCity[coloCode as keyof typeof codeToCity] || 'LosAngeles'
-      const region = coloRegion[coloCode as keyof typeof coloRegion] || 'us-west'
-      const cfHint = regionToCF[region as keyof typeof regionToCF] || 'wnam'
+      const coloCode = (data.colo || 'lax').toLowerCase() as ColoCode
+      const city = (codeToCity[coloCode as keyof typeof codeToCity] || 'LosAngeles') as ColoCity
+      const region = (coloRegion[coloCode as keyof typeof coloRegion] || 'us-west') as Region
+      const cfHint = (regionToCF[region as keyof typeof regionToCF] || 'wnam') as CFLocationHint
 
       const location: DOLocation = {
         colo: coloCode,
@@ -2371,7 +2379,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       const lat = parseFloat(cf.latitude)
       const lng = parseFloat(cf.longitude)
       if (!isNaN(lat) && !isNaN(lng)) {
-        this._extractedCoordinates = { latitude: lat, longitude: lng }
+        this._extractedCoordinates = { lat, lng }
       }
     }
 

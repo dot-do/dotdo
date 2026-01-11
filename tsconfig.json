@@ -9,6 +9,7 @@
     // Type checking
     "types": ["@cloudflare/workers-types", "vite/client"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
 
@@ -50,6 +51,7 @@
     "app",
     "examples",
     "packages",
+    "primitives",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/tests/**/*.ts",

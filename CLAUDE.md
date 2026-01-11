@@ -29,11 +29,11 @@ export class MyStartup extends Startup {
 
 **V8 Isolates + Durable Objects:** Virtual Chrome tabs with persistent state, running on edge (300+ cities, 0ms cold starts).
 
-**Cap'n Web RPC:** Promise pipelining + Magic Map. Multiple agent calls execute in single network round trip.
+**Cap'n Web RPC (partial):** Promise pipelining integration with `capnweb`. Core infrastructure exists; full Magic Map planned.
 
-**Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs).
+**Extended Primitives:** fsx (filesystem on SQLite), gitx (Git on R2), bashx (shell without VMs) - implemented as separate packages in `primitives/`.
 
-**38 Compat SDKs:** `@dotdo/supabase`, `@dotdo/mongo`, `@dotdo/kafka`, `@dotdo/redis`, etc. Same APIs, scales to millions of agents.
+**Compat SDKs (15 implemented):** algolia, benthos, couchdb, duckdb, emails, postgres, pusher, sendgrid, sentry, sqs, stripe, supabase, supabase-auth. Additional SDKs (mongo, kafka, redis, etc.) planned.
 
 ## Commands
 
@@ -63,7 +63,7 @@ objects/       # DO classes (DO.ts, Worker.ts, Entity.ts, Startup.ts)
 types/         # Thing, Noun, Verb, WorkflowContext
 db/            # Drizzle schemas, iceberg/, edgevec/, proxy/
 workflows/     # $ context DSL (on.ts, proxy.ts, schedule-builder.ts)
-compat/        # 38 API-compatible SDKs
+compat/        # API-compatible SDKs (15 implemented)
 agents/        # Multi-provider agent SDK (Tool, Agent, Providers)
 workers/       # DO proxy workers (api.ts, hostname-proxy.ts)
 app/           # TanStack Start frontend (MDXUI components)
@@ -116,6 +116,8 @@ await $.Customer(id).notify()
 
 ## Named Agents
 
+Implemented in `agents/named/` with composable persona system:
+
 | Agent | Role |
 |-------|------|
 | Priya | Product—specs, roadmaps |
@@ -126,6 +128,8 @@ await $.Customer(id).notify()
 | Quinn | QA—testing, quality |
 
 ## Human Escalation
+
+Template literal syntax implemented in `lib/humans/`:
 
 ```typescript
 import { legal, ceo } from 'humans.do'
@@ -138,6 +142,8 @@ escalation = this.HumanFunction({
   sla: '4 hours',
 })
 ```
+
+Human notification channels and escalation policies implemented in `objects/Human.ts`.
 
 ## Issue Tracking (bd)
 
