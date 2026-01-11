@@ -73,10 +73,27 @@ const defaultBashExecutor: BashExecutor = {
     // Default executor handles native fs commands via $.fs (done by withBash)
     // For other commands, we return an error indicating no external executor
     return {
-      code: 127,
+      input: command,
+      command: command,
+      valid: true,
+      generated: false,
+      exitCode: 127,
       stdout: '',
       stderr: `bash: command execution not available in default mode. Command: ${command}`,
-      success: false,
+      intent: {
+        commands: [command],
+        reads: [],
+        writes: [],
+        deletes: [],
+        network: false,
+        elevated: false,
+      },
+      classification: {
+        type: 'execute',
+        impact: 'none',
+        reversible: true,
+        reason: 'Default executor - no real execution',
+      },
     }
   },
 }
