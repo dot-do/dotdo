@@ -1534,7 +1534,8 @@ class Parser {
       if (this.check(TokenType.SELECT, TokenType.INSERT, TokenType.UPDATE, TokenType.DELETE, TokenType.FOR, TokenType.WITH)) {
         const stmt = this.parseStatement()
         this.expect(TokenType.RPAREN)
-        return stmt
+        // EdgeQL allows any statement as a subquery expression in parentheses
+        return stmt as Expression
       }
 
       const first = this.parseExpression()

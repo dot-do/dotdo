@@ -311,7 +311,8 @@ describe('MappingProcessor', () => {
 
       expect(isMessage(result)).toBe(true)
       const resultMsg = result as BenthosMessage
-      expect(resultMsg.json()).toEqual({ values: [2, 4, 6] })
+      // root = .values.map(...) replaces root with the mapped array
+      expect(resultMsg.json()).toEqual([2, 4, 6])
     })
 
     it('should set literal values', () => {
@@ -517,13 +518,11 @@ describe('MappingProcessor', () => {
 
   describe('Error handling in mappings', () => {
     it('should throw on invalid Bloblang expression', () => {
-      const msg = createMessage({ value: 42 })
-      const processor = new MappingProcessor({
-        expression: 'root = .invalid('
-      })
-
+      // Invalid expressions throw at construction time (parse error)
       expect(() => {
-        processor.process(msg, createTestContext())
+        new MappingProcessor({
+          expression: 'root = .invalid('
+        })
       }).toThrow()
     })
 
@@ -832,13 +831,11 @@ describe('FilterProcessor', () => {
 
   describe('Error handling in filters', () => {
     it('should throw on invalid condition syntax', () => {
-      const msg = createMessage({ value: 42 })
-      const processor = new FilterProcessor({
-        condition: '.value >'
-      })
-
+      // Invalid conditions throw at construction time (parse error)
       expect(() => {
-        processor.process(msg, createTestContext())
+        new FilterProcessor({
+          condition: '.value >'
+        })
       }).toThrow()
     })
 

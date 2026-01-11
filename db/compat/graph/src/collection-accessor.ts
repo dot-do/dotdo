@@ -58,8 +58,8 @@ export interface Traversal<T extends Thing = Thing> {
 
   [Symbol.asyncIterator](): AsyncIterableIterator<T>
 
-  // Traversal chaining
-  readonly [key: `$${string}`]: Traversal<T>
+  // Traversal chaining - union includes specific $ property types
+  readonly [key: `$${string}`]: Traversal<T> | AsyncIterable<T> | AsyncIterable<T[]> | ((size: number) => AsyncIterable<T[]>)
 }
 
 /**
@@ -77,8 +77,8 @@ export interface GraphNode<T extends Thing = Thing> {
   readonly $in: (depth: number) => Traversal<T>
   readonly $expand: (depth: number) => Traversal<T>
 
-  // Dynamic relationship traversal
-  readonly [key: `$${string}`]: Traversal<T>
+  // Dynamic relationship traversal - union includes specific $ property types
+  readonly [key: `$${string}`]: Traversal<T> | string | string[] | undefined | CollectionGraph | ((depth: number) => Traversal<T>)
 }
 
 /**

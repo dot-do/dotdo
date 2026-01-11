@@ -1,5 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { on, every, send, when, waitFor, Domain, getRegisteredHandlers, clearHandlers } from './on'
+import {
+  on,
+  every,
+  send,
+  when,
+  waitFor,
+  Domain,
+  getRegisteredHandlers,
+  getHandlerRegistrations,
+  getHandlerCount,
+  getRegisteredEventKeys,
+  clearHandlers,
+  clearHandlersByContext,
+  unregisterHandler,
+  type Unsubscribe,
+} from './on'
 
 /**
  * Tests for the event-driven workflow DSL
@@ -251,5 +266,301 @@ describe('complete workflow example', () => {
     })
 
     expect(getRegisteredHandlers('schedule:0 9 * * 1')).toHaveLength(1)
+  })
+})
+
+// ============================================================================
+// Memory Leak Prevention Tests
+// ============================================================================
+
+describe('handler cleanup (memory leak prevention)', () => {
+  beforeEach(() => {
+    clearHandlers()
+  })
+
+  describe('unsubscribe function', () => {
+    it('on.Entity.event returns unsubscribe function', () => {
+      const handler = vi.fn()
+      const unsubscribe = on.Customer.signup(handler)
+
+      expect(typeof unsubscribe).toBe('function')
+    })
+
+    it('calling unsubscribe removes the handler', () => {
+      const handler = vi.fn()
+      const unsubscribe = on.Customer.signup(handler)
+
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(1)
+
+      const result = unsubscribe()
+
+      expect(result).toBe(true)
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(0)
+    })
+
+    it('unsubscribe returns false if handler already removed', () => {
+      const handler = vi.fn()
+      const unsubscribe = on.Customer.signup(handler)
+
+      unsubscribe()
+      const result = unsubscribe()
+
+      expect(result).toBe(false)
+    })
+
+    it('unsubscribe only removes the specific handler', () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+      const handler3 = vi.fn()
+
+      on.Customer.signup(handler1)
+      const unsubscribe2 = on.Customer.signup(handler2)
+      on.Customer.signup(handler3)
+
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(3)
+
+      unsubscribe2()
+
+      const remaining = getRegisteredHandlers('Customer.signup')
+      expect(remaining).toHaveLength(2)
+      expect(remaining).toContain(handler1)
+      expect(remaining).not.toContain(handler2)
+      expect(remaining).toContain(handler3)
+    })
+
+    it('every.* returns unsubscribe function', () => {
+      const handler = vi.fn()
+      const unsubscribe = every.Monday.at9am(handler)
+
+      expect(typeof unsubscribe).toBe('function')
+      expect(getRegisteredHandlers('schedule:0 9 * * 1')).toHaveLength(1)
+
+      unsubscribe()
+
+      expect(getRegisteredHandlers('schedule:0 9 * * 1')).toHaveLength(0)
+    })
+
+    it('every.hour returns unsubscribe function', () => {
+      const handler = vi.fn()
+      const unsubscribe = every.hour(handler)
+
+      expect(typeof unsubscribe).toBe('function')
+      unsubscribe()
+      expect(getRegisteredHandlers('schedule:0 * * * *')).toHaveLength(0)
+    })
+
+    it('every(string, handler) returns unsubscribe function', () => {
+      const handler = vi.fn()
+      const unsubscribe = every('Monday at 9am', handler)
+
+      expect(typeof unsubscribe).toBe('function')
+      unsubscribe()
+      expect(getRegisteredHandlers('schedule:0 9 * * 1')).toHaveLength(0)
+    })
+  })
+
+  describe('unregisterHandler function', () => {
+    it('removes handler by event key and reference', () => {
+      const handler = vi.fn()
+      on.Customer.signup(handler)
+
+      const result = unregisterHandler('Customer.signup', handler)
+
+      expect(result).toBe(true)
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(0)
+    })
+
+    it('returns false for non-existent event key', () => {
+      const handler = vi.fn()
+      const result = unregisterHandler('NonExistent.event', handler)
+
+      expect(result).toBe(false)
+    })
+
+    it('returns false for non-registered handler', () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+      on.Customer.signup(handler1)
+
+      const result = unregisterHandler('Customer.signup', handler2)
+
+      expect(result).toBe(false)
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(1)
+    })
+  })
+
+  describe('context-based cleanup', () => {
+    it('registers handlers with context', () => {
+      const handler = vi.fn()
+      on.Customer.signup(handler, { context: 'do:tenant-123' })
+
+      const registrations = getHandlerRegistrations('Customer.signup')
+      expect(registrations).toHaveLength(1)
+      expect(registrations[0].context).toBe('do:tenant-123')
+    })
+
+    it('clearHandlersByContext removes all handlers for a context', () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+      const handler3 = vi.fn()
+
+      on.Customer.signup(handler1, { context: 'do:tenant-123' })
+      on.Order.placed(handler2, { context: 'do:tenant-123' })
+      on.Customer.signup(handler3, { context: 'do:tenant-456' })
+
+      expect(getHandlerCount()).toBe(3)
+
+      const removed = clearHandlersByContext('do:tenant-123')
+
+      expect(removed).toBe(2)
+      expect(getHandlerCount()).toBe(1)
+      expect(getRegisteredHandlers('Customer.signup')).toHaveLength(1)
+      expect(getRegisteredHandlers('Customer.signup')[0]).toBe(handler3)
+      expect(getRegisteredHandlers('Order.placed')).toHaveLength(0)
+    })
+
+    it('clearHandlersByContext returns 0 for non-existent context', () => {
+      on.Customer.signup(vi.fn(), { context: 'do:tenant-123' })
+
+      const removed = clearHandlersByContext('do:non-existent')
+
+      expect(removed).toBe(0)
+      expect(getHandlerCount()).toBe(1)
+    })
+
+    it('schedule handlers support context cleanup', () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+
+      every.Monday.at9am(handler1, { context: 'do:tenant-123' })
+      every.hour(handler2, { context: 'do:tenant-123' })
+
+      expect(getHandlerCount()).toBe(2)
+
+      clearHandlersByContext('do:tenant-123')
+
+      expect(getHandlerCount()).toBe(0)
+    })
+
+    it('mixed context and non-context handlers', () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+      const handler3 = vi.fn()
+
+      on.Customer.signup(handler1) // no context
+      on.Customer.signup(handler2, { context: 'do:tenant-123' })
+      on.Customer.signup(handler3) // no context
+
+      expect(getHandlerCount()).toBe(3)
+
+      clearHandlersByContext('do:tenant-123')
+
+      expect(getHandlerCount()).toBe(2)
+      const handlers = getRegisteredHandlers('Customer.signup')
+      expect(handlers).toContain(handler1)
+      expect(handlers).not.toContain(handler2)
+      expect(handlers).toContain(handler3)
+    })
+  })
+
+  describe('handler metadata', () => {
+    it('getHandlerRegistrations returns metadata', () => {
+      const handler = vi.fn()
+      on.Customer.signup(handler, { context: 'test-context' })
+
+      const registrations = getHandlerRegistrations('Customer.signup')
+      expect(registrations).toHaveLength(1)
+      expect(registrations[0].handler).toBe(handler)
+      expect(registrations[0].eventKey).toBe('Customer.signup')
+      expect(registrations[0].context).toBe('test-context')
+      expect(registrations[0].registeredAt).toBeGreaterThan(0)
+    })
+
+    it('getHandlerCount returns total handler count', () => {
+      on.Customer.signup(vi.fn())
+      on.Customer.signup(vi.fn())
+      on.Order.placed(vi.fn())
+
+      expect(getHandlerCount()).toBe(3)
+    })
+
+    it('getRegisteredEventKeys returns all event keys', () => {
+      on.Customer.signup(vi.fn())
+      on.Order.placed(vi.fn())
+      on.Payment.failed(vi.fn())
+
+      const keys = getRegisteredEventKeys()
+      expect(keys).toHaveLength(3)
+      expect(keys).toContain('Customer.signup')
+      expect(keys).toContain('Order.placed')
+      expect(keys).toContain('Payment.failed')
+    })
+  })
+
+  describe('memory leak scenario simulation', () => {
+    it('simulates DO lifecycle with proper cleanup', () => {
+      // Simulate multiple DO instances registering handlers
+      const do1Context = 'do:instance-1'
+      const do2Context = 'do:instance-2'
+
+      // DO 1 registers handlers
+      on.Customer.signup(vi.fn(), { context: do1Context })
+      on.Order.placed(vi.fn(), { context: do1Context })
+      every.hour(vi.fn(), { context: do1Context })
+
+      // DO 2 registers handlers
+      on.Customer.signup(vi.fn(), { context: do2Context })
+      on.Payment.received(vi.fn(), { context: do2Context })
+
+      expect(getHandlerCount()).toBe(5)
+
+      // DO 1 is destroyed - clean up its handlers
+      const removed1 = clearHandlersByContext(do1Context)
+      expect(removed1).toBe(3)
+      expect(getHandlerCount()).toBe(2)
+
+      // DO 2 is destroyed - clean up its handlers
+      const removed2 = clearHandlersByContext(do2Context)
+      expect(removed2).toBe(2)
+      expect(getHandlerCount()).toBe(0)
+    })
+
+    it('handlers without context are not affected by context cleanup', () => {
+      // Global handlers (no context)
+      on.System.startup(vi.fn())
+      on.System.shutdown(vi.fn())
+
+      // DO-scoped handlers
+      on.Customer.signup(vi.fn(), { context: 'do:temp' })
+
+      expect(getHandlerCount()).toBe(3)
+
+      clearHandlersByContext('do:temp')
+
+      expect(getHandlerCount()).toBe(2)
+      expect(getRegisteredHandlers('System.startup')).toHaveLength(1)
+      expect(getRegisteredHandlers('System.shutdown')).toHaveLength(1)
+    })
+
+    it('stress test: register and cleanup many handlers', () => {
+      const contexts = Array.from({ length: 100 }, (_, i) => `do:instance-${i}`)
+
+      // Register 10 handlers per context = 1000 total
+      for (const ctx of contexts) {
+        for (let i = 0; i < 10; i++) {
+          on.Customer.signup(vi.fn(), { context: ctx })
+        }
+      }
+
+      expect(getHandlerCount()).toBe(1000)
+
+      // Clean up all contexts
+      for (const ctx of contexts) {
+        clearHandlersByContext(ctx)
+      }
+
+      expect(getHandlerCount()).toBe(0)
+      expect(getRegisteredEventKeys()).toHaveLength(0)
+    })
   })
 })

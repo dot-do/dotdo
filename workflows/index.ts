@@ -59,7 +59,16 @@ export {
   waitFor,
   Domain,
   getRegisteredHandlers,
+  getHandlerRegistrations,
+  getHandlerCount,
+  getRegisteredEventKeys,
   clearHandlers,
+  clearHandlersByContext,
+  unregisterHandler,
+  type Unsubscribe,
+  type HandlerRegistration,
+  type OnHandlerOptions,
+  type EveryHandlerOptions,
 } from './on'
 
 // Domain registry

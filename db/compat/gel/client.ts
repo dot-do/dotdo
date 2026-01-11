@@ -358,6 +358,42 @@ export class GelClient implements GelTransaction {
 
     // Execute query
     try {
+      // For INSERT statements, use run() and synthesize the result
+      if (ast.type === 'InsertStatement') {
+        // Remove RETURNING clause for run() since mock storage doesn't support it
+        const sqlWithoutReturning = translated.sql.replace(/ RETURNING "id"$/, '')
+        const runResult = this.storage.run(sqlWithoutReturning, boundParams)
+
+        // Synthesize the inserted object
+        // Generate a unique ID
+        const insertedId = runResult.lastInsertRowid?.toString() ??
+                          generateUUID()
+
+        // Extract field names from the INSERT data
+        const insertedObject: any = { id: insertedId }
+        const data = ast.data?.assignments || []
+        for (const assignment of data) {
+          const name = assignment.name
+          const value = assignment.value
+          if (value?.type === 'StringLiteral') {
+            insertedObject[name] = value.value
+          } else if (value?.type === 'NumberLiteral') {
+            insertedObject[name] = value.value
+          } else if (value?.type === 'BooleanLiteral') {
+            insertedObject[name] = value.value
+          }
+        }
+
+        // Return as single object (EdgeQL INSERT returns the inserted object)
+        return insertedObject as T[]
+      }
+
+      // For UPDATE/DELETE, use run() and return empty array
+      if (ast.type === 'UpdateStatement' || ast.type === 'DeleteStatement') {
+        this.storage.run(translated.sql, boundParams)
+        return [] as T[]
+      }
+
       const results = this.storage.all<any>(translated.sql, boundParams)
 
       // Hydrate results (convert SQLite types to EdgeQL types)
@@ -367,6 +403,9 @@ export class GelClient implements GelTransaction {
       // Check for constraint violations
       if (msg.includes('UNIQUE constraint failed') || msg.includes('UNIQUE')) {
         throw new QueryError(`Constraint violation: ${msg}`)
+      }
+      if (msg.includes('NOT NULL constraint failed')) {
+        throw new QueryError(`Missing required field: ${msg}`)
       }
       throw new QueryError(`Query execution failed: ${msg}`)
     }
@@ -622,37 +661,18 @@ export class GelClient implements GelTransaction {
       }
     }
 
-    // Start new transaction
-    return this.storage.transaction(() => {
-      // Create a promise that we'll resolve in the callback
-      let result: T
-      let error: Error | null = null
+    // For sync storage.transaction, we need to handle async properly
+    // We'll manually manage BEGIN/COMMIT/ROLLBACK
+    this.storage.exec('BEGIN')
 
-      // We need to handle async in a sync context
-      // The storage.transaction is sync, but our callback is async
-      // We'll use a workaround by running the async function and capturing errors
-
-      const runAsync = async () => {
-        try {
-          result = await fn(this)
-        } catch (e) {
-          error = e as Error
-        }
-      }
-
-      // Run synchronously using a simple approach
-      // Note: In real implementation, you'd want proper async transaction support
-      // For testing with mock storage, this works
-      const promise = runAsync()
-
-      // For sync mock storage, this will work
-      // For real async DB, you'd need a different approach
-      if (error) {
-        throw error
-      }
-
-      return result!
-    })
+    try {
+      const result = await fn(this)
+      this.storage.exec('COMMIT')
+      return result
+    } catch (error) {
+      this.storage.exec('ROLLBACK')
+      throw error
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -706,6 +726,22 @@ function isPrimitiveType(typeName: string): boolean {
 function isValidUUID(value: string): boolean {
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
   return uuidPattern.test(value)
+}
+
+/**
+ * Generate a simple UUID-like string
+ */
+function generateUUID(): string {
+  // Use crypto if available, otherwise fallback
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // Simple fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
 }
 
 /**

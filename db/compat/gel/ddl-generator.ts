@@ -471,8 +471,9 @@ function collectInheritedMembers(
  * @returns Generated DDL statements organized by type
  */
 export function generateDDL(schema: Schema, options?: DDLGeneratorOptions): GeneratedDDL {
-  const opts = {
+  const opts: Required<DDLGeneratorOptions> = {
     addTimestamps: true,
+    addTypeColumn: true,
     generateMetadata: false,
     inheritanceStrategy: 'sti' as const,
     ...options,
