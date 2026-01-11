@@ -90,6 +90,9 @@ export default defineWorkspace([
   // Parquet writer/reader tests
   createNodeWorkspace('parquet', ['db/parquet/**/*.test.ts']),
 
+  // DB primitives tests (column stores, compression codecs)
+  createNodeWorkspace('db-primitives', ['db/primitives/**/*.test.ts']),
+
   // EdgePostgres tests (PGLite + FSX integration)
   createNodeWorkspace('edge-postgres', ['db/edge-postgres/**/*.test.ts']),
 

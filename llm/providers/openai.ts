@@ -116,8 +116,12 @@ export class OpenAIAdapter implements ProviderAdapter {
           try {
             const data = JSON.parse(trimmed.slice(6)) as OpenAIChatCompletionChunk
             yield data
-          } catch {
-            // Skip malformed JSON
+          } catch (error) {
+            // Log malformed JSON so data loss is visible
+            console.warn('[llm/openai] SSE JSON parse failed - event dropped:', {
+              data: trimmed.slice(6, 100) + (trimmed.length > 106 ? '...' : ''),
+              error: error instanceof Error ? error.message : 'unknown',
+            })
           }
         }
       }

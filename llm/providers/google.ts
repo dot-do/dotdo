@@ -239,8 +239,12 @@ export class GoogleAIAdapter implements ProviderAdapter {
                 } : undefined,
               }
             }
-          } catch {
-            // Skip malformed JSON
+          } catch (error) {
+            // Log malformed JSON so data loss is visible
+            console.warn('[llm/google] SSE JSON parse failed - event dropped:', {
+              data: line.slice(0, 100) + (line.length > 100 ? '...' : ''),
+              error: error instanceof Error ? error.message : 'unknown',
+            })
           }
         }
       }

@@ -236,8 +236,12 @@ function applyPagination(
     try {
       const decoded = JSON.parse(atob(options.nextPageToken))
       startIndex = decoded.offset ?? 0
-    } catch {
-      // Invalid cursor, start from beginning
+    } catch (error) {
+      // Log pagination token errors so users see why pagination might be wrong
+      console.warn('[workflows] Invalid pagination token - starting from beginning:', {
+        token: options.nextPageToken.slice(0, 50) + '...',
+        error: error instanceof Error ? error.message : 'unknown',
+      })
       startIndex = 0
     }
   }

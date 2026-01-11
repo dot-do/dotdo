@@ -17,6 +17,7 @@ import { stripe } from '@better-auth/stripe'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from '../db'
 import { validateAuthEnv, isAuthEnvValidated } from './env-validation'
+import { safeJsonParse } from '../lib/safe-stringify'
 
 // ============================================================================
 // CONFIGURATION
@@ -196,8 +197,13 @@ export function createAuth(config: AuthConfig) {
     callbacks: {
       // After OAuth completes, handle cross-domain redirect
       async onOAuthSuccess({ user, session, state }) {
-        // Decode state to get return URL
-        const stateData = JSON.parse(Buffer.from(state || '', 'base64url').toString())
+        // Decode state to get return URL (safely parse to prevent crashes from malformed/tampered state)
+        const decodedState = Buffer.from(state || '', 'base64url').toString()
+        const stateData = safeJsonParse<{ id?: string; returnTo?: string; timestamp?: number }>(
+          decodedState,
+          null,
+          { context: 'onOAuthSuccess.state' }
+        )
         const returnTo = stateData?.returnTo
 
         if (returnTo) {

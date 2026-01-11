@@ -138,11 +138,23 @@ export class BenthosMessage {
   }
 
   /**
-   * Parse content as JSON, optionally extracting a path
+   * Parse content as JSON, optionally extracting a path.
+   *
+   * Returns undefined if the content is not valid JSON.
+   * Use jsonSafe() if you want explicit null-safety semantics.
+   *
+   * @param path - Optional dot-separated path to extract (e.g., "user.profile.name")
+   * @returns The parsed JSON value, the value at the path, or undefined on parse error
    */
   json(path?: string): unknown {
     if (this._jsonCache === undefined) {
-      this._jsonCache = JSON.parse(this.content)
+      try {
+        this._jsonCache = JSON.parse(this.content)
+      } catch {
+        // Return undefined for malformed JSON instead of crashing
+        // This is consistent with jsonSafe() behavior
+        return undefined
+      }
     }
 
     if (!path) {

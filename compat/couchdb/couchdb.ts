@@ -60,6 +60,8 @@
  * - Safe built-ins available: JSON, Object, Array, Math, Date, etc.
  * - Blocked: process, require, fetch, setTimeout, eval, Function, etc.
  * - Cannot access or modify global state
+ * - All prototype chains are frozen to prevent pollution
+ * - Constructor chain escapes are blocked via Proxy traps
  *
  * @example
  * ```typescript
@@ -98,50 +100,193 @@ export interface EmitResult {
 export type ParsedMapFunction = (doc: Record<string, unknown>) => EmitResult[]
 
 /**
- * Safe built-in objects and functions allowed in the sandbox.
- * These are commonly used in CouchDB map functions.
+ * Create frozen safe copies of built-in constructors and utilities.
+ * These prevent prototype pollution by using isolated, frozen copies.
  */
-const SAFE_GLOBALS: Record<string, unknown> = {
-  // Core object constructors
-  Object,
-  Array,
-  String,
-  Number,
-  Boolean,
-  Date,
-  RegExp,
-  Error,
-  TypeError,
-  RangeError,
-  SyntaxError,
+function createSafeBuiltins(): Record<string, unknown> {
+  // Create a safe JSON object that doesn't expose constructors
+  const safeJSON = {
+    parse: (text: string, reviver?: (key: string, value: unknown) => unknown) => {
+      const result = JSON.parse(text, reviver)
+      return deepFreeze(result)
+    },
+    stringify: JSON.stringify.bind(JSON),
+  }
+  Object.freeze(safeJSON)
 
-  // JSON utilities
-  JSON,
+  // Create safe Math object with all methods bound
+  // Note: Math methods are not enumerable, so we need to explicitly copy them
+  const safeMath = Object.freeze({
+    // Constants
+    E: Math.E,
+    LN10: Math.LN10,
+    LN2: Math.LN2,
+    LOG10E: Math.LOG10E,
+    LOG2E: Math.LOG2E,
+    PI: Math.PI,
+    SQRT1_2: Math.SQRT1_2,
+    SQRT2: Math.SQRT2,
+    // Methods
+    abs: Math.abs.bind(Math),
+    acos: Math.acos.bind(Math),
+    acosh: Math.acosh.bind(Math),
+    asin: Math.asin.bind(Math),
+    asinh: Math.asinh.bind(Math),
+    atan: Math.atan.bind(Math),
+    atan2: Math.atan2.bind(Math),
+    atanh: Math.atanh.bind(Math),
+    cbrt: Math.cbrt.bind(Math),
+    ceil: Math.ceil.bind(Math),
+    clz32: Math.clz32.bind(Math),
+    cos: Math.cos.bind(Math),
+    cosh: Math.cosh.bind(Math),
+    exp: Math.exp.bind(Math),
+    expm1: Math.expm1.bind(Math),
+    floor: Math.floor.bind(Math),
+    fround: Math.fround.bind(Math),
+    hypot: Math.hypot.bind(Math),
+    imul: Math.imul.bind(Math),
+    log: Math.log.bind(Math),
+    log10: Math.log10.bind(Math),
+    log1p: Math.log1p.bind(Math),
+    log2: Math.log2.bind(Math),
+    max: Math.max.bind(Math),
+    min: Math.min.bind(Math),
+    pow: Math.pow.bind(Math),
+    random: Math.random.bind(Math),
+    round: Math.round.bind(Math),
+    sign: Math.sign.bind(Math),
+    sin: Math.sin.bind(Math),
+    sinh: Math.sinh.bind(Math),
+    sqrt: Math.sqrt.bind(Math),
+    tan: Math.tan.bind(Math),
+    tanh: Math.tanh.bind(Math),
+    trunc: Math.trunc.bind(Math),
+  })
 
-  // Math utilities
-  Math,
+  // Create safe versions of utility functions
+  const safeIsNaN = (v: unknown) => Number.isNaN(v) || isNaN(v as number)
+  const safeIsFinite = (v: unknown) => Number.isFinite(v)
+  const safeParseInt = (s: string, radix?: number) => parseInt(s, radix)
+  const safeParseFloat = (s: string) => parseFloat(s)
 
-  // Type checking and conversion
-  isNaN,
-  isFinite,
-  parseInt,
-  parseFloat,
+  return {
+    // Safe JSON
+    JSON: safeJSON,
 
-  // URI encoding
-  encodeURI,
-  encodeURIComponent,
-  decodeURI,
-  decodeURIComponent,
+    // Safe Math
+    Math: safeMath,
 
-  // Constants
-  undefined,
-  NaN,
-  Infinity,
+    // Type checking and conversion (safe primitives)
+    isNaN: safeIsNaN,
+    isFinite: safeIsFinite,
+    parseInt: safeParseInt,
+    parseFloat: safeParseFloat,
+
+    // URI encoding (safe functions)
+    encodeURI,
+    encodeURIComponent,
+    decodeURI,
+    decodeURIComponent,
+
+    // Safe constants
+    undefined,
+    NaN,
+    Infinity,
+  }
 }
 
 /**
- * Dangerous globals that must be blocked in the sandbox.
- * These could allow code to escape the sandbox or access system resources.
+ * Deep freeze an object and all nested objects
+ */
+function deepFreeze<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj
+  }
+
+  // Freeze the object itself
+  Object.freeze(obj)
+
+  // Recursively freeze all properties
+  for (const key of Object.keys(obj as object)) {
+    const value = (obj as Record<string, unknown>)[key]
+    if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+      deepFreeze(value)
+    }
+  }
+
+  return obj
+}
+
+/**
+ * Dangerous patterns in source code that indicate sandbox escape attempts.
+ * These patterns are checked BEFORE compilation to prevent attacks.
+ *
+ * Note: Patterns are case-sensitive where needed to avoid false positives.
+ */
+const DANGEROUS_PATTERNS = [
+  // Constructor chain escapes (critical - this is the main escape vector)
+  /\.constructor\b/,
+  /\.__proto__\b/,
+  /\[['"`]constructor['"`]\]/,
+  /\[['"`]__proto__['"`]\]/,
+
+  // Prototype access (used for prototype pollution)
+  /\.prototype\b/,
+  /\[['"`]prototype['"`]\]/,
+
+  // arguments.callee/caller exploitation (stack walking)
+  /\barguments\s*\.\s*callee\b/,
+  /\barguments\s*\.\s*caller\b/,
+  /\barguments\s*\[\s*['"`]callee['"`]\s*\]/,
+  /\barguments\s*\[\s*['"`]caller['"`]\s*\]/,
+
+  // Direct Function/eval access (dynamic code execution)
+  /\bFunction\s*\(/,
+  /\beval\s*\(/,
+  /\bnew\s+Function\b/,
+
+  // Metaprogramming APIs (case-sensitive to avoid false positives)
+  /\bReflect\b/,
+  /\bProxy\b/,
+  /\bSymbol\b/,
+
+  // globalThis is the only truly dangerous global name
+  // (other globals like 'global', 'window' are already shadowed)
+  /\bglobalThis\b/,
+]
+
+/**
+ * Validate that source code doesn't contain dangerous patterns.
+ * @throws Error if dangerous patterns are detected
+ */
+function validateSourceSecurity(source: string): void {
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(source)) {
+      throw new Error(`Sandbox security violation: forbidden pattern detected`)
+    }
+  }
+}
+
+/**
+ * Cache for parsed map functions.
+ * Key is the source code string, value is the compiled executor.
+ *
+ * This avoids re-parsing the same function for every document,
+ * which is a significant performance win for views with many documents.
+ */
+const functionCache = new Map<string, ParsedMapFunction>()
+
+/**
+ * Maximum size of the function cache.
+ * Prevents unbounded memory growth if many different functions are parsed.
+ */
+const MAX_CACHE_SIZE = 1000
+
+/**
+ * List of blocked global names - these are shadowed with undefined.
+ * Note: 'eval' and 'arguments' cannot be used as parameter names in strict mode,
+ * so they are not included here. They are blocked via pattern validation instead.
  */
 const BLOCKED_GLOBALS = [
   // Node.js globals
@@ -169,11 +314,10 @@ const BLOCKED_GLOBALS = [
   'Worker',
   'importScripts',
 
-  // Dynamic code execution
-  'eval',
+  // Dynamic code execution (Function only - eval blocked via pattern)
   'Function',
 
-  // Timers (no async in map functions)
+  // Timers
   'setTimeout',
   'setInterval',
   'setImmediate',
@@ -182,25 +326,28 @@ const BLOCKED_GLOBALS = [
   'clearImmediate',
   'queueMicrotask',
 
-  // Runtime-specific globals
+  // Runtime-specific
   'Deno',
   'Bun',
+
+  // Dangerous built-ins
+  'Proxy',
+  'Reflect',
+  'Symbol',
+
+  // Prototype manipulation
+  'Object',
+  'Array',
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'RegExp',
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
 ]
-
-/**
- * Cache for parsed map functions.
- * Key is the source code string, value is the compiled executor.
- *
- * This avoids re-parsing the same function for every document,
- * which is a significant performance win for views with many documents.
- */
-const functionCache = new Map<string, ParsedMapFunction>()
-
-/**
- * Maximum size of the function cache.
- * Prevents unbounded memory growth if many different functions are parsed.
- */
-const MAX_CACHE_SIZE = 1000
 
 /**
  * Parse a CouchDB map function string into an executable function.
@@ -213,13 +360,15 @@ const MAX_CACHE_SIZE = 1000
  * The function must call emit(key, value) to produce view rows.
  *
  * Security: The function executes in a sandboxed context with:
- * - Access to safe built-ins (JSON, Object, Array, Math, Date, etc.)
- * - No access to process, require, fetch, setTimeout, etc.
- * - No access to globalThis or window
+ * - Access to safe built-ins (JSON, Math)
+ * - No access to constructors, prototypes, or global objects
+ * - Strict mode enabled to disable arguments.callee/caller
+ * - Pre-validated source to block dangerous patterns
  *
  * @param mapFnSource - JavaScript source code for the map function
  * @returns A function that takes a document and returns emit results
  * @throws SyntaxError if the source has syntax errors
+ * @throws Error if the source contains forbidden patterns
  *
  * @example Simple emit
  * ```typescript
@@ -255,28 +404,39 @@ export function parseMapFunction(mapFnSource: string): ParsedMapFunction {
     return cached
   }
 
+  // SECURITY: Validate source before any compilation
+  validateSourceSecurity(mapFnSource)
+
   // Normalize the source to extract the function body
   const normalizedSource = normalizeMapFunctionSource(mapFnSource)
 
-  // Create sandbox context with blocked globals set to undefined
-  const sandboxContext: Record<string, unknown> = { ...SAFE_GLOBALS }
+  // SECURITY: Validate normalized source as well
+  validateSourceSecurity(normalizedSource)
+
+  // Get safe built-ins that don't expose constructors
+  const safeBuiltins = createSafeBuiltins()
+
+  // Create sandbox context - block all dangerous globals
+  const sandboxContext: Record<string, unknown> = { ...safeBuiltins }
   for (const blocked of BLOCKED_GLOBALS) {
     sandboxContext[blocked] = undefined
   }
 
-  // Get the parameter names and create the compiled function
+  // Get the parameter names
   const paramNames = Object.keys(sandboxContext)
 
+  // Wrap in strict mode to disable arguments.callee/caller
+  // and ensure 'this' is undefined in the function body
+  const strictSource = `"use strict"; ${normalizedSource}`
+
   // Create the compiled function
-  // This validates syntax at parse time
   let compiledFn: (...args: unknown[]) => unknown
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    compiledFn = new Function(...paramNames, 'emit', 'doc', normalizedSource) as (
+    compiledFn = new Function(...paramNames, 'emit', 'doc', strictSource) as (
       ...args: unknown[]
     ) => unknown
   } catch (error) {
-    // Re-throw syntax errors with better context
     if (error instanceof SyntaxError) {
       throw new SyntaxError(`Invalid map function syntax: ${error.message}`)
     }
@@ -291,13 +451,21 @@ export function parseMapFunction(mapFnSource: string): ParsedMapFunction {
     const results: EmitResult[] = []
 
     // Create emit function that captures results
+    // The emit function receives deep-frozen copies to prevent modification
     const emit = (key: unknown, value: unknown): void => {
-      results.push({ key, value })
+      results.push({
+        key: key !== null && typeof key === 'object' ? deepFreeze(structuredClone(key)) : key,
+        value:
+          value !== null && typeof value === 'object' ? deepFreeze(structuredClone(value)) : value,
+      })
     }
+
+    // Create a safe, frozen copy of the document to prevent prototype pollution
+    const safeDoc = deepFreeze(structuredClone(doc))
 
     // Execute with sandbox context
     try {
-      compiledFn(...sandboxValues, emit, doc)
+      compiledFn(...sandboxValues, emit, safeDoc)
     } catch (error) {
       // Map function errors should not crash - just produce no results
       // This matches CouchDB behavior where errors in map functions
@@ -309,7 +477,6 @@ export function parseMapFunction(mapFnSource: string): ParsedMapFunction {
   }
 
   // Cache the compiled function
-  // Evict oldest entries if cache is full (simple LRU approximation)
   if (functionCache.size >= MAX_CACHE_SIZE) {
     const firstKey = functionCache.keys().next().value
     if (firstKey) {

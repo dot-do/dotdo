@@ -145,6 +145,133 @@ export function safeParse<T = unknown>(json: string): T | null {
 }
 
 /**
+ * Result type for safeJsonParse with logging
+ */
+export interface JsonParseResult<T> {
+  ok: true
+  value: T
+} | {
+  ok: false
+  error: SyntaxError
+}
+
+/**
+ * Options for safeJsonParse
+ */
+export interface SafeJsonParseOptions {
+  /** Context string for logging (e.g., function name, operation) */
+  context?: string
+  /** Whether to log parse failures (default: true in non-test environments) */
+  log?: boolean
+}
+
+/**
+ * Parse JSON safely with optional fallback value and logging.
+ *
+ * This is the primary utility for guarding JSON.parse() calls throughout the codebase.
+ * It prevents crashes from malformed JSON by catching SyntaxError and returning a fallback.
+ *
+ * @param input - The JSON string to parse
+ * @param fallback - Value to return on parse failure (default: undefined)
+ * @param options - Optional configuration for logging
+ * @returns The parsed value or fallback on error
+ *
+ * @example
+ * // Simple usage with undefined fallback
+ * const data = safeJsonParse(userInput)
+ * if (data === undefined) {
+ *   console.log('Invalid JSON')
+ * }
+ *
+ * @example
+ * // With explicit fallback
+ * const config = safeJsonParse(configString, { enabled: false })
+ *
+ * @example
+ * // With logging context
+ * const data = safeJsonParse(row.data, null, { context: 'ThingsStore.get' })
+ */
+export function safeJsonParse<T = unknown>(input: string): T | undefined
+export function safeJsonParse<T = unknown>(input: string, fallback: T, options?: SafeJsonParseOptions): T
+export function safeJsonParse<T = unknown>(
+  input: string,
+  fallback?: T,
+  options?: SafeJsonParseOptions
+): T | undefined {
+  try {
+    return JSON.parse(input) as T
+  } catch (error) {
+    // Log parse failures for debugging (unless explicitly disabled)
+    const shouldLog = options?.log !== false && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'test'
+    if (shouldLog && error instanceof SyntaxError) {
+      const context = options?.context ? `[${options.context}] ` : ''
+      const preview = input.length > 50 ? input.slice(0, 50) + '...' : input
+      console.warn(`${context}JSON parse failed: ${error.message}. Input preview: "${preview}"`)
+    }
+    return fallback
+  }
+}
+
+/**
+ * Parse JSON safely and return a Result type for explicit error handling.
+ *
+ * Use this when you need to distinguish between:
+ * - Successfully parsed null/undefined values
+ * - Parse failures
+ *
+ * @param input - The JSON string to parse
+ * @returns Result object with either the parsed value or the error
+ *
+ * @example
+ * const result = safeJsonParseResult(userInput)
+ * if (!result.ok) {
+ *   console.error('Parse failed:', result.error.message)
+ *   return
+ * }
+ * // result.value is safely typed
+ */
+export function safeJsonParseResult<T = unknown>(input: string): JsonParseResult<T> {
+  try {
+    return { ok: true, value: JSON.parse(input) as T }
+  } catch (error) {
+    return { ok: false, error: error as SyntaxError }
+  }
+}
+
+/**
+ * Safely deep-clone an object using JSON serialization.
+ *
+ * Handles non-serializable values gracefully:
+ * - Circular references: Returns fallback
+ * - BigInt: Returns fallback
+ * - Functions: Silently dropped (standard JSON.stringify behavior)
+ * - undefined: Silently dropped (standard JSON.stringify behavior)
+ *
+ * @param obj - The object to clone
+ * @param fallback - Value to return if cloning fails (default: empty object)
+ * @param options - Optional configuration for logging
+ * @returns A deep clone of the object or fallback on error
+ */
+export function safeJsonClone<T>(
+  obj: T,
+  fallback: T = {} as T,
+  options?: SafeJsonParseOptions
+): T {
+  try {
+    return JSON.parse(JSON.stringify(obj)) as T
+  } catch (error) {
+    // Log clone failures for debugging
+    const shouldLog = options?.log !== false && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'test'
+    if (shouldLog) {
+      const context = options?.context ? `[${options.context}] ` : ''
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      console.warn(`${context}JSON clone failed: ${errorMsg}`)
+    }
+    return fallback
+  }
+}
+
+/**
  * Serialize an error object for logging/transmission
  */
 export function serializeError(error: unknown): Record<string, unknown> {

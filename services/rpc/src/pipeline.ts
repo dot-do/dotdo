@@ -18,6 +18,7 @@ import type {
   AuthContext,
 } from './types'
 import { GatewayRouter, RequestContext } from './router'
+import { safeJsonClone } from '../../../lib/safe-stringify'
 
 // ============================================================================
 // Types
@@ -305,8 +306,10 @@ export class PipelineExecutor {
       return request
     }
 
-    // Clone params to avoid mutation
-    let params = request.params ? JSON.parse(JSON.stringify(request.params)) : {}
+    // Clone params to avoid mutation (safely handles circular refs, BigInt, etc.)
+    let params = request.params
+      ? safeJsonClone(request.params, {}, { context: 'PipelineExecutor.resolvePipelineExpressions' })
+      : {}
 
     for (const expr of request.pipeline) {
       const sourceResponse = results.get(expr.from)

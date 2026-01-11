@@ -286,8 +286,14 @@ class SubscriptionManager {
       if (sub) {
         try {
           sub.callback(data)
-        } catch {
-          // Ignore callback errors
+        } catch (error) {
+          // Log callback errors so broken subscriptions can be detected
+          console.error('[rpc] Subscription callback error:', {
+            subscriptionId: id,
+            event,
+            error: error instanceof Error ? error.message : 'unknown',
+            stack: error instanceof Error ? error.stack : undefined,
+          })
         }
       }
     }
@@ -846,8 +852,13 @@ export class RPCServer {
           method,
           params,
         }))
-      } catch {
-        // Ignore send errors on closed socket
+      } catch (error) {
+        // Log send errors for debugging WebSocket connection issues
+        console.debug('[rpc] WebSocket notification send failed:', {
+          method,
+          readyState: (server as any).readyState,
+          error: error instanceof Error ? error.message : 'unknown',
+        })
       }
     }
 
@@ -1758,7 +1769,7 @@ export function withRpcServer<T extends DOConstructor>(
   config?: RPCServerConfig
 ) {
   return class extends (Base as new (...args: any[]) => any) implements WithRpcServer {
-    private _rpcServer?: RPCServer
+    protected _rpcServer?: RPCServer
 
     get rpcServer(): RPCServer {
       if (!this._rpcServer) {

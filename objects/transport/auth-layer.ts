@@ -240,6 +240,12 @@ export async function validateToken(
 
 /**
  * Validate a JWT token
+ *
+ * SECURITY: Signature verification is MANDATORY.
+ * - If secret is provided, signature MUST verify
+ * - If no secret is provided, only tokens with alg:none in dev mode are accepted
+ *   (but this is NEVER allowed in production)
+ * - alg:none tokens are ALWAYS rejected (algorithm confusion attack)
  */
 async function validateJWT(
   token: string,
@@ -262,7 +268,30 @@ async function validateJWT(
     try {
       header = JSON.parse(atob(parts[0]))
       payload = JSON.parse(atob(parts[1]))
-    } catch {
+    } catch (error) {
+      console.warn('[auth] JWT parse failed:', {
+        token: token.slice(0, 20) + '...',
+        error: error instanceof Error ? error.message : 'unknown',
+        timestamp: Date.now(),
+      })
+      return null
+    }
+
+    // SECURITY: ALWAYS reject unsigned tokens (alg: none attack)
+    // This is a critical security check that cannot be bypassed
+    if (!header.alg || header.alg.toLowerCase() === 'none') {
+      return null
+    }
+
+    // SECURITY: Require signature verification
+    // If no secret is provided, we cannot verify signatures - reject the token
+    if (!options?.secret) {
+      return null
+    }
+
+    // Verify signature (MANDATORY when secret is provided)
+    const isValid = await verifyJWTSignature(token, options.secret, header.alg)
+    if (!isValid) {
       return null
     }
 
@@ -286,14 +315,6 @@ async function validateJWT(
       }
     }
 
-    // Verify signature if secret provided
-    if (options?.secret) {
-      const isValid = await verifyJWTSignature(token, options.secret, header.alg)
-      if (!isValid) {
-        return null
-      }
-    }
-
     // Build auth context
     return {
       authenticated: true,
@@ -313,7 +334,11 @@ async function validateJWT(
         claims: payload as unknown as Record<string, unknown>,
       },
     }
-  } catch {
+  } catch (error) {
+    console.warn('[auth] JWT validation error:', {
+      error: error instanceof Error ? error.message : 'unknown',
+      timestamp: Date.now(),
+    })
     return null
   }
 }
@@ -355,7 +380,12 @@ async function verifyJWTSignature(
     )
 
     return isValid
-  } catch {
+  } catch (error) {
+    console.warn('[auth] JWT signature verification failed:', {
+      algorithm,
+      error: error instanceof Error ? error.message : 'unknown',
+      timestamp: Date.now(),
+    })
     return false
   }
 }
@@ -653,7 +683,11 @@ export async function validateRequestSignature(
     }
 
     return { valid: true }
-  } catch {
+  } catch (error) {
+    console.warn('[auth] Request signature verification failed:', {
+      error: error instanceof Error ? error.message : 'unknown',
+      timestamp: Date.now(),
+    })
     return { valid: false, error: 'Signature verification failed' }
   }
 }
@@ -664,6 +698,9 @@ export async function validateRequestSignature(
 
 /**
  * Create authentication middleware for DO fetch handler
+ *
+ * SECURITY: In production (NODE_ENV=production), jwtSecret is REQUIRED.
+ * Attempting to create middleware without a secret in production will throw.
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
   const {
@@ -678,6 +715,26 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
     nonceStorage,
     defaultRequireAuth = true,
   } = options
+
+  const isProduction = process.env.NODE_ENV === 'production'
+
+  // SECURITY: Require jwtSecret in production
+  // This prevents accidentally deploying without signature verification
+  if (isProduction && !jwtSecret) {
+    throw new Error(
+      'JWT secret is required in production. ' +
+      'Set the jwtSecret option or configure NODE_ENV=development for testing.'
+    )
+  }
+
+  // Warn in development if no secret is provided
+  if (!isProduction && !jwtSecret) {
+    console.warn(
+      '[auth-layer] WARNING: No jwtSecret configured. ' +
+      'JWT signature verification is disabled. ' +
+      'This is only acceptable in development/testing environments.'
+    )
+  }
 
   // Rate limit state storage (in-memory per DO instance)
   const rateLimitState = new Map<string, RateLimitState>()
@@ -778,10 +835,16 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
             }
           }
 
+          let header: { alg: string; typ?: string }
           let payload: JWTClaims
           try {
+            header = JSON.parse(atob(parts[0]))
             payload = JSON.parse(atob(parts[1]))
-          } catch {
+          } catch (error) {
+            console.warn('[auth] Bearer token parse failed:', {
+              error: error instanceof Error ? error.message : 'unknown',
+              timestamp: Date.now(),
+            })
             return {
               success: false,
               error: 'Token validation failed: invalid token format',
@@ -789,9 +852,39 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
             }
           }
 
+          // SECURITY: ALWAYS reject unsigned tokens (alg: none attack)
+          // This is a critical security check that cannot be bypassed
+          if (!header.alg || header.alg.toLowerCase() === 'none') {
+            return {
+              success: false,
+              error: 'Token validation failed: unsigned tokens not allowed (alg: none)',
+              statusCode: 401,
+            }
+          }
+
+          // SECURITY: Signature verification is MANDATORY
+          // If no secret is configured, we cannot verify signatures - reject the token
+          if (!jwtSecret) {
+            return {
+              success: false,
+              error: 'Token validation failed: signature verification required but no secret configured',
+              statusCode: 401,
+            }
+          }
+
+          // Verify signature (MANDATORY)
+          const isValid = await verifyJWTSignature(token, jwtSecret, header.alg)
+          if (!isValid) {
+            return {
+              success: false,
+              error: 'Token validation failed: invalid signature',
+              statusCode: 401,
+            }
+          }
+
           const now = Math.floor(Date.now() / 1000)
 
-          // Check expiration first
+          // Check expiration
           if (payload.exp && payload.exp < now) {
             return {
               success: false,
@@ -818,19 +911,6 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
             }
           }
 
-          // Verify signature if secret provided
-          if (jwtSecret) {
-            const header = JSON.parse(atob(parts[0]))
-            const isValid = await verifyJWTSignature(token, jwtSecret, header.alg || 'HS256')
-            if (!isValid) {
-              return {
-                success: false,
-                error: 'Token validation failed: invalid signature',
-                statusCode: 401,
-              }
-            }
-          }
-
           // Token is valid, build context
           const context: AuthContext = {
             authenticated: true,
@@ -852,7 +932,11 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
           }
 
           return { success: true, context }
-        } catch {
+        } catch (error) {
+          console.warn('[auth] Token validation failed:', {
+            error: error instanceof Error ? error.message : 'unknown',
+            timestamp: Date.now(),
+          })
           return {
             success: false,
             error: 'Token validation failed: invalid token',
@@ -1137,18 +1221,18 @@ export function withAuth<T extends DOConstructor>(
   options: AuthMiddlewareOptions = {}
 ) {
   return class extends (Base as new (...args: any[]) => any) {
-    private _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
-    private _authMiddleware = createAuthMiddleware({
+    protected _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
+    protected _authMiddleware = createAuthMiddleware({
       ...options,
       sessionStorage: this._sessionStorage,
     })
-    private _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
-    private _jwtSecret = options.jwtSecret || ''
+    protected _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
+    protected _jwtSecret = options.jwtSecret || ''
 
     /**
      * Get $auth config from class
      */
-    private getAuthConfig(): Record<string, MethodAuthConfig> | undefined {
+    protected getAuthConfig(): Record<string, MethodAuthConfig> | undefined {
       return (this.constructor as any).$auth
     }
 
@@ -1181,7 +1265,7 @@ export function withAuth<T extends DOConstructor>(
     /**
      * Handle authentication routes
      */
-    private async handleAuthRoute(request: Request): Promise<Response> {
+    protected async handleAuthRoute(request: Request): Promise<Response> {
       const url = new URL(request.url)
       const path = url.pathname
 
@@ -1202,8 +1286,11 @@ export function withAuth<T extends DOConstructor>(
                 if (payload.sub) {
                   userId = payload.sub
                 }
-              } catch {
-                // Ignore parse errors
+              } catch (error) {
+                // Log parse errors for debugging but continue with default user
+                console.debug('[auth] Login token extraction failed:', {
+                  error: error instanceof Error ? error.message : 'unknown',
+                })
               }
             }
           }
@@ -1235,7 +1322,11 @@ export function withAuth<T extends DOConstructor>(
             refresh_token: refreshToken,
             expires_in: 3600,
           })
-        } catch {
+        } catch (error) {
+          console.error('[auth] Login handler failed:', {
+            error: error instanceof Error ? error.message : 'unknown',
+            timestamp: Date.now(),
+          })
           return Response.json({ error: 'Login failed' }, { status: 401 })
         }
       }
@@ -1283,7 +1374,11 @@ export function withAuth<T extends DOConstructor>(
             refresh_token: newRefreshToken,
             expires_in: 3600,
           })
-        } catch {
+        } catch (error) {
+          console.error('[auth] Refresh token handler failed:', {
+            error: error instanceof Error ? error.message : 'unknown',
+            timestamp: Date.now(),
+          })
           return Response.json({ error: 'Refresh failed' }, { status: 401 })
         }
       }
@@ -1358,7 +1453,7 @@ export function withAuth<T extends DOConstructor>(
     /**
      * Handle WebSocket upgrade with authentication
      */
-    private async handleWebSocketAuth(request: Request): Promise<Response> {
+    protected async handleWebSocketAuth(request: Request): Promise<Response> {
       const authResult = await this._authMiddleware.authenticate(request)
 
       if (!authResult.success || !authResult.context?.authenticated) {
@@ -1383,7 +1478,7 @@ export function withAuth<T extends DOConstructor>(
     /**
      * Handle RPC calls with authentication and authorization
      */
-    private async handleRpcWithAuth(request: Request): Promise<Response> {
+    protected async handleRpcWithAuth(request: Request): Promise<Response> {
       const url = new URL(request.url)
       const methodName = url.pathname.replace('/rpc/', '')
 
@@ -1484,7 +1579,7 @@ export function withAuth<T extends DOConstructor>(
     /**
      * Execute a method and return the response
      */
-    private async executeMethod(
+    protected async executeMethod(
       request: Request,
       methodName: string,
       context: AuthContext
@@ -1506,8 +1601,11 @@ export function withAuth<T extends DOConstructor>(
           try {
             const body = await request.json() as { args?: unknown[]; method?: string }
             args = body.args || []
-          } catch {
-            // Empty body is ok
+          } catch (error) {
+            // Empty body is acceptable, but log non-empty parse failures
+            console.debug('[auth] RPC body parsing skipped:', {
+              error: error instanceof Error ? error.message : 'empty or invalid body',
+            })
           }
         }
 
@@ -1531,7 +1629,7 @@ export function withAuth<T extends DOConstructor>(
     /**
      * Generate a properly signed JWT token
      */
-    private async generateToken(userId: string): Promise<string> {
+    protected async generateToken(userId: string): Promise<string> {
       const header = { alg: 'HS256', typ: 'JWT' }
       const now = Math.floor(Date.now() / 1000)
       const payload = {

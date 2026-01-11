@@ -1759,8 +1759,16 @@ export class EventStreamDO extends DurableObject {
   private safeSend(ws: WebSocket, data: string): void {
     try {
       ws.send(data)
-    } catch {
-      // Ignore send errors
+    } catch (error) {
+      // Log send errors and increment error counter for visibility
+      this.metrics.errorCount++
+      // Only log in debug mode to avoid flooding logs in high-throughput scenarios
+      if (process.env.DEBUG || process.env.NODE_ENV === 'development') {
+        console.warn('[event-stream] WebSocket send failed:', {
+          readyState: (ws as any).readyState,
+          error: error instanceof Error ? error.message : 'unknown',
+        })
+      }
     }
   }
 
@@ -2045,8 +2053,11 @@ export class EventStreamDO extends DurableObject {
     for (const [_, conn] of this.connections) {
       try {
         conn.ws.close(1001, 'Server shutdown')
-      } catch {
-        // Ignore
+      } catch (error) {
+        // Log close errors during shutdown for debugging
+        console.debug('[event-stream] Graceful shutdown ws.close failed:', {
+          error: error instanceof Error ? error.message : 'unknown',
+        })
       }
     }
 

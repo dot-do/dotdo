@@ -228,11 +228,24 @@ export async function aggregateAnthropicStream(
     id,
     model,
     content,
-    toolCalls: toolCalls.map((tc) => ({
-      id: tc.id,
-      name: tc.name,
-      input: tc.input ? JSON.parse(tc.input) : {},
-    })),
+    toolCalls: toolCalls.map((tc) => {
+      // Safely parse tool call input JSON
+      // Malformed JSON (e.g., truncated stream) returns empty object
+      let parsedInput: Record<string, unknown> = {}
+      if (tc.input) {
+        try {
+          parsedInput = JSON.parse(tc.input) as Record<string, unknown>
+        } catch {
+          // Log parse failure for debugging but don't crash
+          console.warn(`[aggregateAnthropicStream] Failed to parse tool call input for ${tc.name}: ${tc.input.slice(0, 100)}`)
+        }
+      }
+      return {
+        id: tc.id,
+        name: tc.name,
+        input: parsedInput,
+      }
+    }),
     stopReason,
     usage,
   }

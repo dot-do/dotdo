@@ -60,7 +60,7 @@ export interface RpcPromise<T> extends Promise<T> {
  * Core function type with triple calling style support.
  *
  * @template Out - The output type
- * @template In - The input type (default: any)
+ * @template In - The input type (default: unknown)
  * @template Opts - Optional configuration object (default: {})
  *
  * @example
@@ -77,7 +77,7 @@ export interface RpcPromise<T> extends Promise<T> {
  * greet`Hello, ${'name'}!`({ name: 'World' }) // => 'Hello, World!'
  * ```
  */
-export interface Fn<Out, In = any, Opts extends Record<string, unknown> = {}> {
+export interface Fn<Out, In = unknown, Opts extends Record<string, unknown> = {}> {
   // Style 1: Direct call
   (input: In, opts?: Opts): Out
 
@@ -98,7 +98,7 @@ export interface Fn<Out, In = any, Opts extends Record<string, unknown> = {}> {
  * Async function type - returns Promise<Out> for all calling styles.
  *
  * @template Out - The output type (wrapped in Promise)
- * @template In - The input type (default: any)
+ * @template In - The input type (default: unknown)
  * @template Opts - Optional configuration object (default: {})
  *
  * @example
@@ -112,7 +112,7 @@ export interface Fn<Out, In = any, Opts extends Record<string, unknown> = {}> {
  */
 export interface AsyncFn<
   Out,
-  In = any,
+  In = unknown,
   Opts extends Record<string, unknown> = {},
 > {
   // Style 1: Direct call
@@ -135,7 +135,7 @@ export interface AsyncFn<
  * RPC function type - returns RpcPromise<Out> for pipelining support.
  *
  * @template Out - The output type (wrapped in RpcPromise)
- * @template In - The input type (default: any)
+ * @template In - The input type (default: unknown)
  * @template Opts - Optional configuration object (default: {})
  *
  * @example
@@ -150,7 +150,7 @@ export interface AsyncFn<
  */
 export interface RpcFn<
   Out,
-  In = any,
+  In = unknown,
   Opts extends Record<string, unknown> = {},
 > {
   // Style 1: Direct call
@@ -173,7 +173,7 @@ export interface RpcFn<
  * Streaming function type - returns AsyncIterable<Out> for streaming results.
  *
  * @template Out - The output type (yielded from AsyncIterable)
- * @template In - The input type (default: any)
+ * @template In - The input type (default: unknown)
  * @template Opts - Optional configuration object (default: {})
  *
  * @example
@@ -191,7 +191,7 @@ export interface RpcFn<
  */
 export interface StreamFn<
   Out,
-  In = any,
+  In = unknown,
   Opts extends Record<string, unknown> = {},
 > {
   // Style 1: Direct call
