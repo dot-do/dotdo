@@ -283,11 +283,11 @@ describe('Cloudflare Queues Integration', () => {
 
         const message1 = createJobMessage({
           jobType: 'email.send',
-          payload: { to: 'user@example.com' },
+          payload: { to: 'user@example.com.ai' },
         })
         const message2 = createJobMessage({
           jobType: 'email.send',
-          payload: { to: 'user@example.com' },
+          payload: { to: 'user@example.com.ai' },
         })
 
         expect(message1.id).toBeDefined()
@@ -372,7 +372,7 @@ describe('Cloudflare Queues Integration', () => {
         const client = createQueueClient(mockQueue as unknown as Queue)
         const message = createJobMessage({
           jobType: 'email.send',
-          payload: { to: 'user@example.com' },
+          payload: { to: 'user@example.com.ai' },
         })
 
         const result = await client.send(message)
@@ -392,8 +392,8 @@ describe('Cloudflare Queues Integration', () => {
 
         const client = createQueueClient(mockQueue as unknown as Queue)
         const messages = [
-          createJobMessage({ jobType: 'email.send', payload: { to: 'user1@example.com' } }),
-          createJobMessage({ jobType: 'email.send', payload: { to: 'user2@example.com' } }),
+          createJobMessage({ jobType: 'email.send', payload: { to: 'user1@example.com.ai' } }),
+          createJobMessage({ jobType: 'email.send', payload: { to: 'user2@example.com.ai' } }),
         ]
 
         const result = await client.sendBatch(messages)
@@ -561,7 +561,7 @@ describe('Cloudflare Queues Integration', () => {
         const mockDlq = createMockQueue()
         const message = createJobMessage({
           jobType: 'email.send',
-          payload: { to: 'user@example.com' },
+          payload: { to: 'user@example.com.ai' },
         })
 
         await sendToDLQ(mockDlq as unknown as Queue, message, {

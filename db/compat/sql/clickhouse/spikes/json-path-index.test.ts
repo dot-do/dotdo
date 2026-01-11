@@ -212,7 +212,7 @@ describe('JSONPathIndex', () => {
       index.write({
         user: {
           name: 'Alice',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
           address: {
             city: 'NYC',
             zip: '10001'
@@ -357,7 +357,7 @@ describe('JSONPathIndex', () => {
       index = new JSONPathIndex({ bloomThreshold: 100 })
 
       for (let i = 0; i < 50; i++) {
-        index.write({ email: `user${i}@example.com` })
+        index.write({ email: `user${i}@example.com.ai` })
       }
 
       expect(index.getBloomFilter('email')).toBeNull()
@@ -367,7 +367,7 @@ describe('JSONPathIndex', () => {
       index = new JSONPathIndex({ bloomThreshold: 100 })
 
       for (let i = 0; i < 100; i++) {
-        index.write({ email: `user${i}@example.com` })
+        index.write({ email: `user${i}@example.com.ai` })
       }
 
       expect(index.getBloomFilter('email')).not.toBeNull()
@@ -377,11 +377,11 @@ describe('JSONPathIndex', () => {
       index = new JSONPathIndex({ bloomThreshold: 10 })
 
       for (let i = 0; i < 100; i++) {
-        index.write({ email: `user${i}@example.com` })
+        index.write({ email: `user${i}@example.com.ai` })
       }
 
-      expect(index.testBloomFilter('email', 'user50@example.com')).toBe(true)
-      expect(index.testBloomFilter('email', 'notinset@example.com')).toBe(false)
+      expect(index.testBloomFilter('email', 'user50@example.com.ai')).toBe(true)
+      expect(index.testBloomFilter('email', 'notinset@example.com.ai')).toBe(false)
     })
 
     it('should return false for unknown paths', () => {
@@ -407,7 +407,7 @@ describe('JSONPathIndex', () => {
       index.write({
         user: {
           name: 'Alice',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
           address: {
             city: 'NYC',
             zip: '10001'
@@ -481,7 +481,7 @@ describe('JSONPathIndex', () => {
         user: {
           id: `user-${i % 1000}`,
           name: `User ${i}`,
-          email: `user${i}@example.com`,
+          email: `user${i}@example.com.ai`,
           metadata: {
             created: Date.now(),
             tags: ['tag1', 'tag2', 'tag3']
@@ -666,7 +666,7 @@ describe('Real-world scenarios', () => {
     for (let i = 0; i < 1000; i++) {
       index.write({
         id: `user-${i}`,                    // High cardinality
-        email: `user${i}@example.com`,      // High cardinality
+        email: `user${i}@example.com.ai`,      // High cardinality
         country: ['US', 'UK', 'DE', 'FR', 'JP'][i % 5],  // Low cardinality
         plan: i < 100 ? 'enterprise' : 'free',           // Very low cardinality
         active: i % 10 !== 0                             // Boolean

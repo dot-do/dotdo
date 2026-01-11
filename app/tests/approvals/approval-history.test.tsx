@@ -642,7 +642,7 @@ describe('ApprovalHistoryPage', () => {
               action: 'approve',
               userId: 'user-1',
               userName: 'John',
-              userEmail: 'john@example.com',
+              userEmail: 'john@example.com.ai',
               ipAddress: '192.168.1.1',
               userAgent: 'Mozilla/5.0...',
             },

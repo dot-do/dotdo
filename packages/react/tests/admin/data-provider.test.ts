@@ -36,9 +36,9 @@ interface TestUser extends BaseRecord {
 }
 
 const mockUsers: TestUser[] = [
-  { $id: 'user-1', name: 'Alice', email: 'alice@example.com', role: 'admin' },
-  { $id: 'user-2', name: 'Bob', email: 'bob@example.com', role: 'user' },
-  { $id: 'user-3', name: 'Charlie', email: 'charlie@example.com', role: 'user' },
+  { $id: 'user-1', name: 'Alice', email: 'alice@example.com.ai', role: 'admin' },
+  { $id: 'user-2', name: 'Bob', email: 'bob@example.com.ai', role: 'user' },
+  { $id: 'user-3', name: 'Charlie', email: 'charlie@example.com.ai', role: 'user' },
 ]
 
 // Helper to create a successful RPC response
@@ -74,7 +74,7 @@ describe('DotdoDataProvider', () => {
     mockFetch.mockReset()
 
     provider = DotdoDataProvider({
-      ns: 'https://api.example.com/do/workspace',
+      ns: 'https://api.example.com.ai/do/workspace',
       fetch: mockFetch,
     })
   })
@@ -105,7 +105,7 @@ describe('DotdoDataProvider', () => {
       })
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/do/workspace/rpc',
+        'https://api.example.com.ai/do/workspace/rpc',
         expect.objectContaining({
           method: 'POST',
         })
@@ -183,7 +183,7 @@ describe('DotdoDataProvider', () => {
     it('should create a new record', async () => {
       const newUser: Omit<TestUser, '$id' | 'id'> = {
         name: 'Dave',
-        email: 'dave@example.com',
+        email: 'dave@example.com.ai',
         role: 'user',
       }
 

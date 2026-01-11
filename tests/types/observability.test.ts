@@ -138,7 +138,7 @@ describe('Valid ObservabilityEvent', () => {
       timestamp: Date.now(),
       requestId: 'req-abc123',
       method: 'POST',
-      url: 'https://api.example.com/users',
+      url: 'https://api.example.com.ai/users',
       status: 201,
       duration: 150,
     })
@@ -148,7 +148,7 @@ describe('Valid ObservabilityEvent', () => {
       expect(result.data.type).toBe('request')
       expect(result.data.requestId).toBe('req-abc123')
       expect(result.data.method).toBe('POST')
-      expect(result.data.url).toBe('https://api.example.com/users')
+      expect(result.data.url).toBe('https://api.example.com.ai/users')
       expect(result.data.status).toBe(201)
       expect(result.data.duration).toBe(150)
     }

@@ -64,7 +64,7 @@ export interface BaseMessage {
  * ```typescript
  * const message = createJobMessage({
  *   jobType: 'email.send',
- *   payload: { to: 'user@example.com', subject: 'Welcome!' },
+ *   payload: { to: 'user@example.com.ai', subject: 'Welcome!' },
  *   priority: 1, // High priority
  * })
  * await queueClient.send(message)
@@ -89,8 +89,8 @@ export interface JobMessage extends BaseMessage {
  * ```typescript
  * const message = createEventMessage({
  *   verb: 'Customer.created',
- *   source: 'https://app.example.com/DO/customers',
- *   data: { customerId: 'cust-123', email: 'user@example.com' },
+ *   source: 'https://app.example.com.ai/DO/customers',
+ *   data: { customerId: 'cust-123', email: 'user@example.com.ai' },
  *   targets: ['webhook-handler', 'analytics-pipeline'],
  * })
  * await queueClient.send(message)

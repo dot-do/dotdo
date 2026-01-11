@@ -462,7 +462,7 @@ describe('Non-Reference Strings (No Operator)', () => {
   })
 
   it('returns null for URL-like strings', () => {
-    const result = parseReferenceOperator('https://example.com')
+    const result = parseReferenceOperator('https://example.com.ai')
 
     expect(result).toBeNull()
   })

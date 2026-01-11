@@ -50,7 +50,7 @@ function createFullEvent(): ObservabilityEvent {
     timestamp: 1704070800000, // 2024-01-01T01:00:00.000Z
     requestId: 'req-abc123',
     method: 'POST',
-    url: 'https://api.example.com/users',
+    url: 'https://api.example.com.ai/users',
     status: 201,
     duration: 150,
     doName: 'CustomerDO',
@@ -536,7 +536,7 @@ describe('Edge Cases', () => {
       level: 'info',
       requestId: 'req-abc123',
       method: 'POST',
-      url: 'https://api.example.com/users',
+      url: 'https://api.example.com.ai/users',
       status: 201,
       duration: 150,
     })
@@ -545,7 +545,7 @@ describe('Edge Cases', () => {
     expect(result.type).toBe('request')
     expect(result.request_id).toBe('req-abc123')
     expect(result.method).toBe('POST')
-    expect(result.url).toBe('https://api.example.com/users')
+    expect(result.url).toBe('https://api.example.com.ai/users')
     expect(result.status).toBe(201)
     expect(result.duration_ms).toBe(150)
   })

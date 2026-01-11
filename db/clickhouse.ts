@@ -1319,7 +1319,7 @@ export function createAnonymousClient(config: AnonymousConfig): AnonymousClientW
  * @example
  * ```typescript
  * const url = buildGetUrl({
- *   baseUrl: 'https://clickhouse.example.com:8443',
+ *   baseUrl: 'https://clickhouse.example.com.ai:8443',
  *   sql: "SELECT * FROM events WHERE date = {date:Date}",
  *   params: { date: '2025-01-09' },
  *   format: 'JSONEachRow',

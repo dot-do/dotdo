@@ -49,7 +49,7 @@ import { createClient } from '@dotdo/supabase'
 const supabase = createClient('https://project.supabase.co', 'anon-key')
 
 // Insert
-await supabase.from('users').insert({ name: 'Alice', email: 'alice@example.com' })
+await supabase.from('users').insert({ name: 'Alice', email: 'alice@example.com.ai' })
 
 // Select
 const { data } = await supabase.from('users').select('*').eq('active', true)
@@ -62,7 +62,7 @@ await supabase.from('users').delete().eq('id', 1)
 
 // Auth
 const { data: { user } } = await supabase.auth.signUp({
-  email: 'user@example.com',
+  email: 'user@example.com.ai',
   password: 'secure-password'
 })
 ```
@@ -207,7 +207,7 @@ Invoke serverless functions.
 
 ```typescript
 const { data, error } = await supabase.functions.invoke('process-image', {
-  body: { url: 'https://example.com/image.png' }
+  body: { url: 'https://example.com.ai/image.png' }
 })
 ```
 

@@ -538,7 +538,7 @@ describe('Item operations', () => {
             sk: { S: 'profile' },
             name: { S: 'Alice' },
             age: { N: '30' },
-            email: { S: 'alice@example.com' },
+            email: { S: 'alice@example.com.ai' },
           },
         })
       )

@@ -751,7 +751,7 @@ export function withErrorHandler(
  *
  * @example
  * const handler = withCORS(baseHandler, {
- *   origin: 'https://example.com',
+ *   origin: 'https://example.com.ai',
  *   methods: ['GET', 'POST'],
  * })
  */

@@ -219,7 +219,7 @@ describe('BrowseSession.goto()', () => {
   })
 
   it('navigates to URL', async () => {
-    const url = 'https://example.com'
+    const url = 'https://example.com.ai'
 
     await session.goto(url)
 
@@ -230,7 +230,7 @@ describe('BrowseSession.goto()', () => {
   })
 
   it('handles URL with path and query params', async () => {
-    const url = 'https://example.com/page?foo=bar&baz=qux'
+    const url = 'https://example.com.ai/page?foo=bar&baz=qux'
 
     await session.goto(url)
 
@@ -271,7 +271,7 @@ describe('BrowseSession.act()', () => {
   })
 
   it('returns action result with details', async () => {
-    const instruction = 'Fill in the email field with test@example.com'
+    const instruction = 'Fill in the email field with test@example.com.ai'
 
     const result = await session.act(instruction)
 

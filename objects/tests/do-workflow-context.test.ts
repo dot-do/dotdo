@@ -699,7 +699,7 @@ describe('DO Workflow Context ($)', () => {
 
       it('method call with arguments rejects', async () => {
         await expect(
-          ctx.$.Invoice('inv-456').send({ format: 'pdf', email: 'user@example.com' })
+          ctx.$.Invoice('inv-456').send({ format: 'pdf', email: 'user@example.com.ai' })
         ).rejects.toThrow('Not implemented')
       })
 
@@ -872,7 +872,7 @@ describe('DO Workflow Context ($)', () => {
         id: 'evt-1',
         verb: 'created',
         source: 'https://customers.do/cust-123',
-        data: { email: 'test@example.com' },
+        data: { email: 'test@example.com.ai' },
         timestamp: new Date(),
       }
 

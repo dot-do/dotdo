@@ -101,7 +101,7 @@ describe('Activity Routing', () => {
           taskQueue: 'email-worker-queue',
         })
 
-        const result = await activities.sendEmail('user@example.com', 'Hello', 'World')
+        const result = await activities.sendEmail('user@example.com.ai', 'Hello', 'World')
         return result
       }
 
@@ -113,7 +113,7 @@ describe('Activity Routing', () => {
       // RED: This will fail because proxyActivities doesn't call executeActivity handler
       expect(activityCalls).toHaveLength(1)
       expect(activityCalls[0].name).toBe('sendEmail')
-      expect(activityCalls[0].args).toEqual(['user@example.com', 'Hello', 'World'])
+      expect(activityCalls[0].args).toEqual(['user@example.com.ai', 'Hello', 'World'])
       expect(result.messageId).toBe('msg-123')
     })
 
@@ -159,7 +159,7 @@ describe('Activity Routing', () => {
         executeActivity: async (activityName: string, args: unknown[]) => {
           activityExecuted = true
           executedOnQueue = 'workflow-queue' // Track which queue executed it
-          return { id: 'user-1', name: 'Test User', email: 'test@example.com' }
+          return { id: 'user-1', name: 'Test User', email: 'test@example.com.ai' }
         },
       })
 

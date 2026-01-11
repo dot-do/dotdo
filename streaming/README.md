@@ -87,7 +87,7 @@ const messages = await consumer.fetch({ max_messages: 10 })
 
 ```typescript
 // Sub-second latency via EventStreamDO
-const ws = new WebSocket('wss://stream.example.com/events?topic=orders')
+const ws = new WebSocket('wss://stream.example.com.ai/events?topic=orders')
 
 ws.onmessage = (event) => {
   const order = JSON.parse(event.data)

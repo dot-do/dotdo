@@ -509,7 +509,7 @@ describe('$.vault Access Control', () => {
       })
 
       const { state } = await $.vaults.connect('github', {
-        redirectUri: 'https://example.com/callback',
+        redirectUri: 'https://example.com.ai/callback',
       })
 
       $._mockTokenExchange.set('github', {
@@ -539,7 +539,7 @@ describe('$.vault Access Control', () => {
       const state = 'expired_state'
       $._storage.pendingOAuth.set(state, {
         provider: 'github',
-        redirectUri: 'https://example.com/callback',
+        redirectUri: 'https://example.com.ai/callback',
         createdAt: new Date(Date.now() - 10 * 60 * 1000), // 10 min ago
         expiresAt: new Date(Date.now() - 5 * 60 * 1000), // Expired 5 min ago
       })
@@ -738,7 +738,7 @@ describe('$.vault DO Lifecycle Integration', () => {
 
       // 1. Initiate connection
       const { state, authorizationUrl } = await $.vaults.connect('github', {
-        redirectUri: 'https://example.com/callback',
+        redirectUri: 'https://example.com.ai/callback',
       })
       expect(authorizationUrl).toContain('github.com')
       expect(state).toBeDefined()
@@ -866,7 +866,7 @@ describe('$.vault DO Lifecycle Integration', () => {
         clientId: 'test-client',
         clientSecret: 'test-secret',
         scopes: ['email'],
-        redirectUri: 'https://app.example.com/callback',
+        redirectUri: 'https://app.example.com.ai/callback',
       }
 
       const initResult = await $.oauth.initiate(oauthConfig)
@@ -891,7 +891,7 @@ describe('$.vault DO Lifecycle Integration', () => {
         clientId: 'test-client',
         clientSecret: 'test-secret',
         scopes: ['email'],
-        redirectUri: 'https://app.example.com/callback',
+        redirectUri: 'https://app.example.com.ai/callback',
       }
 
       const initResult = await $.oauth.initiate(oauthConfig)

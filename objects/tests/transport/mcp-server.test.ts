@@ -566,7 +566,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('DO should expose handleMcp method for MCP transport', () => {
@@ -585,7 +585,7 @@ describe('MCP Server Integration', () => {
     })
 
     it('handleMcp should be routed from fetch on /mcp path', async () => {
-      const request = new Request('https://test.example.com/mcp', {
+      const request = new Request('https://test.example.com.ai/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createJsonRpcRequest('initialize')),
@@ -611,7 +611,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('response should include jsonrpc: "2.0"', async () => {
@@ -724,7 +724,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('should return protocol version on initialize', async () => {
@@ -803,7 +803,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('should return all tools defined in $mcp.tools', async () => {
@@ -898,7 +898,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       // Initialize session
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
@@ -1058,7 +1058,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1108,7 +1108,7 @@ describe('MCP Server Integration', () => {
       const result = json.result as { resources: McpResource[] }
       const itemsResource = result.resources.find((r) => r.name === 'items')
 
-      expect(itemsResource!.uri).toContain('test.example.com')
+      expect(itemsResource!.uri).toContain('test.example.com.ai')
     })
   })
 
@@ -1122,7 +1122,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1134,7 +1134,7 @@ describe('MCP Server Integration', () => {
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const request = createMcpRequest(
         createJsonRpcRequest('resources/read', {
-          uri: 'do://test.example.com/items',
+          uri: 'do://test.example.com.ai/items',
         }),
         sessionId
       )
@@ -1155,7 +1155,7 @@ describe('MCP Server Integration', () => {
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const request = createMcpRequest(
         createJsonRpcRequest('resources/read', {
-          uri: 'do://test.example.com/nonexistent',
+          uri: 'do://test.example.com.ai/nonexistent',
         }),
         sessionId
       )
@@ -1170,7 +1170,7 @@ describe('MCP Server Integration', () => {
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const request = createMcpRequest(
         createJsonRpcRequest('resources/read', {
-          uri: 'do://test.example.com/items/1',
+          uri: 'do://test.example.com.ai/items/1',
         }),
         sessionId
       )
@@ -1200,7 +1200,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new AsyncMethodsDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1213,7 +1213,7 @@ describe('MCP Server Integration', () => {
       const request = createMcpRequest(
         createJsonRpcRequest('tools/call', {
           name: 'asyncFetch',
-          arguments: { url: 'https://example.com' },
+          arguments: { url: 'https://example.com.ai' },
         }),
         sessionId
       )
@@ -1226,7 +1226,7 @@ describe('MCP Server Integration', () => {
       const parsed = JSON.parse(result.content[0].text)
 
       expect(parsed.status).toBe('fetched')
-      expect(parsed.url).toBe('https://example.com')
+      expect(parsed.url).toBe('https://example.com.ai')
     })
 
     it('should handle async methods with delays', async () => {
@@ -1264,7 +1264,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new ErrorThrowingDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1338,7 +1338,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1426,7 +1426,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('should create a new session on initialize', async () => {
@@ -1504,7 +1504,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new MixedMethodsDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1558,7 +1558,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('should respond to ping without session', async () => {
@@ -1586,7 +1586,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))
@@ -1621,7 +1621,7 @@ describe('MCP Server Integration', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new McpTestDO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const handleMcp = (doInstance as unknown as { handleMcp: (req: Request) => Promise<Response> }).handleMcp
       const initReq = createMcpRequest(createJsonRpcRequest('initialize'))

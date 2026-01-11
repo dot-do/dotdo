@@ -109,7 +109,7 @@ const SUPPORTED_PROVIDERS: Provider[] = [
 
 const MOCK_SESSION: Session = {
   userId: 'user_123',
-  email: 'test@example.com',
+  email: 'test@example.com.ai',
   accessToken: 'session_token_xyz',
   expiresAt: new Date(Date.now() + 3600000).toISOString(),
 }
@@ -736,14 +736,14 @@ describe('CLI Link Command - LinkedAccount Creation', () => {
         profile: {
           providerAccountId: 'gh_user_456',
           displayName: 'Test User',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
         },
         config: mockConfig(),
         session: MOCK_SESSION,
       })
 
       expect(result.linkedAccount?.displayName).toBe('Test User')
-      expect(result.linkedAccount?.email).toBe('test@example.com')
+      expect(result.linkedAccount?.email).toBe('test@example.com.ai')
     })
 
     it('includes avatar URL in LinkedAccount', async () => {
@@ -928,8 +928,8 @@ describe('CLI Link Command - List Accounts', () => {
         profile: {
           providerAccountId: 'gh_metadata_test',
           displayName: 'Test User',
-          email: 'test@example.com',
-          avatarUrl: 'https://example.com/avatar.png',
+          email: 'test@example.com.ai',
+          avatarUrl: 'https://example.com.ai/avatar.png',
         },
         config: mockConfig(),
         session: MOCK_SESSION,
@@ -946,8 +946,8 @@ describe('CLI Link Command - List Accounts', () => {
 
       expect(githubAccount).toBeDefined()
       expect(githubAccount?.displayName).toBe('Test User')
-      expect(githubAccount?.email).toBe('test@example.com')
-      expect(githubAccount?.avatarUrl).toBe('https://example.com/avatar.png')
+      expect(githubAccount?.email).toBe('test@example.com.ai')
+      expect(githubAccount?.avatarUrl).toBe('https://example.com.ai/avatar.png')
     })
 
     it('shows granted scopes for each account', async () => {
@@ -1244,7 +1244,7 @@ describe('CLI Link Command - Edge Cases', () => {
     it('handles network timeout gracefully', async () => {
       const result = await link('github', {
         openBrowser: mockBrowserOpen().mock,
-        config: mockConfig({ apiUrl: 'https://slow.api.example.com', timeout: 1 }),
+        config: mockConfig({ apiUrl: 'https://slow.api.example.com.ai', timeout: 1 }),
         session: MOCK_SESSION,
       })
 
@@ -1262,7 +1262,7 @@ describe('CLI Link Command - Edge Cases', () => {
           providerAccountId: 'gh_api_error',
           displayName: 'API Error',
         },
-        config: mockConfig({ apiUrl: 'https://error.api.example.com' }),
+        config: mockConfig({ apiUrl: 'https://error.api.example.com.ai' }),
         session: MOCK_SESSION,
       })
 

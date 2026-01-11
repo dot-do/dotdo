@@ -102,7 +102,7 @@ describe('$.db Proxy - CRUD Operations', () => {
       const expectedUser: UserSchema = {
         id: 'user-123',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         createdAt: new Date('2024-01-15'),
       }
 
@@ -112,12 +112,12 @@ describe('$.db Proxy - CRUD Operations', () => {
 
       const user = await db.User.create({
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
 
       expect(mockClient.create).toHaveBeenCalledWith('User', {
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
       expect(user).toEqual(expectedUser)
     })
@@ -154,7 +154,7 @@ describe('$.db Proxy - CRUD Operations', () => {
       const expectedUser: UserSchema = {
         id: 'user-123',
         name: 'Bob',
-        email: 'bob@example.com',
+        email: 'bob@example.com.ai',
         createdAt: new Date('2024-01-10'),
       }
 
@@ -184,7 +184,7 @@ describe('$.db Proxy - CRUD Operations', () => {
       const updatedUser: UserSchema = {
         id: 'user-123',
         name: 'Alice Updated',
-        email: 'alice.new@example.com',
+        email: 'alice.new@example.com.ai',
         createdAt: new Date('2024-01-15'),
       }
 
@@ -194,12 +194,12 @@ describe('$.db Proxy - CRUD Operations', () => {
 
       const user = await db.User.update('user-123', {
         name: 'Alice Updated',
-        email: 'alice.new@example.com',
+        email: 'alice.new@example.com.ai',
       })
 
       expect(mockClient.update).toHaveBeenCalledWith('User', 'user-123', {
         name: 'Alice Updated',
-        email: 'alice.new@example.com',
+        email: 'alice.new@example.com.ai',
       })
       expect(user).toEqual(updatedUser)
     })
@@ -266,8 +266,8 @@ describe('$.db Proxy - Query Operations', () => {
   describe('$.db.Noun.list(options)', () => {
     it('should return paginated list of records', async () => {
       const users: UserSchema[] = [
-        { id: 'user-1', name: 'Alice', email: 'alice@example.com', createdAt: new Date() },
-        { id: 'user-2', name: 'Bob', email: 'bob@example.com', createdAt: new Date() },
+        { id: 'user-1', name: 'Alice', email: 'alice@example.com.ai', createdAt: new Date() },
+        { id: 'user-2', name: 'Bob', email: 'bob@example.com.ai', createdAt: new Date() },
       ]
 
       mockClient.list.mockResolvedValue({
@@ -563,11 +563,11 @@ describe('$.db Proxy - Lazy Evaluation', () => {
       expect(mockClient.create).not.toHaveBeenCalled()
 
       // Invoke later
-      await createUser({ name: 'Deferred User', email: 'deferred@example.com' })
+      await createUser({ name: 'Deferred User', email: 'deferred@example.com.ai' })
 
       expect(mockClient.create).toHaveBeenCalledWith('User', {
         name: 'Deferred User',
-        email: 'deferred@example.com',
+        email: 'deferred@example.com.ai',
       })
     })
   })
@@ -589,7 +589,7 @@ describe('$.db Proxy - Type Inference', () => {
       const expectedUser: UserSchema = {
         id: 'user-123',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         createdAt: new Date(),
       }
 
@@ -669,7 +669,7 @@ describe('$.db Proxy - Type Inference', () => {
       // This should be type-safe - only UserSchema fields allowed
       await db.User.create({
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
       })
 
       // TypeScript should catch errors like:
@@ -708,7 +708,7 @@ describe('$.db Proxy - Edge Cases', () => {
 
       const db = create$DbProxy<TestSchemas>({ client: mockClient })
 
-      await expect(db.User.create({ name: 'Test', email: 'test@example.com' }))
+      await expect(db.User.create({ name: 'Test', email: 'test@example.com.ai' }))
         .rejects.toThrow('Database connection failed')
     })
 

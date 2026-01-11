@@ -62,7 +62,7 @@ await client.query(`
 `)
 
 // Insert with parameterized query
-await client.query('INSERT INTO users (name, email) VALUES ($1, $2)', ['Alice', 'alice@example.com'])
+await client.query('INSERT INTO users (name, email) VALUES ($1, $2)', ['Alice', 'alice@example.com.ai'])
 
 // Select
 const { rows } = await client.query('SELECT * FROM users WHERE id = $1', [1])
@@ -220,13 +220,13 @@ await client.query('SELECT * FROM users WHERE id = $1 AND active = $2', [1, true
 // Insert with RETURNING
 const { rows } = await client.query(
   'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name',
-  ['Bob', 'bob@example.com']
+  ['Bob', 'bob@example.com.ai']
 )
 
 // Update multiple columns
 await client.query(
   'UPDATE users SET name = $1, email = $2, updated_at = $3 WHERE id = $4',
-  ['Robert', 'robert@example.com', new Date().toISOString(), 1]
+  ['Robert', 'robert@example.com.ai', new Date().toISOString(), 1]
 )
 ```
 

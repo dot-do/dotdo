@@ -905,7 +905,7 @@ export function adminLoginHtml(): string {
 
         <form method="POST" action="/admin/login">
           <label for="email">Email</label>
-          <input type="email" id="email" name="email" required placeholder="you@example.com">
+          <input type="email" id="email" name="email" required placeholder="you@example.com.ai">
 
           <label for="password">Password</label>
           <input type="password" id="password" name="password" required placeholder="••••••••">
@@ -941,14 +941,14 @@ export function adminUsersHtml(): string {
       <tbody>
         <tr>
           <td>John Doe</td>
-          <td>john@example.com</td>
+          <td>john@example.com.ai</td>
           <td>Admin</td>
           <td><span style="color: #059669;">Active</span></td>
           <td><a href="/admin/users/user-1">Edit</a></td>
         </tr>
         <tr>
           <td>Jane Smith</td>
-          <td>jane@example.com</td>
+          <td>jane@example.com.ai</td>
           <td>User</td>
           <td><span style="color: #059669;">Active</span></td>
           <td><a href="/admin/users/user-2">Edit</a></td>
@@ -966,7 +966,7 @@ export function adminUserNewHtml(): string {
       <input type="text" id="name" name="name" required placeholder="Full name">
 
       <label for="email">Email</label>
-      <input type="email" id="email" name="email" required placeholder="user@example.com">
+      <input type="email" id="email" name="email" required placeholder="user@example.com.ai">
 
       <label for="role">Role</label>
       <select id="role" name="role">
@@ -1116,7 +1116,7 @@ export function adminSettingsAccountHtml(): string {
       <input type="text" id="name" name="name" value="John Doe">
 
       <label for="email">Email</label>
-      <input type="email" id="email" name="email" value="john@example.com" readonly style="background: #f9fafb;">
+      <input type="email" id="email" name="email" value="john@example.com.ai" readonly style="background: #f9fafb;">
 
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>

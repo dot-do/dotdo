@@ -134,7 +134,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * @example
  * ```typescript
  * const result = await queryRange(
- *   'https://cdn.example.com/marks/users.marks',
+ *   'https://cdn.example.com.ai/marks/users.marks',
  *   { columnType: 'int64', blockCount: 100, blockSize: 8192 },
  *   { min: 1000n, max: 2000n }
  * )

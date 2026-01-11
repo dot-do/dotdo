@@ -137,7 +137,7 @@ const createMockRequest = (options: {
   headers?: Record<string, string>
   body?: string
 }) => {
-  const url = options.url || 'https://stream.example.com/events'
+  const url = options.url || 'https://stream.example.com.ai/events'
   const method = options.method || 'GET'
   const headers = new Headers(options.headers || {})
 
@@ -251,7 +251,7 @@ describe('EventStreamDO', () => {
     describe('connection upgrade', () => {
       it('should accept WebSocket upgrade request', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders',
+          url: 'https://stream.example.com.ai/events?topic=orders',
           headers: {
             Upgrade: 'websocket',
             Connection: 'Upgrade',
@@ -268,7 +268,7 @@ describe('EventStreamDO', () => {
 
       it('should reject non-WebSocket requests to WebSocket endpoint', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           method: 'GET',
         })
 
@@ -279,7 +279,7 @@ describe('EventStreamDO', () => {
 
       it('should parse topic from query string', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders.new',
+          url: 'https://stream.example.com.ai/events?topic=orders.new',
           headers: {
             Upgrade: 'websocket',
           },
@@ -294,7 +294,7 @@ describe('EventStreamDO', () => {
 
       it('should support multiple topics via query string', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders&topic=payments&topic=users',
+          url: 'https://stream.example.com.ai/events?topic=orders&topic=payments&topic=users',
           headers: {
             Upgrade: 'websocket',
           },
@@ -310,11 +310,11 @@ describe('EventStreamDO', () => {
 
       it('should assign unique connection ID', async () => {
         const request1 = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
         const request2 = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -334,7 +334,7 @@ describe('EventStreamDO', () => {
 
         const requests = Array.from({ length: 3 }, () =>
           createMockRequest({
-            url: 'https://stream.example.com/events',
+            url: 'https://stream.example.com.ai/events',
             headers: { Upgrade: 'websocket' },
           })
         )
@@ -354,7 +354,7 @@ describe('EventStreamDO', () => {
         expect(eventStream.connectionCount).toBe(0)
 
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -365,7 +365,7 @@ describe('EventStreamDO', () => {
 
       it('should handle disconnection', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=test',
+          url: 'https://stream.example.com.ai/events?topic=test',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -384,7 +384,7 @@ describe('EventStreamDO', () => {
 
       it('should clean up topic subscriptions on disconnect', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders&topic=payments',
+          url: 'https://stream.example.com.ai/events?topic=orders&topic=payments',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -403,7 +403,7 @@ describe('EventStreamDO', () => {
 
       it('should handle connection errors gracefully', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -422,7 +422,7 @@ describe('EventStreamDO', () => {
 
       it('should send welcome message on connect', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=test',
+          url: 'https://stream.example.com.ai/events?topic=test',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -441,7 +441,7 @@ describe('EventStreamDO', () => {
     describe('message handling', () => {
       it('should handle subscribe message', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -462,7 +462,7 @@ describe('EventStreamDO', () => {
 
       it('should handle unsubscribe message', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders&topic=payments',
+          url: 'https://stream.example.com.ai/events?topic=orders&topic=payments',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -486,7 +486,7 @@ describe('EventStreamDO', () => {
 
       it('should handle ping message', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -505,7 +505,7 @@ describe('EventStreamDO', () => {
 
       it('should ignore invalid JSON messages', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -522,7 +522,7 @@ describe('EventStreamDO', () => {
 
       it('should ignore unknown message types', async () => {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events',
+          url: 'https://stream.example.com.ai/events',
           headers: { Upgrade: 'websocket' },
         })
 
@@ -553,15 +553,15 @@ describe('EventStreamDO', () => {
 
       // Create 3 connections with different topic subscriptions
       const req1 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders',
+        url: 'https://stream.example.com.ai/events?topic=orders',
         headers: { Upgrade: 'websocket' },
       })
       const req2 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders&topic=payments',
+        url: 'https://stream.example.com.ai/events?topic=orders&topic=payments',
         headers: { Upgrade: 'websocket' },
       })
       const req3 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=users',
+        url: 'https://stream.example.com.ai/events?topic=users',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -689,7 +689,7 @@ describe('EventStreamDO', () => {
       it('should support wildcard topic matching', async () => {
         // Add wildcard subscriber
         const reqWildcard = createMockRequest({
-          url: 'https://stream.example.com/events?topic=orders.*',
+          url: 'https://stream.example.com.ai/events?topic=orders.*',
           headers: { Upgrade: 'websocket' },
         })
         const resWildcard = await eventStream.fetch(reqWildcard as any)
@@ -742,7 +742,7 @@ describe('EventStreamDO', () => {
         const connections: MockWebSocket[] = []
         for (let i = 0; i < 1000; i++) {
           const req = createMockRequest({
-            url: 'https://stream.example.com/events?topic=mass',
+            url: 'https://stream.example.com.ai/events?topic=mass',
             headers: { Upgrade: 'websocket' },
           })
           const res = await eventStream.fetch(req as any)
@@ -770,7 +770,7 @@ describe('EventStreamDO', () => {
         eventStream = new EventStreamDO(mockState as any)
 
         const req = createMockRequest({
-          url: 'https://stream.example.com/events?topic=ordered',
+          url: 'https://stream.example.com.ai/events?topic=ordered',
           headers: { Upgrade: 'websocket' },
         })
         const res = await eventStream.fetch(req as any)
@@ -1133,7 +1133,7 @@ describe('EventStreamDO', () => {
     describe('sub-10ms message latency', () => {
       it('should broadcast with sub-10ms latency', async () => {
         const req = createMockRequest({
-          url: 'https://stream.example.com/events?topic=perf',
+          url: 'https://stream.example.com.ai/events?topic=perf',
           headers: { Upgrade: 'websocket' },
         })
         const res = await eventStream.fetch(req as any)
@@ -1155,7 +1155,7 @@ describe('EventStreamDO', () => {
         const connections: MockWebSocket[] = []
         for (let i = 0; i < 100; i++) {
           const req = createMockRequest({
-            url: 'https://stream.example.com/events?topic=load',
+            url: 'https://stream.example.com.ai/events?topic=load',
             headers: { Upgrade: 'websocket' },
           })
           const res = await eventStream.fetch(req as any)
@@ -1180,7 +1180,7 @@ describe('EventStreamDO', () => {
 
       it('should measure end-to-end latency including serialization', async () => {
         const req = createMockRequest({
-          url: 'https://stream.example.com/events?topic=e2e',
+          url: 'https://stream.example.com.ai/events?topic=e2e',
           headers: { Upgrade: 'websocket' },
         })
         const res = await eventStream.fetch(req as any)
@@ -1198,7 +1198,7 @@ describe('EventStreamDO', () => {
           customer: {
             id: 'cust-123',
             name: 'Test Customer',
-            email: 'test@example.com',
+            email: 'test@example.com.ai',
           },
           metadata: {
             source: 'api',
@@ -1226,7 +1226,7 @@ describe('EventStreamDO', () => {
         // Create 10,000 connections
         for (let i = 0; i < 10_000; i++) {
           const req = createMockRequest({
-            url: `https://stream.example.com/events?topic=topic-${i % 100}`,
+            url: `https://stream.example.com.ai/events?topic=topic-${i % 100}`,
             headers: { Upgrade: 'websocket' },
           })
           await eventStream.fetch(req as any)
@@ -1243,7 +1243,7 @@ describe('EventStreamDO', () => {
         const connections: MockWebSocket[] = []
         for (let i = 0; i < 10_000; i++) {
           const req = createMockRequest({
-            url: 'https://stream.example.com/events?topic=broadcast',
+            url: 'https://stream.example.com.ai/events?topic=broadcast',
             headers: { Upgrade: 'websocket' },
           })
           const res = await eventStream.fetch(req as any)
@@ -1280,7 +1280,7 @@ describe('EventStreamDO', () => {
         for (let i = 0; i < 1000; i++) {
           const topics = [`topic-${i % 10}`, `topic-${(i + 5) % 10}`]
           const req = createMockRequest({
-            url: `https://stream.example.com/events?topic=${topics.join('&topic=')}`,
+            url: `https://stream.example.com.ai/events?topic=${topics.join('&topic=')}`,
             headers: { Upgrade: 'websocket' },
           })
           await eventStream.fetch(req as any)
@@ -1304,7 +1304,7 @@ describe('EventStreamDO', () => {
         const connections: MockWebSocket[] = []
         for (let i = 0; i < 100; i++) {
           const req = createMockRequest({
-            url: 'https://stream.example.com/events?topic=cleanup',
+            url: 'https://stream.example.com.ai/events?topic=cleanup',
             headers: { Upgrade: 'websocket' },
           })
           const res = await eventStream.fetch(req as any)
@@ -1330,7 +1330,7 @@ describe('EventStreamDO', () => {
         // Create many topics
         for (let i = 0; i < 1000; i++) {
           const req = createMockRequest({
-            url: `https://stream.example.com/events?topic=topic-${i}`,
+            url: `https://stream.example.com.ai/events?topic=topic-${i}`,
             headers: { Upgrade: 'websocket' },
           })
           await eventStream.fetch(req as any)
@@ -1361,7 +1361,7 @@ describe('EventStreamDO', () => {
     it('should handle POST /broadcast', async () => {
       // Connect a subscriber first
       const wsReq = createMockRequest({
-        url: 'https://stream.example.com/events?topic=api-test',
+        url: 'https://stream.example.com.ai/events?topic=api-test',
         headers: { Upgrade: 'websocket' },
       })
       const wsRes = await eventStream.fetch(wsReq as any)
@@ -1370,7 +1370,7 @@ describe('EventStreamDO', () => {
 
       // POST to broadcast
       const req = createMockRequest({
-        url: 'https://stream.example.com/broadcast',
+        url: 'https://stream.example.com.ai/broadcast',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1389,14 +1389,14 @@ describe('EventStreamDO', () => {
       // Create some connections
       for (let i = 0; i < 5; i++) {
         const req = createMockRequest({
-          url: `https://stream.example.com/events?topic=stats-${i % 2}`,
+          url: `https://stream.example.com.ai/events?topic=stats-${i % 2}`,
           headers: { Upgrade: 'websocket' },
         })
         await eventStream.fetch(req as any)
       }
 
       const req = createMockRequest({
-        url: 'https://stream.example.com/stats',
+        url: 'https://stream.example.com.ai/stats',
         method: 'GET',
       })
 
@@ -1413,7 +1413,7 @@ describe('EventStreamDO', () => {
       await eventStream.broadcast(createTestEvent({ type: 'query-test' }))
 
       const req = createMockRequest({
-        url: 'https://stream.example.com/query',
+        url: 'https://stream.example.com.ai/query',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1430,7 +1430,7 @@ describe('EventStreamDO', () => {
 
     it('should return 404 for unknown endpoints', async () => {
       const req = createMockRequest({
-        url: 'https://stream.example.com/unknown',
+        url: 'https://stream.example.com.ai/unknown',
         method: 'GET',
       })
 
@@ -1450,7 +1450,7 @@ describe('EventStreamDO', () => {
 
       // Customer dashboard connects
       const dashboardReq = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.user-123',
+        url: 'https://stream.example.com.ai/events?topic=orders.user-123',
         headers: { Upgrade: 'websocket' },
       })
       const dashboardRes = await eventStream.fetch(dashboardReq as any)
@@ -1459,7 +1459,7 @@ describe('EventStreamDO', () => {
 
       // Admin panel connects
       const adminReq = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.*',
+        url: 'https://stream.example.com.ai/events?topic=orders.*',
         headers: { Upgrade: 'websocket' },
       })
       const adminRes = await eventStream.fetch(adminReq as any)
@@ -1524,7 +1524,7 @@ describe('EventStreamDO', () => {
 
       // Client connects
       const req = createMockRequest({
-        url: 'https://stream.example.com/events?topic=recovery',
+        url: 'https://stream.example.com.ai/events?topic=recovery',
         headers: { Upgrade: 'websocket' },
       })
       const res = await eventStream.fetch(req as any)
@@ -1555,7 +1555,7 @@ describe('EventStreamDO', () => {
 
       // Client reconnects
       const req2 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=recovery',
+        url: 'https://stream.example.com.ai/events?topic=recovery',
         headers: { Upgrade: 'websocket' },
       })
       const res2 = await eventStream.fetch(req2 as any)
@@ -1585,7 +1585,7 @@ describe('EventStreamDO', () => {
 
     it('should accept WebSocket with hibernation support', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=hibernate',
+        url: 'https://stream.example.com.ai/events?topic=hibernate',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1598,7 +1598,7 @@ describe('EventStreamDO', () => {
 
     it('should handle webSocketMessage event', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=test',
+        url: 'https://stream.example.com.ai/events?topic=test',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1617,7 +1617,7 @@ describe('EventStreamDO', () => {
 
     it('should handle webSocketClose event', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=hibernate',
+        url: 'https://stream.example.com.ai/events?topic=hibernate',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1633,7 +1633,7 @@ describe('EventStreamDO', () => {
 
     it('should handle webSocketError event', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=error',
+        url: 'https://stream.example.com.ai/events?topic=error',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1649,7 +1649,7 @@ describe('EventStreamDO', () => {
 
     it('should restore state after hibernation', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=persist',
+        url: 'https://stream.example.com.ai/events?topic=persist',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1674,7 +1674,7 @@ describe('EventStreamDO', () => {
 
     it('should serialize connection state for hibernation', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=serialize',
+        url: 'https://stream.example.com.ai/events?topic=serialize',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1702,7 +1702,7 @@ describe('EventStreamDO', () => {
 
     it('should track pending messages per connection', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=backpressure',
+        url: 'https://stream.example.com.ai/events?topic=backpressure',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1733,7 +1733,7 @@ describe('EventStreamDO', () => {
       })
 
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=drop',
+        url: 'https://stream.example.com.ai/events?topic=drop',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1764,7 +1764,7 @@ describe('EventStreamDO', () => {
       })
 
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=notify',
+        url: 'https://stream.example.com.ai/events?topic=notify',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1794,7 +1794,7 @@ describe('EventStreamDO', () => {
 
     it('should implement slow start for reconnecting clients', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=slowstart',
+        url: 'https://stream.example.com.ai/events?topic=slowstart',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1831,7 +1831,7 @@ describe('EventStreamDO', () => {
 
     it('should deduplicate events with same ID', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=dedup',
+        url: 'https://stream.example.com.ai/events?topic=dedup',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1857,7 +1857,7 @@ describe('EventStreamDO', () => {
       })
 
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=dedup-expire',
+        url: 'https://stream.example.com.ai/events?topic=dedup-expire',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1879,7 +1879,7 @@ describe('EventStreamDO', () => {
 
     it('should track dedup IDs per topic', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=topic1&topic=topic2',
+        url: 'https://stream.example.com.ai/events?topic=topic1&topic=topic2',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1898,7 +1898,7 @@ describe('EventStreamDO', () => {
 
     it('should expose dedup stats', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=stats',
+        url: 'https://stream.example.com.ai/events?topic=stats',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1935,7 +1935,7 @@ describe('EventStreamDO', () => {
 
       // Connect with Last-Event-ID
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=replay',
+        url: 'https://stream.example.com.ai/events?topic=replay',
         headers: {
           Upgrade: 'websocket',
           'Last-Event-ID': events[4].id, // Request events after #5
@@ -1963,7 +1963,7 @@ describe('EventStreamDO', () => {
       }
 
       const request = createMockRequest({
-        url: `https://stream.example.com/events?topic=replay-qs&lastEventId=${events[1].id}`,
+        url: `https://stream.example.com.ai/events?topic=replay-qs&lastEventId=${events[1].id}`,
         headers: { Upgrade: 'websocket' },
       })
 
@@ -1993,7 +1993,7 @@ describe('EventStreamDO', () => {
       }
 
       const request = createMockRequest({
-        url: `https://stream.example.com/events?topic=replay-ts&fromTimestamp=${baseTime + 2500}`,
+        url: `https://stream.example.com.ai/events?topic=replay-ts&fromTimestamp=${baseTime + 2500}`,
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2018,7 +2018,7 @@ describe('EventStreamDO', () => {
       const oldTimestamp = Date.now() - 10 * 60 * 1000
 
       const request = createMockRequest({
-        url: `https://stream.example.com/events?topic=old&fromTimestamp=${oldTimestamp}`,
+        url: `https://stream.example.com.ai/events?topic=old&fromTimestamp=${oldTimestamp}`,
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2033,7 +2033,7 @@ describe('EventStreamDO', () => {
 
     it('should include event ID in all broadcast messages', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=ids',
+        url: 'https://stream.example.com.ai/events?topic=ids',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2061,7 +2061,7 @@ describe('EventStreamDO', () => {
     it('should track connection metrics', async () => {
       for (let i = 0; i < 5; i++) {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=metrics',
+          url: 'https://stream.example.com.ai/events?topic=metrics',
           headers: { Upgrade: 'websocket' },
         })
         await eventStream.fetch(request as any)
@@ -2075,7 +2075,7 @@ describe('EventStreamDO', () => {
 
     it('should track message throughput', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=throughput',
+        url: 'https://stream.example.com.ai/events?topic=throughput',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2097,7 +2097,7 @@ describe('EventStreamDO', () => {
       for (const topic of topics) {
         for (let i = 0; i < 3; i++) {
           const request = createMockRequest({
-            url: `https://stream.example.com/events?topic=${topic}`,
+            url: `https://stream.example.com.ai/events?topic=${topic}`,
             headers: { Upgrade: 'websocket' },
           })
           await eventStream.fetch(request as any)
@@ -2113,7 +2113,7 @@ describe('EventStreamDO', () => {
 
     it('should track error counts', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=errors',
+        url: 'https://stream.example.com.ai/events?topic=errors',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2133,7 +2133,7 @@ describe('EventStreamDO', () => {
 
     it('should track latency percentiles', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=latency',
+        url: 'https://stream.example.com.ai/events?topic=latency',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2153,14 +2153,14 @@ describe('EventStreamDO', () => {
     it('should expose metrics via HTTP endpoint', async () => {
       // Add some activity
       const wsReq = createMockRequest({
-        url: 'https://stream.example.com/events?topic=http-metrics',
+        url: 'https://stream.example.com.ai/events?topic=http-metrics',
         headers: { Upgrade: 'websocket' },
       })
       await eventStream.fetch(wsReq as any)
 
       // Get metrics via HTTP
       const metricsReq = createMockRequest({
-        url: 'https://stream.example.com/metrics',
+        url: 'https://stream.example.com.ai/metrics',
         method: 'GET',
       })
 
@@ -2173,7 +2173,7 @@ describe('EventStreamDO', () => {
 
     it('should support Prometheus format metrics', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/metrics',
+        url: 'https://stream.example.com.ai/metrics',
         method: 'GET',
         headers: { Accept: 'text/plain' },
       })
@@ -2199,7 +2199,7 @@ describe('EventStreamDO', () => {
 
     it('should match single-level wildcard (*)', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.*',
+        url: 'https://stream.example.com.ai/events?topic=orders.*',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2217,7 +2217,7 @@ describe('EventStreamDO', () => {
 
     it('should match multi-level wildcard (>)', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.>',
+        url: 'https://stream.example.com.ai/events?topic=orders.>',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2235,7 +2235,7 @@ describe('EventStreamDO', () => {
 
     it('should match exact topic only when no wildcards', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.created',
+        url: 'https://stream.example.com.ai/events?topic=orders.created',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2252,7 +2252,7 @@ describe('EventStreamDO', () => {
 
     it('should support mixed patterns per connection', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders.*&topic=payments.>',
+        url: 'https://stream.example.com.ai/events?topic=orders.*&topic=payments.>',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2272,7 +2272,7 @@ describe('EventStreamDO', () => {
       const connections: MockWebSocket[] = []
       for (let i = 0; i < 100; i++) {
         const request = createMockRequest({
-          url: `https://stream.example.com/events?topic=tenant-${i % 10}.*`,
+          url: `https://stream.example.com.ai/events?topic=tenant-${i % 10}.*`,
           headers: { Upgrade: 'websocket' },
         })
         const response = await eventStream.fetch(request as any)
@@ -2310,7 +2310,7 @@ describe('EventStreamDO', () => {
 
     it('should reject connection without auth token', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=secure',
+        url: 'https://stream.example.com.ai/events?topic=secure',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2321,7 +2321,7 @@ describe('EventStreamDO', () => {
 
     it('should accept connection with valid auth token', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=secure&token=valid-token',
+        url: 'https://stream.example.com.ai/events?topic=secure&token=valid-token',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2335,7 +2335,7 @@ describe('EventStreamDO', () => {
 
     it('should accept auth token from Authorization header', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=secure',
+        url: 'https://stream.example.com.ai/events?topic=secure',
         headers: {
           Upgrade: 'websocket',
           Authorization: 'Bearer valid-token',
@@ -2351,7 +2351,7 @@ describe('EventStreamDO', () => {
 
     it('should restrict topics based on auth claims', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=admin.secrets',
+        url: 'https://stream.example.com.ai/events?topic=admin.secrets',
         headers: {
           Upgrade: 'websocket',
           Authorization: 'Bearer user-token',
@@ -2373,7 +2373,7 @@ describe('EventStreamDO', () => {
 
     it('should allow topic subscription based on claims', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=user.123.*',
+        url: 'https://stream.example.com.ai/events?topic=user.123.*',
         headers: {
           Upgrade: 'websocket',
           Authorization: 'Bearer user-123-token',
@@ -2401,7 +2401,7 @@ describe('EventStreamDO', () => {
       eventStream.setTokenValidator(async () => ({ valid: true }))
 
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=refresh&token=initial-token',
+        url: 'https://stream.example.com.ai/events?topic=refresh&token=initial-token',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2439,7 +2439,7 @@ describe('EventStreamDO', () => {
 
     it('should allow messages within rate limit', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=ratelimit',
+        url: 'https://stream.example.com.ai/events?topic=ratelimit',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2457,7 +2457,7 @@ describe('EventStreamDO', () => {
 
     it('should allow burst up to burst size', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=burst',
+        url: 'https://stream.example.com.ai/events?topic=burst',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2475,7 +2475,7 @@ describe('EventStreamDO', () => {
 
     it('should queue or drop messages exceeding rate limit', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=exceed',
+        url: 'https://stream.example.com.ai/events?topic=exceed',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2494,7 +2494,7 @@ describe('EventStreamDO', () => {
 
     it('should replenish tokens over time', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=replenish',
+        url: 'https://stream.example.com.ai/events?topic=replenish',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2525,11 +2525,11 @@ describe('EventStreamDO', () => {
     it('should apply rate limit per connection', async () => {
       // Two connections, each should have own rate limit
       const req1 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=perconn',
+        url: 'https://stream.example.com.ai/events?topic=perconn',
         headers: { Upgrade: 'websocket' },
       })
       const req2 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=perconn',
+        url: 'https://stream.example.com.ai/events?topic=perconn',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2562,7 +2562,7 @@ describe('EventStreamDO', () => {
 
     it('should broadcast error events to error topic', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=_errors',
+        url: 'https://stream.example.com.ai/events?topic=_errors',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2585,7 +2585,7 @@ describe('EventStreamDO', () => {
 
     it('should include error context in error events', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=_errors',
+        url: 'https://stream.example.com.ai/events?topic=_errors',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2610,7 +2610,7 @@ describe('EventStreamDO', () => {
 
     it('should not broadcast errors to regular topics', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=orders',
+        url: 'https://stream.example.com.ai/events?topic=orders',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2629,7 +2629,7 @@ describe('EventStreamDO', () => {
 
     it('should support error severity levels', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=_errors',
+        url: 'https://stream.example.com.ai/events?topic=_errors',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2660,7 +2660,7 @@ describe('EventStreamDO', () => {
     it('should reject new connections during shutdown', async () => {
       // Create initial connection
       const req1 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=shutdown',
+        url: 'https://stream.example.com.ai/events?topic=shutdown',
         headers: { Upgrade: 'websocket' },
       })
       await eventStream.fetch(req1 as any)
@@ -2670,7 +2670,7 @@ describe('EventStreamDO', () => {
 
       // Try to connect during shutdown
       const req2 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=shutdown',
+        url: 'https://stream.example.com.ai/events?topic=shutdown',
         headers: { Upgrade: 'websocket' },
       })
       const response = await eventStream.fetch(req2 as any)
@@ -2680,7 +2680,7 @@ describe('EventStreamDO', () => {
 
     it('should notify existing connections of impending shutdown', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=notify-shutdown',
+        url: 'https://stream.example.com.ai/events?topic=notify-shutdown',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2699,7 +2699,7 @@ describe('EventStreamDO', () => {
 
     it('should wait for pending messages to drain', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=drain',
+        url: 'https://stream.example.com.ai/events?topic=drain',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2727,7 +2727,7 @@ describe('EventStreamDO', () => {
 
     it('should force close after drain timeout', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=force-close',
+        url: 'https://stream.example.com.ai/events?topic=force-close',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2754,7 +2754,7 @@ describe('EventStreamDO', () => {
 
       for (let i = 0; i < 5; i++) {
         const request = createMockRequest({
-          url: 'https://stream.example.com/events?topic=all-close',
+          url: 'https://stream.example.com.ai/events?topic=all-close',
           headers: { Upgrade: 'websocket' },
         })
         const response = await eventStream.fetch(request as any)
@@ -2789,7 +2789,7 @@ describe('EventStreamDO', () => {
 
     it('should broadcast batch of events atomically', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=batch',
+        url: 'https://stream.example.com.ai/events?topic=batch',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2815,11 +2815,11 @@ describe('EventStreamDO', () => {
 
     it('should handle batch with mixed topics', async () => {
       const req1 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=topic-a',
+        url: 'https://stream.example.com.ai/events?topic=topic-a',
         headers: { Upgrade: 'websocket' },
       })
       const req2 = createMockRequest({
-        url: 'https://stream.example.com/events?topic=topic-b',
+        url: 'https://stream.example.com.ai/events?topic=topic-b',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2874,7 +2874,7 @@ describe('EventStreamDO', () => {
 
       for (const topic of topics) {
         const request = createMockRequest({
-          url: `https://stream.example.com/events?topic=${topic}`,
+          url: `https://stream.example.com.ai/events?topic=${topic}`,
           headers: { Upgrade: 'websocket' },
         })
         await eventStream.fetch(request as any)
@@ -2890,7 +2890,7 @@ describe('EventStreamDO', () => {
 
     it('should remove topic when last subscriber disconnects', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=temporary',
+        url: 'https://stream.example.com.ai/events?topic=temporary',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2907,7 +2907,7 @@ describe('EventStreamDO', () => {
 
     it('should track topic message counts', async () => {
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=counted',
+        url: 'https://stream.example.com.ai/events?topic=counted',
         headers: { Upgrade: 'websocket' },
       })
 
@@ -2927,7 +2927,7 @@ describe('EventStreamDO', () => {
       })
 
       const request = createMockRequest({
-        url: 'https://stream.example.com/events?topic=ttl-topic',
+        url: 'https://stream.example.com.ai/events?topic=ttl-topic',
         headers: { Upgrade: 'websocket' },
       })
 

@@ -159,7 +159,7 @@ Trigger handlers across the system:
 
 ```typescript
 // Emit customer actions
-$.emit.Customer.signup({ id: 'cust-123', email: 'alice@example.com' })
+$.emit.Customer.signup({ id: 'cust-123', email: 'alice@example.com.ai' })
 $.emit.Customer.upgraded({ customerId: 'cust-123', plan: 'professional' })
 
 // Emit order actions
@@ -167,7 +167,7 @@ $.emit.Order.placed({ orderId: 'ord-456', items: [...], total: 99.99 })
 $.emit.Order.shipped({ orderId: 'ord-456', trackingNumber: 'TRK-789' })
 
 // Emit payment actions
-$.emit.Invoice.sent({ invoiceId: 'inv-001', recipientEmail: 'bob@example.com' })
+$.emit.Invoice.sent({ invoiceId: 'inv-001', recipientEmail: 'bob@example.com.ai' })
 $.emit.Invoice.overdue({ invoiceId: 'inv-001', daysOverdue: 30 })
 ```
 
@@ -202,13 +202,13 @@ Every action generates an event. The event captures the full context:
 
 ```typescript
 // You emit:
-$.emit.Customer.signup({ email: 'alice@example.com' })
+$.emit.Customer.signup({ email: 'alice@example.com.ai' })
 
 // System records:
 {
   // WHO
   actor: 'agent:system',
-  source: 'https://app.example.com/signup',
+  source: 'https://app.example.com.ai/signup',
 
   // WHAT
   object: 'Customer/cust-123',
@@ -223,7 +223,7 @@ $.emit.Customer.signup({ email: 'alice@example.com' })
 
   // HOW
   method: 'code',
-  context: { email: 'alice@example.com' }
+  context: { email: 'alice@example.com.ai' }
 }
 ```
 
@@ -373,7 +373,7 @@ Actions record HOW they were performed:
   object: 'Refund/refund-789',
   method: 'human',
   channel: 'dashboard',
-  actor: 'user:alice@example.com'
+  actor: 'user:alice@example.com.ai'
 }
 ```
 

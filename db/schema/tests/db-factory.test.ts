@@ -608,8 +608,8 @@ describe('Schema Metadata', () => {
 
     it('$id can be any valid URL', () => {
       const schemas = [
-        { $id: 'https://example.com/schema/v1', User: { name: 'string' } },
-        { $id: 'https://api.example.com/schemas/user', User: { name: 'string' } },
+        { $id: 'https://example.com.ai/schema/v1', User: { name: 'string' } },
+        { $id: 'https://api.example.com.ai/schemas/user', User: { name: 'string' } },
         { $id: 'db://local/myschema', User: { name: 'string' } },
         { $id: 'urn:schema:user:v1', User: { name: 'string' } },
       ]

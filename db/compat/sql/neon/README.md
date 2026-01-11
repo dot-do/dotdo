@@ -56,7 +56,7 @@ await sql`
 
 // Insert with interpolation (safe from SQL injection)
 const name = 'Alice'
-const email = 'alice@example.com'
+const email = 'alice@example.com.ai'
 await sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`
 
 // Query with interpolation
@@ -86,7 +86,7 @@ const users = await sql`
 `
 
 // Returns array of row objects by default
-// [{ id: 1, name: 'Alice', email: 'alice@example.com' }]
+// [{ id: 1, name: 'Alice', email: 'alice@example.com.ai' }]
 ```
 
 ### Full Results Mode

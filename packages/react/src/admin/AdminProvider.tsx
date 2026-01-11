@@ -68,7 +68,7 @@ AdminContext.displayName = 'AdminContext'
  *
  * function App() {
  *   const dataProvider = DotdoDataProvider({
- *     ns: 'https://api.example.com/do/workspace'
+ *     ns: 'https://api.example.com.ai/do/workspace'
  *   })
  *
  *   return (

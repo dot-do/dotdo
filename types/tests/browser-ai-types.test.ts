@@ -57,7 +57,7 @@ import {
 describe('Browser Type Definition', () => {
   it('should define Browser interface with required fields', () => {
     const browser: Browser = {
-      $id: 'https://example.com/browser/abc123',
+      $id: 'https://example.com.ai/browser/abc123',
       $type: 'Browser',
       name: 'My Browser Session',
       status: 'idle',
@@ -90,7 +90,7 @@ describe('Browser Type Definition', () => {
 
   it('should allow optional currentUrl field', () => {
     const browser: Browser = {
-      $id: 'https://example.com/browser/abc123',
+      $id: 'https://example.com.ai/browser/abc123',
       $type: 'Browser',
       name: 'Session',
       status: 'active',
@@ -105,7 +105,7 @@ describe('Browser Type Definition', () => {
 
   it('should allow optional liveViewUrl field', () => {
     const browser: Browser = {
-      $id: 'https://example.com/browser/abc123',
+      $id: 'https://example.com.ai/browser/abc123',
       $type: 'Browser',
       name: 'Session',
       status: 'active',
@@ -120,7 +120,7 @@ describe('Browser Type Definition', () => {
 
   it('should allow optional sessionId field', () => {
     const browser: Browser = {
-      $id: 'https://example.com/browser/abc123',
+      $id: 'https://example.com.ai/browser/abc123',
       $type: 'Browser',
       name: 'Session',
       status: 'active',
@@ -222,7 +222,7 @@ describe('BrowseVerb Type Definition', () => {
       event: 'browsed',
       input: {
         mode: 'navigate',
-        url: 'https://example.com',
+        url: 'https://example.com.ai',
       },
       output: {
         success: true,
@@ -261,10 +261,10 @@ describe('BrowseInput Type', () => {
   it('should allow optional url field', () => {
     const input: BrowseInput = {
       mode: 'navigate',
-      url: 'https://example.com',
+      url: 'https://example.com.ai',
     }
 
-    expect(input.url).toBe('https://example.com')
+    expect(input.url).toBe('https://example.com.ai')
   })
 
   it('should allow optional instructions field', () => {
@@ -279,7 +279,7 @@ describe('BrowseInput Type', () => {
   it('should allow optional schema field for extraction', () => {
     const input: BrowseInput = {
       mode: 'extract',
-      url: 'https://example.com/products',
+      url: 'https://example.com.ai/products',
       schema: {
         type: 'object',
         properties: {
@@ -305,7 +305,7 @@ describe('BrowseInput Type', () => {
   it('should validate BrowseInput with navigate mode', () => {
     const result = validateBrowseInput({
       mode: 'navigate',
-      url: 'https://example.com',
+      url: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(true)
@@ -392,10 +392,10 @@ describe('BrowseOutput Type', () => {
   it('should allow optional currentUrl field', () => {
     const output: BrowseOutput = {
       success: true,
-      currentUrl: 'https://example.com/redirected',
+      currentUrl: 'https://example.com.ai/redirected',
     }
 
-    expect(output.currentUrl).toBe('https://example.com/redirected')
+    expect(output.currentUrl).toBe('https://example.com.ai/redirected')
   })
 })
 

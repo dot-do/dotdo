@@ -19,7 +19,7 @@
  *
  * // Send email
  * await api.emails.send({
- *   to: 'user@example.com',
+ *   to: 'user@example.com.ai',
  *   subject: 'Hello',
  *   body: 'World',
  * })
@@ -689,7 +689,7 @@ function createStripeApi(
       async retrieve(id: string): Promise<{ id: string; email: string }> {
         return execute('customers.retrieve', async () => ({
           id,
-          email: 'customer@example.com',
+          email: 'customer@example.com.ai',
         }))
       },
     },
@@ -808,7 +808,7 @@ function createHubSpotApi(
       async get(id: string): Promise<HubSpotContactResult> {
         return execute('contacts.get', async () => ({
           id,
-          properties: { email: 'contact@example.com' },
+          properties: { email: 'contact@example.com.ai' },
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }))

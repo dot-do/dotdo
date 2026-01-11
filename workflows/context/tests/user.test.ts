@@ -12,7 +12,7 @@ describe('$.user.* Context API', () => {
       if (path === '/confirm') {
         return Promise.resolve(new Response(JSON.stringify({ confirmed: true })))
       } else if (path === '/prompt') {
-        return Promise.resolve(new Response(JSON.stringify({ answer: 'test@example.com' })))
+        return Promise.resolve(new Response(JSON.stringify({ answer: 'test@example.com.ai' })))
       } else if (path === '/select') {
         return Promise.resolve(new Response(JSON.stringify({ selected: 'medium' })))
       } else if (path === '/notify') {
@@ -62,7 +62,7 @@ describe('$.user.* Context API', () => {
     it('should support placeholder and validation', async () => {
       const { user } = createUserProxy({ env: mockEnv })
       const result = await user.prompt('Email', {
-        placeholder: 'you@example.com',
+        placeholder: 'you@example.com.ai',
         validate: (v) => v.includes('@'),
       })
       expect(result).toBeTruthy()

@@ -816,7 +816,7 @@ describe('Modifier API', () => {
         name: '  John Doe  ',
       })
 
-      expect(result.email).toBe('user@example.com')
+      expect(result.email).toBe('user@example.com.ai')
       expect(result.name).toBe('John Doe')
     })
 

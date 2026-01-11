@@ -182,7 +182,7 @@ function createUser(overrides: Partial<User> = {}): User {
     $id: `user-${Math.random().toString(36).slice(2)}`,
     $type: 'User',
     name: 'Test User',
-    email: 'test@example.com',
+    email: 'test@example.com.ai',
     role: 'member',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -579,7 +579,7 @@ describe.skip('App Data Layer', () => {
           type: 'initial',
           collection: 'User',
           data: [
-            createUser({ $id: 'user-1', name: 'Alice', email: 'alice@example.com' }),
+            createUser({ $id: 'user-1', name: 'Alice', email: 'alice@example.com.ai' }),
           ],
           txid: 100,
         })
@@ -607,7 +607,7 @@ describe.skip('App Data Layer', () => {
 
       // Verify joined assignee
       expect(screen.getByTestId('assignee-name')).toHaveTextContent('Alice')
-      expect(screen.getByTestId('assignee-email')).toHaveTextContent('alice@example.com')
+      expect(screen.getByTestId('assignee-email')).toHaveTextContent('alice@example.com.ai')
 
       // Verify joined project
       expect(screen.getByTestId('project-name')).toHaveTextContent('Alpha Project')

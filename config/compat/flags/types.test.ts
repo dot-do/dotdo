@@ -283,7 +283,7 @@ describe('TargetingClause', () => {
       const clause: TargetingClause = {
         attribute: 'email',
         operator: 'in',
-        values: ['test@example.com'],
+        values: ['test@example.com.ai'],
       }
       expectTypeOf(clause.attribute).toBeString()
       expect(clause.attribute).toBe('email')
@@ -293,7 +293,7 @@ describe('TargetingClause', () => {
       const clause: TargetingClause = {
         attribute: 'email',
         operator: 'in',
-        values: ['test@example.com'],
+        values: ['test@example.com.ai'],
       }
       expectTypeOf(clause.operator).toMatchTypeOf<TargetingOperator>()
     })
@@ -302,7 +302,7 @@ describe('TargetingClause', () => {
       const clause: TargetingClause = {
         attribute: 'email',
         operator: 'in',
-        values: ['test@example.com'],
+        values: ['test@example.com.ai'],
       }
       expectTypeOf(clause.values).toMatchTypeOf<unknown[]>()
     })
@@ -314,7 +314,7 @@ describe('TargetingClause', () => {
         contextKind: 'user',
         attribute: 'email',
         operator: 'in',
-        values: ['test@example.com'],
+        values: ['test@example.com.ai'],
       }
       expectTypeOf(clause.contextKind).toMatchTypeOf<string | undefined>()
     })
@@ -323,7 +323,7 @@ describe('TargetingClause', () => {
       const clause: TargetingClause = {
         attribute: 'email',
         operator: 'in',
-        values: ['test@example.com'],
+        values: ['test@example.com.ai'],
         negate: true,
       }
       expectTypeOf(clause.negate).toMatchTypeOf<boolean | undefined>()
@@ -450,10 +450,10 @@ describe('EvaluationContext', () => {
 
   it('should support custom string attributes', () => {
     const context: EvaluationContext = {
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       name: 'Test User',
     }
-    expect(context.email).toBe('test@example.com')
+    expect(context.email).toBe('test@example.com.ai')
     expect(context.name).toBe('Test User')
   })
 
@@ -822,7 +822,7 @@ describe('isValidEvaluationContext', () => {
   it('should return true for valid context', () => {
     const context = {
       targetingKey: 'user-123',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
     }
     expect(isValidEvaluationContext(context)).toBe(true)
   })

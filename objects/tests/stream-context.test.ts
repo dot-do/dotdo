@@ -271,7 +271,7 @@ describe('Stream Emission with $context (RED Phase)', () => {
         await things.create({
           type: 'Customer',
           name: 'Test Customer',
-          data: { email: 'test@example.com' },
+          data: { email: 'test@example.com.ai' },
         })
       } catch {
         // Expected: mock DB may throw

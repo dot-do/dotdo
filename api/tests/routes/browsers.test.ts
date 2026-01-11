@@ -269,7 +269,7 @@ describe('GET /api/browsers/:id/state - Get State', () => {
     const { id } = (await createRes.json()) as CreateSessionResponse
 
     // Navigate to a URL
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await get(`/api/browsers/${id}/state`)
     const body = (await response.json()) as BrowserState
@@ -296,7 +296,7 @@ describe('POST /api/browsers/:id/browse - Navigate', () => {
     const { id } = (await createRes.json()) as CreateSessionResponse
 
     const response = await post(`/api/browsers/${id}/browse`, {
-      url: 'https://example.com',
+      url: 'https://example.com.ai',
     })
 
     expect(response.status).toBe(200)
@@ -327,7 +327,7 @@ describe('POST /api/browsers/:id/browse - Navigate', () => {
 
   it('should return 404 for non-existent session', async () => {
     const response = await post('/api/browsers/non-existent-id/browse', {
-      url: 'https://example.com',
+      url: 'https://example.com.ai',
     })
 
     expect(response.status).toBe(404)
@@ -342,7 +342,7 @@ describe('POST /api/browsers/:id/browse - Navigate', () => {
 
     // Try to navigate
     const response = await post(`/api/browsers/${id}/browse`, {
-      url: 'https://example.com',
+      url: 'https://example.com.ai',
     })
 
     expect(response.status).toBe(409)
@@ -361,7 +361,7 @@ describe('POST /api/browsers/:id/act - Execute Action', () => {
     const { id } = (await createRes.json()) as CreateSessionResponse
 
     // Navigate first
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/act`, {
       instruction: 'Click the login button',
@@ -395,7 +395,7 @@ describe('POST /api/browsers/:id/act - Execute Action', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/act`, {
       instruction: 'Click the submit button',
@@ -416,7 +416,7 @@ describe('POST /api/browsers/:id/extract - Extract Data', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/extract`, {
       instruction: 'Get the page title',
@@ -431,7 +431,7 @@ describe('POST /api/browsers/:id/extract - Extract Data', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/extract`, {
       instruction: 'Extract product information',
@@ -741,7 +741,7 @@ describe('POST /api/browsers/:id/observe - Observe Page', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/observe`, {})
 
@@ -755,7 +755,7 @@ describe('POST /api/browsers/:id/observe - Observe Page', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await post(`/api/browsers/${id}/observe`, {
       instruction: 'Find login buttons',
@@ -770,7 +770,7 @@ describe('GET /api/browsers/:id/screenshot - Take Screenshot', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await get(`/api/browsers/${id}/screenshot`)
 
@@ -784,7 +784,7 @@ describe('GET /api/browsers/:id/screenshot - Take Screenshot', () => {
     const createRes = await post('/api/browsers', { provider: 'cloudflare' })
     const { id } = (await createRes.json()) as CreateSessionResponse
 
-    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com' })
+    await post(`/api/browsers/${id}/browse`, { url: 'https://example.com.ai' })
 
     const response = await get(`/api/browsers/${id}/screenshot?fullPage=true`)
 

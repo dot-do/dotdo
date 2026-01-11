@@ -185,7 +185,7 @@ describe('$.send() - Non-blocking Best-effort Execution', () => {
 
       // $.send() should return immediately
       const startTime = Date.now()
-      sendEvent(ctx, 'notification.send', { to: 'user@example.com' })
+      sendEvent(ctx, 'notification.send', { to: 'user@example.com.ai' })
       const elapsed = Date.now() - startTime
 
       // Should return in less than 10ms (not waiting for the 1000ms action)

@@ -256,14 +256,14 @@ describe('EdgePostgres', () => {
     it('should execute SELECT query and return rows', async () => {
       await db.query(
         'INSERT INTO users (id, email, name) VALUES ($1, $2, $3)',
-        ['user-1', 'alice@example.com', 'Alice']
+        ['user-1', 'alice@example.com.ai', 'Alice']
       )
 
       const result = await db.query('SELECT * FROM users WHERE id = $1', ['user-1'])
 
       expect(result.rows).toHaveLength(1)
       expect(result.rows[0].id).toBe('user-1')
-      expect(result.rows[0].email).toBe('alice@example.com')
+      expect(result.rows[0].email).toBe('alice@example.com.ai')
       expect(result.rows[0].name).toBe('Alice')
     })
 
@@ -276,7 +276,7 @@ describe('EdgePostgres', () => {
     it('should support SELECT with multiple columns', async () => {
       await db.query(
         'INSERT INTO users (id, email, name) VALUES ($1, $2, $3)',
-        ['user-2', 'bob@example.com', 'Bob']
+        ['user-2', 'bob@example.com.ai', 'Bob']
       )
 
       const result = await db.query('SELECT id, name FROM users WHERE id = $1', ['user-2'])

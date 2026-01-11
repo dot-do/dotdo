@@ -66,7 +66,7 @@ describe('DoConfig Interface', () => {
 
     it('ns must be a string', () => {
       const config: DoConfig = {
-        ns: 'example.com',
+        ns: 'example.com.ai',
       }
 
       expect(typeof config.ns).toBe('string')
@@ -195,15 +195,15 @@ describe('DoConfig Interface', () => {
         ns: 'myapp.com',
         auth: {
           provider: 'custom',
-          authorizationUrl: 'https://auth.example.com/authorize',
-          tokenUrl: 'https://auth.example.com/token',
-          userinfoUrl: 'https://auth.example.com/userinfo',
+          authorizationUrl: 'https://auth.example.com.ai/authorize',
+          tokenUrl: 'https://auth.example.com.ai/token',
+          userinfoUrl: 'https://auth.example.com.ai/userinfo',
         },
       }
 
-      expect(config.auth?.authorizationUrl).toBe('https://auth.example.com/authorize')
-      expect(config.auth?.tokenUrl).toBe('https://auth.example.com/token')
-      expect(config.auth?.userinfoUrl).toBe('https://auth.example.com/userinfo')
+      expect(config.auth?.authorizationUrl).toBe('https://auth.example.com.ai/authorize')
+      expect(config.auth?.tokenUrl).toBe('https://auth.example.com.ai/token')
+      expect(config.auth?.userinfoUrl).toBe('https://auth.example.com.ai/userinfo')
     })
   })
 

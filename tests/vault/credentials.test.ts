@@ -519,7 +519,7 @@ describe('OAuth flow', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email', 'profile'],
-      redirectUri: 'https://app.example.com/oauth/callback',
+      redirectUri: 'https://app.example.com.ai/oauth/callback',
     }
 
     it('returns redirect URL for OAuth provider', async () => {
@@ -599,7 +599,7 @@ describe('OAuth flow', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email'],
-      redirectUri: 'https://app.example.com/oauth/callback',
+      redirectUri: 'https://app.example.com.ai/oauth/callback',
     }
 
     it('exchanges authorization code for tokens', async () => {
@@ -677,7 +677,7 @@ describe('OAuth flow', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email'],
-      redirectUri: 'https://app.example.com/oauth/callback',
+      redirectUri: 'https://app.example.com.ai/oauth/callback',
     }
 
     it('stores tokens after successful callback', async () => {
@@ -728,7 +728,7 @@ describe('OAuth flow', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email'],
-      redirectUri: 'https://app.example.com/oauth/callback',
+      redirectUri: 'https://app.example.com.ai/oauth/callback',
     }
 
     it('returns access token for user and provider', async () => {
@@ -778,7 +778,7 @@ describe('OAuth flow', () => {
         clientId: 'invalid-client-id',
         clientSecret: 'test-secret',
         scopes: ['openid'],
-        redirectUri: 'https://app.example.com/callback',
+        redirectUri: 'https://app.example.com.ai/callback',
       }
 
       const initResult = await $.oauth.initiate(testConfig)
@@ -793,7 +793,7 @@ describe('OAuth flow', () => {
         clientId: 'test-id',
         clientSecret: 'test-secret',
         scopes: ['openid'],
-        redirectUri: 'https://app.example.com/callback',
+        redirectUri: 'https://app.example.com.ai/callback',
       }
 
       await expect($.oauth.initiate(testConfig)).rejects.toThrow()
@@ -836,7 +836,7 @@ describe('Token refresh', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email'],
-      redirectUri: 'https://app.example.com/callback',
+      redirectUri: 'https://app.example.com.ai/callback',
     }
 
     const initResult = await $.oauth.initiate(testConfig)
@@ -1190,7 +1190,7 @@ describe('Vault and OAuth integration', () => {
       clientId: 'test-client-id',
       clientSecret: 'test-client-secret',
       scopes: ['openid', 'email'],
-      redirectUri: 'https://app.example.com/callback',
+      redirectUri: 'https://app.example.com.ai/callback',
     }
 
     // 1. Initiate OAuth flow
@@ -1229,7 +1229,7 @@ describe('Vault and OAuth integration', () => {
       clientId: 'github-client',
       clientSecret: 'github-secret',
       scopes: ['repo'],
-      redirectUri: 'https://app.example.com/callback',
+      redirectUri: 'https://app.example.com.ai/callback',
     }
     const initResult = await $.oauth.initiate(config)
     await $.oauth.callback('github-code', initResult.state)
@@ -1252,7 +1252,7 @@ describe('Vault and OAuth integration', () => {
       clientId: 'google-client',
       clientSecret: 'google-secret',
       scopes: ['email'],
-      redirectUri: 'https://app.example.com/callback',
+      redirectUri: 'https://app.example.com.ai/callback',
     }
 
     const githubConfig: OAuthConfig = {
@@ -1260,7 +1260,7 @@ describe('Vault and OAuth integration', () => {
       clientId: 'github-client',
       clientSecret: 'github-secret',
       scopes: ['repo'],
-      redirectUri: 'https://app.example.com/callback',
+      redirectUri: 'https://app.example.com.ai/callback',
     }
 
     // Authenticate with both providers

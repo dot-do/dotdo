@@ -197,7 +197,7 @@ describe('StreamBridge', () => {
     })
 
     it('should track buffer bytes', () => {
-      const data = { id: 1, name: 'Alice', email: 'alice@example.com' }
+      const data = { id: 1, name: 'Alice', email: 'alice@example.com.ai' }
       bridge.emit('insert', 'users', data)
 
       // bufferBytes should track the approximate size

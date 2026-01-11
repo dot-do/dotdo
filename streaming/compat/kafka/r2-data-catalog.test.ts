@@ -80,7 +80,7 @@ describe('R2DataCatalog client', () => {
       bucketName: 'test-bucket',
       catalogName: 'test-catalog',
       apiToken: 'test-token',
-      endpoint: 'https://custom-catalog.example.com',
+      endpoint: 'https://custom-catalog.example.com.ai',
     })
     expect(catalog).toBeDefined()
   })

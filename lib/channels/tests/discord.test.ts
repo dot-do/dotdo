@@ -29,7 +29,7 @@ describe('Discord Channel', () => {
         title: 'Request',
         description: 'Approve?',
         fields: [
-          { name: 'Requester', value: 'john@example.com', inline: true },
+          { name: 'Requester', value: 'john@example.com.ai', inline: true },
           { name: 'Amount', value: '$10,000', inline: true },
         ],
       })

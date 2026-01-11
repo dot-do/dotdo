@@ -221,14 +221,14 @@ describe('StateStorage', () => {
     })
 
     it('supports type-safe get with generic parameter', async () => {
-      const user: User = { name: 'Alice', age: 25, email: 'alice@example.com' }
+      const user: User = { name: 'Alice', age: 25, email: 'alice@example.com.ai' }
       await storage.set('user', user)
 
       const retrieved = await storage.get<User>('user')
 
       // TypeScript should infer retrieved as User | undefined
       expect(retrieved?.name).toBe('Alice')
-      expect(retrieved?.email).toBe('alice@example.com')
+      expect(retrieved?.email).toBe('alice@example.com.ai')
     })
 
     it('handles null values correctly', async () => {

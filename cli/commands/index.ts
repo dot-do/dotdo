@@ -4,6 +4,8 @@
  * Exports all available CLI commands.
  */
 
+import { run as introspectRun } from './introspect'
+
 export type CommandHandler = (args: string[]) => Promise<void> | void
 
 export interface Command {
@@ -48,5 +50,9 @@ export const commands: Record<string, Command> = {
       // Placeholder - will be implemented
     },
     description: 'Initialize a new project',
+  },
+  introspect: {
+    run: introspectRun,
+    description: 'Generate .do/types.d.ts from DB.mdx schemas',
   },
 }

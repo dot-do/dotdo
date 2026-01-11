@@ -500,7 +500,7 @@ async function processMiddleware(event: MiddlewareEvent): Promise<MiddlewareEven
  * ```typescript
  * // Identify with user ID and traits
  * identify('user-123', {
- *   email: 'user@example.com',
+ *   email: 'user@example.com.ai',
  *   name: 'John Doe'
  * })
  *

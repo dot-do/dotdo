@@ -251,7 +251,7 @@ describe('AnalyticsClient', () => {
       client.identify({
         userId: 'user-123',
         traits: {
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
         },
       })
       expect(client.getBufferSize()).toBe(1)
@@ -275,7 +275,7 @@ describe('AnalyticsClient', () => {
       client.identify({
         userId: 'user-123',
         traits: {
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           name: 'Test User',
         },
       })
@@ -285,7 +285,7 @@ describe('AnalyticsClient', () => {
       const call = mockFetch.mock.calls[0]
       const body = JSON.parse(call[1].body) as BatchPayload
       expect((body.batch[0] as any).traits).toEqual({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         name: 'Test User',
       })
     })

@@ -343,7 +343,7 @@ describe('ApprovalDetailPage', () => {
       const approvalWithAvatar = createMockApprovalDetail({
         requester: {
           ...mockApproval.requester,
-          avatar: 'https://example.com/avatar.png',
+          avatar: 'https://example.com.ai/avatar.png',
         },
       })
 
@@ -355,7 +355,7 @@ describe('ApprovalDetailPage', () => {
         />
       )
 
-      expect(screen.getByRole('img', { name: /avatar/i })).toHaveAttribute('src', 'https://example.com/avatar.png')
+      expect(screen.getByRole('img', { name: /avatar/i })).toHaveAttribute('src', 'https://example.com.ai/avatar.png')
     })
 
     it('shows workflow link when in workflow context', () => {

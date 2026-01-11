@@ -74,10 +74,10 @@ describe('LinkedAccount Metadata Schema', () => {
 
   it('validates metadata with email', () => {
     const metadata = {
-      email: 'user@example.com',
+      email: 'user@example.com.ai',
     }
     const result = LinkedAccountMetadataSchema.parse(metadata)
-    expect(result.email).toBe('user@example.com')
+    expect(result.email).toBe('user@example.com.ai')
   })
 
   it('rejects invalid email format', () => {

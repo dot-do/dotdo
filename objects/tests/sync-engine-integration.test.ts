@@ -175,7 +175,7 @@ class SyncEngine {
 }
 
 /**
- * Extract collection name from $type (e.g., 'https://example.com/Task' -> 'Task')
+ * Extract collection name from $type (e.g., 'https://example.com.ai/Task' -> 'Task')
  */
 function getCollectionFromType($type: string): string {
   const parts = $type.split('/')
@@ -355,7 +355,7 @@ describe('SyncEngine broadcast integration', () => {
     // This should trigger SyncEngine.onThingCreated() and broadcast to subscribers
     await store.create({
       $id: 'task-1',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Test Task',
       data: { description: 'A test task' },
     })
@@ -373,7 +373,7 @@ describe('SyncEngine broadcast integration', () => {
     // First create a task
     await store.create({
       $id: 'task-update',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Original Task',
       data: { status: 'pending' },
     })
@@ -400,7 +400,7 @@ describe('SyncEngine broadcast integration', () => {
     // Create a thing first
     await store.create({
       $id: 'task-delete',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Task to Delete',
     })
 
@@ -424,7 +424,7 @@ describe('SyncEngine broadcast integration', () => {
     // Create a task
     const { rowid } = await store.create({
       $id: 'task-txid',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Test Task',
     })
 
@@ -447,7 +447,7 @@ describe('SyncEngine broadcast integration', () => {
     // Create a Task
     await store.create({
       $id: 'task-collection',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Test Task',
     })
 
@@ -469,7 +469,7 @@ describe('SyncEngine broadcast integration', () => {
 
     // Create a task on the feature branch
     await store.create(
-      { $id: 'task-branch', $type: 'https://example.com/Task', name: 'Feature Task' },
+      { $id: 'task-branch', $type: 'https://example.com.ai/Task', name: 'Feature Task' },
       { branch: 'feature/dark-mode' }
     )
 
@@ -496,9 +496,9 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
   })
 
   it('includes incrementing txid for sequential inserts', async () => {
-    await store.create({ $id: 'task-1', $type: 'https://example.com/Task', name: 'Task 1' })
-    await store.create({ $id: 'task-2', $type: 'https://example.com/Task', name: 'Task 2' })
-    await store.create({ $id: 'task-3', $type: 'https://example.com/Task', name: 'Task 3' })
+    await store.create({ $id: 'task-1', $type: 'https://example.com.ai/Task', name: 'Task 1' })
+    await store.create({ $id: 'task-2', $type: 'https://example.com.ai/Task', name: 'Task 2' })
+    await store.create({ $id: 'task-3', $type: 'https://example.com.ai/Task', name: 'Task 3' })
 
     // [GREEN] Broadcast happens via SyncEngine - no broadcasts happen
     const calls = mockSocket.send.mock.calls
@@ -514,7 +514,7 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
   it('update txid is greater than create txid for same thing', async () => {
     const { rowid: createRowid } = await store.create({
       $id: 'task-versions',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Original',
     })
 
@@ -536,7 +536,7 @@ describe('SyncEngine broadcast - txid/rowid matching', () => {
   it('delete txid is greater than update txid', async () => {
     await store.create({
       $id: 'task-lifecycle',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Lifecycle Task',
     })
 
@@ -569,7 +569,7 @@ describe('SyncEngine integration edge cases', () => {
     // No sockets accepted/subscribed
     // Should not throw even if broadcast is attempted
     await expect(
-      store.create({ $id: 'orphan', $type: 'https://example.com/Task', name: 'Orphan' })
+      store.create({ $id: 'orphan', $type: 'https://example.com.ai/Task', name: 'Orphan' })
     ).resolves.toBeDefined()
   })
 
@@ -585,7 +585,7 @@ describe('SyncEngine integration edge cases', () => {
     // Create should succeed even if broadcast fails
     const result = await store.create({
       $id: 'resilient',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Resilient Task',
     })
 
@@ -601,7 +601,7 @@ describe('SyncEngine integration edge cases', () => {
 
     await store.create({
       $id: 'no-closed',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Test',
     })
 
@@ -629,7 +629,7 @@ describe('SyncEngine broadcast message format', () => {
   it('insert broadcast includes full thing with SyncThing structure', async () => {
     await store.create({
       $id: 'task-full',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Complete Task',
       data: {
         description: 'A fully described task',
@@ -662,7 +662,7 @@ describe('SyncEngine broadcast message format', () => {
   it('update broadcast includes updated thing data', async () => {
     await store.create({
       $id: 'task-update-format',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'Original',
       data: { status: 'pending' },
     })
@@ -690,7 +690,7 @@ describe('SyncEngine broadcast message format', () => {
   it('delete broadcast includes thing id but not full thing', async () => {
     await store.create({
       $id: 'task-delete-format',
-      $type: 'https://example.com/Task',
+      $type: 'https://example.com.ai/Task',
       name: 'To Delete',
     })
 
@@ -715,7 +715,7 @@ describe('SyncEngine broadcast message format', () => {
     syncEngine.subscribe(mockSocket as unknown as WebSocket, 'Task', 'feature/new-ui')
 
     await store.create(
-      { $id: 'task-branched', $type: 'https://example.com/Task', name: 'Branched Task' },
+      { $id: 'task-branched', $type: 'https://example.com.ai/Task', name: 'Branched Task' },
       { branch: 'feature/new-ui' }
     )
 

@@ -213,20 +213,20 @@ describe('DOAuth Route Handling', () => {
   })
 
   it('returns null for non-auth routes', async () => {
-    const request = new Request('https://example.com/api/things')
+    const request = new Request('https://example.com.ai/api/things')
     const response = await auth.handle(request)
     expect(response).toBeNull()
   })
 
   it('handles /api/auth/* routes', async () => {
-    const request = new Request('https://example.com/api/auth/session')
+    const request = new Request('https://example.com.ai/api/auth/session')
     const response = await auth.handle(request)
     expect(response).not.toBeNull()
     expect(response).toBeInstanceOf(Response)
   })
 
   it('returns session info from /api/auth/session', async () => {
-    const request = new Request('https://example.com/api/auth/session')
+    const request = new Request('https://example.com.ai/api/auth/session')
     const response = await auth.handle(request)
     expect(response).not.toBeNull()
 
@@ -236,15 +236,15 @@ describe('DOAuth Route Handling', () => {
   })
 
   it('returns 401 for /api/auth/me without auth', async () => {
-    const request = new Request('https://example.com/api/auth/me')
+    const request = new Request('https://example.com.ai/api/auth/me')
     const response = await auth.handle(request)
     expect(response).not.toBeNull()
     expect(response!.status).toBe(401)
   })
 
   it('handles /api/auth/signin route', async () => {
-    const request = new Request('https://example.com/api/auth/signin', {
-      headers: { Origin: 'https://example.com' },
+    const request = new Request('https://example.com.ai/api/auth/signin', {
+      headers: { Origin: 'https://example.com.ai' },
     })
     const response = await auth.handle(request)
     expect(response).not.toBeNull()
@@ -254,7 +254,7 @@ describe('DOAuth Route Handling', () => {
   })
 
   it('handles /api/auth/logout route', async () => {
-    const request = new Request('https://example.com/api/auth/logout', {
+    const request = new Request('https://example.com.ai/api/auth/logout', {
       method: 'POST',
     })
     const response = await auth.handle(request)
@@ -263,7 +263,7 @@ describe('DOAuth Route Handling', () => {
   })
 
   it('handles /api/auth/config route', async () => {
-    const request = new Request('https://example.com/api/auth/config')
+    const request = new Request('https://example.com.ai/api/auth/config')
     const response = await auth.handle(request)
     expect(response).not.toBeNull()
     expect(response!.status).toBe(200)
@@ -468,7 +468,7 @@ describe('DO Base Class Hono Integration', () => {
 
   it('DO.handleFetch handles /health route', async () => {
     const doInstance = createTestDO()
-    const request = new Request('https://example.com/health')
+    const request = new Request('https://example.com.ai/health')
     const response = await doInstance.fetch(request)
 
     expect(response.status).toBe(200)
@@ -478,7 +478,7 @@ describe('DO Base Class Hono Integration', () => {
 
   it('DO.handleFetch handles /resolve route', async () => {
     const doInstance = createTestDO()
-    const request = new Request('https://example.com/resolve?path=Thing/123')
+    const request = new Request('https://example.com.ai/resolve?path=Thing/123')
     const response = await doInstance.fetch(request)
 
     // Should return 404 if thing not found or error
@@ -487,7 +487,7 @@ describe('DO Base Class Hono Integration', () => {
 
   it('DO.handleFetch returns 400 for /resolve without path', async () => {
     const doInstance = createTestDO()
-    const request = new Request('https://example.com/resolve')
+    const request = new Request('https://example.com.ai/resolve')
     const response = await doInstance.fetch(request)
 
     expect(response.status).toBe(400)
@@ -498,7 +498,7 @@ describe('DO Base Class Hono Integration', () => {
 
   it('DO.handleFetch returns 404 for unknown routes', async () => {
     const doInstance = createTestDO()
-    const request = new Request('https://example.com/unknown')
+    const request = new Request('https://example.com.ai/unknown')
     const response = await doInstance.fetch(request)
 
     expect(response.status).toBe(404)
@@ -544,7 +544,7 @@ describe('DOAuth with DO Integration', () => {
 
   it('handles auth routes via DOAuth', async () => {
     const do_ = createAuthenticatedDO()
-    const request = new Request('https://example.com/api/auth/session')
+    const request = new Request('https://example.com.ai/api/auth/session')
     const response = await do_.fetch(request)
 
     expect(response.status).toBe(200)
@@ -554,7 +554,7 @@ describe('DOAuth with DO Integration', () => {
 
   it('handles custom routes via Hono app', async () => {
     const do_ = createAuthenticatedDO()
-    const request = new Request('https://example.com/api/things')
+    const request = new Request('https://example.com.ai/api/things')
     const response = await do_.fetch(request)
 
     expect(response.status).toBe(200)
@@ -564,7 +564,7 @@ describe('DOAuth with DO Integration', () => {
 
   it('handles built-in routes', async () => {
     const do_ = createAuthenticatedDO()
-    const request = new Request('https://example.com/health')
+    const request = new Request('https://example.com.ai/health')
     const response = await do_.fetch(request)
 
     expect(response.status).toBe(200)
@@ -574,7 +574,7 @@ describe('DOAuth with DO Integration', () => {
 
   it('returns 404 for unhandled routes', async () => {
     const do_ = createAuthenticatedDO()
-    const request = new Request('https://example.com/unknown')
+    const request = new Request('https://example.com.ai/unknown')
     const response = await do_.fetch(request)
 
     expect(response.status).toBe(404)

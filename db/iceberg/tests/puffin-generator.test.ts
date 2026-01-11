@@ -27,11 +27,11 @@ describe('Puffin Generator', () => {
     const table = tableFromArrays(
       {
         email: [
-          'alice@example.com',
-          'bob@example.com',
-          'charlie@example.com',
-          'alice@example.com', // duplicate
-          'dave@example.com',
+          'alice@example.com.ai',
+          'bob@example.com.ai',
+          'charlie@example.com.ai',
+          'alice@example.com.ai', // duplicate
+          'dave@example.com.ai',
         ],
         status: ['active', 'active', 'inactive', 'active', 'pending'],
         user_id: [1, 2, 3, 1, 4],

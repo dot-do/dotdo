@@ -68,7 +68,7 @@ export interface IndexResponse {
 export interface RestRouterContext {
   /** Things store for CRUD operations */
   things: ThingsStore
-  /** Namespace (e.g., 'https://example.com' or 'my-do') */
+  /** Namespace (e.g., 'https://example.com.ai' or 'my-do') */
   ns: string
   /** Base context URL for JSON-LD */
   contextUrl?: string

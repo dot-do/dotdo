@@ -47,9 +47,9 @@ interface TestRow {
 }
 
 const testData: TestRow[] = [
-  { id: '1', name: 'Alice Smith', email: 'alice@example.com', role: 'Admin' },
-  { id: '2', name: 'Bob Jones', email: 'bob@example.com', role: 'User' },
-  { id: '3', name: 'Carol White', email: 'carol@example.com', role: 'Viewer' },
+  { id: '1', name: 'Alice Smith', email: 'alice@example.com.ai', role: 'Admin' },
+  { id: '2', name: 'Bob Jones', email: 'bob@example.com.ai', role: 'User' },
+  { id: '3', name: 'Carol White', email: 'carol@example.com.ai', role: 'Viewer' },
 ]
 
 /**
@@ -149,9 +149,9 @@ describe('Table', () => {
       renderBasicTable()
 
       expect(screen.getByText('Alice Smith')).toBeInTheDocument()
-      expect(screen.getByText('alice@example.com')).toBeInTheDocument()
+      expect(screen.getByText('alice@example.com.ai')).toBeInTheDocument()
       expect(screen.getByText('Bob Jones')).toBeInTheDocument()
-      expect(screen.getByText('carol@example.com')).toBeInTheDocument()
+      expect(screen.getByText('carol@example.com.ai')).toBeInTheDocument()
     })
   })
 
@@ -385,7 +385,7 @@ describe('Table', () => {
           <TableBody>
             <TableRow>
               <TableCell>Alice</TableCell>
-              <TableCell>alice@example.com</TableCell>
+              <TableCell>alice@example.com.ai</TableCell>
               <TableCell>Admin</TableCell>
             </TableRow>
           </TableBody>
@@ -459,7 +459,7 @@ describe('Table', () => {
           <TableBody>
             <TableRow>
               <TableCell>Alice</TableCell>
-              <TableCell>alice@example.com</TableCell>
+              <TableCell>alice@example.com.ai</TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -949,7 +949,7 @@ describe('Table', () => {
           <TableBody>
             <TableRow>
               <TableHead scope="row">Alice</TableHead>
-              <TableCell>alice@example.com</TableCell>
+              <TableCell>alice@example.com.ai</TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -1041,14 +1041,14 @@ describe('Table', () => {
           <TableBody>
             <TableRow>
               <TableCell>Alice</TableCell>
-              {showEmail && <TableCell>alice@example.com</TableCell>}
+              {showEmail && <TableCell>alice@example.com.ai</TableCell>}
             </TableRow>
           </TableBody>
         </Table>
       )
 
       expect(screen.getByText('Alice')).toBeInTheDocument()
-      expect(screen.queryByText('alice@example.com')).not.toBeInTheDocument()
+      expect(screen.queryByText('alice@example.com.ai')).not.toBeInTheDocument()
     })
 
     it('renders with very long content', () => {

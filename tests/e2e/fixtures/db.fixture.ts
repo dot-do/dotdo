@@ -66,7 +66,7 @@ export class TestDataFactory {
    * Generate unique email
    */
   uniqueEmail(): string {
-    return `${this.uniqueId('user')}@test.example.com`
+    return `${this.uniqueId('user')}@test.example.com.ai`
   }
 
   /**

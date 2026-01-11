@@ -57,7 +57,7 @@ const testConfig: ProxyConfig = {
     },
   },
   variables: {
-    domain: 'example.com',
+    domain: 'example.com.ai',
   },
 }
 
@@ -87,7 +87,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('Upstream response', { status: 200 }))
 
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const response = await proxyHandler.fetch(
       request,
@@ -110,7 +110,7 @@ describe('Full Proxy Flow', () => {
       json: () => Promise.resolve(testConfig),
     })
 
-    const request = new Request('https://example.com/api/protected')
+    const request = new Request('https://example.com.ai/api/protected')
 
     const response = await proxyHandler.fetch(
       request,
@@ -132,7 +132,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('Not proxied', { status: 200 }))
 
-    const request = new Request('https://example.com/unmatched/path')
+    const request = new Request('https://example.com.ai/unmatched/path')
 
     const response = await proxyHandler.fetch(
       request,
@@ -154,7 +154,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('Service Unavailable', { status: 503 }))
 
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const response = await proxyHandler.fetch(
       request,
@@ -176,7 +176,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('Passthrough response', { status: 200 }))
 
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const response = await proxyHandler.fetch(
       request,
@@ -191,7 +191,7 @@ describe('Full Proxy Flow', () => {
   })
 
   it('blocks access to /proxy-config.json', async () => {
-    const request = new Request('https://example.com/proxy-config.json')
+    const request = new Request('https://example.com.ai/proxy-config.json')
 
     const response = await proxyHandler.fetch(
       request,
@@ -232,7 +232,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('OK', { status: 200 }))
 
-    const request = new Request('https://example.com/api/multi', {
+    const request = new Request('https://example.com.ai/api/multi', {
       headers: { 'X-Remove': 'should-be-removed' },
     })
 
@@ -284,7 +284,7 @@ describe('Full Proxy Flow', () => {
       })
       .mockResolvedValueOnce(new Response('OK', { status: 200 }))
 
-    const request = new Request('https://example.com/api/specific')
+    const request = new Request('https://example.com.ai/api/specific')
 
     const response = await proxyHandler.fetch(
       request,
@@ -333,7 +333,7 @@ describe('Context Variables', () => {
 
     // First request
     await proxyHandler.fetch(
-      new Request('https://example.com/api/test'),
+      new Request('https://example.com.ai/api/test'),
       mockEnv,
       mockCtx as unknown as ExecutionContext
     )
@@ -344,7 +344,7 @@ describe('Context Variables', () => {
     mockFetch.mockClear()
 
     await proxyHandler.fetch(
-      new Request('https://example.com/api/test'),
+      new Request('https://example.com.ai/api/test'),
       mockEnv,
       mockCtx as unknown as ExecutionContext
     )
@@ -369,7 +369,7 @@ describe('Context Variables', () => {
         },
       ],
       variables: {
-        domain: 'example.com',
+        domain: 'example.com.ai',
       },
     }
 
@@ -379,12 +379,12 @@ describe('Context Variables', () => {
     mockFetch.mockResolvedValue(new Response('OK', { status: 200 }))
 
     await proxyHandler.fetch(
-      new Request('https://example.com/api/test'),
+      new Request('https://example.com.ai/api/test'),
       mockEnv,
       mockCtx as unknown as ExecutionContext
     )
 
     const forwardedRequest = mockFetch.mock.calls[0][0] as Request
-    expect(forwardedRequest.headers.get('X-Domain')).toBe('example.com')
+    expect(forwardedRequest.headers.get('X-Domain')).toBe('example.com.ai')
   })
 })

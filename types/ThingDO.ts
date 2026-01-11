@@ -73,7 +73,7 @@ export interface CollectionView<T extends Thing> {
  * Unlike Collection<T> which is homogeneous (single type), ThingDO can
  * store Contacts, Orders, Products, etc. all in the same DO.
  *
- * Item $id format: ns/type/id (e.g., https://example.com/Contact/john)
+ * Item $id format: ns/type/id (e.g., https://example.com.ai/Contact/john)
  */
 export interface HeterogeneousThingDO {
   /**
@@ -90,7 +90,7 @@ export interface HeterogeneousThingDO {
    * Build a fully qualified item $id
    * @param type - The item type (e.g., 'Contact')
    * @param id - The item id (e.g., 'john')
-   * @returns Full $id (e.g., 'https://example.com/Contact/john')
+   * @returns Full $id (e.g., 'https://example.com.ai/Contact/john')
    */
   buildItemId(type: string, id: string): string
 

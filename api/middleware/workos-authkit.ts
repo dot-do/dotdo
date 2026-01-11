@@ -322,7 +322,7 @@ function initializeMockData() {
     lastActiveAt: new Date().toISOString(),
     user: {
       id: 'new_user_01',
-      email: 'newuser@example.com',
+      email: 'newuser@example.com.ai',
       workosUserId: 'new_user_01',
     },
   })
@@ -335,7 +335,7 @@ function initializeMockData() {
     lastActiveAt: new Date().toISOString(),
     user: {
       id: 'non_member_user',
-      email: 'nonmember@example.com',
+      email: 'nonmember@example.com.ai',
       workosUserId: 'non_member_user',
     },
   })
@@ -372,14 +372,14 @@ function initializeMockData() {
 
   // Initialize valid states for callback testing
   stateStore.set('mock_state_abc123', {
-    redirectUri: 'https://app.example.com/api/auth/callback/workos',
+    redirectUri: 'https://app.example.com.ai/api/auth/callback/workos',
     expiresAt: Date.now() + 600000,
     connectionId: 'conn_01EXAMPLE',
     organizationId: 'org_01EXAMPLE',
   })
 
   stateStore.set('valid_state', {
-    redirectUri: 'https://app.example.com/api/auth/callback/workos',
+    redirectUri: 'https://app.example.com.ai/api/auth/callback/workos',
     expiresAt: Date.now() + 600000,
     connectionId: 'conn_01EXAMPLE',
     organizationId: 'org_01EXAMPLE',
@@ -401,7 +401,7 @@ function initializeMockData() {
   magicLinkStore.set('valid_magic_link_token_with_redirect', {
     email: 'alice@acme.com',
     expiresAt: Date.now() + 3600000,
-    redirectUri: 'https://app.example.com/dashboard',
+    redirectUri: 'https://app.example.com.ai/dashboard',
     used: false,
   })
 
@@ -441,7 +441,7 @@ initializeMockData()
 function ensureStatesExist() {
   if (!stateStore.has('mock_state_abc123')) {
     stateStore.set('mock_state_abc123', {
-      redirectUri: 'https://app.example.com/api/auth/callback/workos',
+      redirectUri: 'https://app.example.com.ai/api/auth/callback/workos',
       expiresAt: Date.now() + 600000,
       connectionId: 'conn_01EXAMPLE',
       organizationId: 'org_01EXAMPLE',
@@ -449,7 +449,7 @@ function ensureStatesExist() {
   }
   if (!stateStore.has('valid_state')) {
     stateStore.set('valid_state', {
-      redirectUri: 'https://app.example.com/api/auth/callback/workos',
+      redirectUri: 'https://app.example.com.ai/api/auth/callback/workos',
       expiresAt: Date.now() + 600000,
       connectionId: 'conn_01EXAMPLE',
       organizationId: 'org_01EXAMPLE',

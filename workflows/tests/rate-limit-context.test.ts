@@ -545,7 +545,7 @@ describe('$.rateLimit API Behavior (requires implementation)', () => {
     it('handles special characters in key', async () => {
       const $ = createMockContextWithRateLimit()
       await expect($.rateLimit.check('user:123:api/v1')).resolves.toBeDefined()
-      await expect($.rateLimit.check('email@example.com')).resolves.toBeDefined()
+      await expect($.rateLimit.check('email@example.com.ai')).resolves.toBeDefined()
     })
 
     it('handles zero cost', async () => {

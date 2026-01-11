@@ -11,7 +11,7 @@
  * ```tsx
  * import { createSubscriptionProvider } from '@dotdo/client/adapters/subscription-provider'
  *
- * const subscriptionProvider = createSubscriptionProvider('wss://api.example.com/do/main')
+ * const subscriptionProvider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
  *
  * // Use with react-admin
  * <Admin dataProvider={dataProvider} subscriptionProvider={subscriptionProvider}>

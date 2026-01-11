@@ -118,7 +118,7 @@ describe('identify', () => {
 
   describe('with userId', () => {
     it('should set userId on event', async () => {
-      identify('user-123', { email: 'test@example.com' })
+      identify('user-123', { email: 'test@example.com.ai' })
       await flush()
 
       const call = mockFetch.mock.calls[0]
@@ -128,7 +128,7 @@ describe('identify', () => {
 
     it('should include traits in event', async () => {
       identify('user-123', {
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         name: 'Test User',
       })
       await flush()
@@ -136,13 +136,13 @@ describe('identify', () => {
       const call = mockFetch.mock.calls[0]
       const body = JSON.parse(call[1].body) as BatchPayload
       expect((body.batch[0] as any).traits).toEqual({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         name: 'Test User',
       })
     })
 
     it('should respect options context', async () => {
-      identify('user-123', { email: 'test@example.com' }, {
+      identify('user-123', { email: 'test@example.com.ai' }, {
         context: { ip: '192.168.1.1' },
       })
       await flush()
@@ -153,7 +153,7 @@ describe('identify', () => {
     })
 
     it('should respect options integrations', async () => {
-      identify('user-123', { email: 'test@example.com' }, {
+      identify('user-123', { email: 'test@example.com.ai' }, {
         integrations: { Mixpanel: false },
       })
       await flush()

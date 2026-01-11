@@ -1183,7 +1183,7 @@ describe('Sandbox Security', () => {
     it('fetch is either unavailable or sandboxed', async () => {
       const code = `
         try {
-          const response = await fetch('https://example.com');
+          const response = await fetch('https://example.com.ai');
           return 'fetch available';
         } catch (e) {
           return 'fetch blocked: ' + e.message;

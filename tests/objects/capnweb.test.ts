@@ -52,7 +52,7 @@ class TestDO extends DO {
       id,
       profile: {
         name: `User ${id}`,
-        email: `${id}@example.com`,
+        email: `${id}@example.com.ai`,
       },
       preferences: {
         theme: 'dark',

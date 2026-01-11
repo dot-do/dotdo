@@ -794,7 +794,7 @@ describe('Evaluation Engine', () => {
             contextKind: 'user',
             attribute: 'email',
             operator: 'in',
-            values: ['test@example.com'],
+            values: ['test@example.com.ai'],
             negate: false,
           },
         ],
@@ -803,7 +803,7 @@ describe('Evaluation Engine', () => {
 
       const context: EvaluationContext = {
         targetingKey: 'user-123',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
       }
 
       expect(matchesTargeting(rule, context)).toBe(true)
@@ -818,7 +818,7 @@ describe('Evaluation Engine', () => {
             contextKind: 'user',
             attribute: 'email',
             operator: 'in',
-            values: ['test@example.com'],
+            values: ['test@example.com.ai'],
             negate: false,
           },
           {
@@ -834,7 +834,7 @@ describe('Evaluation Engine', () => {
 
       const context: EvaluationContext = {
         targetingKey: 'user-123',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free', // Does not match
       }
 

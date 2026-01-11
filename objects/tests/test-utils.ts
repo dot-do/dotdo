@@ -263,7 +263,7 @@ export function createMockGitCapability(tracker?: ModuleLoadTracker): Capability
         {
           hash: 'abc123',
           message: 'Initial commit',
-          author: 'test@example.com',
+          author: 'test@example.com.ai',
           date: new Date(),
         },
       ]

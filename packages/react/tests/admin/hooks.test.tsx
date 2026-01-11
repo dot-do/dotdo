@@ -29,9 +29,9 @@ interface TestUser extends BaseRecord {
 }
 
 const mockUsers: TestUser[] = [
-  { $id: 'user-1', name: 'Alice', email: 'alice@example.com', role: 'admin' },
-  { $id: 'user-2', name: 'Bob', email: 'bob@example.com', role: 'user' },
-  { $id: 'user-3', name: 'Charlie', email: 'charlie@example.com', role: 'user' },
+  { $id: 'user-1', name: 'Alice', email: 'alice@example.com.ai', role: 'admin' },
+  { $id: 'user-2', name: 'Bob', email: 'bob@example.com.ai', role: 'user' },
+  { $id: 'user-3', name: 'Charlie', email: 'charlie@example.com.ai', role: 'user' },
 ]
 
 function createMockDataProvider(): DataProvider {
@@ -226,7 +226,7 @@ describe('useResource', () => {
     act(() => {
       createPromise = result.current.create({
         name: 'Dave',
-        email: 'dave@example.com',
+        email: 'dave@example.com.ai',
         role: 'user',
       })
     })

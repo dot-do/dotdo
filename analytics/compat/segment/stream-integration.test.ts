@@ -170,7 +170,7 @@ describe('AnalyticsStreamClient', () => {
 
       client.identify({
         userId: 'user-abc',
-        traits: { email: 'test@example.com' },
+        traits: { email: 'test@example.com.ai' },
       })
 
       await client.flush()
@@ -178,7 +178,7 @@ describe('AnalyticsStreamClient', () => {
       const events = mockPipeline.events
       expect(events[0].data.type).toBe('identify')
       expect(events[0].data.userId).toBe('user-abc')
-      expect(events[0].data.traits).toEqual({ email: 'test@example.com' })
+      expect(events[0].data.traits).toEqual({ email: 'test@example.com.ai' })
     })
 
     it('should include anonymousId in data payload', async () => {
@@ -725,7 +725,7 @@ describe('AnalyticsStreamClient', () => {
       client.identify({
         userId: 'user-456',
         traits: {
-          email: 'user@example.com',
+          email: 'user@example.com.ai',
           plan: 'free',
         },
       })

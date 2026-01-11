@@ -19,7 +19,7 @@
  * ```tsx
  * function MyComponent() {
  *   const { $, isConnected, error } = useDollar({
- *     doUrl: 'wss://example.com/do/123'
+ *     doUrl: 'wss://example.com.ai/do/123'
  *   })
  *
  *   // Fire and forget
@@ -558,17 +558,17 @@ export interface DollarProxy {
  * @example
  * ```tsx
  * const { $, isConnected, isLoading, error } = useDollar({
- *   doUrl: 'wss://example.com/do/123'
+ *   doUrl: 'wss://example.com.ai/do/123'
  * })
  *
  * // Fire and forget
- * $.send({ type: 'Customer.signup', data: { email: 'test@example.com' } })
+ * $.send({ type: 'Customer.signup', data: { email: 'test@example.com.ai' } })
  *
  * // Single attempt
  * const result = await $.try({ action: 'processPayment', amount: 100 })
  *
  * // Durable with retries
- * await $.do({ action: 'sendEmail', to: 'user@example.com' })
+ * await $.do({ action: 'sendEmail', to: 'user@example.com.ai' })
  *
  * // Cross-DO RPC
  * await $.Customer('cust-456').notify({ message: 'Hello' })

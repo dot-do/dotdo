@@ -788,7 +788,7 @@ export function getOperatorDocumentation(): OperatorDocumentation[] {
       examples: [
         {
           clause: { attribute: 'email', operator: 'startsWith', values: ['admin@'] },
-          context: { email: 'admin@example.com' },
+          context: { email: 'admin@example.com.ai' },
           expected: true,
           description: 'Email starts with admin@',
         },
@@ -827,7 +827,7 @@ export function getOperatorDocumentation(): OperatorDocumentation[] {
       examples: [
         {
           clause: { attribute: 'email', operator: 'matches', values: ['^[a-z]+@example\\.com$'] },
-          context: { email: 'user@example.com' },
+          context: { email: 'user@example.com.ai' },
           expected: true,
           description: 'Email matches regex pattern',
         },

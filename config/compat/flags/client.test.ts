@@ -28,7 +28,7 @@ describe('FlagsClient Constructor', () => {
 
     it('creates instance with endpoint', () => {
       const client = new FlagsClient({
-        endpoint: 'https://flags.example.com',
+        endpoint: 'https://flags.example.com.ai',
       })
       expect(client).toBeInstanceOf(FlagsClient)
     })
@@ -69,7 +69,7 @@ describe('FlagsClient Constructor', () => {
 
     it('creates instance with full config', () => {
       const client = new FlagsClient({
-        endpoint: 'https://flags.example.com',
+        endpoint: 'https://flags.example.com.ai',
         apiKey: 'api-key',
         cache: { enabled: true, ttl: 30000 },
         offline: false,
@@ -199,7 +199,7 @@ describe('FlagsClient.getValue()', () => {
       const client = new FlagsClient({})
       const context: EvaluationContext = {
         targetingKey: 'user-123',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
       }
       const value = await client.getValue('targeted-flag', false, context)
       expect(typeof value).toBe('boolean')
@@ -801,7 +801,7 @@ describe('FlagsClient Edge Cases', () => {
     it('does not make network requests when offline', async () => {
       const client = new FlagsClient({
         offline: true,
-        endpoint: 'https://flags.example.com',
+        endpoint: 'https://flags.example.com.ai',
       })
       const value = await client.getValue('flag', 'default')
       expect(value).toBe('default')
@@ -817,7 +817,7 @@ describe('FlagsClient Edge Cases', () => {
 
     it('handles network errors gracefully', async () => {
       const client = new FlagsClient({
-        endpoint: 'https://flags.example.com',
+        endpoint: 'https://flags.example.com.ai',
       })
       const value = await client.getValue('flag', 'default')
       expect(value).toBe('default')

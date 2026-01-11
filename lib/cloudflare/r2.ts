@@ -1069,7 +1069,7 @@ export class R2Store {
  * // With tenant configuration
  * const tenantStore = createR2Store(env.R2, {
  *   tenant: 'tenant-123',
- *   publicUrl: 'https://r2.example.com'
+ *   publicUrl: 'https://r2.example.com.ai'
  * })
  * await tenantStore.putForTenant({
  *   type: 'documents',

@@ -96,13 +96,13 @@ const users = db.collection('users')
 // Sharded by workspace_id
 const user = await users.findOne({
   workspace_id: 'ws-123',
-  email: 'user@example.com'
+  email: 'user@example.com.ai'
 })
 
 // Insert automatically routes to correct shard
 await users.insertOne({
   workspace_id: 'ws-123',
-  email: 'new@example.com',
+  email: 'new@example.com.ai',
   name: 'New User',
 })
 ```

@@ -268,9 +268,9 @@ function createMockContext() {
  */
 function createMockEnv(overrides: Partial<MockEnv> = {}) {
   return {
-    PIPELINE_PREVIEW_URL: 'https://pipeline.example.com/preview',
-    PIPELINE_BUILD_URL: 'https://pipeline.example.com/build',
-    PIPELINE_BULK_URL: 'https://pipeline.example.com/bulk',
+    PIPELINE_PREVIEW_URL: 'https://pipeline.example.com.ai/preview',
+    PIPELINE_BUILD_URL: 'https://pipeline.example.com.ai/build',
+    PIPELINE_BULK_URL: 'https://pipeline.example.com.ai/bulk',
     ARTIFACTS_BUCKET: {} as R2Bucket,
     CONFIG_KV: {} as KVNamespace,
     ...overrides,
@@ -311,7 +311,7 @@ function createIngestRequest(
     headers['Authorization'] = `Bearer ${options.auth}`
   }
 
-  return new Request('https://api.example.com/$.artifacts', {
+  return new Request('https://api.example.com.ai/$.artifacts', {
     method: 'POST',
     headers,
     body,
@@ -328,7 +328,7 @@ function createServeRequest(
   ext: string,
   options: { maxAge?: number; fresh?: boolean } = {}
 ): Request {
-  const url = new URL(`https://api.example.com/$.content/${ns}/${type}/${id}.${ext}`)
+  const url = new URL(`https://api.example.com.ai/$.content/${ns}/${type}/${id}.${ext}`)
 
   if (options.maxAge !== undefined) {
     url.searchParams.set('max_age', String(options.maxAge))
@@ -404,7 +404,7 @@ describe('Artifact Integration - Pipeline Batch Format', () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }
@@ -487,7 +487,7 @@ describe('Artifact Integration - Pipeline Batch Format', () => {
     await handleIngest(previewRequest, createMockEnv(), createMockContext())
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('pipeline.example.com/preview'),
+      expect.stringContaining('pipeline.example.com.ai/preview'),
       expect.anything()
     )
 
@@ -499,7 +499,7 @@ describe('Artifact Integration - Pipeline Batch Format', () => {
     await handleIngest(bulkRequest, createMockEnv(), createMockContext())
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('pipeline.example.com/bulk'),
+      expect.stringContaining('pipeline.example.com.ai/bulk'),
       expect.anything()
     )
   })
@@ -513,7 +513,7 @@ describe('Artifact Integration - Pipeline Batch Format', () => {
     await handleIngest(request, env, ctx)
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('pipeline.example.com/build'),
+      expect.stringContaining('pipeline.example.com.ai/build'),
       expect.anything()
     )
   })
@@ -584,7 +584,7 @@ describe('Artifact Integration - Full Round-Trip', () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }
@@ -839,7 +839,7 @@ describe('Artifact Integration - Cache Invalidation', () => {
     })
 
     // Invalidate cache (simulates cache expiration)
-    await mockCache.delete(new Request('https://api.example.com/$.content/app.do/Page/update-test.md'))
+    await mockCache.delete(new Request('https://api.example.com.ai/$.content/app.do/Page/update-test.md'))
 
     // Second GET - should get new content
     const result2 = await handleServe(
@@ -955,7 +955,7 @@ describe('Artifact Integration - Cache Invalidation', () => {
     mockReader.addRecord(artifact)
 
     // Manually add stale cache entry
-    const cacheUrl = 'https://api.example.com/$.content/app.do/Page/swr-test.md'
+    const cacheUrl = 'https://api.example.com.ai/$.content/app.do/Page/swr-test.md'
     mockCache._store.set(cacheUrl, {
       response: new Response('# Old Content', {
         headers: { 'Cache-Control': 'max-age=10' },
@@ -1171,7 +1171,7 @@ describe('Artifact Integration - Large File Chunking', () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }
@@ -1303,7 +1303,7 @@ describe('Artifact Integration - Concurrent Requests', () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }
@@ -1488,7 +1488,7 @@ describe('Artifact Integration - Error Handling', () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }
@@ -1572,7 +1572,7 @@ describe('Artifact Integration - Error Handling', () => {
     const ctx = createMockContext()
 
     // Invalid path - missing extension
-    const request = new Request('https://api.example.com/$.content/app.do/Page/noext')
+    const request = new Request('https://api.example.com.ai/$.content/app.do/Page/noext')
 
     const result = await handleServe(request, env, ctx, {
       reader: mockReader,
@@ -1621,7 +1621,7 @@ describe('Artifact Integration - Performance', () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
-      if (url.includes('pipeline.example.com')) {
+      if (url.includes('pipeline.example.com.ai')) {
         const request = new Request(url, init)
         return mockPipeline.handler(request)
       }

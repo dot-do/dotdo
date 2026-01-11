@@ -29,7 +29,7 @@ import {
 // ============================================================================
 
 const mockSchema: DOSchema = {
-  ns: 'test.example.com',
+  ns: 'test.example.com.ai',
   permissions: {
     role: 'admin',
     scopes: ['read', 'write', 'admin'],
@@ -106,7 +106,7 @@ describe('createDOProxy()', () => {
 
   it('should return a proxy object', async () => {
     __setMockFetch(vi.fn().mockResolvedValue(mockSchema))
-    const $ = await createDOProxy('test.example.com', 'test-token')
+    const $ = await createDOProxy('test.example.com.ai', 'test-token')
 
     expect($).toBeDefined()
     // Proxy over function returns 'function' for typeof, but behaves like object
@@ -117,10 +117,10 @@ describe('createDOProxy()', () => {
     const mockFetch = vi.fn().mockResolvedValue(mockSchema)
     __setMockFetch(mockFetch)
 
-    await createDOProxy('test.example.com', 'test-token')
+    await createDOProxy('test.example.com.ai', 'test-token')
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('test.example.com'),
+      expect.stringContaining('test.example.com.ai'),
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: 'Bearer test-token',
@@ -133,7 +133,7 @@ describe('createDOProxy()', () => {
     const mockFetch = vi.fn().mockResolvedValue(mockSchema)
     __setMockFetch(mockFetch)
 
-    const $ = await createDOProxy('test.example.com', 'test-token')
+    const $ = await createDOProxy('test.example.com.ai', 'test-token')
 
     // Access multiple properties
     void $.ns
@@ -148,8 +148,8 @@ describe('createDOProxy()', () => {
     const mockFetch = vi.fn().mockResolvedValue(mockSchema)
     __setMockFetch(mockFetch)
 
-    await createDOProxy('test.example.com', 'test-token')
-    await createDOProxy('test.example.com', 'test-token', { cache: false })
+    await createDOProxy('test.example.com.ai', 'test-token')
+    await createDOProxy('test.example.com.ai', 'test-token', { cache: false })
 
     // Should fetch twice when cache disabled
     expect(mockFetch).toHaveBeenCalledTimes(2)
@@ -166,7 +166,7 @@ describe('Schema Property Access', () => {
   beforeEach(async () => {
     __clearCache()
     __setMockFetch(vi.fn().mockResolvedValue(mockSchema))
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$.schema should return the full DOSchema', () => {
@@ -174,7 +174,7 @@ describe('Schema Property Access', () => {
   })
 
   it('$.ns should return namespace string', () => {
-    expect($.ns).toBe('test.example.com')
+    expect($.ns).toBe('test.example.com.ai')
   })
 
   it('$.permissions should return role and scopes', () => {
@@ -242,7 +242,7 @@ describe('DO Class Access', () => {
         return null
       })
     )
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$.Users should return a class proxy (function)', () => {
@@ -334,7 +334,7 @@ describe('Storage Access', () => {
         exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
       },
     })
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$.fsx should return FSX client when storage.fsx is true', () => {
@@ -380,7 +380,7 @@ describe('Storage Access', () => {
         gitx: { status: vi.fn(), log: vi.fn() },
         bashx: { exec: vi.fn().mockResolvedValue({ stdout: 'hello', stderr: '', exitCode: 0 }) },
       })
-      $ = await createDOProxy('test.example.com', 'test-token')
+      $ = await createDOProxy('test.example.com.ai', 'test-token')
     })
 
     it('$.bashx should return BashX client when storage.bashx is true', () => {
@@ -404,7 +404,7 @@ describe('Error Handling', () => {
   it('should propagate network errors', async () => {
     __setMockFetch(vi.fn().mockRejectedValue(new Error('Network error')))
 
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Network error')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Network error')
   })
 
   it('should handle auth errors gracefully', async () => {
@@ -417,13 +417,13 @@ describe('Error Handling', () => {
       )
     )
 
-    await expect(createDOProxy('test.example.com', 'invalid-token')).rejects.toThrow('Unauthorized')
+    await expect(createDOProxy('test.example.com.ai', 'invalid-token')).rejects.toThrow('Unauthorized')
   })
 
   it('should handle invalid schema response', async () => {
     __setMockFetch(vi.fn().mockResolvedValue({ invalid: 'schema' }))
 
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow()
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow()
   })
 })
 
@@ -437,7 +437,7 @@ describe('Proxy Callable', () => {
   beforeEach(async () => {
     __clearCache()
     __setMockFetch(vi.fn().mockResolvedValue(mockSchema))
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$() should return the raw schema', () => {
@@ -488,31 +488,31 @@ describe('Schema Validation Completeness', () => {
   it('should reject schema missing nouns array', async () => {
     const invalidSchema = { ...mockSchema, nouns: undefined }
     __setMockFetch(vi.fn().mockResolvedValue(invalidSchema))
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Invalid schema')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Invalid schema')
   })
 
   it('should reject schema missing verbs array', async () => {
     const invalidSchema = { ...mockSchema, verbs: undefined }
     __setMockFetch(vi.fn().mockResolvedValue(invalidSchema))
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Invalid schema')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Invalid schema')
   })
 
   it('should reject schema missing stores array', async () => {
     const invalidSchema = { ...mockSchema, stores: undefined }
     __setMockFetch(vi.fn().mockResolvedValue(invalidSchema))
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Invalid schema')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Invalid schema')
   })
 
   it('should reject schema missing storage object', async () => {
     const invalidSchema = { ...mockSchema, storage: undefined }
     __setMockFetch(vi.fn().mockResolvedValue(invalidSchema))
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Invalid schema')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Invalid schema')
   })
 
   it('should reject schema with storage as non-object', async () => {
     const invalidSchema = { ...mockSchema, storage: 'not-an-object' }
     __setMockFetch(vi.fn().mockResolvedValue(invalidSchema))
-    await expect(createDOProxy('test.example.com', 'test-token')).rejects.toThrow('Invalid schema')
+    await expect(createDOProxy('test.example.com.ai', 'test-token')).rejects.toThrow('Invalid schema')
   })
 })
 
@@ -531,7 +531,7 @@ describe('ClassProxy CRUD Operations', () => {
       if (method === 'delete') return undefined
       return null
     }))
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$.Users.update(id, data) should update instance', async () => {
@@ -562,7 +562,7 @@ describe('Query Builder Edge Cases', () => {
       if (method === 'count') return 5
       return []
     }))
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('$.Users.where({}) with empty filter should return results', async () => {
@@ -594,7 +594,7 @@ describe('Proxy Inspection', () => {
   beforeEach(async () => {
     __clearCache()
     __setMockFetch(vi.fn().mockResolvedValue(mockSchema))
-    $ = await createDOProxy('test.example.com', 'test-token')
+    $ = await createDOProxy('test.example.com.ai', 'test-token')
   })
 
   it('Object.keys($) should include DO class names', () => {
@@ -632,13 +632,13 @@ describe('Cache Concurrency', () => {
 
     // Fire 5 concurrent requests for same namespace
     const promises = Array(5).fill(null).map(() =>
-      createDOProxy('test.example.com', 'test-token')
+      createDOProxy('test.example.com.ai', 'test-token')
     )
 
     const results = await Promise.all(promises)
 
     // All should succeed
-    results.forEach($ => expect($.ns).toBe('test.example.com'))
+    results.forEach($ => expect($.ns).toBe('test.example.com.ai'))
 
     // Current behavior: fetches 5 times (no deduplication)
     // This test documents current behavior - may want to improve later

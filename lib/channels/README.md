@@ -268,7 +268,7 @@ await discord.send({
     actions: [
       { label: 'Approve', value: 'approve', style: 'success' },
       { label: 'Reject', value: 'reject', style: 'danger' },
-      { label: 'View Details', value: 'https://app.example.com/refund/789', style: 'link' }
+      { label: 'View Details', value: 'https://app.example.com.ai/refund/789', style: 'link' }
     ]
   })]
 })
@@ -303,7 +303,7 @@ const actionRow = buildActionRow({
   actions: [
     { label: 'Approve', value: 'approve', style: 'primary' },
     { label: 'Reject', value: 'reject', style: 'secondary' },
-    { label: 'More Info', value: 'https://example.com', style: 'link' }
+    { label: 'More Info', value: 'https://example.com.ai', style: 'link' }
   ]
 })
 ```
@@ -360,14 +360,14 @@ const email = new EmailChannel({
 
 // Notification email
 await email.send({
-  to: 'alice@example.com',
+  to: 'alice@example.com.ai',
   subject: 'Deployment Complete',
   message: 'Version 2.0 deployed successfully'
 })
 
 // With custom HTML
 await email.send({
-  to: 'bob@example.com',
+  to: 'bob@example.com.ai',
   subject: 'Weekly Report',
   message: 'See attached',
   html: '<h1>Custom HTML</h1>'
@@ -423,10 +423,10 @@ const html = renderNotificationEmail({
 const response = await email.handleWebhook({
   event: 'click',
   url: 'https://app.yourapp.com/approve/req-123?action=approve',
-  email: 'alice@example.com'
+  email: 'alice@example.com.ai'
 })
 
-// => { action: 'approve', requestId: 'req-123', userId: 'alice@example.com' }
+// => { action: 'approve', requestId: 'req-123', userId: 'alice@example.com.ai' }
 ```
 
 ---

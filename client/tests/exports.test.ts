@@ -95,7 +95,7 @@ describe('Client Entry Point Exports', () => {
       // This will FAIL - factory doesn't exist
       const { createDataProvider } = await import('../../client')
 
-      const provider = createDataProvider({ baseUrl: 'https://api.example.com' })
+      const provider = createDataProvider({ baseUrl: 'https://api.example.com.ai' })
 
       // DataProvider should have CRUD methods
       expect(provider).toHaveProperty('getList')
@@ -119,7 +119,7 @@ describe('Client Entry Point Exports', () => {
       // This will FAIL - factory doesn't exist
       const { createAuthProvider } = await import('../../client')
 
-      const provider = createAuthProvider({ authUrl: 'https://auth.example.com' })
+      const provider = createAuthProvider({ authUrl: 'https://auth.example.com.ai' })
 
       // AuthProvider should have auth methods
       expect(provider).toHaveProperty('login')
@@ -148,7 +148,7 @@ describe('Client Entry Point Exports', () => {
       // This will FAIL - factory doesn't exist
       const { create$Context } = await import('../../client')
 
-      const context = create$Context({ baseUrl: 'https://api.example.com' })
+      const context = create$Context({ baseUrl: 'https://api.example.com.ai' })
 
       // Context should have Provider component and use$ hook
       expect(context).toHaveProperty('Provider')
@@ -164,7 +164,7 @@ describe('Client Entry Point Exports', () => {
       // Should not throw with valid config
       expect(() =>
         create$Context({
-          baseUrl: 'https://api.example.com',
+          baseUrl: 'https://api.example.com.ai',
           auth: { token: 'test-token' },
           timeout: 30000,
         })
@@ -359,7 +359,7 @@ describe('Client Type Definitions', () => {
 
     const { createDataProvider } = await import('../../client')
 
-    const provider = createDataProvider({ baseUrl: 'https://api.example.com' })
+    const provider = createDataProvider({ baseUrl: 'https://api.example.com.ai' })
 
     // Provider methods should be properly typed
     expectTypeOf(provider.getList).toBeFunction()
@@ -374,7 +374,7 @@ describe('Client Type Definitions', () => {
 
     const { createAuthProvider } = await import('../../client')
 
-    const provider = createAuthProvider({ authUrl: 'https://auth.example.com' })
+    const provider = createAuthProvider({ authUrl: 'https://auth.example.com.ai' })
 
     // Provider methods should be properly typed
     expectTypeOf(provider.login).toBeFunction()
@@ -397,7 +397,7 @@ describe('Client Integration Patterns', () => {
 
     // Pattern: Create context at app level
     const { Provider, use$: useContext$ } = create$Context({
-      baseUrl: 'https://api.example.com',
+      baseUrl: 'https://api.example.com.ai',
     })
 
     expect(Provider).toBeDefined()
@@ -415,11 +415,11 @@ describe('Client Integration Patterns', () => {
 
     // Pattern: Create providers for react-admin
     const dataProvider = createDataProvider({
-      baseUrl: 'https://api.example.com',
+      baseUrl: 'https://api.example.com.ai',
     })
 
     const authProvider = createAuthProvider({
-      authUrl: 'https://api.example.com/auth',
+      authUrl: 'https://api.example.com.ai/auth',
     })
 
     // Both providers should be usable with react-admin
@@ -434,7 +434,7 @@ describe('Client Integration Patterns', () => {
 
     // Pattern: SaaS app with forms and tables
     const context = create$Context({
-      baseUrl: 'https://api.example.com',
+      baseUrl: 'https://api.example.com.ai',
       auth: { token: 'user-token' },
     })
 

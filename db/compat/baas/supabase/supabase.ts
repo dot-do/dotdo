@@ -1049,7 +1049,7 @@ class AuthClientImpl implements AuthClient {
   ): Promise<{ data: { provider: string; url: string } | null; error: AuthError | null }> {
     const { provider, options } = credentials
     const redirectTo = options?.redirectTo ?? 'http://localhost:3000/callback'
-    const url = `https://oauth.example.com/${provider}?redirect_to=${encodeURIComponent(redirectTo)}`
+    const url = `https://oauth.example.com.ai/${provider}?redirect_to=${encodeURIComponent(redirectTo)}`
 
     return { data: { provider, url }, error: null }
   }
@@ -1086,7 +1086,7 @@ class AuthClientImpl implements AuthClient {
     credentials: SignInWithSSOCredentials
   ): Promise<{ data: { url: string } | null; error: AuthError | null }> {
     const { domain, options } = credentials
-    const url = `https://sso.example.com/${domain ?? 'default'}?redirect_to=${encodeURIComponent(options?.redirectTo ?? '')}`
+    const url = `https://sso.example.com.ai/${domain ?? 'default'}?redirect_to=${encodeURIComponent(options?.redirectTo ?? '')}`
 
     return { data: { url }, error: null }
   }
@@ -1136,7 +1136,7 @@ class AuthClientImpl implements AuthClient {
   async refreshSession(params?: { refreshToken?: string }): Promise<AuthResponse> {
     // For testing: create a mock user/session if none exists
     if (!this.currentUser) {
-      const user = this.createUser('mock@example.com')
+      const user = this.createUser('mock@example.com.ai')
       this.currentUser = user
     }
 
@@ -1162,7 +1162,7 @@ class AuthClientImpl implements AuthClient {
   async updateUser(attributes: UserAttributes): Promise<UserResponse> {
     // For testing: create a mock user if none exists
     if (!this.currentUser) {
-      this.currentUser = this.createUser('mock@example.com')
+      this.currentUser = this.createUser('mock@example.com.ai')
     }
 
     if (attributes.email) this.currentUser.email = attributes.email
@@ -1206,7 +1206,7 @@ class AuthClientImpl implements AuthClient {
 
   async exchangeCodeForSession(authCode: string): Promise<AuthResponse> {
     // Mock exchange - create a new user/session
-    const user = this.createUser('oauth@example.com')
+    const user = this.createUser('oauth@example.com.ai')
     const session = this.createSession(user)
 
     this.currentUser = user
@@ -1305,7 +1305,7 @@ class AuthClientImpl implements AuthClient {
 
       // For testing: create user/session if not exists
       if (!this.currentUser) {
-        this.currentUser = this.createUser('mock@example.com')
+        this.currentUser = this.createUser('mock@example.com.ai')
         this.currentSession = this.createSession(this.currentUser)
       }
 

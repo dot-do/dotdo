@@ -747,7 +747,7 @@ describe('routing modes', () => {
     })
     const mockEnv = createMockEnv({ name: 'Test' })
 
-    const request = new Request('https://anything.example.com/Startup/')
+    const request = new Request('https://anything.example.com.ai/Startup/')
     const response = await handler(request, mockEnv)
 
     expect(response).toBeDefined()

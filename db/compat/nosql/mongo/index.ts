@@ -19,7 +19,7 @@
  * // Insert
  * const result = await collection.insertOne({
  *   name: 'John',
- *   email: 'john@example.com'
+ *   email: 'john@example.com.ai'
  * })
  *
  * // Find

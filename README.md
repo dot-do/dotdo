@@ -119,7 +119,7 @@ Your Durable Object is already an API. No routes to define. No schemas to mainta
 ```typescript
 import { $Context } from 'dotdo'
 
-const $ = $Context('https://my-startup.example.com')
+const $ = $Context('https://my-startup.example.com.ai')
 await $.Customer('alice').orders.create({ item: 'widget', qty: 5 })
 ```
 

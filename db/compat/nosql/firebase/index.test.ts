@@ -455,11 +455,11 @@ describe('setDoc', () => {
   it('should merge with existing document', async () => {
     const docRef = doc(db, 'users/alice')
     await setDoc(docRef, { name: 'Alice', age: 30 })
-    await setDoc(docRef, { email: 'alice@example.com' }, { merge: true })
+    await setDoc(docRef, { email: 'alice@example.com.ai' }, { merge: true })
 
     const snapshot = await getDoc(docRef)
     expect(snapshot.data()?.name).toBe('Alice')
-    expect(snapshot.data()?.email).toBe('alice@example.com')
+    expect(snapshot.data()?.email).toBe('alice@example.com.ai')
   })
 
   it('should merge only specified fields', async () => {
@@ -997,12 +997,12 @@ describe('WriteBatch', () => {
     await setDoc(doc(db, 'users/alice'), { name: 'Alice', age: 30 })
 
     const batch = writeBatch(db)
-    batch.set(doc(db, 'users/alice'), { email: 'alice@example.com' }, { merge: true })
+    batch.set(doc(db, 'users/alice'), { email: 'alice@example.com.ai' }, { merge: true })
     await batch.commit()
 
     const alice = await getDoc(doc(db, 'users/alice'))
     expect(alice.data()?.name).toBe('Alice')
-    expect(alice.data()?.email).toBe('alice@example.com')
+    expect(alice.data()?.email).toBe('alice@example.com.ai')
   })
 })
 

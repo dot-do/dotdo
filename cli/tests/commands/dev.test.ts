@@ -114,7 +114,7 @@ function createSpawnMock() {
 const MOCK_TOKEN = 'test-token-xyz123'
 const MOCK_USER = {
   id: 'user_123',
-  email: 'dev@example.com',
+  email: 'dev@example.com.ai',
   name: 'Developer',
 }
 

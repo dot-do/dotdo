@@ -332,9 +332,9 @@ class RpcTestDO extends DO {
   }
 
   private _users: Map<string, { id: string; name: string; email: string }> = new Map([
-    ['user-1', { id: 'user-1', name: 'Alice', email: 'alice@example.com' }],
-    ['user-2', { id: 'user-2', name: 'Bob', email: 'bob@example.com' }],
-    ['user-3', { id: 'user-3', name: 'Charlie', email: 'charlie@example.com' }],
+    ['user-1', { id: 'user-1', name: 'Alice', email: 'alice@example.com.ai' }],
+    ['user-2', { id: 'user-2', name: 'Bob', email: 'bob@example.com.ai' }],
+    ['user-3', { id: 'user-3', name: 'Charlie', email: 'charlie@example.com.ai' }],
   ])
 
   private _posts: Map<string, { id: string; title: string; authorId: string; published: boolean }> = new Map([
@@ -446,7 +446,7 @@ describe('RPC Server Integration - DO Methods', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new RpcTestDO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   // ==========================================================================
@@ -542,7 +542,7 @@ describe('RPC Server Integration - DO Methods', () => {
       expect(data.result).toEqual({
         id: 'user-1',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 
@@ -656,7 +656,7 @@ describe('RPC Server Integration - DO Methods', () => {
       expect(data.results?.[0]).toEqual({
         promiseId: 'p1',
         type: 'value',
-        value: { id: 'user-1', name: 'Alice', email: 'alice@example.com' },
+        value: { id: 'user-1', name: 'Alice', email: 'alice@example.com.ai' },
       })
     })
 
@@ -731,7 +731,7 @@ describe('RPC Server Integration - DO Methods', () => {
       expect(data.results?.[0].value).toEqual({
         id: 'user-1',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 
@@ -1233,7 +1233,7 @@ describe('RPC Server Integration - DO Methods', () => {
       expect(data.results?.[1].value).toEqual({
         id: 'user-1',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
   })
@@ -1377,7 +1377,7 @@ describe('RPC Server Integration - DO Methods', () => {
       expect(resp2.results?.[0].value).toEqual({
         id: 'user-1',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 
@@ -1874,7 +1874,7 @@ describe('Type-Safe RPC Client Generation', () => {
 
     // The generated client should have correct types
     const mockClient: RpcTestDOClient = {
-      getUser: async (id) => ({ id, name: 'Test', email: 'test@example.com' }),
+      getUser: async (id) => ({ id, name: 'Test', email: 'test@example.com.ai' }),
       getUserPosts: async (userId) => [],
       add: async (a, b) => a + b,
     }
@@ -1930,7 +1930,7 @@ describe('Collection RPC - Dynamic {Noun}.{method} routing', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new RpcTestDO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   // ==========================================================================
@@ -2650,7 +2650,7 @@ describe('Collection RPC - Dynamic {Noun}.{method} routing', () => {
       expect(data.results?.[0].value).toEqual({
         id: 'user-1',
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 
@@ -2705,7 +2705,7 @@ describe('Collection RPC - Dynamic {Noun}.{method} routing', () => {
       expect(data.results?.[0].value).toEqual({
         id: 'user-2',
         name: 'Bob',
-        email: 'bob@example.com',
+        email: 'bob@example.com.ai',
       })
     })
   })

@@ -59,7 +59,7 @@ await db.query(`
 // Insert
 await db.query(
   `INSERT INTO users (id, email, embedding) VALUES ($1, $2, $3)`,
-  ['user-1', 'alice@example.com', embedding]
+  ['user-1', 'alice@example.com.ai', embedding]
 )
 
 // Query

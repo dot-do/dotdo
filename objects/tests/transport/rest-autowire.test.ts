@@ -516,7 +516,7 @@ describe('REST API Auto-Wiring', () => {
     describe('GET requests', () => {
       it('handles GET request with path parameters', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/greet/World')
+        const request = new Request('https://example.com.ai/greet/World')
 
         const response = await router.fetch(request)
 
@@ -527,7 +527,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('handles GET request with query parameters', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items?q=test&limit=10&offset=0')
+        const request = new Request('https://example.com.ai/items?q=test&limit=10&offset=0')
 
         const response = await router.fetch(request)
 
@@ -539,7 +539,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('converts query params to correct types', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items?limit=5')
+        const request = new Request('https://example.com.ai/items?limit=5')
 
         // The router should convert "5" string to number 5
         const response = await router.fetch(request)
@@ -549,7 +549,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('handles optional query parameters', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items')
+        const request = new Request('https://example.com.ai/items')
 
         const response = await router.fetch(request)
 
@@ -560,7 +560,7 @@ describe('REST API Auto-Wiring', () => {
     describe('POST requests', () => {
       it('handles POST request with JSON body', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Test Item', description: 'A test item' }),
@@ -580,7 +580,7 @@ describe('REST API Auto-Wiring', () => {
         formData.append('name', 'Test')
         formData.append('value', '123')
 
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           method: 'POST',
           body: formData,
         })
@@ -592,7 +592,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('handles POST with URL-encoded data', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'name=Test&value=123',
@@ -605,7 +605,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('rejects POST with unsupported content type', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
           body: 'some text',
@@ -622,7 +622,7 @@ describe('REST API Auto-Wiring', () => {
         const router = createRestRouter(RestTestDO)
 
         // First create an item
-        const createRequest = new Request('https://example.com/items', {
+        const createRequest = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Original' }),
@@ -631,7 +631,7 @@ describe('REST API Auto-Wiring', () => {
         const created = await createResponse.json()
 
         // Then update it
-        const updateRequest = new Request(`https://example.com/items/${created.id}`, {
+        const updateRequest = new Request(`https://example.com.ai/items/${created.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Updated', description: 'Updated description' }),
@@ -646,7 +646,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('returns 404 for PUT on non-existent resource', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items/non-existent-id', {
+        const request = new Request('https://example.com.ai/items/non-existent-id', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Updated' }),
@@ -663,7 +663,7 @@ describe('REST API Auto-Wiring', () => {
         const router = createRestRouter(RestTestDO)
 
         // First create an item
-        const createRequest = new Request('https://example.com/items', {
+        const createRequest = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Original', description: 'Original desc' }),
@@ -672,7 +672,7 @@ describe('REST API Auto-Wiring', () => {
         const created = await createResponse.json()
 
         // Then patch it
-        const patchRequest = new Request(`https://example.com/items/${created.id}`, {
+        const patchRequest = new Request(`https://example.com.ai/items/${created.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ description: 'Patched description' }),
@@ -692,7 +692,7 @@ describe('REST API Auto-Wiring', () => {
         const router = createRestRouter(RestTestDO)
 
         // First create an item
-        const createRequest = new Request('https://example.com/items', {
+        const createRequest = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'To Delete' }),
@@ -701,7 +701,7 @@ describe('REST API Auto-Wiring', () => {
         const created = await createResponse.json()
 
         // Then delete it
-        const deleteRequest = new Request(`https://example.com/items/${created.id}`, {
+        const deleteRequest = new Request(`https://example.com.ai/items/${created.id}`, {
           method: 'DELETE',
         })
 
@@ -714,7 +714,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('returns 404 for DELETE on non-existent resource', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items/non-existent-id', {
+        const request = new Request('https://example.com.ai/items/non-existent-id', {
           method: 'DELETE',
         })
 
@@ -859,7 +859,7 @@ describe('REST API Auto-Wiring', () => {
     describe('Content-Type negotiation', () => {
       it('returns JSON when Accept is application/json', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           headers: { 'Accept': 'application/json' },
         })
 
@@ -870,7 +870,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('returns XML when Accept is application/xml', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           headers: { 'Accept': 'application/xml' },
         })
 
@@ -881,7 +881,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('returns CSV when Accept is text/csv', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           headers: { 'Accept': 'text/csv' },
         })
 
@@ -892,7 +892,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('respects Accept header quality values', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           headers: { 'Accept': 'application/xml;q=0.9, application/json;q=1.0' },
         })
 
@@ -904,7 +904,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('returns 406 Not Acceptable for unsupported Accept types', async () => {
         const router = createRestRouter(ContentNegotiationDO)
-        const request = new Request('https://example.com/data', {
+        const request = new Request('https://example.com.ai/data', {
           headers: { 'Accept': 'application/unsupported' },
         })
 
@@ -922,7 +922,7 @@ describe('REST API Auto-Wiring', () => {
   describe('Request Deserialization', () => {
     describe('deserializeRequest()', () => {
       it('deserializes JSON request body', async () => {
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Test' }),
@@ -938,7 +938,7 @@ describe('REST API Auto-Wiring', () => {
         formData.append('name', 'Test')
         formData.append('count', '5')
 
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           body: formData,
         })
@@ -950,7 +950,7 @@ describe('REST API Auto-Wiring', () => {
       })
 
       it('deserializes URL-encoded request body', async () => {
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'name=Test&count=5',
@@ -963,7 +963,7 @@ describe('REST API Auto-Wiring', () => {
       })
 
       it('handles empty request body', async () => {
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
         })
@@ -974,7 +974,7 @@ describe('REST API Auto-Wiring', () => {
       })
 
       it('handles malformed JSON gracefully', async () => {
-        const request = new Request('https://example.com/items', {
+        const request = new Request('https://example.com.ai/items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{ invalid json }',
@@ -989,7 +989,7 @@ describe('REST API Auto-Wiring', () => {
         formData.append('file', file)
         formData.append('name', 'Test Upload')
 
-        const request = new Request('https://example.com/upload', {
+        const request = new Request('https://example.com.ai/upload', {
           method: 'POST',
           body: formData,
         })
@@ -1076,7 +1076,7 @@ describe('REST API Auto-Wiring', () => {
     describe('Error Response Format', () => {
       it('returns proper error response body', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items/non-existent', {
+        const request = new Request('https://example.com.ai/items/non-existent', {
           method: 'DELETE',
         })
 
@@ -1091,7 +1091,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('includes stack trace in development mode', async () => {
         const router = createRestRouter(RestTestDO, { debug: true })
-        const request = new Request('https://example.com/items/non-existent', {
+        const request = new Request('https://example.com.ai/items/non-existent', {
           method: 'DELETE',
         })
 
@@ -1103,7 +1103,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('excludes stack trace in production mode', async () => {
         const router = createRestRouter(RestTestDO, { debug: false })
-        const request = new Request('https://example.com/items/non-existent', {
+        const request = new Request('https://example.com.ai/items/non-existent', {
           method: 'DELETE',
         })
 
@@ -1115,7 +1115,7 @@ describe('REST API Auto-Wiring', () => {
 
       it('includes request ID in error response', async () => {
         const router = createRestRouter(RestTestDO)
-        const request = new Request('https://example.com/items/non-existent', {
+        const request = new Request('https://example.com.ai/items/non-existent', {
           method: 'DELETE',
           headers: { 'X-Request-ID': 'req-123' },
         })
@@ -1137,7 +1137,7 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(RateLimitedDO)
 
       for (let i = 0; i < 10; i++) {
-        const request = new Request('https://example.com/limited', {
+        const request = new Request('https://example.com.ai/limited', {
           headers: { 'X-Forwarded-For': '192.168.1.1' },
         })
         const response = await router.fetch(request)
@@ -1150,13 +1150,13 @@ describe('REST API Auto-Wiring', () => {
 
       // Make 10 requests (the limit)
       for (let i = 0; i < 10; i++) {
-        await router.fetch(new Request('https://example.com/limited', {
+        await router.fetch(new Request('https://example.com.ai/limited', {
           headers: { 'X-Forwarded-For': '192.168.1.1' },
         }))
       }
 
       // 11th request should be rate limited
-      const response = await router.fetch(new Request('https://example.com/limited', {
+      const response = await router.fetch(new Request('https://example.com.ai/limited', {
         headers: { 'X-Forwarded-For': '192.168.1.1' },
       }))
 
@@ -1168,12 +1168,12 @@ describe('REST API Auto-Wiring', () => {
 
       // Exhaust rate limit
       for (let i = 0; i < 11; i++) {
-        await router.fetch(new Request('https://example.com/limited', {
+        await router.fetch(new Request('https://example.com.ai/limited', {
           headers: { 'X-Forwarded-For': '192.168.1.1' },
         }))
       }
 
-      const response = await router.fetch(new Request('https://example.com/limited', {
+      const response = await router.fetch(new Request('https://example.com.ai/limited', {
         headers: { 'X-Forwarded-For': '192.168.1.1' },
       }))
 
@@ -1182,7 +1182,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('includes rate limit headers in response', async () => {
       const router = createRestRouter(RateLimitedDO)
-      const request = new Request('https://example.com/limited', {
+      const request = new Request('https://example.com.ai/limited', {
         headers: { 'X-Forwarded-For': '192.168.1.1' },
       })
 
@@ -1198,7 +1198,7 @@ describe('REST API Auto-Wiring', () => {
 
       // User A should have their own limit
       for (let i = 0; i < 100; i++) {
-        const request = new Request('https://example.com/user-limited', {
+        const request = new Request('https://example.com.ai/user-limited', {
           headers: { 'Authorization': 'Bearer token-user-a' },
         })
         const response = await router.fetch(request)
@@ -1206,13 +1206,13 @@ describe('REST API Auto-Wiring', () => {
       }
 
       // User A's 101st request should be limited
-      const limitedResponse = await router.fetch(new Request('https://example.com/user-limited', {
+      const limitedResponse = await router.fetch(new Request('https://example.com.ai/user-limited', {
         headers: { 'Authorization': 'Bearer token-user-a' },
       }))
       expect(limitedResponse.status).toBe(429)
 
       // User B should still be able to make requests
-      const userBResponse = await router.fetch(new Request('https://example.com/user-limited', {
+      const userBResponse = await router.fetch(new Request('https://example.com.ai/user-limited', {
         headers: { 'Authorization': 'Bearer token-user-b' },
       }))
       expect(userBResponse.status).toBe(200)
@@ -1224,7 +1224,7 @@ describe('REST API Auto-Wiring', () => {
       // Make 5 rapid requests (burst limit)
       const responses = await Promise.all(
         Array.from({ length: 5 }, () =>
-          router.fetch(new Request('https://example.com/burst-limited', {
+          router.fetch(new Request('https://example.com.ai/burst-limited', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1239,7 +1239,7 @@ describe('REST API Auto-Wiring', () => {
       responses.forEach((r) => expect(r.status).toBe(201))
 
       // 6th immediate request should be throttled
-      const throttledResponse = await router.fetch(new Request('https://example.com/burst-limited', {
+      const throttledResponse = await router.fetch(new Request('https://example.com.ai/burst-limited', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1259,7 +1259,7 @@ describe('REST API Auto-Wiring', () => {
   describe('Authentication', () => {
     it('allows access to public endpoints without auth', async () => {
       const router = createRestRouter(AuthenticatedDO)
-      const request = new Request('https://example.com/public')
+      const request = new Request('https://example.com.ai/public')
 
       const response = await router.fetch(request)
 
@@ -1268,7 +1268,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('requires authentication for protected endpoints', async () => {
       const router = createRestRouter(AuthenticatedDO)
-      const request = new Request('https://example.com/protected')
+      const request = new Request('https://example.com.ai/protected')
 
       const response = await router.fetch(request)
 
@@ -1278,7 +1278,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('allows access with valid authentication', async () => {
       const router = createRestRouter(AuthenticatedDO)
-      const request = new Request('https://example.com/protected', {
+      const request = new Request('https://example.com.ai/protected', {
         headers: { 'Authorization': 'Bearer valid-token' },
       })
 
@@ -1291,14 +1291,14 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(AuthenticatedDO)
 
       // User without admin role
-      const userRequest = new Request('https://example.com/admin', {
+      const userRequest = new Request('https://example.com.ai/admin', {
         headers: { 'Authorization': 'Bearer user-token' },
       })
       const userResponse = await router.fetch(userRequest)
       expect(userResponse.status).toBe(403)
 
       // User with admin role
-      const adminRequest = new Request('https://example.com/admin', {
+      const adminRequest = new Request('https://example.com.ai/admin', {
         headers: { 'Authorization': 'Bearer admin-token' },
       })
       const adminResponse = await router.fetch(adminRequest)
@@ -1309,7 +1309,7 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(AuthenticatedDO)
 
       // Token without required scopes
-      const limitedRequest = new Request('https://example.com/scoped', {
+      const limitedRequest = new Request('https://example.com.ai/scoped', {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer limited-scope-token',
@@ -1321,7 +1321,7 @@ describe('REST API Auto-Wiring', () => {
       expect(limitedResponse.status).toBe(403)
 
       // Token with required scopes
-      const fullRequest = new Request('https://example.com/scoped', {
+      const fullRequest = new Request('https://example.com.ai/scoped', {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer full-scope-token',
@@ -1342,15 +1342,15 @@ describe('REST API Auto-Wiring', () => {
     it('handles preflight OPTIONS requests', async () => {
       const router = createRestRouter(RestTestDO, {
         cors: {
-          origins: ['https://example.com'],
+          origins: ['https://example.com.ai'],
           methods: ['GET', 'POST', 'PUT', 'DELETE'],
         },
       })
 
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         method: 'OPTIONS',
         headers: {
-          'Origin': 'https://example.com',
+          'Origin': 'https://example.com.ai',
           'Access-Control-Request-Method': 'POST',
         },
       })
@@ -1358,24 +1358,24 @@ describe('REST API Auto-Wiring', () => {
       const response = await router.fetch(request)
 
       expect(response.status).toBe(204)
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com')
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com.ai')
       expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST')
     })
 
     it('includes CORS headers in actual response', async () => {
       const router = createRestRouter(RestTestDO, {
         cors: {
-          origins: ['https://example.com'],
+          origins: ['https://example.com.ai'],
         },
       })
 
-      const request = new Request('https://example.com/items?q=test', {
-        headers: { 'Origin': 'https://example.com' },
+      const request = new Request('https://example.com.ai/items?q=test', {
+        headers: { 'Origin': 'https://example.com.ai' },
       })
 
       const response = await router.fetch(request)
 
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com')
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com.ai')
     })
 
     it('rejects requests from non-allowed origins', async () => {
@@ -1385,7 +1385,7 @@ describe('REST API Auto-Wiring', () => {
         },
       })
 
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         headers: { 'Origin': 'https://not-allowed.com' },
       })
 
@@ -1401,7 +1401,7 @@ describe('REST API Auto-Wiring', () => {
         },
       })
 
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         headers: { 'Origin': 'https://any-origin.com' },
       })
 
@@ -1413,13 +1413,13 @@ describe('REST API Auto-Wiring', () => {
     it('includes credentials header when configured', async () => {
       const router = createRestRouter(RestTestDO, {
         cors: {
-          origins: ['https://example.com'],
+          origins: ['https://example.com.ai'],
           credentials: true,
         },
       })
 
-      const request = new Request('https://example.com/items', {
-        headers: { 'Origin': 'https://example.com' },
+      const request = new Request('https://example.com.ai/items', {
+        headers: { 'Origin': 'https://example.com.ai' },
       })
 
       const response = await router.fetch(request)
@@ -1452,7 +1452,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(CacheableDO)
-      const request = new Request('https://example.com/cached')
+      const request = new Request('https://example.com.ai/cached')
 
       const response = await router.fetch(request)
 
@@ -1462,7 +1462,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('sets no-store for mutating requests', async () => {
       const router = createRestRouter(RestTestDO)
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Test' }),
@@ -1491,12 +1491,12 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(ETagDO)
 
       // First request gets ETag
-      const response1 = await router.fetch(new Request('https://example.com/resource/123'))
+      const response1 = await router.fetch(new Request('https://example.com.ai/resource/123'))
       const etag = response1.headers.get('ETag')
       expect(etag).toBeDefined()
 
       // Conditional request with matching ETag
-      const response2 = await router.fetch(new Request('https://example.com/resource/123', {
+      const response2 = await router.fetch(new Request('https://example.com.ai/resource/123', {
         headers: { 'If-None-Match': etag! },
       }))
       expect(response2.status).toBe(304) // Not Modified
@@ -1520,12 +1520,12 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(LastModifiedDO)
 
       // First request gets Last-Modified
-      const response1 = await router.fetch(new Request('https://example.com/resource/123'))
+      const response1 = await router.fetch(new Request('https://example.com.ai/resource/123'))
       const lastModified = response1.headers.get('Last-Modified')
       expect(lastModified).toBeDefined()
 
       // Conditional request with matching Last-Modified
-      const response2 = await router.fetch(new Request('https://example.com/resource/123', {
+      const response2 = await router.fetch(new Request('https://example.com.ai/resource/123', {
         headers: { 'If-Modified-Since': lastModified! },
       }))
       expect(response2.status).toBe(304) // Not Modified
@@ -1561,10 +1561,10 @@ describe('REST API Auto-Wiring', () => {
 
     it('validates request body against schema', async () => {
       const router = createRestRouter(ValidatedDO)
-      const request = new Request('https://example.com/users', {
+      const request = new Request('https://example.com.ai/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Test', email: 'test@example.com' }),
+        body: JSON.stringify({ name: 'Test', email: 'test@example.com.ai' }),
       })
 
       const response = await router.fetch(request)
@@ -1574,7 +1574,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('rejects invalid request body', async () => {
       const router = createRestRouter(ValidatedDO)
-      const request = new Request('https://example.com/users', {
+      const request = new Request('https://example.com.ai/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: '' }), // Empty name, missing email
@@ -1589,7 +1589,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('validates required fields', async () => {
       const router = createRestRouter(ValidatedDO)
-      const request = new Request('https://example.com/users', {
+      const request = new Request('https://example.com.ai/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Test' }), // Missing required email
@@ -1604,7 +1604,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('validates field formats', async () => {
       const router = createRestRouter(ValidatedDO)
-      const request = new Request('https://example.com/users', {
+      const request = new Request('https://example.com.ai/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Test', email: 'not-an-email' }),
@@ -1619,10 +1619,10 @@ describe('REST API Auto-Wiring', () => {
 
     it('validates numeric ranges', async () => {
       const router = createRestRouter(ValidatedDO)
-      const request = new Request('https://example.com/users', {
+      const request = new Request('https://example.com.ai/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Test', email: 'test@example.com', age: 200 }),
+        body: JSON.stringify({ name: 'Test', email: 'test@example.com.ai', age: 200 }),
       })
 
       const response = await router.fetch(request)
@@ -1731,7 +1731,7 @@ describe('REST API Auto-Wiring', () => {
       })
 
       const router = createRestRouter(RestTestDO, { middleware: [middleware] })
-      await router.fetch(new Request('https://example.com/items'))
+      await router.fetch(new Request('https://example.com.ai/items'))
 
       expect(middleware).toHaveBeenCalled()
     })
@@ -1746,7 +1746,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(RestTestDO, { middleware: [middleware] })
-      const response = await router.fetch(new Request('https://example.com/items'))
+      const response = await router.fetch(new Request('https://example.com.ai/items'))
 
       expect(response.status).toBe(200)
     })
@@ -1764,7 +1764,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(RestTestDO, { middleware: [middleware] })
-      const response = await router.fetch(new Request('https://example.com/items'))
+      const response = await router.fetch(new Request('https://example.com.ai/items'))
 
       expect(response.headers.get('X-Processed-By')).toBe('middleware')
     })
@@ -1775,7 +1775,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(RestTestDO, { middleware: [middleware] })
-      const response = await router.fetch(new Request('https://example.com/items'))
+      const response = await router.fetch(new Request('https://example.com.ai/items'))
 
       expect(response.status).toBe(403)
     })
@@ -1798,7 +1798,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(RestTestDO, { middleware: [middleware1, middleware2] })
-      await router.fetch(new Request('https://example.com/items'))
+      await router.fetch(new Request('https://example.com.ai/items'))
 
       expect(order).toEqual([1, 2, 3, 4])
     })
@@ -1811,7 +1811,7 @@ describe('REST API Auto-Wiring', () => {
   describe('Edge Cases', () => {
     it('handles routes with no matching path', async () => {
       const router = createRestRouter(RestTestDO)
-      const request = new Request('https://example.com/non-existent-route')
+      const request = new Request('https://example.com.ai/non-existent-route')
 
       const response = await router.fetch(request)
 
@@ -1820,7 +1820,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('handles method not allowed', async () => {
       const router = createRestRouter(RestTestDO)
-      const request = new Request('https://example.com/greet/World', {
+      const request = new Request('https://example.com.ai/greet/World', {
         method: 'POST', // greet only accepts GET
       })
 
@@ -1832,7 +1832,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('handles HEAD requests automatically', async () => {
       const router = createRestRouter(RestTestDO)
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         method: 'HEAD',
       })
 
@@ -1845,7 +1845,7 @@ describe('REST API Auto-Wiring', () => {
 
     it('handles OPTIONS requests for CORS preflight', async () => {
       const router = createRestRouter(RestTestDO)
-      const request = new Request('https://example.com/items', {
+      const request = new Request('https://example.com.ai/items', {
         method: 'OPTIONS',
       })
 
@@ -1857,7 +1857,7 @@ describe('REST API Auto-Wiring', () => {
     it('handles very long URLs gracefully', async () => {
       const router = createRestRouter(RestTestDO)
       const longQuery = 'a'.repeat(10000)
-      const request = new Request(`https://example.com/items?q=${longQuery}`)
+      const request = new Request(`https://example.com.ai/items?q=${longQuery}`)
 
       const response = await router.fetch(request)
 
@@ -1868,7 +1868,7 @@ describe('REST API Auto-Wiring', () => {
       const router = createRestRouter(RestTestDO)
 
       const requests = Array.from({ length: 100 }, (_, i) =>
-        router.fetch(new Request(`https://example.com/greet/User${i}`))
+        router.fetch(new Request(`https://example.com.ai/greet/User${i}`))
       )
 
       const responses = await Promise.all(requests)
@@ -1894,7 +1894,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(DelayedErrorDO)
-      const request = new Request('https://example.com/delayed-error')
+      const request = new Request('https://example.com.ai/delayed-error')
 
       const response = await router.fetch(request)
 
@@ -1919,7 +1919,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(StreamingDO)
-      const request = new Request('https://example.com/stream')
+      const request = new Request('https://example.com.ai/stream')
 
       const response = await router.fetch(request)
 
@@ -1943,7 +1943,7 @@ describe('REST API Auto-Wiring', () => {
       }
 
       const router = createRestRouter(BinaryDO)
-      const request = new Request('https://example.com/image')
+      const request = new Request('https://example.com.ai/image')
 
       const response = await router.fetch(request)
 

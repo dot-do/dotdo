@@ -266,7 +266,7 @@ describe('SearchSnippet - Vector Search', () => {
 
       const mockAssets = new Map<string, ArrayBuffer>()
       mockAssets.set(
-        'https://custom-cdn.example.com/vectors/centroids.bin',
+        'https://custom-cdn.example.com.ai/vectors/centroids.bin',
         createRawCentroidBinary(64, 128)
       )
 
@@ -274,7 +274,7 @@ describe('SearchSnippet - Vector Search', () => {
 
       const result = await fetchCentroids({
         fetch: mockFetch,
-        url: 'https://custom-cdn.example.com/vectors/centroids.bin',
+        url: 'https://custom-cdn.example.com.ai/vectors/centroids.bin',
       })
 
       expect(result).toBeInstanceOf(ArrayBuffer)

@@ -312,9 +312,9 @@ describe('CRUD operations', () => {
 
     it('should throw on unique constraint violation', async () => {
       await client.query('CREATE TABLE emails (id INT PRIMARY KEY, email STRING UNIQUE)')
-      await client.query("INSERT INTO emails (id, email) VALUES (1, 'test@example.com')")
+      await client.query("INSERT INTO emails (id, email) VALUES (1, 'test@example.com.ai')")
       await expect(
-        client.query("INSERT INTO emails (id, email) VALUES (2, 'test@example.com')")
+        client.query("INSERT INTO emails (id, email) VALUES (2, 'test@example.com.ai')")
       ).rejects.toThrow(DatabaseError)
     })
   })
@@ -1148,14 +1148,14 @@ describe('integration', () => {
     // Insert data
     const insertResult = await client.query(
       'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
-      ['Alice', 'alice@example.com']
+      ['Alice', 'alice@example.com.ai']
     )
     expect(insertResult.rows[0].name).toBe('Alice')
     const userId = insertResult.rows[0].id
 
     // Read data
     const selectResult = await client.query('SELECT * FROM users WHERE id = $1', [userId])
-    expect(selectResult.rows[0].email).toBe('alice@example.com')
+    expect(selectResult.rows[0].email).toBe('alice@example.com.ai')
 
     // Update data
     const updateResult = await client.query(

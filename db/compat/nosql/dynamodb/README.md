@@ -25,7 +25,7 @@ const docClient = DynamoDBDocumentClient.from(client)
 // Same API you already know
 await docClient.send(new PutCommand({
   TableName: 'users',
-  Item: { pk: 'USER#123', sk: 'PROFILE', name: 'Alice', email: 'alice@example.com' }
+  Item: { pk: 'USER#123', sk: 'PROFILE', name: 'Alice', email: 'alice@example.com.ai' }
 }))
 
 const { Item } = await docClient.send(new GetCommand({
@@ -554,7 +554,7 @@ const client = new DynamoDBClient({
 // Users, orders, and products in one table
 const items = [
   // User profile
-  { pk: 'USER#123', sk: 'PROFILE', name: 'Alice', email: 'alice@example.com' },
+  { pk: 'USER#123', sk: 'PROFILE', name: 'Alice', email: 'alice@example.com.ai' },
   // User's orders
   { pk: 'USER#123', sk: 'ORDER#001', total: 99.99, status: 'shipped' },
   { pk: 'USER#123', sk: 'ORDER#002', total: 149.99, status: 'pending' },

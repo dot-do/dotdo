@@ -901,7 +901,7 @@ describe('integration', () => {
     if (!currentUser) {
       await client.mutation(api.users.create, {
         name: 'New User',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
       })
     }
 

@@ -295,9 +295,9 @@ describe('Input', () => {
         render(<Input type="email" />)
 
         const input = screen.getByRole('textbox')
-        fireEvent.change(input, { target: { value: 'test@example.com' } })
+        fireEvent.change(input, { target: { value: 'test@example.com.ai' } })
 
-        expect(input).toHaveValue('test@example.com')
+        expect(input).toHaveValue('test@example.com.ai')
       })
     })
 

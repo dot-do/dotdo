@@ -163,7 +163,7 @@ describe('PayloadAdapterTestHarness', () => {
       const harness = createPayloadAdapterHarness({
         seed: {
           posts: [{ id: '1', title: 'Post 1' }],
-          users: [{ id: 'u1', email: 'test@example.com' }],
+          users: [{ id: 'u1', email: 'test@example.com.ai' }],
           categories: [{ id: 'c1', name: 'Tech' }],
         }
       })
@@ -189,7 +189,7 @@ describe('PayloadAdapterTestHarness', () => {
             },
             blocks: [
               { type: 'paragraph', text: 'Hello' },
-              { type: 'image', url: 'https://example.com/img.png' },
+              { type: 'image', url: 'https://example.com.ai/img.png' },
             ],
           }],
         }

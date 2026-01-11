@@ -207,7 +207,7 @@ describe('do whoami', () => {
     vi.mocked(getUser).mockResolvedValue({
       user: {
         id: 'user-1',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         name: 'Test User',
       },
     })
@@ -219,7 +219,7 @@ describe('do whoami', () => {
       await run()
 
       // Should display user email
-      expect(output.logs.some((log) => log.includes('test@example.com'))).toBe(true)
+      expect(output.logs.some((log) => log.includes('test@example.com.ai'))).toBe(true)
     } finally {
       output.restore()
     }
@@ -298,7 +298,7 @@ describe('do whoami', () => {
     vi.mocked(getUser).mockResolvedValue({
       user: {
         id: 'u1',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
         name: 'John Doe',
       },
     })
@@ -311,7 +311,7 @@ describe('do whoami', () => {
 
       // Should display user info (name or email)
       const hasUserInfo = output.logs.some(
-        (log) => log.includes('John Doe') || log.includes('john@example.com')
+        (log) => log.includes('John Doe') || log.includes('john@example.com.ai')
       )
       expect(hasUserInfo).toBe(true)
     } finally {

@@ -72,7 +72,7 @@ await client.query(`
 // Insert with parameterized query
 await client.query(
   'INSERT INTO users (name, email) VALUES ($1, $2)',
-  ['Alice', 'alice@example.com']
+  ['Alice', 'alice@example.com.ai']
 )
 
 // Select

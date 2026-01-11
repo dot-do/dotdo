@@ -368,7 +368,7 @@ input:
 output:
   http_client:
     <<: *http_defaults
-    url: http://api.example.com
+    url: http://api.example.com.ai
 `
       const result = parseYAML(yaml)
 

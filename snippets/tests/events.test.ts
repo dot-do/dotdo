@@ -67,7 +67,7 @@ describe('detectFormat', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
     }
 
     expect(detectFormat(internalEvent)).toBe(EventFormat.Internal)
@@ -144,7 +144,7 @@ describe('detectFormat', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:00:00Z',
         recorded: '2026-01-08T10:00:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
     ]
 
@@ -165,7 +165,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
     }
 
     const result = normalize(internalEvent)
@@ -178,7 +178,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
     })
   })
 
@@ -192,7 +192,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'dispatched',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'logistics.example.com',
+      ns: 'logistics.example.com.ai',
     }
 
     const result = normalize(event)
@@ -210,7 +210,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'received',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'inventory.example.com',
+      ns: 'inventory.example.com.ai',
     }
 
     const result = normalize(event)
@@ -226,7 +226,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'scanned',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'warehouse.example.com',
+      ns: 'warehouse.example.com.ai',
       location: 'Building A, Zone 3',
       readPoint: 'scanner:entrance-1',
     }
@@ -247,7 +247,7 @@ describe('normalize - Internal format passthrough', () => {
       reason: 'Customer requested cancellation',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'orders.example.com',
+      ns: 'orders.example.com.ai',
     }
 
     const result = normalize(event)
@@ -264,7 +264,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'completed',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'tasks.example.com',
+      ns: 'tasks.example.com.ai',
       method: 'agentic' as const,
       branch: 'experiment-v2',
       model: 'claude-3-5-sonnet',
@@ -291,7 +291,7 @@ describe('normalize - Internal format passthrough', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       // No recorded timestamp
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
     }
 
     const result = normalize(event)
@@ -610,7 +610,7 @@ describe('normalize - Evalite trace conversion', () => {
       name: 'classifier',
       model: 'claude-3-5-sonnet',
       metadata: {
-        namespace: 'evals.example.com',
+        namespace: 'evals.example.com.ai',
         environment: 'production',
       },
     }
@@ -618,7 +618,7 @@ describe('normalize - Evalite trace conversion', () => {
     const result = normalize(evaliteEvent)
     const event = result[0] as Event5WH
 
-    expect(event.ns).toBe('evals.example.com')
+    expect(event.ns).toBe('evals.example.com.ai')
   })
 })
 
@@ -636,7 +636,7 @@ describe('normalize - Batch events', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:00:00Z',
         recorded: '2026-01-08T10:00:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
       {
         actor: 'user:bob',
@@ -645,7 +645,7 @@ describe('normalize - Batch events', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:01:00Z',
         recorded: '2026-01-08T10:01:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
     ]
 
@@ -714,7 +714,7 @@ describe('normalize - Batch events', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:00:00Z',
         recorded: '2026-01-08T10:00:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
       // EPCIS format
       {
@@ -853,7 +853,7 @@ describe('normalize - Invalid format handling', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:00:00Z',
         recorded: '2026-01-08T10:00:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
       {
         // Invalid - missing required fields
@@ -866,7 +866,7 @@ describe('normalize - Invalid format handling', () => {
         verb: 'created',
         timestamp: '2026-01-08T10:01:00Z',
         recorded: '2026-01-08T10:01:01Z',
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       },
     ]
 
@@ -938,7 +938,7 @@ describe('normalize - Edge cases', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
       context: {
         name: '\u304a\u8336',
         description: 'Caf\u00e9 con leche \ud83c\udf75',
@@ -959,7 +959,7 @@ describe('normalize - Edge cases', () => {
       verb: 'created',
       timestamp: '2026-01-08T10:00:00Z',
       recorded: '2026-01-08T10:00:01Z',
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
       context: {
         level1: {
           level2: {
@@ -995,7 +995,7 @@ describe('normalize - Edge cases', () => {
         verb: 'created',
         timestamp: ts,
         recorded: ts,
-        ns: 'app.example.com',
+        ns: 'app.example.com.ai',
       }
 
       const result = normalize(event)
@@ -1011,7 +1011,7 @@ describe('normalize - Edge cases', () => {
       verb: 'created',
       timestamp: `2026-01-08T10:00:${String(i).padStart(2, '0')}Z`,
       recorded: `2026-01-08T10:00:${String(i).padStart(2, '0')}Z`,
-      ns: 'app.example.com',
+      ns: 'app.example.com.ai',
     }))
 
     const result = normalize(events)

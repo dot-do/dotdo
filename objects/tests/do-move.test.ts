@@ -187,7 +187,7 @@ class TestDO {
   constructor(ctx: ReturnType<typeof createMockDOState>, env: ReturnType<typeof createMockEnv>) {
     this.ctx = ctx
     this.env = env
-    this.ns = 'https://test.example.com'
+    this.ns = 'https://test.example.com.ai'
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -580,7 +580,7 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        const result = await testDO.move('https://target.example.com')
+        const result = await testDO.move('https://target.example.com.ai')
 
         expect(result.newDoId).toBeDefined()
       })
@@ -816,12 +816,12 @@ describe('DO move() Operation', () => {
         })
 
         // Set up target with existing state
-        mockEnv._setExistingDO('id-from-https://existing.example.com', [
+        mockEnv._setExistingDO('id-from-https://existing.example.com.ai', [
           { id: 'target-item', type: 1, branch: null, name: 'Target', data: {}, deleted: false },
         ])
 
         await expect(
-          testDO.move('https://existing.example.com', { merge: false })
+          testDO.move('https://existing.example.com.ai', { merge: false })
         ).rejects.toThrow(/target.*exists|already.*state/i)
       })
 
@@ -835,7 +835,7 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        const result = await testDO.move('https://empty.example.com', { merge: false })
+        const result = await testDO.move('https://empty.example.com.ai', { merge: false })
 
         expect(result.merged).toBe(false)
       })
@@ -850,13 +850,13 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        mockEnv._setExistingDO('id-from-https://existing.example.com', [
+        mockEnv._setExistingDO('id-from-https://existing.example.com.ai', [
           { id: 'target-item', type: 1, branch: null, name: 'Target', data: {}, deleted: false },
         ])
 
         // Without merge option, should behave as merge: false
         await expect(
-          testDO.move('https://existing.example.com')
+          testDO.move('https://existing.example.com.ai')
         ).rejects.toThrow(/target.*exists|already.*state/i)
       })
     })
@@ -872,11 +872,11 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        mockEnv._setExistingDO('id-from-https://target.example.com', [
+        mockEnv._setExistingDO('id-from-https://target.example.com.ai', [
           { id: 'target-item', type: 1, branch: null, name: 'Target Item', data: { target: true }, deleted: false },
         ])
 
-        const result = await testDO.move('https://target.example.com', { merge: true })
+        const result = await testDO.move('https://target.example.com.ai', { merge: true })
 
         expect(result.merged).toBe(true)
         // Target should now have both items
@@ -892,11 +892,11 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        mockEnv._setExistingDO('id-from-https://target.example.com', [
+        mockEnv._setExistingDO('id-from-https://target.example.com.ai', [
           { id: 'existing', type: 1, branch: null, name: 'Existing', data: {}, deleted: false },
         ])
 
-        const result = await testDO.move('https://target.example.com', { merge: true })
+        const result = await testDO.move('https://target.example.com.ai', { merge: true })
 
         expect(result.merged).toBe(true)
       })
@@ -911,12 +911,12 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        mockEnv._setExistingDO('id-from-https://target.example.com', [
+        mockEnv._setExistingDO('id-from-https://target.example.com.ai', [
           { id: 'conflict-id', type: 1, branch: null, name: 'Target Version', data: { version: 'target' }, deleted: false },
         ])
 
         // Should handle conflict - source version becomes new version of same thing
-        const result = await testDO.move('https://target.example.com', { merge: true })
+        const result = await testDO.move('https://target.example.com.ai', { merge: true })
 
         expect(result.merged).toBe(true)
       })
@@ -931,7 +931,7 @@ describe('DO move() Operation', () => {
           deleted: false,
         })
 
-        const result = await testDO.move('https://empty.example.com', { merge: true })
+        const result = await testDO.move('https://empty.example.com.ai', { merge: true })
 
         expect(result.merged).toBe(true)
         expect(result.thingsMigrated).toBe(1)
@@ -1350,7 +1350,7 @@ describe('DO move() Operation', () => {
       await testDO.move('lax')
 
       // The ns should still point to same namespace, just new DO instance
-      expect(testDO.ns).toBe('https://test.example.com')
+      expect(testDO.ns).toBe('https://test.example.com.ai')
     })
 
     it('sets new region in objects table', async () => {
@@ -1525,11 +1525,11 @@ describe('DO move() Operation', () => {
         deleted: false,
       })
 
-      mockEnv._setExistingDO('id-from-https://target.example.com', [
+      mockEnv._setExistingDO('id-from-https://target.example.com.ai', [
         { id: 'target-item', type: 1, branch: null, name: 'Target', data: {}, deleted: false },
       ])
 
-      const result = await testDO.move('https://target.example.com', {
+      const result = await testDO.move('https://target.example.com.ai', {
         merge: true,
         deleteSource: false,
       })

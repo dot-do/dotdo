@@ -284,7 +284,7 @@ function createSampleTargetingRules(count: number): TargetingRule<boolean>[] {
       {
         attribute: i % 2 === 0 ? 'email' : 'tier',
         operator: 'in' as const,
-        values: i % 2 === 0 ? [`user${i}@example.com`] : ['premium'],
+        values: i % 2 === 0 ? [`user${i}@example.com.ai`] : ['premium'],
       },
     ],
     variation: true,

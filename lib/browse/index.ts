@@ -22,7 +22,7 @@
  *   liveView: true,
  * })
  *
- * await session.goto('https://example.com')
+ * await session.goto('https://example.com.ai')
  * await session.act('Click the login button')
  * const data = await session.extract('Get the user profile')
  * await session.close()

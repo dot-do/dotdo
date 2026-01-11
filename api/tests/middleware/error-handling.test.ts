@@ -363,7 +363,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
   it('returns 422 for invalid field type', async () => {
     const res = await post('/api/things', {
       name: 12345, // Should be string
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
 
     expect(res.status).toBe(422)
@@ -390,7 +390,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
   it('returns 422 for value out of range', async () => {
     const res = await post('/api/things', {
       name: 'Test Thing',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
       priority: 999, // Out of valid range
     })
 
@@ -400,7 +400,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
   it('returns 422 for string too long', async () => {
     const res = await post('/api/things', {
       name: 'a'.repeat(10001), // Exceeds max length
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
 
     expect(res.status).toBe(422)
@@ -409,7 +409,7 @@ describe('422 Unprocessable Entity - Validation Errors', () => {
   it('returns 422 for invalid enum value', async () => {
     const res = await post('/api/things', {
       name: 'Test Thing',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
       status: 'invalid-status', // Not a valid status
     })
 

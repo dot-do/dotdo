@@ -32,7 +32,7 @@ For distributed vector search across N shards:
 **Concept**: Workers on different zones get independent subrequest budgets.
 
 ```
-Request --> Worker A (example.com)
+Request --> Worker A (example.com.ai)
                 |
                 +--> fetch(worker-b.workers.dev) --> 1000 R2 ops
                 +--> fetch(worker-c.workers.dev) --> 1000 R2 ops

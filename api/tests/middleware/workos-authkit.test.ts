@@ -164,7 +164,7 @@ function mockSSOCallback(overrides?: Partial<SSOCallbackParams>): SSOCallbackPar
 
 const TEST_WORKOS_API_KEY = 'sk_test_workos_api_key_12345'
 const TEST_WORKOS_CLIENT_ID = 'client_01EXAMPLE'
-const TEST_REDIRECT_URI = 'https://app.example.com/api/auth/callback/workos'
+const TEST_REDIRECT_URI = 'https://app.example.com.ai/api/auth/callback/workos'
 
 const MOCK_WORKOS_USER = {
   id: 'user_01EXAMPLE',
@@ -624,7 +624,7 @@ describe('WorkOS AuthKit - Magic Link Authentication', () => {
       const res = await authRequest(app, 'POST', '/magic-link/send', {
         body: {
           email: 'alice@acme.com',
-          redirectUri: 'https://app.example.com/dashboard',
+          redirectUri: 'https://app.example.com.ai/dashboard',
         },
       })
 
@@ -1092,7 +1092,7 @@ describe('WorkOS AuthKit - Organizations', () => {
       const res = await authRequest(app, 'POST', '/organizations', {
         headers: { Cookie: mockAdminSessionCookie() },
         body: {
-          domains: ['example.com'],
+          domains: ['example.com.ai'],
         },
       })
 
@@ -1946,7 +1946,7 @@ describe('WorkOS AuthKit - Error Handling', () => {
       const badApp = createTestApp({
         apiKey: TEST_WORKOS_API_KEY,
         clientId: TEST_WORKOS_CLIENT_ID,
-        baseUrl: 'https://unavailable.workos.example.com',
+        baseUrl: 'https://unavailable.workos.example.com.ai',
       })
 
       const res = await authRequest(badApp, 'GET', '/sso/authorize', {
@@ -2114,7 +2114,7 @@ describe('WorkOS AuthKit - Configuration', () => {
       const app = createTestApp({
         apiKey: TEST_WORKOS_API_KEY,
         clientId: TEST_WORKOS_CLIENT_ID,
-        allowedRedirectUris: ['https://app.example.com/callback'],
+        allowedRedirectUris: ['https://app.example.com.ai/callback'],
       })
 
       const res = await authRequest(app, 'GET', '/sso/authorize', {
@@ -2161,7 +2161,7 @@ describe('WorkOS AuthKit - Configuration', () => {
       })
 
       const res = await authRequest(app, 'POST', '/magic-link/send', {
-        body: { email: 'test@example.com' },
+        body: { email: 'test@example.com.ai' },
       })
 
       expect([403, 404]).toContain(res.status)

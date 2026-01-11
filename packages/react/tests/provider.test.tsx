@@ -55,7 +55,7 @@ describe('DO provider', () => {
   describe('renders children', () => {
     it('should render child components', () => {
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div data-testid="child">Hello</div>
         </DO>
       )
@@ -66,7 +66,7 @@ describe('DO provider', () => {
 
     it('should render multiple children', () => {
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div data-testid="child1">First</div>
           <div data-testid="child2">Second</div>
         </DO>
@@ -78,7 +78,7 @@ describe('DO provider', () => {
 
     it('should render nested children', () => {
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div data-testid="parent">
             <span data-testid="nested">Nested</span>
           </div>
@@ -100,13 +100,13 @@ describe('DO provider', () => {
       }
 
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )
 
       expect(contextValue).not.toBeNull()
-      expect((contextValue as { ns: string }).ns).toBe('https://api.example.com/do/workspace')
+      expect((contextValue as { ns: string }).ns).toBe('https://api.example.com.ai/do/workspace')
     })
 
     it('should provide client in context', () => {
@@ -118,7 +118,7 @@ describe('DO provider', () => {
       }
 
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )
@@ -135,7 +135,7 @@ describe('DO provider', () => {
       }
 
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )
@@ -152,7 +152,7 @@ describe('DO provider', () => {
       }
 
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )
@@ -164,29 +164,29 @@ describe('DO provider', () => {
   describe('creates client with ns URL', () => {
     it('should create client with the provided ns URL', () => {
       render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div>Test</div>
         </DO>
       )
 
-      expect(createClient).toHaveBeenCalledWith('https://api.example.com/do/workspace', undefined)
+      expect(createClient).toHaveBeenCalledWith('https://api.example.com.ai/do/workspace', undefined)
     })
 
     it('should pass config to createClient', () => {
       const config = { timeout: 5000, batching: true }
 
       render(
-        <DO ns="https://api.example.com/do/workspace" config={config}>
+        <DO ns="https://api.example.com.ai/do/workspace" config={config}>
           <div>Test</div>
         </DO>
       )
 
-      expect(createClient).toHaveBeenCalledWith('https://api.example.com/do/workspace', config)
+      expect(createClient).toHaveBeenCalledWith('https://api.example.com.ai/do/workspace', config)
     })
 
     it('should only create client once on re-renders', () => {
       const { rerender } = render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div>Test</div>
         </DO>
       )
@@ -194,7 +194,7 @@ describe('DO provider', () => {
       const callCount = (createClient as ReturnType<typeof vi.fn>).mock.calls.length
 
       rerender(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div>Test Updated</div>
         </DO>
       )
@@ -215,7 +215,7 @@ describe('DO provider', () => {
       } as unknown as ReturnType<typeof createClient>)
 
       const { unmount } = render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <div>Test</div>
         </DO>
       )
@@ -243,7 +243,7 @@ describe('DO provider', () => {
       }
 
       const { unmount } = render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )
@@ -266,7 +266,7 @@ describe('DO provider', () => {
       }
 
       const { unmount } = render(
-        <DO ns="https://api.example.com/do/workspace">
+        <DO ns="https://api.example.com.ai/do/workspace">
           <Consumer />
         </DO>
       )

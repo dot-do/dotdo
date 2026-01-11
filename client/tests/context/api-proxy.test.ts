@@ -354,7 +354,7 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const result = await api.emails.send({
-        to: 'recipient@example.com',
+        to: 'recipient@example.com.ai',
         subject: 'Test Email',
         body: 'Hello, World!',
       })
@@ -370,7 +370,7 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const result = await api.emails.send({
-        to: 'recipient@example.com',
+        to: 'recipient@example.com.ai',
         subject: 'HTML Email',
         html: '<h1>Hello</h1><p>World!</p>',
       })
@@ -384,7 +384,7 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const result = await api.emails.send({
-        to: ['user1@example.com', 'user2@example.com'],
+        to: ['user1@example.com.ai', 'user2@example.com.ai'],
         subject: 'Bulk Email',
         body: 'Hello everyone!',
       })
@@ -398,7 +398,7 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const result = await api.emails.send({
-        to: 'recipient@example.com',
+        to: 'recipient@example.com.ai',
         subject: 'Welcome!',
         template: 'welcome-email',
         templateData: {
@@ -416,7 +416,7 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const result = await api.emails.send({
-        to: 'recipient@example.com',
+        to: 'recipient@example.com.ai',
         subject: 'Email with Attachment',
         body: 'Please see attached.',
         attachments: [
@@ -439,9 +439,9 @@ describe('$.api.emails - Email Integration', () => {
       })
 
       const emails: EmailSendOptions[] = [
-        { to: 'user1@example.com', subject: 'Email 1', body: 'Body 1' },
-        { to: 'user2@example.com', subject: 'Email 2', body: 'Body 2' },
-        { to: 'user3@example.com', subject: 'Email 3', body: 'Body 3' },
+        { to: 'user1@example.com.ai', subject: 'Email 1', body: 'Body 1' },
+        { to: 'user2@example.com.ai', subject: 'Email 2', body: 'Body 2' },
+        { to: 'user3@example.com.ai', subject: 'Email 3', body: 'Body 3' },
       ]
 
       const results = await api.emails.sendBatch(emails)
@@ -521,7 +521,7 @@ describe('$.api.stripe - Stripe Integration', () => {
         source: 'tok_visa',
         metadata: {
           order_id: 'order_123',
-          customer_email: 'test@example.com',
+          customer_email: 'test@example.com.ai',
         },
       })
 
@@ -563,7 +563,7 @@ describe('$.api.stripe - Stripe Integration', () => {
       })
 
       const result = await api.stripe.customers.create({
-        email: 'customer@example.com',
+        email: 'customer@example.com.ai',
         name: 'Test Customer',
       })
 
@@ -715,13 +715,13 @@ describe('$.api.hubspot - HubSpot Integration', () => {
       })
 
       const result = await api.hubspot.contacts.create({
-        email: 'contact@example.com',
+        email: 'contact@example.com.ai',
         firstname: 'John',
         lastname: 'Doe',
       })
 
       expect(result.id).toBeDefined()
-      expect(result.properties.email).toBe('contact@example.com')
+      expect(result.properties.email).toBe('contact@example.com.ai')
       expect(result.createdAt).toBeDefined()
     })
 
@@ -731,7 +731,7 @@ describe('$.api.hubspot - HubSpot Integration', () => {
       })
 
       const result = await api.hubspot.contacts.create({
-        email: 'lead@example.com',
+        email: 'lead@example.com.ai',
         firstname: 'Jane',
         lastname: 'Smith',
         properties: {
@@ -780,7 +780,7 @@ describe('$.api.hubspot - HubSpot Integration', () => {
         env: { HUBSPOT_API_KEY: 'pat-xxx' },
       })
 
-      const results = await api.hubspot.contacts.search('example.com')
+      const results = await api.hubspot.contacts.search('example.com.ai')
 
       expect(Array.isArray(results)).toBe(true)
     })
@@ -1022,7 +1022,7 @@ describe('Rate Limiting per Integration', () => {
 
     // But emails should still work
     await expect(
-      api.emails.send({ to: 'test@example.com', subject: 'Test', body: 'Test' })
+      api.emails.send({ to: 'test@example.com.ai', subject: 'Test', body: 'Test' })
     ).resolves.toBeDefined()
   })
 
@@ -1409,12 +1409,12 @@ describe('Integration with Workflow Context ($)', () => {
 
     // Create customer in Stripe, then in HubSpot
     const stripeCustomer = await api.stripe.customers.create({
-      email: 'customer@example.com',
+      email: 'customer@example.com.ai',
       name: 'Test Customer',
     })
 
     const hubspotContact = await api.hubspot.contacts.create({
-      email: 'customer@example.com',
+      email: 'customer@example.com.ai',
       firstname: 'Test',
       lastname: 'Customer',
       properties: {
@@ -1434,11 +1434,11 @@ describe('Integration with Workflow Context ($)', () => {
 describe('Type Safety', () => {
   it('should have correct types for email options', () => {
     const options: EmailSendOptions = {
-      to: 'test@example.com',
+      to: 'test@example.com.ai',
       subject: 'Test',
       body: 'Body',
     }
-    expect(options.to).toBe('test@example.com')
+    expect(options.to).toBe('test@example.com.ai')
   })
 
   it('should have correct types for Stripe charge options', () => {
@@ -1459,9 +1459,9 @@ describe('Type Safety', () => {
 
   it('should have correct types for HubSpot contact options', () => {
     const options: HubSpotContactOptions = {
-      email: 'contact@example.com',
+      email: 'contact@example.com.ai',
       firstname: 'John',
     }
-    expect(options.email).toBe('contact@example.com')
+    expect(options.email).toBe('contact@example.com.ai')
   })
 })

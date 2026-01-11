@@ -160,7 +160,7 @@ function createMockState(): DurableObjectState {
 function createMockEnv() {
   return {
     API_KEY: 'test-api-key',
-    MODEL_ENDPOINT: 'https://api.example.com/v1',
+    MODEL_ENDPOINT: 'https://api.example.com.ai/v1',
   }
 }
 
@@ -188,8 +188,8 @@ function createMockTools(): Record<string, ToolDefinition> {
       },
       execute: vi.fn().mockResolvedValue({
         results: [
-          { title: 'Result 1', url: 'https://example.com/1', snippet: 'First result' },
-          { title: 'Result 2', url: 'https://example.com/2', snippet: 'Second result' },
+          { title: 'Result 1', url: 'https://example.com.ai/1', snippet: 'First result' },
+          { title: 'Result 2', url: 'https://example.com.ai/2', snippet: 'Second result' },
         ],
       }),
     },
@@ -462,7 +462,7 @@ describe('AgenticFunction Execution', () => {
           })
           .mockResolvedValueOnce({
             text: 'Now I will read the URL...',
-            toolCalls: [{ id: 'call_2', name: 'read_url', arguments: { url: 'https://example.com/1' } }],
+            toolCalls: [{ id: 'call_2', name: 'read_url', arguments: { url: 'https://example.com.ai/1' } }],
             stopReason: 'tool_use',
           })
           .mockResolvedValueOnce({
@@ -792,7 +792,7 @@ describe('AgenticFunction Execution', () => {
             {
               id: 'call_1',
               name: 'send_email',
-              arguments: { to: 'test@example.com', subject: 'Test', body: 'Body' },
+              arguments: { to: 'test@example.com.ai', subject: 'Test', body: 'Body' },
             },
           ],
           stopReason: 'tool_use',
@@ -816,7 +816,7 @@ describe('AgenticFunction Execution', () => {
               {
                 id: 'call_1',
                 name: 'send_email',
-                arguments: { to: 'test@example.com', subject: 'Test', body: 'Body' },
+                arguments: { to: 'test@example.com.ai', subject: 'Test', body: 'Body' },
               },
             ],
             stopReason: 'tool_use',
@@ -845,7 +845,7 @@ describe('AgenticFunction Execution', () => {
               {
                 id: 'call_1',
                 name: 'send_email',
-                arguments: { to: 'test@example.com', subject: 'Test', body: 'Body' },
+                arguments: { to: 'test@example.com.ai', subject: 'Test', body: 'Body' },
               },
             ],
             stopReason: 'tool_use',

@@ -37,7 +37,7 @@ const sampleThings: ThingInput[] = [
     type: 'user',
     data: {
       name: 'Alice',
-      email: 'alice@example.com',
+      email: 'alice@example.com.ai',
       age: 30,
       settings: { theme: 'dark', notifications: true },
     },
@@ -46,7 +46,7 @@ const sampleThings: ThingInput[] = [
     type: 'user',
     data: {
       name: 'Bob',
-      email: 'bob@example.com',
+      email: 'bob@example.com.ai',
       age: 25,
       settings: { theme: 'light', notifications: false },
     },
@@ -153,12 +153,12 @@ describe('ThingsDB - CRUD Operations', () => {
     it('creates a thing with auto-generated ID', () => {
       const thing = thingsDB.createThing({
         type: 'user',
-        data: { name: 'Alice', email: 'alice@example.com' },
+        data: { name: 'Alice', email: 'alice@example.com.ai' },
       })
 
       expect(thing.id).toBeTruthy()
       expect(thing.type).toBe('user')
-      expect(thing.data).toEqual({ name: 'Alice', email: 'alice@example.com' })
+      expect(thing.data).toEqual({ name: 'Alice', email: 'alice@example.com.ai' })
       expect(thing.createdAt).toBeInstanceOf(Date)
       expect(thing.updatedAt).toBeInstanceOf(Date)
       expect(thing.embedding).toBeNull()
@@ -738,7 +738,7 @@ describe('ThingsDB - Performance Benchmarks', () => {
         type: 'user',
         data: {
           name: `User ${i}`,
-          email: `user${i}@example.com`,
+          email: `user${i}@example.com.ai`,
           age: 20 + (i % 60),
           active: i % 2 === 0,
         },
@@ -752,7 +752,7 @@ describe('ThingsDB - Performance Benchmarks', () => {
 
     for (let i = 0; i < iterations; i++) {
       const start = performance.now()
-      thingsDB.findByJsonPath('$.email', `user${i * 100}@example.com`)
+      thingsDB.findByJsonPath('$.email', `user${i * 100}@example.com.ai`)
       latencies.push(performance.now() - start)
     }
 
@@ -910,8 +910,8 @@ describe('ThingsDB - JSON Indexes', () => {
 
     // Create some data
     thingsDB.createThings([
-      { type: 'user', data: { email: 'test@example.com', user: { status: 'active' } } },
-      { type: 'user', data: { email: 'other@example.com', user: { status: 'inactive' } } },
+      { type: 'user', data: { email: 'test@example.com.ai', user: { status: 'active' } } },
+      { type: 'user', data: { email: 'other@example.com.ai', user: { status: 'inactive' } } },
     ])
 
     // Verify indexes exist
@@ -922,7 +922,7 @@ describe('ThingsDB - JSON Indexes', () => {
     expect(indexes.some((i) => i.name.includes('email'))).toBe(true)
 
     // Query should still work
-    const results = thingsDB.findByJsonPath('$.email', 'test@example.com')
+    const results = thingsDB.findByJsonPath('$.email', 'test@example.com.ai')
     expect(results).toHaveLength(1)
 
     thingsDB.close()

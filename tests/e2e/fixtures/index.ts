@@ -116,7 +116,7 @@ export const test = base.extend<TestFixtures>({
       createUser: (overrides = {}) => {
         const id = fixture.uniqueId()
         return {
-          email: `test-${id}@example.com`,
+          email: `test-${id}@example.com.ai`,
           name: `Test User ${id}`,
           password: 'test-password-123',
           ...overrides,

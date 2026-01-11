@@ -88,7 +88,7 @@ export interface SyncCallbacks<T> {
  * @example
  * ```typescript
  * const client = new SyncClient<Task>({
- *   doUrl: 'wss://example.com/do/123',
+ *   doUrl: 'wss://example.com.ai/do/123',
  *   collection: 'Task',
  * })
  *

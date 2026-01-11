@@ -30,7 +30,7 @@
  *
  *   async backup() {
  *     // Full lifecycle operations available
- *     await this.clone('https://backup.example.com')
+ *     await this.clone('https://backup.example.com.ai')
  *     await this.branch('feature-x')
  *   }
  * }

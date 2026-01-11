@@ -259,11 +259,11 @@ describe('Namespace URL Patterns', () => {
       expect(record.ns).toBe('https://startups.studio')
     })
 
-    it('supports root namespace: https://example.com', () => {
+    it('supports root namespace: https://example.com.ai', () => {
       const record: Partial<ObjectRecord> = {
-        ns: 'https://example.com',
+        ns: 'https://example.com.ai',
       }
-      expect(record.ns).toBe('https://example.com')
+      expect(record.ns).toBe('https://example.com.ai')
     })
 
     it('supports root namespace: https://api.myservice.io', () => {
@@ -314,9 +314,9 @@ describe('Namespace URL Patterns', () => {
 
     it('supports non-standard port', () => {
       const record: Partial<ObjectRecord> = {
-        ns: 'https://dev.example.com:3000',
+        ns: 'https://dev.example.com.ai:3000',
       }
-      expect(record.ns).toBe('https://dev.example.com:3000')
+      expect(record.ns).toBe('https://dev.example.com.ai:3000')
     })
   })
 
@@ -741,7 +741,7 @@ describe('Cached Data', () => {
     it('can store denormalized data for display', () => {
       const cachedData = {
         name: 'Acme Startup',
-        logo: 'https://example.com/logo.png',
+        logo: 'https://example.com.ai/logo.png',
         memberCount: 15,
         status: 'active',
       }

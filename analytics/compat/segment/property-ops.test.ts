@@ -76,7 +76,7 @@ describe('$set operation', () => {
     const operations: PropertyOperations = {
       $set: {
         name: 'John',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
         age: 30,
       },
     }
@@ -84,7 +84,7 @@ describe('$set operation', () => {
     const result = applyPropertyOperations(properties, operations)
 
     expect(result.name).toBe('John')
-    expect(result.email).toBe('john@example.com')
+    expect(result.email).toBe('john@example.com.ai')
     expect(result.age).toBe(30)
     expect(result.existing).toBe(true)
   })
@@ -463,7 +463,7 @@ describe('$prepend operation', () => {
 
 describe('$unset operation', () => {
   it('should remove a property entirely', () => {
-    const properties = { name: 'John', email: 'john@example.com' }
+    const properties = { name: 'John', email: 'john@example.com.ai' }
     const operations: PropertyOperations = {
       $unset: ['email'],
     }
@@ -620,7 +620,7 @@ describe('combined operations', () => {
       tags: ['a'],
     }
     const operations: PropertyOperations = {
-      $set: { email: 'john@example.com' },
+      $set: { email: 'john@example.com.ai' },
       $add: { count: 1 },
       $append: { tags: 'b' },
     }
@@ -628,7 +628,7 @@ describe('combined operations', () => {
     const result = applyPropertyOperations(properties, operations)
 
     expect(result.name).toBe('John')
-    expect(result.email).toBe('john@example.com')
+    expect(result.email).toBe('john@example.com.ai')
     expect(result.count).toBe(6)
     expect(result.tags).toEqual(['a', 'b'])
   })
@@ -734,7 +734,7 @@ describe('edge cases', () => {
   it('should preserve prototype chain of result', () => {
     const properties = { name: 'John' }
     const operations: PropertyOperations = {
-      $set: { email: 'john@example.com' },
+      $set: { email: 'john@example.com.ai' },
     }
 
     const result = applyPropertyOperations(properties, operations)
@@ -961,10 +961,10 @@ describe('PropertyOpsBuilder', () => {
   it('should support fluent chaining for $set', () => {
     const ops = propertyOps()
       .set('name', 'John')
-      .set('email', 'john@example.com')
+      .set('email', 'john@example.com.ai')
       .build()
 
-    expect(ops.$set).toEqual({ name: 'John', email: 'john@example.com' })
+    expect(ops.$set).toEqual({ name: 'John', email: 'john@example.com.ai' })
   })
 
   it('should support fluent chaining for multiple operation types', () => {
@@ -1023,7 +1023,7 @@ describe('PropertyOpsBuilder', () => {
 
   it('should handle complex chained operations', () => {
     const result = propertyOps()
-      .set('email', 'john@example.com')
+      .set('email', 'john@example.com.ai')
       .setOnce('createdAt', '2024-01-01')
       .increment('loginCount', 1)
       .decrement('credits', 5)
@@ -1031,7 +1031,7 @@ describe('PropertyOpsBuilder', () => {
       .prepend('history', 'login')
       .apply({ loginCount: 10, credits: 100, tags: ['user'], history: ['old'] })
 
-    expect(result.email).toBe('john@example.com')
+    expect(result.email).toBe('john@example.com.ai')
     expect(result.createdAt).toBe('2024-01-01')
     expect(result.loginCount).toBe(11)
     expect(result.credits).toBe(95)
@@ -1153,9 +1153,9 @@ describe('UserPropertyManager', () => {
   it('should support fluent set operation', () => {
     const user = userProperties('user-123')
       .set('name', 'John')
-      .set('email', 'john@example.com')
+      .set('email', 'john@example.com.ai')
 
-    expect(user.getProperties()).toEqual({ name: 'John', email: 'john@example.com' })
+    expect(user.getProperties()).toEqual({ name: 'John', email: 'john@example.com.ai' })
   })
 
   it('should support setOnce operation', () => {

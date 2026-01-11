@@ -315,7 +315,7 @@ class TestBrowserDOWithScreencast {
   ) {
     this.ctx = ctx
     this.env = env
-    this.ns = 'https://browser.test.example.com'
+    this.ns = 'https://browser.test.example.com.ai'
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

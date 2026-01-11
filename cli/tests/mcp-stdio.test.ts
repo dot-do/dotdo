@@ -1756,10 +1756,10 @@ describe('MCP HTTP Bridge', () => {
     })
 
     it('creates a bridge with explicit target URL', () => {
-      const bridge = createMcpBridge({ targetUrl: 'https://my-do.example.com' })
+      const bridge = createMcpBridge({ targetUrl: 'https://my-do.example.com.ai' })
 
       expect(bridge).toBeDefined()
-      expect(bridge.targetUrl).toBe('https://my-do.example.com')
+      expect(bridge.targetUrl).toBe('https://my-do.example.com.ai')
     })
 
     it('throws when no DO_URL env var and no explicit URL', () => {

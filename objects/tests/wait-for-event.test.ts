@@ -113,13 +113,13 @@ describe('WaitForEventManager', () => {
       // Simulate receiving the event
       const result = await manager.deliverEvent(waitId, 'approval', {
         approved: true,
-        approver: 'john@example.com',
+        approver: 'john@example.com.ai',
       })
 
       expect(result.resolved).toBe(true)
       expect(result.payload).toEqual({
         approved: true,
-        approver: 'john@example.com',
+        approver: 'john@example.com.ai',
       })
     })
 

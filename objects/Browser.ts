@@ -31,7 +31,7 @@
  * console.log('Watch at:', result.liveViewUrl)
  *
  * // Perform operations
- * await browserDO.goto('https://example.com')
+ * await browserDO.goto('https://example.com.ai')
  * await browserDO.act('Click the login button')
  * const data = await browserDO.extract('Get the user profile')
  *

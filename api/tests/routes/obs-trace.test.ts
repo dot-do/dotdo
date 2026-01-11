@@ -193,7 +193,7 @@ function generateMockEvents(requestId: string, count: number = 5): ObsEvent[] {
           ...baseEvent,
           data: {
             method: 'GET',
-            url: 'https://example.com/api',
+            url: 'https://example.com.ai/api',
             status: 200,
             duration: 50,
           },

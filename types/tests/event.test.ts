@@ -41,8 +41,8 @@ describe('Event Type Definition', () => {
     const event: Event = {
       // WHO
       actor: 'user-123',
-      source: 'https://api.example.com',
-      destination: 'https://webhook.example.com',
+      source: 'https://api.example.com.ai',
+      destination: 'https://webhook.example.com.ai',
 
       // WHAT
       object: 'K3mR8', // Sqid reference
@@ -111,12 +111,12 @@ describe('Event WHO Fields', () => {
   it('should allow optional source and destination', () => {
     const who: EventWho = {
       actor: 'agent-456',
-      source: 'https://source.example.com',
-      destination: 'https://dest.example.com',
+      source: 'https://source.example.com.ai',
+      destination: 'https://dest.example.com.ai',
     }
 
-    expect(who.source).toBe('https://source.example.com')
-    expect(who.destination).toBe('https://dest.example.com')
+    expect(who.source).toBe('https://source.example.com.ai')
+    expect(who.destination).toBe('https://dest.example.com.ai')
   })
 
   it('should validate actor is non-empty string', () => {
@@ -125,7 +125,7 @@ describe('Event WHO Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -141,7 +141,7 @@ describe('Event WHO Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -182,7 +182,7 @@ describe('Event WHAT Fields', () => {
       object: '',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -197,7 +197,7 @@ describe('Event WHAT Fields', () => {
       object: 'K3m',
       type: '',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -213,7 +213,7 @@ describe('Event WHAT Fields', () => {
       type: 'Product',
       quantity: -5,
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -253,7 +253,7 @@ describe('Event WHEN Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(event.timestamp).toBeDefined()
@@ -268,7 +268,7 @@ describe('Event WHEN Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       timestamp: new Date('2026-01-08T12:00:00Z'),
       recorded: new Date('2026-01-08T11:00:00Z'), // Before timestamp - invalid
     })
@@ -285,7 +285,7 @@ describe('Event WHEN Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       timestamp: 'invalid-date',
     })
 
@@ -381,7 +381,7 @@ describe('Event WHY Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: '',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -399,7 +399,7 @@ describe('Event WHY Fields', () => {
         object: 'K3m',
         type: 'Thing',
         verb,
-        ns: 'https://example.com',
+        ns: 'https://example.com.ai',
       })
 
       expect(result.success).toBe(true)
@@ -524,7 +524,7 @@ describe('Event HOW Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       method: 'invalid-method' as FunctionMethod,
     })
 
@@ -540,7 +540,7 @@ describe('Event HOW Fields', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       tools: 'not-an-array' as unknown as string[],
     })
 
@@ -589,7 +589,7 @@ describe('EventSchema', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       timestamp: '2026-01-08T12:00:00Z',
       recorded: '2026-01-08T12:00:01Z',
     })
@@ -635,12 +635,12 @@ describe('createEvent', () => {
       type: 'Customer',
       verb: 'created',
       ns: 'https://startups.studio',
-      source: 'https://api.example.com',
+      source: 'https://api.example.com.ai',
       method: 'code',
       branch: 'main',
     })
 
-    expect(event.source).toBe('https://api.example.com')
+    expect(event.source).toBe('https://api.example.com.ai')
     expect(event.method).toBe('code')
     expect(event.branch).toBe('main')
   })
@@ -684,7 +684,7 @@ describe('validateEvent', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(true)
@@ -710,7 +710,7 @@ describe('validateEvent', () => {
       object: 'K3m',
       type: 'Thing',
       verb: 'created',
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
     })
 
     expect(result.success).toBe(false)
@@ -734,7 +734,7 @@ describe('EPCIS Compatibility', () => {
       object: 'urn:epc:id:sgtin:0614141.107346.2017',
       type: 'ObjectEvent',
       verb: 'shipping',
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       timestamp: new Date(),
       recorded: new Date(),
     }
@@ -752,7 +752,7 @@ describe('EPCIS Compatibility', () => {
       type: 'AggregationEvent',
       quantity: 24,
       verb: 'aggregating',
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       timestamp: new Date(),
       recorded: new Date(),
     }
@@ -773,7 +773,7 @@ describe('EPCIS Compatibility', () => {
       object: 'urn:epc:id:sgtin:0614141.107346.2017',
       type: 'ObjectEvent',
       verb: 'receiving',
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       timestamp: eventTime, // Maps to eventTime
       recorded: recordTime, // Maps to recordTime
     }
@@ -790,7 +790,7 @@ describe('EPCIS Compatibility', () => {
       object: 'urn:epc:id:sgtin:0614141.107346.2017',
       type: 'ObjectEvent',
       verb: 'receiving',
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       location: 'urn:epc:id:sgln:0614141.00001.0', // Maps to bizLocation
       readPoint: 'urn:epc:id:sgln:0614141.00001.1', // Maps to readPoint
       timestamp: new Date(),
@@ -810,7 +810,7 @@ describe('EPCIS Compatibility', () => {
       type: 'ObjectEvent',
       verb: 'shipping', // Maps to bizStep
       disposition: 'in_transit', // Maps to disposition
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       timestamp: new Date(),
       recorded: new Date(),
     }
@@ -827,7 +827,7 @@ describe('EPCIS Compatibility', () => {
       object: 'urn:epc:id:sgtin:0614141.107346.2017',
       type: 'TransactionEvent',
       verb: 'receiving',
-      ns: 'https://gs1.example.com',
+      ns: 'https://gs1.example.com.ai',
       transaction: 'urn:epc:id:gdti:0614141.00001.1234', // Maps to bizTransaction
       timestamp: new Date(),
       recorded: new Date(),
@@ -892,7 +892,7 @@ describe('Subscription DSL Event Structure', () => {
       object: 'cust-456',
       type: 'Customer',
       verb: 'created',
-      ns: 'https://app.example.com',
+      ns: 'https://app.example.com.ai',
       timestamp: new Date(),
       recorded: new Date(),
     }
@@ -913,7 +913,7 @@ describe('Subscription DSL Event Structure', () => {
       object: 'job-789',
       type: 'Job',
       verb: 'failed',
-      ns: 'https://app.example.com',
+      ns: 'https://app.example.com.ai',
       reason: 'Timeout exceeded',
       timestamp: new Date(),
       recorded: new Date(),

@@ -347,7 +347,7 @@ describe('DO $.on Event Handler Registration', () => {
       const handler = vi.fn()
       doInstance.$.on.Customer.created(handler)
 
-      const event = createTestEvent('Customer', 'created', { customerId: 'cust-123', email: 'test@example.com' })
+      const event = createTestEvent('Customer', 'created', { customerId: 'cust-123', email: 'test@example.com.ai' })
 
       await dispatchEvent(doInstance, event)
 

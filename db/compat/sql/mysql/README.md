@@ -29,7 +29,7 @@ const connection = await mysql.createConnection({
 const [rows] = await connection.query('SELECT * FROM users WHERE id = ?', [1])
 const [result] = await connection.execute<mysql.ResultSetHeader>(
   'INSERT INTO users (name, email) VALUES (?, ?)',
-  ['Alice', 'alice@example.com']
+  ['Alice', 'alice@example.com.ai']
 )
 
 await connection.end()
@@ -141,7 +141,7 @@ const [rows] = await connection.execute<RowDataPacket[]>(
 // INSERT with auto-increment
 const [result] = await connection.execute<ResultSetHeader>(
   'INSERT INTO users (name, email) VALUES (?, ?)',
-  ['Bob', 'bob@example.com']
+  ['Bob', 'bob@example.com.ai']
 )
 console.log(result.insertId)  // Auto-generated ID
 console.log(result.affectedRows)  // 1

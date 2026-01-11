@@ -17,7 +17,7 @@
  *
  * function App() {
  *   return (
- *     <DO ns="https://api.example.com/do/workspace">
+ *     <DO ns="https://api.example.com.ai/do/workspace">
  *       <TaskBoard />
  *     </DO>
  *   )

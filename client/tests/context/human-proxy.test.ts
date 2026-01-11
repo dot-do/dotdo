@@ -143,7 +143,7 @@ function createMockEnv() {
       get: vi.fn().mockReturnValue(createMockDOStub()),
       idFromName: vi.fn().mockReturnValue({ toString: () => 'human-id-from-name' }),
     },
-    NOTIFICATION_SERVICE_URL: 'https://notify.example.com',
+    NOTIFICATION_SERVICE_URL: 'https://notify.example.com.ai',
     SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/test',
     SENDGRID_API_KEY: 'test-sendgrid-key',
   }
@@ -883,12 +883,12 @@ describe('Human Proxy Context API', () => {
     describe('Email notifications', () => {
       it('sends email notification for approval request', async () => {
         await proxy.human.approve('Approve contract', {
-          notify: [{ type: 'email', to: 'approver@example.com' }],
+          notify: [{ type: 'email', to: 'approver@example.com.ai' }],
         })
 
         expect(mockNotificationService.sendEmail).toHaveBeenCalledWith(
           expect.objectContaining({
-            to: 'approver@example.com',
+            to: 'approver@example.com.ai',
             subject: expect.stringContaining('Approval'),
           })
         )
@@ -896,7 +896,7 @@ describe('Human Proxy Context API', () => {
 
       it('includes approval message in email body', async () => {
         await proxy.human.approve('Approve the Q4 budget proposal', {
-          notify: [{ type: 'email', to: 'cfo@example.com' }],
+          notify: [{ type: 'email', to: 'cfo@example.com.ai' }],
         })
 
         expect(mockNotificationService.sendEmail).toHaveBeenCalledWith(
@@ -908,7 +908,7 @@ describe('Human Proxy Context API', () => {
 
       it('includes action links in email', async () => {
         await proxy.human.approve('Approve request', {
-          notify: [{ type: 'email', to: 'user@example.com' }],
+          notify: [{ type: 'email', to: 'user@example.com.ai' }],
         })
 
         expect(mockNotificationService.sendEmail).toHaveBeenCalledWith(
@@ -999,7 +999,7 @@ describe('Human Proxy Context API', () => {
       it('sends to multiple channels simultaneously', async () => {
         await proxy.human.approve('Multi-channel approval', {
           notify: [
-            { type: 'email', to: 'approver@example.com' },
+            { type: 'email', to: 'approver@example.com.ai' },
             { type: 'slack', channel: '#approvals' },
             { type: 'push', userId: 'user-123' },
           ],
@@ -1015,7 +1015,7 @@ describe('Human Proxy Context API', () => {
 
         await proxy.human.approve('Resilient approval', {
           notify: [
-            { type: 'email', to: 'approver@example.com' },
+            { type: 'email', to: 'approver@example.com.ai' },
             { type: 'slack', channel: '#approvals' },
           ],
         })
@@ -1031,7 +1031,7 @@ describe('Human Proxy Context API', () => {
         await expect(
           proxy.human.approve('Failed notification', {
             notify: [
-              { type: 'email', to: 'user@example.com' },
+              { type: 'email', to: 'user@example.com.ai' },
               { type: 'slack', channel: '#channel' },
             ],
           })

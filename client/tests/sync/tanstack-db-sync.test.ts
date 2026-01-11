@@ -240,7 +240,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('initialization', () => {
     it('creates a sync adapter with createDotdoSync', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -251,7 +251,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('exposes sync status property', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -260,7 +260,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('exposes $ proxy from useDollar', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -272,7 +272,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('accepts multiple collections', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User', 'Project'],
       })
 
@@ -281,7 +281,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('accepts conflict resolution strategy', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         conflictStrategy: 'last-write-wins',
       })
@@ -293,7 +293,7 @@ describe('TanStack DB Sync Integration', () => {
       const customResolver = <T>(local: T, remote: T): T => remote
 
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         conflictStrategy: customResolver,
       })
@@ -303,7 +303,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('accepts offline configuration', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: true,
@@ -322,19 +322,19 @@ describe('TanStack DB Sync Integration', () => {
   describe('connection management', () => {
     it('connects to WebSocket on connect()', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
       adapter.connect()
 
       expect(MockWebSocket.instances).toHaveLength(1)
-      expect(MockWebSocket.instances[0].url).toContain('wss://example.com/do/123')
+      expect(MockWebSocket.instances[0].url).toContain('wss://example.com.ai/do/123')
     })
 
     it('updates status to "connecting" when connecting', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -345,7 +345,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('updates isConnected when WebSocket opens', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -360,7 +360,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('disconnects WebSocket on disconnect()', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -376,7 +376,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('calls onStatusChange when status changes', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -394,7 +394,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('returns unsubscribe function from onStatusChange', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -421,7 +421,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('initial sync on connect', () => {
     it('sends subscribe message for each collection on connect', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -442,7 +442,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('receives initial data and populates collections', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -471,7 +471,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('updates status to "synced" after receiving all initial data', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -492,7 +492,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('handles multiple collection initial syncs', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -514,7 +514,7 @@ describe('TanStack DB Sync Integration', () => {
       MockWebSocket.instances[0].simulateMessage({
         type: 'initial',
         collection: 'User',
-        items: [createUser('1', 'John', 'john@example.com')],
+        items: [createUser('1', 'John', 'john@example.com.ai')],
         txid: 101,
       })
 
@@ -530,7 +530,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('sync local changes to DO storage', () => {
     it('sends insert message when local item is created', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -556,7 +556,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sends update message when local item is modified', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -582,7 +582,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sends delete message when local item is removed', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -607,7 +607,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('queues changes when offline and sends on reconnect', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: { enabled: true },
       })
@@ -650,7 +650,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('receive remote changes from DO', () => {
     it('calls onRemoteInsert when remote insert is received', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -677,7 +677,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('calls onRemoteUpdate when remote update is received', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -704,7 +704,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('calls onRemoteDelete when remote delete is received', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -729,7 +729,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('filters messages by collection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'], // Only subscribed to Task
       })
 
@@ -745,7 +745,7 @@ describe('TanStack DB Sync Integration', () => {
         type: 'insert',
         collection: 'User',
         key: 'user-1',
-        data: createUser('1', 'John', 'john@example.com'),
+        data: createUser('1', 'John', 'john@example.com.ai'),
         txid: 300,
       })
 
@@ -763,7 +763,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('conflict resolution', () => {
     it('uses last-write-wins by default', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -800,7 +800,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('uses merge strategy when configured', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         conflictStrategy: 'merge',
       })
@@ -845,7 +845,7 @@ describe('TanStack DB Sync Integration', () => {
       })
 
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         conflictStrategy: customResolver,
       })
@@ -867,7 +867,7 @@ describe('TanStack DB Sync Integration', () => {
       const threeWayMerge = vi.fn(<T>(local: T, remote: T, base: T | undefined): T => remote)
 
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         conflictStrategy: threeWayMerge,
       })
@@ -893,7 +893,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('offline persistence with IndexedDB', () => {
     it('persists data to IndexedDB when offline enabled', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: true,
@@ -922,7 +922,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('loads data from IndexedDB on startup', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: true,
@@ -941,7 +941,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('stores pending changes in IndexedDB when offline', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: true,
@@ -967,7 +967,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('syncs pending changes after reconnection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: true,
@@ -997,7 +997,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('does not use IndexedDB when offline disabled', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
         offline: {
           enabled: false,
@@ -1019,7 +1019,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('sync status indicator', () => {
     it('starts with "disconnected" status', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1028,7 +1028,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('transitions to "connecting" when connect() called', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1039,7 +1039,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('transitions to "syncing" when WebSocket opens', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1052,7 +1052,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('transitions to "synced" after initial sync complete', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1073,7 +1073,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('transitions to "error" on connection error', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1087,7 +1087,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('tracks lastSyncedAt timestamp', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1109,7 +1109,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('provides error details when status is error', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1131,7 +1131,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('partial sync (per-collection)', () => {
     it('can sync individual collection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -1155,7 +1155,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('can unsync individual collection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -1176,7 +1176,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('tracks which collections are synced', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -1195,7 +1195,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('can add new collections at runtime', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1218,7 +1218,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('delta sync for efficiency', () => {
     it('tracks last transaction ID per collection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1239,7 +1239,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('updates transaction ID on each change', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1268,7 +1268,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('requests delta sync after reconnection', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1304,7 +1304,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('falls back to full sync when delta unavailable', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1335,7 +1335,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('sync pause/resume', () => {
     it('can pause sync', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1352,7 +1352,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('does not send changes while paused', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1374,7 +1374,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('queues changes while paused', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1392,7 +1392,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sends queued changes on resume', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1423,7 +1423,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('still receives remote changes while paused', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1453,7 +1453,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('resumes sync', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1476,7 +1476,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('manual sync', () => {
     it('provides sync() method for manual full sync', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1489,7 +1489,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sync() returns a promise', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1503,7 +1503,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sync() resolves after all collections synced', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task', 'User'],
       })
 
@@ -1535,7 +1535,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('sync() rejects on error', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1560,7 +1560,7 @@ describe('TanStack DB Sync Integration', () => {
   describe('integration with useDollar', () => {
     it('exposes $ proxy for RPC calls', () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1569,7 +1569,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('$ proxy send works', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1587,7 +1587,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('$ proxy try returns promise', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1601,7 +1601,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('$ proxy do returns promise', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1615,7 +1615,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('$ proxy supports cross-DO RPC', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 
@@ -1640,7 +1640,7 @@ describe('TanStack DB Sync Integration', () => {
 
     it('shares WebSocket connection with useDollar', async () => {
       const adapter = createDotdoSync({
-        doUrl: 'wss://example.com/do/123',
+        doUrl: 'wss://example.com.ai/do/123',
         collections: ['Task'],
       })
 

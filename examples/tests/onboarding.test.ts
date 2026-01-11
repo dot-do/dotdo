@@ -6,7 +6,7 @@ describe('OnboardingWorkflow Example', () => {
     const $ = createWorkflowProxy()
 
     // Inline the workflow logic for testing
-    const customer = { id: 'cust-123', email: 'test@example.com', name: 'Test', plan: 'pro' as const }
+    const customer = { id: 'cust-123', email: 'test@example.com.ai', name: 'Test', plan: 'pro' as const }
 
     const crm = $.CRM(customer).createAccount()
     const billing = $.Billing(customer).setupSubscription()

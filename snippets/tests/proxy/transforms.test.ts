@@ -21,11 +21,11 @@ describe('Request Transforms', () => {
     ip: '1.2.3.4',
     cf: { colo: 'DFW', country: 'US', botScore: 95 },
     jwt: null,
-    config: { domain: 'example.com' },
+    config: { domain: 'example.com.ai' },
   }
 
   it('setHeader adds new header', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-New-Header', value: 'test-value' },
     ]
@@ -36,7 +36,7 @@ describe('Request Transforms', () => {
   })
 
   it('setHeader overwrites existing header', () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { 'X-Existing': 'old-value' },
     })
     const transforms: RequestTransform[] = [
@@ -49,7 +49,7 @@ describe('Request Transforms', () => {
   })
 
   it('removeHeader removes header', () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { 'X-Remove-Me': 'value' },
     })
     const transforms: RequestTransform[] = [{ op: 'removeHeader', name: 'X-Remove-Me' }]
@@ -60,7 +60,7 @@ describe('Request Transforms', () => {
   })
 
   it('rewritePath applies regex replacement', () => {
-    const request = new Request('https://example.com/v1/api/users')
+    const request = new Request('https://example.com.ai/v1/api/users')
     const transforms: RequestTransform[] = [
       { op: 'rewritePath', pattern: '^/v1', replacement: '/v2' },
     ]
@@ -71,7 +71,7 @@ describe('Request Transforms', () => {
   })
 
   it('setQuery adds query parameter', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setQuery', name: 'new-param', value: 'test-value' },
     ]
@@ -82,7 +82,7 @@ describe('Request Transforms', () => {
   })
 
   it('removeQuery removes query parameter', () => {
-    const request = new Request('https://example.com/api/test?remove-me=value&keep=true')
+    const request = new Request('https://example.com.ai/api/test?remove-me=value&keep=true')
     const transforms: RequestTransform[] = [{ op: 'removeQuery', name: 'remove-me' }]
 
     const result = applyRequestTransforms(request, transforms, baseContext)
@@ -93,7 +93,7 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $requestId variable', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Request-Id', value: '$requestId' },
     ]
@@ -104,7 +104,7 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $timestamp variable', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Timestamp', value: '$timestamp' },
     ]
@@ -115,7 +115,7 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $cf.* variables from request.cf', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Colo', value: '$cf.colo' },
       { op: 'setHeader', name: 'X-Country', value: '$cf.country' },
@@ -130,9 +130,9 @@ describe('Request Transforms', () => {
   it('resolves $jwt.* variables after auth policy', () => {
     const contextWithJwt: ProxyContext = {
       ...baseContext,
-      jwt: { sub: 'user_123', email: 'test@example.com' },
+      jwt: { sub: 'user_123', email: 'test@example.com.ai' },
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-User-Id', value: '$jwt.sub' },
       { op: 'setHeader', name: 'X-User-Email', value: '$jwt.email' },
@@ -141,11 +141,11 @@ describe('Request Transforms', () => {
     const result = applyRequestTransforms(request, transforms, contextWithJwt)
 
     expect(result.headers.get('X-User-Id')).toBe('user_123')
-    expect(result.headers.get('X-User-Email')).toBe('test@example.com')
+    expect(result.headers.get('X-User-Email')).toBe('test@example.com.ai')
   })
 
   it('resolves $header.* from request headers', () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { 'X-Original': 'original-value' },
     })
     const transforms: RequestTransform[] = [
@@ -158,7 +158,7 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $query.* from URL search params', () => {
-    const request = new Request('https://example.com/api/test?limit=10&offset=20')
+    const request = new Request('https://example.com.ai/api/test?limit=10&offset=20')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Limit', value: '$query.limit' },
     ]
@@ -169,18 +169,18 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $config.* from config.variables', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Domain', value: '$config.domain' },
     ]
 
     const result = applyRequestTransforms(request, transforms, baseContext)
 
-    expect(result.headers.get('X-Domain')).toBe('example.com')
+    expect(result.headers.get('X-Domain')).toBe('example.com.ai')
   })
 
   it('resolves $method variable', () => {
-    const request = new Request('https://example.com/api/test', { method: 'POST' })
+    const request = new Request('https://example.com.ai/api/test', { method: 'POST' })
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Method', value: '$method' },
     ]
@@ -191,7 +191,7 @@ describe('Request Transforms', () => {
   })
 
   it('resolves $path variable', () => {
-    const request = new Request('https://example.com/api/users/123')
+    const request = new Request('https://example.com.ai/api/users/123')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Path', value: '$path' },
     ]
@@ -202,7 +202,7 @@ describe('Request Transforms', () => {
   })
 
   it('preserves non-variable values as-is', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Static', value: 'static-value' },
     ]
@@ -213,7 +213,7 @@ describe('Request Transforms', () => {
   })
 
   it('handles missing variable values gracefully', () => {
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const transforms: RequestTransform[] = [
       { op: 'setHeader', name: 'X-Missing', value: '$jwt.missing' },
     ]
@@ -301,66 +301,66 @@ describe('Variable Resolution', () => {
   }
 
   it('returns non-variable strings unchanged', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('static', baseContext, request)).toBe('static')
   })
 
   it('resolves $requestId', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$requestId', baseContext, request)).toBe('uuid-abc')
   })
 
   it('resolves $timestamp', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$timestamp', baseContext, request)).toBe('1704825600000')
   })
 
   it('resolves $method', () => {
-    const request = new Request('https://example.com/test', { method: 'DELETE' })
+    const request = new Request('https://example.com.ai/test', { method: 'DELETE' })
     expect(resolveVar('$method', baseContext, request)).toBe('DELETE')
   })
 
   it('resolves $path', () => {
-    const request = new Request('https://example.com/api/users')
+    const request = new Request('https://example.com.ai/api/users')
     expect(resolveVar('$path', baseContext, request)).toBe('/api/users')
   })
 
   it('resolves $query.param', () => {
-    const request = new Request('https://example.com/test?foo=bar')
+    const request = new Request('https://example.com.ai/test?foo=bar')
     expect(resolveVar('$query.foo', baseContext, request)).toBe('bar')
   })
 
   it('resolves $header.name (case-insensitive)', () => {
-    const request = new Request('https://example.com/test', {
+    const request = new Request('https://example.com.ai/test', {
       headers: { 'X-Custom': 'value' },
     })
     expect(resolveVar('$header.X-Custom', baseContext, request)).toBe('value')
   })
 
   it('resolves $cf.colo', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$cf.colo', baseContext, request)).toBe('DFW')
   })
 
   it('resolves $jwt.sub', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$jwt.sub', baseContext, request)).toBe('user_1')
   })
 
   it('resolves $config.key', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$config.apiKey', baseContext, request)).toBe('secret')
   })
 
   it('returns empty string for missing values', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$jwt.missing', baseContext, request)).toBe('')
     expect(resolveVar('$query.missing', baseContext, request)).toBe('')
     expect(resolveVar('$config.missing', baseContext, request)).toBe('')
   })
 
   it('handles unknown variable prefix', () => {
-    const request = new Request('https://example.com/test')
+    const request = new Request('https://example.com.ai/test')
     expect(resolveVar('$unknown.value', baseContext, request)).toBe('$unknown.value')
   })
 })

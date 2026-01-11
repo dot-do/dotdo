@@ -178,7 +178,7 @@ function createMockUser(overrides: Partial<BetterAuthUser> = {}): BetterAuthUser
   return {
     id: 'user-001',
     name: 'Test User',
-    email: 'test@example.com',
+    email: 'test@example.com.ai',
     emailVerified: true,
     role: 'user',
     image: null,
@@ -572,14 +572,14 @@ describe('Role Mapping', () => {
 
       const adminUser: PayloadUserWithRole = {
         id: 'user-001',
-        email: 'admin@example.com',
+        email: 'admin@example.com.ai',
         collection: 'users',
         role: 'admin',
       }
 
       const regularUser: PayloadUserWithRole = {
         id: 'user-002',
-        email: 'user@example.com',
+        email: 'user@example.com.ai',
         collection: 'users',
         role: 'user',
       }

@@ -659,13 +659,13 @@ describe('Complete SessionEvent validation', () => {
       timestamp: Date.now(),
       type: 'request',
       data: {
-        url: 'https://api.example.com/users',
+        url: 'https://api.example.com.ai/users',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ***'
         },
-        body: { name: 'John Doe', email: 'john@example.com' }
+        body: { name: 'John Doe', email: 'john@example.com.ai' }
       },
       source: 'frontend',
       sequence: 1

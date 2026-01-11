@@ -34,8 +34,8 @@ describe('Visibility Types', () => {
   describe('ThingData visibility field', () => {
     it('ThingData accepts visibility field', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/thing/1',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/thing/1',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -46,8 +46,8 @@ describe('Visibility Types', () => {
 
     it('visibility field is optional (defaults to undefined)', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/thing/2',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/thing/2',
+        $type: 'https://example.com.ai/Type',
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -60,8 +60,8 @@ describe('Visibility Types', () => {
 
       for (const visibility of visibilities) {
         const thing: ThingData = {
-          $id: `https://example.com/thing/${visibility}`,
-          $type: 'https://example.com/Type',
+          $id: `https://example.com.ai/thing/${visibility}`,
+          $type: 'https://example.com.ai/Type',
           visibility,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -108,8 +108,8 @@ describe('Visibility Types', () => {
   describe('isPublic()', () => {
     it('returns true for public visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -120,8 +120,8 @@ describe('Visibility Types', () => {
 
     it('returns false for unlisted visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -132,8 +132,8 @@ describe('Visibility Types', () => {
 
     it('returns false for org visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -144,8 +144,8 @@ describe('Visibility Types', () => {
 
     it('returns false for user visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -156,8 +156,8 @@ describe('Visibility Types', () => {
 
     it('returns false for undefined visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/no-visibility',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/no-visibility',
+        $type: 'https://example.com.ai/Type',
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -174,8 +174,8 @@ describe('Visibility Types', () => {
   describe('isUnlisted()', () => {
     it('returns true for unlisted visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -186,8 +186,8 @@ describe('Visibility Types', () => {
 
     it('returns false for public visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -198,8 +198,8 @@ describe('Visibility Types', () => {
 
     it('returns false for org visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -210,8 +210,8 @@ describe('Visibility Types', () => {
 
     it('returns false for user visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -229,8 +229,8 @@ describe('Visibility Types', () => {
   describe('isOrgVisible()', () => {
     it('returns true for org visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -241,8 +241,8 @@ describe('Visibility Types', () => {
 
     it('returns false for public visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -253,8 +253,8 @@ describe('Visibility Types', () => {
 
     it('returns false for unlisted visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -265,8 +265,8 @@ describe('Visibility Types', () => {
 
     it('returns false for user visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -284,8 +284,8 @@ describe('Visibility Types', () => {
   describe('isUserOnly()', () => {
     it('returns true for user visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -296,8 +296,8 @@ describe('Visibility Types', () => {
 
     it('returns false for public visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -308,8 +308,8 @@ describe('Visibility Types', () => {
 
     it('returns false for unlisted visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -320,8 +320,8 @@ describe('Visibility Types', () => {
 
     it('returns false for org visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -332,8 +332,8 @@ describe('Visibility Types', () => {
 
     it('returns true for undefined visibility (default to private)', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/no-visibility',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/no-visibility',
+        $type: 'https://example.com.ai/Type',
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -359,8 +359,8 @@ describe('canView() Permission Check', () => {
   describe('public visibility', () => {
     it('anonymous user can view public Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -372,8 +372,8 @@ describe('canView() Permission Check', () => {
 
     it('authenticated user can view public Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -385,8 +385,8 @@ describe('canView() Permission Check', () => {
 
     it('org member can view public Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/public-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/public-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'public',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -403,8 +403,8 @@ describe('canView() Permission Check', () => {
   describe('unlisted visibility', () => {
     it('anonymous user can view unlisted Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -416,8 +416,8 @@ describe('canView() Permission Check', () => {
 
     it('authenticated user can view unlisted Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/unlisted-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/unlisted-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'unlisted',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -434,8 +434,8 @@ describe('canView() Permission Check', () => {
   describe('org visibility', () => {
     it('anonymous user cannot view org Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         meta: { orgId: 'org-456' },
         createdAt: new Date(),
@@ -448,8 +448,8 @@ describe('canView() Permission Check', () => {
 
     it('authenticated user without org cannot view org Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         meta: { orgId: 'org-456' },
         createdAt: new Date(),
@@ -462,8 +462,8 @@ describe('canView() Permission Check', () => {
 
     it('member of different org cannot view org Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         meta: { orgId: 'org-456' },
         createdAt: new Date(),
@@ -476,8 +476,8 @@ describe('canView() Permission Check', () => {
 
     it('member of same org can view org Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/org-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/org-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'org',
         meta: { orgId: 'org-456' },
         createdAt: new Date(),
@@ -495,8 +495,8 @@ describe('canView() Permission Check', () => {
   describe('user visibility', () => {
     it('anonymous user cannot view user-only Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
@@ -509,8 +509,8 @@ describe('canView() Permission Check', () => {
 
     it('different authenticated user cannot view user-only Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
@@ -523,8 +523,8 @@ describe('canView() Permission Check', () => {
 
     it('owner can view their user-only Thing', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/user-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/user-thing',
+        $type: 'https://example.com.ai/Type',
         visibility: 'user',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
@@ -542,8 +542,8 @@ describe('canView() Permission Check', () => {
   describe('undefined visibility (defaults to private)', () => {
     it('anonymous user cannot view Thing with undefined visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/private-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/private-thing',
+        $type: 'https://example.com.ai/Type',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -555,8 +555,8 @@ describe('canView() Permission Check', () => {
 
     it('different user cannot view Thing with undefined visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/private-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/private-thing',
+        $type: 'https://example.com.ai/Type',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -568,8 +568,8 @@ describe('canView() Permission Check', () => {
 
     it('owner can view Thing with undefined visibility', () => {
       const thing: ThingData = {
-        $id: 'https://example.com/private-thing',
-        $type: 'https://example.com/Type',
+        $id: 'https://example.com.ai/private-thing',
+        $type: 'https://example.com.ai/Type',
         meta: { ownerId: 'user-123' },
         createdAt: new Date(),
         updatedAt: new Date(),

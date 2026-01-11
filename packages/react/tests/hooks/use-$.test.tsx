@@ -59,7 +59,7 @@ afterEach(() => {
 })
 
 // Provider wrapper for hooks
-function createWrapper(ns = 'https://api.example.com/do/workspace') {
+function createWrapper(ns = 'https://api.example.com.ai/do/workspace') {
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return <DO ns={ns}>{children}</DO>
   }
@@ -195,7 +195,7 @@ describe('use$', () => {
       result.current.send({ type: 'payment.failed', amount: 100 })
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/do/workspace/rpc',
+        'https://api.example.com.ai/do/workspace/rpc',
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

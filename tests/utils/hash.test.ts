@@ -33,7 +33,7 @@ describe('deterministicHash', () => {
     })
 
     it('returns same value for identical strings across multiple calls', () => {
-      const input = 'experiment:pricing:user:alice@example.com'
+      const input = 'experiment:pricing:user:alice@example.com.ai'
       const results = Array.from({ length: 100 }, () => deterministicHash(input))
 
       // All 100 results should be identical

@@ -114,7 +114,7 @@ describe('SearchSnippet - Marks File Fetching', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/table-001.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/table-001.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 2,
@@ -135,7 +135,7 @@ describe('SearchSnippet - Marks File Fetching', () => {
     })
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/nonexistent.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/nonexistent.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 10,
@@ -149,7 +149,7 @@ describe('SearchSnippet - Marks File Fetching', () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('Network timeout'))
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/table-001.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/table-001.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 10,
@@ -164,7 +164,7 @@ describe('SearchSnippet - Marks File Fetching', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/table-001.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/table-001.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 1,
@@ -803,7 +803,7 @@ describe('SearchSnippet - End-to-End Integration', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/users.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/users.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 4,
@@ -837,7 +837,7 @@ describe('SearchSnippet - End-to-End Integration', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/users.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/users.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 3,
@@ -864,7 +864,7 @@ describe('SearchSnippet - End-to-End Integration', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/users.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/users.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 2,
@@ -887,7 +887,7 @@ describe('SearchSnippet - End-to-End Integration', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/users.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/users.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: 2,
@@ -920,7 +920,7 @@ describe('SearchSnippet - Performance Constraints', () => {
     const mockFetch = mockCdnFetch(marksData)
     globalThis.fetch = mockFetch
 
-    const cdnUrl = 'https://cdn.example.com/marks/large-table.marks'
+    const cdnUrl = 'https://cdn.example.com.ai/marks/large-table.marks'
     const metadata: MarksMetadata = {
       columnType: 'int64',
       blockCount: blockCount,

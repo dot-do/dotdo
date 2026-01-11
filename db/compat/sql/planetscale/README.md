@@ -67,7 +67,7 @@ await conn.execute(`
 // Insert with parameters
 const { insertId } = await conn.execute(
   'INSERT INTO users (name, email) VALUES (?, ?)',
-  ['Alice', 'alice@example.com']
+  ['Alice', 'alice@example.com.ai']
 )
 
 // Select with typed results
@@ -108,7 +108,7 @@ Safe parameter binding with `?` placeholders. Prevents SQL injection.
 await conn.execute('SELECT * FROM users WHERE age > ? AND status = ?', [18, 'active'])
 
 // Insert with parameters
-await conn.execute('INSERT INTO users (name, email) VALUES (?, ?)', ['Bob', 'bob@example.com'])
+await conn.execute('INSERT INTO users (name, email) VALUES (?, ?)', ['Bob', 'bob@example.com.ai'])
 
 // Update
 await conn.execute('UPDATE users SET name = ? WHERE id = ?', ['Robert', 1])

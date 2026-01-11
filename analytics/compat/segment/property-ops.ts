@@ -193,7 +193,7 @@ export function applyPropertyOperations(
  * ```typescript
  * const ops = propertyOps()
  *   .set('name', 'John')
- *   .set('email', 'john@example.com')
+ *   .set('email', 'john@example.com.ai')
  *   .increment('loginCount', 1)
  *   .append('tags', 'premium')
  *   .build()
@@ -587,12 +587,12 @@ export function batchApplyDifferentOperations(
  * ```typescript
  * const user = userProperties('user-123', { name: 'John', loginCount: 5 })
  *
- * user.set('email', 'john@example.com')
+ * user.set('email', 'john@example.com.ai')
  * user.increment('loginCount')
  * user.append('tags', 'premium')
  *
  * const updated = user.getProperties()
- * // { name: 'John', email: 'john@example.com', loginCount: 6, tags: ['premium'] }
+ * // { name: 'John', email: 'john@example.com.ai', loginCount: 6, tags: ['premium'] }
  * ```
  */
 export class UserPropertyManager {
@@ -711,7 +711,7 @@ export class UserPropertyManager {
  * @example
  * ```typescript
  * const user = userProperties('user-123', { name: 'John' })
- *   .set('email', 'john@example.com')
+ *   .set('email', 'john@example.com.ai')
  *   .increment('loginCount')
  *
  * console.log(user.getProperties())

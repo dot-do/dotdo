@@ -263,7 +263,7 @@ describe('isRPCResponse type guard runtime behavior', () => {
     const validEvent = {
       type: 'event',
       event: 'Customer.signup',
-      data: { email: 'test@example.com' },
+      data: { email: 'test@example.com.ai' },
     }
 
     expect(module.isRPCResponse(validEvent)).toBe(true)

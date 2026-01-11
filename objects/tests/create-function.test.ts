@@ -1832,7 +1832,7 @@ describe('createFunction Factory', () => {
           .pipe(transformFn)
           .pipe(storeFn)
 
-        const result = await pipeline.execute({ url: 'https://api.example.com' })
+        const result = await pipeline.execute({ url: 'https://api.example.com.ai' })
 
         expect(result).toEqual({ stored: true, value: 84 })
       })

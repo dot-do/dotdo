@@ -141,7 +141,7 @@ Higher-level abstractions for common patterns.
 
     ```typescript
     export class MySite extends Site {
-      domain = 'example.com'
+      domain = 'example.com.ai'
       pages = [...]
     }
     ```
@@ -190,7 +190,7 @@ Each DO instance has a unique ID.
 const user = await env.USER.get(id)
 
 // Get by name (deterministic ID)
-const user = await env.USER.get(env.USER.idFromName('alice@example.com'))
+const user = await env.USER.get(env.USER.idFromName('alice@example.com.ai'))
 
 // Call methods via RPC
 const data = await user.getData()

@@ -84,7 +84,7 @@ describe('DuckDB WASM SQL Execution', () => {
 
     it('should INSERT single row and SELECT it back', async () => {
       await db.query('CREATE TABLE users (id INTEGER, name VARCHAR, email VARCHAR)')
-      await db.query("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+      await db.query("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com.ai')")
 
       const result = await db.query<{ id: number; name: string; email: string }>(
         'SELECT * FROM users WHERE id = 1'
@@ -94,7 +94,7 @@ describe('DuckDB WASM SQL Execution', () => {
       expect(result.rows[0]).toEqual({
         id: 1,
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 

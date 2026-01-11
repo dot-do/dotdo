@@ -60,7 +60,7 @@ afterEach(() => {
 })
 
 // Provider wrapper for hooks
-function createWrapper(ns = 'https://api.example.com/do/workspace') {
+function createWrapper(ns = 'https://api.example.com.ai/do/workspace') {
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return <DO ns={ns}>{children}</DO>
   }

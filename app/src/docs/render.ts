@@ -1032,13 +1032,13 @@ function generateThingPageContent(): string {
       <h2>Usage Examples</h2>
       <pre><code>// Access a Thing's identity
 const thing: Thing = await $.Thing('user-123')
-console.log(thing.$id) // 'https://example.com/user-123'
+console.log(thing.$id) // 'https://example.com.ai/user-123'
 
 // Update a Thing
 await thing.update({ name: 'New Name' })
 
 // Create relationships
-await thing.relate('manages', 'https://example.com/project-456')
+await thing.relate('manages', 'https://example.com.ai/project-456')
 
 // Promote to ThingDO
 const thingDO = await thing.promote()

@@ -21,7 +21,7 @@
  *
  * const client = new Client({ token: 'xxx' })
  * await client.publishJSON({
- *   url: 'https://example.com/api/webhook',
+ *   url: 'https://example.com.ai/api/webhook',
  *   body: { hello: 'world' },
  *   delay: '5m',
  * })

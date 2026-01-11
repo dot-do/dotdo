@@ -268,7 +268,7 @@ describe('DO Router - /:doClass/:id/*', () => {
     })
 
     it('should handle special characters in ID', async () => {
-      const response = await app.request('/DO/user:alice@example.com/')
+      const response = await app.request('/DO/user:alice@example.com.ai/')
 
       expect(response.status).not.toBe(404)
     })

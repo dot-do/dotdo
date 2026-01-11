@@ -735,7 +735,7 @@ describe('MiniflareSandbox', () => {
         const urlScript = `
           export default {
             async fetch() {
-              const url = new URL('https://example.com/path?foo=bar');
+              const url = new URL('https://example.com.ai/path?foo=bar');
               return Response.json({
                 host: url.host,
                 pathname: url.pathname,
@@ -749,7 +749,7 @@ describe('MiniflareSandbox', () => {
 
         expect(result.success).toBe(true)
         expect(result.result).toEqual({
-          host: 'example.com',
+          host: 'example.com.ai',
           pathname: '/path',
           foo: 'bar',
         })
@@ -1392,7 +1392,7 @@ describe('MiniflareSandbox', () => {
           export default {
             async fetch() {
               try {
-                const response = await fetch('https://example.com');
+                const response = await fetch('https://example.com.ai');
                 return Response.json({ ok: response.ok });
               } catch (e) {
                 return Response.json({ error: e.message });
@@ -1971,7 +1971,7 @@ describe('MiniflareSandbox', () => {
             async fetch() {
               try {
                 // This should fail - can't import arbitrary modules
-                const module = await import('https://example.com/module.js');
+                const module = await import('https://example.com.ai/module.js');
                 return Response.json({ imported: true });
               } catch (e) {
                 return Response.json({ error: e.message });

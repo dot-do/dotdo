@@ -517,7 +517,7 @@ describe('CascadeExecutor', () => {
           object: 'task:456',
           type: 'Task',
           verb: 'processed',
-          ns: 'app.example.com',
+          ns: 'app.example.com.ai',
         },
       })
 

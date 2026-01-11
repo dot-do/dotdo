@@ -189,7 +189,7 @@ export function defineConfig(config: DoConfig): DoConfig {
     "expiresAt": "2026-01-10T12:00:00Z",
     "user": {
       "id": "user_123",
-      "email": "me@example.com",
+      "email": "me@example.com.ai",
       "roles": ["admin"]
     }
   }

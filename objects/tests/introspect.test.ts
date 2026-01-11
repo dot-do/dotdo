@@ -272,7 +272,7 @@ function createAuthContext(role: 'public' | 'user' | 'admin' | 'system'): AuthCo
     authenticated: true,
     user: {
       id: `${role}-user-123`,
-      email: `${role}@example.com`,
+      email: `${role}@example.com.ai`,
       name: role.charAt(0).toUpperCase() + role.slice(1),
       roles: [role],
       permissions: roleScopes[role] || [],
@@ -484,7 +484,7 @@ describe('$introspect RPC Handler', () => {
     // Create JWT token for authentication
     const token = createTestJWT('admin')
 
-    const request = new Request('https://example.com/rpc', {
+    const request = new Request('https://example.com.ai/rpc', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -510,7 +510,7 @@ describe('$introspect RPC Handler', () => {
     const doInstance = createIntrospectableTestDO()
 
     // Make request without auth token
-    const request = new Request('https://example.com/rpc', {
+    const request = new Request('https://example.com.ai/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1145,7 +1145,7 @@ describe('$introspect HTTP Route', () => {
     // Create a JWT token for authentication
     const token = createTestJWT('admin')
 
-    const request = new Request('https://example.com/$introspect', {
+    const request = new Request('https://example.com.ai/$introspect', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -1166,7 +1166,7 @@ describe('$introspect HTTP Route', () => {
 
     const token = createTestJWT('admin')
 
-    const request = new Request('https://example.com/$introspect', {
+    const request = new Request('https://example.com.ai/$introspect', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -1183,7 +1183,7 @@ describe('$introspect HTTP Route', () => {
   it('should return 401 without authentication', async () => {
     const doInstance = createIntrospectableTestDO()
 
-    const request = new Request('https://example.com/$introspect', {
+    const request = new Request('https://example.com.ai/$introspect', {
       method: 'GET',
     })
 
@@ -1206,7 +1206,7 @@ function createTestJWT(role: 'public' | 'user' | 'admin' | 'system'): string {
 
   const payload = {
     sub: `${role}-user-123`,
-    email: `${role}@example.com`,
+    email: `${role}@example.com.ai`,
     name: role.charAt(0).toUpperCase() + role.slice(1),
     roles: [role],
     permissions: role === 'public' ? [] : ['read', 'write'],

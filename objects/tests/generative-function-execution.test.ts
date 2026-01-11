@@ -536,12 +536,12 @@ describe('GenerativeFunction Execution', () => {
         await executor.execute({
           model: 'claude-sonnet-4-20250514',
           prompt: 'User: {{user.name}}, Email: {{user.email}}',
-          variables: { user: { name: 'Alice', email: 'alice@example.com' } },
+          variables: { user: { name: 'Alice', email: 'alice@example.com.ai' } },
         })
 
         expect(mockAIService.generate).toHaveBeenCalledWith(
           expect.objectContaining({
-            prompt: 'User: Alice, Email: alice@example.com',
+            prompt: 'User: Alice, Email: alice@example.com.ai',
           })
         )
       })
@@ -1962,7 +1962,7 @@ Line 3: C`,
                   type: 'image',
                   source: {
                     type: 'url',
-                    url: 'https://example.com/image.png',
+                    url: 'https://example.com.ai/image.png',
                   },
                 },
               ],

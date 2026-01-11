@@ -106,11 +106,11 @@ function createMockFetch(files: Map<string, Uint8Array>) {
 
 describe('SearchSnippet - Bloom Filter Fetch', () => {
   const testEmails = [
-    'alice@example.com',
-    'bob@example.com',
-    'charlie@example.com',
-    'david@example.com',
-    'eve@example.com',
+    'alice@example.com.ai',
+    'bob@example.com.ai',
+    'charlie@example.com.ai',
+    'david@example.com.ai',
+    'eve@example.com.ai',
   ]
 
   const testStatuses = ['active', 'pending', 'suspended']
@@ -131,13 +131,13 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
 
     // Create mock fetch
     const files = new Map<string, Uint8Array>()
-    files.set('https://cdn.example.com/data/file1.puffin', puffinFile)
+    files.set('https://cdn.example.com.ai/data/file1.puffin', puffinFile)
     mockFetch = createMockFetch(files)
   })
 
   it('fetches bloom filter from CDN', async () => {
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/data/file1.puffin',
+      'https://cdn.example.com.ai/data/file1.puffin',
       { fieldId: 5 },
       { fetch: mockFetch }
     )
@@ -149,7 +149,7 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
 
   it('uses range requests to fetch only footer first', async () => {
     await fetchBloomFilter(
-      'https://cdn.example.com/data/file1.puffin',
+      'https://cdn.example.com.ai/data/file1.puffin',
       { fieldId: 5 },
       { fetch: mockFetch }
     )
@@ -172,14 +172,14 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
 
     // First fetch
     await fetchBloomFilter(
-      'https://cdn.example.com/data/file1.puffin',
+      'https://cdn.example.com.ai/data/file1.puffin',
       { fieldId: 5 },
       options
     )
 
     // Second fetch should hit cache
     await fetchBloomFilter(
-      'https://cdn.example.com/data/file1.puffin',
+      'https://cdn.example.com.ai/data/file1.puffin',
       { fieldId: 5 },
       options
     )
@@ -192,7 +192,7 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
 
   it('returns null for non-existent field ID', async () => {
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/data/file1.puffin',
+      'https://cdn.example.com.ai/data/file1.puffin',
       { fieldId: 999 }, // Non-existent field
       { fetch: mockFetch }
     )
@@ -202,7 +202,7 @@ describe('SearchSnippet - Bloom Filter Fetch', () => {
 
   it('handles 404 gracefully', async () => {
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/data/nonexistent.puffin',
+      'https://cdn.example.com.ai/data/nonexistent.puffin',
       { fieldId: 5 },
       { fetch: mockFetch }
     )
@@ -284,12 +284,12 @@ describe('SearchSnippet - Bloom Query MAYBE (existing values)', () => {
 
   it('returns MAYBE for existing values', async () => {
     const puffinFile = createTestPuffinFile({ 1: testValues })
-    const files = new Map([['https://cdn.example.com/test.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/test.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const result = await queryBloom(
       {
-        url: 'https://cdn.example.com/test.puffin',
+        url: 'https://cdn.example.com.ai/test.puffin',
         fieldId: 1,
         value: 'user_001',
       },
@@ -301,13 +301,13 @@ describe('SearchSnippet - Bloom Query MAYBE (existing values)', () => {
 
   it('returns MAYBE for all test values', async () => {
     const puffinFile = createTestPuffinFile({ 1: testValues })
-    const files = new Map([['https://cdn.example.com/test.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/test.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     for (const value of testValues) {
       const result = await queryBloom(
         {
-          url: 'https://cdn.example.com/test.puffin',
+          url: 'https://cdn.example.com.ai/test.puffin',
           fieldId: 1,
           value,
         },
@@ -345,7 +345,7 @@ describe('SearchSnippet - Bloom Query NO (definitely-absent values)', () => {
 
   beforeEach(() => {
     puffinFile = createTestPuffinFile({ 1: existingValues })
-    const files = new Map([['https://cdn.example.com/test.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/test.puffin', puffinFile]])
     mockFetch = createMockFetch(files)
   })
 
@@ -356,7 +356,7 @@ describe('SearchSnippet - Bloom Query NO (definitely-absent values)', () => {
     for (const value of absentValues) {
       const result = await queryBloom(
         {
-          url: 'https://cdn.example.com/test.puffin',
+          url: 'https://cdn.example.com.ai/test.puffin',
           fieldId: 1,
           value,
         },
@@ -383,7 +383,7 @@ describe('SearchSnippet - Bloom Query NO (definitely-absent values)', () => {
     for (const value of randomValues) {
       const result = await queryBloom(
         {
-          url: 'https://cdn.example.com/test.puffin',
+          url: 'https://cdn.example.com.ai/test.puffin',
           fieldId: 1,
           value,
         },
@@ -420,7 +420,7 @@ describe('SearchSnippet - Bloom Query NO (definitely-absent values)', () => {
 // ============================================================================
 
 describe('SearchSnippet - Multiple Column Bloom Queries', () => {
-  const emailValues = ['alice@example.com', 'bob@example.com', 'charlie@example.com']
+  const emailValues = ['alice@example.com.ai', 'bob@example.com.ai', 'charlie@example.com.ai']
   const statusValues = ['active', 'pending', 'inactive']
   const typeValues = ['admin', 'user', 'guest']
 
@@ -434,15 +434,15 @@ describe('SearchSnippet - Multiple Column Bloom Queries', () => {
       6: statusValues,   // status column
       7: typeValues,     // type column
     })
-    const files = new Map([['https://cdn.example.com/multi.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/multi.puffin', puffinFile]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles multiple column bloom queries', async () => {
     const queries: BloomQuery[] = [
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 5, value: 'alice@example.com' },
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 6, value: 'active' },
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 7, value: 'admin' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 5, value: 'alice@example.com.ai' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 6, value: 'active' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 7, value: 'admin' },
     ]
 
     const results = await Promise.all(
@@ -455,9 +455,9 @@ describe('SearchSnippet - Multiple Column Bloom Queries', () => {
 
   it('handles mixed MAYBE/NO results across columns', async () => {
     const queries: BloomQuery[] = [
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 5, value: 'alice@example.com' }, // exists
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 6, value: 'deleted' }, // doesn't exist
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 7, value: 'superuser' }, // doesn't exist
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 5, value: 'alice@example.com.ai' }, // exists
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 6, value: 'deleted' }, // doesn't exist
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 7, value: 'superuser' }, // doesn't exist
     ]
 
     const results = await Promise.all(
@@ -473,15 +473,15 @@ describe('SearchSnippet - Multiple Column Bloom Queries', () => {
   it('queries different columns from same file efficiently', async () => {
     // Query multiple columns - should reuse cached footer/blob metadata
     await queryBloom(
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 5, value: 'test@example.com' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 5, value: 'test@example.com.ai' },
       { fetch: mockFetch }
     )
     await queryBloom(
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 6, value: 'active' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 6, value: 'active' },
       { fetch: mockFetch }
     )
     await queryBloom(
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 7, value: 'user' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 7, value: 'user' },
       { fetch: mockFetch }
     )
 
@@ -493,8 +493,8 @@ describe('SearchSnippet - Multiple Column Bloom Queries', () => {
   it('handles AND queries (all columns must match)', async () => {
     // For AND queries, if ANY bloom filter returns NO, we can skip the file
     const queries: BloomQuery[] = [
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 5, value: 'alice@example.com' },
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 6, value: 'nonexistent_status_xyz' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 5, value: 'alice@example.com.ai' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 6, value: 'nonexistent_status_xyz' },
     ]
 
     const results = await Promise.all(
@@ -509,8 +509,8 @@ describe('SearchSnippet - Multiple Column Bloom Queries', () => {
   it('handles OR queries (any column can match)', async () => {
     // For OR queries, all bloom filters must return NO to prune
     const queries: BloomQuery[] = [
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 5, value: 'nonexistent1@test.com' },
-      { url: 'https://cdn.example.com/multi.puffin', fieldId: 6, value: 'nonexistent_status_abc' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 5, value: 'nonexistent1@test.com' },
+      { url: 'https://cdn.example.com.ai/multi.puffin', fieldId: 6, value: 'nonexistent_status_abc' },
     ]
 
     const results = await Promise.all(
@@ -534,7 +534,7 @@ describe('SearchSnippet - Memory Limits', () => {
     const largeValues = Array.from({ length: 10000 }, (_, i) => `value_${i}_${crypto.randomUUID()}`)
 
     const puffinFile = createTestPuffinFile({ 1: largeValues })
-    const files = new Map([['https://cdn.example.com/large.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/large.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     // Bloom filter for 10k items at 1% FPR should be ~12KB
@@ -545,7 +545,7 @@ describe('SearchSnippet - Memory Limits', () => {
     }
 
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/large.puffin',
+      'https://cdn.example.com.ai/large.puffin',
       { fieldId: 1 },
       options
     )
@@ -558,7 +558,7 @@ describe('SearchSnippet - Memory Limits', () => {
     const files = new Map<string, Uint8Array>()
     for (let i = 0; i < 10; i++) {
       const values = Array.from({ length: 5000 }, (_, j) => `file${i}_value_${j}`)
-      files.set(`https://cdn.example.com/file${i}.puffin`, createTestPuffinFile({ 1: values }))
+      files.set(`https://cdn.example.com.ai/file${i}.puffin`, createTestPuffinFile({ 1: values }))
     }
     const mockFetch = createMockFetch(files)
 
@@ -571,7 +571,7 @@ describe('SearchSnippet - Memory Limits', () => {
     // Load more bloom filters than can fit in cache
     for (let i = 0; i < 10; i++) {
       await fetchBloomFilter(
-        `https://cdn.example.com/file${i}.puffin`,
+        `https://cdn.example.com.ai/file${i}.puffin`,
         { fieldId: 1 },
         options
       )
@@ -584,7 +584,7 @@ describe('SearchSnippet - Memory Limits', () => {
   it('reports memory usage statistics', async () => {
     const values = Array.from({ length: 1000 }, (_, i) => `value_${i}`)
     const puffinFile = createTestPuffinFile({ 1: values })
-    const files = new Map([['https://cdn.example.com/stats.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/stats.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const options: BloomFetchOptions = {
@@ -593,7 +593,7 @@ describe('SearchSnippet - Memory Limits', () => {
     }
 
     await fetchBloomFilter(
-      'https://cdn.example.com/stats.puffin',
+      'https://cdn.example.com.ai/stats.puffin',
       { fieldId: 1 },
       options
     )
@@ -612,7 +612,7 @@ describe('SearchSnippet - Memory Limits', () => {
 
     const largeValues = Array.from({ length: 100000 }, (_, i) => `large_value_${i}_${i * 2}`)
     const puffinFile = createTestPuffinFile({ 1: largeValues })
-    const files = new Map([['https://cdn.example.com/huge.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/huge.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const options: BloomFetchOptions = {
@@ -621,7 +621,7 @@ describe('SearchSnippet - Memory Limits', () => {
     }
 
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/huge.puffin',
+      'https://cdn.example.com.ai/huge.puffin',
       { fieldId: 1 },
       options
     )
@@ -647,14 +647,14 @@ describe('SearchSnippet - Performance Timing', () => {
 
   beforeEach(() => {
     puffinFile = createTestPuffinFile({ 1: testValues })
-    const files = new Map([['https://cdn.example.com/perf.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/perf.puffin', puffinFile]])
     mockFetch = createMockFetch(files)
   })
 
   it('completes bloom query within 2ms (cached)', async () => {
     // First fetch to warm cache
     await queryBloom(
-      { url: 'https://cdn.example.com/perf.puffin', fieldId: 1, value: 'warmup' },
+      { url: 'https://cdn.example.com.ai/perf.puffin', fieldId: 1, value: 'warmup' },
       { fetch: mockFetch }
     )
 
@@ -662,7 +662,7 @@ describe('SearchSnippet - Performance Timing', () => {
     const start = performance.now()
 
     await queryBloom(
-      { url: 'https://cdn.example.com/perf.puffin', fieldId: 1, value: 'value_500' },
+      { url: 'https://cdn.example.com.ai/perf.puffin', fieldId: 1, value: 'value_500' },
       { fetch: mockFetch }
     )
 
@@ -675,14 +675,14 @@ describe('SearchSnippet - Performance Timing', () => {
   it('completes 100 bloom queries within 50ms (cached)', async () => {
     // Warm cache
     await queryBloom(
-      { url: 'https://cdn.example.com/perf.puffin', fieldId: 1, value: 'warmup' },
+      { url: 'https://cdn.example.com.ai/perf.puffin', fieldId: 1, value: 'warmup' },
       { fetch: mockFetch }
     )
 
     const start = performance.now()
 
     const queries = Array.from({ length: 100 }, (_, i) => ({
-      url: 'https://cdn.example.com/perf.puffin',
+      url: 'https://cdn.example.com.ai/perf.puffin',
       fieldId: 1,
       value: `value_${i % testValues.length}`,
     }))
@@ -726,13 +726,13 @@ describe('SearchSnippet - Performance Timing', () => {
 
   it('measures fetch + deserialize + query total time', async () => {
     // Reset mock to simulate fresh fetch
-    const files = new Map([['https://cdn.example.com/timing.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/timing.puffin', puffinFile]])
     const freshMockFetch = createMockFetch(files)
 
     const start = performance.now()
 
     const result = await queryBloom(
-      { url: 'https://cdn.example.com/timing.puffin', fieldId: 1, value: 'value_0' },
+      { url: 'https://cdn.example.com.ai/timing.puffin', fieldId: 1, value: 'value_0' },
       { fetch: freshMockFetch }
     )
 
@@ -755,11 +755,11 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles empty value query', async () => {
     const values = ['a', 'b', 'c']
     const puffinFile = createTestPuffinFile({ 1: values })
-    const files = new Map([['https://cdn.example.com/empty.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/empty.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const result = await queryBloom(
-      { url: 'https://cdn.example.com/empty.puffin', fieldId: 1, value: '' },
+      { url: 'https://cdn.example.com.ai/empty.puffin', fieldId: 1, value: '' },
       { fetch: mockFetch }
     )
 
@@ -771,11 +771,11 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles unicode values', async () => {
     const unicodeValues = ['cafe', 'resume', 'Tokyo', 'Beijing']
     const puffinFile = createTestPuffinFile({ 1: unicodeValues })
-    const files = new Map([['https://cdn.example.com/unicode.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/unicode.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const result = await queryBloom(
-      { url: 'https://cdn.example.com/unicode.puffin', fieldId: 1, value: 'Tokyo' },
+      { url: 'https://cdn.example.com.ai/unicode.puffin', fieldId: 1, value: 'Tokyo' },
       { fetch: mockFetch }
     )
 
@@ -786,11 +786,11 @@ describe('SearchSnippet - Edge Cases', () => {
     const longValue = 'x'.repeat(10000) // 10KB string
     const values = [longValue, 'short']
     const puffinFile = createTestPuffinFile({ 1: values })
-    const files = new Map([['https://cdn.example.com/long.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/long.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const result = await queryBloom(
-      { url: 'https://cdn.example.com/long.puffin', fieldId: 1, value: longValue },
+      { url: 'https://cdn.example.com.ai/long.puffin', fieldId: 1, value: longValue },
       { fetch: mockFetch }
     )
 
@@ -804,7 +804,7 @@ describe('SearchSnippet - Edge Cases', () => {
     })
 
     const resultPromise = queryBloom(
-      { url: 'https://cdn.example.com/slow.puffin', fieldId: 1, value: 'test' },
+      { url: 'https://cdn.example.com.ai/slow.puffin', fieldId: 1, value: 'test' },
       { fetch: slowFetch, timeoutMs: 100 }
     )
 
@@ -814,11 +814,11 @@ describe('SearchSnippet - Edge Cases', () => {
 
   it('handles corrupted Puffin file gracefully', async () => {
     const corruptedData = new Uint8Array([0x50, 0x46, 0x41, 0x31, 0x00, 0x00]) // Valid magic but corrupt
-    const files = new Map([['https://cdn.example.com/corrupt.puffin', corruptedData]])
+    const files = new Map([['https://cdn.example.com.ai/corrupt.puffin', corruptedData]])
     const mockFetch = createMockFetch(files)
 
     const result = await fetchBloomFilter(
-      'https://cdn.example.com/corrupt.puffin',
+      'https://cdn.example.com.ai/corrupt.puffin',
       { fieldId: 1 },
       { fetch: mockFetch }
     )
@@ -830,13 +830,13 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles concurrent queries to same file', async () => {
     const values = Array.from({ length: 100 }, (_, i) => `value_${i}`)
     const puffinFile = createTestPuffinFile({ 1: values })
-    const files = new Map([['https://cdn.example.com/concurrent.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/concurrent.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     // Fire 10 concurrent queries
     const queries = Array.from({ length: 10 }, (_, i) =>
       queryBloom(
-        { url: 'https://cdn.example.com/concurrent.puffin', fieldId: 1, value: `value_${i}` },
+        { url: 'https://cdn.example.com.ai/concurrent.puffin', fieldId: 1, value: `value_${i}` },
         { fetch: mockFetch }
       )
     )
@@ -904,11 +904,11 @@ describe('SearchSnippet - Puffin Integration', () => {
     // This test documents expected behavior for compressed blobs
     const values = ['compressed', 'test']
     const puffinFile = createTestPuffinFile({ 1: values })
-    const files = new Map([['https://cdn.example.com/compressed.puffin', puffinFile]])
+    const files = new Map([['https://cdn.example.com.ai/compressed.puffin', puffinFile]])
     const mockFetch = createMockFetch(files)
 
     const result = await queryBloom(
-      { url: 'https://cdn.example.com/compressed.puffin', fieldId: 1, value: 'compressed' },
+      { url: 'https://cdn.example.com.ai/compressed.puffin', fieldId: 1, value: 'compressed' },
       { fetch: mockFetch }
     )
 

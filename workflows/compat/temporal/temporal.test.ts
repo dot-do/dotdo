@@ -1269,7 +1269,7 @@ describe('Temporal Compat Layer', () => {
       async function typedSearchWorkflow() {
         const attrs: OrderSearchAttributes = {
           OrderId: 'ord-123',
-          CustomerEmail: 'test@example.com',
+          CustomerEmail: 'test@example.com.ai',
           TotalAmount: 150.00,
           IsExpedited: true,
           CreatedAt: new Date(),

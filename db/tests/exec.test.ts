@@ -169,7 +169,7 @@ describe('Column Definitions', () => {
         args: ['script.js'],
         env: {
           NODE_ENV: 'production',
-          API_URL: 'https://api.example.com',
+          API_URL: 'https://api.example.com.ai',
           DEBUG: 'true',
         },
       }

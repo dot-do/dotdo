@@ -43,9 +43,9 @@ const mockTasks: Task[] = [
 ]
 
 const mockUsers: User[] = [
-  { $id: 'u1', name: 'Alice', email: 'alice@example.com', role: 'admin' },
-  { $id: 'u2', name: 'Bob', email: 'bob@example.com', role: 'member' },
-  { $id: 'u3', name: 'Charlie', email: 'charlie@example.com', role: 'member' },
+  { $id: 'u1', name: 'Alice', email: 'alice@example.com.ai', role: 'admin' },
+  { $id: 'u2', name: 'Bob', email: 'bob@example.com.ai', role: 'member' },
+  { $id: 'u3', name: 'Charlie', email: 'charlie@example.com.ai', role: 'member' },
 ]
 
 const mockProjects: Project[] = [

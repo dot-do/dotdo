@@ -150,7 +150,7 @@ describe('POST /api/things', () => {
   it('creates a thing and returns 201', async () => {
     const newThing = {
       name: 'Test Thing',
-      $type: 'https://example.com/TestThing',
+      $type: 'https://example.com.ai/TestThing',
       data: { foo: 'bar' },
     }
 
@@ -160,14 +160,14 @@ describe('POST /api/things', () => {
 
     const body = (await res.json()) as Thing
     expect(body.name).toBe('Test Thing')
-    expect(body.$type).toBe('https://example.com/TestThing')
+    expect(body.$type).toBe('https://example.com.ai/TestThing')
     expect(body.data).toEqual({ foo: 'bar' })
   })
 
   it('returns the created thing with id', async () => {
     const newThing = {
       name: 'Another Thing',
-      $type: 'https://example.com/AnotherThing',
+      $type: 'https://example.com.ai/AnotherThing',
     }
 
     const res = await post('/api/things', newThing)
@@ -182,7 +182,7 @@ describe('POST /api/things', () => {
   it('sets createdAt and updatedAt timestamps', async () => {
     const newThing = {
       name: 'Timestamped Thing',
-      $type: 'https://example.com/TimestampedThing',
+      $type: 'https://example.com.ai/TimestampedThing',
     }
 
     const res = await post('/api/things', newThing)
@@ -241,7 +241,7 @@ describe('GET /api/things/:id', () => {
     // First create a thing
     const created = await post('/api/things', {
       name: 'Specific Thing',
-      $type: 'https://example.com/SpecificThing',
+      $type: 'https://example.com.ai/SpecificThing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -275,7 +275,7 @@ describe('GET /api/things/:id', () => {
     // Create a thing that might have relationships
     const created = await post('/api/things', {
       name: 'Thing with Relationships',
-      $type: 'https://example.com/RelatedThing',
+      $type: 'https://example.com.ai/RelatedThing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -296,7 +296,7 @@ describe('PUT /api/things/:id', () => {
     // First create a thing
     const created = await post('/api/things', {
       name: 'Original Name',
-      $type: 'https://example.com/UpdateableThing',
+      $type: 'https://example.com.ai/UpdateableThing',
       data: { version: 1 },
     })
     const createdThing = (await created.json()) as Thing
@@ -317,7 +317,7 @@ describe('PUT /api/things/:id', () => {
   it('returns the updated thing', async () => {
     const created = await post('/api/things', {
       name: 'Before Update',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -333,7 +333,7 @@ describe('PUT /api/things/:id', () => {
   it('updates the updatedAt timestamp', async () => {
     const created = await post('/api/things', {
       name: 'Timestamp Test',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
     const originalUpdatedAt = createdThing.updatedAt
@@ -363,7 +363,7 @@ describe('PUT /api/things/:id', () => {
   it('returns 400 for invalid update data', async () => {
     const created = await post('/api/things', {
       name: 'Valid Thing',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -380,7 +380,7 @@ describe('PUT /api/things/:id', () => {
   it('preserves fields not included in update', async () => {
     const created = await post('/api/things', {
       name: 'Original',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
       data: { preserved: true, updated: false },
     })
     const createdThing = (await created.json()) as Thing
@@ -393,7 +393,7 @@ describe('PUT /api/things/:id', () => {
     const body = (await res.json()) as Thing
     expect(body.name).toBe('Updated')
     // $type should be preserved
-    expect(body.$type).toBe('https://example.com/Thing')
+    expect(body.$type).toBe('https://example.com.ai/Thing')
   })
 })
 
@@ -406,7 +406,7 @@ describe('DELETE /api/things/:id', () => {
     // First create a thing
     const created = await post('/api/things', {
       name: 'To Be Deleted',
-      $type: 'https://example.com/DeletableThing',
+      $type: 'https://example.com.ai/DeletableThing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -419,7 +419,7 @@ describe('DELETE /api/things/:id', () => {
   it('returns empty body on successful delete', async () => {
     const created = await post('/api/things', {
       name: 'Delete Me',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -442,7 +442,7 @@ describe('DELETE /api/things/:id', () => {
   it('thing is not accessible after deletion', async () => {
     const created = await post('/api/things', {
       name: 'Will Be Gone',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -458,7 +458,7 @@ describe('DELETE /api/things/:id', () => {
   it('deleted thing does not appear in list', async () => {
     const created = await post('/api/things', {
       name: 'Unique Deletable Thing ' + Date.now(),
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     const createdThing = (await created.json()) as Thing
 
@@ -512,7 +512,7 @@ describe('Invalid Requests (400)', () => {
   it('returns 400 for missing Content-Type header on POST', async () => {
     const res = await app.request('/api/things', {
       method: 'POST',
-      body: JSON.stringify({ name: 'Test', $type: 'https://example.com/Thing' }),
+      body: JSON.stringify({ name: 'Test', $type: 'https://example.com.ai/Thing' }),
     })
 
     // Should require Content-Type: application/json
@@ -629,7 +629,7 @@ describe('Content-Type Handling', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'JSON Thing',
-        $type: 'https://example.com/Thing',
+        $type: 'https://example.com.ai/Thing',
       }),
     })
 
@@ -643,7 +643,7 @@ describe('Content-Type Handling', () => {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
         name: 'Charset Thing',
-        $type: 'https://example.com/Thing',
+        $type: 'https://example.com.ai/Thing',
       }),
     })
 
@@ -682,7 +682,7 @@ describe('HTTP Methods', () => {
   it('supports POST on /api/things', async () => {
     const res = await post('/api/things', {
       name: 'Test',
-      $type: 'https://example.com/Thing',
+      $type: 'https://example.com.ai/Thing',
     })
     expect([201, 400, 404]).toContain(res.status)
   })

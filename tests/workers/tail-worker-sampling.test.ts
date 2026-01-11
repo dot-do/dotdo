@@ -91,7 +91,7 @@ function createTailItem(overrides: Partial<TailItem> = {}): TailItem {
     scriptName: 'test-worker',
     event: {
       request: {
-        url: 'https://example.com/api/test',
+        url: 'https://example.com.ai/api/test',
         method: 'GET',
       },
       response: {
@@ -129,7 +129,7 @@ function createServerErrorTailItem(status: number = 500): TailItem {
   return createTailItem({
     event: {
       request: {
-        url: 'https://example.com/api/test',
+        url: 'https://example.com.ai/api/test',
         method: 'GET',
       },
       response: {
@@ -339,7 +339,7 @@ describe('shouldSample - Success Conditions (Configurable Rate)', () => {
   it('should not sample 4xx errors at success rate (they are client errors, not server errors)', () => {
     const item = createTailItem({
       event: {
-        request: { url: 'https://example.com/api/test', method: 'GET' },
+        request: { url: 'https://example.com.ai/api/test', method: 'GET' },
         response: { status: 404 },
       },
       outcome: 'ok',
@@ -496,7 +496,7 @@ describe('shouldSample - Edge Cases', () => {
   it('should prioritize outcome over status when both indicate error', () => {
     const item = createTailItem({
       event: {
-        request: { url: 'https://example.com', method: 'GET' },
+        request: { url: 'https://example.com.ai', method: 'GET' },
         response: { status: 500 },
       },
       outcome: 'exception',
@@ -515,7 +515,7 @@ describe('shouldSample - Edge Cases', () => {
   it('should treat status 499 as success (not server error)', () => {
     const item = createTailItem({
       event: {
-        request: { url: 'https://example.com', method: 'GET' },
+        request: { url: 'https://example.com.ai', method: 'GET' },
         response: { status: 499 },
       },
       outcome: 'ok',

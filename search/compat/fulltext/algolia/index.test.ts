@@ -1069,8 +1069,8 @@ describe('multipleQueries', () => {
 
     const users = client.initIndex('users')
     await users.saveObjects([
-      { objectID: '1', name: 'John', email: 'john@example.com' },
-      { objectID: '2', name: 'Jane', email: 'jane@example.com' },
+      { objectID: '1', name: 'John', email: 'john@example.com.ai' },
+      { objectID: '2', name: 'Jane', email: 'jane@example.com.ai' },
     ])
   })
 

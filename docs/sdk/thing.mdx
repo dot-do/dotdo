@@ -80,14 +80,14 @@ A Thing that has been promoted to its own Durable Object (namespace).
 ```typescript
 // Access a Thing's identity
 const thing: Thing = await $.Thing('user-123')
-console.log(thing.$id) // 'https://example.com/user-123'
-console.log(thing.identity.ns) // 'https://example.com'
+console.log(thing.$id) // 'https://example.com.ai/user-123'
+console.log(thing.identity.ns) // 'https://example.com.ai'
 
 // Update a Thing
 await thing.update({ name: 'New Name' })
 
 // Create relationships
-await thing.relate('manages', 'https://example.com/project-456')
+await thing.relate('manages', 'https://example.com.ai/project-456')
 
 // Promote to ThingDO
 const thingDO = await thing.promote()

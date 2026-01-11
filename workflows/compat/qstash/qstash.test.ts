@@ -21,19 +21,19 @@ describe('QStash Compat Layer', () => {
     describe('publish', () => {
       it('should publish a message and return messageId', async () => {
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'test message',
         })
 
         expect(result.messageId).toBeDefined()
         expect(result.messageId).toMatch(/^msg_/)
-        expect(result.url).toBe('https://example.com/webhook')
+        expect(result.url).toBe('https://example.com.ai/webhook')
         expect(result.deduplicated).toBe(false)
       })
 
       it('should handle JSON body', async () => {
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { hello: 'world' },
         })
 
@@ -42,7 +42,7 @@ describe('QStash Compat Layer', () => {
 
       it('should support delay option', async () => {
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'delayed message',
           delay: '5m',
         })
@@ -52,7 +52,7 @@ describe('QStash Compat Layer', () => {
 
       it('should support numeric delay (ms)', async () => {
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'delayed message',
           delay: 5000,
         })
@@ -64,7 +64,7 @@ describe('QStash Compat Layer', () => {
     describe('publishJSON', () => {
       it('should publish JSON with content-type header', async () => {
         const result = await client.publishJSON({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { user: 'test', action: 'signup' },
         })
 
@@ -75,9 +75,9 @@ describe('QStash Compat Layer', () => {
     describe('batch', () => {
       it('should publish multiple messages', async () => {
         const result = await client.batch([
-          { url: 'https://example.com/webhook1', body: 'message 1' },
-          { url: 'https://example.com/webhook2', body: 'message 2' },
-          { url: 'https://example.com/webhook3', body: 'message 3' },
+          { url: 'https://example.com.ai/webhook1', body: 'message 1' },
+          { url: 'https://example.com.ai/webhook2', body: 'message 2' },
+          { url: 'https://example.com.ai/webhook3', body: 'message 3' },
         ])
 
         expect(result.responses).toHaveLength(3)
@@ -90,13 +90,13 @@ describe('QStash Compat Layer', () => {
     describe('deduplication', () => {
       it('should deduplicate by deduplicationId', async () => {
         const result1 = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'message',
           deduplicationId: 'unique-id',
         })
 
         const result2 = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'message',
           deduplicationId: 'unique-id',
         })
@@ -108,13 +108,13 @@ describe('QStash Compat Layer', () => {
 
       it('should deduplicate by content when contentBasedDeduplication is true', async () => {
         const result1 = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'same content',
           contentBasedDeduplication: true,
         })
 
         const result2 = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'same content',
           contentBasedDeduplication: true,
         })
@@ -126,7 +126,7 @@ describe('QStash Compat Layer', () => {
     describe('enqueue', () => {
       it('should be an alias for publish', async () => {
         const result = await client.enqueue({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: 'test',
         })
 
@@ -139,7 +139,7 @@ describe('QStash Compat Layer', () => {
     describe('create', () => {
       it('should create a schedule', async () => {
         const result = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
         })
 
@@ -149,7 +149,7 @@ describe('QStash Compat Layer', () => {
 
       it('should create a schedule with custom ID', async () => {
         const result = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
           scheduleId: 'my-custom-schedule',
         })
@@ -161,7 +161,7 @@ describe('QStash Compat Layer', () => {
     describe('get', () => {
       it('should retrieve a schedule by ID', async () => {
         const { scheduleId } = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
         })
 
@@ -170,7 +170,7 @@ describe('QStash Compat Layer', () => {
         expect(schedule).toBeDefined()
         expect(schedule?.scheduleId).toBe(scheduleId)
         expect(schedule?.cron).toBe('0 9 * * MON')
-        expect(schedule?.destination).toBe('https://example.com/webhook')
+        expect(schedule?.destination).toBe('https://example.com.ai/webhook')
       })
 
       it('should return null for non-existent schedule', async () => {
@@ -182,12 +182,12 @@ describe('QStash Compat Layer', () => {
     describe('list', () => {
       it('should list all schedules', async () => {
         await client.schedules.create({
-          destination: 'https://example.com/webhook1',
+          destination: 'https://example.com.ai/webhook1',
           cron: '0 9 * * MON',
         })
 
         await client.schedules.create({
-          destination: 'https://example.com/webhook2',
+          destination: 'https://example.com.ai/webhook2',
           cron: '0 10 * * MON',
         })
 
@@ -200,7 +200,7 @@ describe('QStash Compat Layer', () => {
     describe('delete', () => {
       it('should delete a schedule', async () => {
         const { scheduleId } = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
         })
 
@@ -214,7 +214,7 @@ describe('QStash Compat Layer', () => {
     describe('pause/resume', () => {
       it('should pause a schedule', async () => {
         const { scheduleId } = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
         })
 
@@ -226,7 +226,7 @@ describe('QStash Compat Layer', () => {
 
       it('should resume a paused schedule', async () => {
         const { scheduleId } = await client.schedules.create({
-          destination: 'https://example.com/webhook',
+          destination: 'https://example.com.ai/webhook',
           cron: '0 9 * * MON',
         })
 
@@ -307,9 +307,9 @@ describe('QStash Compat Layer', () => {
         const result = await client.urlGroups.create({
           name: 'my-webhook-group',
           endpoints: [
-            { url: 'https://example.com/webhook1' },
-            { url: 'https://example.com/webhook2' },
-            { url: 'https://example.com/webhook3' },
+            { url: 'https://example.com.ai/webhook1' },
+            { url: 'https://example.com.ai/webhook2' },
+            { url: 'https://example.com.ai/webhook3' },
           ],
         })
 
@@ -332,7 +332,7 @@ describe('QStash Compat Layer', () => {
       it('should retrieve URL group by name', async () => {
         await client.urlGroups.create({
           name: 'test-group',
-          endpoints: [{ url: 'https://example.com/webhook' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook' }],
         })
 
         const group = await client.urlGroups.get('test-group')
@@ -352,12 +352,12 @@ describe('QStash Compat Layer', () => {
       it('should list all URL groups', async () => {
         await client.urlGroups.create({
           name: 'group-1',
-          endpoints: [{ url: 'https://example.com/webhook1' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook1' }],
         })
 
         await client.urlGroups.create({
           name: 'group-2',
-          endpoints: [{ url: 'https://example.com/webhook2' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook2' }],
         })
 
         const groups = await client.urlGroups.list()
@@ -370,7 +370,7 @@ describe('QStash Compat Layer', () => {
       it('should delete a URL group', async () => {
         await client.urlGroups.create({
           name: 'to-delete',
-          endpoints: [{ url: 'https://example.com/webhook' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook' }],
         })
 
         await client.urlGroups.delete('to-delete')
@@ -384,12 +384,12 @@ describe('QStash Compat Layer', () => {
       it('should add endpoints to existing group', async () => {
         await client.urlGroups.create({
           name: 'expandable-group',
-          endpoints: [{ url: 'https://example.com/webhook1' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook1' }],
         })
 
         await client.urlGroups.addEndpoints('expandable-group', [
-          { url: 'https://example.com/webhook2' },
-          { url: 'https://example.com/webhook3' },
+          { url: 'https://example.com.ai/webhook2' },
+          { url: 'https://example.com.ai/webhook3' },
         ])
 
         const group = await client.urlGroups.get('expandable-group')
@@ -402,19 +402,19 @@ describe('QStash Compat Layer', () => {
         await client.urlGroups.create({
           name: 'shrinkable-group',
           endpoints: [
-            { url: 'https://example.com/webhook1' },
-            { url: 'https://example.com/webhook2' },
-            { url: 'https://example.com/webhook3' },
+            { url: 'https://example.com.ai/webhook1' },
+            { url: 'https://example.com.ai/webhook2' },
+            { url: 'https://example.com.ai/webhook3' },
           ],
         })
 
         await client.urlGroups.removeEndpoints('shrinkable-group', [
-          { url: 'https://example.com/webhook2' },
+          { url: 'https://example.com.ai/webhook2' },
         ])
 
         const group = await client.urlGroups.get('shrinkable-group')
         expect(group?.endpoints).toHaveLength(2)
-        expect(group?.endpoints.find((e) => e.url === 'https://example.com/webhook2')).toBeUndefined()
+        expect(group?.endpoints.find((e) => e.url === 'https://example.com.ai/webhook2')).toBeUndefined()
       })
     })
 
@@ -429,9 +429,9 @@ describe('QStash Compat Layer', () => {
         await client.urlGroups.create({
           name: 'fanout-group',
           endpoints: [
-            { url: 'https://example.com/webhook1' },
-            { url: 'https://example.com/webhook2' },
-            { url: 'https://example.com/webhook3' },
+            { url: 'https://example.com.ai/webhook1' },
+            { url: 'https://example.com.ai/webhook2' },
+            { url: 'https://example.com.ai/webhook3' },
           ],
         })
 
@@ -462,9 +462,9 @@ describe('QStash Compat Layer', () => {
         await client.urlGroups.create({
           name: 'mixed-group',
           endpoints: [
-            { url: 'https://example.com/webhook1' },
-            { url: 'https://example.com/webhook2' },
-            { url: 'https://example.com/webhook3' },
+            { url: 'https://example.com.ai/webhook1' },
+            { url: 'https://example.com.ai/webhook2' },
+            { url: 'https://example.com.ai/webhook3' },
           ],
         })
 
@@ -476,7 +476,7 @@ describe('QStash Compat Layer', () => {
         await vi.runAllTimersAsync()
 
         expect(result.deliveries).toHaveLength(3)
-        const failedDelivery = result.deliveries?.find((d) => d.url === 'https://example.com/webhook2')
+        const failedDelivery = result.deliveries?.find((d) => d.url === 'https://example.com.ai/webhook2')
         expect(failedDelivery?.status).toBe('failed')
 
         vi.restoreAllMocks()
@@ -493,7 +493,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Connection refused'))
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'will-fail' },
           retries: 2,
         })
@@ -505,7 +505,7 @@ describe('QStash Compat Layer', () => {
         const dlqMessage = dlqMessages.find((m) => m.messageId === result.messageId)
 
         expect(dlqMessage).toBeDefined()
-        expect(dlqMessage?.url).toBe('https://failing.example.com/webhook')
+        expect(dlqMessage?.url).toBe('https://failing.example.com.ai/webhook')
         expect(dlqMessage?.failureReason).toContain('Connection refused')
         expect(dlqMessage?.attempts).toBe(3) // initial + 2 retries
 
@@ -518,13 +518,13 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Timeout'))
 
         await client.publish({
-          url: 'https://failing1.example.com/webhook',
+          url: 'https://failing1.example.com.ai/webhook',
           body: { event: 'fail1' },
           retries: 0,
         })
 
         await client.publish({
-          url: 'https://failing2.example.com/webhook',
+          url: 'https://failing2.example.com.ai/webhook',
           body: { event: 'fail2' },
           retries: 0,
         })
@@ -543,7 +543,7 @@ describe('QStash Compat Layer', () => {
         // Create multiple failed messages
         for (let i = 0; i < 5; i++) {
           await client.publish({
-            url: `https://failing${i}.example.com/webhook`,
+            url: `https://failing${i}.example.com.ai/webhook`,
             body: { event: `fail${i}` },
             retries: 0,
           })
@@ -567,7 +567,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Timeout'))
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'fail' },
           retries: 0,
         })
@@ -599,7 +599,7 @@ describe('QStash Compat Layer', () => {
         })
 
         const result = await client.publish({
-          url: 'https://flaky.example.com/webhook',
+          url: 'https://flaky.example.com.ai/webhook',
           body: { event: 'flaky' },
           retries: 0,
         })
@@ -633,7 +633,7 @@ describe('QStash Compat Layer', () => {
         })
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'fail' },
           retries: 0,
         })
@@ -641,13 +641,13 @@ describe('QStash Compat Layer', () => {
         await vi.runAllTimersAsync()
 
         const replayResult = await client.dlq.replay(result.messageId, {
-          url: 'https://working.example.com/webhook',
+          url: 'https://working.example.com.ai/webhook',
         })
 
         await vi.runAllTimersAsync()
 
         expect(replayResult.success).toBe(true)
-        expect(replayResult.url).toBe('https://working.example.com/webhook')
+        expect(replayResult.url).toBe('https://working.example.com.ai/webhook')
 
         vi.restoreAllMocks()
       })
@@ -658,7 +658,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Timeout'))
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'fail' },
           retries: 0,
         })
@@ -680,7 +680,7 @@ describe('QStash Compat Layer', () => {
         const messageIds: string[] = []
         for (let i = 0; i < 3; i++) {
           const result = await client.publish({
-            url: `https://failing${i}.example.com/webhook`,
+            url: `https://failing${i}.example.com.ai/webhook`,
             body: { event: `fail${i}` },
             retries: 0,
           })
@@ -706,7 +706,7 @@ describe('QStash Compat Layer', () => {
 
         for (let i = 0; i < 3; i++) {
           await client.publish({
-            url: `https://failing${i}.example.com/webhook`,
+            url: `https://failing${i}.example.com.ai/webhook`,
             body: { event: `fail${i}` },
             retries: 0,
           })
@@ -743,9 +743,9 @@ describe('QStash Compat Layer', () => {
         })
 
         await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
-          callback: 'https://example.com/callback',
+          callback: 'https://example.com.ai/callback',
         })
 
         await vi.runAllTimersAsync()
@@ -774,9 +774,9 @@ describe('QStash Compat Layer', () => {
         })
 
         await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
-          callback: 'https://example.com/callback',
+          callback: 'https://example.com.ai/callback',
         })
 
         await vi.runAllTimersAsync()
@@ -806,9 +806,9 @@ describe('QStash Compat Layer', () => {
         })
 
         await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'test' },
-          failureCallback: 'https://example.com/failure-callback',
+          failureCallback: 'https://example.com.ai/failure-callback',
           retries: 1,
         })
 
@@ -836,9 +836,9 @@ describe('QStash Compat Layer', () => {
         })
 
         await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'test' },
-          failureCallback: 'https://example.com/failure-callback',
+          failureCallback: 'https://example.com.ai/failure-callback',
           retries: 2,
         })
 
@@ -866,23 +866,23 @@ describe('QStash Compat Layer', () => {
         await client.urlGroups.create({
           name: 'callback-group',
           endpoints: [
-            { url: 'https://example.com/webhook1' },
-            { url: 'https://example.com/webhook2' },
+            { url: 'https://example.com.ai/webhook1' },
+            { url: 'https://example.com.ai/webhook2' },
           ],
         })
 
         await client.publish({
           urlGroup: 'callback-group',
           body: { event: 'test' },
-          callback: 'https://example.com/callback',
+          callback: 'https://example.com.ai/callback',
         })
 
         await vi.runAllTimersAsync()
 
         expect(callbackPayloads.length).toBe(2)
         const urls = callbackPayloads.map((p) => (p as Record<string, unknown>).destinationUrl)
-        expect(urls).toContain('https://example.com/webhook1')
-        expect(urls).toContain('https://example.com/webhook2')
+        expect(urls).toContain('https://example.com.ai/webhook1')
+        expect(urls).toContain('https://example.com.ai/webhook2')
 
         vi.restoreAllMocks()
       })
@@ -947,19 +947,19 @@ describe('QStash Compat Layer', () => {
         await client.topics.create({ name: 'notifications' })
 
         const subscription = await client.topics.subscribe('notifications', {
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
         })
 
         expect(subscription.subscriptionId).toBeDefined()
         expect(subscription.topicName).toBe('notifications')
-        expect(subscription.url).toBe('https://example.com/webhook')
+        expect(subscription.url).toBe('https://example.com.ai/webhook')
       })
 
       it('should subscribe URL group to topic', async () => {
         await client.topics.create({ name: 'alerts' })
         await client.urlGroups.create({
           name: 'alert-handlers',
-          endpoints: [{ url: 'https://example.com/webhook1' }],
+          endpoints: [{ url: 'https://example.com.ai/webhook1' }],
         })
 
         const subscription = await client.topics.subscribe('alerts', {
@@ -975,7 +975,7 @@ describe('QStash Compat Layer', () => {
       it('should unsubscribe from topic', async () => {
         await client.topics.create({ name: 'events' })
         const subscription = await client.topics.subscribe('events', {
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
         })
 
         await client.topics.unsubscribe(subscription.subscriptionId)
@@ -990,10 +990,10 @@ describe('QStash Compat Layer', () => {
         await client.topics.create({ name: 'multi-sub' })
 
         await client.topics.subscribe('multi-sub', {
-          url: 'https://example.com/webhook1',
+          url: 'https://example.com.ai/webhook1',
         })
         await client.topics.subscribe('multi-sub', {
-          url: 'https://example.com/webhook2',
+          url: 'https://example.com.ai/webhook2',
         })
 
         const subscriptions = await client.topics.listSubscriptions('multi-sub')
@@ -1014,10 +1014,10 @@ describe('QStash Compat Layer', () => {
 
         await client.topics.create({ name: 'broadcast' })
         await client.topics.subscribe('broadcast', {
-          url: 'https://example.com/webhook1',
+          url: 'https://example.com.ai/webhook1',
         })
         await client.topics.subscribe('broadcast', {
-          url: 'https://example.com/webhook2',
+          url: 'https://example.com.ai/webhook2',
         })
 
         const result = await client.publish({
@@ -1029,8 +1029,8 @@ describe('QStash Compat Layer', () => {
 
         expect(result.messageId).toBeDefined()
         expect(result.topic).toBe('broadcast')
-        expect(deliveredUrls).toContain('https://example.com/webhook1')
-        expect(deliveredUrls).toContain('https://example.com/webhook2')
+        expect(deliveredUrls).toContain('https://example.com.ai/webhook1')
+        expect(deliveredUrls).toContain('https://example.com.ai/webhook2')
 
         vi.restoreAllMocks()
       })
@@ -1047,11 +1047,11 @@ describe('QStash Compat Layer', () => {
 
         // Publish some messages to generate events
         await client.publish({
-          url: 'https://example.com/webhook1',
+          url: 'https://example.com.ai/webhook1',
           body: { event: 'test1' },
         })
         await client.publish({
-          url: 'https://example.com/webhook2',
+          url: 'https://example.com.ai/webhook2',
           body: { event: 'test2' },
         })
 
@@ -1070,7 +1070,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('OK', { status: 200 }))
 
         await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
         })
 
@@ -1089,11 +1089,11 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('OK', { status: 200 }))
 
         const result1 = await client.publish({
-          url: 'https://example.com/webhook1',
+          url: 'https://example.com.ai/webhook1',
           body: { event: 'test1' },
         })
         await client.publish({
-          url: 'https://example.com/webhook2',
+          url: 'https://example.com.ai/webhook2',
           body: { event: 'test2' },
         })
 
@@ -1111,7 +1111,7 @@ describe('QStash Compat Layer', () => {
 
         for (let i = 0; i < 5; i++) {
           await client.publish({
-            url: `https://example.com/webhook${i}`,
+            url: `https://example.com.ai/webhook${i}`,
             body: { event: `test${i}` },
           })
         }
@@ -1133,7 +1133,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('OK', { status: 200 }))
 
         await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
         })
 
@@ -1159,7 +1159,7 @@ describe('QStash Compat Layer', () => {
     describe('event types', () => {
       it('should track created event', async () => {
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
         })
 
@@ -1173,7 +1173,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('OK', { status: 200 }))
 
         const result = await client.publish({
-          url: 'https://example.com/webhook',
+          url: 'https://example.com.ai/webhook',
           body: { event: 'test' },
         })
 
@@ -1192,7 +1192,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Timeout'))
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'test' },
           retries: 0,
         })
@@ -1219,7 +1219,7 @@ describe('QStash Compat Layer', () => {
         })
 
         const result = await client.publish({
-          url: 'https://flaky.example.com/webhook',
+          url: 'https://flaky.example.com.ai/webhook',
           body: { event: 'test' },
           retries: 3,
         })
@@ -1237,7 +1237,7 @@ describe('QStash Compat Layer', () => {
         vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Permanent failure'))
 
         const result = await client.publish({
-          url: 'https://failing.example.com/webhook',
+          url: 'https://failing.example.com.ai/webhook',
           body: { event: 'test' },
           retries: 1,
         })

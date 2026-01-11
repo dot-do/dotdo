@@ -170,8 +170,8 @@ describe('Providers Table Schema', () => {
 
     it('oauthConfig supports PKCE flag', () => {
       const oauthWithPKCE: OAuthConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
-        tokenUrl: 'https://example.com/oauth/token',
+        authUrl: 'https://example.com.ai/oauth/authorize',
+        tokenUrl: 'https://example.com.ai/oauth/token',
         scopes: ['read'],
         pkceSupported: true,
       }
@@ -181,10 +181,10 @@ describe('Providers Table Schema', () => {
 
     it('oauthConfig supports revoke URL', () => {
       const oauthWithRevoke: OAuthConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
-        tokenUrl: 'https://example.com/oauth/token',
+        authUrl: 'https://example.com.ai/oauth/authorize',
+        tokenUrl: 'https://example.com.ai/oauth/token',
         scopes: ['read'],
-        revokeUrl: 'https://example.com/oauth/revoke',
+        revokeUrl: 'https://example.com.ai/oauth/revoke',
       }
 
       expect(oauthWithRevoke.revokeUrl).toContain('/revoke')
@@ -513,8 +513,8 @@ describe('Validation Helpers', () => {
   describe('isValidOAuthConfig', () => {
     it('returns true for valid OAuth config', () => {
       const validConfig: OAuthConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
-        tokenUrl: 'https://example.com/oauth/token',
+        authUrl: 'https://example.com.ai/oauth/authorize',
+        tokenUrl: 'https://example.com.ai/oauth/token',
         scopes: ['read', 'write'],
       }
 
@@ -523,7 +523,7 @@ describe('Validation Helpers', () => {
 
     it('returns false for missing authUrl', () => {
       const invalidConfig = {
-        tokenUrl: 'https://example.com/oauth/token',
+        tokenUrl: 'https://example.com.ai/oauth/token',
         scopes: ['read'],
       }
 
@@ -532,7 +532,7 @@ describe('Validation Helpers', () => {
 
     it('returns false for missing tokenUrl', () => {
       const invalidConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
+        authUrl: 'https://example.com.ai/oauth/authorize',
         scopes: ['read'],
       }
 
@@ -541,8 +541,8 @@ describe('Validation Helpers', () => {
 
     it('returns false for missing scopes', () => {
       const invalidConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
-        tokenUrl: 'https://example.com/oauth/token',
+        authUrl: 'https://example.com.ai/oauth/authorize',
+        tokenUrl: 'https://example.com.ai/oauth/token',
       }
 
       expect(isValidOAuthConfig(invalidConfig)).toBe(false)
@@ -550,8 +550,8 @@ describe('Validation Helpers', () => {
 
     it('returns false for non-array scopes', () => {
       const invalidConfig = {
-        authUrl: 'https://example.com/oauth/authorize',
-        tokenUrl: 'https://example.com/oauth/token',
+        authUrl: 'https://example.com.ai/oauth/authorize',
+        tokenUrl: 'https://example.com.ai/oauth/token',
         scopes: 'read,write', // Should be array
       }
 

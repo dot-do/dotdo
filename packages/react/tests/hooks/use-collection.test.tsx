@@ -103,7 +103,7 @@ afterEach(() => {
 })
 
 // Provider wrapper for hooks
-function createWrapper(ns = 'https://api.example.com/do/workspace') {
+function createWrapper(ns = 'https://api.example.com.ai/do/workspace') {
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return <DO ns={ns}>{children}</DO>
   }
@@ -174,13 +174,13 @@ describe('useCollection', () => {
     it('should connect to correct sync URL', async () => {
       renderHook(
         () => useCollection<Task>({ collection: 'Task' }),
-        { wrapper: createWrapper('https://api.example.com/do/workspace') }
+        { wrapper: createWrapper('https://api.example.com.ai/do/workspace') }
       )
 
       await waitFor(() => {
         expect(MockWebSocket.instances.length).toBeGreaterThan(0)
         const ws = MockWebSocket.instances[0]
-        expect(ws.url).toBe('wss://api.example.com/do/workspace/sync')
+        expect(ws.url).toBe('wss://api.example.com.ai/do/workspace/sync')
       })
     })
 

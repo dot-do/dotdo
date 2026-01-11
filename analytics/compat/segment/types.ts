@@ -355,7 +355,7 @@ export interface ScreenContext {
  * ```typescript
  * const traits: UserTraits = {
  *   // Reserved traits
- *   email: 'john@example.com',
+ *   email: 'john@example.com.ai',
  *   firstName: 'John',
  *   lastName: 'Doe',
  *   company: { name: 'Acme Inc', plan: 'enterprise' },
@@ -451,7 +451,7 @@ export interface UserTraits {
  *   timezone: 'America/Los_Angeles',
  *   userAgent: 'Mozilla/5.0...',
  *   page: {
- *     url: 'https://example.com/products',
+ *     url: 'https://example.com.ai/products',
  *     title: 'Products'
  *   },
  *   campaign: {
@@ -685,7 +685,7 @@ export interface TrackEvent extends AnalyticsEvent {
  *   type: 'identify',
  *   userId: 'user-123',
  *   traits: {
- *     email: 'john@example.com',
+ *     email: 'john@example.com.ai',
  *     name: 'John Doe',
  *     plan: 'premium',
  *     company: { name: 'Acme Inc' }
@@ -720,7 +720,7 @@ export interface IdentifyEvent extends AnalyticsEvent {
  *   category: 'Docs',
  *   name: 'Getting Started',
  *   properties: {
- *     url: 'https://example.com/docs/getting-started',
+ *     url: 'https://example.com.ai/docs/getting-started',
  *     title: 'Getting Started Guide'
  *   }
  * }
@@ -899,7 +899,7 @@ export type GroupTraits = NonNullable<GroupEvent['traits']>
  * ```typescript
  * const context: OpenFeatureContext = {
  *   targetingKey: 'user-123',
- *   email: 'john@example.com',
+ *   email: 'john@example.com.ai',
  *   plan: 'premium',
  *   country: 'US'
  * }
@@ -1215,7 +1215,7 @@ export function createTrackEvent(
  * ```typescript
  * const event = createIdentifyEvent(
  *   'user-123',
- *   { email: 'john@example.com', name: 'John' },
+ *   { email: 'john@example.com.ai', name: 'John' },
  *   { context: { ip: '192.168.1.1' } }
  * )
  * ```
@@ -1247,7 +1247,7 @@ export function createIdentifyEvent(
  * const event = createPageEvent(
  *   'Getting Started',
  *   'Docs',
- *   { url: 'https://example.com/docs/getting-started' },
+ *   { url: 'https://example.com.ai/docs/getting-started' },
  *   { anonymousId: 'anon-123' }
  * )
  * ```

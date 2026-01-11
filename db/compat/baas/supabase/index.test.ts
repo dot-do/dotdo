@@ -771,7 +771,7 @@ describe('auth', () => {
   describe('signUp', () => {
     it('should sign up with email and password', async () => {
       const { data, error } = await client.auth.signUp({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         password: 'password123',
       })
       expect(error).toBeNull()
@@ -787,7 +787,7 @@ describe('auth', () => {
 
     it('should sign up with metadata', async () => {
       const { data, error } = await client.auth.signUp({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         password: 'password123',
         options: {
           data: { name: 'Test User', role: 'admin' },
@@ -798,10 +798,10 @@ describe('auth', () => {
 
     it('should sign up with email redirect', async () => {
       const { data, error } = await client.auth.signUp({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         password: 'password123',
         options: {
-          emailRedirectTo: 'https://example.com/confirm',
+          emailRedirectTo: 'https://example.com.ai/confirm',
         },
       })
       expect(error).toBeNull()
@@ -811,7 +811,7 @@ describe('auth', () => {
   describe('signInWithPassword', () => {
     it('should sign in with email', async () => {
       const { data, error } = await client.auth.signInWithPassword({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         password: 'password123',
       })
       expect(error).toBeNull()
@@ -839,7 +839,7 @@ describe('auth', () => {
       const { data, error } = await client.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'https://example.com/callback',
+          redirectTo: 'https://example.com.ai/callback',
           scopes: 'email profile',
         },
       })
@@ -850,7 +850,7 @@ describe('auth', () => {
   describe('signInWithOtp', () => {
     it('should send OTP to email', async () => {
       const { data, error } = await client.auth.signInWithOtp({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
       })
       expect(error).toBeNull()
     })
@@ -864,7 +864,7 @@ describe('auth', () => {
 
     it('should support shouldCreateUser option', async () => {
       const { data, error } = await client.auth.signInWithOtp({
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         options: { shouldCreateUser: true },
       })
       expect(error).toBeNull()
@@ -874,7 +874,7 @@ describe('auth', () => {
   describe('verifyOtp', () => {
     it('should verify email OTP', async () => {
       const { data, error } = await client.auth.verifyOtp({
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         token: '123456',
         type: 'email',
       })
@@ -944,7 +944,7 @@ describe('auth', () => {
   describe('updateUser', () => {
     it('should update user email', async () => {
       const { data, error } = await client.auth.updateUser({
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
       })
       expect(error).toBeNull()
     })
@@ -966,13 +966,13 @@ describe('auth', () => {
 
   describe('resetPasswordForEmail', () => {
     it('should send reset email', async () => {
-      const { data, error } = await client.auth.resetPasswordForEmail('test@example.com')
+      const { data, error } = await client.auth.resetPasswordForEmail('test@example.com.ai')
       expect(error).toBeNull()
     })
 
     it('should send reset email with redirect', async () => {
-      const { data, error } = await client.auth.resetPasswordForEmail('test@example.com', {
-        redirectTo: 'https://example.com/reset',
+      const { data, error } = await client.auth.resetPasswordForEmail('test@example.com.ai', {
+        redirectTo: 'https://example.com.ai/reset',
       })
       expect(error).toBeNull()
     })
@@ -1462,7 +1462,7 @@ describe('integration', () => {
     // Create
     const { data: created, error: createError } = await client
       .from<TestUser>('users')
-      .insert({ name: 'Test User', email: 'test@example.com', age: 25, active: true })
+      .insert({ name: 'Test User', email: 'test@example.com.ai', age: 25, active: true })
       .select()
       .single()
 
@@ -1482,7 +1482,7 @@ describe('integration', () => {
     const { data: updated, error: updateError } = await client
       .from<TestUser>('users')
       .update({ age: 26 })
-      .eq('email', 'test@example.com')
+      .eq('email', 'test@example.com.ai')
       .select()
       .single()
 
@@ -1492,7 +1492,7 @@ describe('integration', () => {
     const { error: deleteError } = await client
       .from<TestUser>('users')
       .delete()
-      .eq('email', 'test@example.com')
+      .eq('email', 'test@example.com.ai')
 
     expect(deleteError).toBeNull()
   })
@@ -1502,7 +1502,7 @@ describe('integration', () => {
 
     // Sign up
     const { data: signUpData, error: signUpError } = await client.auth.signUp({
-      email: 'newuser@example.com',
+      email: 'newuser@example.com.ai',
       password: 'securepassword123',
       options: {
         data: { role: 'user' },
@@ -1513,7 +1513,7 @@ describe('integration', () => {
 
     // Sign in
     const { data: signInData, error: signInError } = await client.auth.signInWithPassword({
-      email: 'newuser@example.com',
+      email: 'newuser@example.com.ai',
       password: 'securepassword123',
     })
 
@@ -1617,7 +1617,7 @@ describe('error handling', () => {
 
   it('should return error for invalid auth credentials', async () => {
     const { data, error } = await client.auth.signInWithPassword({
-      email: 'nonexistent@example.com',
+      email: 'nonexistent@example.com.ai',
       password: 'wrongpassword',
     })
     // Should have auth error

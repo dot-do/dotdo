@@ -139,8 +139,8 @@ function createMockCaches() {
 describe('JWT Policy', () => {
   it('passes valid RS256 JWT', async () => {
     const context = createTestContext()
-    const jwt = createTestJwt({ sub: 'user_123', email: 'user@example.com' })
-    const request = createTestRequest('https://example.com/api/users', {
+    const jwt = createTestJwt({ sub: 'user_123', email: 'user@example.com.ai' })
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const policy: Policy = {
@@ -160,7 +160,7 @@ describe('JWT Policy', () => {
   it('rejects expired JWT with 401', async () => {
     const context = createTestContext()
     const jwt = createTestJwt({ sub: 'user_123' }, true) // Expired
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const policy: Policy = {
@@ -185,7 +185,7 @@ describe('JWT Policy', () => {
       .replace(/=/g, '')
     const tamperedJwt = `${header}.${tamperedPayload}.${signature}`
 
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Authorization: `Bearer ${tamperedJwt}` },
     })
     const policy: Policy = {
@@ -201,7 +201,7 @@ describe('JWT Policy', () => {
 
   it('rejects missing JWT on protected route with 401', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'jwt',
       publicKey: TEST_PUBLIC_KEY,
@@ -217,11 +217,11 @@ describe('JWT Policy', () => {
     const context = createTestContext()
     const jwt = createTestJwt({
       sub: 'user_123',
-      email: 'user@example.com',
+      email: 'user@example.com.ai',
       roles: ['admin', 'user'],
       orgId: 'org_456',
     })
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const policy: Policy = {
@@ -232,14 +232,14 @@ describe('JWT Policy', () => {
     await applyJwtPolicy(request, policy, context)
 
     expect(context.jwt?.sub).toBe('user_123')
-    expect(context.jwt?.email).toBe('user@example.com')
+    expect(context.jwt?.email).toBe('user@example.com.ai')
     expect(context.jwt?.orgId).toBe('org_456')
   })
 
   it('supports multiple public keys (JWKS rotation)', async () => {
     const context = createTestContext()
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const policy: Policy = {
@@ -259,7 +259,7 @@ describe('JWT Policy', () => {
   it('extracts JWT from cookie if not in header', async () => {
     const context = createTestContext()
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Cookie: `__auth_token=${jwt}; other=value` },
     })
     const policy: Policy = {
@@ -290,7 +290,7 @@ describe('Rate Limit Cache Policy', () => {
     const context = createTestContext({
       jwt: { sub: 'rate_limited_user' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'rateLimitCache',
       keyFrom: '$jwt.sub',
@@ -318,7 +318,7 @@ describe('Rate Limit Cache Policy', () => {
     const context = createTestContext({
       jwt: { sub: 'rate_limited_user' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'rateLimitCache',
       keyFrom: '$jwt.sub',
@@ -347,7 +347,7 @@ describe('Rate Limit Cache Policy', () => {
     const context = createTestContext({
       jwt: { sub: 'normal_user' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'rateLimitCache',
       keyFrom: '$jwt.sub',
@@ -367,7 +367,7 @@ describe('Rate Limit Cache Policy', () => {
     const context = createTestContext({
       jwt: { sub: 'user_abc123' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'rateLimitCache',
       keyFrom: '$jwt.sub',
@@ -389,7 +389,7 @@ describe('Rate Limit Cache Policy', () => {
       ip: '203.0.113.42',
       jwt: null,
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'rateLimitCache',
       keyFrom: '$cf.ip',
@@ -411,12 +411,12 @@ describe('Rate Limit Cache Policy', () => {
 describe('CORS Policy', () => {
   it('adds CORS headers for allowed origins', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
-      headers: { Origin: 'https://app.example.com' },
+    const request = createTestRequest('https://example.com.ai/api/users', {
+      headers: { Origin: 'https://app.example.com.ai' },
     })
     const policy: Policy = {
       type: 'cors',
-      origins: ['https://app.example.com'],
+      origins: ['https://app.example.com.ai'],
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       headers: ['Authorization', 'Content-Type'],
     }
@@ -426,22 +426,22 @@ describe('CORS Policy', () => {
     expect(result.allowed).toBe(true)
     // CORS headers should be added to context or returned
     expect(result.corsHeaders).toBeDefined()
-    expect(result.corsHeaders?.['Access-Control-Allow-Origin']).toBe('https://app.example.com')
+    expect(result.corsHeaders?.['Access-Control-Allow-Origin']).toBe('https://app.example.com.ai')
   })
 
   it('handles preflight OPTIONS request', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://app.example.com',
+        Origin: 'https://app.example.com.ai',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Authorization',
       },
     })
     const policy: Policy = {
       type: 'cors',
-      origins: ['https://app.example.com'],
+      origins: ['https://app.example.com.ai'],
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       headers: ['Authorization', 'Content-Type'],
     }
@@ -451,19 +451,19 @@ describe('CORS Policy', () => {
     // Preflight should return early with CORS headers
     expect(result.allowed).toBe(false) // Block to return preflight response
     expect(result.response?.status).toBe(204)
-    expect(result.response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com')
+    expect(result.response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com.ai')
     expect(result.response?.headers.get('Access-Control-Allow-Methods')).toContain('POST')
     expect(result.response?.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
   })
 
   it('rejects disallowed origins', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Origin: 'https://evil.com' },
     })
     const policy: Policy = {
       type: 'cors',
-      origins: ['https://app.example.com'],
+      origins: ['https://app.example.com.ai'],
       methods: ['GET'],
       headers: [],
     }
@@ -476,7 +476,7 @@ describe('CORS Policy', () => {
 
   it('supports wildcard origin (*)', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { Origin: 'https://any-origin.com' },
     })
     const policy: Policy = {
@@ -494,10 +494,10 @@ describe('CORS Policy', () => {
 
   it('handles requests without Origin header', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'cors',
-      origins: ['https://app.example.com'],
+      origins: ['https://app.example.com.ai'],
       methods: ['GET'],
       headers: [],
     }
@@ -510,16 +510,16 @@ describe('CORS Policy', () => {
 
   it('includes credentials header when configured', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://app.example.com',
+        Origin: 'https://app.example.com.ai',
         'Access-Control-Request-Method': 'GET',
       },
     })
     const policy: Policy = {
       type: 'cors',
-      origins: ['https://app.example.com'],
+      origins: ['https://app.example.com.ai'],
       methods: ['GET'],
       headers: [],
       credentials: true,
@@ -540,7 +540,7 @@ describe('Geo Block Policy', () => {
     const context = createTestContext({
       cf: { country: 'CN', colo: 'HKG' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       blockedCountries: ['CN', 'RU', 'KP'],
@@ -556,7 +556,7 @@ describe('Geo Block Policy', () => {
     const context = createTestContext({
       cf: { country: 'US', colo: 'DFW' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       blockedCountries: ['CN', 'RU', 'KP'],
@@ -571,7 +571,7 @@ describe('Geo Block Policy', () => {
     const context = createTestContext({
       cf: { country: 'US', colo: 'DFW' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       allowedCountries: ['US', 'CA', 'GB'],
@@ -586,7 +586,7 @@ describe('Geo Block Policy', () => {
     const context = createTestContext({
       cf: { country: 'FR', colo: 'CDG' },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       allowedCountries: ['US', 'CA', 'GB'],
@@ -601,7 +601,7 @@ describe('Geo Block Policy', () => {
     const context = createTestContext({
       cf: {}, // No country
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       blockedCountries: ['CN'],
@@ -624,7 +624,7 @@ describe('Bot Filter Policy', () => {
     const context = createTestContext({
       cf: { botScore: 10 }, // Low score = likely bot
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'botFilter',
       minScore: 30,
@@ -640,7 +640,7 @@ describe('Bot Filter Policy', () => {
     const context = createTestContext({
       cf: { botScore: 95 }, // High score = likely human
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'botFilter',
       minScore: 30,
@@ -655,7 +655,7 @@ describe('Bot Filter Policy', () => {
     const context = createTestContext({
       cf: { botScore: 30 },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'botFilter',
       minScore: 30,
@@ -671,7 +671,7 @@ describe('Bot Filter Policy', () => {
     const context = createTestContext({
       cf: {}, // No botScore
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'botFilter',
       minScore: 30,
@@ -687,7 +687,7 @@ describe('Bot Filter Policy', () => {
     const context = createTestContext({
       cf: { botScore: 10 },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'botFilter',
       minScore: 30,
@@ -709,7 +709,7 @@ describe('Bot Filter Policy', () => {
 describe('Policy Application', () => {
   it('calls correct policy handler based on type', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     // JWT policy
     const jwtPolicy: Policy = { type: 'jwt', publicKey: TEST_PUBLIC_KEY }
@@ -725,7 +725,7 @@ describe('Policy Application', () => {
 
   it('handles unknown policy type gracefully', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const unknownPolicy = { type: 'unknownType' } as Policy
 
     // Should allow through or return error, not crash
@@ -735,7 +735,7 @@ describe('Policy Application', () => {
 
   it('returns policy result with allowed flag', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'geoBlock',
       allowedCountries: ['US'],
@@ -757,7 +757,7 @@ describe('Policy Application', () => {
 describe('API Key Policy', () => {
   it('validates API key format', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { 'X-API-Key': 'sk_live_abc123def456' },
     })
     const policy: Policy = {
@@ -774,7 +774,7 @@ describe('API Key Policy', () => {
 
   it('rejects invalid API key format', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { 'X-API-Key': 'invalid-key' },
     })
     const policy: Policy = {
@@ -791,7 +791,7 @@ describe('API Key Policy', () => {
 
   it('rejects missing API key', async () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const policy: Policy = {
       type: 'apiKey',
       header: 'X-API-Key',

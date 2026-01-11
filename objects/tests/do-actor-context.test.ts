@@ -237,7 +237,7 @@ describe('DO Actor Context', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new TestDO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     doInstance.loggedActions = []
   })
 
@@ -356,7 +356,7 @@ describe('DO Actor Context', () => {
 
   describe('Actor in do() execution mode', () => {
     it('do() logs action with empty actor by default', async () => {
-      await doInstance.testDo('sendEmail', { to: 'test@example.com' })
+      await doInstance.testDo('sendEmail', { to: 'test@example.com.ai' })
 
       expect(doInstance.loggedActions.length).toBe(1)
       expect(doInstance.loggedActions[0].actor).toBe('')
@@ -364,7 +364,7 @@ describe('DO Actor Context', () => {
 
     it('do() logs action with set actor', async () => {
       doInstance.testSetActor('API/key-xyz789')
-      await doInstance.testDo('sendEmail', { to: 'test@example.com' })
+      await doInstance.testDo('sendEmail', { to: 'test@example.com.ai' })
 
       expect(doInstance.loggedActions.length).toBe(1)
       expect(doInstance.loggedActions[0].actor).toBe('API/key-xyz789')
@@ -426,8 +426,8 @@ describe('DO Actor Context', () => {
     })
 
     it('accepts email-like actor ids', () => {
-      doInstance.testSetActor('Human/nathan@example.com')
-      expect(doInstance.getCurrentActor()).toBe('Human/nathan@example.com')
+      doInstance.testSetActor('Human/nathan@example.com.ai')
+      expect(doInstance.getCurrentActor()).toBe('Human/nathan@example.com.ai')
     })
 
     it('accepts UUID actor ids', () => {

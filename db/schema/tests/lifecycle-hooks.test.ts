@@ -72,7 +72,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old Name',
-        email: 'old@example.com',
+        email: 'old@example.com.ai',
         tier: 'free',
       }
 
@@ -80,7 +80,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New Name',
-        email: 'old@example.com',
+        email: 'old@example.com.ai',
         tier: 'pro',
       }
 
@@ -130,7 +130,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -138,7 +138,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'pro',
       }
 
@@ -162,7 +162,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Original Name',
-        email: 'original@example.com',
+        email: 'original@example.com.ai',
         tier: 'free',
       }
 
@@ -170,14 +170,14 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Updated Name',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         tier: 'enterprise',
       }
 
       await manager.onUpdated(updated, previous, mockContext)
 
       expect(capturedPrevious?.name).toBe('Original Name')
-      expect(capturedPrevious?.email).toBe('original@example.com')
+      expect(capturedPrevious?.email).toBe('original@example.com.ai')
       expect(capturedPrevious?.tier).toBe('free')
     })
   })
@@ -200,7 +200,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Enterprise Customer',
-        email: 'ent@example.com',
+        email: 'ent@example.com.ai',
         tier: 'enterprise',
       }
 
@@ -208,7 +208,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Enterprise Customer',
-        email: 'ent@example.com',
+        email: 'ent@example.com.ai',
         tier: 'pro', // Attempting downgrade
       }
 
@@ -277,7 +277,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -285,7 +285,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'enterprise', // Upgrade is fine
       }
 
@@ -307,7 +307,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old Name',
-        email: 'same@example.com',
+        email: 'same@example.com.ai',
         tier: 'free',
       }
 
@@ -315,7 +315,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New Name',
-        email: 'same@example.com',
+        email: 'same@example.com.ai',
         tier: 'pro',
       }
 
@@ -342,7 +342,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old Name',
-        email: 'same@example.com',
+        email: 'same@example.com.ai',
         tier: 'free',
       }
 
@@ -350,7 +350,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New Name',
-        email: 'same@example.com',
+        email: 'same@example.com.ai',
         tier: 'free',
       }
 
@@ -432,7 +432,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'old@example.com',
+        email: 'old@example.com.ai',
         tier: 'pro',
       }
 
@@ -440,7 +440,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         tier: 'pro',
       }
 
@@ -453,7 +453,7 @@ describe('$updated Handler', () => {
       await manager.onUpdated(updated, previous, mockContext)
 
       expect(updateCalls).toHaveLength(2)
-      expect(updateCalls[0].data).toEqual({ customerEmail: 'new@example.com' })
+      expect(updateCalls[0].data).toEqual({ customerEmail: 'new@example.com.ai' })
     })
 
     it('can create audit log entry on update', async () => {
@@ -482,7 +482,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -490,7 +490,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'pro',
       }
 
@@ -521,7 +521,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Old',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -529,7 +529,7 @@ describe('$updated Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -596,7 +596,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'To Delete',
-        email: 'delete@example.com',
+        email: 'delete@example.com.ai',
         tier: 'free',
       }
 
@@ -620,7 +620,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'pro',
       }
 
@@ -646,7 +646,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Enterprise',
-        email: 'ent@example.com',
+        email: 'ent@example.com.ai',
         tier: 'enterprise',
       }
 
@@ -677,7 +677,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'With Orders',
-        email: 'orders@example.com',
+        email: 'orders@example.com.ai',
         tier: 'pro',
       }
 
@@ -706,7 +706,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'No Orders',
-        email: 'clean@example.com',
+        email: 'clean@example.com.ai',
         tier: 'free',
       }
 
@@ -741,7 +741,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'With Orders',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -776,7 +776,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Soft Delete',
-        email: 'soft@example.com',
+        email: 'soft@example.com.ai',
         tier: 'pro',
       }
 
@@ -813,7 +813,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Leaving',
-        email: 'bye@example.com',
+        email: 'bye@example.com.ai',
         tier: 'free',
       }
 
@@ -849,7 +849,7 @@ describe('$deleted Handler', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'To Audit',
-        email: 'audit@example.com',
+        email: 'audit@example.com.ai',
         tier: 'pro',
       }
 
@@ -902,7 +902,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         tier: 'free',
       }
 
@@ -943,7 +943,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -974,7 +974,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -1003,7 +1003,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -1045,7 +1045,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -1075,7 +1075,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -1102,7 +1102,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 
@@ -1129,7 +1129,7 @@ describe('$ Context Object', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
       }
 

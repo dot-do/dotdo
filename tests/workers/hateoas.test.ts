@@ -119,14 +119,14 @@ function createMockEnv(options?: {
 describe('HATEOAS Worker - Root Discovery', () => {
   it('should return root discovery response for GET /{ns}/', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/')
+    const request = new Request('https://api.example.com.ai/myns/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
 
     expect(response.status).toBe(200)
     expect(body.api).toBeDefined()
-    expect(body.api.$context).toBe('https://api.example.com/myns')
+    expect(body.api.$context).toBe('https://api.example.com.ai/myns')
     expect(body.links).toBeDefined()
     expect(body.links.self).toBe('/')
     expect(body.links.home).toBe('/')
@@ -137,13 +137,13 @@ describe('HATEOAS Worker - Root Discovery', () => {
 
   it('should return root discovery response for GET /{ns} (without trailing slash)', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns')
+    const request = new Request('https://api.example.com.ai/myns')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.api.$context).toBe('https://api.example.com/myns')
+    expect(body.api.$context).toBe('https://api.example.com.ai/myns')
   })
 
   it('should include API name and version from env', async () => {
@@ -151,7 +151,7 @@ describe('HATEOAS Worker - Root Discovery', () => {
       apiName: 'My API',
       apiVersion: '2.0.0',
     })
-    const request = new Request('https://api.example.com/myns/')
+    const request = new Request('https://api.example.com.ai/myns/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -164,7 +164,7 @@ describe('HATEOAS Worker - Root Discovery', () => {
     const env = createMockEnv({
       nouns: ['products', 'orders', 'customers'],
     })
-    const request = new Request('https://api.example.com/shop/')
+    const request = new Request('https://api.example.com.ai/shop/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -179,7 +179,7 @@ describe('HATEOAS Worker - Root Discovery', () => {
     const env = createMockEnv({
       schemaTables: ['users', 'sessions', 'accounts'],
     })
-    const request = new Request('https://api.example.com/auth/')
+    const request = new Request('https://api.example.com.ai/auth/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -191,7 +191,7 @@ describe('HATEOAS Worker - Root Discovery', () => {
 
   it('should include built-in discover endpoints', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/ns/')
+    const request = new Request('https://api.example.com.ai/ns/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -206,7 +206,7 @@ describe('HATEOAS Worker - Root Discovery', () => {
 
   it('should include standard actions in root response', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/ns/')
+    const request = new Request('https://api.example.com.ai/ns/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -225,14 +225,14 @@ describe('HATEOAS Worker - Root Discovery', () => {
 describe('HATEOAS Worker - Collection Listing', () => {
   it('should return collection response for GET /{ns}/{collection}/', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/')
+    const request = new Request('https://api.example.com.ai/myns/things/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
 
     expect(response.status).toBe(200)
     expect(body.api).toBeDefined()
-    expect(body.api.$context).toBe('https://api.example.com/myns')
+    expect(body.api.$context).toBe('https://api.example.com.ai/myns')
     expect(body.api.$type).toBe('things')
     expect(body.links.self).toBe('/things/')
     expect(body.links.home).toBe('/')
@@ -241,7 +241,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
 
   it('should return collection response without trailing slash', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things')
+    const request = new Request('https://api.example.com.ai/myns/things')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -252,7 +252,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
 
   it('should include discover section with item links', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/')
+    const request = new Request('https://api.example.com.ai/myns/things/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -264,7 +264,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
 
   it('should include collection actions', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/')
+    const request = new Request('https://api.example.com.ai/myns/things/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -293,7 +293,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/')
+    const request = new Request('https://api.example.com.ai/myns/things/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -303,7 +303,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
 
   it('should forward query parameters to DO', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/?limit=10&cursor=abc')
+    const request = new Request('https://api.example.com.ai/myns/things/?limit=10&cursor=abc')
 
     await app.fetch(request, env as any)
 
@@ -323,7 +323,7 @@ describe('HATEOAS Worker - Collection Listing', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/private/')
+    const request = new Request('https://api.example.com.ai/myns/private/')
 
     const response = await app.fetch(request, env as any)
 
@@ -338,14 +338,14 @@ describe('HATEOAS Worker - Collection Listing', () => {
 describe('HATEOAS Worker - Instance Details', () => {
   it('should return instance response for GET /{ns}/{collection}/{id}', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/item-123')
+    const request = new Request('https://api.example.com.ai/myns/things/item-123')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
 
     expect(response.status).toBe(200)
     expect(body.api).toBeDefined()
-    expect(body.api.$context).toBe('https://api.example.com/myns')
+    expect(body.api.$context).toBe('https://api.example.com.ai/myns')
     expect(body.api.$type).toBe('things')
     expect(body.api.$id).toBe('item-123')
     expect(body.links.self).toBe('/things/item-123')
@@ -355,7 +355,7 @@ describe('HATEOAS Worker - Instance Details', () => {
 
   it('should include instance actions', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/things/item-123')
+    const request = new Request('https://api.example.com.ai/myns/things/item-123')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -377,7 +377,7 @@ describe('HATEOAS Worker - Instance Details', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/item-123')
+    const request = new Request('https://api.example.com.ai/myns/things/item-123')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -403,7 +403,7 @@ describe('HATEOAS Worker - Instance Details', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/orders/order-1')
+    const request = new Request('https://api.example.com.ai/myns/orders/order-1')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -422,7 +422,7 @@ describe('HATEOAS Worker - Instance Details', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/nonexistent')
+    const request = new Request('https://api.example.com.ai/myns/things/nonexistent')
 
     const response = await app.fetch(request, env as any)
 
@@ -447,7 +447,7 @@ describe('HATEOAS Worker - Mutations', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/', {
+    const request = new Request('https://api.example.com.ai/myns/things/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'New Item' }),
@@ -473,7 +473,7 @@ describe('HATEOAS Worker - Mutations', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/item-1', {
+    const request = new Request('https://api.example.com.ai/myns/things/item-1', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Updated Item' }),
@@ -498,7 +498,7 @@ describe('HATEOAS Worker - Mutations', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/item-1', {
+    const request = new Request('https://api.example.com.ai/myns/things/item-1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Patched Item' }),
@@ -517,7 +517,7 @@ describe('HATEOAS Worker - Mutations', () => {
         '/things/item-1': new Response(null, { status: 204 }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/item-1', {
+    const request = new Request('https://api.example.com.ai/myns/things/item-1', {
       method: 'DELETE',
     })
 
@@ -537,7 +537,7 @@ describe('HATEOAS Worker - Mutations', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/', {
+    const request = new Request('https://api.example.com.ai/myns/things/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Duplicate' }),
@@ -564,7 +564,7 @@ describe('HATEOAS Worker - Passthrough Routes', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/rpc', {
+    const request = new Request('https://api.example.com.ai/myns/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method: 'doSomething', params: [] }),
@@ -587,7 +587,7 @@ describe('HATEOAS Worker - Passthrough Routes', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/mcp', {
+    const request = new Request('https://api.example.com.ai/myns/mcp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list' }),
@@ -609,7 +609,7 @@ describe('HATEOAS Worker - Passthrough Routes', () => {
         }),
       },
     })
-    const request = new Request('https://api.example.com/myns/things/item-1/attachments')
+    const request = new Request('https://api.example.com.ai/myns/things/item-1/attachments')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -626,7 +626,7 @@ describe('HATEOAS Worker - Passthrough Routes', () => {
 describe('HATEOAS Worker - Error Handling', () => {
   it('should return 500 when DO binding is missing', async () => {
     const env = createMockEnv({ noDO: true })
-    const request = new Request('https://api.example.com/myns/')
+    const request = new Request('https://api.example.com.ai/myns/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -640,7 +640,7 @@ describe('HATEOAS Worker - Error Handling', () => {
     env._mockStub.fetch = vi.fn(() => {
       throw new Error('Network error')
     })
-    const request = new Request('https://api.example.com/myns/things/')
+    const request = new Request('https://api.example.com.ai/myns/things/')
 
     const response = await app.fetch(request, env as any)
     const body = await response.json()
@@ -657,7 +657,7 @@ describe('HATEOAS Worker - Error Handling', () => {
 describe('HATEOAS Worker - User Context', () => {
   it('should include user context in response', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/', {
+    const request = new Request('https://api.example.com.ai/myns/', {
       headers: {
         'CF-Connecting-IP': '192.168.1.1',
       },
@@ -673,7 +673,7 @@ describe('HATEOAS Worker - User Context', () => {
 
   it('should detect authenticated requests', async () => {
     const env = createMockEnv()
-    const request = new Request('https://api.example.com/myns/', {
+    const request = new Request('https://api.example.com.ai/myns/', {
       headers: {
         Authorization: 'Bearer token123',
       },
@@ -694,10 +694,10 @@ describe('HATEOAS Worker - Context URL Building', () => {
   it('should build correct $context for different hosts', async () => {
     const env = createMockEnv()
 
-    const request1 = new Request('https://api.example.com/tenant1/')
+    const request1 = new Request('https://api.example.com.ai/tenant1/')
     const response1 = await app.fetch(request1, env as any)
     const body1 = await response1.json()
-    expect(body1.api.$context).toBe('https://api.example.com/tenant1')
+    expect(body1.api.$context).toBe('https://api.example.com.ai/tenant1')
 
     const request2 = new Request('https://localhost:8787/dev/')
     const response2 = await app.fetch(request2, env as any)

@@ -223,7 +223,7 @@ describe('WorkOS Vault - Connection', () => {
       app = createTestApp({
         apiKey: TEST_WORKOS_API_KEY,
         // Mock service unavailable
-        baseUrl: 'https://unavailable.workos.example.com',
+        baseUrl: 'https://unavailable.workos.example.com.ai',
       })
 
       const res = await vaultRequest(app, 'POST', '/secrets', {
@@ -1545,7 +1545,7 @@ describe('WorkOS Vault - Error Handling', () => {
       const timeoutApp = createTestApp({
         apiKey: TEST_WORKOS_API_KEY,
         timeout: 1,
-        baseUrl: 'https://slow.workos.example.com',
+        baseUrl: 'https://slow.workos.example.com.ai',
       })
 
       const res = await vaultRequest(timeoutApp, 'POST', '/secrets', {

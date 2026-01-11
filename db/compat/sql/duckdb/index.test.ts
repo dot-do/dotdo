@@ -1008,8 +1008,8 @@ describe('Integration', () => {
     db.run('CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR, email VARCHAR)')
 
     // Insert
-    db.run("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
-    db.run('INSERT INTO users VALUES (?, ?, ?)', [2, 'Bob', 'bob@example.com'])
+    db.run("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com.ai')")
+    db.run('INSERT INTO users VALUES (?, ?, ?)', [2, 'Bob', 'bob@example.com.ai'])
 
     // Read
     const users = db.all('SELECT * FROM users ORDER BY id')

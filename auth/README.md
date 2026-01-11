@@ -133,7 +133,7 @@ const config: AuthConfig = {
     },
     oauthProxy: {
       enabled: true, // Cross-domain auth support
-      allowedOrigins: ['*.example.com'],
+      allowedOrigins: ['*.example.com.ai'],
     },
     organization: {
       enabled: true, // Multi-tenant support
@@ -268,7 +268,7 @@ const response = await fetch('/api/data', {
 ### Cross-Domain Auth with oauthProxy
 
 ```typescript
-// On app.example.com
+// On app.example.com.ai
 import { auth } from '@dotdo/auth'
 
 export const { GET, POST } = auth({
@@ -280,7 +280,7 @@ export const { GET, POST } = auth({
   },
 })
 
-// User clicks "Login" on app.example.com
+// User clicks "Login" on app.example.com.ai
 // → Redirected to id.org.ai for auth
 // → Redirected back with session cookie
 ```

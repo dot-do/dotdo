@@ -371,7 +371,7 @@ export function applyResponseTransforms(
   let status = response.status
 
   // Create a mock request for variable resolution (used for response transforms)
-  const mockRequest = new Request('https://example.com')
+  const mockRequest = new Request('https://example.com.ai')
 
   for (const t of transforms) {
     switch (t.op) {

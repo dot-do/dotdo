@@ -26,8 +26,8 @@ const db = client.db('myapp')
 const users = db.collection('users')
 
 // Same API you already know
-await users.insertOne({ name: 'Alice', email: 'alice@example.com' })
-const user = await users.findOne({ email: 'alice@example.com' })
+await users.insertOne({ name: 'Alice', email: 'alice@example.com.ai' })
+const user = await users.findOne({ email: 'alice@example.com.ai' })
 await users.updateOne({ _id: user._id }, { $set: { verified: true } })
 ```
 
@@ -53,7 +53,7 @@ const users = db.collection('users')
 // Insert documents
 const result = await users.insertOne({
   name: 'Alice',
-  email: 'alice@example.com',
+  email: 'alice@example.com.ai',
   age: 30
 })
 console.log(result.insertedId) // ObjectId

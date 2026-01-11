@@ -30,7 +30,7 @@ export function getMockUser(userId: string): MockUser {
   return {
     id: userId,
     name: 'John Doe',
-    email: 'john@example.com',
+    email: 'john@example.com.ai',
     role: 'Admin',
     status: 'Active',
   }

@@ -1202,7 +1202,7 @@ export class IntegrationsDO {
             fetchOptions.body = JSON.stringify(bodyParams)
           }
 
-          const response = await fetch(`https://api.example.com${url}`, fetchOptions)
+          const response = await fetch(`https://api.example.com.ai${url}`, fetchOptions)
 
           // Handle response - clone before reading to handle test mocks that reuse Response objects
           if (response.ok) {

@@ -103,7 +103,7 @@ describe('CollectionOptions', () => {
   describe('configuration', () => {
     it('should create options with required fields', () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -115,7 +115,7 @@ describe('CollectionOptions', () => {
 
     it('should generate unique id based on collection', () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -125,7 +125,7 @@ describe('CollectionOptions', () => {
 
     it('should include branch in id when provided', () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         branch: 'feature-x',
         schema: TaskSchema,
@@ -136,7 +136,7 @@ describe('CollectionOptions', () => {
 
     it('should provide getKey function', () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -158,7 +158,7 @@ describe('CollectionOptions', () => {
     it('should throw for empty collection name', () => {
       expect(() => {
         CollectionOptions({
-          doUrl: 'wss://api.example.com/do/workspace',
+          doUrl: 'wss://api.example.com.ai/do/workspace',
           collection: '',
           schema: TaskSchema,
         })
@@ -167,7 +167,7 @@ describe('CollectionOptions', () => {
 
     it('should accept http URLs and convert for WebSocket', () => {
       const options = CollectionOptions({
-        doUrl: 'https://api.example.com/do/workspace',
+        doUrl: 'https://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -179,7 +179,7 @@ describe('CollectionOptions', () => {
   describe('subscribe', () => {
     it('should return unsubscribe function', () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -200,7 +200,7 @@ describe('CollectionOptions', () => {
 
     it('should create WebSocket connection', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -223,7 +223,7 @@ describe('CollectionOptions', () => {
 
     it('should call begin on subscribe', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -244,7 +244,7 @@ describe('CollectionOptions', () => {
 
     it('should call onData with initial data', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -282,7 +282,7 @@ describe('CollectionOptions', () => {
 
     it('should call commit after initial data', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -318,7 +318,7 @@ describe('CollectionOptions', () => {
 
     it('should call onInsert for insert messages', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -358,7 +358,7 @@ describe('CollectionOptions', () => {
 
     it('should call onUpdate for update messages', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -398,7 +398,7 @@ describe('CollectionOptions', () => {
 
     it('should call onDelete for delete messages', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -434,7 +434,7 @@ describe('CollectionOptions', () => {
 
     it('should disconnect on unsubscribe', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -465,7 +465,7 @@ describe('CollectionOptions', () => {
   describe('onInsert', () => {
     it('should call RPC create method', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -495,7 +495,7 @@ describe('CollectionOptions', () => {
       })
 
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -514,7 +514,7 @@ describe('CollectionOptions', () => {
 
     it('should handle multiple inserts as batch', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -552,7 +552,7 @@ describe('CollectionOptions', () => {
   describe('onUpdate', () => {
     it('should call RPC update method', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -574,7 +574,7 @@ describe('CollectionOptions', () => {
 
     it('should include key in update data', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -597,7 +597,7 @@ describe('CollectionOptions', () => {
   describe('onDelete', () => {
     it('should call RPC delete method', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -619,7 +619,7 @@ describe('CollectionOptions', () => {
 
     it('should send key to delete', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -647,7 +647,7 @@ describe('CollectionOptions', () => {
       })
 
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -674,7 +674,7 @@ describe('CollectionOptions', () => {
       })
 
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -701,7 +701,7 @@ describe('CollectionOptions', () => {
       })
 
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
       })
@@ -722,7 +722,7 @@ describe('CollectionOptions', () => {
   describe('fetchOptions', () => {
     it('should pass custom headers', async () => {
       const options = CollectionOptions({
-        doUrl: 'wss://api.example.com/do/workspace',
+        doUrl: 'wss://api.example.com.ai/do/workspace',
         collection: 'Task',
         schema: TaskSchema,
         fetchOptions: {

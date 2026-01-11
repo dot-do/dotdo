@@ -510,7 +510,7 @@ function BrowserActionsPanel({ browserId, onAction }: BrowserActionsPanelProps) 
             name="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
+            placeholder="https://example.com.ai"
             className="flex-1 border rounded px-3 py-2 text-sm"
             aria-label="URL to navigate"
           />

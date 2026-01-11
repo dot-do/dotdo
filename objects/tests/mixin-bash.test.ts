@@ -748,7 +748,7 @@ describe('withBash Mixin - Classification Metadata', () => {
     })
 
     it('should classify curl POST as network type', async () => {
-      const result = await instance.$.bash.exec('curl', ['-X', 'POST', 'https://api.example.com'])
+      const result = await instance.$.bash.exec('curl', ['-X', 'POST', 'https://api.example.com.ai'])
 
       expect(result.classification.type).toBe('network')
     })
@@ -821,7 +821,7 @@ describe('withBash Mixin - Classification Metadata', () => {
     })
 
     it('should identify network operations', async () => {
-      const result = await instance.$.bash`curl https://example.com`
+      const result = await instance.$.bash`curl https://example.com.ai`
 
       expect(result.intent.network).toBe(true)
     })

@@ -224,7 +224,7 @@ function createValidSession(
   if (!mockUsers.has(userId)) {
     mockUsers.set(userId, {
       id: userId,
-      email: `${userId}@example.com`,
+      email: `${userId}@example.com.ai`,
       name: `User ${userId}`,
       role: options.role ?? 'user',
       emailVerified: true,
@@ -252,7 +252,7 @@ function createExpiredSession(userId: string, token: string) {
   if (!mockUsers.has(userId)) {
     mockUsers.set(userId, {
       id: userId,
-      email: `${userId}@example.com`,
+      email: `${userId}@example.com.ai`,
       name: `User ${userId}`,
       role: 'user',
       emailVerified: true,
@@ -762,7 +762,7 @@ describe('createSessionValidator factory', () => {
 
     const mockUser = {
       id: 'user-123',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       role: 'admin',
     }
 
@@ -782,7 +782,7 @@ describe('createSessionValidator factory', () => {
 
     expect(result).toEqual({
       userId: 'user-123',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       role: 'admin',
       expiresAt: mockSession.expiresAt,
     })

@@ -227,11 +227,11 @@ export function doubleHash(key: Uint8Array): [number, number] {
  * const bloom = new BloomFilter({ expectedElements: 10000 })
  *
  * // Add items
- * bloom.add('user@example.com')
- * bloom.add('other@example.com')
+ * bloom.add('user@example.com.ai')
+ * bloom.add('other@example.com.ai')
  *
  * // Check membership
- * bloom.mightContain('user@example.com')  // true
+ * bloom.mightContain('user@example.com.ai')  // true
  * bloom.mightContain('unknown@test.com')  // false (probably)
  *
  * // Serialize for Puffin file
@@ -405,7 +405,7 @@ export class BloomFilter {
  *   ngramSize: 3
  * })
  *
- * ngram.add('hello@example.com')
+ * ngram.add('hello@example.com.ai')
  *
  * // Check if a pattern might match any value
  * ngram.mightContainSubstring('example')  // true
@@ -655,7 +655,7 @@ export class SetIndex {
  *
  * // Add a bloom filter for email column
  * const emailBloom = new BloomFilter({ expectedElements: 10000 })
- * emailBloom.add('user@example.com')
+ * emailBloom.add('user@example.com.ai')
  * writer.addBloomFilter(5, emailBloom)
  *
  * // Add a set index for status column

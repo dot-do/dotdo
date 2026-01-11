@@ -47,7 +47,7 @@ const { rows: user } = await client.query(
 // INSERT with RETURNING
 const { rows: newUser } = await client.query(
   'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
-  ['Alice', 'alice@example.com']
+  ['Alice', 'alice@example.com.ai']
 )
 
 await client.end()

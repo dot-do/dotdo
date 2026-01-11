@@ -909,7 +909,7 @@ describe('Edge cases and error handling', () => {
 
     it('handles key with special characters', async () => {
       const specialKeys = [
-        'user:test@example.com',
+        'user:test@example.com.ai',
         'ip:192.168.1.1:8080',
         'path:/api/v1/users?id=123',
         'unicode:\u00e9\u00e8\u00ea',

@@ -48,7 +48,7 @@ describe('Auth Bridge Types', () => {
       const user: BetterAuthUser = {
         id: 'user-123',
         name: 'Alice Smith',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         emailVerified: true,
         role: 'user',
         image: null,
@@ -72,7 +72,7 @@ describe('Auth Bridge Types', () => {
       const userWithRole: BetterAuthUser = {
         id: 'user-456',
         name: 'Bob',
-        email: 'bob@example.com',
+        email: 'bob@example.com.ai',
         emailVerified: false,
         role: 'admin',
         image: null,
@@ -100,7 +100,7 @@ describe('Auth Bridge Types', () => {
     it('should export PayloadUser type', () => {
       const payloadUser: PayloadUser = {
         id: 'user-123',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         collection: 'users',
       }
 
@@ -131,7 +131,7 @@ describe('Auth Bridge Types', () => {
 
       const extendedUser: ExtendedPayloadUser = {
         id: 'user-789',
-        email: 'extended@example.com',
+        email: 'extended@example.com.ai',
         collection: 'users',
         organizationId: 'org-001',
         permissions: ['read', 'write'],
@@ -224,7 +224,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-123',
           name: 'Alice',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
           emailVerified: true,
           role: 'user',
           image: null,
@@ -256,7 +256,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-123',
           name: 'Test',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           emailVerified: true,
           role: 'user',
           image: null,
@@ -283,7 +283,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-123',
           name: 'Test',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           emailVerified: true,
           role: 'user',
           image: null,
@@ -335,7 +335,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-123',
           name: 'API User',
-          email: 'api@example.com',
+          email: 'api@example.com.ai',
           emailVerified: true,
           role: 'user',
           image: null,
@@ -368,7 +368,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-123',
           name: 'Test',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           emailVerified: true,
           role: 'user',
           image: null,
@@ -396,7 +396,7 @@ describe('Auth Bridge Types', () => {
         user: {
           id: 'user-456',
           name: 'Admin',
-          email: 'admin@example.com',
+          email: 'admin@example.com.ai',
           emailVerified: true,
           role: 'admin',
           image: null,
@@ -455,7 +455,7 @@ describe('Auth Bridge Types', () => {
       const betterAuthUser: BetterAuthUser = {
         id: 'user-map-123',
         name: 'Mapper Test',
-        email: 'mapper@example.com',
+        email: 'mapper@example.com.ai',
         emailVerified: true,
         role: 'user',
         image: null,
@@ -498,7 +498,7 @@ describe('Auth Bridge Types', () => {
       const user: BetterAuthUser = {
         id: 'user-config-123',
         name: 'Config Test',
-        email: 'config@example.com',
+        email: 'config@example.com.ai',
         emailVerified: true,
         role: 'user',
         image: null,
@@ -623,7 +623,7 @@ describe('Auth Bridge Types', () => {
 
       const authenticate: PayloadAuthenticate = async () => ({
         id: 'user-123',
-        email: 'auth@example.com',
+        email: 'auth@example.com.ai',
         collection: 'users',
       })
 
@@ -642,7 +642,7 @@ describe('Auth Bridge Types', () => {
           user: {
             id: 'user-123',
             name: 'Test',
-            email: 'test@example.com',
+            email: 'test@example.com.ai',
             emailVerified: true,
             role: 'user',
             image: null,
@@ -675,7 +675,7 @@ describe('Auth Bridge Types', () => {
           user: {
             id: 'user-123',
             name: 'API User',
-            email: 'api@example.com',
+            email: 'api@example.com.ai',
             emailVerified: true,
             role: 'user',
             image: null,

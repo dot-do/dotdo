@@ -224,7 +224,7 @@ function seedData(engine: SQLEngine, userCount: number): {
   // Insert users
   for (let i = 1; i <= userCount; i++) {
     engine.execute(
-      `INSERT INTO users (name, email, created_at) VALUES ('User ${i}', 'user${i}@example.com', ${now})`
+      `INSERT INTO users (name, email, created_at) VALUES ('User ${i}', 'user${i}@example.com.ai', ${now})`
     )
   }
 

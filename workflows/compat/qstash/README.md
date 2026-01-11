@@ -22,14 +22,14 @@ const client = new Client({ token: 'xxx' })
 
 // Publish a message
 await client.publishJSON({
-  url: 'https://example.com/api/webhook',
+  url: 'https://example.com.ai/api/webhook',
   body: { hello: 'world' },
   delay: '5m',
 })
 
 // Schedule recurring jobs
 await client.schedules.create({
-  destination: 'https://example.com/api/daily-report',
+  destination: 'https://example.com.ai/api/daily-report',
   cron: '0 9 * * MON-FRI',
 })
 ```
@@ -50,19 +50,19 @@ const client = new Client({ token: process.env.QSTASH_TOKEN })
 
 // Publish a message
 const { messageId } = await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: 'Hello from qstash.do!',
 })
 
 // Publish JSON (convenience method)
 await client.publishJSON({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: { user: 'alice', action: 'signup' },
 })
 
 // With delay
 await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: 'Delayed message',
   delay: '10m',  // or delay: 60000 (ms)
 })
@@ -76,7 +76,7 @@ Publish messages to any HTTP endpoint with automatic retries:
 
 ```typescript
 const result = await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: JSON.stringify({ event: 'user.created' }),
   method: 'POST',
   headers: {
@@ -84,8 +84,8 @@ const result = await client.publish({
   },
   retries: 5,
   timeout: 30,
-  callback: 'https://example.com/on-success',
-  failureCallback: 'https://example.com/on-failure',
+  callback: 'https://example.com.ai/on-success',
+  failureCallback: 'https://example.com.ai/on-failure',
 })
 
 console.log(result.messageId)  // msg_abc123...
@@ -98,7 +98,7 @@ Create cron-based schedules for recurring messages:
 ```typescript
 // Create a schedule
 const { scheduleId } = await client.schedules.create({
-  destination: 'https://example.com/api/daily-report',
+  destination: 'https://example.com.ai/api/daily-report',
   cron: '0 9 * * MON-FRI',  // Weekdays at 9 AM
   body: { report: 'daily' },
   method: 'POST',
@@ -125,14 +125,14 @@ Prevent duplicate message processing with built-in deduplication:
 ```typescript
 // Explicit deduplication ID
 await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: 'process-order',
   deduplicationId: 'order-123',
 })
 
 // Second publish with same ID returns existing messageId
 const result = await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: 'process-order',
   deduplicationId: 'order-123',
 })
@@ -141,7 +141,7 @@ console.log(result.deduplicated)  // true
 
 // Content-based deduplication
 await client.publish({
-  url: 'https://example.com/webhook',
+  url: 'https://example.com.ai/webhook',
   body: 'same-content',
   contentBasedDeduplication: true,  // Hash body for dedup key
 })
@@ -184,9 +184,9 @@ Publish multiple messages in a single call:
 
 ```typescript
 const { responses } = await client.batch([
-  { url: 'https://example.com/webhook1', body: 'message 1' },
-  { url: 'https://example.com/webhook2', body: 'message 2' },
-  { url: 'https://example.com/webhook3', body: 'message 3' },
+  { url: 'https://example.com.ai/webhook1', body: 'message 1' },
+  { url: 'https://example.com.ai/webhook2', body: 'message 2' },
+  { url: 'https://example.com.ai/webhook3', body: 'message 3' },
 ])
 
 // Each response includes messageId
@@ -370,14 +370,14 @@ class MyWorkflow extends DO {
   async processOrder(orderId: string) {
     // Send confirmation email after 5 minutes
     await this.qstash.publishJSON({
-      url: 'https://example.com/api/send-email',
+      url: 'https://example.com.ai/api/send-email',
       body: { orderId, type: 'confirmation' },
       delay: '5m',
     })
 
     // Schedule daily inventory check
     await this.qstash.schedules.create({
-      destination: 'https://example.com/api/check-inventory',
+      destination: 'https://example.com.ai/api/check-inventory',
       cron: '0 6 * * *',
       body: { warehouse: 'main' },
     })

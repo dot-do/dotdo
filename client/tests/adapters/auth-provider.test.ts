@@ -24,7 +24,7 @@
  * ```tsx
  * import { createAuthProvider } from '@dotdo/client/adapters/auth-provider'
  *
- * const authProvider = createAuthProvider('https://api.example.com', {
+ * const authProvider = createAuthProvider('https://api.example.com.ai', {
  *   tokenKey: 'auth_token',
  *   refreshOnExpiry: true,
  * })
@@ -139,9 +139,9 @@ describe('React-Admin AuthProvider Adapter', () => {
             expiresAt: Date.now() + 3600000, // 1 hour
             user: {
               id: 'user-1',
-              email: 'test@example.com',
+              email: 'test@example.com.ai',
               name: 'Test User',
-              avatar: 'https://example.com/avatar.png',
+              avatar: 'https://example.com.ai/avatar.png',
               roles: ['admin', 'editor'],
             },
           }),
@@ -157,9 +157,9 @@ describe('React-Admin AuthProvider Adapter', () => {
           return new Response(
             JSON.stringify({
               id: 'user-1',
-              email: 'test@example.com',
+              email: 'test@example.com.ai',
               name: 'Test User',
-              avatar: 'https://example.com/avatar.png',
+              avatar: 'https://example.com.ai/avatar.png',
               roles: ['admin', 'editor'],
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -194,7 +194,7 @@ describe('React-Admin AuthProvider Adapter', () => {
 
   describe('createAuthProvider factory', () => {
     it('creates an AuthProvider with required methods', () => {
-      const authProvider = createAuthProvider('https://api.example.com')
+      const authProvider = createAuthProvider('https://api.example.com.ai')
 
       expect(authProvider).toBeDefined()
       expect(typeof authProvider.login).toBe('function')
@@ -206,7 +206,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('accepts custom options', () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         tokenKey: 'custom_token',
         userKey: 'custom_user',
         refreshOnExpiry: false,
@@ -218,7 +218,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('normalizes base URL (removes trailing slash)', () => {
-      const authProvider = createAuthProvider('https://api.example.com/', {
+      const authProvider = createAuthProvider('https://api.example.com.ai/', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -234,23 +234,23 @@ describe('React-Admin AuthProvider Adapter', () => {
 
   describe('login()', () => {
     it('authenticates with username and password', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       // Should have called the login endpoint
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/login',
+        'https://api.example.com.ai/auth/login',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
           }),
           body: JSON.stringify({
-            email: 'test@example.com',
+            email: 'test@example.com.ai',
             password: 'password123',
           }),
         })
@@ -258,49 +258,49 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('stores token in storage after successful login', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       expect(mockStorage.getItem('dotdo_auth_token')).toBe('test-token-123')
     })
 
     it('stores user data in storage after successful login', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       const storedUser = mockStorage.getItem('dotdo_user')
       expect(storedUser).toBeDefined()
       const user = JSON.parse(storedUser!)
       expect(user.id).toBe('user-1')
-      expect(user.email).toBe('test@example.com')
+      expect(user.email).toBe('test@example.com.ai')
     })
 
     it('stores refresh token when provided', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       expect(mockStorage.getItem('dotdo_refresh_token')).toBe('refresh-token-456')
     })
 
     it('stores token expiry time', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       const expiresAt = mockStorage.getItem('dotdo_token_expires')
       expect(expiresAt).toBeDefined()
@@ -308,13 +308,13 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('uses custom token key when provided', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
         tokenKey: 'my_custom_token',
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       expect(mockStorage.getItem('my_custom_token')).toBe('test-token-123')
       expect(mockStorage.getItem('dotdo_auth_token')).toBeNull()
@@ -328,26 +328,26 @@ describe('React-Admin AuthProvider Adapter', () => {
         )
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
       })
 
       await expect(
-        authProvider.login({ username: 'wrong@example.com', password: 'wrong' })
+        authProvider.login({ username: 'wrong@example.com.ai', password: 'wrong' })
       ).rejects.toThrow('Invalid credentials')
     })
 
     it('throws on network error', async () => {
       const failingFetch = vi.fn().mockRejectedValue(new Error('Network error'))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
       })
 
       await expect(
-        authProvider.login({ username: 'test@example.com', password: 'password123' })
+        authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
       ).rejects.toThrow('Network error')
     })
   })
@@ -366,7 +366,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('clears auth token from storage', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -377,7 +377,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('clears refresh token from storage', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -388,7 +388,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('clears user data from storage', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -399,7 +399,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('clears token expiry from storage', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -410,7 +410,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('calls logout endpoint on server', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -418,7 +418,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       await authProvider.logout()
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/logout',
+        'https://api.example.com.ai/auth/logout',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -429,7 +429,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('returns redirect URL when provided in params', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -444,7 +444,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 500 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
       })
@@ -466,7 +466,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_auth_token', 'test-token-123')
       mockStorage.setItem('dotdo_token_expires', String(Date.now() + 3600000))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -475,7 +475,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('rejects when no token exists', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -487,7 +487,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_auth_token', 'test-token-123')
       mockStorage.setItem('dotdo_token_expires', String(Date.now() - 1000)) // Expired
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -499,7 +499,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_auth_token', 'test-token-123')
       mockStorage.setItem('dotdo_token_expires', String(Date.now() + 3600000))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -507,7 +507,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       await authProvider.checkAuth({ validateOnServer: true })
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/me',
+        'https://api.example.com.ai/auth/me',
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token-123',
@@ -524,7 +524,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
       })
@@ -547,7 +547,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('resolves for non-auth errors (e.g., 500)', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -556,7 +556,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('resolves for 400 errors', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -565,7 +565,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('rejects and clears token on 401 Unauthorized', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -576,7 +576,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('rejects and clears token on 403 Forbidden', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -587,7 +587,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('includes error message in rejection', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -600,7 +600,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     it('attempts token refresh on 401 when refresh token exists', async () => {
       mockStorage.setItem('dotdo_refresh_token', 'refresh-token-456')
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
         refreshOnExpiry: true,
@@ -610,7 +610,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       await authProvider.checkError({ status: 401 })
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/refresh',
+        'https://api.example.com.ai/auth/refresh',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ refreshToken: 'refresh-token-456' }),
@@ -633,13 +633,13 @@ describe('React-Admin AuthProvider Adapter', () => {
         'dotdo_user',
         JSON.stringify({
           id: 'user-1',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           name: 'Test User',
-          avatar: 'https://example.com/avatar.png',
+          avatar: 'https://example.com.ai/avatar.png',
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -649,14 +649,14 @@ describe('React-Admin AuthProvider Adapter', () => {
       expect(identity).toEqual({
         id: 'user-1',
         fullName: 'Test User',
-        avatar: 'https://example.com/avatar.png',
+        avatar: 'https://example.com.ai/avatar.png',
       })
     })
 
     it('fetches identity from server when not in storage', async () => {
       mockStorage.setItem('dotdo_auth_token', 'test-token-123')
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -664,7 +664,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       const identity = await authProvider.getIdentity()
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/me',
+        'https://api.example.com.ai/auth/me',
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token-123',
@@ -677,7 +677,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('throws when not authenticated', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -695,7 +695,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -711,18 +711,18 @@ describe('React-Admin AuthProvider Adapter', () => {
         'dotdo_user',
         JSON.stringify({
           id: 'user-1',
-          email: 'john@example.com',
+          email: 'john@example.com.ai',
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
       const identity = await authProvider.getIdentity()
 
-      expect(identity.fullName).toBe('john@example.com')
+      expect(identity.fullName).toBe('john@example.com.ai')
     })
   })
 
@@ -741,7 +741,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -760,7 +760,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -789,7 +789,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: customFetch,
       })
@@ -797,7 +797,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       const permissions = await authProvider.getPermissions({ fetchFromServer: true })
 
       expect(customFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/permissions',
+        'https://api.example.com.ai/auth/permissions',
         expect.any(Object)
       )
 
@@ -805,7 +805,7 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('returns empty array when not authenticated', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -823,15 +823,15 @@ describe('React-Admin AuthProvider Adapter', () => {
   describe('token persistence', () => {
     it('persists auth state across provider instances', async () => {
       // First instance - login
-      const authProvider1 = createAuthProvider('https://api.example.com', {
+      const authProvider1 = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
-      await authProvider1.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider1.login({ username: 'test@example.com.ai', password: 'password123' })
 
       // Second instance - should see persisted state
-      const authProvider2 = createAuthProvider('https://api.example.com', {
+      const authProvider2 = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -842,12 +842,12 @@ describe('React-Admin AuthProvider Adapter', () => {
     it('uses custom storage when provided', async () => {
       const customStorage = new MockStorage()
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: customStorage,
         fetch: mockFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       // Should be in custom storage, not default
       expect(customStorage.getItem('dotdo_auth_token')).toBe('test-token-123')
@@ -868,7 +868,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_token_expires', String(expiresAt))
       mockStorage.setItem('dotdo_user', JSON.stringify({ id: 'user-1' }))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
         refreshOnExpiry: true,
@@ -879,7 +879,7 @@ describe('React-Admin AuthProvider Adapter', () => {
 
       // Should have called refresh endpoint
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/refresh',
+        'https://api.example.com.ai/auth/refresh',
         expect.objectContaining({
           method: 'POST',
         })
@@ -897,7 +897,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_token_expires', String(expiresAt))
       mockStorage.setItem('dotdo_user', JSON.stringify({ id: 'user-1' }))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
         refreshOnExpiry: true,
@@ -923,7 +923,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_token_expires', String(expiresAt))
       mockStorage.setItem('dotdo_user', JSON.stringify({ id: 'user-1' }))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
         refreshOnExpiry: false,
@@ -952,7 +952,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
         refreshOnExpiry: true,
@@ -980,11 +980,11 @@ describe('React-Admin AuthProvider Adapter', () => {
         JSON.stringify({
           id: 'user-1',
           name: 'Persisted User',
-          email: 'persisted@example.com',
+          email: 'persisted@example.com.ai',
         })
       )
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -1016,7 +1016,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: customFetch,
       })
@@ -1024,7 +1024,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       await authProvider.checkAuth({ validateOnServer: true })
 
       expect(customFetch).toHaveBeenCalledWith(
-        'https://api.example.com/auth/me',
+        'https://api.example.com.ai/auth/me',
         expect.any(Object)
       )
     })
@@ -1038,7 +1038,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: failingFetch,
       })
@@ -1060,7 +1060,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_token_expires', String(Date.now() + 3600000))
       mockStorage.setItem('dotdo_user', JSON.stringify({ id: 'user-1' }))
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -1100,7 +1100,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: countingFetch,
         refreshOnExpiry: true,
@@ -1118,14 +1118,14 @@ describe('React-Admin AuthProvider Adapter', () => {
     })
 
     it('queues requests during login', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
 
       // Start login (takes time)
       const loginPromise = authProvider.login({
-        username: 'test@example.com',
+        username: 'test@example.com.ai',
         password: 'password123',
       })
 
@@ -1165,24 +1165,24 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: flakeyFetch,
       })
 
       // First attempt fails
       await expect(
-        authProvider.login({ username: 'test@example.com', password: 'password123' })
+        authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
       ).rejects.toThrow()
 
       // Second attempt succeeds
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       expect(mockStorage.getItem('dotdo_auth_token')).toBe('test-token-123')
     })
 
     it('clears error state after successful operation', async () => {
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -1191,7 +1191,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       await expect(authProvider.checkAuth()).rejects.toThrow()
 
       // Login successfully
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       // checkAuth should now succeed
       await expect(authProvider.checkAuth()).resolves.not.toThrow()
@@ -1202,7 +1202,7 @@ describe('React-Admin AuthProvider Adapter', () => {
       mockStorage.setItem('dotdo_auth_token', 'valid-token')
       mockStorage.setItem('dotdo_user', '{invalid json')
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: mockFetch,
       })
@@ -1224,7 +1224,7 @@ describe('React-Admin AuthProvider Adapter', () => {
         },
       } as Storage
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: failingStorage,
         fetch: mockFetch,
       })
@@ -1252,12 +1252,12 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: flakeyFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       expect(attempts).toBe(3)
       expect(mockStorage.getItem('dotdo_auth_token')).toBe('test-token-123')
@@ -1274,13 +1274,13 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response('', { status: 200 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: emptyFetch,
       })
 
       await expect(
-        authProvider.login({ username: 'test@example.com', password: 'password123' })
+        authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
       ).rejects.toThrow()
     })
 
@@ -1292,13 +1292,13 @@ describe('React-Admin AuthProvider Adapter', () => {
         throw new Error('Request timeout')
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: slowFetch,
       })
 
       await expect(
-        authProvider.login({ username: 'test@example.com', password: 'password123' })
+        authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
       ).rejects.toThrow('Request timeout')
 
       // Restore fake timers for subsequent tests
@@ -1314,8 +1314,8 @@ describe('React-Admin AuthProvider Adapter', () => {
               user: {
                 user_id: 'user-1', // Different field name
                 full_name: 'Test User', // Different field name
-                email_address: 'test@example.com', // Different field name
-                profile_picture: 'https://example.com/avatar.png', // Different field name
+                email_address: 'test@example.com.ai', // Different field name
+                profile_picture: 'https://example.com.ai/avatar.png', // Different field name
                 user_roles: ['admin'], // Different field name
               },
             }),
@@ -1325,12 +1325,12 @@ describe('React-Admin AuthProvider Adapter', () => {
         return new Response(null, { status: 404 })
       })
 
-      const authProvider = createAuthProvider('https://api.example.com', {
+      const authProvider = createAuthProvider('https://api.example.com.ai', {
         storage: mockStorage,
         fetch: customFetch,
       })
 
-      await authProvider.login({ username: 'test@example.com', password: 'password123' })
+      await authProvider.login({ username: 'test@example.com.ai', password: 'password123' })
 
       const identity = await authProvider.getIdentity()
 

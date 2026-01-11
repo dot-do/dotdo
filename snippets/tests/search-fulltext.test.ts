@@ -147,13 +147,13 @@ describe('SearchSnippet - Full-Text Index Fetching', () => {
   beforeEach(() => {
     indexData = createTestIndex()
     const files = new Map<string, Uint8Array>()
-    files.set('https://cdn.example.com/indexes/inverted/text.inv', indexData)
+    files.set('https://cdn.example.com.ai/indexes/inverted/text.inv', indexData)
     mockFetch = createMockFetch(files)
   })
 
   it('fetches inverted index from CDN', async () => {
     const result = await fetchInvertedIndex(
-      'https://cdn.example.com/indexes/inverted/text.inv',
+      'https://cdn.example.com.ai/indexes/inverted/text.inv',
       { fetch: mockFetch }
     )
 
@@ -163,7 +163,7 @@ describe('SearchSnippet - Full-Text Index Fetching', () => {
   })
 
   it('uses range requests to fetch term index first', async () => {
-    await fetchInvertedIndex('https://cdn.example.com/indexes/inverted/text.inv', {
+    await fetchInvertedIndex('https://cdn.example.com.ai/indexes/inverted/text.inv', {
       fetch: mockFetch,
       rangeRequestEnabled: true,
     })
@@ -187,10 +187,10 @@ describe('SearchSnippet - Full-Text Index Fetching', () => {
     const options: FullTextFetchOptions = { fetch: mockFetch }
 
     // First fetch
-    await fetchInvertedIndex('https://cdn.example.com/indexes/inverted/text.inv', options)
+    await fetchInvertedIndex('https://cdn.example.com.ai/indexes/inverted/text.inv', options)
 
     // Second fetch should hit cache
-    await fetchInvertedIndex('https://cdn.example.com/indexes/inverted/text.inv', options)
+    await fetchInvertedIndex('https://cdn.example.com.ai/indexes/inverted/text.inv', options)
 
     // Should only fetch once
     expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -198,7 +198,7 @@ describe('SearchSnippet - Full-Text Index Fetching', () => {
 
   it('handles 404 gracefully', async () => {
     const result = await fetchInvertedIndex(
-      'https://cdn.example.com/indexes/inverted/nonexistent.inv',
+      'https://cdn.example.com.ai/indexes/inverted/nonexistent.inv',
       { fetch: mockFetch }
     )
 
@@ -209,7 +209,7 @@ describe('SearchSnippet - Full-Text Index Fetching', () => {
     const errorFetch = vi.fn().mockRejectedValue(new Error('Network error'))
 
     await expect(
-      fetchInvertedIndex('https://cdn.example.com/indexes/inverted/text.inv', {
+      fetchInvertedIndex('https://cdn.example.com.ai/indexes/inverted/text.inv', {
         fetch: errorFetch,
       })
     ).rejects.toThrow(/network|failed|fetch/i)
@@ -226,13 +226,13 @@ describe('SearchSnippet - Term Lookup', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('looks up term in index', async () => {
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'quick' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'quick' },
       { fetch: mockFetch }
     )
 
@@ -243,7 +243,7 @@ describe('SearchSnippet - Term Lookup', () => {
 
   it('returns posting list for term', async () => {
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'the' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'the' },
       { fetch: mockFetch }
     )
 
@@ -254,7 +254,7 @@ describe('SearchSnippet - Term Lookup', () => {
 
   it('returns empty for unknown terms', async () => {
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'xyznonexistent' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'xyznonexistent' },
       { fetch: mockFetch }
     )
 
@@ -264,7 +264,7 @@ describe('SearchSnippet - Term Lookup', () => {
   it('handles case normalization', async () => {
     // Index was built with simpleTokenize which lowercases
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'QUICK' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'QUICK' },
       { fetch: mockFetch, caseSensitive: false }
     )
 
@@ -274,7 +274,7 @@ describe('SearchSnippet - Term Lookup', () => {
 
   it('returns posting list with document frequency', async () => {
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'dog' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'dog' },
       { fetch: mockFetch }
     )
 
@@ -294,14 +294,14 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles multi-term queries (AND)', async () => {
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick', 'brown'],
       },
       { fetch: mockFetch }
@@ -314,7 +314,7 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
   it('returns empty when no documents match all terms', async () => {
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick', 'cat'], // "quick" and "cat" don't appear together
       },
       { fetch: mockFetch }
@@ -326,7 +326,7 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
   it('handles intersection of three or more terms', async () => {
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick', 'brown', 'fox'],
       },
       { fetch: mockFetch }
@@ -339,7 +339,7 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
   it('handles single term intersection (passthrough)', async () => {
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick'],
       },
       { fetch: mockFetch }
@@ -352,7 +352,7 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
   it('handles empty terms array', async () => {
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: [],
       },
       { fetch: mockFetch }
@@ -366,7 +366,7 @@ describe('SearchSnippet - Multi-Term AND Queries', () => {
     // The function should start intersection with the term that has fewest docs
     const result = await intersectTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['the', 'fox'], // "the" is common, "fox" is rare
       },
       { fetch: mockFetch }
@@ -387,14 +387,14 @@ describe('SearchSnippet - Multi-Term OR Queries', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles multi-term queries (OR)', async () => {
     const result = await unionTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['cat', 'dog'],
       },
       { fetch: mockFetch }
@@ -408,7 +408,7 @@ describe('SearchSnippet - Multi-Term OR Queries', () => {
   it('returns union of all matching documents', async () => {
     const result = await unionTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['fox', 'bear'],
       },
       { fetch: mockFetch }
@@ -421,7 +421,7 @@ describe('SearchSnippet - Multi-Term OR Queries', () => {
   it('handles single term union (passthrough)', async () => {
     const result = await unionTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick'],
       },
       { fetch: mockFetch }
@@ -433,7 +433,7 @@ describe('SearchSnippet - Multi-Term OR Queries', () => {
   it('handles empty terms array', async () => {
     const result = await unionTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: [],
       },
       { fetch: mockFetch }
@@ -445,7 +445,7 @@ describe('SearchSnippet - Multi-Term OR Queries', () => {
   it('deduplicates results', async () => {
     const result = await unionTerms(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         terms: ['quick', 'quick'], // Duplicate term
       },
       { fetch: mockFetch }
@@ -467,14 +467,14 @@ describe('SearchSnippet - Phrase Queries', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles phrase queries', async () => {
     const result = await phraseSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         phrase: 'quick brown',
       },
       { fetch: mockFetch }
@@ -489,7 +489,7 @@ describe('SearchSnippet - Phrase Queries', () => {
   it('handles phrase with common words', async () => {
     const result = await phraseSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         phrase: 'the lazy',
       },
       { fetch: mockFetch }
@@ -502,7 +502,7 @@ describe('SearchSnippet - Phrase Queries', () => {
   it('handles single-word phrase (equivalent to term lookup)', async () => {
     const result = await phraseSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         phrase: 'dog',
       },
       { fetch: mockFetch }
@@ -514,7 +514,7 @@ describe('SearchSnippet - Phrase Queries', () => {
   it('returns empty for non-matching phrase', async () => {
     const result = await phraseSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         phrase: 'purple elephant dancing',
       },
       { fetch: mockFetch }
@@ -534,14 +534,14 @@ describe('SearchSnippet - Prefix Search', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles prefix search', async () => {
     const result = await prefixSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         prefix: 'qui',
       },
       { fetch: mockFetch }
@@ -555,7 +555,7 @@ describe('SearchSnippet - Prefix Search', () => {
   it('returns all terms matching prefix', async () => {
     const result = await prefixSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         prefix: 'do',
       },
       { fetch: mockFetch }
@@ -568,7 +568,7 @@ describe('SearchSnippet - Prefix Search', () => {
   it('returns empty for non-matching prefix', async () => {
     const result = await prefixSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         prefix: 'xyz',
       },
       { fetch: mockFetch }
@@ -581,7 +581,7 @@ describe('SearchSnippet - Prefix Search', () => {
   it('limits number of results', async () => {
     const result = await prefixSearch(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         prefix: '',
         limit: 5,
       },
@@ -602,14 +602,14 @@ describe('SearchSnippet - Full-Text Query API', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles simple single-term query', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'dog',
       },
       { fetch: mockFetch }
@@ -623,7 +623,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('handles AND query syntax', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'quick AND brown',
       },
       { fetch: mockFetch }
@@ -635,7 +635,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('handles OR query syntax', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'cat OR dog',
       },
       { fetch: mockFetch }
@@ -647,7 +647,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('handles quoted phrase query', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: '"quick brown"',
       },
       { fetch: mockFetch }
@@ -659,7 +659,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('handles prefix wildcard query', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'qui*',
       },
       { fetch: mockFetch }
@@ -671,7 +671,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('returns structured result with hits and metadata', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'dog',
       },
       { fetch: mockFetch }
@@ -686,7 +686,7 @@ describe('SearchSnippet - Full-Text Query API', () => {
   it('supports pagination with offset and limit', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'the',
         offset: 0,
         limit: 3,
@@ -708,14 +708,14 @@ describe('SearchSnippet - Edge Cases', () => {
 
   beforeEach(() => {
     indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     mockFetch = createMockFetch(files)
   })
 
   it('handles empty query', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: '',
       },
       { fetch: mockFetch }
@@ -728,7 +728,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles query with only stopwords', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'the a an',
       },
       { fetch: mockFetch }
@@ -741,7 +741,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles special characters in query', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'hello@world.com',
       },
       { fetch: mockFetch }
@@ -755,7 +755,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles unicode characters', async () => {
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: 'cafe',
       },
       { fetch: mockFetch }
@@ -769,7 +769,7 @@ describe('SearchSnippet - Edge Cases', () => {
 
     const result = await queryFullText(
       {
-        url: 'https://cdn.example.com/index.inv',
+        url: 'https://cdn.example.com.ai/index.inv',
         query: longQuery,
       },
       { fetch: mockFetch }
@@ -780,10 +780,10 @@ describe('SearchSnippet - Edge Cases', () => {
 
   it('handles corrupted index gracefully', async () => {
     const corruptedData = new Uint8Array([0x49, 0x4e, 0x56, 0x49, 0x00, 0x00]) // Valid magic but corrupt
-    const files = new Map([['https://cdn.example.com/corrupt.inv', corruptedData]])
+    const files = new Map([['https://cdn.example.com.ai/corrupt.inv', corruptedData]])
     const errorFetch = createMockFetch(files)
 
-    const result = await fetchInvertedIndex('https://cdn.example.com/corrupt.inv', {
+    const result = await fetchInvertedIndex('https://cdn.example.com.ai/corrupt.inv', {
       fetch: errorFetch,
     })
 
@@ -794,7 +794,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles concurrent queries to same index', async () => {
     const queries = Array.from({ length: 10 }, (_, i) =>
       lookupTerm(
-        { url: 'https://cdn.example.com/index.inv', term: ['quick', 'brown', 'fox', 'dog', 'cat'][i % 5] },
+        { url: 'https://cdn.example.com.ai/index.inv', term: ['quick', 'brown', 'fox', 'dog', 'cat'][i % 5] },
         { fetch: mockFetch }
       )
     )
@@ -814,7 +814,7 @@ describe('SearchSnippet - Edge Cases', () => {
     await expect(
       queryFullText(
         {
-          url: 'https://cdn.example.com/index.inv',
+          url: 'https://cdn.example.com.ai/index.inv',
           query: 'test',
         },
         { fetch: slowFetch, timeoutMs: 100 }
@@ -830,19 +830,19 @@ describe('SearchSnippet - Edge Cases', () => {
 describe('SearchSnippet - Performance', () => {
   it('completes term lookup within 2ms (cached)', async () => {
     const indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
     // Warm up cache
     await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'warmup' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'warmup' },
       { fetch: mockFetch }
     )
 
     const start = performance.now()
 
     await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'quick' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'quick' },
       { fetch: mockFetch }
     )
 
@@ -853,12 +853,12 @@ describe('SearchSnippet - Performance', () => {
 
   it('completes 100 term lookups within 50ms (cached)', async () => {
     const indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
     // Warm up cache
     await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'warmup' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'warmup' },
       { fetch: mockFetch }
     )
 
@@ -868,7 +868,7 @@ describe('SearchSnippet - Performance', () => {
 
     for (let i = 0; i < 100; i++) {
       await lookupTerm(
-        { url: 'https://cdn.example.com/index.inv', term: terms[i % terms.length] },
+        { url: 'https://cdn.example.com.ai/index.inv', term: terms[i % terms.length] },
         { fetch: mockFetch }
       )
     }
@@ -880,13 +880,13 @@ describe('SearchSnippet - Performance', () => {
 
   it('handles large index efficiently', async () => {
     const largeIndex = createLargeTestIndex(10000) // 10K documents
-    const files = new Map([['https://cdn.example.com/large.inv', largeIndex]])
+    const files = new Map([['https://cdn.example.com.ai/large.inv', largeIndex]])
     const mockFetch = createMockFetch(files)
 
     const start = performance.now()
 
     await lookupTerm(
-      { url: 'https://cdn.example.com/large.inv', term: 'hello' },
+      { url: 'https://cdn.example.com.ai/large.inv', term: 'hello' },
       { fetch: mockFetch }
     )
 
@@ -903,17 +903,17 @@ describe('SearchSnippet - Performance', () => {
     const largeIndex = createLargeTestIndex(10000)
 
     const files = new Map([
-      ['https://cdn.example.com/small.inv', smallIndex],
-      ['https://cdn.example.com/medium.inv', mediumIndex],
-      ['https://cdn.example.com/large.inv', largeIndex],
+      ['https://cdn.example.com.ai/small.inv', smallIndex],
+      ['https://cdn.example.com.ai/medium.inv', mediumIndex],
+      ['https://cdn.example.com.ai/large.inv', largeIndex],
     ])
     const mockFetch = createMockFetch(files)
 
     // Warm up all indexes
     await Promise.all([
-      lookupTerm({ url: 'https://cdn.example.com/small.inv', term: 'warmup' }, { fetch: mockFetch }),
-      lookupTerm({ url: 'https://cdn.example.com/medium.inv', term: 'warmup' }, { fetch: mockFetch }),
-      lookupTerm({ url: 'https://cdn.example.com/large.inv', term: 'warmup' }, { fetch: mockFetch }),
+      lookupTerm({ url: 'https://cdn.example.com.ai/small.inv', term: 'warmup' }, { fetch: mockFetch }),
+      lookupTerm({ url: 'https://cdn.example.com.ai/medium.inv', term: 'warmup' }, { fetch: mockFetch }),
+      lookupTerm({ url: 'https://cdn.example.com.ai/large.inv', term: 'warmup' }, { fetch: mockFetch }),
     ])
 
     // Time lookups in each
@@ -922,7 +922,7 @@ describe('SearchSnippet - Performance', () => {
       const start = performance.now()
       for (let i = 0; i < 100; i++) {
         await lookupTerm(
-          { url: `https://cdn.example.com/${size}.inv`, term: 'hello' },
+          { url: `https://cdn.example.com.ai/${size}.inv`, term: 'hello' },
           { fetch: mockFetch }
         )
       }
@@ -942,7 +942,7 @@ describe('SearchSnippet - Performance', () => {
 describe('SearchSnippet - Memory Budget', () => {
   it('respects memory limits for index cache', async () => {
     const largeIndex = createLargeTestIndex(50000) // ~500KB+ index
-    const files = new Map([['https://cdn.example.com/large.inv', largeIndex]])
+    const files = new Map([['https://cdn.example.com.ai/large.inv', largeIndex]])
     const mockFetch = createMockFetch(files)
 
     const options: FullTextFetchOptions = {
@@ -950,7 +950,7 @@ describe('SearchSnippet - Memory Budget', () => {
       maxMemoryBytes: 1024 * 1024, // 1MB limit
     }
 
-    const result = await fetchInvertedIndex('https://cdn.example.com/large.inv', options)
+    const result = await fetchInvertedIndex('https://cdn.example.com.ai/large.inv', options)
 
     expect(result).not.toBeNull()
   })
@@ -959,7 +959,7 @@ describe('SearchSnippet - Memory Budget', () => {
     // Create multiple indexes
     const files = new Map<string, Uint8Array>()
     for (let i = 0; i < 10; i++) {
-      files.set(`https://cdn.example.com/index${i}.inv`, createLargeTestIndex(5000))
+      files.set(`https://cdn.example.com.ai/index${i}.inv`, createLargeTestIndex(5000))
     }
     const mockFetch = createMockFetch(files)
 
@@ -970,7 +970,7 @@ describe('SearchSnippet - Memory Budget', () => {
 
     // Load more indexes than can fit in cache
     for (let i = 0; i < 10; i++) {
-      await fetchInvertedIndex(`https://cdn.example.com/index${i}.inv`, options)
+      await fetchInvertedIndex(`https://cdn.example.com.ai/index${i}.inv`, options)
     }
 
     // Should have evicted earlier entries
@@ -993,10 +993,10 @@ describe('SearchSnippet - Memory Budget', () => {
     // Should be under 2MB
     expect(indexData.byteLength).toBeLessThan(2 * 1024 * 1024)
 
-    const files = new Map([['https://cdn.example.com/huge.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/huge.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
-    const result = await fetchInvertedIndex('https://cdn.example.com/huge.inv', {
+    const result = await fetchInvertedIndex('https://cdn.example.com.ai/huge.inv', {
       fetch: mockFetch,
     })
 
@@ -1011,11 +1011,11 @@ describe('SearchSnippet - Memory Budget', () => {
 describe('SearchSnippet - Partial Index Loading', () => {
   it('supports partial loading via Range requests', async () => {
     const indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
     // Enable range request mode
-    await fetchInvertedIndex('https://cdn.example.com/index.inv', {
+    await fetchInvertedIndex('https://cdn.example.com.ai/index.inv', {
       fetch: mockFetch,
       rangeRequestEnabled: true,
     })
@@ -1026,10 +1026,10 @@ describe('SearchSnippet - Partial Index Loading', () => {
 
   it('fetches only header for initial load', async () => {
     const indexData = createTestIndex()
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
-    await fetchInvertedIndex('https://cdn.example.com/index.inv', {
+    await fetchInvertedIndex('https://cdn.example.com.ai/index.inv', {
       fetch: mockFetch,
       rangeRequestEnabled: true,
       headerOnly: true,
@@ -1053,11 +1053,11 @@ describe('SearchSnippet - Partial Index Loading', () => {
 
   it('fetches term index separately from posting lists', async () => {
     const indexData = createLargeTestIndex(10000)
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
     // First, fetch just the term index
-    const reader = await fetchInvertedIndex('https://cdn.example.com/index.inv', {
+    const reader = await fetchInvertedIndex('https://cdn.example.com.ai/index.inv', {
       fetch: mockFetch,
       rangeRequestEnabled: true,
       termIndexOnly: true,
@@ -1071,12 +1071,12 @@ describe('SearchSnippet - Partial Index Loading', () => {
 
   it('fetches posting list on demand', async () => {
     const indexData = createLargeTestIndex(10000)
-    const files = new Map([['https://cdn.example.com/index.inv', indexData]])
+    const files = new Map([['https://cdn.example.com.ai/index.inv', indexData]])
     const mockFetch = createMockFetch(files)
 
     // With lazy loading enabled, posting lists are fetched on demand
     const result = await lookupTerm(
-      { url: 'https://cdn.example.com/index.inv', term: 'hello' },
+      { url: 'https://cdn.example.com.ai/index.inv', term: 'hello' },
       { fetch: mockFetch, lazyPostingLists: true }
     )
 

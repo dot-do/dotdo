@@ -110,14 +110,14 @@ describe('ExpenseApprovalWorkflow Example', () => {
     const result = $.when(decision.approved, {
       then: () => {
         const reimbursement = $.Finance(expense).reimburse()
-        $.Email({ to: 'submitter@example.com' }).send({
+        $.Email({ to: 'submitter@example.com.ai' }).send({
           template: 'approved',
           data: { reimbursement },
         })
         return reimbursement
       },
       else: () => {
-        $.Email({ to: 'submitter@example.com' }).send({
+        $.Email({ to: 'submitter@example.com.ai' }).send({
           template: 'rejected',
           data: { reason: decision.reason },
         })

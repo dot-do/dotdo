@@ -10,7 +10,7 @@
  *
  * function App() {
  *   return (
- *     <DO ns="https://api.example.com/do/workspace">
+ *     <DO ns="https://api.example.com.ai/do/workspace">
  *       <MyApp />
  *     </DO>
  *   )
@@ -25,7 +25,7 @@
  * function App() {
  *   return (
  *     <DO
- *       ns="https://api.example.com/do/workspace"
+ *       ns="https://api.example.com.ai/do/workspace"
  *       config={{
  *         timeout: 30000,
  *         auth: { token: 'my-auth-token' },

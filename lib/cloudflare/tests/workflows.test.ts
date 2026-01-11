@@ -210,7 +210,7 @@ describe('Cloudflare Workflows Integration', () => {
         do: vi.fn().mockImplementation(async (_name, callback) => callback()),
         sleep: vi.fn().mockResolvedValue(undefined),
         sleepUntil: vi.fn().mockResolvedValue(undefined),
-        waitForEvent: vi.fn().mockResolvedValue({ approved: true, approver: 'manager@example.com' }),
+        waitForEvent: vi.fn().mockResolvedValue({ approved: true, approver: 'manager@example.com.ai' }),
       }
     })
 
@@ -222,7 +222,7 @@ describe('Cloudflare Workflows Integration', () => {
         { timeout: '7d', type: 'approval' }
       )
 
-      expect(event).toEqual({ approved: true, approver: 'manager@example.com' })
+      expect(event).toEqual({ approved: true, approver: 'manager@example.com.ai' })
       expect(mockStep.waitForEvent).toHaveBeenCalledWith('awaitApproval', { timeout: '7d', type: 'approval' })
     })
 

@@ -55,7 +55,7 @@ Browser automation abstraction layer supporting Cloudflare Browser Rendering and
 import { Browse } from 'lib/browse'
 
 const session = await Browse.init({ provider: 'cloudflare', env })
-await session.goto('https://example.com')
+await session.goto('https://example.com.ai')
 await session.act('Click the login button')
 const data = await session.extract('Get the user profile')
 ```

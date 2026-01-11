@@ -237,7 +237,7 @@ describe('Resource Integration with DO Provider', () => {
     it('should render Admin inside DO provider', () => {
       render(
         <MemoryRouter>
-          <MockDO ns="https://api.example.com/do/workspace">
+          <MockDO ns="https://api.example.com.ai/do/workspace">
             <MockAdmin>
               <MockResource name="tasks" />
             </MockAdmin>
@@ -256,7 +256,7 @@ describe('Resource Integration with DO Provider', () => {
 
       render(
         <MemoryRouter>
-          <MockDO ns="https://api.example.com/do/workspace">
+          <MockDO ns="https://api.example.com.ai/do/workspace">
             <MockAdmin>
               <TestComponent />
             </MockAdmin>
@@ -264,7 +264,7 @@ describe('Resource Integration with DO Provider', () => {
         </MemoryRouter>
       )
 
-      expect(screen.getByTestId('ns')).toHaveTextContent('https://api.example.com/do/workspace')
+      expect(screen.getByTestId('ns')).toHaveTextContent('https://api.example.com.ai/do/workspace')
     })
 
     it('should register resource with admin context', () => {
@@ -274,7 +274,7 @@ describe('Resource Integration with DO Provider', () => {
 
       render(
         <MemoryRouter>
-          <MockDO ns="https://api.example.com/do/workspace">
+          <MockDO ns="https://api.example.com.ai/do/workspace">
             <MockAdmin>
               <MockResource name="tasks" list={TaskList} />
             </MockAdmin>
@@ -339,7 +339,7 @@ describe('Resource Integration with DO Provider', () => {
     it('should allow multiple nested providers', () => {
       render(
         <MemoryRouter>
-          <MockDO ns="https://api.example.com/do/org1">
+          <MockDO ns="https://api.example.com.ai/do/org1">
             <MockAdmin>
               <MockResource name="org1-tasks" />
             </MockAdmin>
@@ -358,7 +358,7 @@ describe('Resource Integration with DO Provider', () => {
 
       const { container } = render(
         <MemoryRouter>
-          <MockDO ns="https://api.example.com/do/workspace1">
+          <MockDO ns="https://api.example.com.ai/do/workspace1">
             <MockAdmin>
               <NamespaceDisplay />
             </MockAdmin>

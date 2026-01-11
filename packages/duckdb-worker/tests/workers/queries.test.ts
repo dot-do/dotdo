@@ -202,7 +202,7 @@ describe('DuckDB WASM SQL Execution in Workers', () => {
        * Test basic insert and select roundtrip.
        */
       await db.exec('CREATE TABLE test_users (id INTEGER, name VARCHAR, email VARCHAR)')
-      await db.exec("INSERT INTO test_users VALUES (1, 'Alice', 'alice@example.com')")
+      await db.exec("INSERT INTO test_users VALUES (1, 'Alice', 'alice@example.com.ai')")
 
       const result = await db.query<{ id: number; name: string; email: string }>(
         'SELECT * FROM test_users WHERE id = 1'
@@ -212,7 +212,7 @@ describe('DuckDB WASM SQL Execution in Workers', () => {
       expect(result.rows[0]).toEqual({
         id: 1,
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
 

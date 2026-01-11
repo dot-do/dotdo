@@ -917,7 +917,7 @@ test.describe('Auth Flow', () => {
       const passwordInput = page.locator('input[type="password"]')
       const submitButton = page.locator('button[type="submit"]')
 
-      await emailInput.fill('test@example.com')
+      await emailInput.fill('test@example.com.ai')
       await passwordInput.fill('password123')
       await submitButton.click()
 

@@ -64,7 +64,7 @@ describe('resolveBranch - No Active Experiment', () => {
   })
 
   it('returns "main" for any user when no experiment exists', () => {
-    const users = ['user-1', 'user-2', 'user-3', 'admin@example.com', 'uuid-abc-123']
+    const users = ['user-1', 'user-2', 'user-3', 'admin@example.com.ai', 'uuid-abc-123']
 
     for (const userId of users) {
       const result = resolveBranch(userId, 'nonExistentThing')
@@ -612,7 +612,7 @@ describe('resolveBranch - Edge Cases', () => {
       status: 'running',
     })
 
-    const specialUsers = ['user@example.com', 'user+test@mail.com', 'user:with:colons', "user'quote", 'user"doublequote']
+    const specialUsers = ['user@example.com.ai', 'user+test@mail.com', 'user:with:colons', "user'quote", 'user"doublequote']
 
     for (const userId of specialUsers) {
       const result = resolveBranch(userId, 'qualifyLead')

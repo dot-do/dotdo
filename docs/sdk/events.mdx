@@ -16,7 +16,7 @@ $.on.Payment.failed(handler)
 $.on.Order.shipped(handler)
 
 // Emit - trigger handlers across the system
-$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
 ```
 
 ## The Two-Level Proxy Pattern
@@ -250,7 +250,7 @@ Trigger events that invoke registered handlers:
 
 ```typescript
 // Basic emit
-$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com' })
+$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
 
 // After processing
 async function processOrder(order: Order) {

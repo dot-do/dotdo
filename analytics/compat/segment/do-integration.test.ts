@@ -245,7 +245,7 @@ function createIdentifyEvents(count: number): IdentifyEvent[] {
     timestamp: new Date(now - i * 1000 * 60 * 60).toISOString(),
     messageId: `identify-msg-${i}`,
     traits: {
-      email: `user${i % 10}@example.com`,
+      email: `user${i % 10}@example.com.ai`,
       name: `User ${i % 10}`,
     },
   }))
@@ -481,7 +481,7 @@ describe('Analytics DO Integration - Sharding', () => {
         anonymousId: 'anon-before-identify',
         timestamp: new Date().toISOString(),
         messageId: 'identify-msg',
-        traits: { email: 'test@example.com' },
+        traits: { email: 'test@example.com.ai' },
       }
 
       const route = await mockDO.instance.routeEvent(event)
@@ -679,7 +679,7 @@ describe('Analytics DO Integration - Storage', () => {
         timestamp: new Date().toISOString(),
         messageId: 'identify-persist-msg',
         traits: {
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           name: 'Test User',
         },
       }
@@ -688,7 +688,7 @@ describe('Analytics DO Integration - Storage', () => {
 
       expect(stored._id).toBeDefined()
       expect(stored.type).toBe('identify')
-      expect((stored as any).traits.email).toBe('test@example.com')
+      expect((stored as any).traits.email).toBe('test@example.com.ai')
     })
 
     it('should persist page event to SQLite', async () => {
@@ -701,7 +701,7 @@ describe('Analytics DO Integration - Storage', () => {
         name: 'Home',
         category: 'Marketing',
         properties: {
-          url: 'https://example.com/',
+          url: 'https://example.com.ai/',
           referrer: 'https://google.com/',
         },
       }
@@ -761,7 +761,7 @@ describe('Analytics DO Integration - Storage', () => {
           ip: '192.168.1.1',
           userAgent: 'Test Agent',
           page: {
-            url: 'https://example.com/',
+            url: 'https://example.com.ai/',
             title: 'Test Page',
           },
         },

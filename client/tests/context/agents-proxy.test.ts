@@ -423,7 +423,7 @@ describe('Agent can call $.api integrations', () => {
     mockRunner.mockImplementation(async (input, ctx) => {
       const apiTool = input.tools?.find((t: { name: string }) => t.name === 'api_fetch')
       if (apiTool) {
-        await apiTool.execute({ url: 'https://api.example.com/data' }, {})
+        await apiTool.execute({ url: 'https://api.example.com.ai/data' }, {})
       }
       return {
         text: 'Fetched data',
@@ -452,7 +452,7 @@ describe('Agent can call $.api integrations', () => {
       context: mockContext,
       runner: mockRunner,
       enableApiTools: true,
-      apiAllowedDomains: ['api.example.com', 'internal.corp'],
+      apiAllowedDomains: ['api.example.com.ai', 'internal.corp'],
     }
     const agents = createAgentsProxy(config)
 
@@ -460,7 +460,7 @@ describe('Agent can call $.api integrations', () => {
 
     expect(mockRunner).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiAllowedDomains: ['api.example.com', 'internal.corp'],
+        apiAllowedDomains: ['api.example.com.ai', 'internal.corp'],
       }),
       expect.anything()
     )

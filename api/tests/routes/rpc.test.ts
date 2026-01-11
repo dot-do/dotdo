@@ -326,7 +326,7 @@ describe('RPC Method Invocation', () => {
       const request = createCallMessage({
         promiseId: 'p1',
         method: 'createUser',
-        args: [{ type: 'value', value: { name: 'Alice', email: 'alice@example.com' } }],
+        args: [{ type: 'value', value: { name: 'Alice', email: 'alice@example.com.ai' } }],
       })
 
       const response = await SELF.fetch('http://localhost/rpc', {
@@ -339,7 +339,7 @@ describe('RPC Method Invocation', () => {
       expect(body.results?.[0].type).toBe('value')
       expect(body.results?.[0].value).toMatchObject({
         name: 'Alice',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
     })
   })
@@ -370,7 +370,7 @@ describe('RPC Method Invocation', () => {
       })
 
       const body: RPCResponse = await response.json()
-      expect(body.results?.[1].value).toBe('alice@example.com')
+      expect(body.results?.[1].value).toBe('alice@example.com.ai')
     })
 
     it('should chain multiple property accesses', async () => {

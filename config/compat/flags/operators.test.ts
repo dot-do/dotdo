@@ -184,18 +184,18 @@ describe('Targeting Operators', () => {
         const clause: TargetingClause = {
           attribute: 'email',
           operator: 'contains',
-          values: ['@example.com'],
+          values: ['@example.com.ai'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
-        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
       })
 
       it('should not match when string does not contain substring', () => {
         const clause: TargetingClause = {
           attribute: 'email',
           operator: 'contains',
-          values: ['@example.com'],
+          values: ['@example.com.ai'],
         }
 
         expect(testClause(clause, { email: 'user@other.com' })).toBe(false)
@@ -205,10 +205,10 @@ describe('Targeting Operators', () => {
         const clause: TargetingClause = {
           attribute: 'email',
           operator: 'contains',
-          values: ['@example.com', '@test.com'],
+          values: ['@example.com.ai', '@test.com'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
         expect(testClause(clause, { email: 'user@test.com' })).toBe(true)
         expect(testClause(clause, { email: 'user@other.com' })).toBe(false)
       })
@@ -245,7 +245,7 @@ describe('Targeting Operators', () => {
           values: ['admin@'],
         }
 
-        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
         expect(testClause(clause, { email: 'admin@other.com' })).toBe(true)
       })
 
@@ -256,8 +256,8 @@ describe('Targeting Operators', () => {
           values: ['admin@'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(false)
-        expect(testClause(clause, { email: 'superadmin@example.com' })).toBe(false)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(false)
+        expect(testClause(clause, { email: 'superadmin@example.com.ai' })).toBe(false)
       })
 
       it('should match any prefix in the list', () => {
@@ -267,9 +267,9 @@ describe('Targeting Operators', () => {
           values: ['admin@', 'support@'],
         }
 
-        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
-        expect(testClause(clause, { email: 'support@example.com' })).toBe(true)
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(false)
+        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'support@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(false)
       })
 
       it('should be case-sensitive', () => {
@@ -289,22 +289,22 @@ describe('Targeting Operators', () => {
         const clause: TargetingClause = {
           attribute: 'email',
           operator: 'endsWith',
-          values: ['@example.com'],
+          values: ['@example.com.ai'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
-        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
       })
 
       it('should not match when string does not end with suffix', () => {
         const clause: TargetingClause = {
           attribute: 'email',
           operator: 'endsWith',
-          values: ['@example.com'],
+          values: ['@example.com.ai'],
         }
 
         expect(testClause(clause, { email: 'user@example.org' })).toBe(false)
-        expect(testClause(clause, { email: 'user@example.com.uk' })).toBe(false)
+        expect(testClause(clause, { email: 'user@example.com.ai.uk' })).toBe(false)
       })
 
       it('should match any suffix in the list', () => {
@@ -314,7 +314,7 @@ describe('Targeting Operators', () => {
           values: ['.com', '.org'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
         expect(testClause(clause, { email: 'user@example.org' })).toBe(true)
         expect(testClause(clause, { email: 'user@example.net' })).toBe(false)
       })
@@ -328,8 +328,8 @@ describe('Targeting Operators', () => {
           values: ['^[a-z]+@example\\.com$'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
-        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
       })
 
       it('should not match when string does not match regex', () => {
@@ -339,7 +339,7 @@ describe('Targeting Operators', () => {
           values: ['^[a-z]+@example\\.com$'],
         }
 
-        expect(testClause(clause, { email: 'User@example.com' })).toBe(false) // Capital letter
+        expect(testClause(clause, { email: 'User@example.com.ai' })).toBe(false) // Capital letter
         expect(testClause(clause, { email: 'user@other.com' })).toBe(false)
       })
 

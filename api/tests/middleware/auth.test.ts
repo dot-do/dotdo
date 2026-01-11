@@ -328,8 +328,8 @@ describe('JWT Token Verification', () => {
   })
 
   it('verifies JWT signature using jose library', async () => {
-    const token = createJWT({ sub: 'user-123', email: 'user@example.com', role: 'user' })
-    mockValidJWTVerification({ sub: 'user-123', email: 'user@example.com', role: 'user' })
+    const token = createJWT({ sub: 'user-123', email: 'user@example.com.ai', role: 'user' })
+    mockValidJWTVerification({ sub: 'user-123', email: 'user@example.com.ai', role: 'user' })
 
     const res = await request('GET', '/protected', {
       headers: {
@@ -395,13 +395,13 @@ describe('JWT Token Verification', () => {
   it('extracts user info from JWT payload', async () => {
     const token = createJWT({
       sub: 'user-456',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       role: 'admin',
       permissions: ['read', 'write', 'delete'],
     })
     mockValidJWTVerification({
       sub: 'user-456',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       role: 'admin',
       permissions: ['read', 'write', 'delete'],
     })
@@ -721,12 +721,12 @@ describe('Auth Context Available in Request', () => {
   it('sets auth context with email when present in JWT', async () => {
     const token = createJWT({
       sub: 'user-123',
-      email: 'user@example.com',
+      email: 'user@example.com.ai',
       role: 'user',
     })
     mockValidJWTVerification({
       sub: 'user-123',
-      email: 'user@example.com',
+      email: 'user@example.com.ai',
       role: 'user',
     })
 
@@ -747,7 +747,7 @@ describe('Auth Context Available in Request', () => {
 
     expect(res.status).toBe(200)
     const body = (await res.json()) as AuthResponse
-    expect(body.email).toBe('user@example.com')
+    expect(body.email).toBe('user@example.com.ai')
   })
 
   it('sets auth context with role from JWT', async () => {
@@ -864,7 +864,7 @@ describe('CORS Headers', () => {
   it('sets Access-Control-Allow-Origin header', async () => {
     const res = await request('GET', '/public', {
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
       },
     })
 
@@ -886,7 +886,7 @@ describe('CORS Headers', () => {
     const res = await app.request('/protected', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Authorization, Content-Type',
       },
@@ -901,7 +901,7 @@ describe('CORS Headers', () => {
     const res = await app.request('/protected', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'Authorization',
       },
@@ -915,7 +915,7 @@ describe('CORS Headers', () => {
     const res = await app.request('/protected', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'X-API-Key',
       },
@@ -929,7 +929,7 @@ describe('CORS Headers', () => {
     const res = await app.request('/protected', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         'Access-Control-Request-Method': 'GET',
       },
     }, testEnv)
@@ -942,7 +942,7 @@ describe('CORS Headers', () => {
   it('includes CORS headers on error responses', async () => {
     const res = await request('GET', '/protected', {
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         // No auth - should get 401
       },
     })
@@ -954,7 +954,7 @@ describe('CORS Headers', () => {
   it('allows credentials when configured', async () => {
     const res = await request('GET', '/public', {
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
       },
     })
 
@@ -967,7 +967,7 @@ describe('CORS Headers', () => {
 
     const res = await request('GET', '/protected', {
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://example.com.ai',
         Authorization: `Bearer ${token}`,
       },
     })
@@ -1142,7 +1142,7 @@ describe('Session Validation with better-auth', () => {
         },
         user: {
           id: 'user-456',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           role: 'user',
         },
       })
@@ -1152,7 +1152,7 @@ describe('Session Validation with better-auth', () => {
 
       expect(result).not.toBeNull()
       expect(result?.userId).toBe('user-456')
-      expect(result?.email).toBe('test@example.com')
+      expect(result?.email).toBe('test@example.com.ai')
       expect(result?.role).toBe('user')
     })
 
@@ -1197,7 +1197,7 @@ describe('Session Validation with better-auth', () => {
         },
         user: {
           id: 'admin-user',
-          email: 'admin@example.com',
+          email: 'admin@example.com.ai',
           role: 'admin',
         },
       })
@@ -1219,7 +1219,7 @@ describe('Session Validation with better-auth', () => {
         },
         user: {
           id: 'user-456',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           role: null,
         },
       })
@@ -1250,7 +1250,7 @@ describe('Session Validation with better-auth', () => {
       const futureDate = new Date(Date.now() + 3600000)
       const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
         userId: 'session-user',
-        email: 'session@example.com',
+        email: 'session@example.com.ai',
         role: 'user' as const,
         expiresAt: futureDate,
       })
@@ -1332,7 +1332,7 @@ describe('Session Validation with better-auth', () => {
       const futureDate = new Date(Date.now() + 3600000)
       const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
         userId: 'cached-user',
-        email: 'cached@example.com',
+        email: 'cached@example.com.ai',
         role: 'user' as const,
         expiresAt: futureDate,
       })
@@ -1365,7 +1365,7 @@ describe('Session Validation with better-auth', () => {
       const futureDate = new Date(Date.now() + 3600000)
       const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
         userId: 'cached-user',
-        email: 'cached@example.com',
+        email: 'cached@example.com.ai',
         role: 'user' as const,
         expiresAt: futureDate,
       })
@@ -1376,7 +1376,7 @@ describe('Session Validation with better-auth', () => {
         'session:precached-token',
         JSON.stringify({
           userId: 'cached-user',
-          email: 'cached@example.com',
+          email: 'cached@example.com.ai',
           role: 'user',
           expiresAt: futureDate.toISOString(),
         }),
@@ -1408,7 +1408,7 @@ describe('Session Validation with better-auth', () => {
       const futureDate = new Date(Date.now() + 3600000)
       const mockValidator: SessionValidator = vi.fn().mockResolvedValue({
         userId: 'fresh-user',
-        email: 'fresh@example.com',
+        email: 'fresh@example.com.ai',
         role: 'user' as const,
         expiresAt: futureDate,
       })
@@ -1419,7 +1419,7 @@ describe('Session Validation with better-auth', () => {
         'session:expired-cached-token',
         JSON.stringify({
           userId: 'expired-user',
-          email: 'expired@example.com',
+          email: 'expired@example.com.ai',
           role: 'user',
           expiresAt: pastDate.toISOString(),
         }),
@@ -1529,7 +1529,7 @@ describe('Session Validation with better-auth', () => {
         validatorCallCount++
         return Promise.resolve({
           userId: 'memory-cached-user',
-          email: 'memory@example.com',
+          email: 'memory@example.com.ai',
           role: 'user' as const,
           expiresAt: futureDate,
         })

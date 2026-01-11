@@ -869,7 +869,7 @@ describe('SlidingWindowLimiter', () => {
         'user:123:action:create',
         'ip:192.168.1.1',
         'api:v1/users/list',
-        'user:test@example.com',
+        'user:test@example.com.ai',
         'user:name with spaces',
         'user:unicode-\u00e9\u00e8\u00ea',
       ]

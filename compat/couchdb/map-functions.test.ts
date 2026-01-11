@@ -45,13 +45,13 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
 
     it('executes emit with nested field as key', () => {
       const mapFn = `function(doc) { emit(doc.user.email, doc.name); }`
-      const doc = { _id: '1', user: { email: 'test@example.com' }, name: 'Alice' }
+      const doc = { _id: '1', user: { email: 'test@example.com.ai' }, name: 'Alice' }
 
       const results = executeMapFunction(mapFn, doc)
 
       expect(results).toHaveLength(1)
       expect(results[0]).toEqual({
-        key: 'test@example.com',
+        key: 'test@example.com.ai',
         value: 'Alice',
       })
     })
@@ -158,8 +158,8 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
         }
       }`
 
-      const activeUser = { _id: '1', type: 'user', active: true, email: 'alice@example.com', name: 'Alice' }
-      const inactiveUser = { _id: '2', type: 'user', active: false, email: 'bob@example.com', name: 'Bob' }
+      const activeUser = { _id: '1', type: 'user', active: true, email: 'alice@example.com.ai', name: 'Alice' }
+      const inactiveUser = { _id: '2', type: 'user', active: false, email: 'bob@example.com.ai', name: 'Bob' }
       const nonUser = { _id: '3', type: 'post', title: 'Hello' }
 
       expect(executeMapFunction(mapFn, activeUser)).toHaveLength(1)
@@ -204,7 +204,7 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
         }
       }`
 
-      const withEmail = { _id: '1', email: 'test@example.com', name: 'Test' }
+      const withEmail = { _id: '1', email: 'test@example.com.ai', name: 'Test' }
       const withoutEmail = { _id: '2', name: 'NoEmail' }
 
       expect(executeMapFunction(mapFn, withEmail)).toHaveLength(1)
@@ -310,14 +310,14 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
       const mapFn = `function(doc) {
         emit(doc.firstName + ' ' + doc.lastName, doc.email);
       }`
-      const doc = { _id: '1', firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com' }
+      const doc = { _id: '1', firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com.ai' }
 
       const results = executeMapFunction(mapFn, doc)
 
       expect(results).toHaveLength(1)
       expect(results[0]).toEqual({
         key: 'Alice Smith',
-        value: 'alice@example.com',
+        value: 'alice@example.com.ai',
       })
     })
 
@@ -349,7 +349,7 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
 
       expect(results).toHaveLength(1)
       expect(results[0]).toEqual({
-        key: 'alice@example.com',
+        key: 'alice@example.com.ai',
         value: '1',
       })
     })
@@ -685,7 +685,7 @@ describe('CouchDB MapReduce: Map Function Parsing', () => {
       const results = executeMapFunction(mapFn, user)
 
       expect(results).toEqual([
-        { key: 'alice@example.com', value: { _id: 'user-1', name: 'Alice' } }
+        { key: 'alice@example.com.ai', value: { _id: 'user-1', name: 'Alice' } }
       ])
     })
 

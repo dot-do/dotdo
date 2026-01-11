@@ -1613,7 +1613,7 @@ describe('Integration', () => {
     const userId = 'user:123'
     const userData = {
       name: 'Alice',
-      email: 'alice@example.com',
+      email: 'alice@example.com.ai',
       score: '100',
     }
 

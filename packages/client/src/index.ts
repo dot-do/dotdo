@@ -18,7 +18,7 @@
  *
  * // Explicit namespace
  * import { $Context } from '@dotdo/client'
- * const $ = $Context('https://api.example.com')
+ * const $ = $Context('https://api.example.com.ai')
  * await $.User(id).update(data)
  * ```
  */
@@ -993,14 +993,14 @@ export function disposeAllSessions(): void {
 /**
  * Create an RPC client for a specific namespace URL.
  *
- * @param namespace - The namespace URL (e.g., 'https://api.example.com')
+ * @param namespace - The namespace URL (e.g., 'https://api.example.com.ai')
  * @returns An RPC client with promise pipelining support
  *
  * @example
  * ```typescript
  * import { $Context } from '@dotdo/client'
  *
- * const $ = $Context('https://api.example.com')
+ * const $ = $Context('https://api.example.com.ai')
  * await $.Customer('alice').profile.email
  * ```
  */

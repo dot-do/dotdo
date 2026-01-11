@@ -643,7 +643,7 @@ function valueToSql(value: unknown): string {
  *
  * await db.query(
  *   'INSERT INTO users VALUES ($1, $2, $3)',
- *   ['user-1', 'alice@example.com', embedding]
+ *   ['user-1', 'alice@example.com.ai', embedding]
  * )
  *
  * const result = await db.query(

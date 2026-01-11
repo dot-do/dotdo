@@ -58,7 +58,7 @@ describe('on.Entity.event', () => {
       const handler = vi.fn()
       on.Customer.signup(handler)
 
-      const customer = { id: 'cust-123', email: 'test@example.com' }
+      const customer = { id: 'cust-123', email: 'test@example.com.ai' }
       // Simulate event firing
       const handlers = getRegisteredHandlers('Customer.signup')
       handlers[0](customer)

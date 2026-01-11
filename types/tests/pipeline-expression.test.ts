@@ -94,7 +94,7 @@ describe('PipelineExpression Union Completeness', () => {
         type: 'send',
         entity: 'Customer',
         event: 'signup',
-        payload: { email: 'test@example.com' },
+        payload: { email: 'test@example.com.ai' },
       }
 
       // This should be assignable to PipelineExpression
@@ -293,7 +293,7 @@ describe('Integration with send proxy (workflows/on.ts)', () => {
       }
     }
 
-    const result = createSendExpression('Customer', 'signup', { email: 'test@example.com' })
+    const result = createSendExpression('Customer', 'signup', { email: 'test@example.com.ai' })
     expectTypeOf(result).toMatchTypeOf<PipelineExpression>()
   })
 })

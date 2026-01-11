@@ -155,7 +155,7 @@ describe('BenthosConfig schema', () => {
     it('validates http_client output config', () => {
       const output: OutputConfig = {
         http_client: {
-          url: 'http://example.com/api',
+          url: 'http://example.com.ai/api',
           verb: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -270,7 +270,7 @@ describe('BenthosConfig schema', () => {
     it('validates http processor', () => {
       const processor: ProcessorConfig = {
         http: {
-          url: 'http://api.example.com/process',
+          url: 'http://api.example.com.ai/process',
           verb: 'POST',
           headers: { 'Content-Type': 'application/json' }
         }

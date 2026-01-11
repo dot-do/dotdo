@@ -285,7 +285,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test')
+      const request = new Request('https://example.com.ai/test')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response).toBeInstanceOf(Response)
@@ -298,7 +298,7 @@ describe('Customer Worker Helpers', () => {
       const ctx = createMockExecutionContext()
 
       // URL format: /{id}/... should route to DO with that id
-      const request = new Request('https://example.com/user-123/profile')
+      const request = new Request('https://example.com.ai/user-123/profile')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(200)
@@ -309,7 +309,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/profile?id=user-123')
+      const request = new Request('https://example.com.ai/profile?id=user-123')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(200)
@@ -320,7 +320,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/profile', {
+      const request = new Request('https://example.com.ai/profile', {
         headers: { 'X-DO-ID': 'user-123' },
       })
       const response = await worker.fetch(request, env, ctx)
@@ -338,7 +338,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/api/custom-id/action')
+      const request = new Request('https://example.com.ai/api/custom-id/action')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(200)
@@ -349,7 +349,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/')
+      const request = new Request('https://example.com.ai/')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(400)
@@ -362,7 +362,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id/action')
+      const request = new Request('https://example.com.ai/test-id/action')
       await worker.fetch(request, env, ctx)
 
       // Verify env was passed (implementation detail)
@@ -385,7 +385,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/ws-id/connect', {
+      const request = new Request('https://example.com.ai/ws-id/connect', {
         headers: { Upgrade: 'websocket' },
       })
       const response = await worker.fetch(request, env, ctx)
@@ -413,7 +413,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await handler(request, env, ctx)
 
       expect(response).toBeInstanceOf(Response)
@@ -427,7 +427,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       await handler(request, env, ctx)
 
       expect(logMiddleware).toHaveBeenCalled()
@@ -443,7 +443,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await handler(request, env, ctx)
 
       expect(response.status).toBe(401)
@@ -461,7 +461,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       await handler(request, env, ctx)
 
       expect(headerMiddleware).toHaveBeenCalled()
@@ -485,7 +485,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id', {
+      const request = new Request('https://example.com.ai/test-id', {
         headers: { Upgrade: 'websocket' },
       })
       const response = await handler(request, env, ctx)
@@ -499,7 +499,7 @@ describe('Customer Worker Helpers', () => {
       const ctx = createMockExecutionContext()
 
       for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']) {
-        const request = new Request('https://example.com/test-id', { method })
+        const request = new Request('https://example.com.ai/test-id', { method })
         const response = await handler(request, env, ctx)
         expect(response).toBeInstanceOf(Response)
       }
@@ -519,7 +519,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await handler(request, env, ctx)
 
       expect(response.status).toBe(400)
@@ -532,7 +532,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id', {
+      const request = new Request('https://example.com.ai/test-id', {
         headers: { Upgrade: 'websocket' },
       })
       const response = await handler(request, env, ctx)
@@ -554,7 +554,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id', {
+      const request = new Request('https://example.com.ai/test-id', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -578,7 +578,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id', {
+      const request = new Request('https://example.com.ai/test-id', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invalid: 'request' }),
@@ -595,7 +595,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id', {
+      const request = new Request('https://example.com.ai/test-id', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify([
@@ -636,13 +636,13 @@ describe('Customer Worker Helpers', () => {
       const ctx = createMockExecutionContext()
 
       // /users/{id}/... -> UserDO
-      const userRequest = new Request('https://example.com/users/user-123/profile')
+      const userRequest = new Request('https://example.com.ai/users/user-123/profile')
       const userResponse = await worker.fetch(userRequest, env, ctx)
       const userData = await userResponse.json()
       expect(userData.type).toBe('UserDO')
 
       // /posts/{id}/... -> PostDO
-      const postRequest = new Request('https://example.com/posts/post-456/content')
+      const postRequest = new Request('https://example.com.ai/posts/post-456/content')
       const postResponse = await worker.fetch(postRequest, env, ctx)
       const postData = await postResponse.json()
       expect(postData.type).toBe('PostDO')
@@ -656,7 +656,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/unknown/id-123')
+      const request = new Request('https://example.com.ai/unknown/id-123')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(404)
@@ -670,7 +670,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/api/v1/users/user-123/profile')
+      const request = new Request('https://example.com.ai/api/v1/users/user-123/profile')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(200)
@@ -696,11 +696,11 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      await worker.fetch(new Request('https://example.com/users/id/test'), env, ctx)
+      await worker.fetch(new Request('https://example.com.ai/users/id/test'), env, ctx)
       expect(userMiddleware).toHaveBeenCalled()
       expect(postMiddleware).not.toHaveBeenCalled()
 
-      await worker.fetch(new Request('https://example.com/posts/id/test'), env, ctx)
+      await worker.fetch(new Request('https://example.com.ai/posts/id/test'), env, ctx)
       expect(postMiddleware).toHaveBeenCalled()
     })
 
@@ -717,10 +717,10 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      await worker.fetch(new Request('https://example.com/users/id/test'), env, ctx)
+      await worker.fetch(new Request('https://example.com.ai/users/id/test'), env, ctx)
       expect(globalMiddleware).toHaveBeenCalledTimes(1)
 
-      await worker.fetch(new Request('https://example.com/posts/id/test'), env, ctx)
+      await worker.fetch(new Request('https://example.com.ai/posts/id/test'), env, ctx)
       expect(globalMiddleware).toHaveBeenCalledTimes(2)
     })
   })
@@ -837,7 +837,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        await wrapped(new Request('https://example.com'), env, ctx)
+        await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(middleware).toHaveBeenCalled()
         expect(baseHandler).toHaveBeenCalled()
@@ -866,7 +866,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        await wrapped(new Request('https://example.com'), env, ctx)
+        await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(order).toEqual(['first-before', 'second-before', 'handler', 'second-after', 'first-after'])
       })
@@ -882,7 +882,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const response = await wrapped(new Request('https://example.com'), env, ctx)
+        const response = await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(response.status).toBe(500)
         const body = await response.json()
@@ -896,7 +896,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const response = await wrapped(new Request('https://example.com'), env, ctx)
+        const response = await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(response.status).toBe(200)
       })
@@ -913,7 +913,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const response = await wrapped(new Request('https://example.com'), env, ctx)
+        const response = await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(response.status).toBe(418)
         expect(customErrorHandler).toHaveBeenCalled()
@@ -928,7 +928,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const response = await wrapped(new Request('https://example.com'), env, ctx)
+        const response = await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(response.headers.get('Access-Control-Allow-Origin')).toBeDefined()
       })
@@ -941,7 +941,7 @@ describe('Customer Worker Helpers', () => {
         const ctx = createMockExecutionContext()
 
         const response = await wrapped(
-          new Request('https://example.com', { method: 'OPTIONS' }),
+          new Request('https://example.com.ai', { method: 'OPTIONS' }),
           env,
           ctx
         )
@@ -962,7 +962,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const response = await wrapped(new Request('https://example.com'), env, ctx)
+        const response = await wrapped(new Request('https://example.com.ai'), env, ctx)
 
         expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://allowed-origin.com')
       })
@@ -979,7 +979,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const validRequest = new Request('https://example.com', {
+        const validRequest = new Request('https://example.com.ai', {
           headers: { Authorization: 'Bearer valid-token' },
         })
         const validResponse = await wrapped(validRequest, env, ctx)
@@ -997,7 +997,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const invalidRequest = new Request('https://example.com', {
+        const invalidRequest = new Request('https://example.com.ai', {
           headers: { Authorization: 'Bearer invalid-token' },
         })
         const invalidResponse = await wrapped(invalidRequest, env, ctx)
@@ -1015,7 +1015,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const noAuthRequest = new Request('https://example.com')
+        const noAuthRequest = new Request('https://example.com.ai')
         const noAuthResponse = await wrapped(noAuthRequest, env, ctx)
         expect(noAuthResponse.status).toBe(401)
       })
@@ -1031,7 +1031,7 @@ describe('Customer Worker Helpers', () => {
         const env = createMockEnv()
         const ctx = createMockExecutionContext()
 
-        const request = new Request('https://example.com', {
+        const request = new Request('https://example.com.ai', {
           headers: { 'X-API-Key': 'secret-key' },
         })
         const response = await wrapped(request, env, ctx)
@@ -1136,7 +1136,7 @@ describe('Customer Worker Helpers', () => {
       const emptyEnv: MockEnv = {}
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await worker.fetch(request, emptyEnv, ctx)
 
       expect(response.status).toBe(500)
@@ -1151,7 +1151,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/INVALID_ID!')
+      const request = new Request('https://example.com.ai/INVALID_ID!')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response.status).toBe(400)
@@ -1170,7 +1170,7 @@ describe('Customer Worker Helpers', () => {
       const env = { ERROR_DO: createMockDONamespace(ErrorDO as unknown as typeof MockDO) }
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await worker.fetch(request, env as MockEnv, ctx)
 
       expect(response.status).toBe(500)
@@ -1183,7 +1183,7 @@ describe('Customer Worker Helpers', () => {
 
       // Note: This test documents expected behavior
       // Actual timeout implementation may vary
-      const request = new Request('https://example.com/test-id')
+      const request = new Request('https://example.com.ai/test-id')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response).toBeInstanceOf(Response)
@@ -1200,7 +1200,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/')
+      const request = new Request('https://example.com.ai/')
       const response = await worker.fetch(request, env, ctx)
 
       // Should return error for missing ID or handle gracefully
@@ -1213,7 +1213,7 @@ describe('Customer Worker Helpers', () => {
       const ctx = createMockExecutionContext()
 
       const longId = 'a'.repeat(1000)
-      const request = new Request(`https://example.com/${longId}`)
+      const request = new Request(`https://example.com.ai/${longId}`)
       const response = await worker.fetch(request, env, ctx)
 
       // Should either work or return appropriate error
@@ -1225,7 +1225,7 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const request = new Request('https://example.com/id-with-special%20chars')
+      const request = new Request('https://example.com.ai/id-with-special%20chars')
       const response = await worker.fetch(request, env, ctx)
 
       expect(response).toBeInstanceOf(Response)
@@ -1237,7 +1237,7 @@ describe('Customer Worker Helpers', () => {
       const ctx = createMockExecutionContext()
 
       const requests = Array.from({ length: 10 }, (_, i) =>
-        worker.fetch(new Request(`https://example.com/same-id/request-${i}`), env, ctx)
+        worker.fetch(new Request(`https://example.com.ai/same-id/request-${i}`), env, ctx)
       )
 
       const responses = await Promise.all(requests)
@@ -1249,8 +1249,8 @@ describe('Customer Worker Helpers', () => {
       const env = createMockEnv()
       const ctx = createMockExecutionContext()
 
-      const withSlash = new Request('https://example.com/test-id/')
-      const withoutSlash = new Request('https://example.com/test-id')
+      const withSlash = new Request('https://example.com.ai/test-id/')
+      const withoutSlash = new Request('https://example.com.ai/test-id')
 
       const [r1, r2] = await Promise.all([
         worker.fetch(withSlash, env, ctx),

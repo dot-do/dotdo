@@ -156,7 +156,7 @@ export type ServerMessage = InitialMessage | ChangeMessage
 
 /**
  * Extract collection name from a $type URL
- * e.g., 'https://example.com/Task' -> 'Task'
+ * e.g., 'https://example.com.ai/Task' -> 'Task'
  */
 export function getCollectionFromType($type: string): string {
   try {

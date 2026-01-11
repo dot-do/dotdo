@@ -487,11 +487,11 @@ Git-like branching for parallel development.
 **Addressing:**
 
 ```
-https://example.com/acme              # HEAD of main (default)
-https://example.com/acme@main         # explicit main branch
-https://example.com/acme@experiment   # experiment branch
-https://example.com/acme@v1234        # specific version (rowid)
-https://example.com/acme@~1           # one version back
+https://example.com.ai/acme              # HEAD of main (default)
+https://example.com.ai/acme@main         # explicit main branch
+https://example.com.ai/acme@experiment   # experiment branch
+https://example.com.ai/acme@v1234        # specific version (rowid)
+https://example.com.ai/acme@~1           # one version back
 ```
 
 **Operations:**

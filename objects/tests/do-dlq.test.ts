@@ -228,7 +228,7 @@ describe('DO Dead Letter Queue (DLQ)', () => {
     mockState = createMockState(tables)
     mockEnv = createMockEnv()
     doInstance = new DO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   // ==========================================================================

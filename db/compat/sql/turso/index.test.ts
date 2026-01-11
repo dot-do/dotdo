@@ -601,8 +601,8 @@ describe('integration', () => {
 
     // Insert users
     await client.batch([
-      { sql: 'INSERT INTO users (name, email) VALUES (?, ?)', args: ['Alice', 'alice@example.com'] },
-      { sql: 'INSERT INTO users (name, email) VALUES (?, ?)', args: ['Bob', 'bob@example.com'] },
+      { sql: 'INSERT INTO users (name, email) VALUES (?, ?)', args: ['Alice', 'alice@example.com.ai'] },
+      { sql: 'INSERT INTO users (name, email) VALUES (?, ?)', args: ['Bob', 'bob@example.com.ai'] },
     ])
 
     // Insert posts in transaction

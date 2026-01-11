@@ -168,7 +168,7 @@ describe('AnalyticsEvent', () => {
 describe('UserTraits', () => {
   describe('reserved traits', () => {
     it('should support email trait', () => {
-      const traits: UserTraits = { email: 'test@example.com' }
+      const traits: UserTraits = { email: 'test@example.com.ai' }
       expectTypeOf(traits.email).toMatchTypeOf<string | undefined>()
     })
 
@@ -198,7 +198,7 @@ describe('UserTraits', () => {
     })
 
     it('should support avatar trait', () => {
-      const traits: UserTraits = { avatar: 'https://example.com/avatar.jpg' }
+      const traits: UserTraits = { avatar: 'https://example.com.ai/avatar.jpg' }
       expectTypeOf(traits.avatar).toMatchTypeOf<string | undefined>()
     })
 
@@ -233,7 +233,7 @@ describe('UserTraits', () => {
     })
 
     it('should support website trait', () => {
-      const traits: UserTraits = { website: 'https://example.com' }
+      const traits: UserTraits = { website: 'https://example.com.ai' }
       expectTypeOf(traits.website).toMatchTypeOf<string | undefined>()
     })
   })
@@ -555,7 +555,7 @@ describe('EventContext', () => {
     it('should support traits for server-side', () => {
       const context: EventContext = {
         traits: {
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           name: 'Test User',
         },
       }
@@ -573,7 +573,7 @@ describe('PropertyOperations', () => {
     const ops: PropertyOperations = {
       $set: {
         name: 'John Doe',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
       },
     }
     expectTypeOf(ops.$set).toMatchTypeOf<Record<string, unknown> | undefined>()
@@ -676,7 +676,7 @@ describe('IdentifyEvent', () => {
       type: 'identify',
       userId: 'user-123',
       traits: {
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         name: 'Test User',
       },
     }
@@ -717,7 +717,7 @@ describe('PageEvent', () => {
       anonymousId: 'anon-123',
       properties: {
         title: 'Home Page',
-        url: 'https://example.com',
+        url: 'https://example.com.ai',
       },
     }
     expectTypeOf(event.properties).toMatchTypeOf<Record<string, unknown> | undefined>()
@@ -857,7 +857,7 @@ describe('isValidAnalyticsEvent', () => {
 describe('isValidUserTraits', () => {
   it('should return true for valid traits object', () => {
     const traits = {
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
       name: 'Test User',
     }
     expect(isValidUserTraits(traits)).toBe(true)

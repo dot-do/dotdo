@@ -80,8 +80,8 @@ describe('PayloadAdapter.updateOne()', () => {
           },
         ],
         users: [
-          { id: 'user-1', email: 'john@example.com', name: 'John Doe' },
-          { id: 'user-2', email: 'jane@example.com', name: 'Jane Smith' },
+          { id: 'user-1', email: 'john@example.com.ai', name: 'John Doe' },
+          { id: 'user-2', email: 'jane@example.com.ai', name: 'Jane Smith' },
         ],
         categories: [
           { id: 'cat-1', name: 'Technology' },
@@ -494,7 +494,7 @@ describe('PayloadAdapter.deleteOne()', () => {
             slug: 'second-post',
           },
         ],
-        users: [{ id: 'user-1', email: 'john@example.com' }],
+        users: [{ id: 'user-1', email: 'john@example.com.ai' }],
       },
     })
   })

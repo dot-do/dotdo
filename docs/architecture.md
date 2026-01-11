@@ -398,7 +398,7 @@ await client.connect()
 // Standard pg syntax, DO-backed storage
 const result = await client.query(
   'SELECT * FROM users WHERE email = $1',
-  ['user@example.com']
+  ['user@example.com.ai']
 )
 ```
 

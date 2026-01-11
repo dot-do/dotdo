@@ -201,7 +201,7 @@ class MockDatabase {
  * Test DO class that simulates the DO base class behavior with compact options
  */
 class TestDO {
-  readonly ns: string = 'https://test.example.com'
+  readonly ns: string = 'https://test.example.com.ai'
   protected db: MockDatabase
   protected ctx: ReturnType<typeof createMockDOState>
   protected env: ReturnType<typeof createMockEnv>

@@ -63,7 +63,7 @@ function createMockTailItem(overrides: Partial<TailItem> = {}): TailItem {
     outcome: 'ok',
     event: {
       request: {
-        url: 'https://api.example.com/users',
+        url: 'https://api.example.com.ai/users',
         method: 'GET',
         headers: {
           'content-type': 'application/json',
@@ -291,7 +291,7 @@ describe('processTailEvents - Request Processing', () => {
       eventTimestamp: 1704067200000,
       event: {
         request: {
-          url: 'https://api.example.com/users/123',
+          url: 'https://api.example.com.ai/users/123',
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -312,7 +312,7 @@ describe('processTailEvents - Request Processing', () => {
     expect(requestEvents[0].level).toBe('info')
     expect(requestEvents[0].script).toBe('api-worker')
     expect(requestEvents[0].method).toBe('POST')
-    expect(requestEvents[0].url).toBe('https://api.example.com/users/123')
+    expect(requestEvents[0].url).toBe('https://api.example.com.ai/users/123')
     expect(requestEvents[0].status).toBe(201)
     expect(requestEvents[0].requestId).toBe('req-xyz789')
   })
@@ -321,7 +321,7 @@ describe('processTailEvents - Request Processing', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/test',
+          url: 'https://api.example.com.ai/test',
           method: 'GET',
           headers: {
             'x-request-id': 'custom-request-id-12345',
@@ -341,7 +341,7 @@ describe('processTailEvents - Request Processing', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/test',
+          url: 'https://api.example.com.ai/test',
           method: 'GET',
           headers: {
             'X-Request-ID': 'uppercase-request-id',
@@ -361,7 +361,7 @@ describe('processTailEvents - Request Processing', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/test',
+          url: 'https://api.example.com.ai/test',
           method: 'GET',
           headers: {
             // No x-request-id header
@@ -384,7 +384,7 @@ describe('processTailEvents - Request Processing', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/test',
+          url: 'https://api.example.com.ai/test',
           method: 'GET',
           headers: {
             'x-request-id': 'req-no-response',
@@ -403,14 +403,14 @@ describe('processTailEvents - Request Processing', () => {
     expect(requestEvents).toHaveLength(1)
     expect(requestEvents[0].status).toBeUndefined()
     expect(requestEvents[0].method).toBe('GET')
-    expect(requestEvents[0].url).toBe('https://api.example.com/test')
+    expect(requestEvents[0].url).toBe('https://api.example.com.ai/test')
   })
 
   it('should set level to error for 5xx status codes', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/error',
+          url: 'https://api.example.com.ai/error',
           method: 'GET',
           headers: {},
         },
@@ -429,7 +429,7 @@ describe('processTailEvents - Request Processing', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/not-found',
+          url: 'https://api.example.com.ai/not-found',
           method: 'GET',
           headers: {},
         },
@@ -601,7 +601,7 @@ describe('processTailEvents - Request ID Correlation', () => {
     const tailItem = createMockTailItem({
       event: {
         request: {
-          url: 'https://api.example.com/test',
+          url: 'https://api.example.com.ai/test',
           method: 'GET',
           headers: {
             'x-request-id': 'shared-request-id',

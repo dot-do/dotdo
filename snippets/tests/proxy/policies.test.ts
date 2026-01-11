@@ -78,7 +78,7 @@ describe('JWT Policy', () => {
   }
 
   it('rejects missing JWT on protected route with 401', async () => {
-    const request = new Request('https://example.com/api/protected')
+    const request = new Request('https://example.com.ai/api/protected')
     const context = { ...baseContext }
 
     const result = await applyJwtPolicy(request, jwtPolicy, context)
@@ -89,7 +89,7 @@ describe('JWT Policy', () => {
 
   it('rejects expired JWT with 401', async () => {
     const expiredToken = createMockJwt({ sub: 'user_123' }, true)
-    const request = new Request('https://example.com/api/protected', {
+    const request = new Request('https://example.com.ai/api/protected', {
       headers: { Authorization: `Bearer ${expiredToken}` },
     })
     const context = { ...baseContext }
@@ -101,7 +101,7 @@ describe('JWT Policy', () => {
   })
 
   it('extracts JWT from Authorization header', async () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { Authorization: 'Bearer valid-token' },
     })
 
@@ -113,7 +113,7 @@ describe('JWT Policy', () => {
   })
 
   it('extracts JWT from cookie', async () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { Cookie: '__auth_token=cookie-token; other=value' },
     })
 
@@ -125,13 +125,13 @@ describe('JWT Policy', () => {
   it('stores claims in context for variable resolution', async () => {
     // When JWT is valid, claims should be stored in context
     const context = { ...baseContext }
-    const claims = { sub: 'user_123', email: 'test@example.com' }
+    const claims = { sub: 'user_123', email: 'test@example.com.ai' }
 
     // Simulate storing claims after successful verification
     context.jwt = claims
 
     expect(context.jwt.sub).toBe('user_123')
-    expect(context.jwt.email).toBe('test@example.com')
+    expect(context.jwt.email).toBe('test@example.com.ai')
   })
 })
 
@@ -163,7 +163,7 @@ describe('Rate Limit Cache Policy', () => {
 
   it('checks cache for existing 429', async () => {
     mockCachesMatch.mockResolvedValue(null)
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     await applyRateLimitCachePolicy(request, rateLimitPolicy, baseContext)
 
@@ -175,7 +175,7 @@ describe('Rate Limit Cache Policy', () => {
       status: 429,
       clone: () => new Response('Too Many Requests', { status: 429 }),
     })
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = await applyRateLimitCachePolicy(request, rateLimitPolicy, baseContext)
 
@@ -185,7 +185,7 @@ describe('Rate Limit Cache Policy', () => {
 
   it('passes through when no cached 429', async () => {
     mockCachesMatch.mockResolvedValue(null)
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = await applyRateLimitCachePolicy(request, rateLimitPolicy, baseContext)
 
@@ -202,7 +202,7 @@ describe('Rate Limit Cache Policy', () => {
       type: 'rateLimitCache',
       keyFrom: '$jwt.sub',
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     await applyRateLimitCachePolicy(request, policy, contextWithJwt)
 
@@ -212,7 +212,7 @@ describe('Rate Limit Cache Policy', () => {
 
   it('generates cache key from $cf.ip when no JWT', async () => {
     mockCachesMatch.mockResolvedValue(null)
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     await applyRateLimitCachePolicy(request, rateLimitPolicy, baseContext)
 
@@ -233,27 +233,27 @@ describe('CORS Policy', () => {
 
   const corsPolicy: CorsPolicy = {
     type: 'cors',
-    origins: ['https://app.example.com', 'https://admin.example.com'],
+    origins: ['https://app.example.com.ai', 'https://admin.example.com.ai'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     headers: ['Authorization', 'Content-Type'],
   }
 
   it('adds CORS headers for allowed origins', () => {
-    const request = new Request('https://example.com/api/test', {
-      headers: { Origin: 'https://app.example.com' },
+    const request = new Request('https://example.com.ai/api/test', {
+      headers: { Origin: 'https://app.example.com.ai' },
     })
 
     const result = applyCorsPolicy(request, corsPolicy, baseContext)
 
     expect(result.allowed).toBe(true)
-    expect(result.headers?.get('Access-Control-Allow-Origin')).toBe('https://app.example.com')
+    expect(result.headers?.get('Access-Control-Allow-Origin')).toBe('https://app.example.com.ai')
   })
 
   it('handles preflight OPTIONS request', () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://app.example.com',
+        Origin: 'https://app.example.com.ai',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Content-Type',
       },
@@ -272,7 +272,7 @@ describe('CORS Policy', () => {
   })
 
   it('rejects disallowed origins', () => {
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { Origin: 'https://evil.com' },
     })
 
@@ -290,7 +290,7 @@ describe('CORS Policy', () => {
       methods: ['GET'],
       headers: [],
     }
-    const request = new Request('https://example.com/api/test', {
+    const request = new Request('https://example.com.ai/api/test', {
       headers: { Origin: 'https://any-domain.com' },
     })
 
@@ -316,7 +316,7 @@ describe('Geo Block Policy', () => {
       blockedCountries: ['CN', 'RU'],
     }
     const context: ProxyContext = { ...baseContext, cf: { country: 'CN' } }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyGeoBlockPolicy(request, policy, context)
 
@@ -329,7 +329,7 @@ describe('Geo Block Policy', () => {
       type: 'geoBlock',
       blockedCountries: ['CN', 'RU'],
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyGeoBlockPolicy(request, policy, baseContext)
 
@@ -342,7 +342,7 @@ describe('Geo Block Policy', () => {
       blockedCountries: ['CN'],
     }
     const context: ProxyContext = { ...baseContext, cf: {} }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyGeoBlockPolicy(request, policy, context)
 
@@ -354,7 +354,7 @@ describe('Geo Block Policy', () => {
       type: 'geoBlock',
       allowedCountries: ['US', 'CA', 'GB'],
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyGeoBlockPolicy(request, policy, baseContext)
 
@@ -383,7 +383,7 @@ describe('Bot Filter Policy', () => {
       minScore: 50,
     }
     const context: ProxyContext = { ...baseContext, cf: { botScore: 10 } }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyBotFilterPolicy(request, policy, context)
 
@@ -396,7 +396,7 @@ describe('Bot Filter Policy', () => {
       type: 'botFilter',
       minScore: 50,
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyBotFilterPolicy(request, policy, baseContext)
 
@@ -409,7 +409,7 @@ describe('Bot Filter Policy', () => {
       minScore: 50,
     }
     const context: ProxyContext = { ...baseContext, cf: {} }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
 
     const result = applyBotFilterPolicy(request, policy, context)
 
@@ -421,7 +421,7 @@ describe('Bot Filter Policy', () => {
       type: 'botFilter',
       minScore: 90,
     }
-    const request = new Request('https://example.com/api/test')
+    const request = new Request('https://example.com.ai/api/test')
     const context: ProxyContext = { ...baseContext, cf: { botScore: 80 } }
 
     const result = applyBotFilterPolicy(request, strictPolicy, context)

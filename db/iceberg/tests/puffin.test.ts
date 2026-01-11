@@ -331,7 +331,7 @@ describe('NgramBloomFilter', () => {
     it('returns true for substring that exists', () => {
       const filter = new NgramBloomFilter({ expectedElements: 100, ngramSize: 3 })
 
-      filter.add('hello@example.com')
+      filter.add('hello@example.com.ai')
       filter.add('world@test.org')
 
       expect(filter.mightContainSubstring('example')).toBe(true)
@@ -342,7 +342,7 @@ describe('NgramBloomFilter', () => {
     it('returns false for substring that does not exist (usually)', () => {
       const filter = new NgramBloomFilter({ expectedElements: 100, ngramSize: 3 })
 
-      filter.add('hello@example.com')
+      filter.add('hello@example.com.ai')
       filter.add('world@test.org')
 
       expect(filter.mightContainSubstring('zzzzz')).toBe(false)
@@ -382,7 +382,7 @@ describe('NgramBloomFilter', () => {
     it('roundtrips correctly', () => {
       const original = new NgramBloomFilter({ expectedElements: 100, ngramSize: 3 })
 
-      original.add('hello@example.com')
+      original.add('hello@example.com.ai')
       original.add('test@domain.org')
 
       const bytes = original.serialize()
@@ -556,7 +556,7 @@ describe('PuffinWriter', () => {
       const writer = new PuffinWriter({ snapshotId: 1, sequenceNumber: 1 })
       const filter = new NgramBloomFilter({ expectedElements: 100 })
 
-      filter.add('test@example.com')
+      filter.add('test@example.com.ai')
       writer.addNgramBloomFilter(5, filter)
 
       const bytes = writer.finish()
@@ -583,7 +583,7 @@ describe('PuffinWriter', () => {
       writer.addBloomFilter(5, bloom)
 
       const ngram = new NgramBloomFilter({ expectedElements: 100 })
-      ngram.add('test@example.com')
+      ngram.add('test@example.com.ai')
       writer.addNgramBloomFilter(5, ngram)
 
       const setIdx = new SetIndex()
@@ -729,7 +729,7 @@ describe('PuffinReader', () => {
 
       // Add two different blob types for same field
       writer.addBloomFilter(5, createBloomFilterFromValues(['test']))
-      writer.addNgramBloomFilter(5, createNgramBloomFromValues(['test@example.com']))
+      writer.addNgramBloomFilter(5, createNgramBloomFromValues(['test@example.com.ai']))
       writer.addBloomFilter(7, createBloomFilterFromValues(['other']))
 
       const bytes = writer.finish()
@@ -763,7 +763,7 @@ describe('PuffinReader', () => {
     })
 
     it('extracts and parses ngram bloom filter', () => {
-      const original = createNgramBloomFromValues(['hello@example.com', 'world@test.org'])
+      const original = createNgramBloomFromValues(['hello@example.com.ai', 'world@test.org'])
 
       const writer = new PuffinWriter({ snapshotId: 123, sequenceNumber: 1 })
       writer.addNgramBloomFilter(5, original)
@@ -942,7 +942,7 @@ describe('Convenience Functions', () => {
 
   describe('createNgramBloomFromValues', () => {
     it('creates filter supporting substring queries', () => {
-      const values = ['hello@example.com', 'world@test.org']
+      const values = ['hello@example.com.ai', 'world@test.org']
       const filter = createNgramBloomFromValues(values)
 
       expect(filter.mightContainSubstring('example')).toBe(true)
@@ -1002,11 +1002,11 @@ describe('End-to-End Scenarios', () => {
   describe('Query pruning workflow', () => {
     it('can prune files for equality query (email lookup)', () => {
       // Scenario: We have 3 parquet files, each with emails
-      // Query: WHERE email = 'john@example.com'
+      // Query: WHERE email = 'john@example.com.ai'
 
       const file1Emails = ['alice@a.com', 'bob@b.com', 'carol@c.com']
       const file2Emails = ['dave@d.com', 'eve@e.com', 'frank@f.com']
-      const file3Emails = ['john@example.com', 'jane@example.com'] // Target here!
+      const file3Emails = ['john@example.com.ai', 'jane@example.com.ai'] // Target here!
 
       // Create Puffin sidecars for each file
       const puffin1 = createPuffinForFile(file1Emails, 1)
@@ -1014,7 +1014,7 @@ describe('End-to-End Scenarios', () => {
       const puffin3 = createPuffinForFile(file3Emails, 3)
 
       // Query: can we prune?
-      const targetEmail = 'john@example.com'
+      const targetEmail = 'john@example.com.ai'
 
       const reader1 = PuffinReader.fromBytes(puffin1)
       const reader2 = PuffinReader.fromBytes(puffin2)
@@ -1034,7 +1034,7 @@ describe('End-to-End Scenarios', () => {
       // Scenario: WHERE email LIKE '%example%'
 
       const file1Emails = ['alice@a.com', 'bob@b.com']
-      const file2Emails = ['john@example.com', 'jane@example.org'] // Has 'example'
+      const file2Emails = ['john@example.com.ai', 'jane@example.org'] // Has 'example'
       const file3Emails = ['dave@other.net', 'eve@test.io']
 
       const puffin1 = createPuffinForLike(file1Emails, 1)

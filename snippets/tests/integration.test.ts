@@ -73,7 +73,7 @@ const TEST_CONFIG: ProxyConfig = {
     },
   },
   variables: {
-    domain: 'example.com',
+    domain: 'example.com.ai',
   },
 }
 
@@ -176,7 +176,7 @@ describe('Full Proxy Flow', () => {
 
   it('loads config, matches route, transforms, applies policy, forwards', async () => {
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = new Request('https://example.com/api/test/resource', {
+    const request = new Request('https://example.com.ai/api/test/resource', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const env = createMockEnv()
@@ -198,7 +198,7 @@ describe('Full Proxy Flow', () => {
 
   it('short-circuits on policy rejection', async () => {
     // No JWT token - should be rejected by auth:jwt policy
-    const request = new Request('https://example.com/api/test/resource')
+    const request = new Request('https://example.com.ai/api/test/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -215,7 +215,7 @@ describe('Full Proxy Flow', () => {
   })
 
   it('passes through unmatched routes', async () => {
-    const request = new Request('https://example.com/unmatched/path')
+    const request = new Request('https://example.com.ai/unmatched/path')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -242,7 +242,7 @@ describe('Full Proxy Flow', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    const request = new Request('https://example.com/api/public/resource')
+    const request = new Request('https://example.com.ai/api/public/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -256,7 +256,7 @@ describe('Full Proxy Flow', () => {
 
   it('applies multiple policies in order', async () => {
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = new Request('https://example.com/api/admin/users', {
+    const request = new Request('https://example.com.ai/api/admin/users', {
       headers: { Authorization: `Bearer ${jwt}` },
       cf: { country: 'US' } as RequestInit['cf'],
     })
@@ -276,7 +276,7 @@ describe('Full Proxy Flow', () => {
   })
 
   it('blocks on config path (security)', async () => {
-    const request = new Request('https://example.com/proxy-config.json')
+    const request = new Request('https://example.com.ai/proxy-config.json')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -324,7 +324,7 @@ describe('Subrequest Budget', () => {
 
   it('uses 0 subrequests when config is memory-cached', async () => {
     // Pre-warm the config cache by making a request first
-    const warmupRequest = new Request('https://example.com/api/public/warmup')
+    const warmupRequest = new Request('https://example.com.ai/api/public/warmup')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -334,7 +334,7 @@ describe('Subrequest Budget', () => {
     subrequestCount = 0
 
     // Second request should use memory-cached config
-    const request = new Request('https://example.com/api/public/resource')
+    const request = new Request('https://example.com.ai/api/public/resource')
     await proxySnippet.fetch(request, env, ctx)
 
     // Should only have 1 subrequest (target forward), not config fetch
@@ -348,7 +348,7 @@ describe('Subrequest Budget', () => {
   })
 
   it('uses 1 subrequest for cold config fetch', async () => {
-    const request = new Request('https://example.com/api/public/resource')
+    const request = new Request('https://example.com.ai/api/public/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -396,7 +396,7 @@ describe('Subrequest Budget', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    const request = new Request('https://example.com/api/limited/resource')
+    const request = new Request('https://example.com.ai/api/limited/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -407,7 +407,7 @@ describe('Subrequest Budget', () => {
   })
 
   it('uses 1 subrequest for target forward', async () => {
-    const request = new Request('https://example.com/api/public/resource')
+    const request = new Request('https://example.com.ai/api/public/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -458,7 +458,7 @@ describe('Subrequest Budget', () => {
 
     subrequestCount = 0
 
-    const request = new Request('https://example.com/api/limited/resource')
+    const request = new Request('https://example.com.ai/api/limited/resource')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -486,7 +486,7 @@ describe('Config Passthrough on Error', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    const request = new Request('https://example.com/any/path')
+    const request = new Request('https://example.com.ai/any/path')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -506,7 +506,7 @@ describe('Config Passthrough on Error', () => {
 describe('Route Priority in Integration', () => {
   it('matches higher priority routes first', async () => {
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = new Request('https://example.com/api/admin/resource', {
+    const request = new Request('https://example.com.ai/api/admin/resource', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const env = createMockEnv()
@@ -571,7 +571,7 @@ describe('Transform Chain in Integration', () => {
     vi.stubGlobal('caches', createMockCaches())
 
     const jwt = createTestJwt({ sub: 'user_123' })
-    const request = new Request('https://example.com/api/test/resource', {
+    const request = new Request('https://example.com.ai/api/test/resource', {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     const env = createMockEnv()
@@ -622,7 +622,7 @@ describe('Integration Edge Cases', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    const request = new Request('https://example.com/any/path')
+    const request = new Request('https://example.com.ai/any/path')
     const env = createMockEnv()
     const ctx = createMockContext()
 
@@ -654,7 +654,7 @@ describe('Integration Edge Cases', () => {
     // Make multiple concurrent requests
     const requests = Array.from({ length: 5 }, (_, i) =>
       proxySnippet.fetch(
-        new Request(`https://example.com/api/public/resource/${i}`),
+        new Request(`https://example.com.ai/api/public/resource/${i}`),
         env,
         createMockContext()
       )
@@ -690,7 +690,7 @@ describe('Integration Edge Cases', () => {
     vi.stubGlobal('fetch', mockFetch)
 
     const requestBody = JSON.stringify({ data: 'test-payload' })
-    const request = new Request('https://example.com/api/public/resource', {
+    const request = new Request('https://example.com.ai/api/public/resource', {
       method: 'POST',
       body: requestBody,
       headers: { 'Content-Type': 'application/json' },

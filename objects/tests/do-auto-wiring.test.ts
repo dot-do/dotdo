@@ -922,7 +922,7 @@ describe('DO Auto-Wiring', () => {
         }
 
         async getUser(userId: string): Promise<{ userId: string; email: string }> {
-          return { userId, email: 'test@example.com' }
+          return { userId, email: 'test@example.com.ai' }
         }
 
         async updateUser(userId: string, data: Partial<{ email: string; name: string }>): Promise<void> {}

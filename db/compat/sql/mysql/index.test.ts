@@ -263,9 +263,9 @@ describe('connection.query', () => {
 
     it('should throw on unique constraint violation', async () => {
       await connection.query('CREATE TABLE emails (id INT PRIMARY KEY, email VARCHAR(255) UNIQUE)')
-      await connection.query("INSERT INTO emails (id, email) VALUES (1, 'test@example.com')")
+      await connection.query("INSERT INTO emails (id, email) VALUES (1, 'test@example.com.ai')")
       await expect(
-        connection.query("INSERT INTO emails (id, email) VALUES (2, 'test@example.com')")
+        connection.query("INSERT INTO emails (id, email) VALUES (2, 'test@example.com.ai')")
       ).rejects.toThrow()
     })
   })
@@ -1103,7 +1103,7 @@ describe('integration', () => {
     // Insert data
     const [insertResult] = await connection.execute<ResultSetHeader>(
       'INSERT INTO users (name, email) VALUES (?, ?)',
-      ['Alice', 'alice@example.com']
+      ['Alice', 'alice@example.com.ai']
     )
     expect(insertResult.insertId).toBeGreaterThan(0)
     const userId = insertResult.insertId
@@ -1113,7 +1113,7 @@ describe('integration', () => {
       'SELECT * FROM users WHERE id = ?',
       [userId]
     )
-    expect(selectRows[0].email).toBe('alice@example.com')
+    expect(selectRows[0].email).toBe('alice@example.com.ai')
 
     // Update data
     const [updateResult] = await connection.execute<ResultSetHeader>(

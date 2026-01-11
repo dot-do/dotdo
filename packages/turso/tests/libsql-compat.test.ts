@@ -88,7 +88,7 @@ describe('@dotdo/turso libsql compatibility', () => {
       expect(httpClient).toBeDefined()
 
       const httpsClient = createClient({
-        url: 'https://db.example.com',
+        url: 'https://db.example.com.ai',
       })
       expect(httpsClient).toBeDefined()
     })
@@ -100,7 +100,7 @@ describe('@dotdo/turso libsql compatibility', () => {
       expect(wsClient).toBeDefined()
 
       const wssClient = createClient({
-        url: 'wss://db.example.com',
+        url: 'wss://db.example.com.ai',
       })
       expect(wssClient).toBeDefined()
     })

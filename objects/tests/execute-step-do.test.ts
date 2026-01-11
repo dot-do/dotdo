@@ -230,9 +230,9 @@ describe('StepDOBridge', () => {
       const bridge = new StepDOBridge(namespaces)
       const $ = bridge.createProxy()
 
-      await $.Users('user-123').update({ name: 'Jane', email: 'jane@example.com' })
+      await $.Users('user-123').update({ name: 'Jane', email: 'jane@example.com.ai' })
 
-      expect(capturedArgs).toEqual([{ name: 'Jane', email: 'jane@example.com' }])
+      expect(capturedArgs).toEqual([{ name: 'Jane', email: 'jane@example.com.ai' }])
     })
   })
 
@@ -647,11 +647,11 @@ describe('WorkflowRuntime + StepDOBridge Integration', () => {
         })
       })
 
-      await runtime.start({ name: 'Jane', email: 'jane@example.com' })
+      await runtime.start({ name: 'Jane', email: 'jane@example.com.ai' })
 
       expect(capturedInput).toEqual({
         name: 'Jane',
-        email: 'jane@example.com',
+        email: 'jane@example.com.ai',
       })
     })
   })
@@ -734,7 +734,7 @@ describe('Complex Workflow Scenarios', () => {
         return prev
       })
 
-    const result = await runtime.start({ name: 'Alice', email: 'alice@example.com' })
+    const result = await runtime.start({ name: 'Alice', email: 'alice@example.com.ai' })
 
     expect(result.status).toBe('completed')
     expect(result.output).toEqual({

@@ -884,7 +884,7 @@ describe('integration', () => {
     // Insert data
     const [insertResult] = await connection.execute<ResultSetHeader>(
       'INSERT INTO users (name, email) VALUES (?, ?)',
-      ['Alice', 'alice@example.com']
+      ['Alice', 'alice@example.com.ai']
     )
     expect(insertResult.insertId).toBeGreaterThan(0)
     const userId = insertResult.insertId
@@ -894,7 +894,7 @@ describe('integration', () => {
       'SELECT * FROM users WHERE id = ?',
       [userId]
     )
-    expect(selectRows[0].email).toBe('alice@example.com')
+    expect(selectRows[0].email).toBe('alice@example.com.ai')
 
     // Update data
     const [updateResult] = await connection.execute<ResultSetHeader>(
@@ -993,7 +993,7 @@ describe('TiDB Serverless support', () => {
 
   it('should accept TiDB Cloud configuration', async () => {
     const pool = createPool({
-      host: 'tidb.cluster.example.com',
+      host: 'tidb.cluster.example.com.ai',
       port: 4000,
       user: 'root',
       database: 'test',

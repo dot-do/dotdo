@@ -317,7 +317,7 @@ Next.js typically uses Prisma. dotdo has multiple options.
 ```typescript
 // Prisma
 const user = await prisma.user.create({
-  data: { name: 'Alice', email: 'alice@example.com' }
+  data: { name: 'Alice', email: 'alice@example.com.ai' }
 })
 
 const users = await prisma.user.findMany({
@@ -328,7 +328,7 @@ const users = await prisma.user.findMany({
 // Things store
 const user = await $.things.create('User', {
   name: 'Alice',
-  email: 'alice@example.com'
+  email: 'alice@example.com.ai'
 })
 
 const users = await $.things.list('User', {
@@ -419,7 +419,7 @@ app.use('/dashboard/*', requireAuth)
 // Next.js
 // .env.local
 DATABASE_URL=postgres://...
-NEXT_PUBLIC_API_URL=https://api.example.com
+NEXT_PUBLIC_API_URL=https://api.example.com.ai
 
 // Access
 const db = process.env.DATABASE_URL
@@ -428,7 +428,7 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL
 // dotdo
 // wrangler.toml
 [vars]
-API_URL = "https://api.example.com"
+API_URL = "https://api.example.com.ai"
 
 [[d1_databases]]
 binding = "DB"

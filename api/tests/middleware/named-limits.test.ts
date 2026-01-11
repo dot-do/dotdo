@@ -874,7 +874,7 @@ describe('Named Limits: edge cases', () => {
   })
 
   it('handles key IDs with special characters', async () => {
-    const specialKeyId = 'key:user@example.com/api/v1?scope=all'
+    const specialKeyId = 'key:user@example.com.ai/api/v1?scope=all'
 
     await manager.configureLimits(specialKeyId, {
       api: { limit: 100, refill: 'hourly' },

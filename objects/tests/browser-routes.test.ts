@@ -202,7 +202,7 @@ async function createTestBrowser() {
   ;(browser as any).logBrowserAction = logActionMock
   ;(browser as any).emit = emitMock
   ;(browser as any).emitEvent = emitEventMock
-  ;(browser as any).ns = 'https://browser.example.com'
+  ;(browser as any).ns = 'https://browser.example.com.ai'
 
   return { browser, mockState, mockEnv, logActionMock, emitMock, emitEventMock }
 }
@@ -225,7 +225,7 @@ async function request(
   if (body !== undefined) {
     options.body = JSON.stringify(body)
   }
-  const url = `https://browser.example.com${path}`
+  const url = `https://browser.example.com.ai${path}`
   const req = new Request(url, options)
   return browser.fetch(req)
 }
@@ -246,7 +246,7 @@ describe('Browser DO HTTP Routes', () => {
     browser = setup.browser
     mockState = setup.mockState
     mockEnv = setup.mockEnv
-    mockSession = createMockBrowseSession('https://live.example.com/session-123')
+    mockSession = createMockBrowseSession('https://live.example.com.ai/session-123')
     mockBrowseInit.mockResolvedValue(mockSession)
   })
 
@@ -295,7 +295,7 @@ describe('Browser DO HTTP Routes', () => {
 
       expect(res.status).toBe(200)
       const body = await res.json() as BrowserStartResult
-      expect(body.liveViewUrl).toBe('https://live.example.com/session-123')
+      expect(body.liveViewUrl).toBe('https://live.example.com.ai/session-123')
     })
 
     it('returns 400 for invalid provider', async () => {
@@ -333,7 +333,7 @@ describe('Browser DO HTTP Routes', () => {
 
     it('returns 200 on successful navigation', async () => {
       const res = await request(browser, 'POST', '/goto', {
-        url: 'https://example.com',
+        url: 'https://example.com.ai',
       })
 
       expect(res.status).toBe(200)
@@ -343,10 +343,10 @@ describe('Browser DO HTTP Routes', () => {
 
     it('calls session.goto() with the URL', async () => {
       await request(browser, 'POST', '/goto', {
-        url: 'https://example.com/page',
+        url: 'https://example.com.ai/page',
       })
 
-      expect(mockSession.goto).toHaveBeenCalledWith('https://example.com/page')
+      expect(mockSession.goto).toHaveBeenCalledWith('https://example.com.ai/page')
     })
 
     it('returns 400 for missing URL', async () => {
@@ -372,7 +372,7 @@ describe('Browser DO HTTP Routes', () => {
       const { browser: newBrowser } = await createTestBrowser()
 
       const res = await request(newBrowser, 'POST', '/goto', {
-        url: 'https://example.com',
+        url: 'https://example.com.ai',
       })
 
       expect(res.status).toBe(400)
@@ -692,7 +692,7 @@ describe('Browser DO HTTP Routes', () => {
       const res = await request(browser, 'GET', '/state')
 
       const body = await res.json() as BrowserState
-      expect(body.liveViewUrl).toBe('https://live.example.com/session-123')
+      expect(body.liveViewUrl).toBe('https://live.example.com.ai/session-123')
     })
   })
 
@@ -812,7 +812,7 @@ describe('Browser DO HTTP Routes', () => {
       const res = await request(browser, 'GET', '/live')
 
       expect(res.status).toBe(302)
-      expect(res.headers.get('location')).toBe('https://live.example.com/session-123')
+      expect(res.headers.get('location')).toBe('https://live.example.com.ai/session-123')
     })
 
     it('returns 404 when no live view available', async () => {
@@ -886,7 +886,7 @@ describe('Browser DO HTTP Routes', () => {
       mockSession.goto.mockRejectedValueOnce(new Error('Connection lost'))
 
       const res = await request(browser, 'POST', '/goto', {
-        url: 'https://example.com',
+        url: 'https://example.com.ai',
       })
 
       expect(res.status).toBe(500)
@@ -902,7 +902,7 @@ describe('Browser DO HTTP Routes', () => {
   describe('Content-Type and JSON handling', () => {
     it('accepts application/json for POST requests', async () => {
       const res = await browser.fetch(
-        new Request('https://browser.example.com/start', {
+        new Request('https://browser.example.com.ai/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider: 'cloudflare' }),
@@ -920,7 +920,7 @@ describe('Browser DO HTTP Routes', () => {
 
     it('handles malformed JSON gracefully', async () => {
       const res = await browser.fetch(
-        new Request('https://browser.example.com/start', {
+        new Request('https://browser.example.com.ai/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{ invalid json }',
@@ -944,7 +944,7 @@ describe('Browser DO HTTP Routes', () => {
     })
 
     it('POST /goto is supported', async () => {
-      const res = await request(browser, 'POST', '/goto', { url: 'https://example.com' })
+      const res = await request(browser, 'POST', '/goto', { url: 'https://example.com.ai' })
       expect([200, 400]).toContain(res.status)
     })
 
@@ -995,7 +995,7 @@ describe('Browser DO HTTP Routes', () => {
 
     it('returns 405 for unsupported methods', async () => {
       const res = await browser.fetch(
-        new Request('https://browser.example.com/start', { method: 'GET' })
+        new Request('https://browser.example.com.ai/start', { method: 'GET' })
       )
       expect(res.status).toBe(405)
     })

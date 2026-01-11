@@ -37,7 +37,7 @@ The `EmailChannel` class supports two email providers: **SendGrid** and **Resend
 const channel = new EmailChannel({
   provider: 'sendgrid',
   apiKey: 'SG.xxx',
-  from: 'noreply@example.com',
+  from: 'noreply@example.com.ai',
   tracking: { opens: true },
 })
 ```
@@ -48,7 +48,7 @@ const channel = new EmailChannel({
 const channel = new EmailChannel({
   provider: 'resend',
   apiKey: 're_xxx',
-  from: 'noreply@example.com',
+  from: 'noreply@example.com.ai',
 })
 ```
 
@@ -73,7 +73,7 @@ const channel = new EmailChannel({
 })
 
 const result = await channel.send({
-  to: 'user@example.com',
+  to: 'user@example.com.ai',
   subject: 'Your request was approved',
   message: 'Great news! Your expense report has been approved.',
 })
@@ -123,7 +123,7 @@ const html = renderApprovalEmail({
   requestId: 'req-abc123',
   baseUrl: 'https://myapp.com',
   metadata: {
-    requester: 'john@example.com',
+    requester: 'john@example.com.ai',
     amount: '$5,000',
     category: 'Travel',
     date: '2024-01-15',
@@ -258,14 +258,14 @@ When users click action buttons in emails, the Email Channel can parse the webho
 const channel = new EmailChannel({
   provider: 'sendgrid',
   apiKey: 'SG.xxx',
-  from: 'noreply@example.com',
+  from: 'noreply@example.com.ai',
 })
 
 // Webhook payload from email provider
 const webhook = {
   event: 'click',
   url: 'https://app.dotdo.dev/approve/req-123?action=approve',
-  email: 'manager@example.com',
+  email: 'manager@example.com.ai',
   timestamp: Date.now(),
 }
 
@@ -275,7 +275,7 @@ console.log(response)
 // {
 //   action: 'approve',
 //   requestId: 'req-123',
-//   userId: 'manager@example.com'
+//   userId: 'manager@example.com.ai'
 // }
 ```
 
@@ -308,7 +308,7 @@ console.log(response)
 const channel = new EmailChannel({
   provider: 'sendgrid',
   apiKey: process.env.SENDGRID_API_KEY,
-  from: 'noreply@example.com',
+  from: 'noreply@example.com.ai',
   tracking: { opens: true },
 })
 ```
@@ -322,7 +322,7 @@ const channel = new EmailChannel({
 const channel = new EmailChannel({
   provider: 'resend',
   apiKey: process.env.RESEND_API_KEY,
-  from: 'noreply@example.com',
+  from: 'noreply@example.com.ai',
 })
 ```
 
@@ -550,7 +550,7 @@ The `send()` method handles errors gracefully:
 ```typescript
 try {
   const result = await channel.send({
-    to: 'user@example.com',
+    to: 'user@example.com.ai',
     subject: 'Test',
     message: 'Hello',
   })

@@ -67,13 +67,13 @@ await client.execute(`
 // Insert with parameters
 await client.execute({
   sql: 'INSERT INTO users (name, email) VALUES (?, ?)',
-  args: ['Alice', 'alice@example.com'],
+  args: ['Alice', 'alice@example.com.ai'],
 })
 
 // Query
 const { rows } = await client.execute('SELECT * FROM users')
 console.log(rows[0].name)  // 'Alice'
-console.log(rows[0]['email'])  // 'alice@example.com'
+console.log(rows[0]['email'])  // 'alice@example.com.ai'
 
 client.close()
 ```

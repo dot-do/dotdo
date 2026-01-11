@@ -26,13 +26,13 @@ describe('Email Channel', () => {
         message: 'Approve request',
         requestId: 'req-123',
         metadata: {
-          requester: 'john@example.com',
+          requester: 'john@example.com.ai',
           amount: '$5,000',
           category: 'Travel',
         },
       })
 
-      expect(html).toContain('john@example.com')
+      expect(html).toContain('john@example.com.ai')
       expect(html).toContain('$5,000')
     })
 
@@ -80,7 +80,7 @@ describe('Email Channel', () => {
 
       const result = await channel.send({
         message: 'Approve?',
-        to: 'manager@example.com',
+        to: 'manager@example.com.ai',
         subject: 'Approval Required',
       })
 
@@ -96,7 +96,7 @@ describe('Email Channel', () => {
 
       const result = await channel.send({
         message: 'Test',
-        to: 'user@example.com',
+        to: 'user@example.com.ai',
         subject: 'Test',
       })
 
@@ -113,7 +113,7 @@ describe('Email Channel', () => {
       const webhook = {
         event: 'click',
         url: 'https://app.dotdo.dev/approve/req-123?action=approve',
-        email: 'manager@example.com',
+        email: 'manager@example.com.ai',
         timestamp: Date.now(),
       }
 
@@ -121,7 +121,7 @@ describe('Email Channel', () => {
       expect(response).toMatchObject({
         action: 'approve',
         requestId: 'req-123',
-        userId: 'manager@example.com',
+        userId: 'manager@example.com.ai',
       })
     })
   })

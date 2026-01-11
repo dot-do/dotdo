@@ -53,7 +53,7 @@ function createTestContext(overrides: Partial<ProxyContext> = {}): ProxyContext 
     },
     jwt: null,
     config: {
-      domain: 'example.com',
+      domain: 'example.com.ai',
       apiVersion: 'v1',
     },
     ...overrides,
@@ -70,7 +70,7 @@ function createTestRequest(url: string, init: RequestInit = {}): Request {
 
 describe('Request Transforms - setHeader', () => {
   it('setHeader adds new header', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Custom', value: 'custom-value' }]
 
@@ -80,7 +80,7 @@ describe('Request Transforms - setHeader', () => {
   })
 
   it('setHeader overwrites existing header', () => {
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { 'X-Custom': 'original-value' },
     })
     const context = createTestContext()
@@ -92,7 +92,7 @@ describe('Request Transforms - setHeader', () => {
   })
 
   it('setHeader with variable resolution', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Request-Id', value: '$requestId' }]
 
@@ -102,7 +102,7 @@ describe('Request Transforms - setHeader', () => {
   })
 
   it('setHeader preserves other headers', () => {
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: {
         Authorization: 'Bearer token',
         'Content-Type': 'application/json',
@@ -125,7 +125,7 @@ describe('Request Transforms - setHeader', () => {
 
 describe('Request Transforms - removeHeader', () => {
   it('removeHeader removes header', () => {
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { 'X-Remove-Me': 'value' },
     })
     const context = createTestContext()
@@ -137,7 +137,7 @@ describe('Request Transforms - removeHeader', () => {
   })
 
   it('removeHeader handles non-existent header gracefully', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'removeHeader', name: 'X-Non-Existent' }]
 
@@ -146,7 +146,7 @@ describe('Request Transforms - removeHeader', () => {
   })
 
   it('removeHeader is case-insensitive', () => {
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: { 'X-Custom-Header': 'value' },
     })
     const context = createTestContext()
@@ -164,7 +164,7 @@ describe('Request Transforms - removeHeader', () => {
 
 describe('Request Transforms - rewritePath', () => {
   it('rewritePath applies regex replacement', () => {
-    const request = createTestRequest('https://example.com/api/v1/users')
+    const request = createTestRequest('https://example.com.ai/api/v1/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'rewritePath', pattern: '/api/v1', replacement: '/api/v2' }]
 
@@ -175,7 +175,7 @@ describe('Request Transforms - rewritePath', () => {
   })
 
   it('rewritePath with capture groups', () => {
-    const request = createTestRequest('https://example.com/api/users/123/orders')
+    const request = createTestRequest('https://example.com.ai/api/users/123/orders')
     const context = createTestContext()
     const transforms: Transform[] = [
       {
@@ -193,7 +193,7 @@ describe('Request Transforms - rewritePath', () => {
   })
 
   it('rewritePath with multiple replacements', () => {
-    const request = createTestRequest('https://example.com/old/old/path')
+    const request = createTestRequest('https://example.com.ai/old/old/path')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'rewritePath', pattern: 'old', replacement: 'new' }]
 
@@ -205,7 +205,7 @@ describe('Request Transforms - rewritePath', () => {
   })
 
   it('rewritePath with global flag replaces all', () => {
-    const request = createTestRequest('https://example.com/old/old/path')
+    const request = createTestRequest('https://example.com.ai/old/old/path')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'rewritePath', pattern: 'old', replacement: 'new', flags: 'g' }]
 
@@ -216,14 +216,14 @@ describe('Request Transforms - rewritePath', () => {
   })
 
   it('rewritePath preserves host and query', () => {
-    const request = createTestRequest('https://example.com/api/v1/users?page=1')
+    const request = createTestRequest('https://example.com.ai/api/v1/users?page=1')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'rewritePath', pattern: '/api/v1', replacement: '/api/v2' }]
 
     const result = applyRequestTransforms(request, transforms, context)
     const resultUrl = new URL(result.url)
 
-    expect(resultUrl.host).toBe('example.com')
+    expect(resultUrl.host).toBe('example.com.ai')
     expect(resultUrl.searchParams.get('page')).toBe('1')
   })
 })
@@ -234,7 +234,7 @@ describe('Request Transforms - rewritePath', () => {
 
 describe('Request Transforms - setQuery', () => {
   it('setQuery adds query parameter', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setQuery', name: 'page', value: '1' }]
 
@@ -245,7 +245,7 @@ describe('Request Transforms - setQuery', () => {
   })
 
   it('setQuery overwrites existing parameter', () => {
-    const request = createTestRequest('https://example.com/api/users?page=1')
+    const request = createTestRequest('https://example.com.ai/api/users?page=1')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setQuery', name: 'page', value: '2' }]
 
@@ -256,7 +256,7 @@ describe('Request Transforms - setQuery', () => {
   })
 
   it('setQuery with variable resolution', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setQuery', name: 'requestId', value: '$requestId' }]
 
@@ -267,7 +267,7 @@ describe('Request Transforms - setQuery', () => {
   })
 
   it('setQuery preserves other parameters', () => {
-    const request = createTestRequest('https://example.com/api/users?existing=value')
+    const request = createTestRequest('https://example.com.ai/api/users?existing=value')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setQuery', name: 'new', value: 'param' }]
 
@@ -285,7 +285,7 @@ describe('Request Transforms - setQuery', () => {
 
 describe('Request Transforms - removeQuery', () => {
   it('removeQuery removes query parameter', () => {
-    const request = createTestRequest('https://example.com/api/users?page=1&limit=10')
+    const request = createTestRequest('https://example.com.ai/api/users?page=1&limit=10')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'removeQuery', name: 'page' }]
 
@@ -297,7 +297,7 @@ describe('Request Transforms - removeQuery', () => {
   })
 
   it('removeQuery handles non-existent parameter gracefully', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'removeQuery', name: 'nonexistent' }]
 
@@ -312,7 +312,7 @@ describe('Request Transforms - removeQuery', () => {
 describe('Variable Resolution', () => {
   it('resolves $requestId variable', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     const result = resolveVar('$requestId', context, request)
 
@@ -321,7 +321,7 @@ describe('Variable Resolution', () => {
 
   it('resolves $timestamp variable', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     const result = resolveVar('$timestamp', context, request)
 
@@ -330,7 +330,7 @@ describe('Variable Resolution', () => {
 
   it('resolves $cf.* variables from request.cf', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$cf.colo', context, request)).toBe('DFW')
     expect(resolveVar('$cf.country', context, request)).toBe('US')
@@ -342,19 +342,19 @@ describe('Variable Resolution', () => {
     const context = createTestContext({
       jwt: {
         sub: 'user_123',
-        email: 'user@example.com',
+        email: 'user@example.com.ai',
         roles: ['admin', 'user'],
       },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$jwt.sub', context, request)).toBe('user_123')
-    expect(resolveVar('$jwt.email', context, request)).toBe('user@example.com')
+    expect(resolveVar('$jwt.email', context, request)).toBe('user@example.com.ai')
   })
 
   it('resolves $jwt.* to empty string when no JWT', () => {
     const context = createTestContext({ jwt: null })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$jwt.sub', context, request)).toBe('')
     expect(resolveVar('$jwt.email', context, request)).toBe('')
@@ -362,7 +362,7 @@ describe('Variable Resolution', () => {
 
   it('resolves $header.* from request headers', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       headers: {
         Authorization: 'Bearer token123',
         'X-Custom': 'custom-value',
@@ -375,14 +375,14 @@ describe('Variable Resolution', () => {
 
   it('resolves $header.* to empty string for missing header', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$header.X-Missing', context, request)).toBe('')
   })
 
   it('resolves $query.* from URL search params', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users?page=1&limit=10')
+    const request = createTestRequest('https://example.com.ai/api/users?page=1&limit=10')
 
     expect(resolveVar('$query.page', context, request)).toBe('1')
     expect(resolveVar('$query.limit', context, request)).toBe('10')
@@ -390,29 +390,29 @@ describe('Variable Resolution', () => {
 
   it('resolves $query.* to empty string for missing param', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$query.missing', context, request)).toBe('')
   })
 
   it('resolves $config.* from config.variables', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
-    expect(resolveVar('$config.domain', context, request)).toBe('example.com')
+    expect(resolveVar('$config.domain', context, request)).toBe('example.com.ai')
     expect(resolveVar('$config.apiVersion', context, request)).toBe('v1')
   })
 
   it('resolves $config.* to empty string for missing variable', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('$config.missing', context, request)).toBe('')
   })
 
   it('returns literal value for non-variable strings', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     expect(resolveVar('literal-value', context, request)).toBe('literal-value')
     expect(resolveVar('no-dollar-sign', context, request)).toBe('no-dollar-sign')
@@ -420,14 +420,14 @@ describe('Variable Resolution', () => {
 
   it('handles $method variable', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users', { method: 'POST' })
+    const request = createTestRequest('https://example.com.ai/api/users', { method: 'POST' })
 
     expect(resolveVar('$method', context, request)).toBe('POST')
   })
 
   it('handles $path variable', () => {
     const context = createTestContext()
-    const request = createTestRequest('https://example.com/api/users/123')
+    const request = createTestRequest('https://example.com.ai/api/users/123')
 
     expect(resolveVar('$path', context, request)).toBe('/api/users/123')
   })
@@ -441,7 +441,7 @@ describe('Variable Resolution', () => {
         },
       },
     })
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
 
     // Deep access might be supported via dot notation
     expect(resolveVar('$jwt.sub', context, request)).toBe('user_123')
@@ -551,7 +551,7 @@ describe('Response Transforms - setStatus', () => {
 
 describe('Multiple Transforms', () => {
   it('applies multiple request transforms in order', () => {
-    const request = createTestRequest('https://example.com/api/v1/users', {
+    const request = createTestRequest('https://example.com.ai/api/v1/users', {
       headers: { 'X-Old': 'value' },
     })
     const context = createTestContext()
@@ -595,7 +595,7 @@ describe('Multiple Transforms', () => {
   })
 
   it('handles empty transforms array', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
 
     const result = applyRequestTransforms(request, [], context)
@@ -611,7 +611,7 @@ describe('Multiple Transforms', () => {
 
 describe('Transform Edge Cases', () => {
   it('handles undefined value in setHeader gracefully', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Test' }] // value is undefined
 
@@ -621,7 +621,7 @@ describe('Transform Edge Cases', () => {
 
   it('preserves request body through transforms', async () => {
     const body = JSON.stringify({ data: 'test' })
-    const request = createTestRequest('https://example.com/api/users', {
+    const request = createTestRequest('https://example.com.ai/api/users', {
       method: 'POST',
       body,
       headers: { 'Content-Type': 'application/json' },
@@ -636,7 +636,7 @@ describe('Transform Edge Cases', () => {
   })
 
   it('preserves request method through transforms', () => {
-    const request = createTestRequest('https://example.com/api/users', { method: 'POST' })
+    const request = createTestRequest('https://example.com.ai/api/users', { method: 'POST' })
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Custom', value: 'value' }]
 
@@ -646,7 +646,7 @@ describe('Transform Edge Cases', () => {
   })
 
   it('handles special characters in header values', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Test', value: 'value with spaces and !@#$%' }]
 
@@ -656,7 +656,7 @@ describe('Transform Edge Cases', () => {
   })
 
   it('handles unicode in header values', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms: Transform[] = [{ op: 'setHeader', name: 'X-Test', value: 'Unicode: \u4e2d\u6587' }]
 
@@ -666,7 +666,7 @@ describe('Transform Edge Cases', () => {
   })
 
   it('handles unknown transform operation gracefully', () => {
-    const request = createTestRequest('https://example.com/api/users')
+    const request = createTestRequest('https://example.com.ai/api/users')
     const context = createTestContext()
     const transforms = [{ op: 'unknownOp', name: 'test' }] as Transform[]
 

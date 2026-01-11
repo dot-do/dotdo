@@ -26,8 +26,8 @@ const testQueries = {
   selectWithSubquery: 'SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 100)',
   selectWithCTE: 'WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users',
 
-  simpleInsert: "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')",
-  insertMultiple: "INSERT INTO users (name, email) VALUES ('John', 'john@example.com'), ('Jane', 'jane@example.com')",
+  simpleInsert: "INSERT INTO users (name, email) VALUES ('John', 'john@example.com.ai')",
+  insertMultiple: "INSERT INTO users (name, email) VALUES ('John', 'john@example.com.ai'), ('Jane', 'jane@example.com.ai')",
   insertReturning: "INSERT INTO users (name) VALUES ('John') RETURNING id, name",
 
   simpleUpdate: "UPDATE users SET name = 'Jane' WHERE id = 1",

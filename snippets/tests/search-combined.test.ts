@@ -63,7 +63,7 @@ import {
  */
 const TEST_MANIFEST: SearchManifest = {
   version: 1,
-  base: 'cdn.example.com/test/v1',
+  base: 'cdn.example.com.ai/test/v1',
   indexes: {
     bloom: {
       email: {
@@ -220,7 +220,7 @@ function createMockContext() {
 describe('SearchSnippet - Query Parsing', () => {
   describe('parseSearchQuery', () => {
     it('parses bloom query parameter', () => {
-      const url = new URL('https://api.example.com/$.search?bloom=email:foo@bar.com')
+      const url = new URL('https://api.example.com.ai/$.search?bloom=email:foo@bar.com')
 
       const query = parseSearchQuery(url)
 
@@ -234,7 +234,7 @@ describe('SearchSnippet - Query Parsing', () => {
 
     it('parses multiple bloom query parameters', () => {
       const url = new URL(
-        'https://api.example.com/$.search?bloom=email:foo@bar.com&bloom=user_id:abc123'
+        'https://api.example.com.ai/$.search?bloom=email:foo@bar.com&bloom=user_id:abc123'
       )
 
       const query = parseSearchQuery(url)
@@ -245,7 +245,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses range query parameter with gt operator', () => {
-      const url = new URL('https://api.example.com/$.search?range=created_at:gt:2024-01-01')
+      const url = new URL('https://api.example.com.ai/$.search?range=created_at:gt:2024-01-01')
 
       const query = parseSearchQuery(url)
 
@@ -259,7 +259,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses range query parameter with lt operator', () => {
-      const url = new URL('https://api.example.com/$.search?range=score:lt:100')
+      const url = new URL('https://api.example.com.ai/$.search?range=score:lt:100')
 
       const query = parseSearchQuery(url)
 
@@ -271,7 +271,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses range query parameter with gte operator', () => {
-      const url = new URL('https://api.example.com/$.search?range=score:gte:50')
+      const url = new URL('https://api.example.com.ai/$.search?range=score:gte:50')
 
       const query = parseSearchQuery(url)
 
@@ -283,7 +283,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses range query parameter with lte operator', () => {
-      const url = new URL('https://api.example.com/$.search?range=score:lte:100')
+      const url = new URL('https://api.example.com.ai/$.search?range=score:lte:100')
 
       const query = parseSearchQuery(url)
 
@@ -295,7 +295,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses range query parameter with eq operator', () => {
-      const url = new URL('https://api.example.com/$.search?range=status:eq:active')
+      const url = new URL('https://api.example.com.ai/$.search?range=status:eq:active')
 
       const query = parseSearchQuery(url)
 
@@ -308,7 +308,7 @@ describe('SearchSnippet - Query Parsing', () => {
 
     it('parses multiple range query parameters', () => {
       const url = new URL(
-        'https://api.example.com/$.search?range=score:gte:50&range=score:lte:100'
+        'https://api.example.com.ai/$.search?range=score:gte:50&range=score:lte:100'
       )
 
       const query = parseSearchQuery(url)
@@ -324,7 +324,7 @@ describe('SearchSnippet - Query Parsing', () => {
       const base64 = Buffer.from(floatArray.buffer).toString('base64')
       // URL-encode the base64 to handle special characters like = and +
       const encodedBase64 = encodeURIComponent(base64)
-      const url = new URL(`https://api.example.com/$.search?vector=embedding:${encodedBase64}:k=10`)
+      const url = new URL(`https://api.example.com.ai/$.search?vector=embedding:${encodedBase64}:k=10`)
 
       const query = parseSearchQuery(url)
 
@@ -336,7 +336,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('parses text query parameter', () => {
-      const url = new URL('https://api.example.com/$.search?text=content:hello%20world')
+      const url = new URL('https://api.example.com.ai/$.search?text=content:hello%20world')
 
       const query = parseSearchQuery(url)
 
@@ -350,7 +350,7 @@ describe('SearchSnippet - Query Parsing', () => {
       const base64 = Buffer.from(floatArray.buffer).toString('base64')
       const encodedBase64 = encodeURIComponent(base64)
       const url = new URL(
-        `https://api.example.com/$.search?` +
+        `https://api.example.com.ai/$.search?` +
           `bloom=email:foo@bar.com&` +
           `range=score:gte:50&` +
           `vector=embedding:${encodedBase64}:k=10&` +
@@ -366,7 +366,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('returns empty query for no parameters', () => {
-      const url = new URL('https://api.example.com/$.search')
+      const url = new URL('https://api.example.com.ai/$.search')
 
       const query = parseSearchQuery(url)
 
@@ -377,7 +377,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('handles URL-encoded values in bloom query', () => {
-      const url = new URL('https://api.example.com/$.search?bloom=email:foo%40bar.com')
+      const url = new URL('https://api.example.com.ai/$.search?bloom=email:foo%40bar.com')
 
       const query = parseSearchQuery(url)
 
@@ -385,7 +385,7 @@ describe('SearchSnippet - Query Parsing', () => {
     })
 
     it('handles colons in bloom values', () => {
-      const url = new URL('https://api.example.com/$.search?bloom=timestamp:2024:01:15T10:30:00Z')
+      const url = new URL('https://api.example.com.ai/$.search?bloom=timestamp:2024:01:15T10:30:00Z')
 
       const query = parseSearchQuery(url)
 
@@ -410,14 +410,14 @@ describe('SearchSnippet - Combined Query Execution', () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
 
     // Bloom filter Puffin file
-    const emails = ['foo@bar.com', 'alice@example.com', 'bob@test.com']
+    const emails = ['foo@bar.com', 'alice@example.com.ai', 'bob@test.com']
     const userIds = ['abc123', 'def456', 'ghi789']
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/email.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/email.puffin',
       createTestPuffinFile({ 1: emails })
     )
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/user_id.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/user_id.puffin',
       createTestPuffinFile({ 2: userIds })
     )
 
@@ -428,7 +428,7 @@ describe('SearchSnippet - Combined Query Execution', () => {
       { min: 1704240000000n, max: 1704326400000n }, // Jan 3-4, 2024
     ]
     files.set(
-      'https://cdn.example.com/test/v1/indexes/range/created_at.marks',
+      'https://cdn.example.com.ai/test/v1/indexes/range/created_at.marks',
       createTestMarksFile(createdAtBlocks)
     )
 
@@ -437,25 +437,25 @@ describe('SearchSnippet - Combined Query Execution', () => {
       { min: 51n, max: 100n },
     ]
     files.set(
-      'https://cdn.example.com/test/v1/indexes/range/score.marks',
+      'https://cdn.example.com.ai/test/v1/indexes/range/score.marks',
       createTestMarksFile(scoreBlocks)
     )
 
     // Vector centroids file
     files.set(
-      'https://cdn.example.com/test/v1/indexes/vector/embedding.bin',
+      'https://cdn.example.com.ai/test/v1/indexes/vector/embedding.bin',
       createTestCentroidsFile(100, 384)
     )
 
     // Inverted index file
     files.set(
-      'https://cdn.example.com/test/v1/indexes/inverted/content.inv',
+      'https://cdn.example.com.ai/test/v1/indexes/inverted/content.inv',
       createTestInvertedIndex()
     )
 
     // Manifest
     files.set(
-      'https://cdn.example.com/test/v1/manifest.json',
+      'https://cdn.example.com.ai/test/v1/manifest.json',
       new TextEncoder().encode(JSON.stringify(TEST_MANIFEST))
     )
 
@@ -560,8 +560,8 @@ describe('SearchSnippet - Combined Query Execution', () => {
       // Create a query that would require many subrequests
       const query: SearchQuery = {
         bloom: [
-          { field: 'email', value: 'test1@example.com' },
-          { field: 'email', value: 'test2@example.com' },
+          { field: 'email', value: 'test1@example.com.ai' },
+          { field: 'email', value: 'test2@example.com.ai' },
           { field: 'user_id', value: 'user1' },
         ],
         range: [
@@ -579,7 +579,7 @@ describe('SearchSnippet - Combined Query Execution', () => {
       // When subrequest budget is limited, should prioritize bloom filters
       // (most likely to prune) over range queries
       const query: SearchQuery = {
-        bloom: [{ field: 'email', value: 'nonexistent@example.com' }],
+        bloom: [{ field: 'email', value: 'nonexistent@example.com.ai' }],
         range: [
           { field: 'created_at', op: 'gte', value: '2024-01-01' },
           { field: 'created_at', op: 'lte', value: '2024-12-31' },
@@ -668,7 +668,7 @@ describe('SearchSnippet - Combined Query Execution', () => {
     it('completes within 5ms total (cached)', async () => {
       // Warm up caches
       const warmupQuery: SearchQuery = {
-        bloom: [{ field: 'email', value: 'warmup@example.com' }],
+        bloom: [{ field: 'email', value: 'warmup@example.com.ai' }],
       }
       await executeSearch(TEST_MANIFEST, warmupQuery, mockCtx)
 
@@ -753,7 +753,7 @@ describe('SearchSnippet - Partial Failure Handling', () => {
     // Only bloom filter succeeds
     const emails = ['foo@bar.com']
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/email.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/email.puffin',
       createTestPuffinFile({ 1: emails })
     )
 
@@ -761,7 +761,7 @@ describe('SearchSnippet - Partial Failure Handling', () => {
     vi.stubGlobal('fetch', mockFetch)
 
     const query: SearchQuery = {
-      bloom: [{ field: 'email', value: 'nonexistent@example.com' }],
+      bloom: [{ field: 'email', value: 'nonexistent@example.com.ai' }],
       range: [{ field: 'score', op: 'gte', value: '50' }], // Will 404
     }
 
@@ -847,12 +847,12 @@ describe('SearchSnippet - JSON Response Format', () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     const emails = ['foo@bar.com']
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/email.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/email.puffin',
       createTestPuffinFile({ 1: emails })
     )
     const blocks = [{ min: 0n, max: 100n }]
     files.set(
-      'https://cdn.example.com/test/v1/indexes/range/score.marks',
+      'https://cdn.example.com.ai/test/v1/indexes/range/score.marks',
       createTestMarksFile(blocks)
     )
 
@@ -926,7 +926,7 @@ describe('SearchSnippet - JSON Response Format', () => {
   it('includes centroids array when vector query is present', async () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     files.set(
-      'https://cdn.example.com/test/v1/indexes/vector/embedding.bin',
+      'https://cdn.example.com.ai/test/v1/indexes/vector/embedding.bin',
       createTestCentroidsFile(100, 384)
     )
     const mockFetchVector = createMockFetch(files)
@@ -960,7 +960,7 @@ describe('SearchSnippet - JSON Response Format', () => {
   it('includes documents array when text query matches', async () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     files.set(
-      'https://cdn.example.com/test/v1/indexes/inverted/content.inv',
+      'https://cdn.example.com.ai/test/v1/indexes/inverted/content.inv',
       createTestInvertedIndex()
     )
     const mockFetchText = createMockFetch(files)
@@ -1040,7 +1040,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles dimension mismatch in vector query', async () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     files.set(
-      'https://cdn.example.com/test/v1/indexes/vector/embedding.bin',
+      'https://cdn.example.com.ai/test/v1/indexes/vector/embedding.bin',
       createTestCentroidsFile(100, 384)
     )
     const mockFetch = createMockFetch(files)
@@ -1057,7 +1057,7 @@ describe('SearchSnippet - Edge Cases', () => {
   it('handles very large k value for vector query', async () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     files.set(
-      'https://cdn.example.com/test/v1/indexes/vector/embedding.bin',
+      'https://cdn.example.com.ai/test/v1/indexes/vector/embedding.bin',
       createTestCentroidsFile(100, 384)
     )
     const mockFetch = createMockFetch(files)
@@ -1085,9 +1085,9 @@ describe('SearchSnippet - Edge Cases', () => {
 
   it('handles concurrent searches correctly', async () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
-    const emails = ['foo@bar.com', 'alice@example.com']
+    const emails = ['foo@bar.com', 'alice@example.com.ai']
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/email.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/email.puffin',
       createTestPuffinFile({ 1: emails })
     )
     const mockFetch = createMockFetch(files)
@@ -1127,7 +1127,7 @@ describe('SearchSnippet - Cache Management', () => {
     const files = new Map<string, Uint8Array | ArrayBuffer>()
     const emails = ['foo@bar.com']
     files.set(
-      'https://cdn.example.com/test/v1/indexes/bloom/email.puffin',
+      'https://cdn.example.com.ai/test/v1/indexes/bloom/email.puffin',
       createTestPuffinFile({ 1: emails })
     )
 

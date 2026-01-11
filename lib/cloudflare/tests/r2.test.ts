@@ -754,7 +754,7 @@ describe('R2Store presigned URLs', () => {
     mockR2 = createMockR2Bucket()
     store = createR2Store(mockR2 as unknown as R2Bucket, {
       tenant: 'tenant-123',
-      publicUrl: 'https://r2.example.com',
+      publicUrl: 'https://r2.example.com.ai',
     })
   })
 
@@ -767,7 +767,7 @@ describe('R2Store presigned URLs', () => {
         action: 'get',
       })
 
-      expect(url).toContain('https://r2.example.com')
+      expect(url).toContain('https://r2.example.com.ai')
       expect(url).toContain('file.pdf')
     })
 
@@ -802,7 +802,7 @@ describe('R2Store presigned URLs', () => {
         maxSize: 10 * 1024 * 1024, // 10MB
       })
 
-      expect(url).toContain('https://r2.example.com')
+      expect(url).toContain('https://r2.example.com.ai')
     })
 
     it('includes content type restriction', async () => {

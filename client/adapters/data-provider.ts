@@ -11,7 +11,7 @@
  * ```tsx
  * import { createDataProvider } from '@dotdo/client/adapters/data-provider'
  *
- * const dataProvider = createDataProvider('https://api.example.com', {
+ * const dataProvider = createDataProvider('https://api.example.com.ai', {
  *   headers: { 'X-Custom-Header': 'value' },
  *   auth: { token: 'jwt-token' },
  * })

@@ -250,7 +250,7 @@ function renderDashboard(): string {
         <ul class="space-y-3">
           <li class="flex items-center gap-3">
             <span class="text-gray-500 text-sm">2 min ago</span>
-            <span>User john@example.com created a new workflow</span>
+            <span>User john@example.com.ai created a new workflow</span>
           </li>
           <li class="flex items-center gap-3">
             <span class="text-gray-500 text-sm">5 min ago</span>
@@ -323,14 +323,14 @@ function renderUsersList(): string {
           <tbody class="divide-y">
             <tr>
               <td class="px-6 py-4">John Doe</td>
-              <td class="px-6 py-4">john@example.com</td>
+              <td class="px-6 py-4">john@example.com.ai</td>
               <td class="px-6 py-4">Admin</td>
               <td class="px-6 py-4"><span class="text-green-600">Active</span></td>
               <td class="px-6 py-4"><a href="/admin/users/user-1">View</a></td>
             </tr>
             <tr>
               <td class="px-6 py-4">Jane Smith</td>
-              <td class="px-6 py-4">jane@example.com</td>
+              <td class="px-6 py-4">jane@example.com.ai</td>
               <td class="px-6 py-4">User</td>
               <td class="px-6 py-4"><span class="text-green-600">Active</span></td>
               <td class="px-6 py-4"><a href="/admin/users/user-2">View</a></td>
@@ -372,7 +372,7 @@ function renderUserDetail(userId: string): string {
           </div>
           <div>
             <dt class="text-sm text-gray-500">Email</dt>
-            <dd class="text-lg font-medium">john@example.com</dd>
+            <dd class="text-lg font-medium">john@example.com.ai</dd>
           </div>
           <div>
             <dt class="text-sm text-gray-500">Role</dt>
@@ -1067,7 +1067,7 @@ function renderAccountSettings(): string {
 
         <div class="mb-4">
           <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input type="email" id="email" name="email" value="john@example.com" readonly
+          <input type="email" id="email" name="email" value="john@example.com.ai" readonly
                  class="w-full border rounded px-3 py-2 bg-gray-50" />
           <p class="text-sm text-gray-500 mt-1">Contact support to change your email.</p>
         </div>

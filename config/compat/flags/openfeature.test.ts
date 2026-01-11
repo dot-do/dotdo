@@ -499,7 +499,7 @@ describe('OpenFeature Provider Interface', () => {
         defaultVariation: 0,
         rules: [
           {
-            clauses: [{ attribute: 'email', op: 'endsWith', values: ['@example.com'] }],
+            clauses: [{ attribute: 'email', op: 'endsWith', values: ['@example.com.ai'] }],
             variation: 0,
           },
         ],
@@ -507,7 +507,7 @@ describe('OpenFeature Provider Interface', () => {
 
       const openFeatureContext: EvaluationContext = {
         targetingKey: 'user-123',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         customAttr: 'custom-value',
       }
 

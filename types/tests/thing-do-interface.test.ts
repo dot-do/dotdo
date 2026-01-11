@@ -47,25 +47,25 @@ const COLLECTION_TYPE = 'https://schema.org.ai/Collection' as const
 // ============================================================================
 
 interface Contact extends Thing {
-  $type: 'https://example.com/Contact'
+  $type: 'https://example.com.ai/Contact'
   email: string
   phone?: string
 }
 
 interface Order extends Thing {
-  $type: 'https://example.com/Order'
+  $type: 'https://example.com.ai/Order'
   amount: number
   status: 'pending' | 'completed' | 'cancelled'
 }
 
 interface Product extends Thing {
-  $type: 'https://example.com/Product'
+  $type: 'https://example.com.ai/Product'
   name: string
   price: number
 }
 
 const mockContactData = {
-  email: 'john@example.com',
+  email: 'john@example.com.ai',
   phone: '555-1234',
 }
 
@@ -189,7 +189,7 @@ describe('ThingDO.itemType', () => {
     // - $type = 'https://schema.org.ai/Thing'
     // - itemType = undefined
     const heterogeneous = { $type: THING_DO_TYPE, itemType: undefined }
-    const homogeneous = { $type: COLLECTION_TYPE, itemType: 'https://example.com/Contact' }
+    const homogeneous = { $type: COLLECTION_TYPE, itemType: 'https://example.com.ai/Contact' }
 
     expect(isHeterogeneousContainer(heterogeneous as unknown as HeterogeneousThingDO)).toBe(true)
     expect(isHeterogeneousContainer(homogeneous as unknown as HeterogeneousThingDO)).toBe(false)
@@ -210,14 +210,14 @@ describe('ThingDO.buildItemId(type, id)', () => {
     mockEnv = createMockEnv()
     thingDO = createThingDO(mockState, mockEnv)
     // Set namespace for testing
-    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com.ai'
   })
 
   it('buildItemId returns ns/type/id format', () => {
     // buildItemId should construct the full $id with type in path
     const result = thingDO.buildItemId('Contact', 'john')
 
-    expect(result).toBe('https://example.com/Contact/john')
+    expect(result).toBe('https://example.com.ai/Contact/john')
   })
 
   it('buildItemId handles different types', () => {
@@ -225,15 +225,15 @@ describe('ThingDO.buildItemId(type, id)', () => {
     const orderId = thingDO.buildItemId('Order', 'ord-123')
     const productId = thingDO.buildItemId('Product', 'widget-1')
 
-    expect(contactId).toBe('https://example.com/Contact/john')
-    expect(orderId).toBe('https://example.com/Order/ord-123')
-    expect(productId).toBe('https://example.com/Product/widget-1')
+    expect(contactId).toBe('https://example.com.ai/Contact/john')
+    expect(orderId).toBe('https://example.com.ai/Order/ord-123')
+    expect(productId).toBe('https://example.com.ai/Product/widget-1')
   })
 
   it('buildItemId handles IDs with special characters', () => {
     const result = thingDO.buildItemId('Contact', 'john-doe-123')
 
-    expect(result).toBe('https://example.com/Contact/john-doe-123')
+    expect(result).toBe('https://example.com.ai/Contact/john-doe-123')
   })
 
   it('buildItemId returns type-safe string', () => {
@@ -243,11 +243,11 @@ describe('ThingDO.buildItemId(type, id)', () => {
   })
 
   it('buildItemId with different namespace', () => {
-    ;(thingDO as unknown as { ns: string }).ns = 'https://crm.example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://crm.example.com.ai'
 
     const result = thingDO.buildItemId('Contact', 'jane')
 
-    expect(result).toBe('https://crm.example.com/Contact/jane')
+    expect(result).toBe('https://crm.example.com.ai/Contact/jane')
   })
 })
 
@@ -264,7 +264,7 @@ describe('ThingDO CRUD with type parameter', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     thingDO = createThingDO(mockState, mockEnv)
-    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com.ai'
   })
 
   describe('create(type, id, data)', () => {
@@ -272,13 +272,13 @@ describe('ThingDO CRUD with type parameter', () => {
       const result = await thingDO.create('Contact', 'john', mockContactData)
 
       expect(result).toBeDefined()
-      expect(result.$type).toBe('https://example.com/Contact')
+      expect(result.$type).toBe('https://example.com.ai/Contact')
     })
 
     it('create generates correct $id with type in path', async () => {
       const result = await thingDO.create('Contact', 'john', mockContactData)
 
-      expect(result.$id).toBe('https://example.com/Contact/john')
+      expect(result.$id).toBe('https://example.com.ai/Contact/john')
     })
 
     it('create sets data correctly', async () => {
@@ -293,13 +293,13 @@ describe('ThingDO CRUD with type parameter', () => {
       const order = await thingDO.create('Order', 'ord-1', mockOrderData)
       const product = await thingDO.create('Product', 'widget', mockProductData)
 
-      expect(contact.$id).toBe('https://example.com/Contact/john')
-      expect(order.$id).toBe('https://example.com/Order/ord-1')
-      expect(product.$id).toBe('https://example.com/Product/widget')
+      expect(contact.$id).toBe('https://example.com.ai/Contact/john')
+      expect(order.$id).toBe('https://example.com.ai/Order/ord-1')
+      expect(product.$id).toBe('https://example.com.ai/Product/widget')
 
-      expect(contact.$type).toBe('https://example.com/Contact')
-      expect(order.$type).toBe('https://example.com/Order')
-      expect(product.$type).toBe('https://example.com/Product')
+      expect(contact.$type).toBe('https://example.com.ai/Contact')
+      expect(order.$type).toBe('https://example.com.ai/Order')
+      expect(product.$type).toBe('https://example.com.ai/Product')
     })
   })
 
@@ -319,8 +319,8 @@ describe('ThingDO CRUD with type parameter', () => {
       const contact = await thingDO.get('Contact', 'john')
       const order = await thingDO.get('Order', 'john')
 
-      expect(contact?.$type).toBe('https://example.com/Contact')
-      expect(order?.$type).toBe('https://example.com/Order')
+      expect(contact?.$type).toBe('https://example.com.ai/Contact')
+      expect(order?.$type).toBe('https://example.com.ai/Order')
     })
 
     it('get returns null for non-existent item', async () => {
@@ -334,7 +334,7 @@ describe('ThingDO CRUD with type parameter', () => {
 
       const result = await thingDO.get('Contact', 'john')
 
-      expect(result?.$id).toBe('https://example.com/Contact/john')
+      expect(result?.$id).toBe('https://example.com.ai/Contact/john')
     })
   })
 
@@ -361,7 +361,7 @@ describe('ThingDO CRUD with type parameter', () => {
 
       const result = await thingDO.update('Contact', 'john', { phone: '555-9999' })
 
-      expect(result?.$id).toBe('https://example.com/Contact/john')
+      expect(result?.$id).toBe('https://example.com.ai/Contact/john')
     })
   })
 
@@ -400,11 +400,11 @@ describe('ThingDO.list(type)', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     thingDO = createThingDO(mockState, mockEnv)
-    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com.ai'
 
     // Populate with mixed types
     await thingDO.create('Contact', 'john', mockContactData)
-    await thingDO.create('Contact', 'jane', { email: 'jane@example.com' })
+    await thingDO.create('Contact', 'jane', { email: 'jane@example.com.ai' })
     await thingDO.create('Order', 'ord-1', mockOrderData)
     await thingDO.create('Product', 'widget', mockProductData)
   })
@@ -413,7 +413,7 @@ describe('ThingDO.list(type)', () => {
     const contacts = await thingDO.list('Contact')
 
     expect(contacts).toHaveLength(2)
-    expect(contacts.every((c) => c.$type === 'https://example.com/Contact')).toBe(true)
+    expect(contacts.every((c) => c.$type === 'https://example.com.ai/Contact')).toBe(true)
   })
 
   it('list returns different counts for different types', async () => {
@@ -453,10 +453,10 @@ describe('ThingDO.collection<T>(type)', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     thingDO = createThingDO(mockState, mockEnv)
-    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com.ai'
 
     await thingDO.create('Contact', 'john', mockContactData)
-    await thingDO.create('Contact', 'jane', { email: 'jane@example.com' })
+    await thingDO.create('Contact', 'jane', { email: 'jane@example.com.ai' })
   })
 
   it('collection<T>(type) returns CollectionView', () => {
@@ -486,10 +486,10 @@ describe('ThingDO.collection<T>(type)', () => {
   it('CollectionView.find(query) filters within type', async () => {
     const contacts = thingDO.collection<Contact>('Contact')
 
-    const found = await contacts.find({ email: 'john@example.com' })
+    const found = await contacts.find({ email: 'john@example.com.ai' })
 
     expect(found).toHaveLength(1)
-    expect(found[0].email).toBe('john@example.com')
+    expect(found[0].email).toBe('john@example.com.ai')
   })
 
   it('CollectionView get/list use simplified $id (no type prefix)', async () => {
@@ -500,7 +500,7 @@ describe('ThingDO.collection<T>(type)', () => {
     const john = await contacts.get('john')
 
     // The returned $id should still be fully qualified
-    expect(john?.$id).toBe('https://example.com/Contact/john')
+    expect(john?.$id).toBe('https://example.com.ai/Contact/john')
   })
 
   it('CollectionView is type-safe', () => {
@@ -560,14 +560,14 @@ describe('ThingDO vs Collection contrast', () => {
     const mockState = createMockState()
     const mockEnv = createMockEnv()
     thingDO = createThingDO(mockState, mockEnv)
-    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com'
+    ;(thingDO as unknown as { ns: string }).ns = 'https://example.com.ai'
   })
 
   it('ThingDO items have ns/type/id format', async () => {
     // ThingDO (heterogeneous): $id = ns/type/id
     const contact = await thingDO.create('Contact', 'john', mockContactData)
 
-    expect(contact.$id).toBe('https://example.com/Contact/john')
+    expect(contact.$id).toBe('https://example.com.ai/Contact/john')
   })
 
   it('ThingDO $type is schema.org.ai/Thing not Collection', () => {

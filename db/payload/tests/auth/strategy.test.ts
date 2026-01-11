@@ -141,7 +141,7 @@ function createMockBetterAuthUser(overrides: Partial<BetterAuthUser> = {}): Bett
   return {
     id: 'ba-user-001',
     name: 'Alice Smith',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     emailVerified: true,
     role: 'user',
     image: null,
@@ -300,7 +300,7 @@ describe('Better Auth Strategy', () => {
     it('should return { user: PayloadUser } for valid session', async () => {
       const validUser = createMockBetterAuthUser({
         id: 'user-123',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
       })
       const sessionValidator = createMockSessionValidator({
         validTokens: new Map([['valid-token', validUser]]),
@@ -318,7 +318,7 @@ describe('Better Auth Strategy', () => {
 
       expect(result.user).not.toBeNull()
       expect(result.user?.id).toBe('user-123')
-      expect(result.user?.email).toBe('test@example.com')
+      expect(result.user?.email).toBe('test@example.com.ai')
       expect(result.user?.collection).toBe('users')
     })
 
@@ -403,7 +403,7 @@ describe('Better Auth Strategy', () => {
     it('should provision user on first login', async () => {
       const newUser = createMockBetterAuthUser({
         id: 'new-user-id',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
       })
       const sessionValidator = createMockSessionValidator({
         validTokens: new Map([['first-login-token', newUser]]),
@@ -513,7 +513,7 @@ describe('Better Auth Strategy', () => {
     it('should map Better Auth user to Payload format', async () => {
       const betterAuthUser = createMockBetterAuthUser({
         id: 'ba-123',
-        email: 'mapped@example.com',
+        email: 'mapped@example.com.ai',
         name: 'Mapped User',
         role: 'admin',
       })
@@ -576,7 +576,7 @@ describe('Better Auth Strategy', () => {
     })
 
     it('should include email field', async () => {
-      const validUser = createMockBetterAuthUser({ email: 'specific@example.com' })
+      const validUser = createMockBetterAuthUser({ email: 'specific@example.com.ai' })
       const sessionValidator = createMockSessionValidator({
         validTokens: new Map([['token', validUser]]),
       })
@@ -591,7 +591,7 @@ describe('Better Auth Strategy', () => {
         { config, sessionValidator }
       )
 
-      expect(result.user?.email).toBe('specific@example.com')
+      expect(result.user?.email).toBe('specific@example.com.ai')
     })
   })
 
@@ -864,7 +864,7 @@ describe('authenticate edge cases', () => {
   it('should use custom userMapper if provided', async () => {
     const validUser = createMockBetterAuthUser({
       id: 'original-id',
-      email: 'original@example.com',
+      email: 'original@example.com.ai',
       role: 'admin',
     })
     const sessionValidator = createMockSessionValidator({
@@ -895,9 +895,9 @@ describe('authenticate edge cases', () => {
 describe('authenticate concurrency', () => {
   it('should handle multiple concurrent requests', async () => {
     const users = [
-      createMockBetterAuthUser({ id: 'user-1', email: 'user1@example.com' }),
-      createMockBetterAuthUser({ id: 'user-2', email: 'user2@example.com' }),
-      createMockBetterAuthUser({ id: 'user-3', email: 'user3@example.com' }),
+      createMockBetterAuthUser({ id: 'user-1', email: 'user1@example.com.ai' }),
+      createMockBetterAuthUser({ id: 'user-2', email: 'user2@example.com.ai' }),
+      createMockBetterAuthUser({ id: 'user-3', email: 'user3@example.com.ai' }),
     ]
 
     const sessionValidator = createMockSessionValidator({

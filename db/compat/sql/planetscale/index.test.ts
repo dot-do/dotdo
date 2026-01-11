@@ -862,7 +862,7 @@ describe('integration', () => {
     // Insert data
     const insertResult = await conn.execute(
       'INSERT INTO users (name, email) VALUES (?, ?)',
-      ['Alice', 'alice@example.com']
+      ['Alice', 'alice@example.com.ai']
     )
     expect(insertResult.insertId).toBeGreaterThan(0)
     const userId = insertResult.insertId
@@ -873,7 +873,7 @@ describe('integration', () => {
       name: string
       email: string
     }>('SELECT * FROM users WHERE id = ?', [userId])
-    expect(selectRows[0].email).toBe('alice@example.com')
+    expect(selectRows[0].email).toBe('alice@example.com.ai')
 
     // Update data
     const updateResult = await conn.execute('UPDATE users SET name = ? WHERE id = ?', [

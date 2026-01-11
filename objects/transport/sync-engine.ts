@@ -377,7 +377,7 @@ export class SyncEngine {
 
   private extractCollection(type: string): string {
     // Extract collection name from type URL
-    // e.g., 'https://example.com/Task' -> 'Task'
+    // e.g., 'https://example.com.ai/Task' -> 'Task'
     try {
       const url = new URL(type)
       return url.pathname.slice(1) // Remove leading /

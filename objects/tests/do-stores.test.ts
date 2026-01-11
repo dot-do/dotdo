@@ -833,8 +833,8 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('creates a relationship', async () => {
       const rel = await rels.create({
         verb: 'manages',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Startup/acme',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Startup/acme',
       })
 
       expect(rel.id).toBeDefined()
@@ -844,8 +844,8 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('creates relationship with data payload', async () => {
       const rel = await rels.create({
         verb: 'invested',
-        from: 'https://example.com/Investor/bob',
-        to: 'https://example.com/Startup/acme',
+        from: 'https://example.com.ai/Investor/bob',
+        to: 'https://example.com.ai/Startup/acme',
         data: { amount: 1000000, round: 'seed' },
       })
 
@@ -855,8 +855,8 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('generates UUID for relationship ID', async () => {
       const rel = await rels.create({
         verb: 'owns',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Asset/house',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Asset/house',
       })
 
       expect(rel.id).toMatch(/^[0-9a-f-]{36}$/)
@@ -865,8 +865,8 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('sets createdAt timestamp', async () => {
       const rel = await rels.create({
         verb: 'created',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Document/doc1',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Document/doc1',
       })
 
       expect(rel.createdAt).toBeInstanceOf(Date)
@@ -875,15 +875,15 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('prevents duplicate relationships (same verb/from/to)', async () => {
       await rels.create({
         verb: 'manages',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Startup/acme',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Startup/acme',
       })
 
       await expect(
         rels.create({
           verb: 'manages',
-          from: 'https://example.com/Person/alice',
-          to: 'https://example.com/Startup/acme',
+          from: 'https://example.com.ai/Person/alice',
+          to: 'https://example.com.ai/Startup/acme',
         })
       ).rejects.toThrow(/duplicate|already exists/i)
     })
@@ -891,14 +891,14 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('allows same from/to with different verbs', async () => {
       await rels.create({
         verb: 'manages',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Startup/acme',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Startup/acme',
       })
 
       const rel2 = await rels.create({
         verb: 'founded',
-        from: 'https://example.com/Person/alice',
-        to: 'https://example.com/Startup/acme',
+        from: 'https://example.com.ai/Person/alice',
+        to: 'https://example.com.ai/Startup/acme',
       })
 
       expect(rel2.id).toBeDefined()
@@ -917,15 +917,15 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     })
 
     it('filters by from URL', async () => {
-      const aliceRels = await rels.list({ from: 'https://example.com/Person/alice' })
+      const aliceRels = await rels.list({ from: 'https://example.com.ai/Person/alice' })
 
-      expect(aliceRels.every((r) => r.from === 'https://example.com/Person/alice')).toBe(true)
+      expect(aliceRels.every((r) => r.from === 'https://example.com.ai/Person/alice')).toBe(true)
     })
 
     it('filters by to URL', async () => {
-      const acmeRels = await rels.list({ to: 'https://example.com/Startup/acme' })
+      const acmeRels = await rels.list({ to: 'https://example.com.ai/Startup/acme' })
 
-      expect(acmeRels.every((r) => r.to === 'https://example.com/Startup/acme')).toBe(true)
+      expect(acmeRels.every((r) => r.to === 'https://example.com.ai/Startup/acme')).toBe(true)
     })
 
     it('filters by verb', async () => {
@@ -936,12 +936,12 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
 
     it('combines multiple filters', async () => {
       const filtered = await rels.list({
-        from: 'https://example.com/Person/alice',
+        from: 'https://example.com.ai/Person/alice',
         verb: 'manages',
       })
 
       expect(
-        filtered.every((r) => r.from === 'https://example.com/Person/alice' && r.verb === 'manages')
+        filtered.every((r) => r.from === 'https://example.com.ai/Person/alice' && r.verb === 'manages')
       ).toBe(true)
     })
 
@@ -964,13 +964,13 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('deletes a relationship by ID', async () => {
       const rel = await rels.create({
         verb: 'temporary',
-        from: 'https://example.com/A',
-        to: 'https://example.com/B',
+        from: 'https://example.com.ai/A',
+        to: 'https://example.com.ai/B',
       })
 
       await rels.delete(rel.id)
 
-      const remaining = await rels.list({ from: 'https://example.com/A', verb: 'temporary' })
+      const remaining = await rels.list({ from: 'https://example.com.ai/A', verb: 'temporary' })
       expect(remaining.length).toBe(0)
     })
 
@@ -981,8 +981,8 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     it('returns the deleted relationship', async () => {
       const rel = await rels.create({
         verb: 'to-delete',
-        from: 'https://example.com/A',
-        to: 'https://example.com/B',
+        from: 'https://example.com.ai/A',
+        to: 'https://example.com.ai/B',
       })
 
       const deleted = await rels.delete(rel.id)
@@ -991,10 +991,10 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
     })
 
     it('deletes by criteria (bulk delete)', async () => {
-      await rels.create({ verb: 'bulk-test', from: 'https://example.com/A', to: 'https://example.com/B1' })
-      await rels.create({ verb: 'bulk-test', from: 'https://example.com/A', to: 'https://example.com/B2' })
+      await rels.create({ verb: 'bulk-test', from: 'https://example.com.ai/A', to: 'https://example.com.ai/B1' })
+      await rels.create({ verb: 'bulk-test', from: 'https://example.com.ai/A', to: 'https://example.com.ai/B2' })
 
-      const count = await rels.deleteWhere({ from: 'https://example.com/A', verb: 'bulk-test' })
+      const count = await rels.deleteWhere({ from: 'https://example.com.ai/A', verb: 'bulk-test' })
 
       expect(count).toBe(2)
     })
@@ -1006,19 +1006,19 @@ describe.skip('RelationshipsStore (requires Workers runtime)', () => {
 
   describe('traversal', () => {
     it('gets outgoing relationships from a source', async () => {
-      const outgoing = await rels.from('https://example.com/Person/alice')
+      const outgoing = await rels.from('https://example.com.ai/Person/alice')
 
-      expect(outgoing.every((r) => r.from === 'https://example.com/Person/alice')).toBe(true)
+      expect(outgoing.every((r) => r.from === 'https://example.com.ai/Person/alice')).toBe(true)
     })
 
     it('gets incoming relationships to a target', async () => {
-      const incoming = await rels.to('https://example.com/Startup/acme')
+      const incoming = await rels.to('https://example.com.ai/Startup/acme')
 
-      expect(incoming.every((r) => r.to === 'https://example.com/Startup/acme')).toBe(true)
+      expect(incoming.every((r) => r.to === 'https://example.com.ai/Startup/acme')).toBe(true)
     })
 
     it('supports verb filter in traversal', async () => {
-      const manages = await rels.from('https://example.com/Person/alice', { verb: 'manages' })
+      const manages = await rels.from('https://example.com.ai/Person/alice', { verb: 'manages' })
 
       expect(manages.every((r) => r.verb === 'manages')).toBe(true)
     })
@@ -1307,7 +1307,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('emits an event', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: { name: 'Acme Inc' },
       })
 
@@ -1318,12 +1318,12 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('sets sequence number', async () => {
       const event1 = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/one',
+        source: 'https://example.com.ai/Startup/one',
         data: {},
       })
       const event2 = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/two',
+        source: 'https://example.com.ai/Startup/two',
         data: {},
       })
 
@@ -1333,7 +1333,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('sets createdAt timestamp', async () => {
       const event = await events.emit({
         verb: 'updated',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: { field: 'name' },
       })
 
@@ -1343,7 +1343,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('links to action if provided', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: {},
         actionId: 'action-123',
       })
@@ -1354,7 +1354,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('marks event as not streamed initially', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: {},
       })
 
@@ -1370,7 +1370,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('streams events to Pipeline', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: { name: 'Acme' },
       })
 
@@ -1382,7 +1382,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('marks event as streamed', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: {},
       })
 
@@ -1393,9 +1393,9 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     })
 
     it('streams unstreamed events in batch', async () => {
-      await events.emit({ verb: 'created', source: 'https://example.com/A', data: {} })
-      await events.emit({ verb: 'created', source: 'https://example.com/B', data: {} })
-      await events.emit({ verb: 'created', source: 'https://example.com/C', data: {} })
+      await events.emit({ verb: 'created', source: 'https://example.com.ai/A', data: {} })
+      await events.emit({ verb: 'created', source: 'https://example.com.ai/B', data: {} })
+      await events.emit({ verb: 'created', source: 'https://example.com.ai/C', data: {} })
 
       const count = await events.streamPending()
 
@@ -1406,7 +1406,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('skips already streamed events', async () => {
       const event = await events.emit({
         verb: 'created',
-        source: 'https://example.com/Startup/acme',
+        source: 'https://example.com.ai/Startup/acme',
         data: {},
       })
       await events.stream(event.id)
@@ -1424,9 +1424,9 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
 
   describe('queries', () => {
     it('lists events by source', async () => {
-      const sourceEvents = await events.list({ source: 'https://example.com/Startup/acme' })
+      const sourceEvents = await events.list({ source: 'https://example.com.ai/Startup/acme' })
 
-      expect(sourceEvents.every((e) => e.source === 'https://example.com/Startup/acme')).toBe(true)
+      expect(sourceEvents.every((e) => e.source === 'https://example.com.ai/Startup/acme')).toBe(true)
     })
 
     it('lists events by verb', async () => {
@@ -1452,7 +1452,7 @@ describe.skip('EventsStore (requires Workers runtime)', () => {
     it('gets event by ID', async () => {
       const created = await events.emit({
         verb: 'test',
-        source: 'https://example.com/Test/item',
+        source: 'https://example.com.ai/Test/item',
         data: {},
       })
 
@@ -1493,18 +1493,18 @@ describe.skip('SearchStore (requires Workers runtime)', () => {
   describe('index', () => {
     it('indexes a thing for search', async () => {
       const entry = await search.index({
-        $id: 'https://example.com/Startup/acme',
+        $id: 'https://example.com.ai/Startup/acme',
         $type: 'Startup',
         content: 'Acme Inc is a technology startup founded in 2020',
       })
 
-      expect(entry.$id).toBe('https://example.com/Startup/acme')
+      expect(entry.$id).toBe('https://example.com.ai/Startup/acme')
       expect(entry.indexedAt).toBeInstanceOf(Date)
     })
 
     it('generates embedding if AI binding available', async () => {
       const entry = await search.index({
-        $id: 'https://example.com/Startup/acme',
+        $id: 'https://example.com.ai/Startup/acme',
         $type: 'Startup',
         content: 'Acme Inc is a technology startup',
       })
@@ -1515,13 +1515,13 @@ describe.skip('SearchStore (requires Workers runtime)', () => {
 
     it('updates existing index entry', async () => {
       await search.index({
-        $id: 'https://example.com/Startup/acme',
+        $id: 'https://example.com.ai/Startup/acme',
         $type: 'Startup',
         content: 'Original content',
       })
 
       const updated = await search.index({
-        $id: 'https://example.com/Startup/acme',
+        $id: 'https://example.com.ai/Startup/acme',
         $type: 'Startup',
         content: 'Updated content',
       })
@@ -1531,15 +1531,15 @@ describe.skip('SearchStore (requires Workers runtime)', () => {
 
     it('removes index entry', async () => {
       await search.index({
-        $id: 'https://example.com/Startup/to-remove',
+        $id: 'https://example.com.ai/Startup/to-remove',
         $type: 'Startup',
         content: 'Will be removed',
       })
 
-      await search.remove('https://example.com/Startup/to-remove')
+      await search.remove('https://example.com.ai/Startup/to-remove')
 
       const results = await search.query('Will be removed')
-      expect(results.find((r) => r.$id === 'https://example.com/Startup/to-remove')).toBeUndefined()
+      expect(results.find((r) => r.$id === 'https://example.com.ai/Startup/to-remove')).toBeUndefined()
     })
   })
 
@@ -1597,9 +1597,9 @@ describe.skip('SearchStore (requires Workers runtime)', () => {
   describe('bulk', () => {
     it('indexes multiple things at once', async () => {
       const entries = await search.indexMany([
-        { $id: 'https://example.com/A', $type: 'Test', content: 'First item' },
-        { $id: 'https://example.com/B', $type: 'Test', content: 'Second item' },
-        { $id: 'https://example.com/C', $type: 'Test', content: 'Third item' },
+        { $id: 'https://example.com.ai/A', $type: 'Test', content: 'First item' },
+        { $id: 'https://example.com.ai/B', $type: 'Test', content: 'Second item' },
+        { $id: 'https://example.com.ai/C', $type: 'Test', content: 'Third item' },
       ])
 
       expect(entries.length).toBe(3)
@@ -1607,11 +1607,11 @@ describe.skip('SearchStore (requires Workers runtime)', () => {
 
     it('removes multiple entries at once', async () => {
       await search.indexMany([
-        { $id: 'https://example.com/D', $type: 'Test', content: 'To remove 1' },
-        { $id: 'https://example.com/E', $type: 'Test', content: 'To remove 2' },
+        { $id: 'https://example.com.ai/D', $type: 'Test', content: 'To remove 1' },
+        { $id: 'https://example.com.ai/E', $type: 'Test', content: 'To remove 2' },
       ])
 
-      const count = await search.removeMany(['https://example.com/D', 'https://example.com/E'])
+      const count = await search.removeMany(['https://example.com.ai/D', 'https://example.com.ai/E'])
 
       expect(count).toBe(2)
     })
@@ -1647,18 +1647,18 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
   describe('register', () => {
     it('registers a new DO', async () => {
       const obj = await objects.register({
-        ns: 'https://new.example.com',
+        ns: 'https://new.example.com.ai',
         id: 'do-id-123',
         class: 'DO',
       })
 
-      expect(obj.ns).toBe('https://new.example.com')
+      expect(obj.ns).toBe('https://new.example.com.ai')
       expect(obj.id).toBe('do-id-123')
     })
 
     it('sets relation type', async () => {
       const obj = await objects.register({
-        ns: 'https://child.example.com',
+        ns: 'https://child.example.com.ai',
         id: 'do-id-456',
         class: 'DO',
         relation: 'child',
@@ -1669,7 +1669,7 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('supports shard configuration', async () => {
       const obj = await objects.register({
-        ns: 'https://shard.example.com',
+        ns: 'https://shard.example.com.ai',
         id: 'do-id-789',
         class: 'DO',
         relation: 'shard',
@@ -1683,7 +1683,7 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('supports region configuration', async () => {
       const obj = await objects.register({
-        ns: 'https://regional.example.com',
+        ns: 'https://regional.example.com.ai',
         id: 'do-id-abc',
         class: 'DO',
         region: 'eeur',
@@ -1696,7 +1696,7 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('sets createdAt timestamp', async () => {
       const obj = await objects.register({
-        ns: 'https://timestamped.example.com',
+        ns: 'https://timestamped.example.com.ai',
         id: 'do-id-def',
         class: 'DO',
       })
@@ -1706,14 +1706,14 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('throws on duplicate ns', async () => {
       await objects.register({
-        ns: 'https://duplicate.example.com',
+        ns: 'https://duplicate.example.com.ai',
         id: 'do-id-1',
         class: 'DO',
       })
 
       await expect(
         objects.register({
-          ns: 'https://duplicate.example.com',
+          ns: 'https://duplicate.example.com.ai',
           id: 'do-id-2',
           class: 'DO',
         })
@@ -1728,18 +1728,18 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
   describe('lookup', () => {
     it('gets DO by namespace', async () => {
       await objects.register({
-        ns: 'https://lookup.example.com',
+        ns: 'https://lookup.example.com.ai',
         id: 'do-id-lookup',
         class: 'DO',
       })
 
-      const obj = await objects.get('https://lookup.example.com')
+      const obj = await objects.get('https://lookup.example.com.ai')
 
       expect(obj?.id).toBe('do-id-lookup')
     })
 
     it('returns null for non-existent namespace', async () => {
-      const obj = await objects.get('https://nonexistent.example.com')
+      const obj = await objects.get('https://nonexistent.example.com.ai')
 
       expect(obj).toBeNull()
     })
@@ -1770,14 +1770,14 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('gets primary replica', async () => {
       await objects.register({
-        ns: 'https://primary.example.com',
+        ns: 'https://primary.example.com.ai',
         id: 'primary-do',
         class: 'DO',
         region: 'wnam',
         primary: true,
       })
 
-      const primary = await objects.primary('https://primary.example.com')
+      const primary = await objects.primary('https://primary.example.com.ai')
 
       expect(primary?.primary).toBe(true)
     })
@@ -1790,12 +1790,12 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
   describe('update', () => {
     it('updates cached data', async () => {
       await objects.register({
-        ns: 'https://cacheable.example.com',
+        ns: 'https://cacheable.example.com.ai',
         id: 'do-cache',
         class: 'DO',
       })
 
-      const updated = await objects.update('https://cacheable.example.com', {
+      const updated = await objects.update('https://cacheable.example.com.ai', {
         cached: { displayName: 'Cacheable DO' },
       })
 
@@ -1804,13 +1804,13 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('updates region', async () => {
       await objects.register({
-        ns: 'https://moveable.example.com',
+        ns: 'https://moveable.example.com.ai',
         id: 'do-move',
         class: 'DO',
         region: 'wnam',
       })
 
-      const updated = await objects.update('https://moveable.example.com', {
+      const updated = await objects.update('https://moveable.example.com.ai', {
         region: 'eeur',
       })
 
@@ -1819,7 +1819,7 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
 
     it('throws for non-existent namespace', async () => {
       await expect(
-        objects.update('https://nonexistent.example.com', { cached: {} })
+        objects.update('https://nonexistent.example.com.ai', { cached: {} })
       ).rejects.toThrow(/not found/i)
     })
   })
@@ -1831,19 +1831,19 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
   describe('delete', () => {
     it('removes DO registration', async () => {
       await objects.register({
-        ns: 'https://removable.example.com',
+        ns: 'https://removable.example.com.ai',
         id: 'do-remove',
         class: 'DO',
       })
 
-      await objects.delete('https://removable.example.com')
+      await objects.delete('https://removable.example.com.ai')
 
-      const obj = await objects.get('https://removable.example.com')
+      const obj = await objects.get('https://removable.example.com.ai')
       expect(obj).toBeNull()
     })
 
     it('throws for non-existent namespace', async () => {
-      await expect(objects.delete('https://nonexistent.example.com')).rejects.toThrow(/not found/i)
+      await expect(objects.delete('https://nonexistent.example.com.ai')).rejects.toThrow(/not found/i)
     })
   })
 
@@ -1854,28 +1854,28 @@ describe.skip('ObjectsStore (requires Workers runtime)', () => {
   describe('resolve', () => {
     it('resolves namespace to DO stub', async () => {
       await objects.register({
-        ns: 'https://resolvable.example.com',
+        ns: 'https://resolvable.example.com.ai',
         id: 'do-resolve',
         class: 'DO',
       })
 
-      const stub = await objects.resolve('https://resolvable.example.com')
+      const stub = await objects.resolve('https://resolvable.example.com.ai')
 
       expect(stub).toBeDefined()
     })
 
     it('throws for non-existent namespace', async () => {
-      await expect(objects.resolve('https://nonexistent.example.com')).rejects.toThrow(/not found/i)
+      await expect(objects.resolve('https://nonexistent.example.com.ai')).rejects.toThrow(/not found/i)
     })
 
     it('resolves with correct DO class binding', async () => {
       await objects.register({
-        ns: 'https://typed.example.com',
+        ns: 'https://typed.example.com.ai',
         id: 'do-typed',
         class: 'Startup',
       })
 
-      await objects.resolve('https://typed.example.com')
+      await objects.resolve('https://typed.example.com.ai')
 
       // The DO binding should be called with the correct class
       expect(mockEnv.DO.get).toHaveBeenCalled()

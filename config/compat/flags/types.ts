@@ -163,7 +163,7 @@ export type ErrorCode =
  * ```ts
  * const context: EvaluationContext = {
  *   targetingKey: 'user-123',
- *   email: 'user@example.com',
+ *   email: 'user@example.com.ai',
  *   plan: 'premium',
  *   country: 'US',
  * }

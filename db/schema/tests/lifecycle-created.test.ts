@@ -118,7 +118,7 @@ describe('$created Handler - Basic Behavior', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'John Doe',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -154,7 +154,7 @@ describe('$created Handler - Basic Behavior', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -182,7 +182,7 @@ describe('$created Handler - Basic Behavior', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'John Doe',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
         tier: 'pro',
         signupDate: new Date(),
       }
@@ -206,7 +206,7 @@ describe('$created Handler - Basic Behavior', () => {
         $id: 'cust-generated-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -229,7 +229,7 @@ describe('$created Handler - Basic Behavior', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -278,7 +278,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'New Customer',
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -311,7 +311,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-specific-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -372,7 +372,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Multi Cascade',
-        email: 'multi@example.com',
+        email: 'multi@example.com.ai',
         tier: 'pro',
         signupDate: new Date(),
       }
@@ -409,7 +409,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Sequence Test',
-        email: 'seq@example.com',
+        email: 'seq@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -530,7 +530,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-free',
         $type: 'Customer',
         name: 'Free User',
-        email: 'free@example.com',
+        email: 'free@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -543,7 +543,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'cust-pro',
         $type: 'Customer',
         name: 'Pro User',
-        email: 'pro@example.com',
+        email: 'pro@example.com.ai',
         tier: 'pro',
         signupDate: new Date(),
       }
@@ -604,7 +604,7 @@ describe('$created Handler - Cascade Generation', () => {
         $id: 'ent-001',
         $type: 'Customer',
         name: 'Enterprise',
-        email: 'ent@example.com',
+        email: 'ent@example.com.ai',
         tier: 'enterprise',
         signupDate: new Date(),
       }
@@ -649,7 +649,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Async Test',
-        email: 'async@example.com',
+        email: 'async@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -673,7 +673,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -695,7 +695,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Error Test',
-        email: 'error@example.com',
+        email: 'error@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -731,7 +731,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Parallel',
-        email: 'parallel@example.com',
+        email: 'parallel@example.com.ai',
         tier: 'pro',
         signupDate: new Date(),
       }
@@ -768,7 +768,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -809,7 +809,7 @@ describe('$created Handler - Async Support', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'External Test',
-        email: 'ext@example.com',
+        email: 'ext@example.com.ai',
         tier: 'pro',
         signupDate: new Date(),
       }
@@ -848,7 +848,7 @@ describe('$created Handler - Error Handling', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -909,7 +909,7 @@ describe('$created Handler - Error Handling', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -944,7 +944,7 @@ describe('$created Handler - Error Handling', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -988,7 +988,7 @@ describe('$created Handler - Error Handling', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -1034,7 +1034,7 @@ describe('$created Handler - Multiple Handlers', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -1065,7 +1065,7 @@ describe('$created Handler - Multiple Handlers', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -1103,7 +1103,7 @@ describe('$created Handler - Return Values', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }
@@ -1134,7 +1134,7 @@ describe('$created Handler - Return Values', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'Test',
-        email: 'test@example.com',
+        email: 'test@example.com.ai',
         tier: 'free',
         signupDate: new Date(),
       }

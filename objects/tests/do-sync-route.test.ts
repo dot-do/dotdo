@@ -446,7 +446,7 @@ describe('DO /sync WebSocket Route', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new SyncTestDO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   // ==========================================================================

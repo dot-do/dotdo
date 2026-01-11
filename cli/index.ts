@@ -14,7 +14,7 @@ export type RouteResult =
   | { type: 'fallback'; input: string[] }
 
 /** Known command names */
-const knownCommands = ['login', 'logout', 'dev', 'build', 'deploy', 'init']
+const knownCommands = ['login', 'logout', 'dev', 'build', 'deploy', 'init', 'introspect']
 
 /** Version from package.json */
 export const version = pkg.version
@@ -24,12 +24,13 @@ export const helpText = `
 Usage: do [command] [options]
 
 Commands:
-  login     Log in to your account
-  logout    Log out of your account
-  dev       Start development server
-  build     Build the project
-  deploy    Deploy to production
-  init      Initialize a new project
+  login       Log in to your account
+  logout      Log out of your account
+  dev         Start development server
+  build       Build the project
+  deploy      Deploy to production
+  init        Initialize a new project
+  introspect  Generate .do/types.d.ts from DB.mdx schemas
 
 Options:
   -h, --help     Show help

@@ -77,7 +77,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getList('posts', {
         pagination: { page: 1, perPage: 10 },
@@ -102,7 +102,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getList('posts', {
         pagination: { page: 1, perPage: 10 },
@@ -127,7 +127,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getList('posts', {
         pagination: { page: 1, perPage: 10 },
@@ -152,7 +152,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getList('posts', {
         pagination: { page: 3, perPage: 25 },
@@ -184,7 +184,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getOne('posts', { id: '123' })
 
@@ -204,7 +204,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getOne('posts', { id: 456 })
 
@@ -231,7 +231,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getMany('posts', {
         ids: ['1', '2', '3'],
@@ -247,7 +247,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getMany('posts', { ids: [] })
 
@@ -266,7 +266,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getMany('posts', {
         ids: ['1', '2', '3'],
@@ -295,7 +295,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getManyReference('comments', {
         target: 'post_id',
@@ -322,7 +322,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getManyReference('comments', {
         target: 'post_id',
@@ -354,7 +354,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.create('posts', {
         data: { title: 'New Post', body: 'Content' },
@@ -381,7 +381,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.create('posts', {
         data: { title: 'Test' },
@@ -409,7 +409,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.update('posts', {
         id: '123',
@@ -435,7 +435,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.update('posts', {
         id: '123',
@@ -464,7 +464,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.updateMany('posts', {
         ids: ['1', '2', '3'],
@@ -486,7 +486,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.updateMany('posts', {
         ids: ['1', '2', '3'],
@@ -512,7 +512,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.delete('posts', {
         id: '123',
@@ -530,7 +530,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.delete('posts', {
         id: '123',
@@ -557,7 +557,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.deleteMany('posts', {
         ids: ['1', '2', '3'],
@@ -575,7 +575,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.deleteMany('posts', {
         ids: ['1', '2', '3'],
@@ -599,7 +599,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await expect(
         dataProvider.getOne('posts', { id: 'nonexistent' })
@@ -623,7 +623,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await expect(
         dataProvider.getList('posts', {
@@ -650,7 +650,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await expect(
         dataProvider.getOne('posts', { id: '1' })
@@ -666,7 +666,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await expect(
         dataProvider.getOne('posts', { id: '1' })
@@ -681,7 +681,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       try {
         await dataProvider.getOne('posts', { id: '1' })
@@ -705,7 +705,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getList('posts', {
         pagination: { page: 1, perPage: 10 },
@@ -730,7 +730,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getList('posts', {
         pagination: { page: 10, perPage: 10 },
@@ -751,7 +751,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getList('posts', {
         pagination: { page: 100, perPage: 10 },
@@ -776,7 +776,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const result = await dataProvider.getList('posts', {
         pagination: { page: 1, perPage: 10 },
@@ -802,7 +802,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       // react-admin uses meta for optimistic updates
       const result = await dataProvider.update('posts', {
@@ -823,7 +823,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       const previousData = { id: '123', title: 'Original', version: 5 }
 
@@ -853,11 +853,11 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://custom.example.com/api/v2')
+      const dataProvider = createDataProvider('https://custom.example.com.ai/api/v2')
 
       await dataProvider.getOne('posts', { id: '1' })
 
-      expect(capturedUrl).toContain('https://custom.example.com/api/v2')
+      expect(capturedUrl).toContain('https://custom.example.com.ai/api/v2')
     })
 
     it('accepts custom headers option', async () => {
@@ -868,7 +868,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com', {
+      const dataProvider = createDataProvider('https://my-do.example.com.ai', {
         headers: {
           'X-Custom-Header': 'custom-value',
           'Authorization': 'Bearer token123',
@@ -889,7 +889,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com', {
+      const dataProvider = createDataProvider('https://my-do.example.com.ai', {
         auth: { token: 'my-jwt-token' },
       })
 
@@ -903,7 +903,7 @@ describe('DataProvider Adapter (react-admin)', () => {
         return new Response(JSON.stringify({ data: { id: '1' } }))
       })
 
-      const dataProvider = createDataProvider('https://my-do.example.com', {
+      const dataProvider = createDataProvider('https://my-do.example.com.ai', {
         fetch: customFetch,
       })
 
@@ -920,7 +920,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com/')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai/')
 
       await dataProvider.getOne('posts', { id: '1' })
 
@@ -944,7 +944,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getList('users', {
         pagination: { page: 1, perPage: 10 },
@@ -963,7 +963,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getList('admin/users', {
         pagination: { page: 1, perPage: 10 },
@@ -982,7 +982,7 @@ describe('DataProvider Adapter (react-admin)', () => {
       })
       globalThis.fetch = mockFetch
 
-      const dataProvider = createDataProvider('https://my-do.example.com')
+      const dataProvider = createDataProvider('https://my-do.example.com.ai')
 
       await dataProvider.getOne('my-resources', { id: '1' })
 

@@ -212,7 +212,7 @@ describe('Evalite Storage Interface', () => {
   beforeEach(() => {
     mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
     })
   })
@@ -384,7 +384,7 @@ describe('Evalite Storage Interface', () => {
       // This test verifies the async disposable pattern works
       const createAndDispose = async () => {
         await using tempStorage = createEvaliteStorage({
-          endpoint: 'https://example.com/e',
+          endpoint: 'https://example.com.ai/e',
           fetch: mockFetch,
         })
         await tempStorage.runs.create({ data: { status: 'running' } })
@@ -648,7 +648,7 @@ describe('POST to /e Endpoint', () => {
       json: () => Promise.resolve({ success: true }),
     })
     storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
     })
   })
@@ -664,7 +664,7 @@ describe('POST to /e Endpoint', () => {
     })
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://example.com/e',
+      'https://example.com.ai/e',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -686,7 +686,7 @@ describe('POST to /e Endpoint', () => {
     })
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://example.com/e',
+      'https://example.com.ai/e',
       expect.objectContaining({
         method: 'POST',
       }),
@@ -703,7 +703,7 @@ describe('POST to /e Endpoint', () => {
     })
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://example.com/e',
+      'https://example.com.ai/e',
       expect.objectContaining({
         method: 'POST',
       }),
@@ -748,7 +748,7 @@ describe('Batch Eval Results', () => {
       json: () => Promise.resolve({ success: true }),
     })
     storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       batchSize: 10,
     })
@@ -786,7 +786,7 @@ describe('Batch Eval Results', () => {
 
   it('sends array of events in batch mode', async () => {
     const batchStorage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       batchSize: 3,
       flushInterval: 0, // Immediate flush for testing
@@ -820,7 +820,7 @@ describe('Error Handling', () => {
   it('handles failed fetch gracefully', async () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
     })
 
@@ -839,7 +839,7 @@ describe('Error Handling', () => {
       statusText: 'Internal Server Error',
     })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
     })
 
@@ -862,7 +862,7 @@ describe('Error Handling', () => {
     })
 
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       retryAttempts: 3,
     })
@@ -887,7 +887,7 @@ describe('Error Handling', () => {
     })
 
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       queueOffline: true,
     })
@@ -910,7 +910,7 @@ describe('Error Handling', () => {
   it('validates event data before sending', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
     })
 
@@ -945,9 +945,9 @@ describe('Configuration Options', () => {
   it('accepts custom namespace', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
-      ns: 'https://my-evals.example.com',
+      ns: 'https://my-evals.example.com.ai',
     })
 
     await storage.evals.create({
@@ -957,13 +957,13 @@ describe('Configuration Options', () => {
     const [, options] = mockFetch.mock.calls[0] as [string, RequestInit]
     const body = JSON.parse(options.body as string)
 
-    expect(body.ns).toBe('https://my-evals.example.com')
+    expect(body.ns).toBe('https://my-evals.example.com.ai')
   })
 
   it('accepts custom actor', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       actor: 'my-ci-pipeline',
     })
@@ -981,7 +981,7 @@ describe('Configuration Options', () => {
   it('accepts authorization header', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       authorization: 'Bearer my-api-key',
     })
@@ -997,7 +997,7 @@ describe('Configuration Options', () => {
   it('accepts model default for all events', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     const storage = createEvaliteStorage({
-      endpoint: 'https://example.com/e',
+      endpoint: 'https://example.com.ai/e',
       fetch: mockFetch,
       defaultModel: 'claude-3-sonnet',
     })

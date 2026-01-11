@@ -201,7 +201,7 @@ describe('API({ ns: "main" }) - Fixed Namespace', () => {
 
   it('ignores hostname for namespace resolution', async () => {
     const worker = API({ ns: 'singleton' })
-    const request = new Request('https://anything.example.com/data')
+    const request = new Request('https://anything.example.com.ai/data')
     const response = await worker.fetch(request, env, {} as ExecutionContext)
 
     expect(response.status).toBe(200)

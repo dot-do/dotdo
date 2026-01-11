@@ -26,7 +26,7 @@ interface MyEvents {
 }
 
 // Create a type-safe client
-const client = createClient<MyMethods, MyEvents>('https://api.example.com')
+const client = createClient<MyMethods, MyEvents>('https://api.example.com.ai')
 
 // Make RPC calls
 const user = await client.getUser('123')

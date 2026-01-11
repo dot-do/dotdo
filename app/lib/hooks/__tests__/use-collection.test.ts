@@ -124,8 +124,8 @@ describe('useCollection', () => {
   describe('query operations', () => {
     it('findAll() returns all collection items', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
-        { $id: '2', name: 'Bob', email: 'bob@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
+        { $id: '2', name: 'Bob', email: 'bob@example.com.ai' },
       ]
 
       mock$.collection().findAll.mockResolvedValue(users)
@@ -147,7 +147,7 @@ describe('useCollection', () => {
     })
 
     it('findById(id) returns single item or null', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
 
       mock$.collection().findAll.mockResolvedValue([user])
 
@@ -169,9 +169,9 @@ describe('useCollection', () => {
 
     it('findWhere(predicate) filters items', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com', age: 30 },
-        { $id: '2', name: 'Bob', email: 'bob@example.com', age: 25 },
-        { $id: '3', name: 'Alice', email: 'alice2@example.com', age: 28 },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai', age: 30 },
+        { $id: '2', name: 'Bob', email: 'bob@example.com.ai', age: 25 },
+        { $id: '3', name: 'Alice', email: 'alice2@example.com.ai', age: 28 },
       ]
 
       mock$.collection().findAll.mockResolvedValue(users)
@@ -196,7 +196,7 @@ describe('useCollection', () => {
 
     it('data is reactive (re-renders on changes)', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
       ]
 
       mock$.collection().findAll.mockResolvedValue(users)
@@ -219,7 +219,7 @@ describe('useCollection', () => {
       act(() => {
         mock$._emit('users.change', {
           type: 'insert',
-          data: { $id: '2', name: 'Bob', email: 'bob@example.com' },
+          data: { $id: '2', name: 'Bob', email: 'bob@example.com.ai' },
         })
       })
 
@@ -254,22 +254,22 @@ describe('useCollection', () => {
       await act(async () => {
         insertedUser = await result.current.insert({
           name: 'Charlie',
-          email: 'charlie@example.com',
+          email: 'charlie@example.com.ai',
         })
       })
 
       expect(insertedUser!).toHaveProperty('$id')
       expect(insertedUser!.name).toBe('Charlie')
-      expect(insertedUser!.email).toBe('charlie@example.com')
+      expect(insertedUser!.email).toBe('charlie@example.com.ai')
     })
 
     it('update(id, data) modifies item', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
       mock$.collection().update.mockResolvedValue({
         $id: '1',
         name: 'Alice Updated',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
 
       const { result } = renderHook(() =>
@@ -294,7 +294,7 @@ describe('useCollection', () => {
     })
 
     it('delete(id) removes item', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
 
       const { result } = renderHook(() =>
@@ -338,8 +338,8 @@ describe('useCollection', () => {
 
       await act(async () => {
         insertedUsers = await result.current.insertMany([
-          { name: 'User1', email: 'user1@example.com' },
-          { name: 'User2', email: 'user2@example.com' },
+          { name: 'User1', email: 'user1@example.com.ai' },
+          { name: 'User2', email: 'user2@example.com.ai' },
         ])
       })
 
@@ -349,9 +349,9 @@ describe('useCollection', () => {
 
     it('deleteMany(ids) bulk deletes', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
-        { $id: '2', name: 'Bob', email: 'bob@example.com' },
-        { $id: '3', name: 'Charlie', email: 'charlie@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
+        { $id: '2', name: 'Bob', email: 'bob@example.com.ai' },
+        { $id: '3', name: 'Charlie', email: 'charlie@example.com.ai' },
       ]
       mock$.collection().findAll.mockResolvedValue(users)
 
@@ -409,7 +409,7 @@ describe('useCollection', () => {
 
       // Start insert (don't await)
       act(() => {
-        result.current.insert({ name: 'Pending', email: 'pending@example.com' })
+        result.current.insert({ name: 'Pending', email: 'pending@example.com.ai' })
       })
 
       // Should show optimistically immediately
@@ -419,12 +419,12 @@ describe('useCollection', () => {
 
       // Resolve server response
       act(() => {
-        resolveInsert!({ $id: 'server-id', name: 'Pending', email: 'pending@example.com' })
+        resolveInsert!({ $id: 'server-id', name: 'Pending', email: 'pending@example.com.ai' })
       })
     })
 
     it('update reflects immediately', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
 
       let resolveUpdate: (value: User) => void
@@ -459,12 +459,12 @@ describe('useCollection', () => {
 
       // Resolve server response
       act(() => {
-        resolveUpdate!({ $id: '1', name: 'Alice Updated', email: 'alice@example.com' })
+        resolveUpdate!({ $id: '1', name: 'Alice Updated', email: 'alice@example.com.ai' })
       })
     })
 
     it('delete removes immediately', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
 
       let resolveDelete: () => void
@@ -506,7 +506,7 @@ describe('useCollection', () => {
     })
 
     it('rollback on server validation failure', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
       mock$.collection().update.mockRejectedValue(new Error('Server validation failed'))
 
@@ -563,7 +563,7 @@ describe('useCollection', () => {
 
     it('external changes trigger re-render', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
       ]
       mock$.collection().findAll.mockResolvedValue(users)
 
@@ -585,7 +585,7 @@ describe('useCollection', () => {
       act(() => {
         mock$._emit('users.change', {
           type: 'insert',
-          data: { $id: '2', name: 'Bob', email: 'bob@example.com' },
+          data: { $id: '2', name: 'Bob', email: 'bob@example.com.ai' },
         })
       })
 
@@ -597,7 +597,7 @@ describe('useCollection', () => {
       act(() => {
         mock$._emit('users.change', {
           type: 'update',
-          data: { $id: '1', name: 'Alice Updated', email: 'alice@example.com' },
+          data: { $id: '1', name: 'Alice Updated', email: 'alice@example.com.ai' },
         })
       })
 
@@ -620,7 +620,7 @@ describe('useCollection', () => {
 
     it('handles concurrent updates', async () => {
       const users: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
       ]
       mock$.collection().findAll.mockResolvedValue(users)
 
@@ -653,13 +653,13 @@ describe('useCollection', () => {
       act(() => {
         mock$._emit('users.change', {
           type: 'update',
-          data: { $id: '1', name: 'Remote Update', email: 'alice@example.com' },
+          data: { $id: '1', name: 'Remote Update', email: 'alice@example.com.ai' },
         })
       })
 
       // Resolve local update - server wins
       act(() => {
-        resolveUpdate!({ $id: '1', name: 'Local Update', email: 'alice@example.com' })
+        resolveUpdate!({ $id: '1', name: 'Local Update', email: 'alice@example.com.ai' })
       })
 
       // Final state should reflect resolved state
@@ -707,7 +707,7 @@ describe('useCollection', () => {
     })
 
     it('Zod schema validates on update', async () => {
-      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com' }
+      const user: User = { $id: '1', name: 'Alice', email: 'alice@example.com.ai' }
       mock$.collection().findAll.mockResolvedValue([user])
 
       const { result } = renderHook(() =>
@@ -776,15 +776,15 @@ describe('useCollection', () => {
   describe('pagination', () => {
     it('cursor-based pagination works', async () => {
       const page1: User[] = [
-        { $id: '1', name: 'User1', email: 'u1@example.com' },
-        { $id: '2', name: 'User2', email: 'u2@example.com' },
+        { $id: '1', name: 'User1', email: 'u1@example.com.ai' },
+        { $id: '2', name: 'User2', email: 'u2@example.com.ai' },
       ]
 
       mock$.collection().findAll.mockResolvedValue(page1)
       mock$.collection().loadMore.mockResolvedValue({
         items: [
-          { $id: '3', name: 'User3', email: 'u3@example.com' },
-          { $id: '4', name: 'User4', email: 'u4@example.com' },
+          { $id: '3', name: 'User3', email: 'u3@example.com.ai' },
+          { $id: '4', name: 'User4', email: 'u4@example.com.ai' },
         ],
         cursor: 'cursor-after-4',
       })
@@ -813,19 +813,19 @@ describe('useCollection', () => {
 
     it('hasMore indicates additional data', async () => {
       mock$.collection().findAll.mockResolvedValue([
-        { $id: '1', name: 'User1', email: 'u1@example.com' },
+        { $id: '1', name: 'User1', email: 'u1@example.com.ai' },
       ])
 
       // First loadMore returns more data
       mock$.collection().loadMore.mockResolvedValueOnce({
-        items: [{ $id: '2', name: 'User2', email: 'u2@example.com' }],
+        items: [{ $id: '2', name: 'User2', email: 'u2@example.com.ai' }],
         cursor: 'next-cursor',
         hasMore: true,
       })
 
       // Second loadMore returns end of data
       mock$.collection().loadMore.mockResolvedValueOnce({
-        items: [{ $id: '3', name: 'User3', email: 'u3@example.com' }],
+        items: [{ $id: '3', name: 'User3', email: 'u3@example.com.ai' }],
         cursor: null,
         hasMore: false,
       })
@@ -859,10 +859,10 @@ describe('useCollection', () => {
 
     it('loadMore fetches next page', async () => {
       mock$.collection().findAll.mockResolvedValue([
-        { $id: '1', name: 'User1', email: 'u1@example.com' },
+        { $id: '1', name: 'User1', email: 'u1@example.com.ai' },
       ])
       mock$.collection().loadMore.mockResolvedValue({
-        items: [{ $id: '2', name: 'User2', email: 'u2@example.com' }],
+        items: [{ $id: '2', name: 'User2', email: 'u2@example.com.ai' }],
         cursor: 'cursor-2',
       })
 
@@ -895,7 +895,7 @@ describe('useCollection', () => {
   describe('refresh', () => {
     it('refetch() reloads data from server', async () => {
       const initialUsers: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
       ]
 
       mock$.collection().findAll.mockResolvedValue(initialUsers)
@@ -916,8 +916,8 @@ describe('useCollection', () => {
 
       // Update mock to return different data
       const updatedUsers: User[] = [
-        { $id: '1', name: 'Alice', email: 'alice@example.com' },
-        { $id: '2', name: 'Bob', email: 'bob@example.com' },
+        { $id: '1', name: 'Alice', email: 'alice@example.com.ai' },
+        { $id: '2', name: 'Bob', email: 'bob@example.com.ai' },
       ]
       mock$.collection().findAll.mockResolvedValue(updatedUsers)
 

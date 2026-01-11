@@ -266,7 +266,7 @@ describe('LoginPage', () => {
     it('renders email input with placeholder', () => {
       render(<LoginPage onSubmit={onSubmit} />)
 
-      expect(screen.getByPlaceholderText(/email|you@example.com/i)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/email|you@example.com.ai/i)).toBeInTheDocument()
     })
 
     it('renders password input with placeholder', () => {
@@ -302,7 +302,7 @@ describe('LoginPage', () => {
     it('shows error when password is empty on submit', async () => {
       render(<LoginPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
 
       await waitFor(() => {
@@ -337,14 +337,14 @@ describe('LoginPage', () => {
     it('calls onSubmit with credentials on valid submission', async () => {
       render(<LoginPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           password: 'password123',
         })
       })
@@ -353,7 +353,7 @@ describe('LoginPage', () => {
     it('includes rememberMe in submit when checked', async () => {
       render(<LoginPage onSubmit={onSubmit} showRememberMe />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('checkbox', { name: /remember me/i }))
@@ -372,7 +372,7 @@ describe('LoginPage', () => {
       const slowSubmit = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 1000)))
       render(<LoginPage onSubmit={slowSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
@@ -384,7 +384,7 @@ describe('LoginPage', () => {
       const slowSubmit = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 1000)))
       render(<LoginPage onSubmit={slowSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
@@ -436,7 +436,7 @@ describe('LoginPage', () => {
       onSubmit.mockResolvedValueOnce({ success: true })
       render(<LoginPage onSubmit={onSubmit} onSuccess={onSuccess} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
@@ -450,7 +450,7 @@ describe('LoginPage', () => {
       onSubmit.mockResolvedValueOnce({ success: true })
       render(<LoginPage onSubmit={onSubmit} redirectTo="/dashboard" />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'password123')
       fireEvent.click(screen.getByRole('button', { name: /sign in|log in|login/i }))
@@ -662,7 +662,7 @@ describe('SignupPage', () => {
       render(<SignupPage onSubmit={onSubmit} requireTerms />)
 
       await typeIntoInput(screen.getByRole('textbox', { name: /name/i }), 'Test User')
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'P@ssw0rd123')
       const confirmInput = document.querySelector('input[name="confirmPassword"]') as HTMLInputElement
@@ -679,7 +679,7 @@ describe('SignupPage', () => {
       render(<SignupPage onSubmit={onSubmit} requireTerms />)
 
       await typeIntoInput(screen.getByRole('textbox', { name: /name/i }), 'Test User')
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'P@ssw0rd123')
       const confirmInput = document.querySelector('input[name="confirmPassword"]') as HTMLInputElement
@@ -703,7 +703,7 @@ describe('SignupPage', () => {
       render(<SignupPage onSubmit={onSubmit} />)
 
       await typeIntoInput(screen.getByRole('textbox', { name: /name/i }), 'Test User')
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'P@ssw0rd123')
       const confirmInput = document.querySelector('input[name="confirmPassword"]') as HTMLInputElement
@@ -720,7 +720,7 @@ describe('SignupPage', () => {
       render(<SignupPage onSubmit={onSubmit} />)
 
       await typeIntoInput(screen.getByRole('textbox', { name: /name/i }), 'Test User')
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       const passwordInput = document.querySelector('input[name="password"]') as HTMLInputElement
       await typeIntoInput(passwordInput, 'P@ssw0rd123')
       const confirmInput = document.querySelector('input[name="confirmPassword"]') as HTMLInputElement
@@ -835,11 +835,11 @@ describe('PasswordResetPage', () => {
     it('calls onSubmit with email', async () => {
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
-        expect(onSubmit).toHaveBeenCalledWith({ email: 'test@example.com' })
+        expect(onSubmit).toHaveBeenCalledWith({ email: 'test@example.com.ai' })
       })
     })
 
@@ -859,7 +859,7 @@ describe('PasswordResetPage', () => {
       const slowSubmit = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 1000)))
       render(<PasswordResetPage onSubmit={slowSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       expect(screen.getByRole('button', { name: /reset|send|submit|sending|loading/i })).toBeDisabled()
@@ -875,7 +875,7 @@ describe('PasswordResetPage', () => {
       onSubmit.mockResolvedValueOnce({ success: true })
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
@@ -887,7 +887,7 @@ describe('PasswordResetPage', () => {
       onSubmit.mockResolvedValueOnce({ success: true })
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
@@ -899,7 +899,7 @@ describe('PasswordResetPage', () => {
       onSubmit.mockResolvedValueOnce({ success: true })
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
@@ -911,7 +911,7 @@ describe('PasswordResetPage', () => {
       onSubmit.mockResolvedValue({ success: true })
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'test@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
@@ -935,7 +935,7 @@ describe('PasswordResetPage', () => {
       onSubmit.mockRejectedValueOnce(new Error('User not found'))
       render(<PasswordResetPage onSubmit={onSubmit} />)
 
-      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'notfound@example.com')
+      await typeIntoInput(screen.getByRole('textbox', { name: /email/i }), 'notfound@example.com.ai')
       fireEvent.click(screen.getByRole('button', { name: /reset|send|submit/i }))
 
       await waitFor(() => {
@@ -1000,9 +1000,9 @@ describe('OTPPage', () => {
     })
 
     it('shows where code was sent', () => {
-      render(<OTPPage onSubmit={onSubmit} sentTo="test@example.com" />)
+      render(<OTPPage onSubmit={onSubmit} sentTo="test@example.com.ai" />)
 
-      expect(screen.getByText(/test@example.com/)).toBeInTheDocument()
+      expect(screen.getByText(/test@example.com.ai/)).toBeInTheDocument()
     })
   })
 

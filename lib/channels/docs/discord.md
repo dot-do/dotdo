@@ -93,7 +93,7 @@ const embed = buildEmbed({
   description: 'A customer has requested a refund.',
   color: 0xFEE75C,
   fields: [
-    { name: 'Requester', value: 'john@example.com', inline: true },
+    { name: 'Requester', value: 'john@example.com.ai', inline: true },
     { name: 'Amount', value: '$10,000', inline: true },
     { name: 'Order ID', value: 'ORD-2024-12345', inline: true },
     { name: 'Reason', value: 'Product did not meet expectations.' },

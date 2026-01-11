@@ -72,7 +72,7 @@ describe('QStash HTTP Delivery', () => {
   describe('Basic HTTP Delivery', () => {
     it('should POST to destination URL with payload', async () => {
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: JSON.stringify({ event: 'user.created', userId: '123' }),
       })
 
@@ -81,7 +81,7 @@ describe('QStash HTTP Delivery', () => {
         expect(mockRequests.length).toBeGreaterThan(0)
       }, { timeout: 1000 })
 
-      const request = mockRequests.find((r) => r.url === 'https://example.com/webhook')
+      const request = mockRequests.find((r) => r.url === 'https://example.com.ai/webhook')
       expect(request).toBeDefined()
       expect(request?.method).toBe('POST')
       expect(request?.body).toBe(JSON.stringify({ event: 'user.created', userId: '123' }))
@@ -90,7 +90,7 @@ describe('QStash HTTP Delivery', () => {
 
     it('should include Upstash-Message-Id header', async () => {
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test payload',
       })
 
@@ -98,13 +98,13 @@ describe('QStash HTTP Delivery', () => {
         expect(mockRequests.length).toBeGreaterThan(0)
       }, { timeout: 1000 })
 
-      const request = mockRequests.find((r) => r.url === 'https://example.com/webhook')
+      const request = mockRequests.find((r) => r.url === 'https://example.com.ai/webhook')
       expect(request?.headers['Upstash-Message-Id']).toBe(result.messageId)
     })
 
     it('should support custom HTTP methods', async () => {
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         method: 'PUT',
       })
@@ -113,13 +113,13 @@ describe('QStash HTTP Delivery', () => {
         expect(mockRequests.length).toBeGreaterThan(0)
       }, { timeout: 1000 })
 
-      const request = mockRequests.find((r) => r.url === 'https://example.com/webhook')
+      const request = mockRequests.find((r) => r.url === 'https://example.com.ai/webhook')
       expect(request?.method).toBe('PUT')
     })
 
     it('should include custom headers', async () => {
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         headers: {
           'X-Custom-Header': 'custom-value',
@@ -131,7 +131,7 @@ describe('QStash HTTP Delivery', () => {
         expect(mockRequests.length).toBeGreaterThan(0)
       }, { timeout: 1000 })
 
-      const request = mockRequests.find((r) => r.url === 'https://example.com/webhook')
+      const request = mockRequests.find((r) => r.url === 'https://example.com.ai/webhook')
       expect(request?.headers['X-Custom-Header']).toBe('custom-value')
       expect(request?.headers['Authorization']).toBe('Bearer token123')
     })
@@ -165,7 +165,7 @@ describe('QStash HTTP Delivery', () => {
       })
 
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         retries: 3,
       })
@@ -203,7 +203,7 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         retries: 3,
       })
@@ -243,7 +243,7 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         retries: 3,
       })
@@ -271,7 +271,7 @@ describe('QStash HTTP Delivery', () => {
         })
 
         // Always fail with 500
-        if (urlStr === 'https://example.com/webhook') {
+        if (urlStr === 'https://example.com.ai/webhook') {
           return new Response('Server Error', { status: 500 })
         }
 
@@ -280,28 +280,28 @@ describe('QStash HTTP Delivery', () => {
       })
 
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: JSON.stringify({ important: 'data' }),
         retries: 2,
-        deadLetterQueue: 'https://example.com/dlq',
+        deadLetterQueue: 'https://example.com.ai/dlq',
       })
 
       // Wait for retries and DLQ
       await vi.waitFor(
         () => {
-          const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com/dlq')
+          const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com.ai/dlq')
           expect(dlqRequest).toBeDefined()
         },
         { timeout: 15000 }
       )
 
-      const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com/dlq')
+      const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com.ai/dlq')
       expect(dlqRequest).toBeDefined()
 
       // DLQ request should contain original message info
       const dlqBody = JSON.parse(dlqRequest!.body)
       expect(dlqBody.messageId).toBe(result.messageId)
-      expect(dlqBody.originalUrl).toBe('https://example.com/webhook')
+      expect(dlqBody.originalUrl).toBe('https://example.com.ai/webhook')
       expect(dlqBody.error).toBeDefined()
       expect(dlqBody.attempts).toBeGreaterThan(0)
     })
@@ -323,21 +323,21 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         retries: 1,
-        deadLetterQueue: 'https://example.com/dlq',
+        deadLetterQueue: 'https://example.com.ai/dlq',
       })
 
       await vi.waitFor(
         () => {
-          const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com/dlq')
+          const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com.ai/dlq')
           expect(dlqRequest).toBeDefined()
         },
         { timeout: 10000 }
       )
 
-      const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com/dlq')
+      const dlqRequest = mockRequests.find((r) => r.url === 'https://example.com.ai/dlq')
       const dlqBody = JSON.parse(dlqRequest!.body)
       expect(dlqBody.error).toContain('503')
     })
@@ -347,9 +347,9 @@ describe('QStash HTTP Delivery', () => {
     it('should handle URL groups (fan-out)', async () => {
       // First, create a URL group
       await client.urlGroups.create('notifications', [
-        'https://service1.example.com/webhook',
-        'https://service2.example.com/webhook',
-        'https://service3.example.com/webhook',
+        'https://service1.example.com.ai/webhook',
+        'https://service2.example.com.ai/webhook',
+        'https://service3.example.com.ai/webhook',
       ])
 
       // Publish to the group
@@ -361,26 +361,26 @@ describe('QStash HTTP Delivery', () => {
       // Wait for all fan-out requests
       await vi.waitFor(
         () => {
-          expect(mockRequests.filter((r) => r.url.includes('example.com/webhook')).length).toBe(3)
+          expect(mockRequests.filter((r) => r.url.includes('example.com.ai/webhook')).length).toBe(3)
         },
         { timeout: 5000 }
       )
 
       // Should have sent to all 3 URLs
-      expect(mockRequests.find((r) => r.url === 'https://service1.example.com/webhook')).toBeDefined()
-      expect(mockRequests.find((r) => r.url === 'https://service2.example.com/webhook')).toBeDefined()
-      expect(mockRequests.find((r) => r.url === 'https://service3.example.com/webhook')).toBeDefined()
+      expect(mockRequests.find((r) => r.url === 'https://service1.example.com.ai/webhook')).toBeDefined()
+      expect(mockRequests.find((r) => r.url === 'https://service2.example.com.ai/webhook')).toBeDefined()
+      expect(mockRequests.find((r) => r.url === 'https://service3.example.com.ai/webhook')).toBeDefined()
 
       // All requests should have the same message ID
-      const webhookRequests = mockRequests.filter((r) => r.url.includes('example.com/webhook'))
+      const webhookRequests = mockRequests.filter((r) => r.url.includes('example.com.ai/webhook'))
       const messageIds = webhookRequests.map((r) => r.headers['Upstash-Message-Id'])
       expect(new Set(messageIds).size).toBe(1) // All same message ID
     })
 
     it('should return multiple responses for fan-out', async () => {
       await client.urlGroups.create('multi-service', [
-        'https://a.example.com/hook',
-        'https://b.example.com/hook',
+        'https://a.example.com.ai/hook',
+        'https://b.example.com.ai/hook',
       ])
 
       const result = await client.publishToGroup({
@@ -389,17 +389,17 @@ describe('QStash HTTP Delivery', () => {
       })
 
       expect(result.responses).toHaveLength(2)
-      expect(result.responses[0].url).toBe('https://a.example.com/hook')
-      expect(result.responses[1].url).toBe('https://b.example.com/hook')
+      expect(result.responses[0].url).toBe('https://a.example.com.ai/hook')
+      expect(result.responses[1].url).toBe('https://b.example.com.ai/hook')
     })
   })
 
   describe('Callbacks', () => {
     it('should execute callback on completion', async () => {
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: JSON.stringify({ data: 'test' }),
-        callback: 'https://example.com/callback',
+        callback: 'https://example.com.ai/callback',
       })
 
       // Wait for both the main request and callback
@@ -410,13 +410,13 @@ describe('QStash HTTP Delivery', () => {
         { timeout: 2000 }
       )
 
-      const callbackRequest = mockRequests.find((r) => r.url === 'https://example.com/callback')
+      const callbackRequest = mockRequests.find((r) => r.url === 'https://example.com.ai/callback')
       expect(callbackRequest).toBeDefined()
       expect(callbackRequest?.method).toBe('POST')
 
       const callbackBody = JSON.parse(callbackRequest!.body)
       expect(callbackBody.messageId).toBe(result.messageId)
-      expect(callbackBody.url).toBe('https://example.com/webhook')
+      expect(callbackBody.url).toBe('https://example.com.ai/webhook')
       expect(callbackBody.status).toBe('success')
       expect(callbackBody.statusCode).toBe(200)
     })
@@ -432,7 +432,7 @@ describe('QStash HTTP Delivery', () => {
         })
 
         // Main webhook always fails
-        if (urlStr === 'https://example.com/webhook') {
+        if (urlStr === 'https://example.com.ai/webhook') {
           return new Response('Server Error', { status: 500 })
         }
         // Callbacks succeed
@@ -440,17 +440,17 @@ describe('QStash HTTP Delivery', () => {
       })
 
       const result = await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         retries: 1,
-        failureCallback: 'https://example.com/failure-callback',
+        failureCallback: 'https://example.com.ai/failure-callback',
       })
 
       // Wait for failure callback
       await vi.waitFor(
         () => {
           const failureCallback = mockRequests.find(
-            (r) => r.url === 'https://example.com/failure-callback'
+            (r) => r.url === 'https://example.com.ai/failure-callback'
           )
           expect(failureCallback).toBeDefined()
         },
@@ -458,7 +458,7 @@ describe('QStash HTTP Delivery', () => {
       )
 
       const failureCallback = mockRequests.find(
-        (r) => r.url === 'https://example.com/failure-callback'
+        (r) => r.url === 'https://example.com.ai/failure-callback'
       )
       const callbackBody = JSON.parse(failureCallback!.body)
       expect(callbackBody.messageId).toBe(result.messageId)
@@ -475,7 +475,7 @@ describe('QStash HTTP Delivery', () => {
           body: init?.body?.toString() || '',
         })
 
-        if (urlStr === 'https://example.com/webhook') {
+        if (urlStr === 'https://example.com.ai/webhook') {
           return new Response(JSON.stringify({ processed: true, id: 'abc123' }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -485,20 +485,20 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
-        callback: 'https://example.com/callback',
+        callback: 'https://example.com.ai/callback',
       })
 
       await vi.waitFor(
         () => {
-          const callback = mockRequests.find((r) => r.url === 'https://example.com/callback')
+          const callback = mockRequests.find((r) => r.url === 'https://example.com.ai/callback')
           expect(callback).toBeDefined()
         },
         { timeout: 2000 }
       )
 
-      const callback = mockRequests.find((r) => r.url === 'https://example.com/callback')
+      const callback = mockRequests.find((r) => r.url === 'https://example.com.ai/callback')
       const callbackBody = JSON.parse(callback!.body)
       expect(callbackBody.body).toBe(JSON.stringify({ processed: true, id: 'abc123' }))
     })
@@ -544,7 +544,7 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await clientWithSigning.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test payload',
       })
 
@@ -552,7 +552,7 @@ describe('QStash HTTP Delivery', () => {
         expect(mockRequests.length).toBeGreaterThan(0)
       }, { timeout: 1000 })
 
-      const request = mockRequests.find((r) => r.url === 'https://example.com/webhook')
+      const request = mockRequests.find((r) => r.url === 'https://example.com.ai/webhook')
       expect(request?.headers['Upstash-Signature']).toBeDefined()
 
       // Verify the signature format: t=<timestamp>,v1=<signature>
@@ -618,7 +618,7 @@ describe('QStash HTTP Delivery', () => {
       })
 
       await client.publish({
-        url: 'https://example.com/webhook',
+        url: 'https://example.com.ai/webhook',
         body: 'test',
         timeout: 1, // 1 second timeout
       })

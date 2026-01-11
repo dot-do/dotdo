@@ -76,35 +76,35 @@ function createSessionStore(): SessionStore {
   // Pre-populate some test sessions
   sessions.set('valid_session_token', {
     userId: 'user_123',
-    email: 'test@example.com',
+    email: 'test@example.com.ai',
     role: 'user',
     activeOrganizationId: 'org_123',
   })
 
   sessions.set('session_with_org', {
     userId: 'user_456',
-    email: 'org@example.com',
+    email: 'org@example.com.ai',
     role: 'user',
     activeOrganizationId: 'org_456',
   })
 
   sessions.set('session_with_active_org', {
     userId: 'user_789',
-    email: 'active@example.com',
+    email: 'active@example.com.ai',
     role: 'user',
     activeOrganizationId: 'org_active',
   })
 
   sessions.set('valid_session', {
     userId: 'user_valid',
-    email: 'valid@example.com',
+    email: 'valid@example.com.ai',
     role: 'user',
     activeOrganizationId: 'org_456',
   })
 
   sessions.set('admin_session', {
     userId: 'admin_123',
-    email: 'admin@example.com',
+    email: 'admin@example.com.ai',
     role: 'admin',
     activeOrganizationId: 'org_admin',
   })
@@ -315,7 +315,7 @@ export const auth = (options?: AuthConfig): MiddlewareHandler => {
         const sessionToken = `session_${Date.now()}`
         store.sessions.set(sessionToken, {
           userId: `fed_user_${Date.now()}`,
-          email: 'federated@example.com',
+          email: 'federated@example.com.ai',
           role: 'user',
           activeOrganizationId: 'org_default',
         })
@@ -588,7 +588,7 @@ export const auth = (options?: AuthConfig): MiddlewareHandler => {
       const sessionToken = `proxy_session_${Date.now()}_${Math.random().toString(36).substring(7)}`
       store.sessions.set(sessionToken, {
         userId: `proxy_user_${Date.now()}`,
-        email: 'proxy@example.com',
+        email: 'proxy@example.com.ai',
         role: 'user',
         activeOrganizationId: 'org_proxy',
       })

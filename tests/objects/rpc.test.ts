@@ -108,7 +108,7 @@ class TestDO extends DO {
       id,
       profile: {
         name: `User ${id}`,
-        email: `${id}@example.com`,
+        email: `${id}@example.com.ai`,
         settings: {
           theme: 'dark',
           notifications: true,
@@ -214,7 +214,7 @@ describe('POST /rpc', () => {
       expect(response.status).toBe(200)
 
       const result = await parseResponse<ChainRpcResponse>(response)
-      expect(result.result).toBe('alice@example.com')
+      expect(result.result).toBe('alice@example.com.ai')
     })
 
     it('handles array index access', async () => {

@@ -88,7 +88,7 @@ describe('DO.demote()', () => {
   beforeEach(() => {
     // Setup child DO (the one being demoted)
     childDO = {
-      ns: 'https://child.example.com',
+      ns: 'https://child.example.com.ai',
       $type: 'Customer',
       demote: vi.fn(),
       things: {
@@ -106,7 +106,7 @@ describe('DO.demote()', () => {
 
     // Setup parent DO (the target for demotion)
     parentDO = {
-      ns: 'https://parent.example.com',
+      ns: 'https://parent.example.com.ai',
       things: {
         list: vi.fn().mockResolvedValue([]),
         get: vi.fn().mockResolvedValue(null),
@@ -129,14 +129,14 @@ describe('DO.demote()', () => {
     it('demote({ to: "parent-ns" }) demotes DO to Thing in parent', async () => {
       // The demote operation should convert this DO into a Thing in the parent DO
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // Should return a valid DemoteResult
       expect(result).toBeDefined()
       expect(result.thingId).toBeDefined()
-      expect(result.parentNs).toBe('https://parent.example.com')
-      expect(result.deletedNs).toBe('https://child.example.com')
+      expect(result.parentNs).toBe('https://parent.example.com.ai')
+      expect(result.deletedNs).toBe('https://child.example.com.ai')
     })
 
     it('verify Thing created in parent DO after demote', async () => {
@@ -147,12 +147,12 @@ describe('DO.demote()', () => {
 
       // Demote the child DO
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // The parent should now have a Thing representing the demoted DO
       expect(result.thingId).toBeDefined()
-      expect(result.parentNs).toBe('https://parent.example.com')
+      expect(result.parentNs).toBe('https://parent.example.com.ai')
 
       // Verify the Thing was created (implementation will need to populate this)
       // The new Thing in parent should contain the child DO's data
@@ -160,7 +160,7 @@ describe('DO.demote()', () => {
 
     it('demote creates Thing with child DO namespace as identifier', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // The thingId should reference the original child DO
@@ -178,7 +178,7 @@ describe('DO.demote()', () => {
   describe('Type options', () => {
     it('demote({ to, type: "Customer" }) specifies Thing type', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         type: 'Customer',
       })
 
@@ -195,7 +195,7 @@ describe('DO.demote()', () => {
       expect(childDO.$type).toBe('Customer')
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         // No type specified - should use childDO.$type
       })
 
@@ -206,7 +206,7 @@ describe('DO.demote()', () => {
 
     it('demote with custom type overrides DO $type', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         type: 'ArchivedCustomer',
       })
 
@@ -230,7 +230,7 @@ describe('DO.demote()', () => {
       ])
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         compress: true,
       })
 
@@ -250,7 +250,7 @@ describe('DO.demote()', () => {
       childDO.things.list = vi.fn().mockResolvedValue(versions)
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         compress: false,
       })
 
@@ -262,7 +262,7 @@ describe('DO.demote()', () => {
 
     it('demote defaults to compress: false (preserve history)', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         // No compress option - should default to false
       })
 
@@ -278,15 +278,15 @@ describe('DO.demote()', () => {
   describe('Mode options', () => {
     it('demote({ to, mode: "atomic" }) performs atomic demotion', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         mode: 'atomic',
       })
 
       // Atomic mode should ensure all-or-nothing semantics
       expect(result).toBeDefined()
       expect(result.thingId).toBeDefined()
-      expect(result.parentNs).toBe('https://parent.example.com')
-      expect(result.deletedNs).toBe('https://child.example.com')
+      expect(result.parentNs).toBe('https://parent.example.com.ai')
+      expect(result.deletedNs).toBe('https://child.example.com.ai')
     })
 
     it('atomic demote rolls back on failure', async () => {
@@ -296,7 +296,7 @@ describe('DO.demote()', () => {
       // Atomic mode should rollback - child DO should still exist
       await expect(
         childDO.demote({
-          to: 'https://parent.example.com',
+          to: 'https://parent.example.com.ai',
           mode: 'atomic',
         })
       ).rejects.toThrow()
@@ -307,7 +307,7 @@ describe('DO.demote()', () => {
 
     it('demote({ to, mode: "eventual" }) performs eventual demotion', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         mode: 'eventual',
       })
 
@@ -317,7 +317,7 @@ describe('DO.demote()', () => {
 
     it('demote defaults to atomic mode', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
         // No mode specified - should default to atomic
       })
 
@@ -333,7 +333,7 @@ describe('DO.demote()', () => {
     it('verify all DO data moved to parent as Thing', async () => {
       // Setup: Child DO has data
       const childData = {
-        email: 'customer@example.com',
+        email: 'customer@example.com.ai',
         plan: 'premium',
         settings: { notifications: true },
       }
@@ -342,7 +342,7 @@ describe('DO.demote()', () => {
       ])
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // All data should be transferred to the parent
@@ -363,7 +363,7 @@ describe('DO.demote()', () => {
       childDO.things.list = vi.fn().mockResolvedValue(childThings)
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -383,7 +383,7 @@ describe('DO.demote()', () => {
       childDO.actions.list = vi.fn().mockResolvedValue(childActions)
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -402,7 +402,7 @@ describe('DO.demote()', () => {
       childDO.events.list = vi.fn().mockResolvedValue(childEvents)
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -414,7 +414,7 @@ describe('DO.demote()', () => {
     it('verify relationships are preserved during demote', async () => {
       // Setup: Child DO has relationships to other DOs/Things
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -433,7 +433,7 @@ describe('DO.demote()', () => {
       const originalNs = childDO.ns
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // The deletedNs should be the original namespace
@@ -445,7 +445,7 @@ describe('DO.demote()', () => {
 
     it('demote emits demote.started event', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -456,7 +456,7 @@ describe('DO.demote()', () => {
 
     it('demote emits demote.completed event on success', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -471,7 +471,7 @@ describe('DO.demote()', () => {
 
       await expect(
         childDO.demote({
-          to: 'https://parent.example.com',
+          to: 'https://parent.example.com.ai',
         })
       ).rejects.toThrow('Transfer failed')
 
@@ -487,7 +487,7 @@ describe('DO.demote()', () => {
   describe('Result tests', () => {
     it('returns DemoteResult with thingId (new Thing\'s $id)', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -497,7 +497,7 @@ describe('DO.demote()', () => {
     })
 
     it('returns DemoteResult with parentNs (target namespace)', async () => {
-      const targetNs = 'https://parent.example.com'
+      const targetNs = 'https://parent.example.com.ai'
 
       const result = await childDO.demote({
         to: targetNs,
@@ -511,7 +511,7 @@ describe('DO.demote()', () => {
       const originalNs = childDO.ns
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -520,7 +520,7 @@ describe('DO.demote()', () => {
 
     it('DemoteResult matches DemoteResult type definition', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // Type check: result should match DemoteResult interface
@@ -533,7 +533,7 @@ describe('DO.demote()', () => {
 
     it('thingId in result is the new Thing $id in parent', async () => {
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       // The thingId should be a valid Thing $id
@@ -552,12 +552,12 @@ describe('DO.demote()', () => {
   describe('Error handling', () => {
     it('throws error if parent namespace not found', async () => {
       childDO.demote = vi.fn().mockRejectedValue(
-        new Error('Parent namespace not found: https://nonexistent.example.com')
+        new Error('Parent namespace not found: https://nonexistent.example.com.ai')
       )
 
       await expect(
         childDO.demote({
-          to: 'https://nonexistent.example.com',
+          to: 'https://nonexistent.example.com.ai',
         })
       ).rejects.toThrow('Parent namespace not found')
     })
@@ -569,7 +569,7 @@ describe('DO.demote()', () => {
 
       await expect(
         childDO.demote({
-          to: 'https://restricted.example.com',
+          to: 'https://restricted.example.com.ai',
         })
       ).rejects.toThrow('Cannot access parent DO')
     })
@@ -607,7 +607,7 @@ describe('DO.demote()', () => {
 
       await expect(
         childDO.demote({
-          to: 'https://parent.example.com',
+          to: 'https://parent.example.com.ai',
         })
       ).rejects.toThrow('No state to demote')
     })
@@ -620,7 +620,7 @@ describe('DO.demote()', () => {
 
       await expect(
         childDO.demote({
-          to: 'https://child-of-child.example.com',
+          to: 'https://child-of-child.example.com.ai',
         })
       ).rejects.toThrow('Circular demotion detected')
     })
@@ -632,7 +632,7 @@ describe('DO.demote()', () => {
 
       await expect(
         childDO.demote({
-          to: 'https://parent.example.com',
+          to: 'https://parent.example.com.ai',
         })
       ).rejects.toThrow('Transfer failed')
     })
@@ -654,7 +654,7 @@ describe('DO.demote()', () => {
       childDO.things.list = vi.fn().mockResolvedValue(manyThings)
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -679,7 +679,7 @@ describe('DO.demote()', () => {
       ])
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -701,7 +701,7 @@ describe('DO.demote()', () => {
       // This should handle ID conflicts appropriately
       // (either merge, rename, or namespace the IDs)
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -715,7 +715,7 @@ describe('DO.demote()', () => {
       ])
 
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -728,7 +728,7 @@ describe('DO.demote()', () => {
       // A DO that was promoted should be demoatable
       // back to its original parent
       const result = await childDO.demote({
-        to: 'https://parent.example.com',
+        to: 'https://parent.example.com.ai',
       })
 
       expect(result).toBeDefined()
@@ -790,8 +790,8 @@ describe('DO.demote() type safety', () => {
   it('DemoteResult has all required properties', () => {
     const result: DemoteResult = {
       thingId: 'thing-001',
-      parentNs: 'https://parent.example.com',
-      deletedNs: 'https://child.example.com',
+      parentNs: 'https://parent.example.com.ai',
+      deletedNs: 'https://child.example.com.ai',
     }
 
     expect(result.thingId).toBeDefined()
@@ -802,8 +802,8 @@ describe('DO.demote() type safety', () => {
   it('DemoteResult properties are strings', () => {
     const result: DemoteResult = {
       thingId: 'thing-001',
-      parentNs: 'https://parent.example.com',
-      deletedNs: 'https://child.example.com',
+      parentNs: 'https://parent.example.com.ai',
+      deletedNs: 'https://child.example.com.ai',
     }
 
     expect(typeof result.thingId).toBe('string')

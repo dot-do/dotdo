@@ -56,7 +56,7 @@ function createRequest(
     headers?: Record<string, string>
   },
 ): Request {
-  const url = `https://example.com${path}`
+  const url = `https://example.com.ai${path}`
   const init: RequestInit = {
     method,
     headers: {
@@ -546,7 +546,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
 
   describe('JSON-RPC Error Handling', () => {
     it('returns Parse error for invalid JSON', async () => {
-      const request = new Request('https://example.com/mcp', {
+      const request = new Request('https://example.com.ai/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: 'not valid json {',
@@ -648,7 +648,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
     })
 
     it('error response has null id for unparseable request', async () => {
-      const request = new Request('https://example.com/mcp', {
+      const request = new Request('https://example.com.ai/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: 'not json',
@@ -910,7 +910,7 @@ describe('MCP HTTP Streamable Transport Routes', () => {
     })
 
     it('rejects non-JSON content type for POST', async () => {
-      const request = new Request('https://example.com/mcp', {
+      const request = new Request('https://example.com.ai/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: '{}',

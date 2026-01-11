@@ -16,7 +16,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/users')
+    const url = new URL('https://example.com.ai/api/users')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('exact')
@@ -30,7 +30,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/users/123')
+    const url = new URL('https://example.com.ai/api/users/123')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('regex')
@@ -44,7 +44,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/anything/here')
+    const url = new URL('https://example.com.ai/api/anything/here')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('wildcard')
@@ -58,7 +58,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/create')
+    const url = new URL('https://example.com.ai/api/create')
 
     const getRoute = findRoute(url, 'GET', routes)
     expect(getRoute).toBeNull()
@@ -81,7 +81,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/users')
+    const url = new URL('https://example.com.ai/api/users')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('high-priority')
@@ -95,7 +95,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/other/path')
+    const url = new URL('https://example.com.ai/other/path')
     const route = findRoute(url, 'GET', routes)
 
     expect(route).toBeNull()
@@ -114,7 +114,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/disabled')
+    const url = new URL('https://example.com.ai/api/disabled')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('enabled')
@@ -128,7 +128,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/items')
+    const url = new URL('https://example.com.ai/api/items')
 
     expect(findRoute(url, 'GET', routes)?.id).toBe('crud')
     expect(findRoute(url, 'POST', routes)?.id).toBe('crud')
@@ -145,7 +145,7 @@ describe('Route Matching', () => {
       },
     ]
 
-    const url = new URL('https://example.com/api/any')
+    const url = new URL('https://example.com.ai/api/any')
 
     expect(findRoute(url, 'GET', routes)?.id).toBe('any-method')
     expect(findRoute(url, 'POST', routes)?.id).toBe('any-method')
@@ -153,14 +153,14 @@ describe('Route Matching', () => {
   })
 
   it('handles empty routes array', () => {
-    const url = new URL('https://example.com/api/test')
+    const url = new URL('https://example.com.ai/api/test')
     const route = findRoute(url, 'GET', [])
 
     expect(route).toBeNull()
   })
 
   it('handles undefined routes array', () => {
-    const url = new URL('https://example.com/api/test')
+    const url = new URL('https://example.com.ai/api/test')
     const route = findRoute(url, 'GET', undefined as unknown as Route[])
 
     expect(route).toBeNull()
@@ -173,7 +173,7 @@ describe('Route Matching', () => {
       { id: 'p5', priority: 5, match: { path: '^/test$' } },
     ]
 
-    const url = new URL('https://example.com/test')
+    const url = new URL('https://example.com.ai/test')
     const route = findRoute(url, 'GET', routes)
 
     expect(route?.id).toBe('p10')

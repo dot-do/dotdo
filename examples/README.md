@@ -31,7 +31,7 @@ npm run dev
 Response:
 ```json
 {
-  "api": { "$context": "https://my-app.example.com" },
+  "api": { "$context": "https://my-app.example.com.ai" },
   "links": { "self": "/", "home": "/" },
   "discover": { "customers": "/Customer/", "orders": "/Order/" },
   "actions": { "rpc": { "method": "POST", "href": "/rpc" } },

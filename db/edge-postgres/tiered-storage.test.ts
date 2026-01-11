@@ -309,7 +309,7 @@ describe('TieredStorage', () => {
     it('should append INSERT operation to WAL', async () => {
       const entry = await tieredStorage.appendWAL('INSERT', 'users', {
         id: 'user-1',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         name: 'Alice',
       })
 
@@ -324,7 +324,7 @@ describe('TieredStorage', () => {
     it('should append UPDATE operation to WAL', async () => {
       const entry = await tieredStorage.appendWAL('UPDATE', 'users', {
         id: 'user-1',
-        email: 'alice.updated@example.com',
+        email: 'alice.updated@example.com.ai',
       })
 
       expect(entry.operation).toBe('UPDATE')

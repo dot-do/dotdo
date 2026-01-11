@@ -129,9 +129,9 @@ describe('formatThingAsJsonLd', () => {
       data: null,
     }
 
-    const result = formatThingAsJsonLd(thing, 'https://example.com/context')
+    const result = formatThingAsJsonLd(thing, 'https://example.com.ai/context')
 
-    expect(result.$context).toBe('https://example.com/context')
+    expect(result.$context).toBe('https://example.com.ai/context')
   })
 
   it('should omit name when null', () => {
@@ -443,7 +443,7 @@ describe('handleRestRequest', () => {
   it('should handle GET /customers (list)', async () => {
     store.things.set('c1', { $id: 'c1', $type: 'Customer', name: 'A', data: null })
 
-    const request = new Request('https://example.com/customers', { method: 'GET' })
+    const request = new Request('https://example.com.ai/customers', { method: 'GET' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()
@@ -455,7 +455,7 @@ describe('handleRestRequest', () => {
   it('should handle GET /customers/:id', async () => {
     store.things.set('c1', { $id: 'c1', $type: 'Customer', name: 'A', data: null })
 
-    const request = new Request('https://example.com/customers/c1', { method: 'GET' })
+    const request = new Request('https://example.com.ai/customers/c1', { method: 'GET' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()
@@ -465,7 +465,7 @@ describe('handleRestRequest', () => {
   })
 
   it('should handle POST /customers', async () => {
-    const request = new Request('https://example.com/customers', {
+    const request = new Request('https://example.com.ai/customers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'New Customer' }),
@@ -479,7 +479,7 @@ describe('handleRestRequest', () => {
   it('should handle PUT /customers/:id', async () => {
     store.things.set('c1', { $id: 'c1', $type: 'Customer', name: 'Old', data: null })
 
-    const request = new Request('https://example.com/customers/c1', {
+    const request = new Request('https://example.com.ai/customers/c1', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Updated' }),
@@ -493,7 +493,7 @@ describe('handleRestRequest', () => {
   it('should handle PATCH /customers/:id', async () => {
     store.things.set('c1', { $id: 'c1', $type: 'Customer', name: 'Old', data: null })
 
-    const request = new Request('https://example.com/customers/c1', {
+    const request = new Request('https://example.com.ai/customers/c1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'new@test.com' }),
@@ -507,7 +507,7 @@ describe('handleRestRequest', () => {
   it('should handle DELETE /customers/:id', async () => {
     store.things.set('c1', { $id: 'c1', $type: 'Customer', name: 'ToDelete', data: null })
 
-    const request = new Request('https://example.com/customers/c1', { method: 'DELETE' })
+    const request = new Request('https://example.com.ai/customers/c1', { method: 'DELETE' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()
@@ -515,14 +515,14 @@ describe('handleRestRequest', () => {
   })
 
   it('should return null for non-REST routes', async () => {
-    const request = new Request('https://example.com/health', { method: 'GET' })
+    const request = new Request('https://example.com.ai/health', { method: 'GET' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).toBeNull()
   })
 
   it('should return 405 for unsupported methods on collections', async () => {
-    const request = new Request('https://example.com/customers', { method: 'DELETE' })
+    const request = new Request('https://example.com.ai/customers', { method: 'DELETE' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()
@@ -531,7 +531,7 @@ describe('handleRestRequest', () => {
   })
 
   it('should return 405 for unsupported methods on items', async () => {
-    const request = new Request('https://example.com/customers/c1', { method: 'POST' })
+    const request = new Request('https://example.com.ai/customers/c1', { method: 'POST' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()
@@ -540,7 +540,7 @@ describe('handleRestRequest', () => {
   })
 
   it('should handle query parameters for list', async () => {
-    const request = new Request('https://example.com/customers?limit=10&offset=5', { method: 'GET' })
+    const request = new Request('https://example.com.ai/customers?limit=10&offset=5', { method: 'GET' })
     const response = await handleRestRequest(request, ctx)
 
     expect(response).not.toBeNull()

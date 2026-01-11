@@ -65,7 +65,7 @@ describe('Backward Insert (<-)', () => {
     it('should generate new target entity', async () => {
       const context: GenerationContext = {
         entity: { $id: 'employee-001', $type: 'Employee', name: 'Alice' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -83,7 +83,7 @@ describe('Backward Insert (<-)', () => {
     it('should create relationship linking FROM target TO this', async () => {
       const context: GenerationContext = {
         entity: { $id: 'project-001', $type: 'Project', name: 'Acme Launch' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -102,7 +102,7 @@ describe('Backward Insert (<-)', () => {
     it('should have target pointing to current entity', async () => {
       const context: GenerationContext = {
         entity: { $id: 'task-001', $type: 'Task', title: 'Fix bug' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -120,7 +120,7 @@ describe('Backward Insert (<-)', () => {
     it('should use reverse verb naming (manages -> managedBy)', async () => {
       const context: GenerationContext = {
         entity: { $id: 'employee-001', $type: 'Employee', name: 'Bob' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -138,7 +138,7 @@ describe('Backward Insert (<-)', () => {
     it('should use reverse verb naming (owns -> ownedBy)', async () => {
       const context: GenerationContext = {
         entity: { $id: 'product-001', $type: 'Product', name: 'Widget' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -165,7 +165,7 @@ describe('Backward Insert (<-)', () => {
     it('should set the backrefField on generated entity', async () => {
       const context: GenerationContext = {
         entity: { $id: 'customer-001', $type: 'Customer', name: 'Acme Corp' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -190,7 +190,7 @@ describe('Backward Insert (<-)', () => {
           name: 'TechCo',
           industry: 'AI',
         },
-        namespace: 'https://startups.example.com',
+        namespace: 'https://startups.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -213,7 +213,7 @@ describe('Backward Insert (<-)', () => {
 
       const context: GenerationContext = {
         entity: { $id: 'startup-001', $type: 'Startup', name: 'TechCo' },
-        namespace: 'https://startups.example.com',
+        namespace: 'https://startups.example.com.ai',
         previousGenerations,
       }
 
@@ -238,7 +238,7 @@ describe('Backward Search (<~)', () => {
     it('should perform semantic search for entities pointing here', async () => {
       const context: GenerationContext = {
         entity: { $id: 'product-001', $type: 'Product', name: 'Widget Pro' },
-        namespace: 'https://shop.example.com',
+        namespace: 'https://shop.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -255,7 +255,7 @@ describe('Backward Search (<~)', () => {
     it('should return entities with relationship TO this', async () => {
       const context: GenerationContext = {
         entity: { $id: 'article-001', $type: 'Article', title: 'How to Code' },
-        namespace: 'https://blog.example.com',
+        namespace: 'https://blog.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -274,7 +274,7 @@ describe('Backward Search (<~)', () => {
     it('should be read-only (no generation)', async () => {
       const context: GenerationContext = {
         entity: { $id: 'topic-001', $type: 'Topic', name: 'JavaScript' },
-        namespace: 'https://docs.example.com',
+        namespace: 'https://docs.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -292,7 +292,7 @@ describe('Backward Search (<~)', () => {
     it('should return empty array when no matches found', async () => {
       const context: GenerationContext = {
         entity: { $id: 'new-product-001', $type: 'Product', name: 'Brand New' },
-        namespace: 'https://shop.example.com',
+        namespace: 'https://shop.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -310,7 +310,7 @@ describe('Backward Search (<~)', () => {
     it('should use similarity threshold for matching', async () => {
       const context: GenerationContext = {
         entity: { $id: 'category-001', $type: 'Category', name: 'Electronics' },
-        namespace: 'https://shop.example.com',
+        namespace: 'https://shop.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -332,7 +332,7 @@ describe('Backward Search (<~)', () => {
     it('should support union types for multi-source search', async () => {
       const context: GenerationContext = {
         entity: { $id: 'person-001', $type: 'Person', name: 'Alice' },
-        namespace: 'https://hr.example.com',
+        namespace: 'https://hr.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -357,7 +357,7 @@ describe('Backward Search (<~)', () => {
     it('should return first match from union types', async () => {
       const context: GenerationContext = {
         entity: { $id: 'employee-001', $type: 'Employee', name: 'Bob' },
-        namespace: 'https://hr.example.com',
+        namespace: 'https://hr.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -385,7 +385,7 @@ describe('Relationship Direction', () => {
     it('should set from=target for <- operator', async () => {
       const context: GenerationContext = {
         entity: { $id: 'this-001', $type: 'This', name: 'Current Entity' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -427,7 +427,7 @@ describe('Relationship Direction', () => {
     it('should use namespace-qualified URLs', async () => {
       const context: GenerationContext = {
         entity: { $id: 'entity-001', $type: 'Entity', name: 'Test' },
-        namespace: 'https://acme.example.com',
+        namespace: 'https://acme.example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -436,8 +436,8 @@ describe('Relationship Direction', () => {
         fieldName: 'related',
       }, context)
 
-      expect(result.relationship.from).toContain('https://acme.example.com')
-      expect(result.relationship.to).toContain('https://acme.example.com')
+      expect(result.relationship.from).toContain('https://acme.example.com.ai')
+      expect(result.relationship.to).toContain('https://acme.example.com.ai')
     })
   })
 })
@@ -493,7 +493,7 @@ describe('Verb Derivation', () => {
     it('should use field name to derive verb when not specified', async () => {
       const context: GenerationContext = {
         entity: { $id: 'project-001', $type: 'Project', name: 'Alpha' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -509,7 +509,7 @@ describe('Verb Derivation', () => {
     it('should use explicit verb when provided', async () => {
       const context: GenerationContext = {
         entity: { $id: 'task-001', $type: 'Task', name: 'Fix bug' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolveBackwardInsert({
@@ -542,7 +542,7 @@ describe('Fallback Syntax', () => {
     it('should search types in order (first match wins)', async () => {
       const context: GenerationContext = {
         entity: { $id: 'person-001', $type: 'Person', name: 'Alice' },
-        namespace: 'https://hr.example.com',
+        namespace: 'https://hr.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -561,7 +561,7 @@ describe('Fallback Syntax', () => {
     it('should stop searching after first match', async () => {
       const context: GenerationContext = {
         entity: { $id: 'employee-001', $type: 'Employee', name: 'Bob' },
-        namespace: 'https://hr.example.com',
+        namespace: 'https://hr.example.com.ai',
       }
 
       const mockSearchFn = vi.fn()
@@ -585,7 +585,7 @@ describe('Fallback Syntax', () => {
     it('should try all types if no match found', async () => {
       const context: GenerationContext = {
         entity: { $id: 'contractor-001', $type: 'Contractor', name: 'Carol' },
-        namespace: 'https://hr.example.com',
+        namespace: 'https://hr.example.com.ai',
       }
 
       const result = await resolveBackwardSearch({
@@ -639,7 +639,7 @@ describe('BackwardCascadeResolver', () => {
     it('should detect backward insert mode for <- operator', async () => {
       const context: BackwardResolutionContext = {
         entity: { $id: 'test-001', $type: 'Test', name: 'Test Entity' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -655,7 +655,7 @@ describe('BackwardCascadeResolver', () => {
     it('should detect backward search mode for <~ operator', async () => {
       const context: BackwardResolutionContext = {
         entity: { $id: 'test-001', $type: 'Test', name: 'Test Entity' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -674,7 +674,7 @@ describe('BackwardCascadeResolver', () => {
       const generated = { $id: 'target-001', $type: 'Target', name: 'Generated' }
       const context: BackwardResolutionContext = {
         entity: { $id: 'this-001', $type: 'This', name: 'Current' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const relationship = await resolver.createReverseRelationship(
@@ -683,8 +683,8 @@ describe('BackwardCascadeResolver', () => {
         { verb: 'owns' }
       )
 
-      expect(relationship.from).toBe('https://example.com/target-001')
-      expect(relationship.to).toBe('https://example.com/this-001')
+      expect(relationship.from).toBe('https://example.com.ai/target-001')
+      expect(relationship.to).toBe('https://example.com.ai/this-001')
       expect(relationship.verb).toBe('ownedBy')
     })
   })
@@ -693,7 +693,7 @@ describe('BackwardCascadeResolver', () => {
     it('should query entities with relationship TO this', async () => {
       const context: BackwardResolutionContext = {
         entity: { $id: 'article-001', $type: 'Article', title: 'Test' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const entities = await resolver.queryRelatedEntities({
@@ -797,7 +797,7 @@ describe('Backward Cascade Integration', () => {
       const resolver = new BackwardCascadeResolver()
       const context: BackwardResolutionContext = {
         entity: { $id: 'startup-001', $type: 'Startup', name: 'TechCo' },
-        namespace: 'https://startups.example.com',
+        namespace: 'https://startups.example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -822,7 +822,7 @@ describe('Backward Cascade Integration', () => {
       const resolver = new BackwardCascadeResolver()
       const context: BackwardResolutionContext = {
         entity: { $id: 'product-001', $type: 'Product', name: 'Widget' },
-        namespace: 'https://shop.example.com',
+        namespace: 'https://shop.example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -849,7 +849,7 @@ describe('Backward Cascade Integration', () => {
 
       const context: BackwardResolutionContext = {
         entity: { $id: 'startup-001', $type: 'Startup', name: 'NewCo' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -888,7 +888,7 @@ describe('Error Handling', () => {
         operator: '->',
         targetType: 'Type',
         fieldName: 'field',
-      }, { entity: { $id: 'test', $type: 'Test' }, namespace: 'https://example.com' }))
+      }, { entity: { $id: 'test', $type: 'Test' }, namespace: 'https://example.com.ai' }))
         .rejects.toThrow('Expected backward operator')
     })
   })
@@ -901,7 +901,7 @@ describe('Error Handling', () => {
         operator: '<-',
         targetType: 'Type',
         fieldName: 'field',
-      }, { entity: null as any, namespace: 'https://example.com' }))
+      }, { entity: null as any, namespace: 'https://example.com.ai' }))
         .rejects.toThrow('Entity is required')
     })
 
@@ -927,7 +927,7 @@ describe('Error Handling', () => {
 
       const context: BackwardResolutionContext = {
         entity: { $id: 'test-001', $type: 'Test' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       await expect(resolver.resolve({
@@ -949,7 +949,7 @@ describe('Error Handling', () => {
 
       const context: BackwardResolutionContext = {
         entity: { $id: 'test-001', $type: 'Test' },
-        namespace: 'https://example.com',
+        namespace: 'https://example.com.ai',
       }
 
       const result = await resolver.resolve({
@@ -990,7 +990,7 @@ describe('Type Exports', () => {
   it('should export BackwardResolutionContext type', () => {
     const context: BackwardResolutionContext = {
       entity: { $id: 'test', $type: 'Test' },
-      namespace: 'https://example.com',
+      namespace: 'https://example.com.ai',
     }
     expect(context.entity.$id).toBe('test')
   })

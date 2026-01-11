@@ -1016,7 +1016,7 @@ describe('Edge cases and error handling', () => {
 
   it('handles special characters in key', async () => {
     const specialKeys = [
-      'user:test@example.com',
+      'user:test@example.com.ai',
       'ip:192.168.1.1',
       'api:/users?id=123&type=admin',
       'user:name with spaces',

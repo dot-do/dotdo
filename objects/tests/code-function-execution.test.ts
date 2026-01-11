@@ -507,7 +507,7 @@ describe('CodeFunction Execution', () => {
 
       it('provides Queue service', async () => {
         const handler = async (_input: unknown, ctx: ExecutionContext) => {
-          await ctx.services.queue.send({ type: 'email', to: 'user@example.com' })
+          await ctx.services.queue.send({ type: 'email', to: 'user@example.com.ai' })
           return 'queued'
         }
 
@@ -516,7 +516,7 @@ describe('CodeFunction Execution', () => {
         expect(result.result).toBe('queued')
         expect(mockServices.queue.send).toHaveBeenCalledWith({
           type: 'email',
-          to: 'user@example.com',
+          to: 'user@example.com.ai',
         })
       })
 
@@ -526,14 +526,14 @@ describe('CodeFunction Execution', () => {
         )
 
         const handler = async (_input: unknown, ctx: ExecutionContext) => {
-          const response = await ctx.services.fetch('https://api.example.com/data')
+          const response = await ctx.services.fetch('https://api.example.com.ai/data')
           return await response.json()
         }
 
         const result = await executor.execute(handler, {})
 
         expect(result.result).toEqual({ data: 'external' })
-        expect(mockServices.fetch).toHaveBeenCalledWith('https://api.example.com/data')
+        expect(mockServices.fetch).toHaveBeenCalledWith('https://api.example.com.ai/data')
       })
     })
 
@@ -849,14 +849,14 @@ describe('CodeFunction Execution', () => {
 
       it('allows URL and URLSearchParams', async () => {
         const handler = () => {
-          const url = new URL('https://example.com/path?foo=bar')
+          const url = new URL('https://example.com.ai/path?foo=bar')
           return { host: url.host, foo: url.searchParams.get('foo') }
         }
 
         const result = await executor.execute(handler, {}, { sandboxed: true })
 
         expect(result.success).toBe(true)
-        expect(result.result).toEqual({ host: 'example.com', foo: 'bar' })
+        expect(result.result).toEqual({ host: 'example.com.ai', foo: 'bar' })
       })
     })
 

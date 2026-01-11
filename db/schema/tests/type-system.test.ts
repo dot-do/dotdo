@@ -737,7 +737,7 @@ describe('Entity<T> Type Inference', () => {
         $id: 'cust-001',
         $type: 'Customer',
         name: 'John Doe',
-        email: 'john@example.com',
+        email: 'john@example.com.ai',
       }
 
       expect(customer.$id).toBe('cust-001')
@@ -845,7 +845,7 @@ describe('Entity<T> Type Inference', () => {
       const order: OrderEntity = {
         $id: 'ord-001',
         $type: 'Order',
-        customer: { $id: 'cust-001', $type: 'Customer', name: 'John', email: 'john@example.com' },
+        customer: { $id: 'cust-001', $type: 'Customer', name: 'John', email: 'john@example.com.ai' },
         items: [
           { $id: 'item-001', $type: 'OrderItem', product: 'Widget', quantity: 2 },
         ],

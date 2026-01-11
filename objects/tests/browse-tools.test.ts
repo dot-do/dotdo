@@ -121,7 +121,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
           json: () => Promise.resolve({
             success: true,
             sessionId: 'browser-session-123',
-            liveViewUrl: 'https://live.example.com/session-123',
+            liveViewUrl: 'https://live.example.com.ai/session-123',
           }),
         })
         // Mock Browser DO /navigate response
@@ -129,16 +129,16 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
           ok: true,
           json: () => Promise.resolve({
             success: true,
-            currentUrl: 'https://example.com',
+            currentUrl: 'https://example.com.ai',
             title: 'Example Domain',
           }),
         })
 
-      const result = await browseTool.execute({ url: 'https://example.com' }, ctx)
+      const result = await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
 
       expect(result).toMatchObject({
         success: true,
-        currentUrl: 'https://example.com',
+        currentUrl: 'https://example.com.ai',
         title: 'Example Domain',
       })
     })
@@ -158,11 +158,11 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
           ok: true,
           json: () => Promise.resolve({
             success: true,
-            currentUrl: 'https://example.com',
+            currentUrl: 'https://example.com.ai',
           }),
         })
 
-      await browseTool.execute({ url: 'https://example.com' }, ctx)
+      await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
 
       expect(ctx.state.set).toHaveBeenCalledWith(
         'browser:sessionId',
@@ -227,12 +227,12 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
           success: true,
           action: 'typed',
           element: 'input[name="email"]',
-          text: 'test@example.com',
+          text: 'test@example.com.ai',
         }),
       })
 
       const result = await actTool.execute(
-        { instruction: 'Type test@example.com in the email field' },
+        { instruction: 'Type test@example.com.ai in the email field' },
         ctx
       )
 
@@ -240,7 +240,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
         success: true,
         action: 'typed',
         element: 'input[name="email"]',
-        text: 'test@example.com',
+        text: 'test@example.com.ai',
       })
     })
   })
@@ -606,10 +606,10 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, currentUrl: 'https://example.com' }),
+          json: () => Promise.resolve({ success: true, currentUrl: 'https://example.com.ai' }),
         })
 
-      await browseTool.execute({ url: 'https://example.com' }, ctx)
+      await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
 
       // Second tool reuses session
       mockFetch.mockResolvedValueOnce({
@@ -654,10 +654,10 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, currentUrl: 'https://example.com' }),
+          json: () => Promise.resolve({ success: true, currentUrl: 'https://example.com.ai' }),
         })
 
-      await browseTool.execute({ url: 'https://example.com' }, ctx)
+      await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/start'),
@@ -840,7 +840,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
         json: () => Promise.resolve({ error: 'Browser crashed' }),
       })
 
-      await expect(browseTool.execute({ url: 'https://example.com' }, ctx)).rejects.toThrow(
+      await expect(browseTool.execute({ url: 'https://example.com.ai' }, ctx)).rejects.toThrow(
         /Browser.*error|500|Internal Server/i
       )
     })
@@ -873,7 +873,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'))
 
       try {
-        await browseTool.execute({ url: 'https://example.com' }, ctx)
+        await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
         expect.fail('Should have thrown')
       } catch (error) {
         expect((error as Error).message).toContain('browse')
@@ -904,7 +904,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
         json: () => Promise.resolve({ error: 'Browser pool exhausted' }),
       })
 
-      await expect(browseTool.execute({ url: 'https://example.com' }, ctx)).rejects.toThrow(
+      await expect(browseTool.execute({ url: 'https://example.com.ai' }, ctx)).rejects.toThrow(
         /session|unavailable|exhausted/i
       )
     })
@@ -927,7 +927,7 @@ describe('Browse Tools for AgenticFunctionExecutor', () => {
       mockFetch.mockRejectedValueOnce(new Error('Test error for logging'))
 
       try {
-        await browseTool.execute({ url: 'https://example.com' }, ctx)
+        await browseTool.execute({ url: 'https://example.com.ai' }, ctx)
       } catch {
         // Expected
       }

@@ -273,9 +273,9 @@ do://{host}/{resourceName}/{id}
 Examples:
 
 ```
-do://inventory.example.com/items
-do://inventory.example.com/items/item-123
-do://inventory.example.com/categories
+do://inventory.example.com.ai/items
+do://inventory.example.com.ai/items/item-123
+do://inventory.example.com.ai/categories
 ```
 
 ### resources/list
@@ -299,12 +299,12 @@ Response:
   "result": {
     "resources": [
       {
-        "uri": "do://inventory.example.com/items",
+        "uri": "do://inventory.example.com.ai/items",
         "name": "items",
         "mimeType": "application/json"
       },
       {
-        "uri": "do://inventory.example.com/categories",
+        "uri": "do://inventory.example.com.ai/categories",
         "name": "categories",
         "mimeType": "application/json"
       }
@@ -323,7 +323,7 @@ Read resource contents:
   "id": 2,
   "method": "resources/read",
   "params": {
-    "uri": "do://inventory.example.com/items"
+    "uri": "do://inventory.example.com.ai/items"
   }
 }
 ```
@@ -337,7 +337,7 @@ Response:
   "result": {
     "contents": [
       {
-        "uri": "do://inventory.example.com/items",
+        "uri": "do://inventory.example.com.ai/items",
         "mimeType": "application/json",
         "text": "[{\"id\":\"1\",\"name\":\"Widget\"}]"
       }
@@ -354,7 +354,7 @@ Read specific item by ID:
   "id": 3,
   "method": "resources/read",
   "params": {
-    "uri": "do://inventory.example.com/items/1"
+    "uri": "do://inventory.example.com.ai/items/1"
   }
 }
 ```
@@ -369,7 +369,7 @@ Subscribe to resource updates (requires SSE connection):
   "id": 4,
   "method": "resources/subscribe",
   "params": {
-    "uri": "do://inventory.example.com/items"
+    "uri": "do://inventory.example.com.ai/items"
   }
 }
 ```
@@ -382,7 +382,7 @@ Unsubscribe:
   "id": 5,
   "method": "resources/unsubscribe",
   "params": {
-    "uri": "do://inventory.example.com/items"
+    "uri": "do://inventory.example.com.ai/items"
   }
 }
 ```

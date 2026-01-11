@@ -170,7 +170,7 @@ interface SyncMessage {
  * @example
  * ```typescript
  * const adapter = createDotdoSync({
- *   doUrl: 'wss://example.com/do/123',
+ *   doUrl: 'wss://example.com.ai/do/123',
  *   collections: ['Task', 'User'],
  *   conflictStrategy: 'last-write-wins',
  *   offline: { enabled: true },

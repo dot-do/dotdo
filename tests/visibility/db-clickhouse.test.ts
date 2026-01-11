@@ -190,7 +190,7 @@ describe('Anonymous client visibility restrictions', () => {
 
   it('anonymous client only queries public visibility by default', () => {
     const client = createAnonymousClient!({
-      url: 'https://clickhouse.example.com:8443',
+      url: 'https://clickhouse.example.com.ai:8443',
       database: 'default',
     })
 
@@ -201,7 +201,7 @@ describe('Anonymous client visibility restrictions', () => {
 
   it('anonymous client rejects queries for protected visibility', async () => {
     const client = createAnonymousClient!({
-      url: 'https://clickhouse.example.com:8443',
+      url: 'https://clickhouse.example.com.ai:8443',
     })
 
     // Attempting to query protected data should throw
@@ -216,7 +216,7 @@ describe('Anonymous client visibility restrictions', () => {
 
   it('anonymous client rejects queries for private visibility', async () => {
     const client = createAnonymousClient!({
-      url: 'https://clickhouse.example.com:8443',
+      url: 'https://clickhouse.example.com.ai:8443',
     })
 
     await expect(
@@ -235,7 +235,7 @@ describe('Anonymous client visibility restrictions', () => {
     })
 
     const client = createAnonymousClient!({
-      url: 'https://clickhouse.example.com:8443',
+      url: 'https://clickhouse.example.com.ai:8443',
     })
 
     // @ts-expect-error - Inject mock query function
@@ -266,7 +266,7 @@ describe('buildGetUrl includes visibility filter', () => {
 
   it('adds visibility parameter to URL when specified', () => {
     const url = buildGetUrl!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       sql: 'SELECT * FROM items',
       visibility: 'public',
     })
@@ -278,7 +278,7 @@ describe('buildGetUrl includes visibility filter', () => {
 
   it('adds multiple visibility levels to URL when array is specified', () => {
     const url = buildGetUrl!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       sql: 'SELECT * FROM items',
       visibility: ['public', 'protected'],
     })
@@ -290,7 +290,7 @@ describe('buildGetUrl includes visibility filter', () => {
 
   it('includes context user ID for private visibility', () => {
     const url = buildGetUrl!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       sql: 'SELECT * FROM items',
       visibility: 'private',
       context: createAuthenticatedContext('user-123', 'org-456'),
@@ -302,7 +302,7 @@ describe('buildGetUrl includes visibility filter', () => {
 
   it('includes context org ID for protected visibility', () => {
     const url = buildGetUrl!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       sql: 'SELECT * FROM items',
       visibility: 'protected',
       context: createAuthenticatedContext('user-123', 'org-456'),
@@ -315,7 +315,7 @@ describe('buildGetUrl includes visibility filter', () => {
   it('throws error when private visibility requested without context', () => {
     expect(() =>
       buildGetUrl!({
-        baseUrl: 'https://clickhouse.example.com:8443',
+        baseUrl: 'https://clickhouse.example.com.ai:8443',
         sql: 'SELECT * FROM items',
         visibility: 'private',
       })
@@ -325,7 +325,7 @@ describe('buildGetUrl includes visibility filter', () => {
   it('throws error when protected visibility requested without org context', () => {
     expect(() =>
       buildGetUrl!({
-        baseUrl: 'https://clickhouse.example.com:8443',
+        baseUrl: 'https://clickhouse.example.com.ai:8443',
         sql: 'SELECT * FROM items',
         visibility: 'protected',
         context: { isAuthenticated: true, userId: 'user-123' },
@@ -335,7 +335,7 @@ describe('buildGetUrl includes visibility filter', () => {
 
   it('defaults to public visibility when no visibility specified for anonymous context', () => {
     const url = buildGetUrl!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       sql: 'SELECT * FROM items',
       context: createAnonymousContext(),
     })
@@ -388,7 +388,7 @@ describe('Cache keys include visibility context', () => {
   beforeEach(() => {
     // @ts-expect-error - Constructor not yet implemented
     cache = new ClickHouseVisibilityCache!({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       database: 'default',
     })
   })
@@ -822,7 +822,7 @@ describe('Integration with existing query functions', () => {
     const { ClickHouseCache } = await import('../../db/clickhouse')
 
     const cache = new ClickHouseCache({
-      baseUrl: 'https://clickhouse.example.com:8443',
+      baseUrl: 'https://clickhouse.example.com.ai:8443',
       database: 'default',
     })
 

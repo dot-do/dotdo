@@ -139,7 +139,7 @@ function createMockEnv() {
   return {
     SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/test',
     SENDGRID_API_KEY: 'test-sendgrid-key',
-    APP_URL: 'https://app.example.com',
+    APP_URL: 'https://app.example.com.ai',
   }
 }
 
@@ -163,7 +163,7 @@ function createMockChannels() {
       send: vi.fn().mockResolvedValue({ messageId: 'email-msg-456', delivered: true }),
       waitForResponse: vi.fn().mockResolvedValue({
         action: 'approve',
-        userId: 'user@example.com',
+        userId: 'user@example.com.ai',
         timestamp: new Date(),
         data: {},
       }),
@@ -512,14 +512,14 @@ describe('HumanFunction Execution', () => {
           channel: 'email',
           timeout: 60000,
           channelOptions: {
-            to: 'approver@example.com',
+            to: 'approver@example.com.ai',
             subject: 'Action Required: Approval Request',
           },
         })
 
         expect(mockChannels.email.send).toHaveBeenCalledWith(
           expect.objectContaining({
-            to: 'approver@example.com',
+            to: 'approver@example.com.ai',
             subject: 'Action Required: Approval Request',
           })
         )
@@ -531,7 +531,7 @@ describe('HumanFunction Execution', () => {
           channel: 'email',
           timeout: 60000,
           channelOptions: {
-            to: 'user@example.com',
+            to: 'user@example.com.ai',
             contentType: 'html',
           },
         })
@@ -550,8 +550,8 @@ describe('HumanFunction Execution', () => {
           timeout: 60000,
           actions: ['approve', 'reject'],
           channelOptions: {
-            to: 'user@example.com',
-            actionLinkBaseUrl: 'https://app.example.com/actions',
+            to: 'user@example.com.ai',
+            actionLinkBaseUrl: 'https://app.example.com.ai/actions',
           },
         })
 
@@ -559,7 +559,7 @@ describe('HumanFunction Execution', () => {
           expect.objectContaining({
             actions: expect.arrayContaining([
               expect.objectContaining({
-                url: expect.stringContaining('https://app.example.com/actions'),
+                url: expect.stringContaining('https://app.example.com.ai/actions'),
               }),
             ]),
           })
@@ -613,7 +613,7 @@ describe('HumanFunction Execution', () => {
           channel: ['slack', 'email'],
           timeout: 60000,
           channelOptions: {
-            email: { to: 'user@example.com' },
+            email: { to: 'user@example.com.ai' },
             slack: { channel: '#approvals' },
           },
         })
@@ -1286,7 +1286,7 @@ describe('HumanFunction Execution', () => {
 
         mockChannels.email.waitForResponse.mockResolvedValueOnce({
           action: 'approve',
-          userId: 'manager@example.com',
+          userId: 'manager@example.com.ai',
           timestamp: new Date(),
           data: {},
         })
@@ -1299,7 +1299,7 @@ describe('HumanFunction Execution', () => {
             timeout: 50,
             to: 'email',
             channelOptions: {
-              to: 'manager@example.com',
+              to: 'manager@example.com.ai',
               subject: 'Escalated: Approval Request',
             },
           },
@@ -1420,7 +1420,7 @@ describe('HumanFunction Execution', () => {
 
         mockChannels.email.waitForResponse.mockResolvedValueOnce({
           action: 'approve',
-          userId: 'escalated@example.com',
+          userId: 'escalated@example.com.ai',
           timestamp: new Date(),
           data: {},
         })
@@ -2015,7 +2015,7 @@ describe('HumanFunction Execution', () => {
         mockChannels.email.send.mockResolvedValueOnce({ messageId: 'email-123', delivered: true })
         mockChannels.email.waitForResponse.mockResolvedValueOnce({
           action: 'approve',
-          userId: 'user@example.com',
+          userId: 'user@example.com.ai',
           timestamp: new Date(),
           data: {},
         })
@@ -2026,7 +2026,7 @@ describe('HumanFunction Execution', () => {
           timeout: 60000,
           fallbackChannel: 'email',
           channelOptions: {
-            email: { to: 'user@example.com' },
+            email: { to: 'user@example.com.ai' },
           },
         })
 
@@ -2039,7 +2039,7 @@ describe('HumanFunction Execution', () => {
         mockChannels.email.send.mockResolvedValueOnce({ messageId: 'email-123', delivered: true })
         mockChannels.email.waitForResponse.mockResolvedValueOnce({
           action: 'approve',
-          userId: 'user@example.com',
+          userId: 'user@example.com.ai',
           timestamp: new Date(),
           data: {},
         })

@@ -601,7 +601,7 @@ describe('$.vaults.connect() initiates OAuth connection', () => {
     })
 
     const result = await $.vaults.connect('github', {
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
     })
 
     expect(result.authorizationUrl).toBeDefined()
@@ -616,7 +616,7 @@ describe('$.vaults.connect() initiates OAuth connection', () => {
 
     await expect(
       $.vaults.connect('unconfigured', {
-        redirectUri: 'https://example.com/callback',
+        redirectUri: 'https://example.com.ai/callback',
       })
     ).rejects.toThrow()
   })
@@ -634,7 +634,7 @@ describe('$.vaults.connect() initiates OAuth connection', () => {
     })
 
     const result = await $.vaults.connect('github', {
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       scopes: ['repo', 'user', 'read:org'],
     })
 
@@ -657,14 +657,14 @@ describe('$.vaults.connect() initiates OAuth connection', () => {
     })
 
     const result = await $.vaults.connect('github', {
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
     })
 
     // Verify state is stored for validation
     expect($._storage.pendingOAuth.has(result.state)).toBe(true)
     const pending = $._storage.pendingOAuth.get(result.state)
     expect(pending?.provider).toBe('github')
-    expect(pending?.redirectUri).toBe('https://example.com/callback/github')
+    expect(pending?.redirectUri).toBe('https://example.com.ai/callback/github')
   })
 
   it('stores API key directly for API key providers', async () => {
@@ -724,7 +724,7 @@ describe('$.vaults.getCallback() handles OAuth callback', () => {
     const state = 'random_state_123'
     $._storage.pendingOAuth.set(state, {
       provider: 'github',
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       createdAt: new Date(),
     })
 
@@ -782,7 +782,7 @@ describe('$.vaults.getCallback() handles OAuth callback', () => {
     const state = 'expired_state_123'
     $._storage.pendingOAuth.set(state, {
       provider: 'github',
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       createdAt: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes ago
       expiresAt: new Date(Date.now() - 5 * 60 * 1000), // Expired 5 minutes ago
     })
@@ -810,7 +810,7 @@ describe('$.vaults.getCallback() handles OAuth callback', () => {
     const state = 'cleanup_state_123'
     $._storage.pendingOAuth.set(state, {
       provider: 'github',
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       createdAt: new Date(),
     })
 
@@ -843,7 +843,7 @@ describe('$.vaults.getCallback() handles OAuth callback', () => {
     const state = 'refresh_state_123'
     $._storage.pendingOAuth.set(state, {
       provider: 'github',
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       createdAt: new Date(),
     })
 
@@ -879,7 +879,7 @@ describe('$.vaults.getCallback() handles OAuth callback', () => {
     const state = 'error_state_123'
     $._storage.pendingOAuth.set(state, {
       provider: 'github',
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
       createdAt: new Date(),
     })
 
@@ -913,7 +913,7 @@ describe('Provider configurations', () => {
       })
 
       const result = await $.vaults.connect('github', {
-        redirectUri: 'https://example.com/callback/github',
+        redirectUri: 'https://example.com.ai/callback/github',
       })
 
       expect(result.authorizationUrl).toContain('github.com')
@@ -961,7 +961,7 @@ describe('Provider configurations', () => {
       })
 
       const result = await $.vaults.connect('slack', {
-        redirectUri: 'https://example.com/callback/slack',
+        redirectUri: 'https://example.com.ai/callback/slack',
       })
 
       expect(result.authorizationUrl).toContain('slack.com')
@@ -1009,7 +1009,7 @@ describe('Provider configurations', () => {
       })
 
       const result = await $.vaults.connect('google', {
-        redirectUri: 'https://example.com/callback/google',
+        redirectUri: 'https://example.com.ai/callback/google',
       })
 
       expect(result.authorizationUrl).toContain('accounts.google.com')
@@ -1095,7 +1095,7 @@ describe('Provider configurations', () => {
       })
 
       const result = await $.vaults.connect('custom', {
-        redirectUri: 'https://example.com/callback/custom',
+        redirectUri: 'https://example.com.ai/callback/custom',
       })
 
       expect(result.authorizationUrl).toContain('custom-provider.com')
@@ -1122,7 +1122,7 @@ describe('Provider configurations', () => {
       const state = 'custom_state_123'
       $._storage.pendingOAuth.set(state, {
         provider: 'custom',
-        redirectUri: 'https://example.com/callback/custom',
+        redirectUri: 'https://example.com.ai/callback/custom',
         createdAt: new Date(),
       })
 
@@ -1162,7 +1162,7 @@ describe('$.vault and $.vaults integration', () => {
 
     // 2. Initiate connection
     const { authorizationUrl, state } = await $.vaults.connect('github', {
-      redirectUri: 'https://example.com/callback/github',
+      redirectUri: 'https://example.com.ai/callback/github',
     })
     expect(authorizationUrl).toContain('github.com')
 

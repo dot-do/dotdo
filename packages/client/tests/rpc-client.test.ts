@@ -127,15 +127,15 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('connection strategy', () => {
     it('attempts WebSocket connection first', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       // Should immediately attempt WebSocket connection
       expect(MockWebSocket.instances).toHaveLength(1)
-      expect(MockWebSocket.instances[0].url).toBe('wss://my-do.example.com/do/123/rpc')
+      expect(MockWebSocket.instances[0].url).toBe('wss://my-do.example.com.ai/do/123/rpc')
     })
 
     it('converts https:// to wss:// for WebSocket URL', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       expect(MockWebSocket.instances[0].url).toMatch(/^wss:\/\//)
     })
@@ -157,7 +157,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         greet(name: string): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Simulate WebSocket connection failure
       MockWebSocket.instances[0].simulateError(new Event('error'))
@@ -182,14 +182,14 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
       const result = await client.ping()
 
       expect(mockFetch).toHaveBeenCalled()
     })
 
     it('emits connection state changes', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
       const states: string[] = []
 
       client.on('connectionStateChange', (state) => {
@@ -206,7 +206,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('provides current connection state', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       expect(client.connectionState).toBe('connecting')
 
@@ -221,7 +221,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('automatic reconnection', () => {
     it('reconnects automatically on disconnect', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
       expect(MockWebSocket.instances).toHaveLength(1)
@@ -235,7 +235,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('uses exponential backoff for reconnection', async () => {
-      const client = createClient('https://my-do.example.com/do/123', {
+      const client = createClient('https://my-do.example.com.ai/do/123', {
         reconnect: { jitter: 0 } // Disable jitter for predictable timing
       })
 
@@ -260,7 +260,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('caps reconnection delay at 30 seconds', async () => {
-      const client = createClient('https://my-do.example.com/do/123', {
+      const client = createClient('https://my-do.example.com.ai/do/123', {
         reconnect: { jitter: 0 }
       })
 
@@ -275,7 +275,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('resets backoff after successful connection', async () => {
-      const client = createClient('https://my-do.example.com/do/123', {
+      const client = createClient('https://my-do.example.com.ai/do/123', {
         reconnect: { jitter: 0 }
       })
 
@@ -297,7 +297,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('stops reconnecting when explicitly disconnected', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
       client.disconnect()
@@ -307,10 +307,10 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('adds jitter to prevent thundering herd', async () => {
-      const client1 = createClient('https://my-do.example.com/do/123', {
+      const client1 = createClient('https://my-do.example.com.ai/do/123', {
         reconnect: { jitter: 0.5 }
       })
-      const client2 = createClient('https://my-do.example.com/do/456', {
+      const client2 = createClient('https://my-do.example.com.ai/do/456', {
         reconnect: { jitter: 0.5 }
       })
 
@@ -328,7 +328,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('calls remote methods via proxy', async () => {
       const client = createClient<{
         greet(name: string): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -359,18 +359,18 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('supports object parameters', async () => {
       const client = createClient<{
         createUser(data: { name: string; email: string }): { id: string }
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
-      const resultPromise = client.createUser({ name: 'Alice', email: 'alice@example.com' })
+      const resultPromise = client.createUser({ name: 'Alice', email: 'alice@example.com.ai' })
 
       await vi.advanceTimersByTimeAsync(1)
 
       const sent = MockWebSocket.instances[0].getSentJSON<{ id: string; pipeline: Array<{ method: string; params: unknown[] }> }>()
       expect(sent[0]).toMatchObject({
         pipeline: [
-          { method: 'createUser', params: [{ name: 'Alice', email: 'alice@example.com' }] },
+          { method: 'createUser', params: [{ name: 'Alice', email: 'alice@example.com.ai' }] },
         ],
       })
 
@@ -386,7 +386,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('handles method errors', async () => {
       const client = createClient<{
         dangerousMethod(): void
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -409,7 +409,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('times out long-running calls', async () => {
       const client = createClient<{
         slowMethod(): void
-      }>('https://my-do.example.com/do/123', { timeout: 5000 })
+      }>('https://my-do.example.com.ai/do/123', { timeout: 5000 })
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -425,7 +425,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('queues calls while connecting', async () => {
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Don't open WebSocket yet
       const resultPromise = client.ping()
@@ -464,7 +464,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         getData(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Fail WebSocket
       MockWebSocket.instances[0].simulateError(new Event('error'))
@@ -491,7 +491,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         getUser(id: string): User
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -532,7 +532,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         getCompany(id: string): Company
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -556,7 +556,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         getUser(id: string): User
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -574,7 +574,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('handles pipeline errors gracefully', async () => {
       const client = createClient<{
         getUser(id: string): { getPosts(): unknown[] }
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -609,7 +609,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
         getUser(id: string): { name: string }
         getPost(id: string): { title: string }
         getComment(id: string): { text: string }
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -648,7 +648,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('respects batch window configuration', async () => {
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123', {
+      }>('https://my-do.example.com.ai/do/123', {
         batchWindow: 50, // 50ms batch window
       })
 
@@ -672,7 +672,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('sends immediately when batch size limit reached', async () => {
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123', {
+      }>('https://my-do.example.com.ai/do/123', {
         maxBatchSize: 3,
       })
 
@@ -693,7 +693,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
       const client = createClient<{
         safeMethod(): string
         dangerousMethod(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -718,7 +718,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('can disable batching', async () => {
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123', {
+      }>('https://my-do.example.com.ai/do/123', {
         batching: false,
       })
 
@@ -740,7 +740,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('subscriptions', () => {
     it('subscribes to real-time events', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -770,7 +770,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('re-subscribes after reconnection', async () => {
-      const client = createClient('https://my-do.example.com/do/123')
+      const client = createClient('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -794,7 +794,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('handles multiple subscriptions to same channel', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -828,7 +828,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('sends unsubscribe message when all listeners removed', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -859,7 +859,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
         'task.deleted': { id: string }
       }
 
-      const client = createClient<{}, TaskEvents>('https://my-do.example.com/do/123')
+      const client = createClient<{}, TaskEvents>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -882,7 +882,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('queues calls when offline', async () => {
       const client = createClient<{
         saveData(data: unknown): boolean
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Don't open connection
 
@@ -904,7 +904,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('preserves queue across reconnections', async () => {
       const client = createClient<{
         saveData(data: unknown): boolean
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -931,7 +931,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('respects queue size limit', async () => {
       const client = createClient<{
         log(message: string): void
-      }>('https://my-do.example.com/do/123', {
+      }>('https://my-do.example.com.ai/do/123', {
         offlineQueueLimit: 10,
       })
 
@@ -951,7 +951,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('provides queue status', async () => {
       const client = createClient<{
         saveData(data: unknown): void
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       expect(client.queuedCallCount).toBe(0)
 
@@ -969,7 +969,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('allows clearing the queue', async () => {
       const client = createClient<{
         saveData(data: unknown): void
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       client.saveData({ a: 1 })
       client.saveData({ a: 2 })
@@ -988,7 +988,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('emits queue events', async () => {
       const client = createClient<{
         saveData(data: unknown): void
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       const queueEvents: { type: string; count: number }[] = []
       client.on('queueChange', (count) => {
@@ -1016,10 +1016,10 @@ describe('RPC Client SDK (@dotdo/client)', () => {
         listUsers(): { id: string; name: string }[]
       }
 
-      const client = createClient<MyDOMethods>('https://my-do.example.com/do/123')
+      const client = createClient<MyDOMethods>('https://my-do.example.com.ai/do/123')
 
       // TypeScript should enforce correct types:
-      // client.createUser('Alice', 'alice@example.com') // OK
+      // client.createUser('Alice', 'alice@example.com.ai') // OK
       // client.createUser(123, 'email') // Type error - first param must be string
       // client.unknownMethod() // Type error - method doesn't exist
 
@@ -1034,7 +1034,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
         getObject(): { a: number; b: string }
       }
 
-      const client = createClient<Methods>('https://my-do.example.com/do/123')
+      const client = createClient<Methods>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -1055,7 +1055,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('configuration', () => {
     it('accepts custom configuration', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123', {
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123', {
         timeout: 30000,
         batchWindow: 100,
         maxBatchSize: 50,
@@ -1072,7 +1072,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('allows runtime configuration updates', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       client.configure({ timeout: 5000 })
 
@@ -1086,7 +1086,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('cleanup', () => {
     it('disconnects cleanly', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -1098,7 +1098,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('cancels pending calls on disconnect', async () => {
       const client = createClient<{
         slowMethod(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -1114,7 +1114,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('removes all event listeners on disconnect', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       let callCount = 0
       client.on('connectionStateChange', () => callCount++)
@@ -1148,7 +1148,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         myMethod(arg: string): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Force HTTP mode
       MockWebSocket.instances[0].simulateError(new Event('error'))
@@ -1156,7 +1156,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       await client.myMethod('test')
 
-      expect(capturedRequest?.url).toBe('https://my-do.example.com/do/123/rpc')
+      expect(capturedRequest?.url).toBe('https://my-do.example.com.ai/do/123/rpc')
       expect(capturedRequest?.body).toMatchObject({
         pipeline: [{ method: 'myMethod', params: ['test'] }],
       })
@@ -1172,7 +1172,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         secureMethod(): string
-      }>('https://my-do.example.com/do/123', {
+      }>('https://my-do.example.com.ai/do/123', {
         auth: { token: 'secret-token' },
       })
 
@@ -1198,7 +1198,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
       const client = createClient<{
         reliableMethod(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       // Force HTTP mode
       MockWebSocket.instances[0].simulateError(new Event('error'))
@@ -1217,7 +1217,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
 
   describe('edge cases', () => {
     it('handles rapid connect/disconnect cycles', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       for (let i = 0; i < 10; i++) {
         if (MockWebSocket.instances[i]) {
@@ -1234,7 +1234,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('handles concurrent calls during reconnection', async () => {
       const client = createClient<{
         ping(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -1270,7 +1270,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     it('handles malformed server responses', async () => {
       const client = createClient<{
         getData(): string
-      }>('https://my-do.example.com/do/123')
+      }>('https://my-do.example.com.ai/do/123')
 
       MockWebSocket.instances[0].simulateOpen()
 
@@ -1286,7 +1286,7 @@ describe('RPC Client SDK (@dotdo/client)', () => {
     })
 
     it('handles server closing with reason', async () => {
-      const client = createClient<{}>('https://my-do.example.com/do/123')
+      const client = createClient<{}>('https://my-do.example.com.ai/do/123')
 
       const closeReasons: string[] = []
       client.on('close', (reason) => closeReasons.push(reason))

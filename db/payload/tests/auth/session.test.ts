@@ -149,7 +149,7 @@ function createValidUser(overrides: Partial<SessionWithUser['user']> = {}): Sess
   return {
     id: 'user-001',
     name: 'Alice Smith',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     emailVerified: true,
     image: null,
     role: 'user',
@@ -188,7 +188,7 @@ describe('Session Validation', () => {
       if (result.valid) {
         expect(result.user).toBeDefined()
         expect(result.user.id).toBe('user-001')
-        expect(result.user.email).toBe('alice@example.com')
+        expect(result.user.email).toBe('alice@example.com.ai')
         expect(result.session).toBeDefined()
         expect(result.session.id).toBe('session-001')
       }
@@ -324,7 +324,7 @@ describe('Session Validation', () => {
         {
           id: 'user-special',
           name: 'Special User',
-          email: 'special@example.com',
+          email: 'special@example.com.ai',
           role: 'owner',
         },
       )
@@ -337,7 +337,7 @@ describe('Session Validation', () => {
         // User data should come from the joined users table
         expect(result.user.id).toBe('user-special')
         expect(result.user.name).toBe('Special User')
-        expect(result.user.email).toBe('special@example.com')
+        expect(result.user.email).toBe('special@example.com.ai')
         expect(result.user.role).toBe('owner')
       }
     })

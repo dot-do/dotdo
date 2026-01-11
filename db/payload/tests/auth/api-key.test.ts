@@ -37,7 +37,7 @@ const createMockApiKey = (overrides: Record<string, unknown> = {}): ApiKeyWithUs
   user: {
     id: 'user-123',
     name: 'Test User',
-    email: 'test@example.com',
+    email: 'test@example.com.ai',
     role: 'user',
     banned: false,
   },
@@ -179,7 +179,7 @@ describe('API Key Validation', () => {
         user: {
           id: 'user-456',
           name: 'Key Owner',
-          email: 'owner@example.com',
+          email: 'owner@example.com.ai',
           role: 'admin',
           banned: false,
         },
@@ -192,7 +192,7 @@ describe('API Key Validation', () => {
       if (result.valid) {
         expect(result.user.id).toBe('user-456')
         expect(result.user.name).toBe('Key Owner')
-        expect(result.user.email).toBe('owner@example.com')
+        expect(result.user.email).toBe('owner@example.com.ai')
       }
     })
 
@@ -201,7 +201,7 @@ describe('API Key Validation', () => {
         user: {
           id: 'user-123',
           name: 'Test User',
-          email: 'test@example.com',
+          email: 'test@example.com.ai',
           role: 'user',
           banned: true,
         },

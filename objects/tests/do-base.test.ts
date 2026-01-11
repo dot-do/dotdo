@@ -320,7 +320,7 @@ describe('DO Base Class', () => {
     })
 
     it('stores namespace in ctx.storage', async () => {
-      const testNs = 'https://test.example.com'
+      const testNs = 'https://test.example.com.ai'
 
       await doInstance.initialize({ ns: testNs })
 
@@ -329,7 +329,7 @@ describe('DO Base Class', () => {
     })
 
     it('sets readonly ns property after initialization', async () => {
-      const testNs = 'https://test.example.com'
+      const testNs = 'https://test.example.com.ai'
 
       await doInstance.initialize({ ns: testNs })
 
@@ -337,8 +337,8 @@ describe('DO Base Class', () => {
     })
 
     it('records parent relationship if provided', async () => {
-      const testNs = 'https://child.example.com'
-      const parentNs = 'https://parent.example.com'
+      const testNs = 'https://child.example.com.ai'
+      const parentNs = 'https://parent.example.com.ai'
 
       // Note: This test will fail in RED phase because the mock Drizzle client
       // cannot execute actual DB inserts without a proper D1 mock.
@@ -358,7 +358,7 @@ describe('DO Base Class', () => {
     })
 
     it('does not record parent if not provided', async () => {
-      const testNs = 'https://test.example.com'
+      const testNs = 'https://test.example.com.ai'
 
       await doInstance.initialize({ ns: testNs })
 
@@ -367,15 +367,15 @@ describe('DO Base Class', () => {
     })
 
     it('can be called multiple times with different namespaces', async () => {
-      await doInstance.initialize({ ns: 'https://first.example.com' })
-      expect(doInstance.ns).toBe('https://first.example.com')
+      await doInstance.initialize({ ns: 'https://first.example.com.ai' })
+      expect(doInstance.ns).toBe('https://first.example.com.ai')
 
-      await doInstance.initialize({ ns: 'https://second.example.com' })
-      expect(doInstance.ns).toBe('https://second.example.com')
+      await doInstance.initialize({ ns: 'https://second.example.com.ai' })
+      expect(doInstance.ns).toBe('https://second.example.com.ai')
     })
 
     it('handles namespace URL with path', async () => {
-      const testNs = 'https://example.com/path/to/resource'
+      const testNs = 'https://example.com.ai/path/to/resource'
 
       await doInstance.initialize({ ns: testNs })
 
@@ -383,7 +383,7 @@ describe('DO Base Class', () => {
     })
 
     it('handles namespace URL with subdomain', async () => {
-      const testNs = 'https://sub.domain.example.com'
+      const testNs = 'https://sub.domain.example.com.ai'
 
       await doInstance.initialize({ ns: testNs })
 
@@ -646,7 +646,7 @@ describe('DO Base Class', () => {
       const doInstance = new DO(mockState, envWithPipeline)
 
       // Initialize to set ns
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       // Note: emitEvent tries to insert into events table which requires D1 mock
       // This test documents the intended behavior - PIPELINE.send should be called
@@ -669,7 +669,7 @@ describe('DO Base Class', () => {
       const envWithoutPipeline = createMockEnv({ PIPELINE: undefined })
 
       const doInstance = new DO(mockState, envWithoutPipeline)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       // Note: emitEvent tries to insert into events table which requires D1 mock
       // This test documents that the code path doesn't throw due to missing PIPELINE
@@ -711,7 +711,7 @@ describe('DO Base Class', () => {
     })
 
     it('/health returns JSON with status ok', async () => {
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const request = new Request('http://test/health')
       const response = await doInstance.fetch(request)
@@ -721,13 +721,13 @@ describe('DO Base Class', () => {
     })
 
     it('/health includes ns in response', async () => {
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
 
       const request = new Request('http://test/health')
       const response = await doInstance.fetch(request)
 
       const data = await response.json() as { status: string; ns: string }
-      expect(data.ns).toBe('https://test.example.com')
+      expect(data.ns).toBe('https://test.example.com.ai')
     })
 
     it('returns 404 for unknown paths', async () => {
@@ -813,7 +813,7 @@ describe('DO Base Class', () => {
 
     it('fork attempts to execute when called', async () => {
       // fork() is now implemented - will fail because mock db doesn't support full queries
-      await expect(doInstance.fork({ to: 'https://new.example.com' })).rejects.toThrow()
+      await expect(doInstance.fork({ to: 'https://new.example.com.ai' })).rejects.toThrow()
     })
 
     it('compact method exists', () => {
@@ -903,7 +903,7 @@ describe('DO Base Class', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new DO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('resolve method exists', () => {
@@ -913,19 +913,19 @@ describe('DO Base Class', () => {
     it('resolve parses URL correctly', async () => {
       // The resolve method now parses the path using parseNounId
       // Invalid noun (lowercase) throws PascalCase error
-      await expect(doInstance.resolve('https://test.example.com/customer/123')).rejects.toThrow('PascalCase')
+      await expect(doInstance.resolve('https://test.example.com.ai/customer/123')).rejects.toThrow('PascalCase')
 
       // Invalid format throws proper parsing error
-      await expect(doInstance.resolve('https://test.example.com/single')).rejects.toThrow('must have at least Noun/id format')
+      await expect(doInstance.resolve('https://test.example.com.ai/single')).rejects.toThrow('must have at least Noun/id format')
     })
 
     it('resolve distinguishes local vs cross-DO', async () => {
       // Same namespace = local - needs valid Noun/id format (parsed before DB access)
-      await expect(doInstance.resolve('https://test.example.com/local')).rejects.toThrow('must have at least Noun/id format')
+      await expect(doInstance.resolve('https://test.example.com.ai/local')).rejects.toThrow('must have at least Noun/id format')
 
       // Different namespace = cross-DO - valid format but no objects table in mock
       // The error here indicates cross-DO path is taken (objects.get fails with mock db error)
-      await expect(doInstance.resolve('https://other.example.com/Customer/remote')).rejects.toThrow()
+      await expect(doInstance.resolve('https://other.example.com.ai/Customer/remote')).rejects.toThrow()
     })
   })
 
@@ -942,7 +942,7 @@ describe('DO Base Class', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new DO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('collection method exists', () => {
@@ -997,7 +997,7 @@ describe('DO Base Class', () => {
       mockState = createMockState()
       mockEnv = createMockEnv()
       doInstance = new DO(mockState, mockEnv)
-      await doInstance.initialize({ ns: 'https://test.example.com' })
+      await doInstance.initialize({ ns: 'https://test.example.com.ai' })
     })
 
     it('relationships property exists', () => {

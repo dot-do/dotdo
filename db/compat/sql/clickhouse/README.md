@@ -122,7 +122,7 @@ Write anything via Cloudflare Pipelines:
 await env.PIPELINE.send({
   type: 'page_view',
   data: {
-    user: { id: 'u123', email: 'alice@example.com' },
+    user: { id: 'u123', email: 'alice@example.com.ai' },
     page: '/products/widget',
     duration_ms: 3400,
     referrer: 'google.com'
@@ -230,7 +230,7 @@ LIMIT 20
 Every JSON path is automatically tracked and indexed:
 
 ```
-Write: { user: { email: 'alice@example.com', tags: ['vip', 'beta'] } }
+Write: { user: { email: 'alice@example.com.ai', tags: ['vip', 'beta'] } }
 
 Automatic indexes created:
   - data.user.email (string, bloom filter)
@@ -238,7 +238,7 @@ Automatic indexes created:
   - Path frequency statistics in Iceberg metadata
 
 Query optimization:
-  WHERE data->>'$.user.email' = 'alice@example.com'
+  WHERE data->>'$.user.email' = 'alice@example.com.ai'
 
   1. Check path index: data.user.email
   2. Bloom filter test → candidate files

@@ -133,7 +133,7 @@ describe('HostnameProxy Integration - Hostname Mode', () => {
         hostname: { rootDomain: 'api.dotdo.dev' },
       }
       const handler = createProxyHandler(config)
-      const request = new Request('https://other.example.com/data')
+      const request = new Request('https://other.example.com.ai/data')
 
       const response = await handler(request, env)
 
@@ -148,7 +148,7 @@ describe('HostnameProxy Integration - Hostname Mode', () => {
       }
       const handler = createProxyHandler(config)
       // Use /store path that TestDurableObject handles
-      const request = new Request('https://other.example.com/store', {
+      const request = new Request('https://other.example.com.ai/store', {
         method: 'POST',
         body: JSON.stringify({ key: 'test', value: 'hello' }),
         headers: { 'Content-Type': 'application/json' },
@@ -284,7 +284,7 @@ describe('HostnameProxy Integration - Fixed Mode', () => {
     }
     const handler = createProxyHandler(config)
     // Use /store path that TestDurableObject handles
-    const request = new Request('https://anything.example.com/store', {
+    const request = new Request('https://anything.example.com.ai/store', {
       method: 'POST',
       body: JSON.stringify({ key: 'test', value: 'hello' }),
       headers: { 'Content-Type': 'application/json' },
@@ -311,9 +311,9 @@ describe('HostnameProxy Integration - Fixed Mode', () => {
       headers: { 'Content-Type': 'application/json' },
     })
 
-    const response1 = await handler(makeRequest('a.example.com'), env)
-    const response2 = await handler(makeRequest('b.example.com'), env)
-    const response3 = await handler(makeRequest('c.example.com'), env)
+    const response1 = await handler(makeRequest('a.example.com.ai'), env)
+    const response2 = await handler(makeRequest('b.example.com.ai'), env)
+    const response3 = await handler(makeRequest('c.example.com.ai'), env)
 
     // All should route to 'singleton' namespace and DO should respond with 200
     expect(response1.status).toBe(200)
@@ -327,7 +327,7 @@ describe('HostnameProxy Integration - Fixed Mode', () => {
       // fixed.namespace missing
     }
     const handler = createProxyHandler(config)
-    const request = new Request('https://example.com/data')
+    const request = new Request('https://example.com.ai/data')
 
     const response = await handler(request, env)
 
@@ -341,7 +341,7 @@ describe('HostnameProxy Integration - Fixed Mode', () => {
       basepath: '/api',
     }
     const handler = createProxyHandler(config)
-    const request = new Request('https://example.com/api/users')
+    const request = new Request('https://example.com.ai/api/users')
 
     const response = await handler(request, env)
 

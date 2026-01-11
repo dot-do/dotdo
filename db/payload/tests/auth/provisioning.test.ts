@@ -120,7 +120,7 @@ function createMockBetterAuthUser(overrides: Partial<BetterAuthUser> = {}): Bett
   return {
     id: 'ba-user-001',
     name: 'Alice Smith',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     emailVerified: true,
     role: 'user',
     image: null,
@@ -252,7 +252,7 @@ describe('User Provisioning', () => {
     it('should skip provisioning for existing user', async () => {
       const existingUser: PayloadUser = {
         id: 'ba-user-001',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         collection: 'users',
       }
       const db = createMockDb({ existingUsers: [existingUser] })
@@ -291,7 +291,7 @@ describe('User Provisioning', () => {
       const config = createMockConfig()
       const betterAuthUser = createMockBetterAuthUser({
         name: 'AI Assistant',
-        email: 'agent@bots.example.com',
+        email: 'agent@bots.example.com.ai',
       })
 
       const result = await provisionUser(db, betterAuthUser, config, {
@@ -309,7 +309,7 @@ describe('User Provisioning', () => {
       const config = createMockConfig()
       const betterAuthUser = createMockBetterAuthUser({
         name: 'Background Worker',
-        email: 'service@internal.example.com',
+        email: 'service@internal.example.com.ai',
       })
 
       const result = await provisionUser(db, betterAuthUser, config, {
@@ -518,7 +518,7 @@ describe('User Provisioning', () => {
     it('should handle duplicate email gracefully', async () => {
       const existingUserWithEmail: PayloadUser = {
         id: 'different-id',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         collection: 'users',
       }
       const db = createMockDb({ existingUsers: [existingUserWithEmail] })
@@ -526,7 +526,7 @@ describe('User Provisioning', () => {
       // New user with same email but different BA ID
       const betterAuthUser = createMockBetterAuthUser({
         id: 'ba-new-user',
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
       })
 
       const result = await provisionUser(db, betterAuthUser, config)

@@ -658,7 +658,7 @@ describe('Edge Cases', () => {
 
     it('handles id with dots', () => {
       const thing: ThingRecord = {
-        id: 'domain.example.com',
+        id: 'domain.example.com.ai',
         type: 1,
         branch: null,
         name: 'Domain',
@@ -666,7 +666,7 @@ describe('Edge Cases', () => {
         deleted: false,
       }
 
-      expect(thing.id).toBe('domain.example.com')
+      expect(thing.id).toBe('domain.example.com.ai')
     })
 
     it('handles various special characters in id', () => {

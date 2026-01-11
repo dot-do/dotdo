@@ -71,7 +71,7 @@ Blocking but not durable. Use for operations that should fail fast without retri
 ```typescript
 // Try to fetch - fail immediately if it doesn't work
 const data = await $.try<ApiResponse>('fetch', {
-  url: 'https://api.example.com/data'
+  url: 'https://api.example.com.ai/data'
 })
 
 // Quick validation check
@@ -111,7 +111,7 @@ const result = await $.do<PaymentResult>('processPayment', {
 
 // Create user - retry on failure
 const user = await $.do<User>('createUser', {
-  email: 'alice@example.com',
+  email: 'alice@example.com.ai',
   name: 'Alice'
 })
 

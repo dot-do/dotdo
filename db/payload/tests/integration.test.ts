@@ -39,13 +39,13 @@ const samplePost = {
 /** Sample user data */
 const sampleUser = {
   name: 'Test User',
-  email: 'test@example.com',
+  email: 'test@example.com.ai',
 }
 
 /** Sample admin user data */
 const sampleAdmin = {
   name: 'Admin User',
-  email: 'admin@example.com',
+  email: 'admin@example.com.ai',
 }
 
 /** Sample category data */
@@ -376,7 +376,7 @@ describe('Integration Tests', () => {
       const sessionValidator = {
         validate: vi.fn().mockResolvedValue({
           valid: true,
-          user: { id: 'user-123', email: 'test@example.com' },
+          user: { id: 'user-123', email: 'test@example.com.ai' },
         }),
       }
 
@@ -535,7 +535,7 @@ describe('Integration Tests', () => {
 
     it('should create Better Auth strategy for Payload', () => {
       const sessionValidator = {
-        validate: vi.fn().mockResolvedValue({ valid: true, user: { id: 'user-123', email: 'test@example.com' } }),
+        validate: vi.fn().mockResolvedValue({ valid: true, user: { id: 'user-123', email: 'test@example.com.ai' } }),
       }
 
       const strategy = createBetterAuthStrategy({

@@ -33,7 +33,7 @@ function createTestRoute(overrides: Partial<Route> = {}): Route {
 }
 
 function createTestUrl(path: string): URL {
-  return new URL(`https://example.com${path}`)
+  return new URL(`https://example.com.ai${path}`)
 }
 
 // ============================================================================

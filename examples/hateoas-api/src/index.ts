@@ -6,7 +6,7 @@
  *
  * Server Response (GET /my-startup/):
  * {
- *   "api": { "$context": "https://my-startup.example.com" },
+ *   "api": { "$context": "https://my-startup.example.com.ai" },
  *   "discover": { "Customer": "/Customer/", "Order": "/Order/" },
  *   "actions": { "rpc": { "method": "POST", "href": "/rpc" } }
  * }
@@ -14,7 +14,7 @@
  * Client Usage:
  * ```typescript
  * import { $Context } from 'dotdo'
- * const $ = $Context('https://my-startup.example.com')
+ * const $ = $Context('https://my-startup.example.com.ai')
  * await $.Customer('alice').update({ name: 'Alice' })
  * ```
  */

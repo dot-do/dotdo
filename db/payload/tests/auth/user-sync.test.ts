@@ -238,7 +238,7 @@ function createMockBetterAuthUser(overrides: Partial<BetterAuthUser> = {}): Bett
   return {
     id: 'ba-user-001',
     name: 'Alice Smith',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     emailVerified: true,
     role: 'user',
     image: null,
@@ -253,7 +253,7 @@ function createMockBetterAuthUser(overrides: Partial<BetterAuthUser> = {}): Bett
 function createMockPayloadUser(overrides: Partial<PayloadUserWithDetails> = {}): PayloadUserWithDetails {
   return {
     id: 'ba-user-001',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     collection: 'users',
     name: 'Alice Smith',
     role: 'user',
@@ -349,10 +349,10 @@ function createMockBetterAuthInterface(options: {
 describe('User Sync', () => {
   describe('syncUser', () => {
     it('should update Payload user email when Better Auth email changes', async () => {
-      const existingUser = createMockPayloadUser({ email: 'old@example.com' })
+      const existingUser = createMockPayloadUser({ email: 'old@example.com.ai' })
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
-      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com' })
+      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com.ai' })
 
       const result = await syncUser(betterAuthUser, { payload })
 
@@ -362,7 +362,7 @@ describe('User Sync', () => {
       }
       expect(payload.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ email: 'new@example.com' }),
+          data: expect.objectContaining({ email: 'new@example.com.ai' }),
         })
       )
     })
@@ -407,14 +407,14 @@ describe('User Sync', () => {
 
     it('should handle multiple field changes in single sync', async () => {
       const existingUser = createMockPayloadUser({
-        email: 'old@example.com',
+        email: 'old@example.com.ai',
         name: 'Old Name',
         role: 'user',
       })
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
       const betterAuthUser = createMockBetterAuthUser({
-        email: 'new@example.com',
+        email: 'new@example.com.ai',
         name: 'New Name',
         role: 'admin',
       })
@@ -432,14 +432,14 @@ describe('User Sync', () => {
 
     it('should return empty changes array when no differences', async () => {
       const existingUser = createMockPayloadUser({
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         name: 'Alice Smith',
         role: 'user',
       })
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
       const betterAuthUser = createMockBetterAuthUser({
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         name: 'Alice Smith',
         role: 'user',
       })
@@ -495,7 +495,7 @@ describe('User Sync', () => {
         shouldFailOnUpdate: true,
       })
 
-      const betterAuthUser = createMockBetterAuthUser({ email: 'changed@example.com' })
+      const betterAuthUser = createMockBetterAuthUser({ email: 'changed@example.com.ai' })
 
       const result = await syncUser(betterAuthUser, { payload })
 
@@ -509,7 +509,7 @@ describe('User Sync', () => {
       const existingUser = createMockPayloadUser({ collection: 'members' })
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
-      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com' })
+      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com.ai' })
 
       await syncUser(betterAuthUser, {
         payload,
@@ -540,7 +540,7 @@ describe('User Sync', () => {
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
       const betterAuthUser = createMockBetterAuthUser({
-        image: 'https://example.com/avatar.png',
+        image: 'https://example.com.ai/avatar.png',
       })
 
       const result = await syncUser(betterAuthUser, { payload })
@@ -695,16 +695,16 @@ describe('User Sync', () => {
   describe('batchSyncUsers', () => {
     it('should sync multiple users efficiently', async () => {
       const existingUsers = [
-        createMockPayloadUser({ id: 'ba-user-001', email: 'old1@example.com' }),
-        createMockPayloadUser({ id: 'ba-user-002', email: 'old2@example.com' }),
-        createMockPayloadUser({ id: 'ba-user-003', email: 'old3@example.com' }),
+        createMockPayloadUser({ id: 'ba-user-001', email: 'old1@example.com.ai' }),
+        createMockPayloadUser({ id: 'ba-user-002', email: 'old2@example.com.ai' }),
+        createMockPayloadUser({ id: 'ba-user-003', email: 'old3@example.com.ai' }),
       ]
       const payload = createMockPayloadInterface({ existingUsers })
 
       const betterAuthUsers = [
-        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com' }),
-        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com' }),
-        createMockBetterAuthUser({ id: 'ba-user-003', email: 'new3@example.com' }),
+        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com.ai' }),
+        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com.ai' }),
+        createMockBetterAuthUser({ id: 'ba-user-003', email: 'new3@example.com.ai' }),
       ]
 
       const result = await batchSyncUsers(betterAuthUsers, { payload })
@@ -723,8 +723,8 @@ describe('User Sync', () => {
       const payload = createMockPayloadInterface({ existingUsers })
 
       const betterAuthUsers = [
-        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com' }),
-        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com' }),
+        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com.ai' }),
+        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com.ai' }),
       ]
 
       const result = await batchSyncUsers(betterAuthUsers, {
@@ -769,9 +769,9 @@ describe('User Sync', () => {
       }
 
       const betterAuthUsers = [
-        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com' }),
-        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com' }),
-        createMockBetterAuthUser({ id: 'ba-user-003', email: 'new3@example.com' }),
+        createMockBetterAuthUser({ id: 'ba-user-001', email: 'new1@example.com.ai' }),
+        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com.ai' }),
+        createMockBetterAuthUser({ id: 'ba-user-003', email: 'new3@example.com.ai' }),
       ]
 
       const result = await batchSyncUsers(betterAuthUsers, { payload })
@@ -786,14 +786,14 @@ describe('User Sync', () => {
 
     it('should track changes for each user', async () => {
       const existingUsers = [
-        createMockPayloadUser({ id: 'ba-user-001', email: 'same@example.com', name: 'Old Name 1' }),
-        createMockPayloadUser({ id: 'ba-user-002', email: 'old2@example.com', name: 'Same Name' }),
+        createMockPayloadUser({ id: 'ba-user-001', email: 'same@example.com.ai', name: 'Old Name 1' }),
+        createMockPayloadUser({ id: 'ba-user-002', email: 'old2@example.com.ai', name: 'Same Name' }),
       ]
       const payload = createMockPayloadInterface({ existingUsers })
 
       const betterAuthUsers = [
-        createMockBetterAuthUser({ id: 'ba-user-001', email: 'same@example.com', name: 'New Name 1' }),
-        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com', name: 'Same Name' }),
+        createMockBetterAuthUser({ id: 'ba-user-001', email: 'same@example.com.ai', name: 'New Name 1' }),
+        createMockBetterAuthUser({ id: 'ba-user-002', email: 'new2@example.com.ai', name: 'Same Name' }),
       ]
 
       const result = await batchSyncUsers(betterAuthUsers, { payload })
@@ -831,12 +831,12 @@ describe('User Sync', () => {
   describe('detectDrift', () => {
     it('should find users with different email between systems', async () => {
       const payloadUsers = [
-        createMockPayloadUser({ id: 'ba-user-001', email: 'payload@example.com' }),
+        createMockPayloadUser({ id: 'ba-user-001', email: 'payload@example.com.ai' }),
       ]
       const payload = createMockPayloadInterface({ existingUsers: payloadUsers })
 
       const betterAuthUsers = [
-        createMockBetterAuthUser({ id: 'ba-user-001', email: 'betterauth@example.com' }),
+        createMockBetterAuthUser({ id: 'ba-user-001', email: 'betterauth@example.com.ai' }),
       ]
       const betterAuth = createMockBetterAuthInterface({ users: betterAuthUsers })
 
@@ -846,8 +846,8 @@ describe('User Sync', () => {
       expect(result.driftedUsers[0].driftedFields).toContain('email')
       expect(result.driftedUsers[0].differences).toContainEqual({
         field: 'email',
-        betterAuth: 'betterauth@example.com',
-        payload: 'payload@example.com',
+        betterAuth: 'betterauth@example.com.ai',
+        payload: 'payload@example.com.ai',
       })
     })
 
@@ -921,7 +921,7 @@ describe('User Sync', () => {
       const payloadUsers = [
         createMockPayloadUser({
           id: 'ba-user-001',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
           name: 'Alice Smith',
           role: 'user',
         }),
@@ -931,7 +931,7 @@ describe('User Sync', () => {
       const betterAuthUsers = [
         createMockBetterAuthUser({
           id: 'ba-user-001',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
           name: 'Alice Smith',
           role: 'user',
         }),
@@ -965,7 +965,7 @@ describe('User Sync', () => {
       const payloadUsers = [
         createMockPayloadUser({
           id: 'ba-user-001',
-          email: 'old@example.com',
+          email: 'old@example.com.ai',
           name: 'Old Name',
           role: 'user',
         }),
@@ -975,7 +975,7 @@ describe('User Sync', () => {
       const betterAuthUsers = [
         createMockBetterAuthUser({
           id: 'ba-user-001',
-          email: 'new@example.com',
+          email: 'new@example.com.ai',
           name: 'New Name',
           role: 'admin',
         }),
@@ -1120,7 +1120,7 @@ describe('User Sync', () => {
       const eventData = {
         type: 'user.updated',
         timestamp: new Date().toISOString(),
-        data: { user: createMockBetterAuthUser({ email: 'new@example.com' }) },
+        data: { user: createMockBetterAuthUser({ email: 'new@example.com.ai' }) },
       }
       const body = JSON.stringify(eventData)
 
@@ -1188,7 +1188,7 @@ describe('User Sync', () => {
       const existingUser = createMockPayloadUser()
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 
-      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com' })
+      const betterAuthUser = createMockBetterAuthUser({ email: 'new@example.com.ai' })
 
       // Simulate concurrent sync
       const results = await Promise.all([
@@ -1206,7 +1206,7 @@ describe('User Sync', () => {
 
     it('should preserve fields not in Better Auth during sync', async () => {
       const existingUser = createMockPayloadUser({
-        email: 'alice@example.com',
+        email: 'alice@example.com.ai',
         // Custom Payload-only field
         customPayloadField: 'should-be-preserved',
       } as PayloadUserWithDetails & { customPayloadField: string })
@@ -1225,7 +1225,7 @@ describe('User Sync', () => {
     })
 
     it('should handle very long email addresses', async () => {
-      const longEmail = 'a'.repeat(200) + '@example.com'
+      const longEmail = 'a'.repeat(200) + '@example.com.ai'
       const existingUser = createMockPayloadUser()
       const payload = createMockPayloadInterface({ existingUsers: [existingUser] })
 

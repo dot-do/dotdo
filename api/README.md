@@ -183,7 +183,7 @@ GET /api/contacts/con_abc123
 {
   "id": "con_abc123",
   "name": "John Doe",
-  "email": "john@example.com",
+  "email": "john@example.com.ai",
   "created_at": "2024-01-01T00:00:00Z"
 }
 ```
@@ -194,7 +194,7 @@ GET /api/contacts/con_abc123
 POST /api/contacts
 Content-Type: application/json
 
-{ "name": "John Doe", "email": "john@example.com" }
+{ "name": "John Doe", "email": "john@example.com.ai" }
 ```
 
 ### Update
@@ -458,7 +458,7 @@ app.use(
 app.use(
   '/oauth/*',
   oauthProviderMiddleware({
-    issuer: 'https://do.example.com',
+    issuer: 'https://do.example.com.ai',
     clients: [{ id: 'app1', secret: '...', redirectUris: ['...'] }],
     scopes: ['read', 'write', 'admin'],
   }),

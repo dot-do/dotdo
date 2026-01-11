@@ -161,16 +161,16 @@ describe('CloneOptions interface', () => {
 describe('CloneResult interface', () => {
   it('CloneResult has required ns property', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
       mode: 'atomic',
     }
-    expect(result.ns).toBe('https://example.com')
+    expect(result.ns).toBe('https://example.com.ai')
   })
 
   it('CloneResult has required doId property', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-456',
       mode: 'atomic',
     }
@@ -179,7 +179,7 @@ describe('CloneResult interface', () => {
 
   it('CloneResult has required mode property', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-789',
       mode: 'staged',
     }
@@ -188,7 +188,7 @@ describe('CloneResult interface', () => {
 
   it('CloneResult has optional staged property with nested structure', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
       mode: 'staged',
       staged: {
@@ -202,7 +202,7 @@ describe('CloneResult interface', () => {
 
   it('CloneResult has optional checkpoint property with nested structure', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
       mode: 'resumable',
       checkpoint: {
@@ -218,7 +218,7 @@ describe('CloneResult interface', () => {
 
   it('CloneResult staged.committed should be boolean', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
       mode: 'staged',
       staged: { prepareId: 'prep-001', committed: true },
@@ -228,7 +228,7 @@ describe('CloneResult interface', () => {
 
   it('CloneResult checkpoint.progress should be number', () => {
     const result: CloneResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
       mode: 'resumable',
       checkpoint: { id: 'ckpt-001', progress: 0.5, resumable: true },
@@ -332,8 +332,8 @@ describe('ShardResult interface', () => {
     const result: ShardResult = {
       shardKey: 'tenantId',
       shards: [
-        { ns: 'https://shard1.example.com', doId: 'do-1', shardIndex: 0, thingCount: 100 },
-        { ns: 'https://shard2.example.com', doId: 'do-2', shardIndex: 1, thingCount: 150 },
+        { ns: 'https://shard1.example.com.ai', doId: 'do-1', shardIndex: 0, thingCount: 100 },
+        { ns: 'https://shard2.example.com.ai', doId: 'do-2', shardIndex: 1, thingCount: 150 },
       ],
     }
     expect(result.shards).toHaveLength(2)
@@ -344,15 +344,15 @@ describe('ShardResult interface', () => {
   it('ShardResult shard item has ns property', () => {
     const result: ShardResult = {
       shardKey: 'id',
-      shards: [{ ns: 'https://shard.example.com', doId: 'do-1', shardIndex: 0, thingCount: 50 }],
+      shards: [{ ns: 'https://shard.example.com.ai', doId: 'do-1', shardIndex: 0, thingCount: 50 }],
     }
-    expect(result.shards[0].ns).toBe('https://shard.example.com')
+    expect(result.shards[0].ns).toBe('https://shard.example.com.ai')
   })
 
   it('ShardResult shard item has doId property', () => {
     const result: ShardResult = {
       shardKey: 'id',
-      shards: [{ ns: 'https://shard.example.com', doId: 'do-abc', shardIndex: 0, thingCount: 50 }],
+      shards: [{ ns: 'https://shard.example.com.ai', doId: 'do-abc', shardIndex: 0, thingCount: 50 }],
     }
     expect(result.shards[0].doId).toBe('do-abc')
   })
@@ -360,7 +360,7 @@ describe('ShardResult interface', () => {
   it('ShardResult shard item has shardIndex property', () => {
     const result: ShardResult = {
       shardKey: 'id',
-      shards: [{ ns: 'https://shard.example.com', doId: 'do-1', shardIndex: 3, thingCount: 50 }],
+      shards: [{ ns: 'https://shard.example.com.ai', doId: 'do-1', shardIndex: 3, thingCount: 50 }],
     }
     expect(result.shards[0].shardIndex).toBe(3)
   })
@@ -368,7 +368,7 @@ describe('ShardResult interface', () => {
   it('ShardResult shard item has thingCount property', () => {
     const result: ShardResult = {
       shardKey: 'id',
-      shards: [{ ns: 'https://shard.example.com', doId: 'do-1', shardIndex: 0, thingCount: 999 }],
+      shards: [{ ns: 'https://shard.example.com.ai', doId: 'do-1', shardIndex: 0, thingCount: 999 }],
     }
     expect(result.shards[0].thingCount).toBe(999)
   })
@@ -380,8 +380,8 @@ describe('ShardResult interface', () => {
 
 describe('UnshardOptions interface', () => {
   it('UnshardOptions has optional target property', () => {
-    const options: UnshardOptions = { target: 'https://unified.example.com' }
-    expect(options.target).toBe('https://unified.example.com')
+    const options: UnshardOptions = { target: 'https://unified.example.com.ai' }
+    expect(options.target).toBe('https://unified.example.com.ai')
   })
 
   it('UnshardOptions has optional compress property', () => {
@@ -401,11 +401,11 @@ describe('UnshardOptions interface', () => {
 
   it('UnshardOptions supports all properties together', () => {
     const options: UnshardOptions = {
-      target: 'https://merged.example.com',
+      target: 'https://merged.example.com.ai',
       compress: true,
       mode: 'staged',
     }
-    expect(options.target).toBe('https://merged.example.com')
+    expect(options.target).toBe('https://merged.example.com.ai')
     expect(options.compress).toBe(true)
     expect(options.mode).toBe('staged')
   })
@@ -556,16 +556,16 @@ describe('MoveResult interface', () => {
 describe('PromoteResult interface', () => {
   it('PromoteResult has required ns property', () => {
     const result: PromoteResult = {
-      ns: 'https://promoted.example.com',
+      ns: 'https://promoted.example.com.ai',
       doId: 'do-promoted-123',
       previousId: 'thing-original-456',
     }
-    expect(result.ns).toBe('https://promoted.example.com')
+    expect(result.ns).toBe('https://promoted.example.com.ai')
   })
 
   it('PromoteResult has required doId property', () => {
     const result: PromoteResult = {
-      ns: 'https://promoted.example.com',
+      ns: 'https://promoted.example.com.ai',
       doId: 'do-promoted-789',
       previousId: 'thing-original-012',
     }
@@ -574,7 +574,7 @@ describe('PromoteResult interface', () => {
 
   it('PromoteResult has required previousId property', () => {
     const result: PromoteResult = {
-      ns: 'https://promoted.example.com',
+      ns: 'https://promoted.example.com.ai',
       doId: 'do-promoted-345',
       previousId: 'thing-original-678',
     }
@@ -585,7 +585,7 @@ describe('PromoteResult interface', () => {
     // TYPE TEST: Missing required properties should produce type error
     // @ts-expect-error - Property 'previousId' is missing
     const missingPreviousId: PromoteResult = {
-      ns: 'https://example.com',
+      ns: 'https://example.com.ai',
       doId: 'do-123',
     }
 
@@ -601,8 +601,8 @@ describe('DemoteResult interface', () => {
   it('DemoteResult has required thingId property', () => {
     const result: DemoteResult = {
       thingId: 'thing-demoted-123',
-      parentNs: 'https://parent.example.com',
-      deletedNs: 'https://deleted.example.com',
+      parentNs: 'https://parent.example.com.ai',
+      deletedNs: 'https://deleted.example.com.ai',
     }
     expect(result.thingId).toBe('thing-demoted-123')
   })
@@ -610,19 +610,19 @@ describe('DemoteResult interface', () => {
   it('DemoteResult has required parentNs property', () => {
     const result: DemoteResult = {
       thingId: 'thing-demoted-456',
-      parentNs: 'https://parent.example.com',
-      deletedNs: 'https://deleted.example.com',
+      parentNs: 'https://parent.example.com.ai',
+      deletedNs: 'https://deleted.example.com.ai',
     }
-    expect(result.parentNs).toBe('https://parent.example.com')
+    expect(result.parentNs).toBe('https://parent.example.com.ai')
   })
 
   it('DemoteResult has required deletedNs property', () => {
     const result: DemoteResult = {
       thingId: 'thing-demoted-789',
-      parentNs: 'https://parent.example.com',
-      deletedNs: 'https://was-promoted.example.com',
+      parentNs: 'https://parent.example.com.ai',
+      deletedNs: 'https://was-promoted.example.com.ai',
     }
-    expect(result.deletedNs).toBe('https://was-promoted.example.com')
+    expect(result.deletedNs).toBe('https://was-promoted.example.com.ai')
   })
 
   it('DemoteResult requires all properties', () => {
@@ -630,7 +630,7 @@ describe('DemoteResult interface', () => {
     // @ts-expect-error - Property 'deletedNs' is missing
     const missingDeletedNs: DemoteResult = {
       thingId: 'thing-123',
-      parentNs: 'https://parent.example.com',
+      parentNs: 'https://parent.example.com.ai',
     }
 
     expect(missingDeletedNs).toBeDefined()

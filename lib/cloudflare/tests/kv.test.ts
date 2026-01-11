@@ -362,7 +362,7 @@ describe('KVStore session management', () => {
 
   describe('setSession()', () => {
     it('stores session with standard TTL', async () => {
-      const session = { userId: 'user-123', email: 'test@example.com', role: 'user' as const }
+      const session = { userId: 'user-123', email: 'test@example.com.ai', role: 'user' as const }
       await store.setSession('sess-abc', session, 3600)
 
       expect(mockKV.put).toHaveBeenCalledWith(
@@ -386,7 +386,7 @@ describe('KVStore session management', () => {
 
   describe('getSession()', () => {
     it('retrieves session data', async () => {
-      const session = { userId: 'user-123', email: 'test@example.com' }
+      const session = { userId: 'user-123', email: 'test@example.com.ai' }
       await store.setSession('sess-abc', session, 3600)
 
       const result = await store.getSession<typeof session>('sess-abc')

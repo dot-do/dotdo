@@ -41,8 +41,8 @@ export default {
 
     await db.exec(`
       INSERT INTO users VALUES
-        (1, 'Alice', 'alice@example.com'),
-        (2, 'Bob', 'bob@example.com')
+        (1, 'Alice', 'alice@example.com.ai'),
+        (2, 'Bob', 'bob@example.com.ai')
     `)
 
     const users = await db.query('SELECT * FROM users')

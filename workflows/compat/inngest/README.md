@@ -112,7 +112,7 @@ Full support for all Inngest step primitives:
 
 ```typescript
 const result = await step.run('fetch-data', async () => {
-  const response = await fetch('https://api.example.com/data')
+  const response = await fetch('https://api.example.com.ai/data')
   return response.json()
 })
 

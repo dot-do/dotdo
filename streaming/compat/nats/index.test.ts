@@ -2428,7 +2428,7 @@ describe('Integration', () => {
         msg.respond(sc.encode(JSON.stringify({
           id: userId,
           name: `User ${userId}`,
-          email: `user${userId}@example.com`,
+          email: `user${userId}@example.com.ai`,
         })))
       }
     })()

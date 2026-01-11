@@ -50,11 +50,11 @@ interface TestUser {
 // =============================================================================
 
 const testUsers: TestUser[] = [
-  { $id: 'user-1', name: 'Alice Smith', email: 'alice@example.com', role: 'admin', status: 'Active' },
-  { $id: 'user-2', name: 'Bob Jones', email: 'bob@example.com', role: 'user', status: 'Active' },
-  { $id: 'user-3', name: 'Carol White', email: 'carol@example.com', role: 'viewer', status: 'Inactive' },
-  { $id: 'user-4', name: 'David Brown', email: 'david@example.com', role: 'user', status: 'Active' },
-  { $id: 'user-5', name: 'Eve Davis', email: 'eve@example.com', role: 'admin', status: 'Active' },
+  { $id: 'user-1', name: 'Alice Smith', email: 'alice@example.com.ai', role: 'admin', status: 'Active' },
+  { $id: 'user-2', name: 'Bob Jones', email: 'bob@example.com.ai', role: 'user', status: 'Active' },
+  { $id: 'user-3', name: 'Carol White', email: 'carol@example.com.ai', role: 'viewer', status: 'Inactive' },
+  { $id: 'user-4', name: 'David Brown', email: 'david@example.com.ai', role: 'user', status: 'Active' },
+  { $id: 'user-5', name: 'Eve Davis', email: 'eve@example.com.ai', role: 'admin', status: 'Active' },
 ]
 
 const columns: ColumnDef<TestUser>[] = [
@@ -158,9 +158,9 @@ describe('SyncDataTable', () => {
       render(<TestTableWrapper />)
 
       expect(screen.getByText('Alice Smith')).toBeInTheDocument()
-      expect(screen.getByText('alice@example.com')).toBeInTheDocument()
+      expect(screen.getByText('alice@example.com.ai')).toBeInTheDocument()
       expect(screen.getByText('Bob Jones')).toBeInTheDocument()
-      expect(screen.getByText('bob@example.com')).toBeInTheDocument()
+      expect(screen.getByText('bob@example.com.ai')).toBeInTheDocument()
     })
 
     it('renders all rows for small datasets', () => {
@@ -254,7 +254,7 @@ describe('SyncDataTable', () => {
         expect.objectContaining({
           $id: 'user-1',
           name: 'Alice Smith',
-          email: 'alice@example.com',
+          email: 'alice@example.com.ai',
         })
       )
     })
@@ -428,7 +428,7 @@ describe('SyncDataTable', () => {
     const manyUsers: TestUser[] = Array.from({ length: 25 }, (_, i) => ({
       $id: `user-${i + 1}`,
       name: `User ${i + 1}`,
-      email: `user${i + 1}@example.com`,
+      email: `user${i + 1}@example.com.ai`,
       role: 'user' as const,
       status: 'Active' as const,
     }))

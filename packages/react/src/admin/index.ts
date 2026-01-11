@@ -9,7 +9,7 @@
  * import { AdminProvider, DotdoDataProvider, useResource } from '@dotdo/react/admin'
  *
  * function App() {
- *   const dataProvider = DotdoDataProvider({ ns: 'https://api.example.com' })
+ *   const dataProvider = DotdoDataProvider({ ns: 'https://api.example.com.ai' })
  *
  *   return (
  *     <AdminProvider dataProvider={dataProvider}>

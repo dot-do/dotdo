@@ -263,10 +263,10 @@ describe('$() client SDK', () => {
 describe('integration test helpers', () => {
   it('provides SdkConfig type', () => {
     const config: SdkConfig = {
-      namespace: 'https://example.com',
+      namespace: 'https://example.com.ai',
       localUrl: 'http://localhost:8787',
       isDev: false,
     }
-    expect(config.namespace).toBe('https://example.com')
+    expect(config.namespace).toBe('https://example.com.ai')
   })
 })

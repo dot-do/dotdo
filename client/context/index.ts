@@ -55,7 +55,7 @@ export interface $ContextResult {
  * ```tsx
  * // Create context at app level
  * const { Provider, use$ } = create$Context({
- *   baseUrl: 'https://api.example.com',
+ *   baseUrl: 'https://api.example.com.ai',
  *   auth: { token: 'user-token' },
  * })
  *

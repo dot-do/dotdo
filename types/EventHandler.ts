@@ -44,8 +44,8 @@ import type { DomainEvent, EventHandler } from './WorkflowContext'
  * const event: TypedDomainEvent<CustomerCreatedPayload> = {
  *   id: 'evt-123',
  *   verb: 'created',
- *   source: 'https://api.example.com/customers',
- *   data: { customerId: 'cust-1', name: 'John', email: 'john@example.com' },
+ *   source: 'https://api.example.com.ai/customers',
+ *   data: { customerId: 'cust-1', name: 'John', email: 'john@example.com.ai' },
  *   timestamp: new Date()
  * }
  * ```

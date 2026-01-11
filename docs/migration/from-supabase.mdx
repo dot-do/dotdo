@@ -75,7 +75,7 @@ const { data } = await supabase
 // Insert
 const { data, error } = await supabase
   .from('users')
-  .insert({ name: 'Alice', email: 'alice@example.com' })
+  .insert({ name: 'Alice', email: 'alice@example.com.ai' })
   .select()
   .single()
 
@@ -104,13 +104,13 @@ const { data } = await supabase
 ```typescript
 // Sign up
 const { data, error } = await supabase.auth.signUp({
-  email: 'user@example.com',
+  email: 'user@example.com.ai',
   password: 'securepassword'
 })
 
 // Sign in
 const { data, error } = await supabase.auth.signInWithPassword({
-  email: 'user@example.com',
+  email: 'user@example.com.ai',
   password: 'securepassword'
 })
 

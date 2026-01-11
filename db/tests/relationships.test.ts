@@ -1731,8 +1731,8 @@ describe('Type Inference', () => {
     const validInsert: InsertRelationship = {
       id: 'test-id',
       verb: 'owns',
-      from: 'https://example.com/a',
-      to: 'https://example.com/b',
+      from: 'https://example.com.ai/a',
+      to: 'https://example.com.ai/b',
       createdAt: new Date(),
     }
 
@@ -1748,8 +1748,8 @@ describe('Type Inference', () => {
     const mockSelect: SelectRelationship = {
       id: 'test-id',
       verb: 'owns',
-      from: 'https://example.com/a',
-      to: 'https://example.com/b',
+      from: 'https://example.com.ai/a',
+      to: 'https://example.com.ai/b',
       data: { key: 'value' },
       createdAt: new Date(),
     }
@@ -1764,8 +1764,8 @@ describe('Type Inference', () => {
     const insertWithNullData: InsertRelationship = {
       id: 'test-id',
       verb: 'owns',
-      from: 'https://example.com/a',
-      to: 'https://example.com/b',
+      from: 'https://example.com.ai/a',
+      to: 'https://example.com.ai/b',
       data: null,
       createdAt: new Date(),
     }
@@ -1779,8 +1779,8 @@ describe('Type Inference', () => {
     const insertWithData: InsertRelationship = {
       id: 'test-id',
       verb: 'owns',
-      from: 'https://example.com/a',
-      to: 'https://example.com/b',
+      from: 'https://example.com.ai/a',
+      to: 'https://example.com.ai/b',
       data: {
         role: 'admin',
         permissions: ['read', 'write'],

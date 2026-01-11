@@ -65,10 +65,10 @@ function createMockSandbox(): MockSandbox {
     exists: vi.fn().mockResolvedValue({ exists: true }),
     exposePort: vi.fn().mockResolvedValue({
       port: 3000,
-      exposedAt: 'https://preview.example.com',
+      exposedAt: 'https://preview.example.com.ai',
     }),
     getExposedPorts: vi.fn().mockResolvedValue([
-      { port: 3000, exposedAt: 'https://preview.example.com', name: 'web' },
+      { port: 3000, exposedAt: 'https://preview.example.com.ai', name: 'web' },
     ]),
     unexposePort: vi.fn().mockResolvedValue(undefined),
     destroy: vi.fn().mockResolvedValue(undefined),
@@ -230,7 +230,7 @@ async function createTestSandboxDO() {
   ;(sandboxDO as any).logAction = logActionMock
   ;(sandboxDO as any).emit = emitMock
   ;(sandboxDO as any).emitEvent = emitEventMock
-  ;(sandboxDO as any).ns = 'https://sandbox.example.com'
+  ;(sandboxDO as any).ns = 'https://sandbox.example.com.ai'
 
   return { sandboxDO, mockState, mockEnv, logActionMock, emitMock, emitEventMock }
 }
@@ -253,7 +253,7 @@ async function request(
   if (body !== undefined) {
     options.body = JSON.stringify(body)
   }
-  const url = `https://sandbox.example.com${path}`
+  const url = `https://sandbox.example.com.ai${path}`
   const req = new Request(url, options)
   return sandboxDO.fetch(req)
 }
@@ -836,7 +836,7 @@ describe('Sandbox DO HTTP Routes', () => {
   describe('Invalid request handling', () => {
     it('returns 400 for malformed JSON', async () => {
       const res = await sandboxDO.fetch(
-        new Request('https://sandbox.example.com/create', {
+        new Request('https://sandbox.example.com.ai/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{ invalid json }',
@@ -936,7 +936,7 @@ describe('Sandbox DO HTTP Routes', () => {
 
     it('returns 405 for unsupported methods on known routes', async () => {
       const res = await sandboxDO.fetch(
-        new Request('https://sandbox.example.com/create', { method: 'GET' })
+        new Request('https://sandbox.example.com.ai/create', { method: 'GET' })
       )
       expect(res.status).toBe(405)
     })
@@ -949,7 +949,7 @@ describe('Sandbox DO HTTP Routes', () => {
   describe('Content-Type handling', () => {
     it('accepts application/json for POST requests', async () => {
       const res = await sandboxDO.fetch(
-        new Request('https://sandbox.example.com/create', {
+        new Request('https://sandbox.example.com.ai/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),

@@ -342,7 +342,7 @@ describe('Capability Mixins', () => {
         // Type check
         type LogResult = ReturnType<GitCapability['log']>
         const _: LogResult = Promise.resolve([
-          { hash: 'abc123', message: 'feat: feature', author: 'user@example.com', date: new Date() },
+          { hash: 'abc123', message: 'feat: feature', author: 'user@example.com.ai', date: new Date() },
         ])
         expect(_).toBeDefined()
       })

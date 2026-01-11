@@ -12,7 +12,7 @@ Connect to your Durable Object from any client—browsers, Node.js, mobile apps,
 ```typescript
 import { $Context } from 'dotdo'
 
-const $ = $Context('https://my-startup.example.com')
+const $ = $Context('https://my-startup.example.com.ai')
 await $.Customer('alice').orders.create({ item: 'widget', qty: 5 })
 ```
 
@@ -27,7 +27,7 @@ Use when connecting to a specific DO namespace:
 ```typescript
 import { $Context } from 'dotdo'
 
-const startup = $Context('https://my-startup.example.com')
+const startup = $Context('https://my-startup.example.com.ai')
 const platform = $Context('https://platform.do')
 
 // Each client connects to a different namespace
@@ -57,7 +57,7 @@ await $.Order('ord-123').fulfill()
 
 ```typescript title="do.config.ts"
 export default {
-  namespace: 'https://my-startup.example.com',
+  namespace: 'https://my-startup.example.com.ai',
 }
 ```
 
@@ -166,7 +166,7 @@ import { $Context } from 'dotdo'
 
 export default {
   async fetch(request) {
-    const $ = $Context('https://other-service.example.com')
+    const $ = $Context('https://other-service.example.com.ai')
     await $.Integration.sync({ source: 'crm' })
     return new Response('OK')
   }
@@ -181,7 +181,7 @@ Runtime configuration for the pre-configured `$` client:
 import { configure } from 'dotdo'
 
 configure({
-  namespace: 'https://my-startup.example.com',
+  namespace: 'https://my-startup.example.com.ai',
   isDev: process.env.NODE_ENV === 'development',
   localUrl: 'http://localhost:8787',
 })
@@ -249,7 +249,7 @@ The client proxy is typed as `RpcClient`:
 ```typescript
 import type { RpcClient, RpcPromise } from 'dotdo'
 
-const $: RpcClient = $Context('https://example.com')
+const $: RpcClient = $Context('https://example.com.ai')
 
 // All operations return RpcPromise<unknown>
 const result: RpcPromise<unknown> = $.Customer('alice')

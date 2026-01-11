@@ -399,8 +399,8 @@ export async function handleOAuthCallback(
   const profile = {
     providerAccountId: `${storedState.provider}_user_${randomBytes(4).toString('hex')}`,
     displayName: 'Mock User',
-    email: 'mock@example.com',
-    avatarUrl: `https://example.com/avatar/${storedState.provider}.png`,
+    email: 'mock@example.com.ai',
+    avatarUrl: `https://example.com.ai/avatar/${storedState.provider}.png`,
   }
 
   const result: OAuthCallbackResult = {
@@ -435,7 +435,7 @@ export async function storeLinkedAccount(
   }
 
   // Handle API error (test case)
-  if (config.apiUrl === 'https://error.api.example.com') {
+  if (config.apiUrl === 'https://error.api.example.com.ai') {
     return {
       success: false,
       error: 'API error occurred',

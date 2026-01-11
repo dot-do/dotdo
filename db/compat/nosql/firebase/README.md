@@ -24,11 +24,11 @@ const db = getFirestore(app)
 // Same API you already know
 await setDoc(doc(db, 'users', 'alice'), {
   name: 'Alice',
-  email: 'alice@example.com'
+  email: 'alice@example.com.ai'
 })
 
 const snapshot = await getDoc(doc(db, 'users', 'alice'))
-console.log(snapshot.data()) // { name: 'Alice', email: 'alice@example.com' }
+console.log(snapshot.data()) // { name: 'Alice', email: 'alice@example.com.ai' }
 ```
 
 ## Installation
@@ -91,7 +91,7 @@ import { doc, setDoc, getDoc, updateDoc, deleteDoc } from '@dotdo/firebase'
 // Create or overwrite
 await setDoc(doc(db, 'users', 'alice'), {
   name: 'Alice',
-  email: 'alice@example.com',
+  email: 'alice@example.com.ai',
   createdAt: serverTimestamp()
 })
 

@@ -11,7 +11,7 @@
  * ```tsx
  * import { createAuthProvider } from '@dotdo/client/adapters/auth-provider'
  *
- * const authProvider = createAuthProvider('https://api.example.com', {
+ * const authProvider = createAuthProvider('https://api.example.com.ai', {
  *   tokenKey: 'auth_token',
  *   refreshOnExpiry: true,
  * })

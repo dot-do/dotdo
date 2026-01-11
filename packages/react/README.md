@@ -21,7 +21,7 @@ import { DOProvider, useCollection } from '@dotdo/react'
 
 function App() {
   return (
-    <DOProvider url="wss://api.example.com/ws">
+    <DOProvider url="wss://api.example.com.ai/ws">
       <TaskList />
     </DOProvider>
   )
@@ -116,7 +116,7 @@ const usersCollection = CollectionOptions('users', {
 import { createDataProvider } from '@dotdo/react/admin'
 
 const dataProvider = createDataProvider({
-  url: 'wss://api.example.com/ws',
+  url: 'wss://api.example.com.ai/ws',
 })
 ```
 

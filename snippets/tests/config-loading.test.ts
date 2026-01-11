@@ -49,7 +49,7 @@ const TEST_CONFIG: ProxyConfig = {
     },
   },
   variables: {
-    domain: 'example.com',
+    domain: 'example.com.ai',
   },
 }
 
@@ -368,7 +368,7 @@ describe('Config Loading', () => {
     expect(config.routes[0].id).toBe('api-customers')
     expect(config.routes[0].match.path).toBe('^/api/v1/customers(?:/|$)')
     expect(config.policies['auth:jwt'].type).toBe('jwt')
-    expect(config.variables?.domain).toBe('example.com')
+    expect(config.variables?.domain).toBe('example.com.ai')
   })
 
   it('handles malformed JSON gracefully', async () => {

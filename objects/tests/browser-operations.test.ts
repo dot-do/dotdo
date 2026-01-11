@@ -184,7 +184,7 @@ function createMockBrowseSession(): BrowseSession & {
     observe: observeFn,
     screenshot: screenshotFn,
     close: closeFn,
-    liveViewUrl: 'https://live.example.com/session-123',
+    liveViewUrl: 'https://live.example.com.ai/session-123',
     _goto: gotoFn,
     _act: actFn,
     _extract: extractFn,
@@ -250,7 +250,7 @@ describe('Browser DO Operations', () => {
     ;(browser as unknown as { emit: typeof emitMock }).emit = emitMock
 
     // Set namespace directly (avoid initialize which may touch DB)
-    ;(browser as unknown as { ns: string }).ns = 'https://browser.example.com'
+    ;(browser as unknown as { ns: string }).ns = 'https://browser.example.com.ai'
 
     // Inject mock session for testing operations
     // The Browser class should have a way to set the session (via start() or directly for testing)
@@ -267,16 +267,16 @@ describe('Browser DO Operations', () => {
 
   describe('1. goto() - Navigate to URL', () => {
     it('calls session.goto() with the provided URL', async () => {
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
 
-      expect(mockSession._goto).toHaveBeenCalledWith('https://example.com')
+      expect(mockSession._goto).toHaveBeenCalledWith('https://example.com.ai')
     })
 
     it('throws error when session is not started', async () => {
       // Remove the session to simulate not started
       ;(browser as unknown as { session: BrowseSession | null }).session = null
 
-      await expect(browser.goto('https://example.com')).rejects.toThrow(
+      await expect(browser.goto('https://example.com.ai')).rejects.toThrow(
         /session not started/i
       )
     })
@@ -284,7 +284,7 @@ describe('Browser DO Operations', () => {
     it('propagates session.goto() errors', async () => {
       mockSession._goto.mockRejectedValueOnce(new Error('Navigation failed'))
 
-      await expect(browser.goto('https://example.com')).rejects.toThrow(
+      await expect(browser.goto('https://example.com.ai')).rejects.toThrow(
         'Navigation failed'
       )
     })
@@ -596,7 +596,7 @@ describe('Browser DO Operations', () => {
     it('returns liveViewUrl from session', async () => {
       const state = await browser.getState()
 
-      expect(state.liveViewUrl).toBe('https://live.example.com/session-123')
+      expect(state.liveViewUrl).toBe('https://live.example.com.ai/session-123')
     })
 
     it('returns complete BrowserState object', async () => {
@@ -604,7 +604,7 @@ describe('Browser DO Operations', () => {
         provider: 'cloudflare',
       }
       ;(browser as unknown as { getCurrentUrl: () => Promise<string> }).getCurrentUrl = vi.fn(
-        async () => 'https://example.com'
+        async () => 'https://example.com.ai'
       )
 
       const state = await browser.getState()
@@ -612,8 +612,8 @@ describe('Browser DO Operations', () => {
       expect(state).toMatchObject({
         status: 'active',
         provider: 'cloudflare',
-        currentUrl: 'https://example.com',
-        liveViewUrl: 'https://live.example.com/session-123',
+        currentUrl: 'https://example.com.ai',
+        liveViewUrl: 'https://live.example.com.ai/session-123',
       })
     })
   })
@@ -626,7 +626,7 @@ describe('Browser DO Operations', () => {
     it('goto() resets lastActivity timestamp', async () => {
       const beforeTime = Date.now()
 
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
 
       const lastActivity = (browser as unknown as { lastActivity: number }).lastActivity
       expect(lastActivity).toBeGreaterThanOrEqual(beforeTime)
@@ -669,7 +669,7 @@ describe('Browser DO Operations', () => {
     })
 
     it('operations reset the alarm timer', async () => {
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
 
       // Check that setAlarm was called to reset the keepAlive
       expect(mockState.storage.setAlarm).toHaveBeenCalled()
@@ -684,11 +684,11 @@ describe('Browser DO Operations', () => {
     // Note: logActionMock is already set up in the parent beforeEach
 
     it('goto() logs a navigation action', async () => {
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
 
       expect(logActionMock).toHaveBeenCalledWith(
         'goto',
-        expect.objectContaining({ url: 'https://example.com' })
+        expect.objectContaining({ url: 'https://example.com.ai' })
       )
     })
 
@@ -751,11 +751,11 @@ describe('Browser DO Operations', () => {
     // Note: emitMock is already set up in the parent beforeEach
 
     it('goto() emits browser.navigated event', async () => {
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
 
       expect(emitMock).toHaveBeenCalledWith(
         'browser.navigated',
-        expect.objectContaining({ url: 'https://example.com' })
+        expect.objectContaining({ url: 'https://example.com.ai' })
       )
     })
 
@@ -830,7 +830,7 @@ describe('Browser DO Operations', () => {
       ;(browser as unknown as { session: BrowseSession | null }).session = mockSession
 
       // All operations should work
-      await expect(browser.goto('https://example.com')).resolves.not.toThrow()
+      await expect(browser.goto('https://example.com.ai')).resolves.not.toThrow()
       await expect(browser.act('Click')).resolves.not.toThrow()
       await expect(browser.extract('Get')).resolves.not.toThrow()
       await expect(browser.observe()).resolves.not.toThrow()
@@ -839,7 +839,7 @@ describe('Browser DO Operations', () => {
 
     it('handles concurrent operations', async () => {
       const operations = [
-        browser.goto('https://example.com'),
+        browser.goto('https://example.com.ai'),
         browser.observe(),
         browser.screenshot(),
       ]
@@ -863,7 +863,7 @@ describe('Browser DO Operations', () => {
 
     it('goto accepts string URL', async () => {
       // TypeScript should accept this
-      await browser.goto('https://example.com')
+      await browser.goto('https://example.com.ai')
     })
 
     it('act accepts string instruction', async () => {

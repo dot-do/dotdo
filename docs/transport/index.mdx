@@ -41,7 +41,7 @@ Standard HTTP with JSON bodies. Use when:
 - Caching with standard HTTP semantics
 
 ```bash
-curl -X POST https://api.example.com/api/customers \
+curl -X POST https://api.example.com.ai/api/customers \
   -H "Content-Type: application/json" \
   -d '{"name": "Acme Corp"}'
 ```
@@ -135,9 +135,9 @@ class CustomerDO extends DO {
 ### Protocol-Specific Routes
 
 ```
-https://api.example.com/api/*     → REST
-https://api.example.com/rpc/*     → Cap'n Web RPC
-https://api.example.com/mcp       → MCP JSON-RPC
+https://api.example.com.ai/api/*     → REST
+https://api.example.com.ai/rpc/*     → Cap'n Web RPC
+https://api.example.com.ai/mcp       → MCP JSON-RPC
 ```
 
 <Callout type="info" title="Same DO, Three Doors">

@@ -794,7 +794,7 @@ describe('User-based targeting', () => {
         updatedAt: new Date(),
       })
 
-      const result = await $.flag('email-flag').isEnabled('user@example.com')
+      const result = await $.flag('email-flag').isEnabled('user@example.com.ai')
       expect(typeof result).toBe('boolean')
     })
 

@@ -117,7 +117,7 @@ const GITHUB_PUSH_PAYLOAD: WebhookPayload = {
   },
   pusher: {
     name: 'testuser',
-    email: 'test@example.com',
+    email: 'test@example.com.ai',
   },
 }
 
@@ -151,7 +151,7 @@ const STRIPE_CUSTOMER_CREATED_PAYLOAD = {
   data: {
     object: {
       id: 'cus_newcustomer',
-      email: 'new@example.com',
+      email: 'new@example.com.ai',
     },
   },
 }

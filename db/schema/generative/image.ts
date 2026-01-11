@@ -343,7 +343,7 @@ export class ImageGenerator {
       // Return a mock URL
       const timestamp = Date.now()
       const seed = config.seed ?? timestamp
-      result.url = `https://images.example.com/generated/${seed}-${dimensions.width}x${dimensions.height}.png`
+      result.url = `https://images.example.com.ai/generated/${seed}-${dimensions.width}x${dimensions.height}.png`
     }
 
     return result

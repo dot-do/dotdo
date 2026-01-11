@@ -796,9 +796,9 @@ describe('parseNounId - edge cases', () => {
 
     it('handles URL-encoded @ in id', () => {
       // %40 is URL-encoded @ - should be decoded
-      const result = parseNounId('Email/user%40example.com')
+      const result = parseNounId('Email/user%40example.com.ai')
 
-      expect(result.id).toBe('user@example.com')
+      expect(result.id).toBe('user@example.com.ai')
     })
   })
 
@@ -1030,9 +1030,9 @@ describe('parseNounId - id character validation', () => {
     })
 
     it('accepts dots', () => {
-      const result = parseNounId('Domain/example.com')
+      const result = parseNounId('Domain/example.com.ai')
 
-      expect(result.id).toBe('example.com')
+      expect(result.id).toBe('example.com.ai')
     })
 
     it('accepts hyphens', () => {

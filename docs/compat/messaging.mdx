@@ -207,7 +207,7 @@ await sqs.send(new SendMessageCommand({
   QueueUrl: queueUrl,
   MessageBody: JSON.stringify({
     type: 'process-image',
-    imageUrl: 'https://example.com/image.jpg',
+    imageUrl: 'https://example.com.ai/image.jpg',
   }),
   MessageAttributes: {
     Priority: { DataType: 'String', StringValue: 'high' },

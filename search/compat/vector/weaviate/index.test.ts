@@ -39,7 +39,7 @@ describe('weaviate.client', () => {
   it('should create a client with scheme and host', () => {
     const client = weaviate.client({
       scheme: 'https',
-      host: 'weaviate.example.com',
+      host: 'weaviate.example.com.ai',
     })
 
     expect(client).toBeDefined()

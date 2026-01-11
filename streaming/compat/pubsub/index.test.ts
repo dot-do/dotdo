@@ -269,7 +269,7 @@ describe('Subscription Management', () => {
     it('should create subscription with push config', async () => {
       const [subscription] = await topic.createSubscription('push-sub', {
         pushConfig: {
-          pushEndpoint: 'https://example.com/push',
+          pushEndpoint: 'https://example.com.ai/push',
         },
       })
 
@@ -416,7 +416,7 @@ describe('Subscription Management', () => {
       const subscription = pubsub.subscription('push-sub')
 
       await subscription.modifyPushConfig({
-        pushEndpoint: 'https://example.com/new-push',
+        pushEndpoint: 'https://example.com.ai/new-push',
       })
 
       // Should not throw

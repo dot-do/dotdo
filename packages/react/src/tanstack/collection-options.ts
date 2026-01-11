@@ -273,7 +273,7 @@ async function executeMutations(
  * })
  *
  * const taskOptions = CollectionOptions({
- *   doUrl: 'wss://api.example.com/do/workspace',
+ *   doUrl: 'wss://api.example.com.ai/do/workspace',
  *   collection: 'Task',
  *   schema: TaskSchema,
  * })

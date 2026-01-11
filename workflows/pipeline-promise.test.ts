@@ -320,7 +320,7 @@ describe('Example Workflows (no async/await)', () => {
         }
       }
 
-      const result = OnboardingWorkflow($, { id: 'cust-123', email: 'test@example.com' })
+      const result = OnboardingWorkflow($, { id: 'cust-123', email: 'test@example.com.ai' })
 
       // Result should contain PipelinePromises
       expect(isPipelinePromise(result.crmId)).toBe(true)
@@ -408,7 +408,7 @@ describe('Declarative Conditionals', () => {
       const inventory = $.Inventory({ sku: 'ABC' }).check()
       const result = $.when(inventory.available, {
         then: () => $.Inventory({ sku: 'ABC' }).reserve(),
-        else: () => $.Email({ to: 'customer@example.com' }).sendOutOfStock(),
+        else: () => $.Email({ to: 'customer@example.com.ai' }).sendOutOfStock(),
       })
 
       const expr = result.__expr

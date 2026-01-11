@@ -272,7 +272,7 @@ describe('CF Workflows Integration', () => {
         // @ts-expect-error - setWorkflowStep needs to be implemented
         setWorkflowStep(mockStep)
 
-        await activities.sendEmail('user@example.com', 'Hello')
+        await activities.sendEmail('user@example.com.ai', 'Hello')
         await activities.chargeCard('tok_123', 99.99)
 
         // @ts-expect-error - clearWorkflowStep needs to be implemented

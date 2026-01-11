@@ -315,9 +315,9 @@ describe('Collection Interface', () => {
       // Document expected behavior: creating without itemType should be a type error
       // @ts-expect-error - itemType is required
       const invalid: CollectionData = {
-        $id: 'https://test.example.com',
+        $id: 'https://test.example.com.ai',
         $type: COLLECTION_TYPE,
-        ns: 'https://test.example.com',
+        ns: 'https://test.example.com.ai',
         // itemType missing - should error
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -385,12 +385,12 @@ describe('Collection Interface', () => {
       expect(buildItemId).toBeDefined()
 
       // Test cases for special characters
-      const ns = 'https://example.com'
+      const ns = 'https://example.com.ai'
       const testCases = [
-        { id: 'simple-id', expected: 'https://example.com/simple-id' },
-        { id: 'id.with.dots', expected: 'https://example.com/id.with.dots' },
-        { id: 'id_with_underscores', expected: 'https://example.com/id_with_underscores' },
-        { id: 'user@example.com', expected: 'https://example.com/user@example.com' },
+        { id: 'simple-id', expected: 'https://example.com.ai/simple-id' },
+        { id: 'id.with.dots', expected: 'https://example.com.ai/id.with.dots' },
+        { id: 'id_with_underscores', expected: 'https://example.com.ai/id_with_underscores' },
+        { id: 'user@example.com.ai', expected: 'https://example.com.ai/user@example.com.ai' },
       ]
 
       for (const { id, expected } of testCases) {

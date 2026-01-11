@@ -23,11 +23,11 @@ const AUTH_STATE_FILE = path.join(AUTH_STATE_DIR, 'user.json')
  */
 export const testCredentials = {
   user: {
-    email: process.env.TEST_USER_EMAIL || 'test@example.com',
+    email: process.env.TEST_USER_EMAIL || 'test@example.com.ai',
     password: process.env.TEST_USER_PASSWORD || 'test-password',
   },
   admin: {
-    email: process.env.TEST_ADMIN_EMAIL || 'admin@example.com',
+    email: process.env.TEST_ADMIN_EMAIL || 'admin@example.com.ai',
     password: process.env.TEST_ADMIN_PASSWORD || 'admin-password',
   },
 }

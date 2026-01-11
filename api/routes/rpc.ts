@@ -348,7 +348,7 @@ class TeamObject {
   constructor(public id: string) {}
 
   getMembers() {
-    return [new UserObject(`${this.id}-member-1`, 'Member 1', 'member1@example.com'), new UserObject(`${this.id}-member-2`, 'Member 2', 'member2@example.com')]
+    return [new UserObject(`${this.id}-member-1`, 'Member 1', 'member1@example.com.ai'), new UserObject(`${this.id}-member-2`, 'Member 2', 'member2@example.com.ai')]
   }
 }
 
@@ -378,7 +378,7 @@ function createRootObject(ctx: RPCContext): Record<string, unknown> {
 
     // Data methods
     get: (id?: string) => ({ id: id || 'default', data: `Data for ${id || 'default'}` }),
-    getUser: (id: string) => new UserObject(id || 'default', `User ${id}`, `${id}@example.com`),
+    getUser: (id: string) => new UserObject(id || 'default', `User ${id}`, `${id}@example.com.ai`),
     getPosts: () => [
       { id: '1', title: 'First Post', active: true },
       { id: '2', title: 'Second Post', active: false },

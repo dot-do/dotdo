@@ -150,7 +150,7 @@ class TestDO {
   constructor(ctx: ReturnType<typeof createMockDOState>, env: ReturnType<typeof createMockEnv>) {
     this.ctx = ctx
     this.env = env
-    this.ns = 'https://test.example.com'
+    this.ns = 'https://test.example.com.ai'
     this.db = new MockDatabase(ctx._sqlData)
   }
 
@@ -826,11 +826,11 @@ describe('DO Lifecycle Operations', () => {
           deleted: false,
         })
 
-        const result = await testDO.fork({ to: 'https://acme.example.com' })
+        const result = await testDO.fork({ to: 'https://acme.example.com.ai' })
 
-        expect(result.ns).toBe('https://acme.example.com')
+        expect(result.ns).toBe('https://acme.example.com.ai')
         expect(result.doId).toBeDefined()
-        expect(mockEnv.DO.idFromName).toHaveBeenCalledWith('https://acme.example.com')
+        expect(mockEnv.DO.idFromName).toHaveBeenCalledWith('https://acme.example.com.ai')
       })
 
       it('copies current state without history', async () => {
@@ -860,7 +860,7 @@ describe('DO Lifecycle Operations', () => {
           deleted: false,
         })
 
-        const result = await testDO.fork({ to: 'https://forked.example.com' })
+        const result = await testDO.fork({ to: 'https://forked.example.com.ai' })
 
         // The forked DO should only have the latest state
         expect(result).toBeDefined()
@@ -879,7 +879,7 @@ describe('DO Lifecycle Operations', () => {
           rowid: 100, // Original has high rowid
         })
 
-        const result = await testDO.fork({ to: 'https://new.example.com' })
+        const result = await testDO.fork({ to: 'https://new.example.com.ai' })
 
         // New DO's things should start at version 1
         expect(result.doId).toBeDefined()
@@ -897,7 +897,7 @@ describe('DO Lifecycle Operations', () => {
         }
         await testDO._addThing(originalThing)
 
-        await testDO.fork({ to: 'https://fork-target.example.com' })
+        await testDO.fork({ to: 'https://fork-target.example.com.ai' })
 
         // Original should be unchanged
         const things = testDO._getThings()
@@ -923,7 +923,7 @@ describe('DO Lifecycle Operations', () => {
           deleted: true, // Soft deleted
         })
 
-        const result = await testDO.fork({ to: 'https://clean-fork.example.com' })
+        const result = await testDO.fork({ to: 'https://clean-fork.example.com.ai' })
 
         // Fork should only include non-deleted things
         expect(result).toBeDefined()
@@ -950,7 +950,7 @@ describe('DO Lifecycle Operations', () => {
           deleted: false,
         })
 
-        const result = await testDO.fork({ to: 'https://main-only.example.com' })
+        const result = await testDO.fork({ to: 'https://main-only.example.com.ai' })
 
         // By default, should only include main branch
         expect(result).toBeDefined()
@@ -968,7 +968,7 @@ describe('DO Lifecycle Operations', () => {
 
         // Extended fork options - fork from specific branch
         const result = await testDO.fork({
-          to: 'https://feature-fork.example.com',
+          to: 'https://feature-fork.example.com.ai',
           branch: 'feature-x',
         })
 
@@ -984,7 +984,7 @@ describe('DO Lifecycle Operations', () => {
         })
 
         await expect(
-          testDO.fork({ to: 'https://existing.example.com' }),
+          testDO.fork({ to: 'https://existing.example.com.ai' }),
         ).rejects.toThrow()
       })
 
@@ -997,7 +997,7 @@ describe('DO Lifecycle Operations', () => {
       it('throws if no state to fork', async () => {
         // Empty DO with no things
         await expect(
-          testDO.fork({ to: 'https://empty-fork.example.com' }),
+          testDO.fork({ to: 'https://empty-fork.example.com.ai' }),
         ).rejects.toThrow()
       })
     })
@@ -1013,7 +1013,7 @@ describe('DO Lifecycle Operations', () => {
           deleted: false,
         })
 
-        await testDO.fork({ to: 'https://event-test.example.com' })
+        await testDO.fork({ to: 'https://event-test.example.com.ai' })
 
         // Check events table
         const events = mockState._sqlData.get('events') as unknown[]
@@ -1030,7 +1030,7 @@ describe('DO Lifecycle Operations', () => {
           deleted: false,
         })
 
-        await testDO.fork({ to: 'https://success-fork.example.com' })
+        await testDO.fork({ to: 'https://success-fork.example.com.ai' })
 
         const events = mockState._sqlData.get('events') as unknown[]
         expect(events.some((e: any) => e.verb === 'fork.completed')).toBe(true)
@@ -1880,8 +1880,8 @@ describe('DO Lifecycle Operations', () => {
         await testDO._addThing({ id: 'config', type: 1, branch: null, name: 'Config', data: { setting: 'original' }, deleted: false })
 
         // 2. Fork to new namespace
-        const forkResult = await testDO.fork({ to: 'https://fork.example.com' })
-        expect(forkResult.ns).toBe('https://fork.example.com')
+        const forkResult = await testDO.fork({ to: 'https://fork.example.com.ai' })
+        expect(forkResult.ns).toBe('https://fork.example.com.ai')
 
         // 3. Modify original
         await testDO._addThing({ id: 'config', type: 1, branch: null, name: 'Config', data: { setting: 'modified-original' }, deleted: false })

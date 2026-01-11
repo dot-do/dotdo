@@ -146,7 +146,7 @@ describe('Instance Access - GET /:doClass/:id', () => {
     })
 
     it('should handle URL-encoded instance IDs', async () => {
-      const instanceId = 'user:alice@example.com'
+      const instanceId = 'user:alice@example.com.ai'
       const encodedId = encodeURIComponent(instanceId)
 
       const response = await app.request(`http://localhost/DO/${encodedId}`)

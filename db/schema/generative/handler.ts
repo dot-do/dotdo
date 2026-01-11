@@ -337,7 +337,7 @@ export class GenerativeTypeHandler {
     // Mock speech generation (would call actual TTS API)
     return {
       type: 'speech',
-      url: `https://speech.example.com/generated/${Date.now()}.${config.format}`,
+      url: `https://speech.example.com.ai/generated/${Date.now()}.${config.format}`,
       format: config.format,
       duration: Math.ceil(config.text.length / 15), // Rough estimate
       metadata: {

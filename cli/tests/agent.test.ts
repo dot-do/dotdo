@@ -388,7 +388,7 @@ describe('Agent Execution', () => {
       const mockAgent = createMockAgent()
       vi.mocked(ToolLoopAgent).mockReturnValue(mockAgent as unknown as InstanceType<typeof ToolLoopAgent>)
 
-      const complexInput = 'Create a user with email "test@example.com" and role "admin"'
+      const complexInput = 'Create a user with email "test@example.com.ai" and role "admin"'
       await runAgent(complexInput, 'https://api.do.dev')
 
       expect(mockAgent.generate).toHaveBeenCalledWith({

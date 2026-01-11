@@ -45,7 +45,7 @@ const defaultEnv = {
 
 const defaultState = {
   counter: 0,
-  user: { name: 'Test User', email: 'test@example.com' },
+  user: { name: 'Test User', email: 'test@example.com.ai' },
 }
 
 // ============================================================================
@@ -453,7 +453,7 @@ describe('createTestContext Factory', () => {
       it('provides default mock fetch service', async () => {
         const ctx = createTestContext()
 
-        const response = await ctx.services.fetch('https://api.example.com')
+        const response = await ctx.services.fetch('https://api.example.com.ai')
 
         expect(response).toBeInstanceOf(Response)
       })
@@ -462,11 +462,11 @@ describe('createTestContext Factory', () => {
         const ctx = createTestContext({
           services: {
             fetch: mockFetch({
-              'https://api.example.com/users': new Response(
+              'https://api.example.com.ai/users': new Response(
                 JSON.stringify([{ id: 1 }]),
                 { status: 200 }
               ),
-              'https://api.example.com/error': new Response('Not found', {
+              'https://api.example.com.ai/error': new Response('Not found', {
                 status: 404,
               }),
             }),
@@ -474,10 +474,10 @@ describe('createTestContext Factory', () => {
         })
 
         const usersResponse = await ctx.services.fetch(
-          'https://api.example.com/users'
+          'https://api.example.com.ai/users'
         )
         const errorResponse = await ctx.services.fetch(
-          'https://api.example.com/error'
+          'https://api.example.com.ai/error'
         )
 
         expect(usersResponse.status).toBe(200)

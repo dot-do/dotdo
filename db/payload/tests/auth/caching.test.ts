@@ -269,7 +269,7 @@ function createValidUser(overrides: Partial<SessionWithUser['user']> = {}): Sess
   return {
     id: 'user-001',
     name: 'Alice Smith',
-    email: 'alice@example.com',
+    email: 'alice@example.com.ai',
     emailVerified: true,
     image: null,
     role: 'user',

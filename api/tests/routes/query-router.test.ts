@@ -36,7 +36,7 @@ function mockRequest(
   body?: unknown,
   contentType = 'application/json'
 ): Request {
-  const url = `https://test.example.com${path}`
+  const url = `https://test.example.com.ai${path}`
   const init: RequestInit = {
     method,
     headers: new Headers({
@@ -729,7 +729,7 @@ describe('routeQuery', () => {
 describe('Query Router Worker', () => {
   describe('health check', () => {
     it('returns health status', async () => {
-      const request = new Request('https://test.example.com/health')
+      const request = new Request('https://test.example.com.ai/health')
       const env = mockEnv()
 
       const response = await queryRouter.fetch(request, env)
@@ -752,7 +752,7 @@ describe('Query Router Worker', () => {
         DB: mockDB,
       })
 
-      const request = new Request('https://test.example.com/health')
+      const request = new Request('https://test.example.com.ai/health')
       const response = await queryRouter.fetch(request, env)
       const body = await response.json()
 
@@ -764,7 +764,7 @@ describe('Query Router Worker', () => {
 
   describe('CORS handling', () => {
     it('handles OPTIONS preflight requests', async () => {
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'OPTIONS',
       })
       const env = mockEnv()
@@ -777,7 +777,7 @@ describe('Query Router Worker', () => {
     })
 
     it('includes CORS headers in responses', async () => {
-      const request = new Request('https://test.example.com/health')
+      const request = new Request('https://test.example.com.ai/health')
       const env = mockEnv()
 
       const response = await queryRouter.fetch(request, env)
@@ -797,7 +797,7 @@ describe('Query Router Worker', () => {
 
       const env = mockEnv({ VECTORS: mockVectors as unknown as VectorizeIndex })
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: [0.1, 0.2, 0.3], k: 5 }),
@@ -820,7 +820,7 @@ describe('Query Router Worker', () => {
 
       const env = mockEnv({ R2: mockR2 as unknown as R2Bucket })
 
-      const request = new Request('https://test.example.com/lookup/users/user-1')
+      const request = new Request('https://test.example.com.ai/lookup/users/user-1')
       const response = await queryRouter.fetch(request, env)
       const body = await response.json()
 
@@ -832,7 +832,7 @@ describe('Query Router Worker', () => {
     it('handles SQL requests', async () => {
       const env = mockEnv()
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: 'SELECT COUNT(*) FROM events GROUP BY type' }),
@@ -849,7 +849,7 @@ describe('Query Router Worker', () => {
     it('includes timing headers', async () => {
       const env = mockEnv()
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: 'SELECT 1' }),
@@ -865,7 +865,7 @@ describe('Query Router Worker', () => {
     it('returns 400 for parse errors', async () => {
       const env = mockEnv()
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ unknown: 'field' }),
@@ -882,7 +882,7 @@ describe('Query Router Worker', () => {
     it('returns 400 for validation errors', async () => {
       const env = mockEnv()
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: [] }),
@@ -898,7 +898,7 @@ describe('Query Router Worker', () => {
     it('returns JSON error for invalid JSON body', async () => {
       const env = mockEnv()
 
-      const request = new Request('https://test.example.com/query', {
+      const request = new Request('https://test.example.com.ai/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: 'not valid json{',

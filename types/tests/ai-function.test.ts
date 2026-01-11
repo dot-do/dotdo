@@ -256,11 +256,11 @@ describe('Executor Options', () => {
     it('should include human task options', () => {
       const options: HumanOptions = {
         channel: 'slack',
-        assignee: 'user@example.com',
+        assignee: 'user@example.com.ai',
         priority: 'high',
         dueDate: new Date(),
         reminders: [{ timing: 'before_due', duration: 'P1D' }],
-        escalation: { after: 'P2D', to: 'manager@example.com' },
+        escalation: { after: 'P2D', to: 'manager@example.com.ai' },
         instructions: 'Please review and approve',
         requiresApproval: true,
       }
@@ -394,14 +394,14 @@ describe('Execution Metrics', () => {
         retryCount: 0,
         cached: false,
         channel: 'slack',
-        respondent: 'user@example.com',
+        respondent: 'user@example.com.ai',
         timeToFirstResponseMs: 600000,
         remindersSent: 1,
         escalated: false,
       }
 
       expect(metrics.channel).toBe('slack')
-      expect(metrics.respondent).toBe('user@example.com')
+      expect(metrics.respondent).toBe('user@example.com.ai')
     })
   })
 })
@@ -582,10 +582,10 @@ describe('Error Types', () => {
 
   describe('HumanRejectedError', () => {
     it('should include rejection details', () => {
-      const error = new HumanRejectedError('user@example.com', 'Budget too high')
+      const error = new HumanRejectedError('user@example.com.ai', 'Budget too high')
 
       expect(error.code).toBe('HUMAN_REJECTED_ERROR')
-      expect(error.respondent).toBe('user@example.com')
+      expect(error.respondent).toBe('user@example.com.ai')
       expect(error.reason).toBe('Budget too high')
     })
   })

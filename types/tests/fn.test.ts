@@ -511,11 +511,11 @@ describe('Fn Type - Style 3: Tagged Template with Named Params', () => {
 
       const template = email`To: ${'to'}\nSubject: ${'subject'}\n\n${'body'}`
       const result = template({
-        to: 'user@example.com',
+        to: 'user@example.com.ai',
         subject: 'Hello',
         body: 'World',
       })
-      expect(result).toContain('To: user@example.com')
+      expect(result).toContain('To: user@example.com.ai')
     })
   })
 
@@ -529,8 +529,8 @@ describe('Fn Type - Style 3: Tagged Template with Named Params', () => {
       }) as any
 
       const template = renderUser`${'user'}`
-      const result = template({ user: { name: 'John', email: 'john@example.com' } })
-      expect(result).toBe('John <john@example.com>')
+      const result = template({ user: { name: 'John', email: 'john@example.com.ai' } })
+      expect(result).toBe('John <john@example.com.ai>')
     })
 
     it('should handle array params', () => {

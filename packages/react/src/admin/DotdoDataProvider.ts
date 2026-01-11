@@ -38,7 +38,7 @@ import { AdminError, formatAdminError } from './errors'
  * Configuration for DotdoDataProvider
  */
 export interface DotdoDataProviderConfig {
-  /** Namespace URL for the Durable Object (e.g., 'https://api.example.com/do/workspace') */
+  /** Namespace URL for the Durable Object (e.g., 'https://api.example.com.ai/do/workspace') */
   ns: string
   /** Custom headers for requests */
   headers?: Record<string, string>
@@ -85,7 +85,7 @@ interface RPCResponse {
  * @example
  * ```ts
  * const dataProvider = DotdoDataProvider({
- *   ns: 'https://api.example.com/do/workspace',
+ *   ns: 'https://api.example.com.ai/do/workspace',
  *   headers: { Authorization: 'Bearer token' },
  * })
  * ```

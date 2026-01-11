@@ -188,7 +188,7 @@ class TestBrowserDO {
   constructor(ctx: ReturnType<typeof createMockDOState>, env: ReturnType<typeof createMockEnv>) {
     this.ctx = ctx
     this.env = env
-    this.ns = 'https://browser.test.example.com'
+    this.ns = 'https://browser.test.example.com.ai'
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -869,7 +869,7 @@ describe('Browser DO Lifecycle', () => {
     let mockSession: MockBrowseSession
 
     beforeEach(() => {
-      mockSession = createMockBrowseSession('https://live.example.com')
+      mockSession = createMockBrowseSession('https://live.example.com.ai')
       mockBrowseInit.mockResolvedValue(mockSession)
     })
 
@@ -901,7 +901,7 @@ describe('Browser DO Lifecycle', () => {
 
       const events = browserDO._getEvents()
       const startedEvent = events.find((e: any) => e.verb === 'browser.started') as any
-      expect(startedEvent?.data?.liveViewUrl).toBe('https://live.example.com')
+      expect(startedEvent?.data?.liveViewUrl).toBe('https://live.example.com.ai')
     })
 
     it('emits browser.stopped event on stop', async () => {
@@ -950,7 +950,7 @@ describe('Browser DO Lifecycle', () => {
     it('goto updates lastActivity', async () => {
       const before = browserDO.getLastActivity()
       await new Promise((r) => setTimeout(r, 10))
-      await browserDO.goto('https://example.com')
+      await browserDO.goto('https://example.com.ai')
 
       expect(browserDO.getLastActivity()).toBeGreaterThan(before)
     })
@@ -994,7 +994,7 @@ describe('Browser DO Lifecycle', () => {
 
   describe('Browser operations throw without active session', () => {
     it('goto throws without session', async () => {
-      await expect(browserDO.goto('https://example.com')).rejects.toThrow(
+      await expect(browserDO.goto('https://example.com.ai')).rejects.toThrow(
         'No active browser session'
       )
     })

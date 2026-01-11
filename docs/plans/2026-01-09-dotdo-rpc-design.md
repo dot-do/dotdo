@@ -76,7 +76,7 @@ import Stripe from 'stripe'
 export const stripe = RPC(Stripe, { args: [env.STRIPE_KEY] })
 
 // Usage is identical to native SDK
-const customer = await stripe.customers.create({ email: 'test@example.com' })
+const customer = await stripe.customers.create({ email: 'test@example.com.ai' })
 const charge = await stripe.charges.create({
   amount: 1000,
   currency: 'usd',
@@ -504,7 +504,7 @@ export const stripe = RPC(Stripe, { args: [env.STRIPE_KEY] })
 export default {
   async fetch(request: Request, env: Env) {
     const customer = await stripe.customers.create({
-      email: 'customer@example.com'
+      email: 'customer@example.com.ai'
     })
 
     const subscription = await stripe.subscriptions.create({

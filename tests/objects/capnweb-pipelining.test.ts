@@ -243,7 +243,7 @@ class StripeDO extends DO {
         },
         notifications: {
           email: true,
-          webhook: 'https://example.com/webhook',
+          webhook: 'https://example.com.ai/webhook',
         },
       },
       metadata: {
@@ -343,7 +343,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       })
 
       // Build the pipeline (no awaits yet!)
-      const customer = $.Stripe({ email: 'test@example.com' }).createCustomer()
+      const customer = $.Stripe({ email: 'test@example.com.ai' }).createCustomer()
       const subscription = $.Stripe({ customer: customer.id, price: 'price_xxx' }).createSubscription()
       const invoice = $.Stripe({ invoiceId: subscription.latest_invoice }).getInvoice()
 
@@ -389,7 +389,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
 
       // Build the entire flow without awaiting
       const account = $.Stripe({}).getAccount()
-      const customer = $.Stripe({ email: 'user@example.com', name: 'Test User' }).createCustomer()
+      const customer = $.Stripe({ email: 'user@example.com.ai', name: 'Test User' }).createCustomer()
       const paymentIntent = $.Stripe({ amount: 2999, customer: customer.id }).createPaymentIntent()
       const subscription = $.Stripe({
         customer: customer.id,
@@ -484,7 +484,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       // Measure time to capture expressions (should be < 1ms)
       const captureStart = performance.now()
 
-      const customer = $.Stripe({ email: 'test@example.com' }).createCustomer()
+      const customer = $.Stripe({ email: 'test@example.com.ai' }).createCustomer()
       const subscription = $.Stripe({ customer: customer.id, price: 'price_xxx' }).createSubscription()
       const invoice = $.Stripe({ invoiceId: subscription.latest_invoice }).getInvoice()
 
@@ -512,7 +512,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       // Create 10 independent customer creations
       const customers: PipelinePromise[] = []
       for (let i = 0; i < 10; i++) {
-        customers.push($.Stripe({ email: `user${i}@example.com` }).createCustomer())
+        customers.push($.Stripe({ email: `user${i}@example.com.ai` }).createCustomer())
       }
 
       const expressions = collectExpressions(customers)
@@ -540,9 +540,9 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       const $ = createWorkflowProxy()
 
       // Independent operations
-      const customer1 = $.Stripe({ email: 'a@example.com' }).createCustomer()
-      const customer2 = $.Stripe({ email: 'b@example.com' }).createCustomer()
-      const customer3 = $.Stripe({ email: 'c@example.com' }).createCustomer()
+      const customer1 = $.Stripe({ email: 'a@example.com.ai' }).createCustomer()
+      const customer2 = $.Stripe({ email: 'b@example.com.ai' }).createCustomer()
+      const customer3 = $.Stripe({ email: 'c@example.com.ai' }).createCustomer()
 
       // Dependent operations
       const sub1 = $.Stripe({ customer: customer1.id, price: 'p1' }).createSubscription()
@@ -593,7 +593,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       // Build pipeline with potential failure
       const failingOp = $.Stripe({ shouldFail: true }).failingOperation()
       const dependentOp = $.Stripe({ opId: failingOp.id }).createCustomer() // Would fail due to dependency
-      const independentOp = $.Stripe({ email: 'safe@example.com' }).createCustomer()
+      const independentOp = $.Stripe({ email: 'safe@example.com.ai' }).createCustomer()
 
       const expressions = collectExpressions({ failingOp, dependentOp, independentOp })
 
@@ -705,7 +705,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
        */
       const $ = createWorkflowProxy()
 
-      let previous: PipelinePromise = $.Stripe({ email: 'start@example.com' }).createCustomer()
+      let previous: PipelinePromise = $.Stripe({ email: 'start@example.com.ai' }).createCustomer()
       const chain: PipelinePromise[] = [previous]
 
       for (let i = 1; i < 100; i++) {
@@ -843,7 +843,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
       const $ = createWorkflowProxy()
 
       // Stripe operations
-      const customer = $.Stripe({ email: 'buyer@example.com' }).createCustomer()
+      const customer = $.Stripe({ email: 'buyer@example.com.ai' }).createCustomer()
       const paymentIntent = $.Stripe({ amount: 4999, customer: customer.id }).createPaymentIntent()
       const subscription = $.Stripe({ customer: customer.id, price: 'price_monthly' }).createSubscription()
 
@@ -916,7 +916,7 @@ describe('Cap\'n Web E2E Pipelining Tests', () => {
 
       // Phase 1: Check stock and create customer (independent)
       const stockStatus = $.Inventory({ sku: 'SKU-001' }).checkStock()
-      const customer = $.Stripe({ email: 'order@example.com' }).createCustomer()
+      const customer = $.Stripe({ email: 'order@example.com.ai' }).createCustomer()
 
       // Phase 2: Reserve stock and create payment intent (dependent on phase 1)
       const reserved = $.Inventory({

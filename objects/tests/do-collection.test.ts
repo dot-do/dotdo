@@ -176,7 +176,7 @@ describe('DO.collection() Type FK Resolution', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new DO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   // ==========================================================================
@@ -496,7 +496,7 @@ describe('Noun Registration', () => {
     mockState = createMockState()
     mockEnv = createMockEnv()
     doInstance = new DO(mockState, mockEnv)
-    await doInstance.initialize({ ns: 'https://test.example.com' })
+    await doInstance.initialize({ ns: 'https://test.example.com.ai' })
   })
 
   it('should have a registerNoun method for adding nouns', () => {

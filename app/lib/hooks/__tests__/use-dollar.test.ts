@@ -130,16 +130,16 @@ describe('useDollar (use$)', () => {
 
   describe('connection management', () => {
     it('connects to DO via WebSocket on mount', async () => {
-      renderHook(() => useDollar({ doUrl: 'wss://example.com/do/123' }))
+      renderHook(() => useDollar({ doUrl: 'wss://example.com.ai/do/123' }))
 
       expect(globalThis.WebSocket).toHaveBeenCalledWith(
-        expect.stringContaining('wss://example.com/do/123')
+        expect.stringContaining('wss://example.com.ai/do/123')
       )
     })
 
     it('returns isLoading=true while connecting', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Before connection is established
@@ -149,7 +149,7 @@ describe('useDollar (use$)', () => {
 
     it('returns isConnected=true when connected', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Simulate WebSocket open
@@ -165,7 +165,7 @@ describe('useDollar (use$)', () => {
 
     it('disconnects on unmount', () => {
       const { unmount } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Simulate connection
@@ -184,7 +184,7 @@ describe('useDollar (use$)', () => {
       vi.useFakeTimers()
 
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Initial connection
@@ -224,7 +224,7 @@ describe('useDollar (use$)', () => {
 
     it('returns error when connection fails', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Simulate connection error
@@ -242,7 +242,7 @@ describe('useDollar (use$)', () => {
 
     it('provides manual connect function', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123', autoConnect: false })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123', autoConnect: false })
       )
 
       expect(typeof result.current.connect).toBe('function')
@@ -250,7 +250,7 @@ describe('useDollar (use$)', () => {
 
     it('provides manual disconnect function', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.disconnect).toBe('function')
@@ -258,7 +258,7 @@ describe('useDollar (use$)', () => {
 
     it('does not auto-connect when autoConnect=false', () => {
       renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123', autoConnect: false })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123', autoConnect: false })
       )
 
       // Should not have created WebSocket
@@ -277,7 +277,7 @@ describe('useDollar (use$)', () => {
 
     it('$.send(event) fires and forgets', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -290,7 +290,7 @@ describe('useDollar (use$)', () => {
       })
 
       // Call $.send with an event
-      const event = { type: 'Customer.signup', data: { email: 'test@example.com' } }
+      const event = { type: 'Customer.signup', data: { email: 'test@example.com.ai' } }
 
       act(() => {
         result.current.$.send(event)
@@ -304,7 +304,7 @@ describe('useDollar (use$)', () => {
 
     it('$.try(action) attempts once and resolves', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -342,7 +342,7 @@ describe('useDollar (use$)', () => {
 
     it('$.do(action) retries durably', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -357,7 +357,7 @@ describe('useDollar (use$)', () => {
       // Call $.do with an action (durable execution)
       let doPromise: Promise<unknown>
       act(() => {
-        doPromise = result.current.$.do({ action: 'sendEmail', to: 'user@example.com' })
+        doPromise = result.current.$.do({ action: 'sendEmail', to: 'user@example.com.ai' })
       })
 
       // Should have sent message with durable flag
@@ -380,7 +380,7 @@ describe('useDollar (use$)', () => {
 
     it('$.Noun(id).method() calls cross-DO RPC', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -423,7 +423,7 @@ describe('useDollar (use$)', () => {
 
     it('$.on.Noun.verb(handler) subscribes to events', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -456,12 +456,12 @@ describe('useDollar (use$)', () => {
         mockWs._simulateMessage({
           type: 'event',
           event: 'Customer.signup',
-          data: { email: 'new@example.com' },
+          data: { email: 'new@example.com.ai' },
         })
       })
 
       // Handler should have been called
-      expect(handler).toHaveBeenCalledWith({ email: 'new@example.com' })
+      expect(handler).toHaveBeenCalledWith({ email: 'new@example.com.ai' })
 
       // Unsubscribe should be a function
       expect(typeof unsubscribe!).toBe('function')
@@ -469,7 +469,7 @@ describe('useDollar (use$)', () => {
 
     it('$.every.interval(handler) sets up scheduling', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -499,7 +499,7 @@ describe('useDollar (use$)', () => {
 
     it('$.every.Monday.at9am(handler) sets up day/time scheduling', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -531,7 +531,7 @@ describe('useDollar (use$)', () => {
   describe('promise pipelining', () => {
     it('multiple chained calls execute in single round trip', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -581,7 +581,7 @@ describe('useDollar (use$)', () => {
 
     it('results are properly resolved', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -629,7 +629,7 @@ describe('useDollar (use$)', () => {
 
     it('errors propagate correctly', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -666,7 +666,7 @@ describe('useDollar (use$)', () => {
 
     it('chained method calls are pipelined', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -711,7 +711,7 @@ describe('useDollar (use$)', () => {
   describe('state synchronization', () => {
     it('state updates from DO trigger re-renders', async () => {
       const { result, rerender } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -757,7 +757,7 @@ describe('useDollar (use$)', () => {
 
     it('optimistic updates work', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -810,7 +810,7 @@ describe('useDollar (use$)', () => {
 
     it('conflict resolution handles concurrent changes', async () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -864,7 +864,7 @@ describe('useDollar (use$)', () => {
       vi.useFakeTimers()
 
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Connect
@@ -923,7 +923,7 @@ describe('useDollar (use$)', () => {
   describe('return value interface', () => {
     it('returns $ proxy object', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(result.current.$).toBeDefined()
@@ -932,7 +932,7 @@ describe('useDollar (use$)', () => {
 
     it('returns isLoading boolean', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.isLoading).toBe('boolean')
@@ -940,7 +940,7 @@ describe('useDollar (use$)', () => {
 
     it('returns isConnected boolean', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.isConnected).toBe('boolean')
@@ -948,7 +948,7 @@ describe('useDollar (use$)', () => {
 
     it('returns error or null', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(result.current.error === null || result.current.error instanceof Error).toBe(true)
@@ -956,7 +956,7 @@ describe('useDollar (use$)', () => {
 
     it('returns connect function', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.connect).toBe('function')
@@ -964,7 +964,7 @@ describe('useDollar (use$)', () => {
 
     it('returns disconnect function', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.disconnect).toBe('function')
@@ -972,7 +972,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy has send method', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.$.send).toBe('function')
@@ -980,7 +980,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy has try method', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.$.try).toBe('function')
@@ -988,7 +988,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy has do method', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(typeof result.current.$.do).toBe('function')
@@ -996,7 +996,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy has on property for event subscriptions', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(result.current.$.on).toBeDefined()
@@ -1005,7 +1005,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy has every property for scheduling', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       expect(result.current.$.every).toBeDefined()
@@ -1014,7 +1014,7 @@ describe('useDollar (use$)', () => {
 
     it('$ proxy returns callable nouns for cross-DO RPC', () => {
       const { result } = renderHook(() =>
-        useDollar({ doUrl: 'wss://example.com/do/123' })
+        useDollar({ doUrl: 'wss://example.com.ai/do/123' })
       )
 
       // Accessing $.Customer should return a function

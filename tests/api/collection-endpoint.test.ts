@@ -479,7 +479,7 @@ describe('Collection Endpoints', () => {
       })
 
       it('should handle URL-encoded ids', async () => {
-        const specialId = 'user:alice@example.com'
+        const specialId = 'user:alice@example.com.ai'
         await post(`${baseUrl}/things`, {
           id: specialId,
           name: 'Special ID Thing',

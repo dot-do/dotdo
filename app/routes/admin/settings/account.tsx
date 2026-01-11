@@ -52,7 +52,7 @@ function AccountSettingsPage() {
               type="email"
               id="email"
               name="email"
-              defaultValue="john@example.com"
+              defaultValue="john@example.com.ai"
               readOnly
               className="w-full border rounded px-3 py-2 bg-muted"
             />

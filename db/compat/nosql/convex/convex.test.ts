@@ -666,7 +666,7 @@ describe('Backward Compatibility', () => {
   it('should still work with users table', async () => {
     const id = await client.mutation(legacyApi.users.create, {
       name: 'Test User',
-      email: 'test@example.com',
+      email: 'test@example.com.ai',
     })
 
     expect(id).toBeDefined()

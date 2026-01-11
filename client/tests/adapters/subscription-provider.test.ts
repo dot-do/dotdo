@@ -11,7 +11,7 @@
  *
  * Expected API:
  *   import { createSubscriptionProvider } from '@dotdo/client/adapters'
- *   const subscriptionProvider = createSubscriptionProvider('wss://api.example.com/do/main')
+ *   const subscriptionProvider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -117,7 +117,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('subscribe to collection changes', () => {
     it('creates a subscription provider from DO URL', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       expect(provider).toBeDefined()
       expect(provider.subscribe).toBeInstanceOf(Function)
@@ -125,16 +125,16 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('establishes WebSocket connection on first subscription', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
 
       expect(MockWebSocket.instances).toHaveLength(1)
-      expect(MockWebSocket.instances[0].url).toBe('wss://api.example.com/do/main/subscribe')
+      expect(MockWebSocket.instances[0].url).toBe('wss://api.example.com.ai/do/main/subscribe')
     })
 
     it('sends subscription message for resource', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
       MockWebSocket.instances[0].simulateOpen()
@@ -149,7 +149,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('receives create events for subscribed collection', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => {
@@ -174,7 +174,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('receives update events for subscribed collection', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => {
@@ -200,7 +200,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('receives delete events for subscribed collection', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => {
@@ -230,7 +230,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('automatic reconnection on disconnect', () => {
     it('reconnects automatically when connection is lost', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
       MockWebSocket.instances[0].simulateOpen()
@@ -245,7 +245,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('uses exponential backoff for reconnection attempts', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         reconnect: { jitter: 0 },
       })
 
@@ -265,7 +265,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('re-subscribes to all resources after reconnection', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
       provider.subscribe('comments', () => {})
@@ -284,7 +284,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('emits reconnection status events', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const statusEvents: string[] = []
 
       provider.onStatusChange((status) => {
@@ -304,7 +304,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('continues receiving events after reconnection', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => {
@@ -343,7 +343,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('subscription cleanup on unmount', () => {
     it('returns unsubscribe function from subscribe', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       const unsubscribe = provider.subscribe('posts', () => {})
 
@@ -351,7 +351,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('stops receiving events after unsubscribe', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       const unsubscribe = provider.subscribe('posts', (event) => {
@@ -382,7 +382,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('sends unsubscribe message when all listeners removed', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       const unsub1 = provider.subscribe('posts', () => {})
       const unsub2 = provider.subscribe('posts', () => {})
@@ -407,7 +407,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('closes WebSocket when all subscriptions removed', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       const unsubscribe = provider.subscribe('posts', () => {})
       MockWebSocket.instances[0].simulateOpen()
@@ -420,7 +420,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('provides disconnect method for explicit cleanup', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
       MockWebSocket.instances[0].simulateOpen()
@@ -437,7 +437,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('multiple concurrent subscriptions', () => {
     it('supports subscribing to multiple resources', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       const postEvents: SubscriptionEvent[] = []
       const commentEvents: SubscriptionEvent[] = []
@@ -467,7 +467,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('allows multiple callbacks for same resource', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       const events1: SubscriptionEvent[] = []
       const events2: SubscriptionEvent[] = []
@@ -488,7 +488,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('reuses single WebSocket connection for all subscriptions', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('posts', () => {})
       provider.subscribe('comments', () => {})
@@ -498,7 +498,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('handles rapid subscribe/unsubscribe cycles', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       for (let i = 0; i < 10; i++) {
         const unsub = provider.subscribe(`resource-${i}`, () => {})
@@ -516,7 +516,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('filter subscriptions by resource', () => {
     it('supports subscribing to specific record by ID', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => events.push(event), {
@@ -535,7 +535,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('filters events by subscribed ID', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => events.push(event), {
@@ -564,7 +564,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('supports subscribing with custom filter', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('posts', (event) => events.push(event), {
@@ -587,7 +587,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('supports subscribing to related resources', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('comments', () => {}, {
         filter: { postId: 'post-123' },
@@ -615,7 +615,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('react-admin useSubscribe pattern integration', () => {
     it('provides subscribe function compatible with useSubscribe', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       // react-admin useSubscribe pattern:
       // subscribe(topic, callback)
@@ -632,7 +632,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('parses resource/id topic format', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       provider.subscribe('resource/posts/123', () => {})
       MockWebSocket.instances[0].simulateOpen()
@@ -652,7 +652,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('provides getSubscriptionCallback for dataProvider integration', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       // react-admin dataProvider with realtime:
       // dataProvider.getSubscriptionCallback = subscriptionProvider.getSubscriptionCallback
@@ -663,7 +663,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('maps events to react-admin format', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       provider.subscribe('resource/posts', (event) => {
@@ -688,7 +688,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('supports useSubscribeToRecord pattern (specific record)', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       // useSubscribeToRecord subscribes to specific record changes
@@ -708,7 +708,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('supports useSubscribeToRecordList pattern (list of records)', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
 
       // useSubscribeToRecordList subscribes to changes in a list
@@ -738,7 +738,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('offline queue and replay', () => {
     it('queues subscription requests when offline', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       // Subscribe while connecting (not yet open)
       provider.subscribe('posts', () => {})
@@ -760,7 +760,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('replays missed events on reconnection with last event ID', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableReplay: true,
       })
       const events: SubscriptionEvent[] = []
@@ -802,7 +802,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('handles replay events from server', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableReplay: true,
       })
       const events: SubscriptionEvent[] = []
@@ -841,7 +841,7 @@ describe('Subscription Provider Adapter', () => {
 
     it('stores events locally for offline access', async () => {
       const mockStorage = new Map<string, string>()
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableReplay: true,
         storage: {
           getItem: (key: string) => mockStorage.get(key) ?? null,
@@ -870,7 +870,7 @@ describe('Subscription Provider Adapter', () => {
 
     it('limits offline event storage size', async () => {
       const mockStorage = new Map<string, string>()
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableReplay: true,
         maxStoredEvents: 10,
         storage: {
@@ -900,7 +900,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('provides optimistic updates while offline', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableOptimisticUpdates: true,
       })
       const events: SubscriptionEvent[] = []
@@ -923,7 +923,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('rolls back optimistic updates on server rejection', async () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main', {
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main', {
         enableOptimisticUpdates: true,
       })
       const events: SubscriptionEvent[] = []
@@ -953,7 +953,7 @@ describe('Subscription Provider Adapter', () => {
 
   describe('error handling', () => {
     it('emits error events on connection failure', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const errors: Error[] = []
 
       provider.onError((error) => {
@@ -967,7 +967,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('handles malformed server messages gracefully', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
       const events: SubscriptionEvent[] = []
       const errors: Error[] = []
 
@@ -983,7 +983,7 @@ describe('Subscription Provider Adapter', () => {
     })
 
     it('provides connection status for UI feedback', () => {
-      const provider = createSubscriptionProvider('wss://api.example.com/do/main')
+      const provider = createSubscriptionProvider('wss://api.example.com.ai/do/main')
 
       expect(provider.status).toBe('disconnected')
 

@@ -186,9 +186,9 @@ describe('$id Directive', () => {
     })
 
     it('handles special characters in values', () => {
-      const data = { id: 'user@example.com' }
+      const data = { id: 'user@example.com.ai' }
       const result = extractId(data, '$.id')
-      expect(result).toBe('user@example.com')
+      expect(result).toBe('user@example.com.ai')
     })
   })
 })
@@ -527,9 +527,9 @@ describe('UI Directives', () => {
     })
 
     it('supports icon URL', () => {
-      const type = { $icon: 'https://example.com/icon.svg' }
+      const type = { $icon: 'https://example.com.ai/icon.svg' }
       const result = resolveUIDirectives(type)
-      expect(result.icon).toBe('https://example.com/icon.svg')
+      expect(result.icon).toBe('https://example.com.ai/icon.svg')
       expect(result.iconType).toBe('url')
     })
   })
@@ -618,7 +618,7 @@ describe('$type Directive', () => {
           email: 'string',
         },
       }
-      const entity = { $type: 'User', name: 'John', email: 'john@example.com' }
+      const entity = { $type: 'User', name: 'John', email: 'john@example.com.ai' }
       const typeMatch = resolveTypeDiscriminator(entity)
       expect(typeMatch).toBe('User')
       expect(schema[typeMatch]).toBeDefined()
@@ -634,29 +634,29 @@ describe('$source Directive', () => {
   describe('External API Source', () => {
     it('resolves REST API source', () => {
       const type = {
-        $source: 'https://api.example.com/users',
+        $source: 'https://api.example.com.ai/users',
       }
       const result = resolveSource(type)
-      expect(result.url).toBe('https://api.example.com/users')
+      expect(result.url).toBe('https://api.example.com.ai/users')
       expect(result.method).toBe('GET')
     })
 
     it('resolves source with method', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/users',
+          url: 'https://api.example.com.ai/users',
           method: 'POST',
         },
       }
       const result = resolveSource(type)
-      expect(result.url).toBe('https://api.example.com/users')
+      expect(result.url).toBe('https://api.example.com.ai/users')
       expect(result.method).toBe('POST')
     })
 
     it('resolves source with headers', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/users',
+          url: 'https://api.example.com.ai/users',
           headers: {
             'Authorization': 'Bearer token',
             'Content-Type': 'application/json',
@@ -672,7 +672,7 @@ describe('$source Directive', () => {
     it('maps response to schema fields', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/users',
+          url: 'https://api.example.com.ai/users',
           mapping: {
             id: '$.data.id',
             name: '$.data.attributes.name',
@@ -688,7 +688,7 @@ describe('$source Directive', () => {
     it('supports array response mapping', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/users',
+          url: 'https://api.example.com.ai/users',
           items: '$.data[*]',
           mapping: {
             id: '$.id',
@@ -705,7 +705,7 @@ describe('$source Directive', () => {
     it('resolves source with API key auth', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/data',
+          url: 'https://api.example.com.ai/data',
           auth: {
             type: 'apiKey',
             key: 'X-API-Key',
@@ -721,10 +721,10 @@ describe('$source Directive', () => {
     it('resolves source with OAuth', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/data',
+          url: 'https://api.example.com.ai/data',
           auth: {
             type: 'oauth2',
-            tokenUrl: 'https://auth.example.com/token',
+            tokenUrl: 'https://auth.example.com.ai/token',
             clientId: '${env.CLIENT_ID}',
             clientSecret: '${env.CLIENT_SECRET}',
           },
@@ -739,7 +739,7 @@ describe('$source Directive', () => {
     it('resolves cache settings', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/data',
+          url: 'https://api.example.com.ai/data',
           cache: {
             ttl: 3600,
             staleWhileRevalidate: true,
@@ -754,7 +754,7 @@ describe('$source Directive', () => {
     it('resolves refresh schedule', () => {
       const type = {
         $source: {
-          url: 'https://api.example.com/data',
+          url: 'https://api.example.com.ai/data',
           refresh: 'every 5 minutes',
         },
       }
@@ -777,7 +777,7 @@ describe('Directive Parsing', () => {
         $instructions: 'Generate content',
         $icon: 'user',
         $group: 'Users',
-        $source: 'https://api.example.com',
+        $source: 'https://api.example.com.ai',
         $type: 'User',
         // Regular fields
         name: 'string',
