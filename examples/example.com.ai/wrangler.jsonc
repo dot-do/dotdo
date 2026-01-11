@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "example-com-ai",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-08",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Custom domain for the demo
+  "routes": [
+    { "pattern": "example.com.ai", "zone_name": "example.com.ai" },
+    { "pattern": "www.example.com.ai", "zone_name": "example.com.ai" }
+  ],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EXAMPLE_DO",
+        "class_name": "ExampleDO"
+      }
+    ]
+  },
+
+  // Migrations for SQLite-backed DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ExampleDO"]
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  // Development environment (uses workers.dev domain)
+  "env": {
+    "dev": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}
