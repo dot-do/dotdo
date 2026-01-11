@@ -163,6 +163,16 @@ export class GelClient implements GelTransaction {
   ensureSchema(sdl: string): void {
     this.ensureOpen()
 
+    // In strict mode, validate SDL syntax first
+    if (this.options.strict) {
+      // Try to parse and throw SchemaError if invalid
+      try {
+        parseSDL(sdl)
+      } catch (error) {
+        throw new SchemaError(`Invalid SDL syntax: ${(error as Error).message}`)
+      }
+    }
+
     // Parse SDL
     let newSchema: Schema
     try {
@@ -656,6 +666,60 @@ export class GelClient implements GelTransaction {
     this.closed = true
     this.schema = null
   }
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Check if a type name is a primitive EdgeQL type
+ */
+function isPrimitiveType(typeName: string): boolean {
+  const primitives = new Set([
+    'str',
+    'bool',
+    'uuid',
+    'int16',
+    'int32',
+    'int64',
+    'float32',
+    'float64',
+    'bigint',
+    'decimal',
+    'datetime',
+    'duration',
+    'json',
+    'bytes',
+    'array',
+    'tuple',
+    'cal::local_date',
+    'cal::local_time',
+    'cal::local_datetime',
+  ])
+  return primitives.has(typeName)
+}
+
+/**
+ * Validate UUID format
+ */
+function isValidUUID(value: string): boolean {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidPattern.test(value)
+}
+
+/**
+ * Validate datetime format
+ */
+function isValidDatetime(value: string): boolean {
+  // Check for ISO 8601 format or common datetime formats
+  const date = new Date(value)
+  if (isNaN(date.getTime())) {
+    return false
+  }
+  // Additional check for strict ISO format
+  const isoPattern = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})?)?$/
+  return isoPattern.test(value)
 }
 
 // =============================================================================
