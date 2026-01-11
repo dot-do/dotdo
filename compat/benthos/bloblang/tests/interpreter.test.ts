@@ -31,18 +31,7 @@ import type {
   UnaryOperator
 } from '../ast'
 import { BenthosMessage, createMessage, createBatch } from '../../core/message'
-
-// Import interpreter when implemented
-// import { Interpreter, evaluate, createInterpreterContext } from '../interpreter'
-
-/**
- * This is the RED phase: tests that will FAIL until the interpreter is implemented.
- * Remove the placeholder assertions and uncomment the real ones when ready to implement.
- */
-declare function evaluate(ast: ASTNode, message: BenthosMessage): unknown
-declare class Interpreter {
-  evaluate(ast: ASTNode): unknown
-}
+import { Interpreter, evaluate, createInterpreterContext } from '../interpreter'
 
 /**
  * Helper functions to build AST nodes for testing

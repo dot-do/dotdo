@@ -22,12 +22,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Lexer } from '../lexer'
-// Parser will be imported when implemented
-// import { Parser, parse } from '../parser'
-
-// Helper to create a parser instance and parse
-// This will be implemented in parser.ts
-// const parse = (source: string) => new Parser(new Lexer(source)).parse()
+import { Parser, parse, createParser as createParserImpl } from '../parser'
 
 describe('Bloblang Parser - RED Phase', () => {
   describe('Literal Expressions', () => {
@@ -89,9 +84,12 @@ describe('Bloblang Parser - RED Phase', () => {
     it('parses negative numbers', () => {
       const parser = createParser('-42')
       const ast = parser.parse()
-      expect(ast.type).toBe('Literal')
-      expect(ast.kind).toBe('number')
-      expect(ast.value).toBe(-42)
+      // Negative numbers are parsed as unary negation
+      expect(ast.type).toBe('UnaryOp')
+      expect(ast.operator).toBe('-')
+      expect(ast.operand.type).toBe('Literal')
+      expect(ast.operand.kind).toBe('number')
+      expect(ast.operand.value).toBe(42)
     })
 
     it('parses scientific notation', () => {
@@ -1272,12 +1270,6 @@ describe('Bloblang Parser - RED Phase', () => {
 })
 
 // Helper function to create a parser instance
-function createParser(source: string): any {
-  // This will be properly defined once Parser is implemented
-  // For now, this is a placeholder that will fail the tests
-  return {
-    parse: () => {
-      throw new Error('Parser not yet implemented')
-    }
-  }
+function createParser(source: string): Parser {
+  return createParserImpl(source)
 }

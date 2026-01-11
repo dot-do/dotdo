@@ -243,12 +243,7 @@ export class Lexer implements Iterable<Token> {
     const startColumn = this.column
     let value = ''
 
-    // Handle negative
-    if (this.current === '-') {
-      value += this.advance()
-    }
-
-    // Integer part
+    // Integer part (no leading - handled here, that's a unary operator)
     while (!this.isAtEnd && /[0-9]/.test(this.current)) {
       value += this.advance()
     }
@@ -346,8 +341,8 @@ export class Lexer implements Iterable<Token> {
       return this.string(c)
     }
 
-    // Numbers (but not arrow ->, so check peek first)
-    if (/[0-9]/.test(c) || (c === '-' && /[0-9]/.test(this.peekChar(1)) && this.peekChar(1) !== '>')) {
+    // Numbers (only digits, not leading -)
+    if (/[0-9]/.test(c)) {
       return this.number()
     }
 
