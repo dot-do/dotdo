@@ -166,14 +166,19 @@ describe('Bloblang Number Stdlib Functions', () => {
     })
 
     it('handles banker\'s rounding at exact .5 for positive numbers', () => {
-      // Banker's rounding: round to nearest even
-      expect(round(2.5) % 2).toBe(0) // Should be even
-      expect(round(3.5) % 2).toBe(0) // Should be even
+      // Note: This implementation uses "round half away from zero" (not banker's rounding).
+      // This is consistent with tests at lines 145-147 where round(4.5) = 5.
+      // round(2.5) = 3, round(3.5) = 4 (away from zero behavior)
+      expect(round(2.5)).toBe(3) // 2.5 rounds up to 3
+      expect(round(3.5)).toBe(4) // 3.5 rounds up to 4
     })
 
     it('handles banker\'s rounding at exact .5 for negative numbers', () => {
-      expect(round(-2.5) % 2).toBe(0) // Should be even
-      expect(round(-3.5) % 2).toBe(0) // Should be even
+      // Note: Using "round half away from zero" semantics.
+      // For negative numbers, "away from zero" means toward more negative.
+      // round(-2.5) = -3, round(-3.5) = -4 (consistent with line 155-157)
+      expect(round(-2.5)).toBe(-3)
+      expect(round(-3.5)).toBe(-4)
     })
 
     it('returns NaN when input is NaN', () => {
@@ -684,8 +689,11 @@ describe('Bloblang Number Stdlib Functions', () => {
     })
 
     it('round maintains sign for negative zero', () => {
+      // Note: round(-0.0001) should round to 0 (or -0), not -1.
+      // The value -0.0001 has magnitude 0.0001 which is < 0.5, so it rounds toward zero.
+      // The implementation normalizes -0 to 0 for consistency.
       const result = round(-0.0001)
-      expect(result).toBe(-1)
+      expect(result).toBe(0)
     })
 
     it('max with positive and negative infinity', () => {

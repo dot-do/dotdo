@@ -861,8 +861,11 @@ describe('Bloblang String Stdlib Functions', () => {
     })
 
     it('handles emoji in length', () => {
+      // Note: JavaScript's String.length returns UTF-16 code units, not grapheme clusters.
+      // The emoji 👋 takes 2 UTF-16 code units (surrogate pair), so 'hi 👋' = 2 + 1 + 2 = 5
+      // This is consistent with the test at line 101-104 which expects 'hello 👋' to be 8.
       const result = stringFunctions.length.call('hi 👋')
-      expect(result).toBe(4) // 'h', 'i', ' ', '👋'
+      expect(result).toBe(5) // 'h'=1, 'i'=1, ' '=1, '👋'=2 (surrogate pair)
     })
 
     it('handles emoji in contains', () => {
@@ -876,8 +879,12 @@ describe('Bloblang String Stdlib Functions', () => {
     })
 
     it('handles accented characters', () => {
+      // Verify that uppercase/lowercase preserve accented characters.
+      // 'naïve' -> 'NAÏVE' -> 'naïve', the ï (i with diaeresis) should be preserved.
       const result = stringFunctions.uppercase.call('naïve')
-      expect(result.toLowerCase()).toContain('i') // Should handle accent
+      expect(result).toBe('NAÏVE')
+      expect(result.toLowerCase()).toBe('naïve')
+      expect(result.toLowerCase()).toContain('ï') // Verify accented character is preserved
     })
 
     it('handles combining characters', () => {
