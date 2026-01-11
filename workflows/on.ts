@@ -183,12 +183,20 @@ function registerHandler(eventKey: string, handler: Function, context?: string):
 import type { TypedEventHandler, TypedDomainEvent, EventPayload } from '../types/EventHandler'
 
 /**
+ * Options for event handler registration
+ */
+export interface OnHandlerOptions {
+  /** Context identifier for grouped cleanup (e.g., DO namespace) */
+  context?: string
+}
+
+/**
  * OnEntityProxy - Typed proxy for accessing event verbs on an entity
  *
  * @typeParam Entity - The entity (noun) name for type inference
  */
 type OnEntityProxy<Entity extends string = string> = {
-  [Verb in string]: (handler: TypedEventHandler<EventPayload<Entity, Verb>>) => void
+  [Verb in string]: (handler: TypedEventHandler<EventPayload<Entity, Verb>>, options?: OnHandlerOptions) => Unsubscribe
 }
 
 /**
@@ -202,8 +210,8 @@ export const on: OnProxy = new Proxy({} as OnProxy, {
   get(_, entity: string) {
     return new Proxy({} as OnEntityProxy<typeof entity>, {
       get(_, event: string) {
-        return (handler: TypedEventHandler<unknown>) => {
-          registerHandler(`${entity}.${event}`, handler)
+        return (handler: TypedEventHandler<unknown>, options?: OnHandlerOptions): Unsubscribe => {
+          return registerHandler(`${entity}.${event}`, handler, options?.context)
         }
       },
     })
@@ -301,16 +309,24 @@ function parseNaturalSchedule(schedule: string): string {
   return `${minute} ${hour} * * ${dayNum}`
 }
 
+/**
+ * Options for schedule handler registration
+ */
+export interface EveryHandlerOptions {
+  /** Context identifier for grouped cleanup (e.g., DO namespace) */
+  context?: string
+}
+
 type EveryTimeProxy = {
-  [time: string]: (handler: () => void) => void
-} & ((handler: () => void) => void)
+  [time: string]: (handler: () => void, options?: EveryHandlerOptions) => Unsubscribe
+} & ((handler: () => void, options?: EveryHandlerOptions) => Unsubscribe)
 
 type EveryDayProxy = {
   [day: string]: EveryTimeProxy
 }
 
 type EveryFunction = {
-  (schedule: string, handler: () => void): void
+  (schedule: string, handler: () => void, options?: EveryHandlerOptions): Unsubscribe
 } & EveryDayProxy
 
 /** Schedule handler type for recurring tasks */
@@ -321,31 +337,33 @@ const everyHandler: ProxyHandler<EveryFunction> = {
   get(_target: EveryFunction, day: string) {
     if (day === 'hour' || day === 'minute') {
       // every.hour(handler) - direct call
-      return (handler: ScheduleHandlerFn) => {
+      return (handler: ScheduleHandlerFn, options?: EveryHandlerOptions): Unsubscribe => {
         const cron = toCron(day)
-        registerHandler(`schedule:${cron}`, handler)
+        return registerHandler(`schedule:${cron}`, handler, options?.context)
       }
     }
 
     // every.Monday.at9am(handler)
     return new Proxy((() => {}) as unknown as EveryTimeProxy, {
       get(_timeTarget, time: string) {
-        return (handler: ScheduleHandlerFn) => {
+        return (handler: ScheduleHandlerFn, options?: EveryHandlerOptions): Unsubscribe => {
           const cron = toCron(day, time)
-          registerHandler(`schedule:${cron}`, handler)
+          return registerHandler(`schedule:${cron}`, handler, options?.context)
         }
       },
-      apply(_timeTarget, _thisArg, [handler]: [ScheduleHandlerFn]) {
+      apply(_timeTarget, _thisArg, args: [ScheduleHandlerFn, EveryHandlerOptions?]): Unsubscribe {
         // every.day(handler) without time
+        const [handler, options] = args
         const cron = toCron(day)
-        registerHandler(`schedule:${cron}`, handler)
+        return registerHandler(`schedule:${cron}`, handler, options?.context)
       },
     })
   },
-  apply(_target: EveryFunction, _thisArg: unknown, [schedule, handler]: [string, ScheduleHandlerFn]) {
+  apply(_target: EveryFunction, _thisArg: unknown, args: [string, ScheduleHandlerFn, EveryHandlerOptions?]): Unsubscribe {
     // every('Monday at 9am', handler)
+    const [schedule, handler, options] = args
     const cron = parseNaturalSchedule(schedule)
-    registerHandler(`schedule:${cron}`, handler)
+    return registerHandler(`schedule:${cron}`, handler, options?.context)
   },
 }
 
