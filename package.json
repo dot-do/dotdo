@@ -1,107 +1,152 @@
 {
   "name": "dotdo",
   "version": "0.0.2",
+  "description": "Business-as-Code framework for autonomous businesses run by AI agents",
+  "keywords": [
+    "durable-objects",
+    "cloudflare",
+    "workers",
+    "typescript",
+    "business-as-code",
+    "ai-agents",
+    "serverless"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo"
+  },
+  "author": "dotdo team",
+  "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
-  "main": "./do/index.ts",
+  "main": "./dist/do/index.js",
   "bin": {
-    "do": "./cli/bin.ts"
+    "do": "./dist/cli/bin.js"
   },
-  "types": "./types/index.ts",
+  "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./types/index.ts",
-      "default": "./do/index.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/index.js"
     },
     "./tiny": {
-      "types": "./types/index.ts",
-      "default": "./do/tiny.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/tiny.js"
     },
     "./fs": {
-      "types": "./types/index.ts",
-      "default": "./do/fs.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/fs.js"
     },
     "./git": {
-      "types": "./types/index.ts",
-      "default": "./do/git.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/git.js"
     },
     "./bash": {
-      "types": "./types/index.ts",
-      "default": "./do/bash.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/bash.js"
     },
     "./full": {
-      "types": "./types/index.ts",
-      "default": "./do/full.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/do/full.js"
     },
     "./objects": {
-      "types": "./objects/index.ts",
-      "default": "./objects/index.ts"
+      "types": "./dist/objects/index.d.ts",
+      "default": "./dist/objects/index.js"
     },
-    "./objects/*": "./objects/*.ts",
+    "./objects/*": {
+      "types": "./dist/objects/*.d.ts",
+      "default": "./dist/objects/*.js"
+    },
     "./types": {
-      "types": "./types/index.ts",
-      "default": "./types/index.ts"
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/types/index.js"
     },
-    "./types/*": "./types/*.ts",
+    "./types/*": {
+      "types": "./dist/types/*.d.ts",
+      "default": "./dist/types/*.js"
+    },
     "./snippets": {
-      "types": "./snippets/index.ts",
-      "default": "./snippets/index.ts"
+      "types": "./dist/snippets/index.d.ts",
+      "default": "./dist/snippets/index.js"
     },
-    "./snippets/*": "./snippets/*.ts",
+    "./snippets/*": {
+      "types": "./dist/snippets/*.d.ts",
+      "default": "./dist/snippets/*.js"
+    },
     "./streams": {
-      "types": "./streams/index.ts",
-      "default": "./streams/index.ts"
+      "types": "./dist/streams/index.d.ts",
+      "default": "./dist/streams/index.js"
     },
     "./lib": {
-      "types": "./lib/index.ts",
-      "default": "./lib/index.ts"
+      "types": "./dist/lib/index.d.ts",
+      "default": "./dist/lib/index.js"
     },
-    "./lib/*": "./lib/*.ts",
-    "./workflows/*": "./workflows/*.ts",
+    "./lib/*": {
+      "types": "./dist/lib/*.d.ts",
+      "default": "./dist/lib/*.js"
+    },
+    "./workflows/*": {
+      "types": "./dist/workflows/*.d.ts",
+      "default": "./dist/workflows/*.js"
+    },
     "./api": {
-      "types": "./api/index.ts",
-      "default": "./api/index.ts"
+      "types": "./dist/api/index.d.ts",
+      "default": "./dist/api/index.js"
     },
-    "./api/*": "./api/*.ts",
+    "./api/*": {
+      "types": "./dist/api/*.d.ts",
+      "default": "./dist/api/*.js"
+    },
     "./testing": {
-      "types": "./tests/harness/index.ts",
-      "default": "./tests/harness/index.ts"
+      "types": "./dist/tests/harness/index.d.ts",
+      "default": "./dist/tests/harness/index.js"
     },
-    "./testing/*": "./tests/harness/*.ts",
+    "./testing/*": {
+      "types": "./dist/tests/harness/*.d.ts",
+      "default": "./dist/tests/harness/*.js"
+    },
     "./hunch": {
-      "types": "./metrics/hunch.ts",
-      "default": "./metrics/hunch.ts"
+      "types": "./dist/metrics/hunch.d.ts",
+      "default": "./dist/metrics/hunch.js"
     },
     "./sdk": {
-      "types": "./sdk/index.ts",
-      "default": "./sdk/index.ts"
+      "types": "./dist/sdk/index.d.ts",
+      "default": "./dist/sdk/index.js"
     },
-    "./sdk/*": "./sdk/*.ts",
-    "./dist": "./dist",
-    "./dist/*": "./dist/*"
+    "./sdk/*": {
+      "types": "./dist/sdk/*.d.ts",
+      "default": "./dist/sdk/*.js"
+    },
+    "./compat/supabase-auth": {
+      "types": "./dist/compat/supabase-auth/index.d.ts",
+      "default": "./dist/compat/supabase-auth/index.js"
+    },
+    "./compat/emails": {
+      "types": "./dist/compat/emails/index.d.ts",
+      "default": "./dist/compat/emails/index.js"
+    },
+    "./primitives": {
+      "types": "./dist/objects/presets/primitives.d.ts",
+      "default": "./dist/objects/presets/primitives.js"
+    },
+    "./presets": {
+      "types": "./dist/objects/presets/index.d.ts",
+      "default": "./dist/objects/presets/index.js"
+    }
   },
   "files": [
-    "do",
-    "objects",
-    "types",
-    "snippets",
-    "streams",
-    "lib",
-    "workflows",
-    "api",
-    "tests/harness",
-    "metrics",
-    "sdk",
     "dist"
   ],
   "scripts": {
     "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && pnpm run dev",
-    "build": "cd app && pnpm run build",
-    "deploy": "pnpm run build && wrangler deploy",
+    "build": "tsc -p tsconfig.build.json",
+    "build:app": "cd app && pnpm run build",
+    "build:clean": "rm -rf dist && pnpm run build",
+    "deploy": "pnpm run build:app && wrangler deploy",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
@@ -127,7 +172,8 @@
     "db:seed:integrations": "pnpm tsx db/seeds/run.ts integrations",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "publish-packages": "tsx scripts/publish.ts",
+    "release": "pnpm build && changeset version && pnpm publish-packages",
     "primitives": "tsx scripts/deploy-primitives.ts",
     "primitives:dry": "tsx scripts/deploy-primitives.ts --dry",
     "primitives:cf": "tsx scripts/deploy-primitives.ts --cf",
@@ -135,11 +181,8 @@
     "submodules": "git submodule update --init --recursive"
   },
   "dependencies": {
-    "fsx.do": "file:../fsx",
-    "gitx": "file:../gitx",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
-    "@dotdo/landing": "workspace:*",
     "@duckdb/duckdb-wasm": "1.33.1-dev16.0",
     "@electric-sql/pglite": "^0.3.14",
     "@hono/zod-openapi": "^1.2.0",
@@ -186,6 +229,7 @@
     "sqids": "^0.3.0",
     "tailwind-merge": "^3.4.0",
     "tw-animate-css": "^1.4.0",
+    "xstate": "^5.25.0",
     "zod": "^4.3.5"
   },
   "prettier": {
@@ -211,11 +255,17 @@
       ]
     }
   },
+  "pnpm": {
+    "overrides": {
+      "esbuild": ">=0.25.0",
+      "@smithy/config-resolver": ">=4.4.0"
+    }
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@cloudflare/vite-plugin": "^1.0.0",
-    "@cloudflare/vitest-pool-workers": "0.8.71",
+    "@cloudflare/vitest-pool-workers": "^0.12.1",
     "@cloudflare/workers-types": "^4.20241230.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/vite": "^4.1.0",
@@ -231,8 +281,8 @@
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
     "@vitejs/plugin-react": "^4.4.0",
-    "@vitest/runner": "^2.0.5",
-    "@vitest/snapshot": "^2.0.5",
+    "@vitest/runner": "^3.2.4",
+    "@vitest/snapshot": "^3.2.4",
     "better-sqlite3": "^12.5.0",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
@@ -246,7 +296,7 @@
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vite-tsconfig-paths": "^5.0.0",
-    "vitest": "^2.0.5",
+    "vitest": "^3.2.4",
     "wrangler": "^4.58.0"
   }
 }
