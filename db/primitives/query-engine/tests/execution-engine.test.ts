@@ -9,15 +9,16 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Import types that will be implemented in GREEN phase
-import type {
+// Import implementation and types
+import {
   ExecutionEngine,
-  ExecutionContext,
-  ExecutionResult,
-  ExecutionStats,
+  type ExecutionContext,
+  type ExecutionResult,
+  type ExecutionStats,
+  type TypedColumnStore,
+  type ColumnBatch,
 } from '../executor/execution-engine'
 import type { QueryPlan, PlanNode } from '../planner/query-planner'
-import type { TypedColumnStore, ColumnBatch } from '../../typed-column-store'
 
 describe('ExecutionEngine', () => {
   let engine: ExecutionEngine
@@ -25,8 +26,8 @@ describe('ExecutionEngine', () => {
   let ctx: ExecutionContext
 
   beforeEach(() => {
-    // Engine will be implemented in GREEN phase
-    engine = {} as ExecutionEngine
+    // GREEN phase: instantiate the actual engine
+    engine = new ExecutionEngine()
 
     // Mock column store
     columnStore = {

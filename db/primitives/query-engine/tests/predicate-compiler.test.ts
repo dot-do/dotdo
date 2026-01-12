@@ -7,19 +7,19 @@
  * @see dotdo-1ev1i
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Import types that will be implemented in GREEN phase
+// Import implementation and types
 import type { PredicateNode, LogicalNode, QueryNode } from '../ast'
-import type { PredicateCompiler, CompiledPredicate, CompilationResult } from '../compiler/predicate-compiler'
-import type { Predicate as TCSPredicate, TypedColumnStore } from '../../typed-column-store'
+import { PredicateCompiler, type CompiledPredicate, type CompilationResult, type TypedColumnStore } from '../compiler/predicate-compiler'
+import type { Predicate as TCSPredicate } from '../../typed-column-store'
 
 describe('PredicateCompiler', () => {
   let compiler: PredicateCompiler
 
   beforeEach(() => {
-    // Compiler will be implemented in GREEN phase
-    compiler = {} as PredicateCompiler
+    // GREEN phase: instantiate the actual compiler
+    compiler = new PredicateCompiler()
   })
 
   describe('simple predicates', () => {

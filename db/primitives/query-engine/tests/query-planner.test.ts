@@ -9,14 +9,14 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 
-// Import types that will be implemented in GREEN phase
-import type {
+// Import implementation and types
+import {
   QueryPlanner,
-  QueryPlan,
-  TableStatistics,
-  IndexInfo,
-  CostModel,
-  PlanNode,
+  type QueryPlan,
+  type TableStatistics,
+  type IndexInfo,
+  type CostModel,
+  type PlanNode,
 } from '../planner/query-planner'
 import type { PredicateNode, LogicalNode, QueryNode, GroupByNode, JoinNode } from '../ast'
 import type { CompiledPredicate } from '../compiler/predicate-compiler'
@@ -25,8 +25,8 @@ describe('QueryPlanner', () => {
   let planner: QueryPlanner
 
   beforeEach(() => {
-    // Planner will be implemented in GREEN phase
-    planner = {} as QueryPlanner
+    // GREEN phase: instantiate the actual planner
+    planner = new QueryPlanner()
   })
 
   describe('statistics collection', () => {

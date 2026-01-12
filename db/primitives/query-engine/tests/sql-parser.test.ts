@@ -9,16 +9,16 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 
-// Import types that will be implemented in GREEN phase
-import type { SQLWhereParser, ParseError } from '../parsers/sql-parser'
+// Import implementation and types
+import { SQLWhereParser, ParseError } from '../parsers/sql-parser'
 import type { PredicateNode, LogicalNode, QueryNode, GroupByNode, SortNode, ProjectionNode } from '../ast'
 
 describe('SQLWhereParser', () => {
   let parser: SQLWhereParser
 
   beforeEach(() => {
-    // Parser will be implemented in GREEN phase
-    parser = {} as SQLWhereParser
+    // GREEN phase: instantiate the actual parser
+    parser = new SQLWhereParser()
   })
 
   describe('comparison predicates', () => {
@@ -651,16 +651,20 @@ describe('SQLWhereParser', () => {
 
   describe('case sensitivity', () => {
     it('should handle case-insensitive keywords', () => {
+      // Keywords (SELECT, FROM, WHERE) should be case-insensitive
       const sql1 = 'SELECT * FROM users WHERE age > 21'
       const sql2 = 'select * from users where age > 21'
-      const sql3 = 'Select * From Users Where Age > 21'
 
       const ast1 = parser.parseSelect(sql1)
       const ast2 = parser.parseSelect(sql2)
-      const ast3 = parser.parseSelect(sql3)
 
+      // Both should parse successfully with same structure
       expect(ast1).toEqual(ast2)
-      expect(ast1).toEqual(ast3)
+
+      // Mixed case keywords should also work
+      const sql3 = 'Select * From users Where age > 21'
+      const ast3 = parser.parseSelect(sql3)
+      expect(ast3).toEqual(ast1)
     })
 
     it('should preserve case for identifiers', () => {

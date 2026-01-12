@@ -164,6 +164,8 @@ export class PredicateCompiler {
       return { columns: new Map(), rowCount: 0 }
     }
 
+    let lastBatch: ColumnBatch = { columns: new Map(), rowCount: 0 }
+
     // Process predicates in order
     for (const compiled of result.predicates) {
       // Check bloom filter first if applicable
@@ -198,12 +200,11 @@ export class PredicateCompiler {
         }
       }
 
-      // Execute the actual filter
-      columnStore.filter(compiled.tcsPredicate)
+      // Execute the actual filter and store result
+      lastBatch = columnStore.filter(compiled.tcsPredicate)
     }
 
-    // Return the result of the last filter (in real implementation, would chain)
-    return columnStore.filter(result.predicates[result.predicates.length - 1].tcsPredicate)
+    return lastBatch
   }
 
   private compileNode(
@@ -394,7 +395,7 @@ export class PredicateCompiler {
       if (typeof value === 'string') {
         const num = Number(value)
         if (isNaN(num)) {
-          throw new Error(`Cannot coerce "${value}" to number for column ${column}`)
+          throw new Error(`Type coercion error: Cannot coerce "${value}" to number for column ${column}`)
         }
         return num
       }

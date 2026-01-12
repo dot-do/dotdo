@@ -9,16 +9,16 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 
-// Import types that will be implemented in GREEN phase
-import type { MongoQueryParser, MongoQuery, AggregationPipeline } from '../parsers/mongo-parser'
+// Import implementation and types
+import { MongoQueryParser, type MongoQuery, type AggregationPipeline } from '../parsers/mongo-parser'
 import type { PredicateNode, LogicalNode, QueryNode, GroupByNode, SortNode, ProjectionNode } from '../ast'
 
 describe('MongoQueryParser', () => {
   let parser: MongoQueryParser
 
   beforeEach(() => {
-    // Parser will be implemented in GREEN phase
-    parser = {} as MongoQueryParser
+    // GREEN phase: instantiate the actual parser
+    parser = new MongoQueryParser()
   })
 
   describe('comparison operators', () => {

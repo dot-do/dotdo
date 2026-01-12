@@ -97,7 +97,7 @@ const KEYWORDS = new Set([
   'PARTITION', 'ROW_NUMBER', 'CURRENT_TIMESTAMP',
 ])
 
-const COMPARISON_OPS = new Set(['=', '!=', '<>', '>', '>=', '<', '<='])
+const COMPARISON_OPS = new Set(['=', '!=', '<>', '>', '>=', '<', '<=', '@>'])
 
 // =============================================================================
 // SQLWhereParser Class
@@ -124,7 +124,14 @@ export class SQLWhereParser {
       return { type: 'predicate', column: '_', op: '=', value: { $always: true } } as PredicateNode
     }
 
-    return this.parseOr()
+    const result = this.parseOr()
+
+    // Check for unexpected remaining tokens
+    if (this.current().type !== 'EOF') {
+      throw new ParseError(`Unexpected token: ${this.current().value}`, this.current().position)
+    }
+
+    return result
   }
 
   /**
@@ -178,7 +185,7 @@ export class SQLWhereParser {
     if (this.matchKeyword('LIMIT')) {
       const first = this.parseNumber()
 
-      if (this.match('COMMA')) {
+      if (this.match(',')) {
         // LIMIT offset, count syntax
         result.offset = first
         result.limit = this.parseNumber()
@@ -237,6 +244,13 @@ export class SQLWhereParser {
         continue
       }
 
+      // Arithmetic operators (but handle - specially for negative numbers and JSON)
+      if (char === '+') {
+        tokens.push({ type: 'OPERATOR', value: '+', position: start })
+        pos++
+        continue
+      }
+
       // JSON operators
       if (char === '-' && input[pos + 1] === '>' && input[pos + 2] === '>') {
         tokens.push({ type: 'OPERATOR', value: '->>', position: start })
@@ -246,6 +260,13 @@ export class SQLWhereParser {
       if (char === '-' && input[pos + 1] === '>') {
         tokens.push({ type: 'OPERATOR', value: '->', position: start })
         pos += 2
+        continue
+      }
+
+      // Minus operator (when not followed by digit - that's handled below as negative number)
+      if (char === '-' && !/\d/.test(input[pos + 1] || '')) {
+        tokens.push({ type: 'OPERATOR', value: '-', position: start })
+        pos++
         continue
       }
 
@@ -287,6 +308,7 @@ export class SQLWhereParser {
         const quote = char
         pos++
         let value = ''
+        let closed = false
         while (pos < input.length) {
           if (input[pos] === quote) {
             if (input[pos + 1] === quote) {
@@ -295,12 +317,16 @@ export class SQLWhereParser {
               pos += 2
             } else {
               pos++
+              closed = true
               break
             }
           } else {
             value += input[pos]
             pos++
           }
+        }
+        if (!closed) {
+          throw new ParseError(`Unclosed string literal`, start)
         }
         tokens.push({ type: 'STRING', value, position: start })
         continue
@@ -358,6 +384,13 @@ export class SQLWhereParser {
         } else {
           tokens.push({ type: 'IDENTIFIER', value: ident, position: start })
         }
+        continue
+      }
+
+      // Asterisk (SELECT *)
+      if (char === '*') {
+        tokens.push({ type: 'OPERATOR', value: '*', position: start })
+        pos++
         continue
       }
 
@@ -626,6 +659,19 @@ export class SQLWhereParser {
         return { type: 'predicate', column, op: op as ComparisonOp, value: { $subquery: true } } as PredicateNode
       }
 
+      // Check if the value is a column reference (for JOIN conditions like a.id = b.id)
+      const valueTok = this.current()
+      if (valueTok.type === 'IDENTIFIER') {
+        // This is a column reference
+        const refColumn = this.parseColumnRef()
+        return {
+          type: 'predicate',
+          column,
+          op: op as ComparisonOp,
+          value: { $ref: refColumn },
+        }
+      }
+
       const value = this.parseValue()
       return {
         type: 'predicate',
@@ -635,11 +681,44 @@ export class SQLWhereParser {
       }
     }
 
+    // Handle boolean column (no operator) - treated as column = TRUE
+    // This allows "NOT deleted" to work (becomes NOT (deleted = TRUE))
+    if (token.type === 'EOF' || token.type === 'RPAREN' ||
+        (token.type === 'KEYWORD' && ['AND', 'OR', 'ORDER', 'GROUP', 'LIMIT', 'HAVING'].includes(token.value))) {
+      return {
+        type: 'predicate',
+        column,
+        op: '=',
+        value: true,
+      }
+    }
+
     throw new ParseError(`Expected operator after column ${column}`, token.position)
   }
 
   private parseColumnRef(): string {
     let column = ''
+
+    // Handle aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+    const token = this.current()
+    if (token.type === 'KEYWORD' && ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'].includes(token.value)) {
+      column = this.advance().value
+      if (this.current().type === 'LPAREN') {
+        this.advance() // consume (
+        if (this.current().value === '*') {
+          column += '(*)'
+          this.advance()
+        } else if (this.current().type !== 'RPAREN') {
+          column += '(' + this.parseColumnRef() + ')'
+        } else {
+          column += '()'
+        }
+        if (this.current().type === 'RPAREN') {
+          this.advance() // consume )
+        }
+      }
+      return column
+    }
 
     // Handle quoted identifier
     if (this.current().type === 'STRING') {
@@ -930,8 +1009,9 @@ export class SQLWhereParser {
   // ===========================================================================
 
   private peekJoin(): boolean {
-    const val = this.current().value
-    return ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'FULL'].includes(val)
+    const token = this.current()
+    if (token.type !== 'KEYWORD') return false
+    return ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'FULL'].includes(token.value)
   }
 
   private parseJoin(): JoinNode & { joinType: JoinType } {
