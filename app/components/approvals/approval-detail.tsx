@@ -33,7 +33,7 @@ import type {
   ApprovalContext,
   AuditLogEntry,
 } from '../../types/approval'
-import { getMockApproval } from '../../../../tests/mocks/approval'
+import { getMockApproval } from '../../../tests/mocks/approval'
 
 // =============================================================================
 // Helper Functions

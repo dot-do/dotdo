@@ -15,17 +15,17 @@ export const Route = createFileRoute('/admin/settings/account')({
 function AccountSettingsPage() {
   return (
     <Shell>
-      <div className="p-6">
+      <div className="p-6" data-testid="settings-content">
         <h1 className="text-2xl font-semibold mb-6">Account Settings</h1>
 
-        <form className="bg-card rounded-lg shadow p-6 max-w-lg">
+        <form className="bg-card rounded-lg shadow p-6 max-w-lg" data-testid="settings-form-account">
           <div className="mb-6">
             <label htmlFor="avatar" className="block text-sm font-medium mb-2">
               Profile Photo
             </label>
             <div className="flex items-center gap-4">
-              <img src="/avatar.png" alt="Current avatar" className="w-16 h-16 rounded-full" />
-              <Button type="button" variant="outline">
+              <img src="/avatar.png" alt="Current avatar" className="w-16 h-16 rounded-full" data-testid="settings-avatar" />
+              <Button type="button" variant="outline" data-testid="settings-avatar-change">
                 Change
               </Button>
             </div>
@@ -41,6 +41,7 @@ function AccountSettingsPage() {
               name="name"
               defaultValue="John Doe"
               className="w-full border rounded px-3 py-2 bg-input"
+              data-testid="settings-input-name"
             />
           </div>
 
@@ -55,13 +56,19 @@ function AccountSettingsPage() {
               defaultValue="john@example.com.ai"
               readOnly
               className="w-full border rounded px-3 py-2 bg-muted"
+              data-testid="settings-input-email"
             />
             <p className="text-sm text-muted-foreground mt-1">Contact support to change your email.</p>
           </div>
 
-          <Button type="submit">
-            Save Changes
-          </Button>
+          <div className="flex gap-3">
+            <Button type="submit" data-testid="settings-save-button">
+              Save Changes
+            </Button>
+            <Button type="button" variant="outline" data-testid="settings-cancel-button">
+              Cancel
+            </Button>
+          </div>
         </form>
       </div>
     </Shell>

@@ -26,7 +26,7 @@ import {
 } from '~/components/cockpit'
 import { Button } from '~/components/ui/button'
 
-export const Route = createFileRoute('/admin/')({
+export const Route = createFileRoute('/admin/_admin/')({
   component: AdminDashboard,
 })
 

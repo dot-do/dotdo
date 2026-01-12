@@ -53,7 +53,30 @@ npx vitest run path/to/test.ts        # Single file
 npx vitest --project=workers          # Workers runtime
 npx vitest --project=compat           # Compat layers
 npx vitest --project=agents           # Agent SDK
+npx playwright test tests/e2e/        # E2E tests
 ```
+
+### Process Management (IMPORTANT)
+
+**Vitest and Vite can consume excessive memory.** Follow these guidelines:
+
+1. **Never run multiple vitest/vite instances in parallel** - they spawn many child processes
+2. **Always run tests sequentially**, not in parallel background shells
+3. **Kill orphan processes** before starting new dev servers:
+   ```bash
+   pkill -9 -f vitest; pkill -9 -f vite
+   ```
+4. **Use `run` mode for CI/one-shot tests**, not watch mode:
+   ```bash
+   npx vitest run  # Good - runs once and exits
+   npx vitest      # Caution - watch mode stays running
+   ```
+5. **Check for zombie processes** if memory gets high:
+   ```bash
+   ps aux | grep -E "(vitest|vite|node)" | grep -v grep
+   ```
+
+**For subagents:** Run ONE test file at a time. Never launch parallel vitest processes.
 
 ## Architecture
 

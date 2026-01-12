@@ -9,13 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './../routes/__root'
+import { Route as SplatRouteImport } from './../routes/$'
 import { Route as IndexRouteImport } from './../routes/index'
-import { Route as AdminIndexRouteImport } from './../routes/admin/index'
 import { Route as DocsSplatRouteImport } from './../routes/docs/$'
+import { Route as AppAppRouteImport } from './../routes/app/_app'
 import { Route as ApiSearchRouteImport } from './../routes/api/search'
-import { Route as AdminSignupRouteImport } from './../routes/admin/signup'
-import { Route as AdminResetPasswordRouteImport } from './../routes/admin/reset-password'
-import { Route as AdminLoginRouteImport } from './../routes/admin/login'
+import { Route as AdminAdminRouteImport } from './../routes/admin/_admin'
+import { Route as AppWorkflowsIndexRouteImport } from './../routes/app/workflows/index'
+import { Route as AppTasksIndexRouteImport } from './../routes/app/tasks/index'
+import { Route as AppSettingsIndexRouteImport } from './../routes/app/settings/index'
+import { Route as AppProjectsIndexRouteImport } from './../routes/app/projects/index'
+import { Route as AppAppIndexRouteImport } from './../routes/app/_app.index'
 import { Route as AdminWorkflowsIndexRouteImport } from './../routes/admin/workflows/index'
 import { Route as AdminUsersIndexRouteImport } from './../routes/admin/users/index'
 import { Route as AdminSettingsIndexRouteImport } from './../routes/admin/settings/index'
@@ -24,6 +28,10 @@ import { Route as AdminIntegrationsIndexRouteImport } from './../routes/admin/in
 import { Route as AdminBrowsersIndexRouteImport } from './../routes/admin/browsers/index'
 import { Route as AdminApprovalsIndexRouteImport } from './../routes/admin/approvals/index'
 import { Route as AdminActivityIndexRouteImport } from './../routes/admin/activity/index'
+import { Route as AdminAdminIndexRouteImport } from './../routes/admin/_admin.index'
+import { Route as AppWorkflowsNewRouteImport } from './../routes/app/workflows/new'
+import { Route as AppProjectsNewRouteImport } from './../routes/app/projects/new'
+import { Route as AppProjectsProjectIdRouteImport } from './../routes/app/projects/$projectId'
 import { Route as AdminWorkflowsWorkflowIdRouteImport } from './../routes/admin/workflows/$workflowId'
 import { Route as AdminUsersNewRouteImport } from './../routes/admin/users/new'
 import { Route as AdminUsersUserIdRouteImport } from './../routes/admin/users/$userId'
@@ -37,17 +45,20 @@ import { Route as AdminBrowsersBrowserIdRouteImport } from './../routes/admin/br
 import { Route as AdminApprovalsHistoryRouteImport } from './../routes/admin/approvals/history'
 import { Route as AdminApprovalsApprovalIdRouteImport } from './../routes/admin/approvals/$approvalId'
 import { Route as AdminActivityLogIdRouteImport } from './../routes/admin/activity/$logId'
+import { Route as AdminAdminSignupRouteImport } from './../routes/admin/_admin.signup'
+import { Route as AdminAdminResetPasswordRouteImport } from './../routes/admin/_admin.reset-password'
+import { Route as AdminAdminLoginRouteImport } from './../routes/admin/_admin.login'
 import { Route as AdminWorkflowsWorkflowIdRunsRouteImport } from './../routes/admin/workflows/$workflowId/runs'
 import { Route as AdminWorkflowsWorkflowIdRunsRunIdRouteImport } from './../routes/admin/workflows/$workflowId/runs/$runId'
 
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminIndexRoute = AdminIndexRouteImport.update({
-  id: '/admin/',
-  path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -55,25 +66,45 @@ const DocsSplatRoute = DocsSplatRouteImport.update({
   path: '/docs/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAppRoute = AppAppRouteImport.update({
+  id: '/app/_app',
+  path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSearchRoute = ApiSearchRouteImport.update({
   id: '/api/search',
   path: '/api/search',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSignupRoute = AdminSignupRouteImport.update({
-  id: '/admin/signup',
-  path: '/admin/signup',
+const AdminAdminRoute = AdminAdminRouteImport.update({
+  id: '/admin/_admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminResetPasswordRoute = AdminResetPasswordRouteImport.update({
-  id: '/admin/reset-password',
-  path: '/admin/reset-password',
+const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
+  id: '/app/workflows/',
+  path: '/app/workflows/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminLoginRoute = AdminLoginRouteImport.update({
-  id: '/admin/login',
-  path: '/admin/login',
+const AppTasksIndexRoute = AppTasksIndexRouteImport.update({
+  id: '/app/tasks/',
+  path: '/app/tasks/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/app/settings/',
+  path: '/app/settings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
+  id: '/app/projects/',
+  path: '/app/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppAppIndexRoute = AppAppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAppRoute,
 } as any)
 const AdminWorkflowsIndexRoute = AdminWorkflowsIndexRouteImport.update({
   id: '/admin/workflows/',
@@ -113,6 +144,26 @@ const AdminApprovalsIndexRoute = AdminApprovalsIndexRouteImport.update({
 const AdminActivityIndexRoute = AdminActivityIndexRouteImport.update({
   id: '/admin/activity/',
   path: '/admin/activity/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAdminIndexRoute = AdminAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminAdminRoute,
+} as any)
+const AppWorkflowsNewRoute = AppWorkflowsNewRouteImport.update({
+  id: '/app/workflows/new',
+  path: '/app/workflows/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProjectsNewRoute = AppProjectsNewRouteImport.update({
+  id: '/app/projects/new',
+  path: '/app/projects/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
+  id: '/app/projects/$projectId',
+  path: '/app/projects/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminWorkflowsWorkflowIdRoute =
@@ -184,6 +235,21 @@ const AdminActivityLogIdRoute = AdminActivityLogIdRouteImport.update({
   path: '/admin/activity/$logId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAdminSignupRoute = AdminAdminSignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => AdminAdminRoute,
+} as any)
+const AdminAdminResetPasswordRoute = AdminAdminResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => AdminAdminRoute,
+} as any)
+const AdminAdminLoginRoute = AdminAdminLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AdminAdminRoute,
+} as any)
 const AdminWorkflowsWorkflowIdRunsRoute =
   AdminWorkflowsWorkflowIdRunsRouteImport.update({
     id: '/runs',
@@ -199,12 +265,14 @@ const AdminWorkflowsWorkflowIdRunsRunIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin/login': typeof AdminLoginRoute
-  '/admin/reset-password': typeof AdminResetPasswordRoute
-  '/admin/signup': typeof AdminSignupRoute
+  '/$': typeof SplatRoute
+  '/admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
+  '/app': typeof AppAppRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
-  '/admin': typeof AdminIndexRoute
+  '/admin/login': typeof AdminAdminLoginRoute
+  '/admin/reset-password': typeof AdminAdminResetPasswordRoute
+  '/admin/signup': typeof AdminAdminSignupRoute
   '/admin/activity/$logId': typeof AdminActivityLogIdRoute
   '/admin/approvals/$approvalId': typeof AdminApprovalsApprovalIdRoute
   '/admin/approvals/history': typeof AdminApprovalsHistoryRoute
@@ -218,6 +286,10 @@ export interface FileRoutesByFullPath {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/app/projects/new': typeof AppProjectsNewRoute
+  '/app/workflows/new': typeof AppWorkflowsNewRoute
+  '/admin/': typeof AdminAdminIndexRoute
   '/admin/activity': typeof AdminActivityIndexRoute
   '/admin/approvals': typeof AdminApprovalsIndexRoute
   '/admin/browsers': typeof AdminBrowsersIndexRoute
@@ -226,17 +298,22 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsIndexRoute
   '/admin/users': typeof AdminUsersIndexRoute
   '/admin/workflows': typeof AdminWorkflowsIndexRoute
+  '/app/': typeof AppAppIndexRoute
+  '/app/projects': typeof AppProjectsIndexRoute
+  '/app/settings': typeof AppSettingsIndexRoute
+  '/app/tasks': typeof AppTasksIndexRoute
+  '/app/workflows': typeof AppWorkflowsIndexRoute
   '/admin/workflows/$workflowId/runs': typeof AdminWorkflowsWorkflowIdRunsRouteWithChildren
   '/admin/workflows/$workflowId/runs/$runId': typeof AdminWorkflowsWorkflowIdRunsRunIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin/login': typeof AdminLoginRoute
-  '/admin/reset-password': typeof AdminResetPasswordRoute
-  '/admin/signup': typeof AdminSignupRoute
+  '/$': typeof SplatRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
-  '/admin': typeof AdminIndexRoute
+  '/admin/login': typeof AdminAdminLoginRoute
+  '/admin/reset-password': typeof AdminAdminResetPasswordRoute
+  '/admin/signup': typeof AdminAdminSignupRoute
   '/admin/activity/$logId': typeof AdminActivityLogIdRoute
   '/admin/approvals/$approvalId': typeof AdminApprovalsApprovalIdRoute
   '/admin/approvals/history': typeof AdminApprovalsHistoryRoute
@@ -250,6 +327,10 @@ export interface FileRoutesByTo {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/app/projects/new': typeof AppProjectsNewRoute
+  '/app/workflows/new': typeof AppWorkflowsNewRoute
+  '/admin': typeof AdminAdminIndexRoute
   '/admin/activity': typeof AdminActivityIndexRoute
   '/admin/approvals': typeof AdminApprovalsIndexRoute
   '/admin/browsers': typeof AdminBrowsersIndexRoute
@@ -258,18 +339,25 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsIndexRoute
   '/admin/users': typeof AdminUsersIndexRoute
   '/admin/workflows': typeof AdminWorkflowsIndexRoute
+  '/app': typeof AppAppIndexRoute
+  '/app/projects': typeof AppProjectsIndexRoute
+  '/app/settings': typeof AppSettingsIndexRoute
+  '/app/tasks': typeof AppTasksIndexRoute
+  '/app/workflows': typeof AppWorkflowsIndexRoute
   '/admin/workflows/$workflowId/runs': typeof AdminWorkflowsWorkflowIdRunsRouteWithChildren
   '/admin/workflows/$workflowId/runs/$runId': typeof AdminWorkflowsWorkflowIdRunsRunIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/admin/login': typeof AdminLoginRoute
-  '/admin/reset-password': typeof AdminResetPasswordRoute
-  '/admin/signup': typeof AdminSignupRoute
+  '/$': typeof SplatRoute
+  '/admin/_admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
+  '/app/_app': typeof AppAppRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
-  '/admin/': typeof AdminIndexRoute
+  '/admin/_admin/login': typeof AdminAdminLoginRoute
+  '/admin/_admin/reset-password': typeof AdminAdminResetPasswordRoute
+  '/admin/_admin/signup': typeof AdminAdminSignupRoute
   '/admin/activity/$logId': typeof AdminActivityLogIdRoute
   '/admin/approvals/$approvalId': typeof AdminApprovalsApprovalIdRoute
   '/admin/approvals/history': typeof AdminApprovalsHistoryRoute
@@ -283,6 +371,10 @@ export interface FileRoutesById {
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/app/projects/new': typeof AppProjectsNewRoute
+  '/app/workflows/new': typeof AppWorkflowsNewRoute
+  '/admin/_admin/': typeof AdminAdminIndexRoute
   '/admin/activity/': typeof AdminActivityIndexRoute
   '/admin/approvals/': typeof AdminApprovalsIndexRoute
   '/admin/browsers/': typeof AdminBrowsersIndexRoute
@@ -291,6 +383,11 @@ export interface FileRoutesById {
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/admin/users/': typeof AdminUsersIndexRoute
   '/admin/workflows/': typeof AdminWorkflowsIndexRoute
+  '/app/_app/': typeof AppAppIndexRoute
+  '/app/projects/': typeof AppProjectsIndexRoute
+  '/app/settings/': typeof AppSettingsIndexRoute
+  '/app/tasks/': typeof AppTasksIndexRoute
+  '/app/workflows/': typeof AppWorkflowsIndexRoute
   '/admin/workflows/$workflowId/runs': typeof AdminWorkflowsWorkflowIdRunsRouteWithChildren
   '/admin/workflows/$workflowId/runs/$runId': typeof AdminWorkflowsWorkflowIdRunsRunIdRoute
 }
@@ -298,12 +395,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
+    | '/admin'
+    | '/api/search'
+    | '/app'
+    | '/docs/$'
     | '/admin/login'
     | '/admin/reset-password'
     | '/admin/signup'
-    | '/api/search'
-    | '/docs/$'
-    | '/admin'
     | '/admin/activity/$logId'
     | '/admin/approvals/$approvalId'
     | '/admin/approvals/history'
@@ -317,6 +416,10 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/app/projects/$projectId'
+    | '/app/projects/new'
+    | '/app/workflows/new'
+    | '/admin/'
     | '/admin/activity'
     | '/admin/approvals'
     | '/admin/browsers'
@@ -325,17 +428,22 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/users'
     | '/admin/workflows'
+    | '/app/'
+    | '/app/projects'
+    | '/app/settings'
+    | '/app/tasks'
+    | '/app/workflows'
     | '/admin/workflows/$workflowId/runs'
     | '/admin/workflows/$workflowId/runs/$runId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$'
+    | '/api/search'
+    | '/docs/$'
     | '/admin/login'
     | '/admin/reset-password'
     | '/admin/signup'
-    | '/api/search'
-    | '/docs/$'
-    | '/admin'
     | '/admin/activity/$logId'
     | '/admin/approvals/$approvalId'
     | '/admin/approvals/history'
@@ -349,6 +457,10 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/app/projects/$projectId'
+    | '/app/projects/new'
+    | '/app/workflows/new'
+    | '/admin'
     | '/admin/activity'
     | '/admin/approvals'
     | '/admin/browsers'
@@ -357,17 +469,24 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/users'
     | '/admin/workflows'
+    | '/app'
+    | '/app/projects'
+    | '/app/settings'
+    | '/app/tasks'
+    | '/app/workflows'
     | '/admin/workflows/$workflowId/runs'
     | '/admin/workflows/$workflowId/runs/$runId'
   id:
     | '__root__'
     | '/'
-    | '/admin/login'
-    | '/admin/reset-password'
-    | '/admin/signup'
+    | '/$'
+    | '/admin/_admin'
     | '/api/search'
+    | '/app/_app'
     | '/docs/$'
-    | '/admin/'
+    | '/admin/_admin/login'
+    | '/admin/_admin/reset-password'
+    | '/admin/_admin/signup'
     | '/admin/activity/$logId'
     | '/admin/approvals/$approvalId'
     | '/admin/approvals/history'
@@ -381,6 +500,10 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
+    | '/app/projects/$projectId'
+    | '/app/projects/new'
+    | '/app/workflows/new'
+    | '/admin/_admin/'
     | '/admin/activity/'
     | '/admin/approvals/'
     | '/admin/browsers/'
@@ -389,18 +512,22 @@ export interface FileRouteTypes {
     | '/admin/settings/'
     | '/admin/users/'
     | '/admin/workflows/'
+    | '/app/_app/'
+    | '/app/projects/'
+    | '/app/settings/'
+    | '/app/tasks/'
+    | '/app/workflows/'
     | '/admin/workflows/$workflowId/runs'
     | '/admin/workflows/$workflowId/runs/$runId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AdminLoginRoute: typeof AdminLoginRoute
-  AdminResetPasswordRoute: typeof AdminResetPasswordRoute
-  AdminSignupRoute: typeof AdminSignupRoute
+  SplatRoute: typeof SplatRoute
+  AdminAdminRoute: typeof AdminAdminRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
+  AppAppRoute: typeof AppAppRouteWithChildren
   DocsSplatRoute: typeof DocsSplatRoute
-  AdminIndexRoute: typeof AdminIndexRoute
   AdminActivityLogIdRoute: typeof AdminActivityLogIdRoute
   AdminApprovalsApprovalIdRoute: typeof AdminApprovalsApprovalIdRoute
   AdminApprovalsHistoryRoute: typeof AdminApprovalsHistoryRoute
@@ -414,6 +541,9 @@ export interface RootRouteChildren {
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
   AdminWorkflowsWorkflowIdRoute: typeof AdminWorkflowsWorkflowIdRouteWithChildren
+  AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
+  AppProjectsNewRoute: typeof AppProjectsNewRoute
+  AppWorkflowsNewRoute: typeof AppWorkflowsNewRoute
   AdminActivityIndexRoute: typeof AdminActivityIndexRoute
   AdminApprovalsIndexRoute: typeof AdminApprovalsIndexRoute
   AdminBrowsersIndexRoute: typeof AdminBrowsersIndexRoute
@@ -422,22 +552,26 @@ export interface RootRouteChildren {
   AdminSettingsIndexRoute: typeof AdminSettingsIndexRoute
   AdminUsersIndexRoute: typeof AdminUsersIndexRoute
   AdminWorkflowsIndexRoute: typeof AdminWorkflowsIndexRoute
+  AppProjectsIndexRoute: typeof AppProjectsIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppTasksIndexRoute: typeof AppTasksIndexRoute
+  AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin/': {
-      id: '/admin/'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -447,6 +581,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/_app': {
+      id: '/app/_app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppAppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/search': {
       id: '/api/search'
       path: '/api/search'
@@ -454,26 +595,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/signup': {
-      id: '/admin/signup'
-      path: '/admin/signup'
-      fullPath: '/admin/signup'
-      preLoaderRoute: typeof AdminSignupRouteImport
+    '/admin/_admin': {
+      id: '/admin/_admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminAdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/reset-password': {
-      id: '/admin/reset-password'
-      path: '/admin/reset-password'
-      fullPath: '/admin/reset-password'
-      preLoaderRoute: typeof AdminResetPasswordRouteImport
+    '/app/workflows/': {
+      id: '/app/workflows/'
+      path: '/app/workflows'
+      fullPath: '/app/workflows'
+      preLoaderRoute: typeof AppWorkflowsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/login': {
-      id: '/admin/login'
-      path: '/admin/login'
-      fullPath: '/admin/login'
-      preLoaderRoute: typeof AdminLoginRouteImport
+    '/app/tasks/': {
+      id: '/app/tasks/'
+      path: '/app/tasks'
+      fullPath: '/app/tasks'
+      preLoaderRoute: typeof AppTasksIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/app/settings/': {
+      id: '/app/settings/'
+      path: '/app/settings'
+      fullPath: '/app/settings'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/projects/': {
+      id: '/app/projects/'
+      path: '/app/projects'
+      fullPath: '/app/projects'
+      preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/_app/': {
+      id: '/app/_app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppAppIndexRouteImport
+      parentRoute: typeof AppAppRoute
     }
     '/admin/workflows/': {
       id: '/admin/workflows/'
@@ -529,6 +691,34 @@ declare module '@tanstack/react-router' {
       path: '/admin/activity'
       fullPath: '/admin/activity'
       preLoaderRoute: typeof AdminActivityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/_admin/': {
+      id: '/admin/_admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminAdminIndexRouteImport
+      parentRoute: typeof AdminAdminRoute
+    }
+    '/app/workflows/new': {
+      id: '/app/workflows/new'
+      path: '/app/workflows/new'
+      fullPath: '/app/workflows/new'
+      preLoaderRoute: typeof AppWorkflowsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/projects/new': {
+      id: '/app/projects/new'
+      path: '/app/projects/new'
+      fullPath: '/app/projects/new'
+      preLoaderRoute: typeof AppProjectsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/projects/$projectId': {
+      id: '/app/projects/$projectId'
+      path: '/app/projects/$projectId'
+      fullPath: '/app/projects/$projectId'
+      preLoaderRoute: typeof AppProjectsProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/workflows/$workflowId': {
@@ -622,6 +812,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminActivityLogIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/_admin/signup': {
+      id: '/admin/_admin/signup'
+      path: '/signup'
+      fullPath: '/admin/signup'
+      preLoaderRoute: typeof AdminAdminSignupRouteImport
+      parentRoute: typeof AdminAdminRoute
+    }
+    '/admin/_admin/reset-password': {
+      id: '/admin/_admin/reset-password'
+      path: '/reset-password'
+      fullPath: '/admin/reset-password'
+      preLoaderRoute: typeof AdminAdminResetPasswordRouteImport
+      parentRoute: typeof AdminAdminRoute
+    }
+    '/admin/_admin/login': {
+      id: '/admin/_admin/login'
+      path: '/login'
+      fullPath: '/admin/login'
+      preLoaderRoute: typeof AdminAdminLoginRouteImport
+      parentRoute: typeof AdminAdminRoute
+    }
     '/admin/workflows/$workflowId/runs': {
       id: '/admin/workflows/$workflowId/runs'
       path: '/runs'
@@ -638,6 +849,35 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AdminAdminRouteChildren {
+  AdminAdminLoginRoute: typeof AdminAdminLoginRoute
+  AdminAdminResetPasswordRoute: typeof AdminAdminResetPasswordRoute
+  AdminAdminSignupRoute: typeof AdminAdminSignupRoute
+  AdminAdminIndexRoute: typeof AdminAdminIndexRoute
+}
+
+const AdminAdminRouteChildren: AdminAdminRouteChildren = {
+  AdminAdminLoginRoute: AdminAdminLoginRoute,
+  AdminAdminResetPasswordRoute: AdminAdminResetPasswordRoute,
+  AdminAdminSignupRoute: AdminAdminSignupRoute,
+  AdminAdminIndexRoute: AdminAdminIndexRoute,
+}
+
+const AdminAdminRouteWithChildren = AdminAdminRoute._addFileChildren(
+  AdminAdminRouteChildren,
+)
+
+interface AppAppRouteChildren {
+  AppAppIndexRoute: typeof AppAppIndexRoute
+}
+
+const AppAppRouteChildren: AppAppRouteChildren = {
+  AppAppIndexRoute: AppAppIndexRoute,
+}
+
+const AppAppRouteWithChildren =
+  AppAppRoute._addFileChildren(AppAppRouteChildren)
 
 interface AdminWorkflowsWorkflowIdRunsRouteChildren {
   AdminWorkflowsWorkflowIdRunsRunIdRoute: typeof AdminWorkflowsWorkflowIdRunsRunIdRoute
@@ -671,12 +911,11 @@ const AdminWorkflowsWorkflowIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminLoginRoute: AdminLoginRoute,
-  AdminResetPasswordRoute: AdminResetPasswordRoute,
-  AdminSignupRoute: AdminSignupRoute,
+  SplatRoute: SplatRoute,
+  AdminAdminRoute: AdminAdminRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
+  AppAppRoute: AppAppRouteWithChildren,
   DocsSplatRoute: DocsSplatRoute,
-  AdminIndexRoute: AdminIndexRoute,
   AdminActivityLogIdRoute: AdminActivityLogIdRoute,
   AdminApprovalsApprovalIdRoute: AdminApprovalsApprovalIdRoute,
   AdminApprovalsHistoryRoute: AdminApprovalsHistoryRoute,
@@ -690,6 +929,9 @@ const rootRouteChildren: RootRouteChildren = {
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,
   AdminWorkflowsWorkflowIdRoute: AdminWorkflowsWorkflowIdRouteWithChildren,
+  AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
+  AppProjectsNewRoute: AppProjectsNewRoute,
+  AppWorkflowsNewRoute: AppWorkflowsNewRoute,
   AdminActivityIndexRoute: AdminActivityIndexRoute,
   AdminApprovalsIndexRoute: AdminApprovalsIndexRoute,
   AdminBrowsersIndexRoute: AdminBrowsersIndexRoute,
@@ -698,6 +940,10 @@ const rootRouteChildren: RootRouteChildren = {
   AdminSettingsIndexRoute: AdminSettingsIndexRoute,
   AdminUsersIndexRoute: AdminUsersIndexRoute,
   AdminWorkflowsIndexRoute: AdminWorkflowsIndexRoute,
+  AppProjectsIndexRoute: AppProjectsIndexRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppTasksIndexRoute: AppTasksIndexRoute,
+  AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

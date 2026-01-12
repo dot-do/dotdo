@@ -118,6 +118,7 @@ export function ThemeModeToggle() {
     <button
       type="button"
       onClick={toggleMode}
+      data-testid="theme-toggle"
       className="p-2 rounded-md hover:bg-accent text-foreground"
       aria-label={`Switch to ${resolvedMode === 'dark' ? 'light' : 'dark'} mode`}
       aria-pressed={resolvedMode === 'dark'}

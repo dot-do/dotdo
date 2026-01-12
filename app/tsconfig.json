@@ -16,7 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["./*"],
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "fumadocs-mdx:collections/*": ["./.source/*"]
     },
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
@@ -27,7 +28,8 @@
     "routes/**/*",
     "components/**/*",
     "lib/**/*",
-    "src/**/*"
+    "src/**/*",
+    ".source/**/*"
   ],
   "exclude": [
     "node_modules",

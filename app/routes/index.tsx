@@ -1,5 +1,49 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { LandingPage, Hero, Features, Pricing, CTA, Navigation, Testimonials } from '@mdxui/beacon'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { LandingPage, Hero, Features, Pricing, CTA, Testimonials } from '@mdxui/beacon'
+import * as React from 'react'
+
+// Local Navigation component since @mdxui/beacon doesn't export it
+interface NavItem {
+  label: string
+  href: string
+}
+
+interface NavigationProps {
+  logo: React.ReactNode
+  items: NavItem[]
+  cta?: { label: string; href: string }
+}
+
+function Navigation({ logo, items, cta }: NavigationProps) {
+  return (
+    <nav className="flex items-center justify-between px-6 py-4 border-b">
+      <div className="flex items-center gap-8">
+        <Link to="/" className="text-xl font-bold">
+          {logo}
+        </Link>
+        <div className="hidden md:flex items-center gap-6">
+          {items.map((item) => (
+            <a
+              key={item.label}
+              href={item.href}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </div>
+      {cta && (
+        <a
+          href={cta.href}
+          className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          {cta.label}
+        </a>
+      )}
+    </nav>
+  )
+}
 
 export const Route = createFileRoute('/')({
   component: Home,

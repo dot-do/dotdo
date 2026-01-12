@@ -7,7 +7,7 @@
  * @see app/components/approvals/approval-detail.tsx
  */
 
-import type { ApprovalRequest } from '../types/approval'
+import type { ApprovalRequest } from '../../app/types/approval'
 
 /**
  * Get mock approval data for development/demo purposes.

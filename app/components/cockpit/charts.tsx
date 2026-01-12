@@ -86,9 +86,21 @@ export interface BaseChartProps<T = Record<string, unknown>> {
   showTooltip?: boolean
   showGrid?: boolean
   animate?: boolean
+  testId?: string
 }
 
 interface AreaChartWrapperProps<T = Record<string, unknown>> extends BaseChartProps<T> {}
+
+/**
+ * Custom tooltip wrapper to add test ID
+ */
+function ChartTooltipWithTestId() {
+  return (
+    <div data-testid="dashboard-chart-tooltip">
+      <ChartTooltipContent />
+    </div>
+  )
+}
 
 /**
  * AreaChart wrapper component with shadcn styling.
@@ -105,6 +117,7 @@ export function AreaChart<T extends Record<string, unknown>>({
   showTooltip = true,
   showGrid = true,
   animate = true,
+  testId,
 }: AreaChartWrapperProps<T>) {
   const yKeys = normalizeYKeys(yKey)
 
@@ -122,15 +135,17 @@ export function AreaChart<T extends Record<string, unknown>>({
 
   return (
     <div
+      data-testid={testId}
       data-component="AreaChart"
       data-data-count={data.length.toString()}
       className="p-4 bg-background rounded-lg border"
+      aria-label={title ? `${title} chart` : 'Area chart'}
     >
-      {title && <h4 className="font-semibold">{title}</h4>}
+      {title && <h4 data-testid="dashboard-chart-title" className="font-semibold">{title}</h4>}
       {description && (
-        <p className="text-sm text-muted-foreground mb-4">{description}</p>
+        <p data-testid="dashboard-chart-description" className="text-sm text-muted-foreground mb-4">{description}</p>
       )}
-      <div style={{ height }}>
+      <div data-testid="dashboard-chart-container" style={{ height }}>
         {data.length === 0 ? (
           <ChartEmptyState />
         ) : (
@@ -156,7 +171,7 @@ export function AreaChart<T extends Record<string, unknown>>({
                 className="text-xs fill-muted-foreground"
               />
               {showTooltip && (
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <ChartTooltip content={<ChartTooltipWithTestId />} />
               )}
               {showLegend && (
                 <ChartLegend content={<ChartLegendContent />} />

@@ -14,9 +14,10 @@ import * as React from 'react'
 interface DashboardGridProps {
   cols?: number
   children: ReactNode
+  testId?: string
 }
 
-export function DashboardGrid({ cols = 3, children }: DashboardGridProps) {
+export function DashboardGrid({ cols = 3, children, testId }: DashboardGridProps) {
   const gridCols: Record<number, string> = {
     1: 'grid-cols-1',
     2: 'grid-cols-2',
@@ -28,9 +29,10 @@ export function DashboardGrid({ cols = 3, children }: DashboardGridProps) {
 
   return (
     <div
+      data-testid={testId}
       data-component="DashboardGrid"
       data-cols={cols.toString()}
-      className={`grid ${gridCols[cols] || 'grid-cols-3'} gap-6 my-6`}
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:${gridCols[cols] || 'grid-cols-3'} gap-6 my-6`}
     >
       {children}
     </div>
@@ -46,6 +48,7 @@ interface KPICardProps {
   value: string | number
   trend?: string | number
   icon?: string
+  testId?: string
 }
 
 // Icon imports for KPI cards
@@ -77,7 +80,7 @@ const iconMap: Record<string, LucideIcon> = {
  * KPI Card component for displaying key metrics.
  * Memoized to prevent unnecessary re-renders when parent updates.
  */
-export const KPICard = React.memo(function KPICard({ title, value, trend, icon }: KPICardProps) {
+export const KPICard = React.memo(function KPICard({ title, value, trend, icon, testId }: KPICardProps) {
   const IconComponent = icon ? iconMap[icon] : null
 
   // Determine trend direction for accessibility
@@ -85,24 +88,25 @@ export const KPICard = React.memo(function KPICard({ title, value, trend, icon }
 
   return (
     <div
+      data-testid={testId}
       data-component="KPICard"
       className="p-6 bg-background rounded-lg border"
       role="article"
       aria-label={`${title}: ${value}${trend !== undefined ? `, trend ${trendDirection}` : ''}`}
     >
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-muted-foreground">{title}</span>
+        <span data-testid="dashboard-kpi-title" className="text-sm text-muted-foreground">{title}</span>
         {IconComponent && (
-          <span data-icon={icon} aria-hidden="true">
+          <span data-testid="dashboard-kpi-icon" data-icon={icon} aria-hidden="true">
             <IconComponent className="w-5 h-5 text-muted-foreground" />
           </span>
         )}
       </div>
-      <div data-kpi-value className="text-3xl font-bold">
+      <div data-testid="dashboard-kpi-value" data-kpi-value className="text-3xl font-bold">
         {value}
       </div>
       {trend !== undefined && (
-        <div data-kpi-trend className="text-sm text-muted-foreground mt-2">
+        <div data-testid="dashboard-kpi-trend" data-kpi-trend className="text-sm text-muted-foreground mt-2">
           {typeof trend === 'number' ? (trend >= 0 ? '+' : '') + trend + '%' : trend}
         </div>
       )}
@@ -135,16 +139,20 @@ const ActivityItem = React.memo(function ActivityItem({
 }) {
   return (
     <div
+      data-testid="activity-item"
       data-activity-item
       className="p-4 bg-background rounded-lg border"
       role="article"
       aria-label={`${item.title} - ${item.type}`}
     >
-      <div className="font-medium">{item.title}</div>
+      <span data-testid="activity-item-type" className="inline-block px-2 py-0.5 text-xs rounded-full bg-muted text-muted-foreground mb-2">
+        {item.type}
+      </span>
+      <div data-testid="activity-item-title" className="font-medium">{item.title}</div>
       {item.description && (
-        <div className="text-sm text-muted-foreground">{item.description}</div>
+        <div data-testid="activity-item-description" className="text-sm text-muted-foreground">{item.description}</div>
       )}
-      <div className="text-xs text-muted-foreground mt-2">
+      <div data-testid="activity-item-timestamp" className="text-xs text-muted-foreground mt-2">
         <time dateTime={new Date(item.timestamp).toISOString()}>
           {new Date(item.timestamp).toLocaleString()}
         </time>
@@ -170,7 +178,7 @@ export const ActivityFeed = React.memo(function ActivityFeed({ items = [] }: Act
         <ActivityItem key={item.id} item={item} />
       ))}
       {items.length === 0 && (
-        <div className="text-muted-foreground text-center py-4" role="status">
+        <div data-testid="activity-feed-empty" className="text-muted-foreground text-center py-4" role="status">
           No recent activity
         </div>
       )}
@@ -201,20 +209,39 @@ const AgentStatusItem = React.memo(function AgentStatusItem({
 }: {
   agent: AgentStatusProps['agents'][number]
 }) {
+  // Determine status style
+  const statusStyles = {
+    idle: 'bg-muted text-muted-foreground',
+    working: 'bg-green-900/50 text-green-400',
+    error: 'bg-red-900/50 text-red-400',
+  }
+  const statusClass = statusStyles[agent.status as keyof typeof statusStyles] || statusStyles.idle
+
   return (
     <div
+      data-testid="agent-status-item"
+      data-agent-name={agent.name}
+      data-status={agent.status}
       className="text-center p-3 bg-card rounded-lg"
       role="listitem"
       aria-label={`${agent.name}: ${agent.status}${agent.role ? `, ${agent.role}` : ''}`}
     >
       <div
+        data-testid="agent-status-avatar"
         className="w-10 h-10 mx-auto mb-2 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold"
         aria-hidden="true"
       >
         {agent.name[0]}
       </div>
-      <div className="font-medium text-sm">{agent.name}</div>
-      <div className="text-xs text-muted-foreground">{agent.status}</div>
+      <div data-testid="agent-status-name" className="font-medium text-sm">{agent.name}</div>
+      {agent.role && (
+        <div data-testid="agent-status-role" className="text-xs text-muted-foreground">{agent.role}</div>
+      )}
+      <div className="mt-1">
+        <span data-testid="agent-status-badge" className={`inline-block px-2 py-0.5 text-xs rounded-full ${statusClass}`}>
+          {agent.status}
+        </span>
+      </div>
     </div>
   )
 })

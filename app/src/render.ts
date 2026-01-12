@@ -6,6 +6,8 @@
  * This function provides a static HTML representation for test verification.
  */
 
+import { loadSiteMdx, mdxToHtml } from '../lib/site-source'
+
 const SITE_URL = 'https://do.md'
 const SITE_NAME = 'do.md'
 const TWITTER_HANDLE = '@domddev'
@@ -20,6 +22,9 @@ export async function renderPage(path: string): Promise<string> {
   }
   if (path === '/blog/test-article') {
     return generateBlogArticleHtml()
+  }
+  if (path === '/app') {
+    return generateAppDashboardHtml()
   }
 
   throw new Error(`Unknown path: ${path}`)
@@ -84,14 +89,19 @@ ${JSON.stringify(jsonLd, null, 2)}
 </script>`
 }
 
-function generateLandingPageHtml(): string {
+async function generateLandingPageHtml(): Promise<string> {
   const year = new Date().getFullYear()
 
+  // Load Site.mdx content
+  const { content: mdxContent, frontmatter } = await loadSiteMdx()
+  const renderedContent = mdxToHtml(mdxContent)
+
   const meta: PageMeta = {
-    title: 'dotdo - Durable Objects Made Simple',
-    description: 'Build stateful serverless applications with Cloudflare Durable Objects. Type-safe, scalable, and easy to use TypeScript framework.',
+    title: frontmatter.title || 'dotdo - Build your 1-Person Unicorn',
+    description: frontmatter.description || 'Deploy a startup with product, engineering, marketing, and sales. Business-as-Code for autonomous businesses run by AI agents.',
     canonicalUrl: `${SITE_URL}/`,
     ogType: 'website',
+    ogImage: frontmatter.ogImage,
   }
 
   const jsonLd = generateJsonLd('WebSite', {
@@ -118,6 +128,21 @@ function generateLandingPageHtml(): string {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; }
+    .agent { background: #f9fafb; padding: 1.5rem; border-radius: 0.75rem; text-align: center; }
+    .avatar { width: 64px; height: 64px; border-radius: 50%; background: #e5e7eb; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; font-size: 1.5rem; font-weight: bold; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .feature { background: #f9fafb; padding: 1.5rem; border-radius: 0.75rem; }
+    .feature .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .cta { text-align: center; margin: 2rem 0; }
+    .cta a { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 0.5rem; text-decoration: none; margin: 0.5rem; }
+    .cta .primary { background: #3b82f6; color: white; }
+    .cta .secondary { background: #1f2937; color: white; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { border: 1px solid #e5e7eb; padding: 0.75rem; text-align: left; }
+    th { background: #f9fafb; font-weight: 600; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+    code { font-family: ui-monospace, monospace; }
   </style>
 </head>
 <body>
@@ -152,17 +177,6 @@ function generateLandingPageHtml(): string {
           </a>
         </div>
 
-        <!-- Mobile menu button -->
-        <button
-          type="button"
-          class="md:hidden p-2 rounded-md text-gray-600 hover:text-gray-900 dark:text-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          aria-label="Toggle menu"
-        >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-
         <!-- CTA Buttons -->
         <div class="hidden md:flex items-center gap-3">
           <a href="/admin" class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
@@ -175,149 +189,9 @@ function generateLandingPageHtml(): string {
       </nav>
     </header>
 
-    <!-- Main Content -->
-    <main id="main-content" role="main" class="flex-1">
-      <!-- Hero Section -->
-      <section id="hero" class="hero Hero py-20 sm:py-32 px-4">
-        <div class="container max-w-7xl mx-auto text-center">
-          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white mb-6">
-            dotdo
-          </h1>
-          <p class="text-xl sm:text-2xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto">
-            Build stateful serverless applications with Cloudflare Durable Objects.
-            Type-safe, scalable, and easy to use.
-          </p>
-          <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="/docs" class="inline-flex items-center justify-center px-6 py-3 text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 btn button Button">
-              Get Started
-            </a>
-            <a href="https://github.com/dot-do/dotdo" class="inline-flex items-center justify-center px-6 py-3 text-lg font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 btn button Button" aria-label="View dotdo on GitHub for source code and demos">
-              View on GitHub
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <!-- Features Section -->
-      <section id="features" class="features Features py-20 px-4 bg-gray-50 dark:bg-gray-800">
-        <div class="container max-w-7xl mx-auto">
-          <h2 class="text-3xl sm:text-4xl font-bold text-center text-gray-900 dark:text-white mb-12">
-            Why dotdo?
-          </h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <!-- Feature 1: Type-Safe -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-blue-600 dark:text-blue-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Type-Safe TypeScript
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                Full TypeScript support with type inference for Durable Object state and RPC methods.
-              </p>
-            </article>
-
-            <!-- Feature 2: Stateful -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-green-600 dark:text-green-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Stateful by Design
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                Built-in state management with durable storage. Your data persists across requests automatically.
-              </p>
-            </article>
-
-            <!-- Feature 3: Edge-Native -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-purple-600 dark:text-purple-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Edge-Native Performance
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                Run your code at the edge, close to your users. Sub-millisecond latency worldwide.
-              </p>
-            </article>
-
-            <!-- Feature 4: Real-time -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-orange-600 dark:text-orange-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Real-time Capable
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                WebSocket support out of the box. Build real-time collaborative apps with ease.
-              </p>
-            </article>
-
-            <!-- Feature 5: Scalable -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-cyan-600 dark:text-cyan-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Infinitely Scalable
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                Scale to millions of concurrent connections. Each Durable Object handles its own state.
-              </p>
-            </article>
-
-            <!-- Feature 6: Developer Experience -->
-            <article class="feature-card feature-item p-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm">
-              <div class="w-12 h-12 mb-4 text-pink-600 dark:text-pink-400">
-                <svg class="w-full h-full icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Great Developer Experience
-              </h3>
-              <p class="text-gray-600 dark:text-gray-300">
-                Simple, intuitive API. Write less boilerplate and focus on your business logic.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <!-- CTA Section -->
-      <section id="cta" class="cta CTA py-20 px-4 bg-blue-600 dark:bg-blue-700 call-to-action get-started">
-        <div class="container max-w-4xl mx-auto text-center">
-          <h2 class="text-3xl sm:text-4xl font-bold text-white mb-6">
-            Ready to build something amazing?
-          </h2>
-          <p class="text-xl text-blue-100 mb-8">
-            Get started with dotdo in minutes. No complex setup required.
-          </p>
-          <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="/docs" class="inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-blue-600 bg-white hover:bg-gray-100 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-blue-600 btn button Button">
-              Read the Docs
-            </a>
-            <a href="https://github.com/dot-do/dotdo" class="inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-white border-2 border-white hover:bg-blue-500 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-blue-600 btn button Button">
-              Star on GitHub
-            </a>
-          </div>
-        </div>
-      </section>
+    <!-- Main Content from Site.mdx -->
+    <main id="main-content" role="main" class="flex-1 container max-w-4xl mx-auto px-4 py-12">
+      ${renderedContent}
     </main>
 
     <!-- Footer -->
@@ -334,8 +208,7 @@ function generateLandingPageHtml(): string {
               dotdo
             </a>
             <p class="text-gray-400 max-w-md">
-              Build stateful serverless applications with Cloudflare Durable Objects.
-              The modern framework for edge computing.
+              Build your 1-Person Unicorn. Business-as-Code for autonomous businesses run by AI agents.
             </p>
           </div>
 
@@ -400,19 +273,6 @@ function generateLandingPageHtml(): string {
         </div>
       </div>
     </footer>
-
-    <!-- Responsive image for lazy loading test -->
-    <img
-      src="/images/hero-bg.webp"
-      srcset="/images/hero-bg-640.webp 640w, /images/hero-bg-1280.webp 1280w, /images/hero-bg.webp 1920w"
-      sizes="100vw"
-      alt=""
-      aria-hidden="true"
-      loading="lazy"
-      class="hidden w-full"
-      width="1920"
-      height="1080"
-    />
   </div>
   <script defer src="/static/app.js"></script>
 </body>
@@ -604,6 +464,192 @@ function generateBlogArticleHtml(): string {
         <p>&copy; ${year} do.md. All rights reserved.</p>
       </div>
     </footer>
+  </div>
+</body>
+</html>`
+}
+
+/**
+ * Generates HTML for the /app dashboard route.
+ * This renders the App.mdx content with @mdxui/cockpit components.
+ */
+function generateAppDashboardHtml(): string {
+  const year = new Date().getFullYear()
+
+  const meta: PageMeta = {
+    title: 'dotdo Dashboard',
+    description: 'Your autonomous business control center.',
+    canonicalUrl: `${SITE_URL}/app`,
+    ogType: 'website',
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${generateMetaTags(meta)}
+  <link rel="icon" href="/favicon.ico">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen flex">
+    <!-- DashboardLayout from App.mdx -->
+    <aside class="sidebar w-64 bg-gray-900 text-white p-4">
+      <nav class="sidebar-nav">
+        <a href="/admin" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Home</span>
+          <span>Overview</span>
+        </a>
+        <a href="/admin/startups" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Rocket</span>
+          <span>Startups</span>
+        </a>
+        <a href="/admin/agents" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Users</span>
+          <span>Agents</span>
+        </a>
+        <a href="/admin/workflows" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">GitBranch</span>
+          <span>Workflows</span>
+        </a>
+        <a href="/admin/events" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Activity</span>
+          <span>Events</span>
+        </a>
+        <a href="/admin/functions" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Code</span>
+          <span>Functions</span>
+        </a>
+        <a href="/admin/analytics" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">BarChart</span>
+          <span>Analytics</span>
+        </a>
+        <a href="/admin/settings" class="nav-item flex items-center gap-2 py-2 px-3 rounded hover:bg-gray-800">
+          <span class="icon">Settings</span>
+          <span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-user mt-auto pt-4 border-t border-gray-700">
+        <!-- SidebarUser component -->
+      </div>
+    </aside>
+
+    <main class="dashboard-content flex-1 p-8 bg-gray-50 dark:bg-gray-900">
+      <!-- dotdo Dashboard from App.mdx -->
+      <h1 class="text-3xl font-bold mb-2">dotdo Dashboard</h1>
+      <h2 class="text-xl text-gray-600 dark:text-gray-300 mb-6">Welcome to dotdo</h2>
+      <p class="text-gray-600 dark:text-gray-400 mb-8">Your autonomous business control center.</p>
+
+      <!-- KPICards from App.mdx - DashboardGrid cols={3} -->
+      <div class="dashboard-grid grid grid-cols-3 gap-6 mb-8">
+        <div class="kpi-card bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Active Agents</h3>
+            <span class="icon text-blue-500">Users</span>
+          </div>
+          <p class="text-3xl font-bold" data-stat="activeAgents">6</p>
+          <p class="text-xs text-green-500 mt-1" data-trend="agentTrend">+2 from last week</p>
+        </div>
+        <div class="kpi-card bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Workflows Running</h3>
+            <span class="icon text-purple-500">GitBranch</span>
+          </div>
+          <p class="text-3xl font-bold" data-stat="runningWorkflows">12</p>
+          <p class="text-xs text-green-500 mt-1" data-trend="workflowTrend">+5 from last week</p>
+        </div>
+        <div class="kpi-card bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Events Today</h3>
+            <span class="icon text-orange-500">Activity</span>
+          </div>
+          <p class="text-3xl font-bold" data-stat="eventsToday">847</p>
+          <p class="text-xs text-green-500 mt-1" data-trend="eventTrend">+124 from yesterday</p>
+        </div>
+      </div>
+
+      <!-- Recent Activity from App.mdx -->
+      <section class="activity-feed mb-8">
+        <h3 class="text-lg font-semibold mb-4">Recent Activity</h3>
+        <div class="activity-feed bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+          <!-- ActivityFeed items={recentActivity} -->
+        </div>
+      </section>
+
+      <!-- AgentStatus from App.mdx -->
+      <section class="agent-status mb-8">
+        <h3 class="text-lg font-semibold mb-4">Your Team</h3>
+        <div class="agent-status-panel bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+          <p class="text-gray-600 dark:text-gray-400 mb-4">Monitor your AI agents in real-time. See what Priya, Ralph, Tom, and the team are working on.</p>
+          <div class="agent-grid grid grid-cols-3 gap-4">
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">priya</p>
+              <p class="text-sm text-green-500">working</p>
+            </div>
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">ralph</p>
+              <p class="text-sm text-gray-500">idle</p>
+            </div>
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">tom</p>
+              <p class="text-sm text-blue-500">reviewing</p>
+            </div>
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">mark</p>
+              <p class="text-sm text-gray-500">idle</p>
+            </div>
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">sally</p>
+              <p class="text-sm text-yellow-500">outreach</p>
+            </div>
+            <div class="agent-card p-4 border rounded-lg">
+              <p class="font-medium">quinn</p>
+              <p class="text-sm text-purple-500">testing</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CommandPalette from App.mdx -->
+      <section class="command-palette">
+        <h3 class="text-lg font-semibold mb-4">Quick Actions</h3>
+        <div class="command-palette-panel bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+          <div class="command-group mb-4">
+            <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Agents</h4>
+            <div class="command-items space-y-2">
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                Ask Priya for product direction
+              </button>
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                Have Ralph start building
+              </button>
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                Request code review from Tom
+              </button>
+            </div>
+          </div>
+          <div class="command-group">
+            <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Workflows</h4>
+            <div class="command-items space-y-2">
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                Create new workflow
+              </button>
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                View running workflows
+              </button>
+              <button class="command-item w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                Check event log
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 </body>
 </html>`

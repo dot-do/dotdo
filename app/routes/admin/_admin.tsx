@@ -73,6 +73,7 @@ import {
   ChevronsUpDown,
   PanelLeftClose,
   PanelLeft,
+  LayoutGrid,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/admin/_admin')({
@@ -85,6 +86,7 @@ export const Route = createFileRoute('/admin/_admin')({
 
 /**
  * Public routes that don't require authentication
+ * Note: These paths match the actual URL paths, not the file-based route paths
  */
 const publicRoutes = ['/admin/login', '/admin/signup', '/admin/reset-password']
 
@@ -437,8 +439,22 @@ function AdminShell({ children }: { children: ReactNode }) {
             <MobileHeader />
 
             {/* Desktop Header */}
-            <header data-testid="admin-header" className="hidden md:flex items-center gap-2 p-4 border-b">
+            <header data-testid="admin-header" className="hidden md:flex items-center justify-between gap-2 p-4 border-b">
               <SidebarTrigger className="md:hidden" />
+              <div className="flex items-center gap-2 ml-auto">
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  data-testid="global-nav-app"
+                  data-nav-link="app"
+                >
+                  <RouterLink to="/app" data-testid="nav-link-app">
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    App
+                  </RouterLink>
+                </Button>
+              </div>
             </header>
 
             {/* Main Content */}
@@ -503,8 +519,10 @@ function AuthGuard({ children }: { children: ReactNode }) {
   }
 
   // Redirect to login if not authenticated
+  // Include the current path as a redirect parameter
   if (!isAuthenticated) {
-    return <Navigate to="/admin/login" />
+    const redirectParam = encodeURIComponent(location.pathname)
+    return <Navigate to="/admin/login" search={{ redirect: redirectParam }} />
   }
 
   // Render protected content with shell

@@ -7,7 +7,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Shell } from '~/components/ui/shell'
 import { Button } from '~/components/ui/button'
-import { getMockUser, getMockUserActivity } from '../../../../../tests/mocks/user'
+import { getMockUser, getMockUserActivity } from '../../../../tests/mocks/user'
 
 export const Route = createFileRoute('/admin/users/$userId')({
   component: UserDetailPage,

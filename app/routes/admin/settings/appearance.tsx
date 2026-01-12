@@ -61,16 +61,18 @@ export const Route = createFileRoute('/admin/settings/appearance')({
 function AppearanceSettingsPage() {
   return (
     <Shell>
-      <div className="p-6">
+      <div className="p-6" data-testid="settings-content">
         <h1 className="text-2xl font-semibold mb-2">Appearance</h1>
         <p className="text-muted-foreground mb-6">
           Customize the look and feel of the application.
         </p>
 
-        <div className="bg-card rounded-lg shadow p-6 max-w-xl">
-          <ThemeSelector />
+        <div className="bg-card rounded-lg shadow p-6 max-w-xl" data-testid="settings-form-appearance">
+          <div data-testid="settings-theme-selector">
+            <ThemeSelector />
+          </div>
 
-          <div className="mt-8 pt-6 border-t">
+          <div className="mt-8 pt-6 border-t" data-testid="settings-theme-preview">
             <h3 className="text-sm font-medium mb-3">Theme Preview</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-lg bg-primary text-primary-foreground">

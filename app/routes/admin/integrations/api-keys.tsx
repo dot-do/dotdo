@@ -20,13 +20,13 @@ function APIKeysPage() {
 
   return (
     <Shell>
-      <div className="p-6">
+      <div className="p-6" data-testid="settings-content">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">API Keys</h1>
-          <Button type="button">Generate New Key</Button>
+          <Button type="button" data-testid="api-key-create">Generate New Key</Button>
         </div>
 
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-white rounded-lg shadow" data-testid="api-key-list">
           <DataTable
             columns={[
               { accessorKey: 'name', header: 'Name' },
@@ -37,11 +37,12 @@ function APIKeysPage() {
                 id: 'actions',
                 header: 'Actions',
                 cell: () => (
-                  <Button type="button" variant="link" className="text-destructive p-0 h-auto">Revoke</Button>
+                  <Button type="button" variant="link" className="text-destructive p-0 h-auto" data-testid="api-key-revoke">Revoke</Button>
                 ),
               },
             ]}
             data={apiKeys}
+            rowTestId="api-key-item"
           />
         </div>
       </div>

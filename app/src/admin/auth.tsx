@@ -58,7 +58,7 @@ export interface AuthState {
 }
 
 export interface AuthActions {
-  login: (credentials: { email: string; password: string }) => Promise<void>
+  login: (credentials: { email: string; password: string; rememberMe?: boolean }) => Promise<void>
   logout: () => Promise<void>
   refreshSession: () => Promise<void>
 }
@@ -130,9 +130,37 @@ export class MemorySessionStore implements SessionStore {
 // =============================================================================
 
 const STORAGE_KEY = 'dotdo_session'
+const SESSION_COOKIE_NAME = 'dotdo_auth_token'
 
 // Session storage (in-memory for now, would use better-auth in production)
 const sessions = new Map<string, { userId: string; createdAt: Date }>()
+
+// =============================================================================
+// Cookie Helpers
+// =============================================================================
+
+/**
+ * Set a cookie with optional expiry
+ */
+function setCookie(name: string, value: string, days?: number): void {
+  if (typeof document === 'undefined') return
+
+  let expires = ''
+  if (days) {
+    const date = new Date()
+    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
+    expires = `; expires=${date.toUTCString()}`
+  }
+  document.cookie = `${name}=${value}${expires}; path=/; SameSite=Lax`
+}
+
+/**
+ * Delete a cookie by name
+ */
+function deleteCookie(name: string): void {
+  if (typeof document === 'undefined') return
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+}
 
 /**
  * Create default SessionStore based on environment.
@@ -171,8 +199,9 @@ export function setSessionStore(store: SessionStore | null): void {
 /**
  * Create a new authenticated session
  * Creates a real session with proper token and stores it
+ * @param rememberMe - If true, sets a persistent cookie (30 days). Otherwise, session cookie.
  */
-export async function createSession(): Promise<{ token: string; userId: string }> {
+export async function createSession(rememberMe: boolean = false): Promise<{ token: string; userId: string }> {
   const token = crypto.randomUUID()
   const userId = `user_${crypto.randomUUID().slice(0, 8)}`
 
@@ -183,6 +212,10 @@ export async function createSession(): Promise<{ token: string; userId: string }
 
   // Store the current session in storage
   getSessionStore().set(STORAGE_KEY, JSON.stringify({ token, userId }))
+
+  // Also set a cookie for E2E test detection and cross-tab session
+  // If rememberMe is true, set a 30-day persistent cookie
+  setCookie(SESSION_COOKIE_NAME, token, rememberMe ? 30 : undefined)
 
   return { token, userId }
 }
@@ -201,11 +234,12 @@ export async function validateSession(token: string): Promise<{ valid: boolean; 
 
 /**
  * Invalidate/logout a session
- * Removes from sessions Map and clears storage
+ * Removes from sessions Map, clears storage, and deletes cookie
  */
 export async function invalidateSession(token: string): Promise<void> {
   sessions.delete(token)
   getSessionStore().delete(STORAGE_KEY)
+  deleteCookie(SESSION_COOKIE_NAME)
 }
 
 /**
@@ -312,11 +346,11 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     initAuth()
   }, [])
 
-  const login = useCallback(async (credentials: { email: string; password: string }) => {
+  const login = useCallback(async (credentials: { email: string; password: string; rememberMe?: boolean }) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }))
     try {
       // In production, this would call better-auth or your auth API
-      const session = await createSession()
+      const session = await createSession(credentials.rememberMe ?? false)
       setState({
         user: { id: session.userId, email: credentials.email },
         session,
