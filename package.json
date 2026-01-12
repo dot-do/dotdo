@@ -1,6 +1,6 @@
 {
   "name": "dotdo",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Business-as-Code framework for autonomous businesses run by AI agents",
   "keywords": [
     "durable-objects",
