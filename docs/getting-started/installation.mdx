@@ -7,7 +7,29 @@ description: Get dotdo running locally in 2 minutes
 
 Two minutes. That's all you need.
 
-## Install the Package
+## Create a New Project
+
+The fastest way to get started is with `npx dotdo init`:
+
+```bash
+npx dotdo init my-startup
+cd my-startup
+npm install
+```
+
+This creates a complete project structure:
+
+```
+my-startup/
+  src/
+    index.ts        # Your DO class and worker entry point
+  wrangler.jsonc    # Cloudflare configuration
+  package.json
+  tsconfig.json
+```
+
+<Callout type="info">
+**Already have a project?** You can add dotdo to an existing project:
 
 <Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
   <Tab value="npm">
@@ -31,43 +53,27 @@ bun add dotdo
 ```
   </Tab>
 </Tabs>
+</Callout>
 
-## Initialize Your Project
+## Project Configuration
 
-```bash
-npx dotdo init my-startup
-cd my-startup
-```
+The init command creates `wrangler.jsonc` with sensible defaults:
 
-This creates:
-
-```
-my-startup/
-  src/
-    startup.ts      # Your startup class
-    index.ts        # Worker entry point
-  wrangler.toml     # Cloudflare config
-  package.json
-  tsconfig.json
-```
-
-## Configure Cloudflare
-
-The init command creates `wrangler.toml` for you:
-
-```toml title="wrangler.toml"
-name = "my-startup"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-[durable_objects]
-bindings = [
-  { name = "STARTUP", class_name = "MyStartup" }
-]
-
-[[migrations]]
-tag = "v1"
-new_classes = ["MyStartup"]
+```json title="wrangler.jsonc"
+{
+  "name": "my-startup",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "MyStartup" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MyStartup"] }
+  ]
+}
 ```
 
 <Callout type="warn">
@@ -80,13 +86,20 @@ new_classes = ["MyStartup"]
 npm run dev
 ```
 
-You should see:
+You should see output similar to:
 
 ```
+Starting local server...
 Ready on http://localhost:8787
 ```
 
-Open [http://localhost:8787](http://localhost:8787) in your browser. You'll see your startup's dashboard.
+Test your API by making a request:
+
+```bash
+curl http://localhost:8787
+```
+
+You should see a response from your Durable Object.
 
 ## Environment Variables
 
@@ -139,17 +152,29 @@ After init, here's what you're working with:
 ```
 my-startup/
   src/
-    startup.ts      # Your Startup class lives here
-    index.ts        # Routes HTTP to your DO
-  wrangler.toml     # Cloudflare deployment config
+    index.ts        # Your DO class and worker entry point
+  wrangler.jsonc    # Cloudflare deployment config
   .dev.vars         # Local secrets (gitignored)
   package.json
   tsconfig.json
 ```
 
-The key file is `src/startup.ts`:
+The key file is `src/index.ts`:
 
-```typescript title="src/startup.ts"
+```typescript title="src/index.ts"
+import { DO } from 'dotdo'
+
+export class MyStartup extends DO {
+  static readonly $type = 'MyStartup'
+}
+
+// Re-export the simple worker as default
+export { default } from 'dotdo/workers/simple'
+```
+
+This gives you a basic Durable Object. To build a full AI-powered startup, extend it with agents:
+
+```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally } from 'agents.do'
 

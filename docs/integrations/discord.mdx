@@ -550,13 +550,20 @@ return Response.json({
 ### Embeds
 
 ```typescript
-import { EmbedBuilder, EmbedColors } from '@dotdo/discord'
+import {
+  EmbedBuilder,
+  EmbedColors,
+  createSuccessEmbed,
+  createErrorEmbed,
+  createWarningEmbed,
+  createInfoEmbed,
+} from '@dotdo/discord'
 
 const embed = new EmbedBuilder()
   .setTitle('Welcome to the Server!')
   .setURL('https://example.com')
   .setDescription('Thanks for joining our community.')
-  .setColor(0x5865F2) // Discord Blurple
+  .setColor(EmbedColors.Blurple)
   .setAuthor({
     name: 'Server Bot',
     iconURL: 'https://example.com/bot.png',
@@ -573,12 +580,11 @@ const embed = new EmbedBuilder()
   .setFooter({ text: 'Powered by dotdo', iconURL: 'https://example.com/icon.png' })
   .setTimestamp()
 
-// Preset embeds for common cases
-import { createSuccessEmbed, createErrorEmbed, createWarningEmbed } from '@dotdo/discord'
-
-const success = createSuccessEmbed('Operation completed!')
-const error = createErrorEmbed('Something went wrong')
-const warning = createWarningEmbed('Be careful!')
+// Preset embeds for common cases (require title and description)
+const success = createSuccessEmbed('Success', 'Operation completed!')
+const error = createErrorEmbed('Error', 'Something went wrong')
+const warning = createWarningEmbed('Warning', 'Be careful!')
+const info = createInfoEmbed('Info', 'Here is some information')
 ```
 
 ## API Reference

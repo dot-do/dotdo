@@ -67,7 +67,7 @@ const account = await conn.sobject('Account').create({
 - `bulk.query()` - Bulk query for large datasets
 - `bulk.queryAll()` - Bulk query including deleted records
 - CSV data handling
-- Job status monitoring
+- Job status monitoring with event emitter (`queue`, `response`, `error` events)
 
 **OAuth 2.0 Authentication**
 - Username/password flow
@@ -75,6 +75,7 @@ const account = await conn.sobject('Account').create({
 - JWT bearer token flow
 - Client credentials flow
 - Token refresh
+- Logout/revoke
 
 **Analytics (Reports & Dashboards)**
 - `analytics.report()` - Get report by ID
@@ -83,9 +84,11 @@ const account = await conn.sobject('Account').create({
 - `report.describe()` - Report metadata
 - `analytics.dashboards()` - List dashboards
 
-**Metadata API**
+**Metadata API (Partial)**
 - `metadata.read()` - Read metadata components
 - `metadata.list()` - List metadata by type
+
+> Note: The Metadata API uses a simplified REST-like approach. Full SOAP envelope support for metadata deployment is not yet implemented.
 
 **Other**
 - `describeGlobal()` - List all SObjects
@@ -115,11 +118,13 @@ Works with all standard Salesforce objects including:
 
 ### Not Yet Implemented
 
-- Streaming API (PushTopic, Platform Events, CDC)
+- Streaming API (PushTopic, Platform Events, Change Data Capture) - types defined, no runtime implementation
+- Metadata deployment/retrieve (create, update, delete, deploy, retrieve operations)
 - Apex REST/SOAP callouts
 - Tooling API
 - Chatter API
-- SalesforceLocal (local testing mode)
+- Composite Graph API
+- SalesforceLocal (local testing mode) - planned for future release
 
 ## Quick Start
 
@@ -708,43 +713,75 @@ Full TypeScript support with comprehensive type definitions:
 import type {
   // Core types
   SObject,
+  SObjectAttributes,
   SaveResult,
   UpsertResult,
+  SaveError,
   QueryResult,
   UserInfo,
   Identity,
 
   // Connection types
   ConnectionConfig,
+  AuthorizeParams,
   TokenResponse,
+  AuthUrlOptions,
   OAuth2Config,
 
   // Describe types
   DescribeGlobalResult,
+  DescribeGlobalSObject,
   DescribeSObjectResult,
   DescribeField,
   FieldType,
+  PicklistValue,
+  RecordTypeInfo,
+  ChildRelationship,
+  DescribeOptions,
 
-  // Bulk types
+  // Bulk API types
   BulkOperation,
+  BulkJobState,
+  BulkJobOptions,
   BulkJobInfo,
   BulkJob,
   BulkBatch,
+  BulkQueryJob,
   BulkResult,
 
   // Analytics types
   Report,
   ReportResult,
+  ReportExecuteOptions,
+  ReportFilter,
   ReportMetadata,
+  ReportInstance,
+  DashboardListResult,
+  DashboardInfo,
+
+  // Metadata types
+  MetadataType,
+  MetadataComponent,
+  MetadataListQuery,
+  MetadataReadResult,
 
   // Query builder types
   WhereConditions,
+  ConditionValue,
   OrderDirection,
+  QueryOptions,
+
+  // Limits types
+  Limits,
+  LimitInfo,
 
   // Error types
   SalesforceErrorData,
+  OAuthError,
 } from '@dotdo/salesforce'
 ```
+
+> Note: Streaming types (`StreamingChannelType`, `StreamingSubscription`, `StreamingMessage`) are exported for future compatibility but the Streaming API is not yet implemented.
 
 ## Migration from jsforce
 
@@ -924,17 +961,18 @@ async function importContacts(contacts: Contact[]) {
 |----------|----------|-------|
 | SObject CRUD | Full | All operations + composite |
 | SOQL Query | Full | Including queryAll, queryMore |
-| Query Builder | Full | Fluent interface |
-| Bulk API 2.0 | Full | Insert, update, upsert, delete, query |
-| OAuth 2.0 | Full | All flows |
-| Describe | Full | Global and per-object |
-| Analytics | Full | Reports and dashboards |
-| Metadata API | Partial | Read and list |
-| Identity | Full | User info |
-| Limits | Full | Org limits |
-| Streaming API | Not yet | PushTopic, Platform Events |
+| Query Builder | Full | Fluent interface with operators |
+| Bulk API 2.0 | Full | Insert, update, upsert, delete, query, queryAll |
+| OAuth 2.0 | Full | Username/password, web server, JWT, client credentials |
+| Describe | Full | Global and per-object with caching |
+| Analytics | Full | Reports (sync/async) and dashboards |
+| Metadata API | Partial | Read and list only (no deploy/retrieve) |
+| Identity | Full | User info via userinfo endpoint |
+| Limits | Full | Org API limits |
+| Streaming API | Types only | PushTopic, Platform Events, CDC (not implemented) |
 | Tooling API | Not yet | |
 | Chatter API | Not yet | |
+| Composite Graph | Not yet | |
 
 ## Related
 

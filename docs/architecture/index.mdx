@@ -9,6 +9,76 @@ import { Callout } from 'fumadocs-ui/components/callout'
 
 dotdo is a Business-as-Code framework built on Cloudflare's V8 Isolates and Durable Objects. This section provides a technical deep dive into the internal architecture for advanced users building on the platform.
 
+## System Architecture
+
+The complete dotdo stack integrates V8 Isolates, Durable Objects, Cap'n Web RPC, and tiered storage:
+
+```
+                              DOTDO SYSTEM ARCHITECTURE
+                              =========================
+
+    CLIENT                         EDGE (300+ Cities)                    STORAGE
+    ======                         =================                     =======
+
+    ┌─────────────────┐
+    │   Browser/App   │
+    │                 │        ┌─────────────────────────────────────────────────────┐
+    │ ┌─────────────┐ │        │                  Cloudflare Edge                    │
+    │ │ RPC Client  │─┼───────▶│                                                     │
+    │ │ (capnweb)   │ │  WS    │  ┌───────────────────────────────────────────────┐  │
+    │ └─────────────┘ │  or    │  │               Worker (V8 Isolate)              │  │
+    │                 │  HTTP  │  │                                                │  │
+    │ ┌─────────────┐ │        │  │  ┌──────────────┐    ┌──────────────────────┐ │  │
+    │ │DuckDB-WASM  │◀┼────────│──│──│   API()      │───▶│   DO Router          │ │  │
+    │ │(Analytics)  │ │Parquet │  │  │   Router     │    │   (namespace lookup) │ │  │
+    │ └─────────────┘ │        │  │  └──────────────┘    └──────────┬───────────┘ │  │
+    └─────────────────┘        │  └──────────────────────────────────│─────────────┘  │
+                               │                                     │                │
+                               │         ┌───────────────────────────┴─────────┐     │
+                               │         ▼                                     ▼     │
+                               │  ┌─────────────────┐               ┌─────────────────┐
+                               │  │ Durable Object  │               │ Durable Object  │
+                               │  │ (tenant-a)      │               │ (tenant-b)      │
+                               │  │                 │               │                 │
+                               │  │ ┌─────────────┐ │               │ ┌─────────────┐ │
+                               │  │ │   SQLite    │ │               │ │   SQLite    │ │
+                               │  │ │  (10GB max) │ │               │ │  (10GB max) │ │
+                               │  │ ├─────────────┤ │               │ ├─────────────┤ │
+                               │  │ │ things      │ │               │ │ things      │ │
+                               │  │ │ rels        │ │               │ │ rels        │ │
+                               │  │ │ actions     │ │               │ │ actions     │ │
+                               │  │ │ events      │ │               │ │ events      │ │
+                               │  │ │ search      │ │  CF Pipelines │ │ search      │ │
+                               │  │ └──────┬──────┘ │ (streaming)   │ └──────┬──────┘ │
+                               │  └────────│────────┘       │       └────────│────────┘
+                               │           │                ▼                │        │
+                               │           │         ┌─────────────────────┐ │        │
+                               │           └────────▶│   R2 + Iceberg      │◀┘        │
+                               │                     │   (warm tier)       │          │
+                               │                     │                     │          │
+                               │                     │ ┌─────────────────┐ │          │
+                               │                     │ │  Parquet files  │ │          │
+                               │                     │ │  (partitioned)  │ │          │
+                               │                     │ └────────┬────────┘ │          │
+                               │                     └──────────│──────────┘          │
+                               │                                ▼                     │
+                               │                     ┌─────────────────────┐          │
+                               │                     │  ClickHouse / R2    │          │
+                               │                     │  (cold analytics)   │          │
+                               │                     └─────────────────────┘          │
+                               └──────────────────────────────────────────────────────┘
+```
+
+### Key Integration Points
+
+| Layer | Technology | Role |
+|-------|------------|------|
+| **Transport** | Cap'n Web RPC | Promise pipelining, batch operations |
+| **Compute** | V8 Isolates | ~0ms cold starts, 128MB memory |
+| **State** | Durable Objects + SQLite | Actor model, ACID transactions |
+| **Warm Storage** | R2 + Iceberg/Parquet | Cross-DO queries, event archive |
+| **Cold Storage** | ClickHouse + R2 | Analytics, time-series aggregation |
+
 ## Core Philosophy
 
 ### V8 Isolates as Virtual Chrome Tabs
@@ -192,6 +262,145 @@ get things(): ThingsStore {
 ```
 
 This minimizes cold start impact - you only pay for what you use.
+
+## Storage Hierarchy
+
+Data flows through three tiers automatically based on access patterns:
+
+```
+                              STORAGE HIERARCHY
+                              =================
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  HOT TIER: DO SQLite                                                 │
+    │  ─────────────────                                                   │
+    │  Latency: ~50ms │ Size: 10GB/shard │ Cost: Included with DO         │
+    │                                                                      │
+    │  Use for:                                                            │
+    │  • Active working set (current entities, recent events)             │
+    │  • Real-time state (sessions, carts, in-progress workflows)         │
+    │  • High-frequency reads/writes                                       │
+    │                                                                      │
+    │  Stores: things, rels, actions, events, search                      │
+    └──────────────────────────────────────┬──────────────────────────────┘
+                                           │ Cloudflare Pipelines
+                                           │ (streaming, automatic)
+                                           ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  WARM TIER: R2 + Iceberg/Parquet                                     │
+    │  ───────────────────────────────                                     │
+    │  Latency: 100-150ms │ Size: Unlimited │ Cost: $0.015/GB-mo, $0 egress│
+    │                                                                      │
+    │  Use for:                                                            │
+    │  • Cross-DO queries (find all customers with status X)              │
+    │  • Historical data (last 90 days of events)                         │
+    │  • Analytics that need recent data                                   │
+    │                                                                      │
+    │  Access via: $.query() or browser DuckDB-WASM with presigned URLs   │
+    └──────────────────────────────────────┬──────────────────────────────┘
+                                           │ R2 SQL / ClickHouse
+                                           │ (batch, scheduled)
+                                           ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  COLD TIER: ClickHouse + R2 Archive                                  │
+    │  ──────────────────────────────                                      │
+    │  Latency: Variable │ Size: Unlimited │ Cost: Pennies per TB          │
+    │                                                                      │
+    │  Use for:                                                            │
+    │  • Long-term analytics (year-over-year trends)                      │
+    │  • Aggregated time-series (hourly/daily rollups)                    │
+    │  • Compliance archives                                               │
+    │                                                                      │
+    │  Access via: $.analytics() or scheduled batch jobs                  │
+    └─────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Example
+
+```typescript
+// Hot tier: Real-time state in DO SQLite
+const customer = await $.Customer('cust_abc').get()
+
+// Warm tier: Cross-DO query via Iceberg
+const recentOrders = await $.query(`
+  SELECT * FROM orders
+  WHERE customer_id = 'cust_abc'
+  AND created_at > NOW() - INTERVAL '30 days'
+`)
+
+// Cold tier: Analytics aggregation
+const yearlyMetrics = await $.analytics(`
+  SELECT
+    date_trunc('month', created_at) as month,
+    count(*) as orders,
+    sum(total) as revenue
+  FROM orders
+  WHERE created_at > NOW() - INTERVAL '1 year'
+  GROUP BY 1
+`)
+```
+
+### Automatic Archival
+
+Events and old entity versions flow to warm/cold storage automatically via Cloudflare Pipelines:
+
+```typescript
+// Events are streamed to R2 Parquet automatically
+await events.emit({
+  verb: 'purchased',
+  source: 'Customer/cust_abc',
+  data: { amount: 99.99 }
+})
+// -> Immediately available in DO SQLite
+// -> Streams to R2 Parquet within seconds
+// -> Available for cross-DO queries via $.query()
+```
+
+## Cap'n Web RPC and Promise Pipelining
+
+dotdo uses Cap'n Web RPC for efficient cross-DO communication. The key optimization is **promise pipelining**: passing unawaited promises as parameters to batch multiple calls into single network round trips.
+
+### The Core Pattern
+
+```typescript
+// BAD: 3 network round trips
+const spec = await priya`define the MVP`     // Round trip 1
+const app = await ralph`build ${spec}`        // Round trip 2
+const deployed = await tom`ship ${app}`       // Round trip 3
+
+// GOOD: 1 network round trip
+const spec = priya`define the MVP`            // RpcPromise (not awaited)
+const app = ralph`build ${spec}`               // Passed as promise
+const deployed = await tom`ship ${app}`        // All execute in one batch
+```
+
+### When to Await: Quick Reference
+
+| Scenario | Await? | Example |
+|----------|--------|---------|
+| Pass to another RPC call | **No** | `ralph\`build ${spec}\`` |
+| Branch on result | **Yes** | `if ((await x).status === 'ready')` |
+| Loop over results | **Yes** | `for (const x of await items)` |
+| Display/log value | **Yes** | `console.log(await result)` |
+| Return to non-RPC caller | **Yes** | `return await finalResult` |
+| Fire and forget | **No** | `mark\`send notification\`` |
+
+### Decision Tree
+
+```
+Do I need the value locally?
+├─ No → Don't await, pass RpcPromise
+└─ Yes → Why?
+    ├─ To branch (if/else) → Await
+    ├─ To loop (for/while) → Await (or use Magic Map)
+    ├─ To display/log → Await
+    ├─ To return to non-pipeline caller → Await
+    └─ To pass to another RPC call → Don't await!
+```
+
+<Callout type="info">
+For detailed promise pipelining patterns, see [Await Patterns](/docs/rpc/await-patterns) and [Promise Pipelining](/docs/concepts/promise-pipelining).
+</Callout>
 
 ## Further Reading
 

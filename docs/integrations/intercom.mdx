@@ -5,18 +5,20 @@ description: Intercom-compatible customer messaging SDK for conversations, conta
 
 # Intercom
 
-Intercom-compatible SDK for customer messaging, contact management, and help center functionality. Build customer communication features that work with Intercom's API or run independently.
+Intercom-compatible SDK for customer messaging, contact management, and help center functionality. Build customer communication features that work with Intercom's API or run independently with the local implementation.
 
 ```typescript
-import { Intercom } from '@dotdo/intercom'
+import Intercom from '@dotdo/intercom'
 
-const client = new Intercom({ accessToken: 'your-token' })
+const client = new Intercom.Client({
+  tokenAuth: { token: 'your-access-token' },
+})
 
 // Create a contact
 const contact = await client.contacts.create({
+  role: 'user',
   email: 'customer@example.com',
   name: 'Jane Smith',
-  role: 'user',
 })
 
 // Start a conversation
@@ -28,9 +30,10 @@ const conversation = await client.conversations.create({
 // Send a reply
 await client.conversations.reply({
   id: conversation.id,
-  body: 'Sure! What is your order number?',
   type: 'admin',
   admin_id: 'admin_123',
+  body: 'Sure! What is your order number?',
+  message_type: 'comment',
 })
 ```
 
@@ -47,30 +50,49 @@ await client.conversations.reply({
 
 ### Contact Management
 
-- Create, update, delete contacts
-- Search and filter contacts
+- Create, update, delete, archive/unarchive contacts
+- Search and filter contacts with nested AND/OR queries
 - Custom attributes
-- Tags and segments
+- Tags management (add, remove, list)
+- Company associations (attach, detach, list)
+- Notes (create, list)
+- Segments (list)
+- Subscriptions (list, update)
+- Merge duplicate contacts
+- Convert leads to users
 
 ### Conversations
 
 - Create conversations
 - Reply as admin or user
-- Assign to teammates
-- Close/snooze conversations
-- Conversation tags
+- Add internal notes
+- Assign to teammates or teams
+- Close/open/snooze conversations
+- Conversation tags (add, remove)
+- Set priority
+- Attach/detach contacts
+- Redact sensitive content
+- Run assignment rules
 
 ### Help Center
 
-- Articles and collections
-- Search functionality
-- Localization support
+- Create, update, delete articles
+- List and search articles
+- Draft and published states
+- Localization support (translated content)
 
 ### Events
 
-- Track user events
+- Track custom events
 - Event metadata
-- Event-based automation
+- List events for a user
+- Get event summaries
+
+### Messages
+
+- Send in-app messages
+- Send email messages
+- Template support
 
 ## Quick Start
 
@@ -83,10 +105,25 @@ npm install @dotdo/intercom
 ### Initialize Client
 
 ```typescript
-import { Intercom } from '@dotdo/intercom'
+import Intercom from '@dotdo/intercom'
 
-const client = new Intercom({
-  accessToken: process.env.INTERCOM_ACCESS_TOKEN,
+const client = new Intercom.Client({
+  tokenAuth: { token: process.env.INTERCOM_ACCESS_TOKEN },
+})
+```
+
+### Local/Self-Hosted Mode
+
+For a fully local implementation backed by dotdo primitives:
+
+```typescript
+import { IntercomLocal } from '@dotdo/intercom'
+
+const client = new IntercomLocal({
+  workspaceId: 'my-workspace',
+  onMessageDelivery: async (messages) => {
+    // Handle message delivery (webhook, email, etc.)
+  },
 })
 ```
 
@@ -121,14 +158,11 @@ const lead = await client.contacts.create({
 // By ID
 const contact = await client.contacts.find(contactId)
 
-// By email
-const contact = await client.contacts.search({
-  query: {
-    field: 'email',
-    operator: '=',
-    value: 'user@example.com',
-  },
-})
+// By email (convenience method)
+const contact = await client.contacts.findByEmail('user@example.com')
+
+// By external ID
+const contact = await client.contacts.findByExternalId('ext_user_123')
 ```
 
 ### Update Contact
@@ -170,7 +204,7 @@ const results = await client.contacts.search({
       },
     ],
   },
-  sort: { field: 'created_at', order: 'desc' },
+  sort: { field: 'created_at', order: 'descending' },
   pagination: { per_page: 50 },
 })
 ```
@@ -179,7 +213,7 @@ const results = await client.contacts.search({
 
 ```typescript
 // Paginated listing
-let page = await client.contacts.list()
+let page = await client.contacts.list({ per_page: 50 })
 
 while (page.data.length > 0) {
   for (const contact of page.data) {
@@ -187,17 +221,100 @@ while (page.data.length > 0) {
   }
 
   if (!page.pages.next) break
-  page = await client.contacts.list({ starting_after: page.pages.next })
+  page = await client.contacts.list({
+    per_page: 50,
+    starting_after: page.data[page.data.length - 1].id,
+  })
 }
 ```
 
-### Delete Contact
+### Delete and Archive Contacts
 
 ```typescript
+// Permanently delete
 await client.contacts.delete(contactId)
 
-// Archive instead of delete
+// Archive (can be unarchived later)
 await client.contacts.archive(contactId)
+
+// Unarchive
+await client.contacts.unarchive(contactId)
+```
+
+### Merge Contacts
+
+```typescript
+// Merge contact B into contact A (B is deleted)
+const merged = await client.contacts.merge({
+  from: 'contact_b_id', // This contact will be deleted
+  into: 'contact_a_id', // This contact will remain
+})
+```
+
+### Convert Lead to User
+
+```typescript
+// Convert without merging
+const user = await client.contacts.convertToUser('lead_123', {})
+
+// Convert and merge with existing user
+const user = await client.contacts.convertToUser('lead_123', {
+  user: { id: 'existing_user_id' },
+})
+```
+
+### Contact Tags
+
+```typescript
+// Add a tag to a contact
+const tag = await client.contacts.tags.add(contactId, { id: 'tag_123' })
+
+// Remove a tag from a contact
+await client.contacts.tags.remove(contactId, 'tag_123')
+
+// List all tags on a contact
+const tags = await client.contacts.tags.list(contactId)
+```
+
+### Contact Companies
+
+```typescript
+// Attach contact to a company
+const company = await client.contacts.companies.attach(contactId, { id: 'company_123' })
+
+// Detach contact from a company
+await client.contacts.companies.detach(contactId, 'company_123')
+
+// List all companies for a contact
+const companies = await client.contacts.companies.list(contactId)
+```
+
+### Contact Notes
+
+```typescript
+// Create a note on a contact
+const note = await client.contacts.notes.create(contactId, {
+  body: 'VIP customer - handle with care',
+  admin_id: 'admin_123',
+})
+
+// List notes on a contact
+const notes = await client.contacts.notes.list(contactId)
+```
+
+### Contact Segments and Subscriptions
+
+```typescript
+// List segments for a contact
+const segments = await client.contacts.segments.list(contactId)
+
+// List subscriptions
+const subscriptions = await client.contacts.subscriptions.list(contactId)
+
+// Update subscription preference
+await client.contacts.subscriptions.update(contactId, 'sub_123', {
+  consent_type: 'opt_out',
+})
 ```
 
 ## Conversations

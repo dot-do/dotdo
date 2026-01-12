@@ -67,7 +67,7 @@ await redis.expire('session:abc', 3600)
 - `zadd()`, `zrem()`, `zrange()`, `zrevrange()`
 - `zscore()`, `zrank()`, `zrevrank()`, `zcard()`, `zcount()`
 - `zincrby()`, `zrangebyscore()`, `zrevrangebyscore()`
-- `zpopmin()`, `zpopmax()`, `zlexcount()`
+- `zpopmin()`, `zpopmax()`
 - ZADD options: `NX`, `XX`, `GT`, `LT`, `CH`, `INCR`
 
 **Keys**
@@ -97,6 +97,7 @@ await redis.expire('session:abc', 3600)
 - Blocking commands (`BLPOP`, `BRPOP`, `BLMOVE`)
 - HyperLogLog (`PFADD`, `PFCOUNT`, `PFMERGE`)
 - Geospatial (`GEOADD`, `GEODIST`, `GEOSEARCH`)
+- Lexicographic range queries (`ZLEXCOUNT`, `ZRANGEBYLEX`)
 
 ## Installation
 
@@ -179,7 +180,7 @@ const snapshotId = await storage.createSnapshot()
 await storage.restoreSnapshot(snapshotId)
 ```
 
-### Extended Configuration
+### Configuration Options
 
 ```typescript
 import { Redis } from '@dotdo/redis'
@@ -188,29 +189,19 @@ const redis = new Redis({
   // Key prefix for all operations
   keyPrefix: 'myapp:',
 
-  // DO-specific options
-  doNamespace: env.REDIS_DO,
-
-  // Sharding configuration
-  shard: {
-    algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
-    count: 4,
-  },
-
-  // Replica configuration
-  replica: {
-    readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
-    writeThrough: true,
-    jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
-  },
-
-  // Storage backend preference
-  storage: {
-    preferKV: true,    // Use KV for simple types
-    preferSQLite: true, // Use SQLite for complex types
-  },
+  // Standard Redis options (supported)
+  host: 'localhost',
+  port: 6379,
+  password: 'secret',
+  db: 0,
+  tls: true,
+  lazyConnect: true,
+  connectTimeout: 10000,
+  commandTimeout: 5000,
 })
 ```
+
+Note: Extended options for DO namespaces, sharding, and replication are defined in types but not yet implemented in the current version.
 
 ## Outbound Mode - Connecting to Real Redis
 

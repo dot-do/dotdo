@@ -1,20 +1,15 @@
 ---
 title: MongoDB
-description: Drop-in replacement for the MongoDB driver with edge compatibility and local testing support.
+description: MongoDB-compatible in-memory document store for edge environments and testing.
 ---
 
 # MongoDB
 
-Drop-in replacement for the MongoDB Node.js driver. Your existing MongoDB code works unchanged - just swap the import.
+MongoDB-compatible document store that runs entirely in-memory. Provides a familiar MongoDB API for edge environments (Cloudflare Workers) and testing scenarios where no external database is needed.
 
 ```typescript
-// Before: MongoDB
-import { MongoClient } from 'mongodb'
-
-// After: dotdo
 import { DocumentStore } from '@dotdo/mongodb'
 
-// Code stays the same
 const store = new DocumentStore()
 const db = store.db('myapp')
 const users = db.collection('users')
@@ -24,17 +19,17 @@ await users.insertOne({ name: 'Alice', age: 30 })
 const adults = await users.find({ age: { $gte: 18 } }).toArray()
 ```
 
-## Why mongodb.do?
+## Why @dotdo/mongodb?
 
 | MongoDB Driver | @dotdo/mongodb |
 |----------------|----------------|
 | Node.js runtime required | Edge-compatible (Cloudflare Workers) |
-| Requires MongoDB server | Local mode with no external dependencies |
-| Network latency | Zero latency in local mode |
+| Requires MongoDB server | In-memory, no external dependencies |
+| Network latency | Zero latency |
 | Connection management | Stateless, instant startup |
-| Test database setup | Same code, different backends |
+| Complex test setup | Perfect for unit tests |
 
-**This is a compatibility layer.** It can either run entirely locally using Durable Objects storage (development/testing) or connect to real MongoDB Atlas (production). The API surface matches MongoDB's official driver.
+**This is an in-memory implementation** with a MongoDB-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and edge environments where you need document storage without external dependencies.
 
 ## Features
 
@@ -57,9 +52,9 @@ const adults = await users.find({ age: { $gte: 18 } }).toArray()
 - Array: `$all`, `$elemMatch`, `$size`
 
 **Update Operators**
-- Field: `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$rename`, `$setOnInsert`, `$currentDate`
-- Array: `$push`, `$pull`, `$addToSet`, `$pop`, `$pullAll`
-- Modifiers: `$each`, `$position`, `$slice`, `$sort`
+- Field: `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$setOnInsert`, `$currentDate`
+- Array: `$push`, `$pull`, `$addToSet`, `$pop`
+- Modifiers: `$each` (for `$push` and `$addToSet`)
 
 **Aggregation Pipeline**
 - `$match` - Filter documents
@@ -81,7 +76,6 @@ const adults = await users.find({ age: { $gte: 18 } }).toArray()
 - Unique indexes
 - Text indexes with BM25 scoring
 - Sparse indexes
-- TTL indexes (expireAfterSeconds)
 
 ### Not Yet Implemented
 
@@ -89,6 +83,10 @@ const adults = await users.find({ age: { $gte: 18 } }).toArray()
 - `$graphLookup` (recursive lookups)
 - `$geoNear`, `$geoWithin` (geospatial)
 - `$merge`, `$out` (output stages)
+- `$bucketAuto` (automatic bucketing)
+- TTL indexes (expireAfterSeconds stored but expiration not enforced)
+- Update operators: `$rename`, `$pullAll`
+- Array modifiers: `$position`, `$slice`, `$sort`
 - Change streams
 - Transactions
 - Sharding
@@ -283,25 +281,7 @@ id.equals(parsed) // false
 const fromTime = ObjectId.createFromTime(Date.now() / 1000)
 ```
 
-## Outbound Mode - Connecting to Real MongoDB
-
-For production, connect to MongoDB Atlas or any MongoDB server:
-
-```typescript
-import { MongoClient } from '@dotdo/mongodb/client'
-
-// Connect to MongoDB Atlas
-const client = new MongoClient(env.MONGODB_URI)
-await client.connect()
-
-const db = client.db('production')
-const users = db.collection('users')
-
-// All operations go to real MongoDB
-await users.insertOne({ name: 'Alice', age: 30 })
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -470,12 +450,21 @@ try {
 Full TypeScript support with comprehensive type definitions:
 
 ```typescript
+// Value exports (classes)
+import {
+  ObjectId,
+  MongoError,
+  MongoDuplicateKeyError,
+  DocumentStore,
+  Collection,
+} from '@dotdo/mongodb'
+
+// Type exports
 import type {
   // Core types
   Document,
   WithId,
   OptionalId,
-  ObjectId,
 
   // Filter types
   Filter,
@@ -485,6 +474,7 @@ import type {
   ElementOperators,
   EvaluationOperators,
   ArrayOperators,
+  Condition,
 
   // Update types
   UpdateFilter,
@@ -505,8 +495,14 @@ import type {
   LimitStage,
   SkipStage,
   UnwindStage,
-  LookupStage,
+  CountStage,
+  AddFieldsStage,
+  SetStage,
   FacetStage,
+  BucketStage,
+  ReplaceRootStage,
+  ReplaceWithStage,
+  SampleStage,
 
   // Index types
   IndexSpecification,
@@ -523,21 +519,22 @@ import type {
   FindOptions,
   UpdateOptions,
   DeleteOptions,
+  InsertOneOptions,
+  InsertManyOptions,
+  CountDocumentsOptions,
   AggregateOptions,
   FindOneAndUpdateOptions,
   FindOneAndDeleteOptions,
+  FindOneAndReplaceOptions,
 
   // Cursor types
   FindCursor,
   AggregationCursor,
 
   // Interface types
-  Collection,
-  Db,
-
-  // Error types
-  MongoError,
-  MongoDuplicateKeyError,
+  Collection as ICollection,
+  Db as IDb,
+  DocumentStoreOptions,
 } from '@dotdo/mongodb'
 ```
 
@@ -552,29 +549,28 @@ import type {
 |  await users.find({ status: 'active' }).toArray()            |
 +-------------------------------------------------------------+
                               |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|   Local Mode            |     |   Production Mode       |
-|   (DocumentStore)       |     |   (MongoClient)         |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> In-memory storage   |     |  -> MongoDB Atlas       |
-|  -> Zero latency        |     |  -> Real database       |
-|  -> No dependencies     |     |  -> Full MongoDB API    |
-|  -> Edge-compatible     |     |  -> Transactions        |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
+                              v
++-------------------------------------------------------------+
+|   DocumentStore (In-Memory)                                  |
++-------------------------------------------------------------+
+|                                                              |
+|  -> In-memory storage (no persistence between restarts)      |
+|  -> Zero latency                                             |
+|  -> No external dependencies                                 |
+|  -> Edge-compatible (Cloudflare Workers)                     |
+|  -> Instant startup, no connection management                |
+|                                                              |
++-------------------------------------------------------------+
 ```
 
-### Local Mode Benefits
+### Benefits
 
 - **Zero latency**: No network round-trips
 - **No dependencies**: No MongoDB server required
 - **Edge-compatible**: Runs on Cloudflare Workers
 - **Instant startup**: No connection management
 - **Predictable**: No external state
+- **Testing**: Ideal for unit tests and local development
 
 ## Common Patterns
 
@@ -668,32 +664,19 @@ await collection.updateOne(
 
 ## Migration from mongodb
 
-### Package Change
-
-```bash
-# Remove
-npm uninstall mongodb
-
-# Install
-npm install @dotdo/mongodb
-```
-
 ### Import Change
 
 ```typescript
 // Before: MongoDB driver
 import { MongoClient, ObjectId } from 'mongodb'
 
-// After: dotdo (local mode)
+// After: dotdo DocumentStore
 import { DocumentStore, ObjectId } from '@dotdo/mongodb'
-
-// Or for production MongoDB connection
-import { MongoClient, ObjectId } from '@dotdo/mongodb/client'
 ```
 
 ### Code Migration
 
-For local/testing mode (no external MongoDB needed):
+Replace `MongoClient` with `DocumentStore`:
 
 ```typescript
 // Before
@@ -702,7 +685,7 @@ await client.connect()
 const db = client.db('myapp')
 const users = db.collection('users')
 
-// After (local mode)
+// After
 const store = new DocumentStore()
 const db = store.db('myapp')
 const users = db.collection('users')
@@ -712,47 +695,34 @@ await users.insertOne({ name: 'Alice', age: 30 })
 const user = await users.findOne({ name: 'Alice' })
 ```
 
-For production (connecting to real MongoDB):
+### Testing with DocumentStore
 
-```typescript
-// Before
-import { MongoClient } from 'mongodb'
-const client = new MongoClient(process.env.MONGODB_URI)
-
-// After
-import { MongoClient } from '@dotdo/mongodb/client'
-const client = new MongoClient(process.env.MONGODB_URI)
-
-// Identical API - no code changes needed
-await client.connect()
-const db = client.db('production')
-```
-
-### Testing Strategy
-
-Use `DocumentStore` for tests, `MongoClient` for production:
+DocumentStore is ideal for unit tests - no external MongoDB required:
 
 ```typescript
 import { DocumentStore } from '@dotdo/mongodb'
-import { MongoClient } from '@dotdo/mongodb/client'
 
-function getDb(env: 'test' | 'production') {
-  if (env === 'test') {
-    // No external dependencies needed
-    const store = new DocumentStore()
-    return store.db('testdb')
-  } else {
-    // Connect to real MongoDB
-    const client = new MongoClient(process.env.MONGODB_URI!)
-    return client.db('production')
-  }
-}
+describe('UserRepository', () => {
+  let store: DocumentStore
+  let users: Collection<User>
 
-// Same API for both
-const db = getDb(process.env.NODE_ENV === 'test' ? 'test' : 'production')
-const users = db.collection('users')
-await users.find({ status: 'active' }).toArray()
+  beforeEach(() => {
+    // Fresh in-memory store for each test
+    store = new DocumentStore()
+    users = store.db('test').collection('users')
+  })
+
+  it('should create a user', async () => {
+    const result = await users.insertOne({ name: 'Alice', age: 30 })
+    expect(result.acknowledged).toBe(true)
+
+    const user = await users.findOne({ _id: result.insertedId })
+    expect(user?.name).toBe('Alice')
+  })
+})
 ```
+
+Note: DocumentStore is an in-memory implementation. Data does not persist between restarts. For production use cases requiring persistence, you would need to use the actual MongoDB driver or another persistence layer.
 
 ## Related
 

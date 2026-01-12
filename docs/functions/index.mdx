@@ -5,70 +5,124 @@ description: Serverless function primitives and execution patterns
 
 # Functions
 
-dotdo provides multiple function execution patterns for different use cases.
+dotdo provides multiple function execution patterns for different use cases. Functions are created using the `createFunction()` factory or by using the executor classes directly.
 
 ## Function Types
 
-### Code Functions
-Standard TypeScript functions executed in V8 isolates:
+dotdo supports four function types:
+
+| Type | Description | Executor Class |
+|------|-------------|----------------|
+| `code` | TypeScript/JavaScript handlers executed in V8 isolates | `CodeFunctionExecutor` |
+| `generative` | AI-powered functions using language models | `GenerativeFunctionExecutor` |
+| `agentic` | Multi-step AI tasks with tool orchestration | `AgenticFunctionExecutor` |
+| `human` | Tasks requiring human input or approval | `HumanFunctionExecutor` |
+
+## Creating Functions with createFunction()
+
+The `createFunction()` factory creates function instances based on type:
 
 ```typescript
-import { CodeFunction } from 'dotdo'
+import { createFunction } from 'dotdo/functions'
 
-export const calculateTotal = CodeFunction({
-  input: { items: 'CartItem[]' },
-  output: 'number',
-  handler: async ({ items }) => {
+// Code function
+const calculateTotal = await createFunction({
+  name: 'calculateTotal',
+  type: 'code',
+  handler: async (input, ctx) => {
+    const { items } = input as { items: Array<{ price: number; quantity: number }> }
     return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
   }
-})
+}, { env: {} })
+
+// Execute
+const result = await calculateTotal.execute({ items: [...] })
 ```
 
 ### Generative Functions
-AI-powered functions using language models:
 
 ```typescript
-import { GenerativeFunction } from 'dotdo'
-
-export const summarize = GenerativeFunction({
-  input: { text: 'string' },
-  output: 'string',
-  prompt: 'Summarize the following text in 2-3 sentences: {{text}}'
-})
+const summarize = await createFunction({
+  name: 'summarize',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Summarize the following text in 2-3 sentences: {{text}}',
+  temperature: 0.7,
+  maxTokens: 500
+}, { env: { AI: aiBinding } })
 ```
 
 ### Agentic Functions
-Functions that leverage AI agents for complex tasks:
 
 ```typescript
-import { AgenticFunction } from 'dotdo'
-import { ralph } from 'agents.do'
-
-export const buildFeature = AgenticFunction({
-  agent: ralph,
-  input: { spec: 'string' },
-  output: 'Code'
-})
+const buildFeature = await createFunction({
+  name: 'buildFeature',
+  type: 'agentic',
+  agent: 'ralph',
+  tools: ['code_search', 'file_edit', 'run_tests'],
+  maxIterations: 15,
+  systemPrompt: 'You are a senior software engineer...'
+}, { env: { AGENT_RUNNER: agentRunner } })
 ```
 
 ### Human Functions
-Functions that require human input or approval:
 
 ```typescript
-import { HumanFunction } from 'dotdo'
-import { ceo } from 'humans.do'
-
-export const approveContract = HumanFunction({
-  role: ceo,
-  input: { contract: 'Contract' },
-  output: 'boolean',
-  sla: '4 hours'
-})
+const approveContract = await createFunction({
+  name: 'approveContract',
+  type: 'human',
+  channel: 'slack',
+  prompt: 'Please review and approve contract: {{contractId}}',
+  timeout: 14400000, // 4 hours
+  escalation: {
+    timeout: 7200000, // 2 hours
+    to: 'ceo-channel'
+  }
+}, { env: { NOTIFICATIONS: notificationService } })
 ```
+
+## Using Executors Directly
+
+For more control, use the executor classes directly:
+
+```typescript
+import { CodeFunctionExecutor } from 'dotdo/executors'
+
+const executor = new CodeFunctionExecutor({
+  state: ctx.state,
+  env: env,
+  services: { ai, kv, db, queue, fetch }
+})
+
+const result = await executor.execute(
+  async (input, ctx) => {
+    ctx.log.info('Processing', { input })
+    return processData(input)
+  },
+  { data: 'example' },
+  { timeout: 5000, sandboxed: true }
+)
+```
+
+## Function Composition
+
+Functions can be composed using `chain()`, `map()`, `if()`, and other combinators:
+
+```typescript
+const pipeline = validateInput
+  .chain(processData)
+  .chain(formatOutput)
+  .catch(handleError)
+
+const result = await pipeline.execute(input)
+```
+
+See [Function Composition](/docs/functions/composition) for details.
 
 ## Related
 
-- [Concepts: Functions](/docs/concepts/functions) - Function types and cascade patterns
-- [SDK: Functions](/docs/sdk/functions) - DOFunction type reference
+- [Code Executor](/docs/functions/code-executor) - Detailed CodeFunctionExecutor documentation
+- [Function Composition](/docs/functions/composition) - Composing functions together
+- [Function Middleware](/docs/functions/middleware) - Logging, metrics, auth, and more
 - [Agents](/docs/agents) - AI agents for agentic functions
 - [Humans](/docs/humans) - Human-in-the-loop functions and escalation

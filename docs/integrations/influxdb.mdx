@@ -1,0 +1,892 @@
+---
+title: InfluxDB
+description: Drop-in replacement for InfluxDB v2 with Flux queries, line protocol, and time-series primitives on the edge.
+---
+
+# InfluxDB
+
+Drop-in replacement for InfluxDB v2 API. Your existing InfluxDB queries and line protocol work unchanged - just swap the import.
+
+```typescript
+// Before: InfluxDB client
+import { InfluxDB, Point } from '@influxdata/influxdb-client'
+
+// After: dotdo
+import { InfluxDB, Point } from '@dotdo/influxdb'
+
+// Code stays the same
+const client = new InfluxDB({ org: 'my-org' })
+const writeApi = client.getWriteApi('my-org', 'my-bucket')
+
+writeApi.writePoint(
+  Point('cpu')
+    .tag('host', 'server01')
+    .floatField('usage', 45.2)
+    .timestamp(new Date())
+)
+
+await writeApi.close()
+```
+
+## Why influxdb.do?
+
+| InfluxDB | @dotdo/influxdb |
+|----------|-----------------|
+| Requires dedicated server | Edge-compatible (Cloudflare Workers) |
+| InfluxDB Cloud pricing | Zero infrastructure cost |
+| Network latency to cluster | Zero latency in local mode |
+| Separate time-series stack | Unified with your application |
+| Connection pooling issues | DO-backed storage |
+
+**This is a time-series compatibility layer.** It provides InfluxDB v2 compatible APIs backed by unified primitives (TemporalStore, TypedColumnStore, WindowManager, InvertedIndex).
+
+## Features
+
+### Implemented (Core APIs)
+
+**Write API**
+- `WriteApi` with `writePoint()`, `writePoints()`, `writeRecord()`, `writeRecords()`
+- `Point` builder with `tag()`, `intField()`, `floatField()`, `stringField()`, `booleanField()`, `timestamp()`
+- Line protocol parsing and serialization
+- Exactly-once write semantics via ExactlyOnceContext
+
+**Query API**
+- `QueryApi` with `queryRows()`, `collectRows()`, `queryRaw()`
+- Flux query parsing: `from()`, `range()`, `filter()`, `aggregateWindow()`, `limit()`
+- Aggregation functions: `mean`, `sum`, `count`, `min`, `max`, `first`, `last`, `median`, `stddev`
+- Relative time expressions: `-1h`, `-7d`, `-30m`
+
+**Bucket Management**
+- `BucketsApi` with `createBucket()`, `getBuckets()`, `deleteBucket()`
+- Retention rules with automatic expiration
+- Organization support
+
+**Delete API**
+- `DeleteApi` with `postDelete()` for time-range deletions
+
+**Health Check**
+- `health()` endpoint for monitoring
+
+### Enhanced Primitives
+
+**Time-Series Storage**
+- `TimeSeriesStorage` - Columnar storage with Gorilla XOR compression for floats
+- Delta encoding for timestamps
+- Auto-flush buffer when threshold reached
+- Compression statistics tracking
+
+**Retention Management**
+- `RetentionManager` - Policy-based data pruning with TemporalStore
+- Duration parsing: `1h`, `7d`, `30d`, `1y`, `inf`
+- `ShardManager` - Time-based data organization for efficient queries
+
+**Downsampling**
+- `ContinuousQuery` - WindowManager-based real-time aggregation
+- `DownsampleManager` - Multiple downsampling rules
+- Tumbling window aggregations with configurable intervals
+
+**Tag Indexing**
+- `SeriesTagIndex` - InvertedIndex-based fast tag lookup
+- AND/OR query semantics
+- Measurement filtering
+- Cardinality tracking
+
+### Not Yet Implemented
+
+- InfluxQL (legacy query language)
+- Tasks and scheduled queries
+- Telegraf plugin compatibility
+- Remote InfluxDB cluster connections
+- Organizations API (full CRUD)
+
+## Installation
+
+```bash
+npm install @dotdo/influxdb
+```
+
+## Quick Start
+
+### Writing Data
+
+```typescript
+import { InfluxDB, Point } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'my-org' })
+const writeApi = client.getWriteApi('my-org', 'metrics')
+
+// Using Point builder
+writeApi.writePoint(
+  Point('temperature')
+    .tag('location', 'room1')
+    .tag('sensor', 'dht22')
+    .floatField('celsius', 23.5)
+    .floatField('humidity', 65.2)
+    .timestamp(Date.now())
+)
+
+// Using line protocol
+writeApi.writeRecord('temperature,location=room2,sensor=dht22 celsius=24.1,humidity=62.0')
+
+// Batch write
+writeApi.writePoints([
+  Point('cpu').tag('host', 'server01').floatField('usage', 45.2),
+  Point('cpu').tag('host', 'server02').floatField('usage', 62.8),
+  Point('memory').tag('host', 'server01').intField('used_mb', 4096),
+])
+
+await writeApi.close()
+```
+
+### Querying Data
+
+```typescript
+import { InfluxDB } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'my-org' })
+const queryApi = client.getQueryApi('my-org')
+
+// Flux query
+const rows = await queryApi.collectRows<{ host: string; _value: number }>(`
+  from(bucket: "metrics")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "cpu")
+  |> filter(fn: (r) => r.host == "server01")
+  |> mean()
+`)
+
+console.log(rows)
+// [{ host: 'server01', _value: 54.0 }]
+
+// Window aggregation
+const hourlyAvg = await queryApi.collectRows(`
+  from(bucket: "metrics")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "cpu")
+  |> aggregateWindow(every: 1h, fn: mean)
+`)
+```
+
+### Bucket Management
+
+```typescript
+import { InfluxDB } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'my-org' })
+const bucketsApi = client.getBucketsApi()
+
+// Create bucket with 7-day retention
+await bucketsApi.createBucket({
+  name: 'short-term-metrics',
+  orgID: 'my-org',
+  retentionRules: [{ type: 'expire', everySeconds: 7 * 24 * 60 * 60 }],
+})
+
+// List all buckets
+const buckets = await bucketsApi.getBuckets()
+
+// Delete bucket
+await bucketsApi.deleteBucket('old-bucket')
+```
+
+### Delete Data
+
+```typescript
+import { InfluxDB } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'my-org' })
+const deleteApi = client.getDeleteApi()
+
+await deleteApi.postDelete({
+  bucket: 'metrics',
+  org: 'my-org',
+  body: {
+    start: '2024-01-01T00:00:00Z',
+    stop: '2024-01-02T00:00:00Z',
+    predicate: '_measurement="cpu"',
+  },
+})
+```
+
+## Enhanced Primitives API
+
+### Time-Series Storage with Compression
+
+```typescript
+import { TimeSeriesStorage } from '@dotdo/influxdb'
+
+const storage = new TimeSeriesStorage()
+
+// Write points to a series
+const seriesKey = 'cpu:host=server01'
+
+storage.write(seriesKey, {
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: Date.now(),
+})
+
+// Read all points
+const points = storage.read(seriesKey)
+
+// Read time range
+const recent = storage.readRange(seriesKey, Date.now() - 3600000, Date.now())
+
+// Get compression statistics
+const stats = storage.getCompressionStats(seriesKey)
+console.log('Compression ratio:', stats?.compressionRatio)
+console.log('Timestamp compression:', stats?.timestampCompressionRatio)
+console.log('Point count:', stats?.pointCount)
+
+// Memory usage estimate
+const memoryBytes = storage.getMemoryUsage()
+
+// List all series
+const allSeries = storage.listSeries()
+
+// Drop a series
+storage.drop(seriesKey)
+```
+
+### Retention Policies
+
+```typescript
+import { RetentionManager } from '@dotdo/influxdb'
+
+const retention = new RetentionManager()
+
+// Create policies
+retention.createPolicy('short', { duration: '7d', isDefault: true })
+retention.createPolicy('medium', { duration: '30d' })
+retention.createPolicy('archive', { duration: '1y' })
+retention.createPolicy('forever', { duration: 'inf' })
+
+// Add points with policy
+retention.addPoint('metrics', 'short', {
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: Date.now(),
+})
+
+// Run retention to prune old data
+const stats = await retention.runRetention('metrics', 'short')
+console.log('Removed:', stats.pointsRemoved)
+console.log('Retained:', stats.pointsRetained)
+
+// Query with time range
+const points = retention.queryRange('metrics', 'short', startTime, endTime)
+
+// List policies
+const policies = retention.listPolicies()
+
+// Update policy
+retention.updatePolicy('short', { duration: '14d' })
+
+// Remove policy
+retention.removePolicy('archive')
+```
+
+### Shard Management
+
+```typescript
+import { ShardManager } from '@dotdo/influxdb'
+
+const shards = new ShardManager()
+
+// Get or create shard for timestamp (1-day shards)
+const DAY_MS = 24 * 60 * 60 * 1000
+const shard = shards.getOrCreateShard('metrics', Date.now(), DAY_MS)
+
+// Write to shard
+shards.writeToShard(shard.id, {
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: Date.now(),
+})
+
+// List all shards for a bucket
+const bucketShards = shards.listShards('metrics')
+
+// Read from specific shard
+const shardPoints = shards.readFromShard(shard.id)
+
+// Read across shards with time range
+const rangePoints = shards.readFromShards('metrics', startTime, endTime)
+
+// Drop old shards
+const cutoff = Date.now() - 7 * DAY_MS
+const droppedCount = shards.dropShardsBefore('metrics', cutoff)
+
+// Get shard statistics
+const shardStats = shards.getShardStats(shard.id)
+console.log('Points:', shardStats?.pointCount)
+console.log('Series:', shardStats?.seriesCount)
+console.log('Size (bytes):', shardStats?.sizeBytes)
+
+// Get bucket statistics
+const bucketStats = shards.getBucketStats('metrics')
+console.log('Total points:', bucketStats.totalPoints)
+console.log('Total shards:', bucketStats.totalShards)
+```
+
+### Continuous Queries and Downsampling
+
+```typescript
+import { ContinuousQuery, DownsampleManager } from '@dotdo/influxdb'
+
+// Single continuous query
+const cq = new ContinuousQuery({
+  name: 'cpu_5m',
+  sourceBucket: 'metrics',
+  destinationBucket: 'metrics_downsampled',
+  measurement: 'cpu',
+  windowSize: '5m',
+  aggregation: 'mean',
+  groupBy: ['host'],
+  onResult: (point) => {
+    console.log('Aggregated:', point)
+    // Write to destination bucket
+  },
+})
+
+// Process incoming points
+cq.process({
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: Date.now(),
+})
+
+// Advance time to trigger window
+cq.advanceTime(Date.now())
+
+// Cleanup
+cq.dispose()
+
+// DownsampleManager for multiple rules
+const downsample = new DownsampleManager()
+
+// Create multiple downsampling rules
+downsample.createRule({
+  name: 'cpu_1h',
+  sourceBucket: 'metrics',
+  destinationBucket: 'metrics_hourly',
+  measurement: 'cpu',
+  windowSize: '1h',
+  aggregation: 'mean',
+  groupBy: ['host'],
+  onResult: (point) => writeToDestination(point),
+})
+
+downsample.createRule({
+  name: 'memory_1h',
+  sourceBucket: 'metrics',
+  destinationBucket: 'metrics_hourly',
+  measurement: 'memory',
+  windowSize: '1h',
+  aggregation: 'max',
+  groupBy: ['host'],
+  onResult: (point) => writeToDestination(point),
+})
+
+// Process points through matching rules
+downsample.process('metrics', {
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: Date.now(),
+})
+
+// List all rules
+const rules = downsample.listRules()
+
+// Remove a rule
+downsample.removeRule('cpu_1h')
+
+// Cleanup all
+downsample.dispose()
+```
+
+### Tag Indexing
+
+```typescript
+import { SeriesTagIndex } from '@dotdo/influxdb'
+
+const index = new SeriesTagIndex()
+
+// Add series with tags
+index.add('cpu:host=server01,region=us-west', { host: 'server01', region: 'us-west' })
+index.add('cpu:host=server02,region=us-west', { host: 'server02', region: 'us-west' })
+index.add('cpu:host=server03,region=us-east', { host: 'server03', region: 'us-east' })
+index.add('memory:host=server01,region=us-west', { host: 'server01', region: 'us-west' })
+
+// Find series by tags (AND semantics)
+const westServers = index.findSeries({ region: 'us-west' })
+// ['cpu:host=server01,region=us-west', 'cpu:host=server02,region=us-west', 'memory:host=server01,region=us-west']
+
+// Filter by measurement
+const westCpu = index.findSeries({ region: 'us-west' }, 'cpu')
+// ['cpu:host=server01,region=us-west', 'cpu:host=server02,region=us-west']
+
+// Find series with OR semantics
+const usServers = index.findSeriesOr([
+  { region: 'us-west' },
+  { region: 'us-east' },
+])
+
+// Find all series for a measurement
+const allCpu = index.findSeriesByMeasurement('cpu')
+
+// Get unique tag keys
+const keys = index.getTagKeys()
+// ['host', 'region']
+
+// Get unique values for a tag
+const hosts = index.getTagValues('host')
+// ['server01', 'server02', 'server03']
+
+// Get cardinality
+const hostCardinality = index.getCardinality('host')
+// 3
+
+// Get all measurements
+const measurements = index.getMeasurements()
+// ['cpu', 'memory']
+
+// Total series count
+console.log('Series count:', index.seriesCount)
+
+// Serialize/deserialize for persistence
+const bytes = index.serialize()
+const restored = SeriesTagIndex.deserialize(bytes)
+
+// Remove series
+index.remove('cpu:host=server01,region=us-west')
+```
+
+## Edge Deployment
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { InfluxDB, Point, TimeSeriesStorage } from '@dotdo/influxdb'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new InfluxDB({ org: 'edge-org' })
+    const writeApi = client.getWriteApi('edge-org', 'edge-metrics')
+
+    // Track request metrics
+    const start = Date.now()
+    const url = new URL(request.url)
+
+    // ... handle request ...
+
+    // Record latency
+    writeApi.writePoint(
+      Point('http_request')
+        .tag('path', url.pathname)
+        .tag('method', request.method)
+        .intField('latency_ms', Date.now() - start)
+        .intField('status', 200)
+    )
+
+    await writeApi.close()
+
+    // Query recent metrics
+    const queryApi = client.getQueryApi('edge-org')
+    const stats = await queryApi.collectRows(`
+      from(bucket: "edge-metrics")
+      |> range(start: -5m)
+      |> filter(fn: (r) => r._measurement == "http_request")
+      |> mean()
+    `)
+
+    return Response.json({ stats })
+  },
+}
+```
+
+## API Reference
+
+### InfluxDB
+
+```typescript
+interface InfluxDBClientOptions {
+  url?: string
+  token?: string
+  org?: string
+}
+
+class InfluxDB {
+  constructor(options?: InfluxDBClientOptions)
+
+  // Write API
+  getWriteApi(org: string, bucket: string, precision?: 'ns' | 'us' | 'ms' | 's'): WriteApi
+  write(bucket: string, points: Point[]): Promise<void>
+  writeLineProtocol(bucket: string, data: string): Promise<void>
+
+  // Query API
+  getQueryApi(org: string): QueryApi
+  query(query: string | FluxQuery): Promise<QueryResult>
+
+  // Bucket management
+  getBucketsApi(): BucketsApi
+  createBucket(name: string, retentionSec?: number, org?: string): Promise<Bucket>
+  listBuckets(): Promise<Bucket[]>
+  getBucket(name: string): Promise<Bucket | null>
+  deleteBucket(name: string): Promise<boolean>
+
+  // Delete API
+  getDeleteApi(): DeleteApi
+  delete(bucket: string, predicate: DeletePredicate): Promise<void>
+
+  // Health
+  health(): Promise<Health>
+}
+```
+
+### WriteApi
+
+```typescript
+class WriteApi {
+  writePoint(point: PointBuilder): void
+  writePoints(points: PointBuilder[]): void
+  writeRecord(record: string): void
+  writeRecords(records: string[]): void
+  flush(): Promise<void>
+  close(): Promise<void>
+}
+```
+
+### Point / PointBuilder
+
+```typescript
+class PointBuilder {
+  static measurement(name: string): PointBuilder
+
+  tag(key: string, value: string): this
+  intField(key: string, value: number): this
+  floatField(key: string, value: number): this
+  stringField(key: string, value: string): this
+  booleanField(key: string, value: boolean): this
+  timestamp(time: Date | number): this
+
+  toPoint(): Point
+  toLineProtocol(): string
+}
+
+// Factory function
+function Point(measurement: string): PointBuilder
+```
+
+### QueryApi
+
+```typescript
+class QueryApi {
+  queryRows(query: string): Promise<FluxRecord[]>
+  collectRows<T = Record<string, unknown>>(query: string): Promise<T[]>
+  queryRaw(query: string): Promise<QueryResult>
+}
+```
+
+### BucketsApi
+
+```typescript
+class BucketsApi {
+  createBucket(opts: {
+    name: string
+    orgID?: string
+    retentionRules?: RetentionRule[]
+  }): Promise<Bucket>
+
+  getBuckets(): Promise<Bucket[]>
+  deleteBucket(name: string): Promise<void>
+}
+```
+
+### DeleteApi
+
+```typescript
+class DeleteApi {
+  postDelete(opts: {
+    bucket: string
+    org?: string
+    body: DeletePredicate
+  }): Promise<void>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Client types
+  InfluxDB,
+  InfluxDBClientOptions,
+
+  // Write types
+  WriteApi,
+  Point,
+  PointData,
+  ParsedLine,
+  WriteOptions,
+
+  // Query types
+  QueryApi,
+  QueryOptions,
+  FluxQuery,
+  FluxFilter,
+  FluxAggregation,
+  QueryResult,
+  FluxTable,
+  FluxColumn,
+  FluxRecord,
+
+  // Bucket types
+  Bucket,
+  BucketsApi,
+  RetentionRule,
+
+  // Delete types
+  DeleteApi,
+  DeletePredicate,
+
+  // Health types
+  Health,
+
+  // Error types
+  InfluxDBError,
+  WriteError,
+  QueryError,
+
+  // Storage types
+  TimeSeriesStorage,
+  StoredPoint,
+  CompressionStats,
+
+  // Retention types
+  RetentionManager,
+  RetentionPolicyConfig,
+  NamedRetentionPolicy,
+  RetentionStats,
+  ShardManager,
+  ShardInfo,
+  ShardStats,
+  BucketStats,
+
+  // Downsampling types
+  ContinuousQuery,
+  DownsampleManager,
+  AggregationFunction,
+  ContinuousQueryConfig,
+  DownsampleConfig,
+
+  // Tag index types
+  SeriesTagIndex,
+} from '@dotdo/influxdb'
+```
+
+## Utility Functions
+
+```typescript
+import {
+  parseLineProtocol,
+  toLineProtocol,
+  parseFluxQuery,
+  resolveRelativeTime,
+  createClient,
+} from '@dotdo/influxdb'
+
+// Parse line protocol string
+const parsed = parseLineProtocol('cpu,host=server01 usage=45.2 1609459200000000000')
+// { measurement: 'cpu', tags: { host: 'server01' }, fields: { usage: 45.2 }, timestamp: 1609459200000 }
+
+// Convert point to line protocol
+const line = toLineProtocol({
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 45.2 },
+  timestamp: 1609459200000,
+})
+// 'cpu,host=server01 usage=45.2 1609459200000'
+
+// Parse Flux query
+const query = parseFluxQuery(`
+  from(bucket: "metrics")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "cpu")
+  |> mean()
+`)
+// { bucket: 'metrics', range: { start: '-1h' }, filters: [...], aggregations: [...] }
+
+// Resolve relative time
+const timestamp = resolveRelativeTime('-1h', Date.now())
+// Date.now() - 3600000
+
+// Factory function for client
+const client = createClient({ org: 'my-org' })
+```
+
+## Common Patterns
+
+### IoT Sensor Data
+
+```typescript
+import { InfluxDB, Point, RetentionManager, DownsampleManager } from '@dotdo/influxdb'
+
+// Initialize
+const client = new InfluxDB({ org: 'iot' })
+const retention = new RetentionManager()
+const downsample = new DownsampleManager()
+
+// Set up retention policies
+retention.createPolicy('realtime', { duration: '24h' })
+retention.createPolicy('hourly', { duration: '30d' })
+retention.createPolicy('daily', { duration: '1y' })
+
+// Set up downsampling
+downsample.createRule({
+  name: 'sensors_hourly',
+  sourceBucket: 'sensors',
+  destinationBucket: 'sensors_hourly',
+  measurement: 'temperature',
+  windowSize: '1h',
+  aggregation: 'mean',
+  groupBy: ['device_id', 'location'],
+})
+
+// Ingest sensor data
+async function ingestReading(deviceId: string, location: string, temp: number) {
+  const writeApi = client.getWriteApi('iot', 'sensors')
+
+  writeApi.writePoint(
+    Point('temperature')
+      .tag('device_id', deviceId)
+      .tag('location', location)
+      .floatField('celsius', temp)
+  )
+
+  await writeApi.close()
+
+  // Also process for downsampling
+  downsample.process('sensors', {
+    measurement: 'temperature',
+    tags: { device_id: deviceId, location: location },
+    fields: { celsius: temp },
+    timestamp: Date.now(),
+  })
+}
+
+// Query recent readings
+async function getRecentReadings(location: string) {
+  const queryApi = client.getQueryApi('iot')
+
+  return queryApi.collectRows(`
+    from(bucket: "sensors")
+    |> range(start: -1h)
+    |> filter(fn: (r) => r._measurement == "temperature")
+    |> filter(fn: (r) => r.location == "${location}")
+  `)
+}
+```
+
+### Application Metrics
+
+```typescript
+import { InfluxDB, Point, TimeSeriesStorage } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'app' })
+const storage = new TimeSeriesStorage()
+
+// Record request metrics
+async function recordRequest(
+  path: string,
+  method: string,
+  statusCode: number,
+  latencyMs: number
+) {
+  const writeApi = client.getWriteApi('app', 'requests')
+
+  writeApi.writePoint(
+    Point('http_request')
+      .tag('path', path)
+      .tag('method', method)
+      .tag('status_class', `${Math.floor(statusCode / 100)}xx`)
+      .intField('status', statusCode)
+      .intField('latency_ms', latencyMs)
+  )
+
+  await writeApi.close()
+}
+
+// Calculate percentiles
+async function getLatencyStats(path: string) {
+  const queryApi = client.getQueryApi('app')
+
+  const [mean, p95, p99] = await Promise.all([
+    queryApi.collectRows(`
+      from(bucket: "requests")
+      |> range(start: -1h)
+      |> filter(fn: (r) => r.path == "${path}")
+      |> mean()
+    `),
+    // Note: percentile queries would need custom implementation
+  ])
+
+  return { mean }
+}
+```
+
+### Real-Time Dashboard
+
+```typescript
+import { InfluxDB, ContinuousQuery } from '@dotdo/influxdb'
+
+const client = new InfluxDB({ org: 'dashboard' })
+
+// Set up real-time aggregation for dashboard
+const realtimeStats = new Map<string, number>()
+
+const cq = new ContinuousQuery({
+  name: 'dashboard_1m',
+  sourceBucket: 'events',
+  destinationBucket: 'dashboard',
+  measurement: 'page_view',
+  windowSize: '1m',
+  aggregation: 'count',
+  groupBy: ['page'],
+  onResult: (point) => {
+    const page = point.tags.page ?? 'unknown'
+    realtimeStats.set(page, point.fields.count as number)
+  },
+})
+
+// Ingest page views
+function trackPageView(page: string, userId: string) {
+  const point = {
+    measurement: 'page_view',
+    tags: { page, user_id: userId },
+    fields: { count: 1 },
+    timestamp: Date.now(),
+  }
+
+  // Process through continuous query
+  cq.process(point)
+}
+
+// Get current stats
+function getDashboardStats() {
+  return Object.fromEntries(realtimeStats)
+}
+```
+
+## Related
+
+- [ClickHouse](/docs/integrations/clickhouse) - Analytics database compatibility
+- [Time-Series Storage](/docs/storage) - Storage tier documentation
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

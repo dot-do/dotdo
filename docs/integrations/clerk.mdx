@@ -48,9 +48,10 @@ The math: 50,000 MAU on Clerk = $1,000-2,500/month. On dotdo, it's included.
 | Roles & permissions | Supported |
 | JWT templates | Supported |
 | Webhooks | Supported |
-| MFA/TOTP | Supported |
+| MFA/TOTP verification | Supported |
 | OAuth providers | Planned |
 | SAML SSO | Planned |
+| Full TOTP enrollment | Planned |
 
 ## Quick Start
 
@@ -123,10 +124,8 @@ const { data, total_count } = await clerk.users.getUserList({
 ### Sessions
 
 ```typescript
-// Create session for user
-const session = await clerk.sessions.createSession({
-  userId: user.id,
-})
+// Get session by ID
+const session = await clerk.sessions.getSession('sess_123')
 
 // Get session token (JWT)
 const { jwt } = await clerk.sessions.getToken(session.id)
@@ -137,17 +136,12 @@ const { userId, sessionId, claims } = await clerk.verifyToken(jwt, {
 })
 
 // List user sessions
-const { data: sessions } = await clerk.sessions.getSessions({
-  userId: user.id,
+const { data: sessions } = await clerk.sessions.getSessionList({
+  user_id: user.id,
 })
 
 // Revoke session
 await clerk.sessions.revokeSession(session.id)
-
-// Revoke all sessions except current
-await clerk.sessions.revokeSessions(user.id, {
-  exceptSessionId: currentSessionId,
-})
 ```
 
 ### Organizations
@@ -206,19 +200,25 @@ const { jwt } = await clerk.sessions.getToken(session.id, 'supabase')
 
 ### User Verification
 
+For email and phone verification, use the extended UsersAPI:
+
 ```typescript
+import { createUsersManager } from '@dotdo/clerk'
+
+const usersManager = createUsersManager({})
+
 // Create email verification
-const { verificationId, code } = await clerk.users.createEmailVerification(
+const { verificationId, code } = await usersManager.createEmailVerification(
   user.id,
   'user@example.com'
 )
 
 // In production, send the code via email
 // Then verify with the code user provides:
-const verifiedUser = await clerk.users.verifyEmail(user.id, code)
+const verifiedUser = await usersManager.verifyEmail(user.id, code)
 
 // Phone verification works the same way
-const { verificationId: phoneVerificationId } = await clerk.users.createPhoneVerification(
+const { verificationId: phoneVerificationId } = await usersManager.createPhoneVerification(
   user.id,
   '+1234567890'
 )
@@ -227,27 +227,43 @@ const { verificationId: phoneVerificationId } = await clerk.users.createPhoneVer
 ### Password Management
 
 ```typescript
+// Verify user password
+const { verified } = await clerk.users.verifyPassword({
+  userId: user.id,
+  password: 'CurrentPassword123!',
+})
+
+// Update password via updateUser
+await clerk.users.updateUser(user.id, {
+  password: 'NewSecurePassword123!',
+})
+```
+
+For advanced password management (strength checking, reset flows), use the extended UsersAPI:
+
+```typescript
+import { createUsersManager } from '@dotdo/clerk'
+
+const usersManager = createUsersManager({ minPasswordLength: 8 })
+
 // Check password strength
-const strength = clerk.users.checkPasswordStrength('MyP@ssw0rd!')
+const strength = usersManager.checkPasswordStrength('MyP@ssw0rd!')
 // { strength: 'strong', score: 6, warnings: [], suggestions: [] }
 
-// Update password
-await clerk.users.updatePassword(user.id, 'NewSecurePassword123!')
-
 // Password reset flow
-const { resetToken, expiresAt } = await clerk.users.resetPassword(user.id)
-// Send resetToken to user's email
+const { resetToken, expiresAt } = await usersManager.resetPassword(user.id)
 ```
 
 ### User Banning
 
 ```typescript
 // Ban user
-const banned = await clerk.users.banUser(user.id, 'Violated terms of service')
+const banned = await clerk.users.banUser(user.id)
 console.log(banned.banned) // true
 
-// Check ban status
-const { banned: isBanned, reason } = await clerk.users.isUserBanned(user.id)
+// Check ban status by fetching user
+const user = await clerk.users.getUser(user.id)
+console.log(user.banned) // true
 
 // Unban user
 await clerk.users.unbanUser(user.id)
@@ -636,37 +652,48 @@ app.use('/api/:orgId/*', async (c, next) => {
 ### Role-Based Access Control
 
 ```typescript
-// Define roles with permissions
-await clerk.organizations.createOrganizationRole(org.id, {
+// Define custom roles with permissions (roles are global, not per-org)
+await clerk.organizations.createOrganizationRole({
   name: 'Editor',
   key: 'editor',
   description: 'Can edit content',
   permissions: ['content:read', 'content:write'],
 })
 
-await clerk.organizations.createOrganizationRole(org.id, {
+await clerk.organizations.createOrganizationRole({
   name: 'Viewer',
   key: 'viewer',
   description: 'Read-only access',
   permissions: ['content:read'],
 })
 
-// Check permissions
-const membership = await clerk.organizations.getOrganizationMembership({
+// Get membership list and check permissions
+const { data: memberships } = await clerk.organizations.getOrganizationMembershipList({
   organizationId: org.id,
-  userId: user.id,
 })
 
-if (membership.permissions.includes('content:write')) {
+const userMembership = memberships.find(m => m.public_user_data.user_id === user.id)
+
+if (userMembership?.permissions.includes('content:write')) {
   // Allow write access
 }
 ```
 
 ### Impersonation
 
+Session impersonation is supported via the sessions module when using the extended API:
+
 ```typescript
-// Admin creates impersonation session
-const impersonationSession = await clerk.sessions.createSession({
+import { createSessionsManager } from '@dotdo/clerk'
+
+// Using the sessions manager directly for advanced use cases
+const sessionsManager = createSessionsManager({
+  userManager,
+  jwtSecret: 'your-secret',
+})
+
+// Create impersonation session with actor
+const session = await sessionsManager.createSession({
   userId: targetUserId,
   actor: { sub: adminUserId },
 })
@@ -697,25 +724,26 @@ if (claims.act) {
 | `createUser(params)` | Create new user |
 | `getUser(userId)` | Get user by ID |
 | `getUserList(params)` | List/search users |
-| `updateUser(userId, params)` | Update user |
+| `updateUser(userId, params)` | Update user (including password) |
 | `deleteUser(userId)` | Delete user |
-| `banUser(userId, reason?)` | Ban user |
+| `banUser(userId)` | Ban user |
 | `unbanUser(userId)` | Unban user |
 | `lockUser(userId)` | Lock user account |
 | `unlockUser(userId)` | Unlock user account |
 | `verifyPassword(params)` | Verify user password |
-| `updatePassword(userId, password)` | Update password |
+| `verifyTOTP(params)` | Verify TOTP code |
+| `disableMFA(userId)` | Disable all MFA factors |
+| `getOrganizationMembershipList(params)` | Get user's org memberships |
 
 ### Sessions API
 
 | Method | Description |
 |--------|-------------|
-| `createSession(params)` | Create new session |
 | `getSession(sessionId)` | Get session by ID |
-| `getSessions(params)` | List sessions |
+| `getSessionList(params)` | List sessions |
 | `getToken(sessionId, template?)` | Get session JWT |
 | `revokeSession(sessionId)` | Revoke session |
-| `revokeSessions(userId, options?)` | Revoke all user sessions |
+| `verifySession(sessionId, token)` | Verify session and token |
 
 ### Organizations API
 

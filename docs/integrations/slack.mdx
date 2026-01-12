@@ -12,8 +12,8 @@ Drop-in replacement for the Slack JavaScript SDKs (`@slack/web-api` and `@slack/
 import { WebClient } from '@slack/web-api'
 import { App } from '@slack/bolt'
 
-// After: dotdo
-import { WebClient, App } from '@dotdo/slack'
+// After: dotdo (import from compat/slack)
+import { WebClient, App } from 'compat/slack'
 
 // Code stays the same
 const client = new WebClient('xoxb-token')
@@ -35,7 +35,7 @@ app.message('hello', async ({ say }) => {
 
 ## Why slack.do?
 
-| Slack SDK | @dotdo/slack |
+| Slack SDK | dotdo Slack |
 |-----------|--------------|
 | Node.js runtime required | Edge-compatible (Cloudflare Workers) |
 | Requires `@slack/web-api` + `@slack/bolt` | Single unified package |
@@ -102,16 +102,10 @@ app.message('hello', async ({ say }) => {
 
 ## Quick Start
 
-### Install
-
-```bash
-npm install @dotdo/slack
-```
-
 ### Basic Usage
 
 ```typescript
-import { WebClient } from '@dotdo/slack'
+import { WebClient } from 'compat/slack'
 
 const client = new WebClient('xoxb-your-token')
 

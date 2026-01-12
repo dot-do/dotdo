@@ -42,7 +42,9 @@ const subscription = await stripe.subscriptions.create({
 
 ## Features
 
-### Implemented (Core APIs)
+### Production Client (Stripe)
+
+The main `Stripe` client connects to Stripe's API and supports these resources:
 
 **Customers**
 - `create()`, `retrieve()`, `update()`, `del()`, `list()`, `search()`
@@ -63,31 +65,43 @@ const subscription = await stripe.subscriptions.create({
 **Payment Methods**
 - `create()`, `retrieve()`, `update()`, `attach()`, `detach()`, `list()`
 
-**Products & Prices**
-- Full CRUD for products and prices
-- Lookup keys, recurring prices
-
-**Invoices**
-- `create()`, `retrieve()`, `update()`, `del()`, `list()`
-- `finalizeInvoice()`, `pay()`, `voidInvoice()`, `markUncollectible()`, `sendInvoice()`
-- `retrieveUpcoming()`, `search()`
-
-**Checkout Sessions**
-- `create()`, `retrieve()`, `list()`, `listLineItems()`, `expire()`
-
-**Connect (Accounts, Transfers, Payouts)**
-- Full account management
-- Transfer creation and reversals
-- Payout management
-
 **Webhooks**
 - `constructEvent()` - Verify and parse webhook events
 - `verifySignature()` - Signature validation only
 - `generateTestHeaderString()` - Create test signatures
 
+### Local Client (StripeLocal)
+
+The `StripeLocal` client runs entirely in-memory for testing and includes additional resources:
+
+**All Production APIs** plus:
+
+**Products & Prices**
+- Full CRUD for products and prices
+- Lookup keys, recurring prices
+- `retrieveByLookupKey()` for price lookup
+
+**Webhook Endpoints**
+- `create()`, `retrieve()`, `update()`, `del()`, `list()`
+- Event delivery simulation
+
+**Events**
+- `retrieve()`, `list()` - Access to generated webhook events
+
+**Time-Travel Queries** (StripeLocal extension)
+- `customers.retrieveAsOf()` - Retrieve customer state at a point in time
+
 ### Not Yet Implemented
 
+**Production Client:**
+- Products & Prices (use StripeLocal for now, or contribute!)
+- Invoices
+- Checkout Sessions
+- Connect (Accounts, Transfers, Payouts)
 - Balance, Balance Transactions
+- Setup Intents (types only)
+
+**Both Clients:**
 - Disputes
 - Files, File Links
 - Coupons, Promotion Codes
@@ -406,74 +420,47 @@ const subscription = await stripe.subscriptions.cancel('sub_xxx', {
 })
 ```
 
-## Checkout Sessions
+## Checkout Sessions (Coming Soon)
 
-### One-Time Payment
-
-```typescript
-const session = await stripe.checkout.sessions.create({
-  mode: 'payment',
-  success_url: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
-  cancel_url: 'https://example.com/cancel',
-  line_items: [
-    {
-      price_data: {
-        currency: 'usd',
-        unit_amount: 2000,
-        product_data: { name: 'Premium Widget' },
-      },
-      quantity: 1,
-    },
-  ],
-})
-```
-
-### Subscription Checkout
+Checkout Sessions are not yet implemented in @dotdo/stripe. For now, use the official Stripe SDK for checkout flows, or use PaymentIntents directly:
 
 ```typescript
-const session = await stripe.checkout.sessions.create({
-  mode: 'subscription',
-  success_url: 'https://example.com/success',
-  cancel_url: 'https://example.com/cancel',
+// Alternative: Use PaymentIntents for custom checkout
+const paymentIntent = await stripe.paymentIntents.create({
+  amount: 2000,
+  currency: 'usd',
   customer: 'cus_xxx',
-  line_items: [{ price: 'price_monthly', quantity: 1 }],
-  subscription_data: {
-    trial_period_days: 14,
-    metadata: { plan: 'pro' },
-  },
+  automatic_payment_methods: { enabled: true },
 })
+
+// Return client_secret to frontend for Stripe Elements
+return { clientSecret: paymentIntent.client_secret }
 ```
 
-## Connect (Multi-Party Payments)
+## Connect (Coming Soon)
 
-### Create Connected Account
+Connect APIs (Accounts, Transfers, Payouts) are not yet implemented. For marketplace/platform use cases, use the official Stripe SDK alongside @dotdo/stripe:
 
 ```typescript
-const account = await stripe.accounts.create({
+import { Stripe } from '@dotdo/stripe'
+import StripeOfficial from 'stripe'
+
+// Use @dotdo/stripe for core payment operations
+const dotdoStripe = new Stripe(env.STRIPE_SECRET_KEY)
+
+// Use official SDK for Connect-specific operations
+const officialStripe = new StripeOfficial(env.STRIPE_SECRET_KEY)
+const account = await officialStripe.accounts.create({
   type: 'express',
   country: 'US',
   email: 'seller@example.com',
-  capabilities: {
-    card_payments: { requested: true },
-    transfers: { requested: true },
-  },
 })
 ```
 
-### Transfer to Connected Account
+The `stripeAccount` option IS supported for on-behalf-of requests:
 
 ```typescript
-const transfer = await stripe.transfers.create({
-  amount: 1000,
-  currency: 'usd',
-  destination: 'acct_xxx',
-  transfer_group: 'order_123',
-})
-```
-
-### On-Behalf-Of Requests
-
-```typescript
+// This works - make requests on behalf of a connected account
 const paymentIntent = await stripe.paymentIntents.create(
   {
     amount: 2000,
@@ -542,24 +529,36 @@ import type {
   PaymentIntent,
   Charge,
   Refund,
-  Invoice,
-  CheckoutSession,
+  PaymentMethod,
   Price,
-  Product,
+  SetupIntent,
 
-  // Connect types
-  Account,
-  Transfer,
-  Payout,
-
-  // Params
+  // Params (all implemented resources)
   CustomerCreateParams,
+  CustomerUpdateParams,
+  CustomerListParams,
   SubscriptionCreateParams,
+  SubscriptionUpdateParams,
+  SubscriptionListParams,
+  SubscriptionCancelParams,
   PaymentIntentCreateParams,
+  PaymentIntentUpdateParams,
+  PaymentIntentConfirmParams,
+  PaymentIntentCaptureParams,
+  PaymentIntentCancelParams,
+  PaymentIntentListParams,
+  ChargeCreateParams,
+  ChargeUpdateParams,
+  ChargeCaptureParams,
+  ChargeListParams,
+  RefundCreateParams,
+  RefundUpdateParams,
+  RefundListParams,
 
   // Responses
   ListResponse,
   DeletedObject,
+  DeletedCustomer,
 
   // Webhooks
   WebhookEvent,
@@ -568,13 +567,27 @@ import type {
   // Errors
   StripeError,
   StripeErrorResponse,
+  PaymentError,
 
   // Utilities
   Metadata,
   Address,
   Shipping,
+  BillingDetails,
   RequestOptions,
+  RangeQueryParam,
 } from '@dotdo/stripe'
+
+// For StripeLocal, additional types are available:
+import type {
+  Product,
+  ProductCreateParams,
+  ProductUpdateParams,
+  ProductListParams,
+  PriceCreateParams,
+  PriceUpdateParams,
+  PriceListParams,
+} from '@dotdo/stripe/local'
 ```
 
 ## Migration from Stripe SDK
@@ -730,26 +743,28 @@ async function reportUsage(subscriptionItemId: string, quantity: number) {
 
 ## API Coverage
 
-| Resource | Coverage | Notes |
-|----------|----------|-------|
-| Customers | Full | All CRUD + search |
-| Subscriptions | Full | Including pause/resume |
-| Payment Intents | Full | Including incremental auth |
-| Charges | Full | Legacy API |
-| Refunds | Full | Including cancel |
-| Payment Methods | Full | Attach/detach |
-| Products | Full | CRUD |
-| Prices | Full | One-time and recurring |
-| Invoices | Full | Including finalize, pay, void |
-| Checkout Sessions | Full | Payment and subscription modes |
-| Accounts (Connect) | Full | Express and Custom |
-| Transfers | Full | Including reversals |
-| Payouts | Full | Including cancel |
-| Webhooks | Full | Signature verification |
-| Setup Intents | Partial | Types only |
-| Coupons | Not yet | |
-| Tax Rates | Not yet | |
-| Disputes | Not yet | |
+| Resource | Stripe (Production) | StripeLocal | Notes |
+|----------|---------------------|-------------|-------|
+| Customers | Full | Full | All CRUD + search + time-travel |
+| Subscriptions | Full | Full | Including pause/resume |
+| Payment Intents | Full | Full | Including incremental auth |
+| Charges | Full | Full | Legacy API |
+| Refunds | Full | Full | Including cancel |
+| Payment Methods | Full | - | Attach/detach |
+| Products | Not yet | Full | CRUD (local only) |
+| Prices | Not yet | Full | One-time and recurring (local only) |
+| Invoices | Not yet | Not yet | Planned |
+| Checkout Sessions | Not yet | Not yet | Planned |
+| Accounts (Connect) | Not yet | Not yet | Planned |
+| Transfers | Not yet | Not yet | Planned |
+| Payouts | Not yet | Not yet | Planned |
+| Webhooks | Full | Full | Signature verification |
+| Webhook Endpoints | - | Full | Endpoint management (local only) |
+| Events | - | Full | Event retrieval (local only) |
+| Setup Intents | Types only | Types only | |
+| Coupons | Not yet | Not yet | |
+| Tax Rates | Not yet | Not yet | |
+| Disputes | Not yet | Not yet | |
 
 ## Related
 

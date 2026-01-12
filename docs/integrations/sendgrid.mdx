@@ -40,12 +40,16 @@ Your existing SendGrid code works unchanged. No migration required.
 | Attachments | Supported |
 | Categories & custom args | Supported |
 | Scheduled sending | Supported |
-| Template CRUD | Supported |
+| Template CRUD (API) | Supported |
+| Template CRUD (local storage) | Supported |
 | Contact management | Supported |
 | Lists management | Supported |
 | Email statistics | Supported |
 | Exactly-once delivery | Supported |
-| Webhooks | Planned |
+| Idempotent sending | Supported |
+| Email log history | Supported |
+| Transactional batching | Supported |
+| Webhook handling | Planned |
 
 ## Quick Start
 
@@ -216,10 +220,20 @@ import { SendGridClient } from '@dotdo/sendgrid'
 const client = new SendGridClient({ apiKey: 'SG.xxx' })
 
 // Mail
-await client.mail.send({ ... })
-await client.mail.sendMultiple({ ... })
+await client.mail.send({
+  to: 'user@example.com',
+  from: 'noreply@example.com',
+  subject: 'Hello',
+  text: 'Hello World',
+})
+await client.mail.sendMultiple({
+  to: ['user1@example.com', 'user2@example.com'],
+  from: 'noreply@example.com',
+  subject: 'Announcement',
+  html: '<p>Important update</p>',
+})
 
-// Templates
+// Templates (via SendGrid API)
 const template = await client.templates.create({
   name: 'Welcome Email',
   generation: 'dynamic',
@@ -230,22 +244,33 @@ await client.templates.createVersion(template.id, {
   html_content: '<h1>Hello {{name}}</h1>',
   active: 1,
 })
+await client.templates.activateVersion(template.id, 'version-id')
+const allTemplates = await client.templates.list({ generations: 'dynamic' })
 
-// Contacts
-await client.contacts.add([
+// Contacts (via SendGrid Marketing API)
+const addResult = await client.contacts.add([
   { email: 'user@example.com', first_name: 'John' },
 ])
-const { result } = await client.contacts.search({ query: 'email LIKE \'%@example.com\'' })
+const contact = await client.contacts.get('contact-id')
+const byEmail = await client.contacts.getByEmail(['user@example.com'])
+const { result } = await client.contacts.search({ query: "email LIKE '%@example.com'" })
+const count = await client.contacts.count()
 
 // Lists
 const list = await client.lists.create({ name: 'Newsletter' })
 await client.lists.addContacts(list.id, ['contact-id-1', 'contact-id-2'])
+await client.lists.removeContacts(list.id, ['contact-id-3'])
+const allLists = await client.lists.list()
 
 // Stats
 const stats = await client.stats.global({
   start_date: '2024-01-01',
   end_date: '2024-01-31',
   aggregated_by: 'day',
+})
+const categoryStats = await client.stats.categories({
+  start_date: '2024-01-01',
+  categories: ['newsletter', 'transactional'],
 })
 ```
 
@@ -256,8 +281,14 @@ Manage templates locally with DO-backed storage:
 ```typescript
 import { TemplateManager } from '@dotdo/sendgrid'
 
+// With KV storage
 const manager = new TemplateManager({
-  kv: env.TEMPLATES_KV, // or sql: ctx.storage.sql
+  kv: env.TEMPLATES_KV,
+})
+
+// Or with DO SQLite storage
+const manager = new TemplateManager({
+  sql: ctx.storage.sql,
 })
 
 // Create template
@@ -305,7 +336,7 @@ import { DurableSendGridClient } from '@dotdo/sendgrid'
 
 const client = new DurableSendGridClient({
   apiKey: 'SG.xxx',
-  eventIdTtl: 24 * 60 * 60 * 1000, // 24 hours
+  eventIdTtl: 24 * 60 * 60 * 1000, // 24 hours (default)
   maxBufferedEmails: 100,
 })
 
@@ -324,21 +355,44 @@ if (await client.isProcessed('order-123-confirmation')) {
 
 // Transactional batch
 await client.transaction(async (tx) => {
-  await tx.queueEmail({ to: 'user1@example.com', from: 'noreply@example.com', subject: 'Update', text: '...' })
-  await tx.queueEmail({ to: 'user2@example.com', from: 'noreply@example.com', subject: 'Update', text: '...' })
+  await tx.queueEmail({
+    to: 'user1@example.com',
+    from: 'noreply@example.com',
+    subject: 'Update',
+    text: 'Important update for you.',
+  })
+  await tx.queueEmail({
+    to: 'user2@example.com',
+    from: 'noreply@example.com',
+    subject: 'Update',
+    text: 'Important update for you.',
+  })
 })
 await client.flush()
 
-// Email logs with time-travel
+// Email logs with temporal queries
 const log = await client.getEmailLog('order-123-confirmation')
+const allLogs = await client.getEmailLogs()
+const logsAsOf = await client.getEmailLogsAsOf(Date.now() - 3600000) // 1 hour ago
+
+// Status history tracking
 const history = await client.getEmailStatusHistory('order-123-confirmation')
 // [{ status: 'queued', timestamp: ... }, { status: 'sent', timestamp: ... }]
 
-// Status updates from webhooks
+// Update status from webhook events
 await client.updateEmailStatus('order-123-confirmation', 'delivered', {
   timestamp: Date.now(),
   provider_message_id: 'sg-msg-xxx',
 })
+
+// Checkpoint management for distributed systems
+const epoch = client.getEpoch()
+const checkpointState = await client.getCheckpointState()
+await client.restoreFromCheckpoint(checkpointState)
+
+// Snapshot for persistence
+const snapshotId = await client.createSnapshot()
+await client.restoreSnapshot(snapshotId)
 ```
 
 ## Integration with Email Channels
@@ -346,11 +400,11 @@ await client.updateEmailStatus('order-123-confirmation', 'delivered', {
 Use SendGrid with dotdo's email channel system for human-in-the-loop workflows:
 
 ```typescript
-import { EmailChannel } from 'dotdo/channels/email'
+import { EmailChannel, renderApprovalEmail } from 'dotdo/channels/email'
 
 const email = new EmailChannel({
   provider: 'sendgrid',
-  apiKey: process.env.SENDGRID_API_KEY,
+  apiKey: process.env.SENDGRID_API_KEY!,
   from: 'approvals@yourcompany.com',
   tracking: { opens: true },
 })
@@ -363,9 +417,7 @@ await email.send({
 })
 
 // Use with approval workflows
-import { renderApprovalEmail } from 'dotdo/channels/email'
-
-const { html, text } = renderApprovalEmail({
+const result = renderApprovalEmail({
   message: 'Please approve this expense report',
   requestId: 'expense-123',
   baseUrl: 'https://app.yourcompany.com',
@@ -375,6 +427,9 @@ const { html, text } = renderApprovalEmail({
   },
   returnBoth: true,
 })
+
+// When returnBoth is true, result is { html, text }
+const { html, text } = result as { html: string; text: string }
 
 await sgMail.send({
   to: 'approver@example.com',
@@ -400,7 +455,6 @@ import type {
   ResponseError,
 
   // Client types
-  SendGridClient,
   SendGridClientConfig,
   MailData,
   MailSendResponse,
@@ -410,25 +464,64 @@ import type {
   Template,
   TemplateVersion,
   TemplateCreateParams,
+  TemplateUpdateParams,
   TemplateVersionCreateParams,
+  TemplateVersionUpdateParams,
+  TemplateListParams,
+  TemplateListResponse,
 
   // Contact types
   Contact,
   ContactCreateParams,
+  ContactAddOptions,
+  ContactAddResponse,
   ContactSearchParams,
+  ContactSearchResponse,
+  ContactCountResponse,
+  ContactExportResponse,
+  ContactDeleteParams,
+  ContactDeleteResponse,
   ContactList,
+  ContactListCreateParams,
+  ContactListUpdateParams,
+  ContactListListResponse,
 
   // Stats types
   StatsParams,
+  CategoryStatsParams,
+  SubuserStatsParams,
   EmailMetrics,
   EmailStats,
 
   // Durable types
-  DurableSendGridClient,
+  DurableSendGridClientConfig,
   DurableSendOptions,
   EmailLog,
   EmailLogStatus,
   EmailTransaction,
+
+  // Template Manager types
+  TemplateManagerConfig,
+  RenderResult,
+
+  // Contact Manager types
+  ContactManagerConfig,
+  JobResult,
+  ContactExportOptions,
+} from '@dotdo/sendgrid'
+
+// Classes are imported directly
+import {
+  SendGridClient,
+  DurableSendGridClient,
+  TemplateManager,
+  ContactManager,
+  SendGridError,
+  MailResource,
+  TemplatesResource,
+  ContactsResource,
+  ListsResource,
+  StatsResource,
 } from '@dotdo/sendgrid'
 ```
 

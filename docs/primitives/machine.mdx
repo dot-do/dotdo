@@ -1,0 +1,436 @@
+---
+title: machine - Durable State Machines
+description: XState v5 state machines with DO persistence for payment flows, call sessions, and stateful workflows
+---
+
+# machine - Durable State Machines
+
+Durable Object-backed state machines powered by XState v5. Build payment flows, call sessions, order workflows, and any stateful process that needs to persist across restarts.
+
+## Quick Start
+
+```typescript
+import { Machine } from 'dotdo/primitives/machine'
+
+// Define a payment flow
+const PaymentMachine = Machine.define({
+  id: 'payment',
+  initial: 'pending',
+  context: {
+    amount: 0,
+    attempts: 0
+  },
+  states: {
+    pending: {
+      on: {
+        SUBMIT: { target: 'processing' }
+      }
+    },
+    processing: {
+      on: {
+        SUCCESS: { target: 'completed' },
+        FAILURE: {
+          target: 'failed',
+          actions: [(ctx) => ({ ...ctx, attempts: ctx.attempts + 1 })]
+        }
+      }
+    },
+    completed: { type: 'final' },
+    failed: {
+      on: {
+        RETRY: {
+          target: 'processing',
+          guard: (ctx) => ctx.attempts < 3
+        }
+      }
+    }
+  }
+})
+
+// Create and use
+const machine = PaymentMachine.create({ amount: 99.99 })
+await machine.send({ type: 'SUBMIT' })
+console.log(machine.state) // 'processing'
+```
+
+## Machine Definition
+
+Define state machines with a type-safe configuration:
+
+```typescript
+interface OrderContext {
+  orderId: string
+  items: string[]
+  total: number
+}
+
+type OrderEvent =
+  | { type: 'CONFIRM' }
+  | { type: 'CANCEL' }
+  | { type: 'SHIP' }
+  | { type: 'DELIVER' }
+
+const OrderMachine = Machine.define<
+  'draft' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled',
+  OrderEvent,
+  OrderContext
+>({
+  id: 'order',
+  initial: 'draft',
+  context: {
+    orderId: '',
+    items: [],
+    total: 0
+  },
+  states: {
+    draft: {
+      on: {
+        CONFIRM: { target: 'confirmed' },
+        CANCEL: { target: 'cancelled' }
+      }
+    },
+    confirmed: {
+      on: {
+        SHIP: { target: 'shipped' },
+        CANCEL: { target: 'cancelled' }
+      }
+    },
+    shipped: {
+      on: {
+        DELIVER: { target: 'delivered' }
+      }
+    },
+    delivered: { type: 'final' },
+    cancelled: { type: 'final' }
+  }
+})
+```
+
+## State Transitions
+
+Send events to transition between states:
+
+```typescript
+const machine = OrderMachine.create({
+  orderId: 'ord_123',
+  items: ['item-1', 'item-2'],
+  total: 149.99
+})
+
+// Send events
+await machine.send({ type: 'CONFIRM' })
+console.log(machine.state) // 'confirmed'
+
+await machine.send({ type: 'SHIP' })
+console.log(machine.state) // 'shipped'
+
+// Check if event is allowed
+if (machine.can({ type: 'CANCEL' })) {
+  await machine.send({ type: 'CANCEL' })
+}
+```
+
+## Guards
+
+Add conditional logic to transitions:
+
+```typescript
+const CheckoutMachine = Machine.define({
+  id: 'checkout',
+  initial: 'cart',
+  context: {
+    items: [],
+    total: 0,
+    paymentMethod: null
+  },
+  states: {
+    cart: {
+      on: {
+        CHECKOUT: {
+          target: 'payment',
+          guard: (ctx) => ctx.items.length > 0
+        }
+      }
+    },
+    payment: {
+      on: {
+        PAY: {
+          target: 'confirmed',
+          guard: (ctx) => ctx.paymentMethod !== null
+        },
+        BACK: { target: 'cart' }
+      }
+    },
+    confirmed: { type: 'final' }
+  }
+})
+```
+
+## Actions
+
+Update context during transitions:
+
+```typescript
+const CounterMachine = Machine.define({
+  id: 'counter',
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          target: 'active',
+          actions: [(ctx) => ({ count: ctx.count + 1 })]
+        },
+        DECREMENT: {
+          target: 'active',
+          actions: [(ctx) => ({ count: ctx.count - 1 })]
+        },
+        RESET: {
+          target: 'active',
+          actions: [() => ({ count: 0 })]
+        }
+      }
+    }
+  }
+})
+```
+
+## Entry and Exit Actions
+
+Execute actions when entering or exiting states:
+
+```typescript
+const SessionMachine = Machine.define({
+  id: 'session',
+  initial: 'idle',
+  context: {
+    startedAt: null,
+    endedAt: null
+  },
+  states: {
+    idle: {
+      on: {
+        START: { target: 'active' }
+      }
+    },
+    active: {
+      entry: [(ctx) => ({ ...ctx, startedAt: new Date() })],
+      exit: [(ctx) => ({ ...ctx, endedAt: new Date() })],
+      on: {
+        END: { target: 'completed' }
+      }
+    },
+    completed: { type: 'final' }
+  }
+})
+```
+
+## Persistence
+
+Persist and restore machine state with DO storage:
+
+```typescript
+class PaymentDO extends DO {
+  private machine: Machine
+
+  async init() {
+    // Create machine with storage for persistence
+    this.machine = PaymentMachine.create(
+      { amount: 0 },
+      this.ctx.storage // DO storage adapter
+    )
+
+    // Restore from previous state
+    await this.machine.restore(this.ctx.id.toString())
+  }
+
+  async processPayment(amount: number) {
+    this.machine = PaymentMachine.create({ amount }, this.ctx.storage)
+    await this.machine.send({ type: 'SUBMIT' })
+
+    // Persist state after transition
+    await this.machine.persist()
+  }
+
+  async completePayment() {
+    await this.machine.send({ type: 'SUCCESS' })
+    await this.machine.persist()
+  }
+}
+```
+
+## Event Handlers
+
+Subscribe to state transitions:
+
+```typescript
+const machine = OrderMachine.create()
+
+// Listen to all transitions
+const unsubscribe = machine.onTransition((from, to, event) => {
+  console.log(`Transitioned from ${from} to ${to} via ${event.type}`)
+})
+
+// Listen to specific state entry
+machine.onState('shipped', (context) => {
+  console.log(`Order ${context.orderId} has shipped!`)
+  sendShipmentNotification(context.orderId)
+})
+```
+
+## Real-World Examples
+
+### Call Session
+
+```typescript
+const CallMachine = Machine.define({
+  id: 'call',
+  initial: 'idle',
+  context: {
+    callId: '',
+    startTime: null,
+    endTime: null,
+    duration: 0
+  },
+  states: {
+    idle: {
+      on: {
+        DIAL: { target: 'dialing' }
+      }
+    },
+    dialing: {
+      on: {
+        ANSWER: {
+          target: 'connected',
+          actions: [(ctx) => ({ ...ctx, startTime: Date.now() })]
+        },
+        NO_ANSWER: { target: 'ended' },
+        BUSY: { target: 'ended' }
+      }
+    },
+    connected: {
+      on: {
+        HOLD: { target: 'on_hold' },
+        HANGUP: {
+          target: 'ended',
+          actions: [(ctx) => ({
+            ...ctx,
+            endTime: Date.now(),
+            duration: Date.now() - ctx.startTime
+          })]
+        }
+      }
+    },
+    on_hold: {
+      on: {
+        RESUME: { target: 'connected' },
+        HANGUP: { target: 'ended' }
+      }
+    },
+    ended: { type: 'final' }
+  }
+})
+```
+
+### Subscription Lifecycle
+
+```typescript
+const SubscriptionMachine = Machine.define({
+  id: 'subscription',
+  initial: 'trial',
+  context: {
+    plan: 'trial',
+    billingCycle: 'monthly',
+    renewsAt: null
+  },
+  states: {
+    trial: {
+      on: {
+        CONVERT: { target: 'active' },
+        EXPIRE: { target: 'expired' }
+      }
+    },
+    active: {
+      on: {
+        CANCEL: { target: 'cancelled' },
+        PAYMENT_FAILED: { target: 'past_due' },
+        UPGRADE: {
+          target: 'active',
+          actions: [(ctx, event) => ({ ...ctx, plan: event.plan })]
+        }
+      }
+    },
+    past_due: {
+      on: {
+        PAYMENT_SUCCESS: { target: 'active' },
+        CANCEL: { target: 'cancelled' }
+      }
+    },
+    cancelled: {
+      on: {
+        REACTIVATE: { target: 'active' }
+      }
+    },
+    expired: { type: 'final' }
+  }
+})
+```
+
+## Type Definitions
+
+```typescript
+interface MachineConfig<TState, TEvent, TContext> {
+  id: string
+  initial: TState
+  context?: TContext
+  states: Record<TState, StateConfig<TState, TEvent, TContext>>
+}
+
+interface StateConfig<TState, TEvent, TContext> {
+  type?: 'final'
+  on?: Record<string, TransitionConfig<TState, TEvent, TContext>>
+  entry?: Action<TContext, TEvent>[]
+  exit?: Action<TContext, TEvent>[]
+}
+
+interface TransitionConfig<TState, TEvent, TContext> {
+  target: TState
+  guard?: (context: TContext, event: TEvent) => boolean
+  actions?: Action<TContext, TEvent>[]
+}
+
+type Action<TContext, TEvent> = (
+  context: TContext,
+  event: TEvent
+) => Partial<TContext> | void
+
+interface Machine<TState, TEvent, TContext> {
+  state: TState
+  context: TContext
+  send(event: TEvent): Promise<TState>
+  can(event: TEvent): boolean
+  onTransition(handler: TransitionHandler<TState, TEvent>): () => void
+  onState(state: TState, handler: StateHandler<TContext>): () => void
+  persist(): Promise<void>
+  restore(id: string): Promise<void>
+  stop(): void
+}
+```
+
+## XState v5 Compatibility
+
+The machine primitive is a thin wrapper around XState v5, providing:
+
+- Full XState actor model
+- Persisted snapshots via DO storage
+- Type-safe event handling
+- Guards, actions, and context updates
+
+For advanced features like parallel states, history, and invoked actors, use XState directly with the DO storage adapter.
+
+## Next Steps
+
+- [workflow-orchestrator](/docs/primitives/workflow-orchestrator) - Multi-step workflow execution
+- [channel](/docs/primitives/channel) - Pub/sub for state change notifications
+- [Capabilities](/docs/sdk/capabilities) - Add state machines to your DOs

@@ -5,7 +5,7 @@ description: Execute TypeScript functions in a controlled, sandboxed environment
 
 # Code Function Executor
 
-The CodeFunctionExecutor runs TypeScript/JavaScript handlers in a controlled V8 isolate environment with context injection, sandboxing, timeouts, retries, and resource limits.
+The `CodeFunctionExecutor` runs TypeScript/JavaScript handlers in a controlled V8 isolate environment with context injection, sandboxing, timeouts, retries, and resource limits.
 
 ## Overview
 
@@ -21,15 +21,38 @@ Code functions are the fastest and most deterministic function type. They execut
 ## Basic Usage
 
 ```typescript
-import { CodeFunction } from 'dotdo'
+import { CodeFunctionExecutor } from 'dotdo/executors'
 
-export const calculateTotal = CodeFunction({
-  input: { items: 'CartItem[]' },
-  output: 'number',
-  handler: async ({ items }) => {
-    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  }
+// Create the executor with required dependencies
+const executor = new CodeFunctionExecutor({
+  state: ctx.state,        // Durable Object state
+  env: ctx.env,            // Environment variables
+  services: {
+    ai: { generate: ... },
+    kv: { get, put },
+    db: { query },
+    queue: { send },
+    fetch
+  },
+  logger: console,
+  onEvent: (event, data) => console.log(event, data)
 })
+
+// Execute a handler function
+const result = await executor.execute(
+  async (input, ctx) => {
+    const { items } = input as { items: Array<{ price: number; quantity: number }> }
+    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  },
+  { items: [{ price: 10, quantity: 2 }] },
+  { timeout: 5000 }
+)
+
+if (result.success) {
+  console.log('Total:', result.result)
+} else {
+  console.error('Error:', result.error)
+}
 ```
 
 ## Sync vs Async Execution
@@ -39,11 +62,11 @@ export const calculateTotal = CodeFunction({
 Simple computations that return immediately:
 
 ```typescript
-const multiply = CodeFunction({
-  input: { a: 'number', b: 'number' },
-  output: 'number',
-  handler: ({ a, b }) => a * b
-})
+const result = await executor.execute(
+  ({ a, b }) => a * b,
+  { a: 3, b: 4 }
+)
+// result.result === 12
 ```
 
 ### Asynchronous Functions
@@ -51,21 +74,22 @@ const multiply = CodeFunction({
 Functions that need to await external resources:
 
 ```typescript
-const fetchUser = CodeFunction({
-  input: { userId: 'string' },
-  output: 'User',
-  handler: async ({ userId }, ctx) => {
-    const cached = await ctx.state.get(`user:${userId}`)
+const result = await executor.execute(
+  async (input, ctx) => {
+    const { userId } = input as { userId: string }
+
+    const cached = await ctx.state.get<User>(`user:${userId}`)
     if (cached) return cached
 
-    const user = await ctx.services.db.query(
+    const users = await ctx.services.db.query<User>(
       'SELECT * FROM users WHERE id = ?',
       [userId]
     )
-    await ctx.state.put(`user:${userId}`, user[0])
-    return user[0]
-  }
-})
+    await ctx.state.put(`user:${userId}`, users[0])
+    return users[0]
+  },
+  { userId: 'user-123' }
+)
 ```
 
 ## Execution Context
@@ -99,10 +123,9 @@ interface ExecutionContext {
 ### Using Context Services
 
 ```typescript
-const processOrder = CodeFunction({
-  input: { orderId: 'string' },
-  output: 'OrderResult',
-  handler: async ({ orderId }, ctx) => {
+const result = await executor.execute(
+  async (input, ctx) => {
+    const { orderId } = input as { orderId: string }
     ctx.log.info('Processing order', { orderId })
 
     const order = await ctx.services.db.query(
@@ -112,17 +135,19 @@ const processOrder = CodeFunction({
 
     await ctx.emit('order.processing', { orderId })
 
-    const result = await ctx.services.fetch(
+    const response = await ctx.services.fetch(
       `${ctx.env.PAYMENT_API}/charge`,
       {
         method: 'POST',
         body: JSON.stringify({ amount: order[0].total })
       }
     )
+    const paymentResult = await response.json()
 
-    return { success: true, transactionId: result.id }
-  }
-})
+    return { success: true, transactionId: paymentResult.id }
+  },
+  { orderId: 'order-123' }
+)
 ```
 
 ## Error Handling
@@ -139,44 +164,65 @@ import {
   ExecutionRetryExhaustedError,
   ExecutionCancelledError,
   ExecutionValidationError
-} from 'dotdo/executors'
+} from 'dotdo/executors/CodeFunctionExecutor'
 ```
+
+| Error Type | Description |
+|------------|-------------|
+| `ExecutionTimeoutError` | Function exceeded timeout limit |
+| `ExecutionSandboxError` | Attempted to access restricted globals |
+| `ExecutionResourceError` | Memory, CPU, or output size limit exceeded |
+| `ExecutionRetryExhaustedError` | All retry attempts failed |
+| `ExecutionCancelledError` | Execution was cancelled via AbortSignal |
+| `ExecutionValidationError` | Input or output validation failed |
 
 ### Handling Errors
 
 ```typescript
-const riskyOperation = CodeFunction({
-  input: { data: 'unknown' },
-  output: 'Result',
-  handler: async ({ data }, ctx) => {
+const result = await executor.execute(
+  async (input, ctx) => {
+    const { data } = input as { data: unknown }
     try {
-      const result = await processData(data)
-      return { success: true, result }
+      const processed = await processData(data)
+      return { success: true, result: processed }
     } catch (error) {
-      ctx.log.error('Processing failed', { error: error.message })
+      ctx.log.error('Processing failed', { error: (error as Error).message })
       throw error // Will be caught by executor
     }
+  },
+  { data: someData }
+)
+
+if (!result.success) {
+  if (result.error instanceof ExecutionTimeoutError) {
+    console.log('Function timed out after', result.error.timeout, 'ms')
+  } else if (result.error instanceof ExecutionSandboxError) {
+    console.error('Sandbox violation:', result.error.message)
+  } else if (result.error instanceof ExecutionResourceError) {
+    console.error('Resource limit exceeded:', result.error.resource)
+  } else if (result.error instanceof ExecutionRetryExhaustedError) {
+    console.error('All retries failed after', result.error.attempts, 'attempts')
   }
-})
+}
 ```
 
 ### Custom Error Recovery
 
 ```typescript
-const withFallback = CodeFunction({
-  input: { query: 'string' },
-  output: 'SearchResult[]',
-  handler: async ({ query }, ctx) => {
+const result = await executor.execute(
+  async (input, ctx) => {
+    const { query } = input as { query: string }
     try {
       return await ctx.services.search(query)
     } catch (error) {
       // Fall back to cached results
-      const cached = await ctx.state.get(`search:${query}`)
+      const cached = await ctx.state.get<SearchResult[]>(`search:${query}`)
       if (cached) return cached
       throw new Error('Search unavailable and no cached results')
     }
-  }
-})
+  },
+  { query: 'search term' }
+)
 ```
 
 ## Timeouts and Resource Limits

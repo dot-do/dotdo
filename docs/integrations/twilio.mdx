@@ -597,59 +597,70 @@ const verification = await verify.verifications('VE123').fetch()
 await verify.verifications('VE123').update({ status: 'canceled' })
 ```
 
-### Recordings
+### Recordings (VoiceClient)
 
 ```typescript
+import { VoiceClient } from '@dotdo/twilio/voice'
+
+const voice = new VoiceClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
+
 // Start recording on active call
-const recording = await client.calls('CA123').recordings.create({
+const recording = await voice.calls('CA123').recordings.create({
   recordingChannels: 'dual',
   recordingStatusCallback: 'https://example.com/recording-status',
 })
 
-// List recordings
-const recordings = await client.recordings.list({ callSid: 'CA123' })
+// List recordings for a call
+const recordings = await voice.calls('CA123').recordings.list()
+
+// List all recordings
+const allRecordings = await voice.recordings.list({ callSid: 'CA123' })
 
 // Get recording
-const recording = await client.recordings('RE123').fetch()
+const recording = await voice.recordings('RE123').fetch()
 
 // Delete recording
-await client.recordings('RE123').delete()
+await voice.recordings('RE123').delete()
 
 // Pause/resume recording
-await client.calls('CA123').recordings.update('RE123', { status: 'paused' })
-await client.calls('CA123').recordings.update('RE123', { status: 'in-progress' })
+await voice.calls('CA123').recordings.update('RE123', { status: 'paused' })
+await voice.calls('CA123').recordings.update('RE123', { status: 'in-progress' })
 ```
 
-### Conferences
+### Conferences (VoiceClient)
 
 ```typescript
+import { VoiceClient } from '@dotdo/twilio/voice'
+
+const voice = new VoiceClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
+
 // List conferences
-const conferences = await client.conferences.list({
+const conferences = await voice.conferences.list({
   status: 'in-progress',
   friendlyName: 'MyRoom',
 })
 
 // Get conference
-const conference = await client.conferences('CF123').fetch()
+const conference = await voice.conferences('CF123').fetch()
 
 // Add participant
-const participant = await client.conferences('CF123').participants.create({
+const participant = await voice.conferences('CF123').participants.create({
   from: '+15017122661',
   to: '+15558675310',
   startConferenceOnEnter: true,
 })
 
 // Update participant
-await client.conferences('CF123').participants('CA123').update({
+await voice.conferences('CF123').participants('CA123').update({
   muted: true,
   hold: false,
 })
 
 // Remove participant
-await client.conferences('CF123').participants('CA123').delete()
+await voice.conferences('CF123').participants('CA123').delete()
 
 // End conference
-await client.conferences('CF123').update({ status: 'completed' })
+await voice.conferences('CF123').update({ status: 'completed' })
 ```
 
 ## Error Handling

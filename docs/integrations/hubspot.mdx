@@ -114,15 +114,27 @@ const deal = await hubspot.crm.deals.basicApi.create({
 - Contact enrollment and unenrollment
 - Workflow analytics and stats
 
+**Forms API**
+- `HubSpotForms.createForm()`, `getForm()`, `updateForm()`, `deleteForm()`
+- Form publishing and state management
+- Form submissions with validation
+- Field groups and field management
+- Form statistics and analytics
+
+**Webhooks API**
+- `HubSpotWebhooks.subscribe()`, `unsubscribe()`, `updateSubscription()`
+- Event triggering and delivery
+- Signature verification (v1 and v2)
+- Delivery retry with exponential backoff
+- Event history and delivery logs
+
 ### Not Yet Implemented
 
 - Marketing Emails API
-- Forms API
 - Landing Pages API
 - Blog API
 - Files API
 - OAuth helpers
-- Webhooks verification
 
 ## Quick Start
 
@@ -318,6 +330,97 @@ await workflows.enrollContact(workflow.id, 'contact-123')
 // Get workflow stats
 const stats = await workflows.getWorkflowStats(workflow.id)
 console.log(`Conversion rate: ${stats.conversionRate}%`)
+```
+
+### Forms (Local)
+
+```typescript
+import { HubSpotForms } from '@dotdo/hubspot/forms'
+
+const forms = new HubSpotForms(ctx.storage)
+
+// Create a form
+const form = await forms.createForm({
+  name: 'Contact Form',
+  formType: 'hubspot',
+  fieldGroups: [{
+    groupType: 'default_group',
+    fields: [
+      { name: 'email', label: 'Email', fieldType: 'text', required: true, hidden: false },
+      { name: 'firstname', label: 'First Name', fieldType: 'text', required: false, hidden: false },
+      { name: 'message', label: 'Message', fieldType: 'textarea', required: false, hidden: false },
+    ],
+  }],
+  submitButtonText: 'Submit',
+  redirectUrl: '/thank-you',
+})
+
+// Publish the form
+await forms.publishForm(form.id)
+
+// Handle form submission
+const result = await forms.submitForm(form.id, {
+  fields: [
+    { name: 'email', value: 'user@example.com' },
+    { name: 'firstname', value: 'John' },
+    { name: 'message', value: 'Hello!' },
+  ],
+  context: {
+    pageUri: 'https://example.com/contact',
+    pageName: 'Contact Us',
+  },
+})
+
+// Get form submissions
+const submissions = await forms.listSubmissions(form.id)
+
+// Get form statistics
+const stats = await forms.getFormStats(form.id)
+console.log(`Total submissions: ${stats.totalSubmissions}`)
+```
+
+### Webhooks (Local)
+
+```typescript
+import { HubSpotWebhooks } from '@dotdo/hubspot/webhooks'
+
+const webhooks = new HubSpotWebhooks(ctx.storage, {
+  appId: 'app_123',
+  clientSecret: env.HUBSPOT_CLIENT_SECRET,
+})
+
+// Subscribe to contact creation events
+await webhooks.subscribe({
+  eventType: 'contact.creation',
+  webhookUrl: 'https://example.com/webhook/contacts',
+  active: true,
+})
+
+// Subscribe to deal stage changes
+await webhooks.subscribe({
+  eventType: 'deal.propertyChange',
+  webhookUrl: 'https://example.com/webhook/deals',
+  propertyName: 'dealstage',
+  active: true,
+})
+
+// Trigger an event (called internally when CRM objects change)
+await webhooks.triggerEvent({
+  eventType: 'contact.creation',
+  objectType: 'contact',
+  objectId: '123',
+})
+
+// Verify incoming webhook signature
+const isValid = webhooks.verifySignature(
+  requestBody,
+  request.headers.get('X-HubSpot-Signature'),
+  request.headers.get('X-HubSpot-Request-Timestamp')
+)
+
+// Get delivery statistics
+const deliveryStats = await webhooks.getDeliveryStats()
+console.log(`Success rate: ${deliveryStats.successRate}%`)
 ```
 
 ## Outbound - Connecting to Real HubSpot
@@ -696,6 +799,19 @@ import type {
   WorkflowAction,
   EnrollmentTrigger,
 
+  // Form types
+  Form,
+  FormField,
+  FieldGroup,
+  FormSubmission,
+  SubmissionResult,
+
+  // Webhook types
+  WebhookSubscription,
+  WebhookEvent,
+  WebhookDelivery,
+  WebhookEventType,
+
   // Response types
   CollectionResponse,
   Paging,
@@ -873,8 +989,9 @@ async function syncContacts(externalContacts: ExternalContact[]) {
 | Pipeline Stages | Full | Stage management |
 | Engagements | Full | Notes, emails, calls, meetings |
 | Workflows | Full | Automation engine |
+| Forms | Full | Form builder, submissions, validation |
+| Webhooks | Full | Subscriptions, events, signature verification |
 | Marketing Emails | Not yet | |
-| Forms | Not yet | |
 | Lists | Not yet | |
 
 ## Related

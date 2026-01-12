@@ -36,31 +36,39 @@ dotdo workflows provide durable execution with automatic retries, scheduling, an
 
 ## The $ Context DSL
 
-The `$` context is the heart of dotdo workflows. It provides a unified API for durable execution, event handling, scheduling, and cross-DO communication.
+The `$` context provides a unified API for durable execution and cross-DO communication. Event handlers and scheduling use standalone proxies.
 
 ```typescript
 import { createWorkflowProxy, createWorkflowRuntime } from 'dotdo/workflows'
+import { on, every, send, Domain } from 'dotdo/workflows'
 
 const runtime = createWorkflowRuntime()
 const $ = createWorkflowProxy(runtime)
 
-// Domain-driven workflow syntax
+// Domain-driven workflow syntax via $ proxy
 const result = await $.Inventory(product).check()
 const priorities = await $.Roadmap(startup).prioritizeBacklog()
+
+// Event handlers use standalone proxies (not $ prefix)
+on.Customer.signup(handler)
+every.Monday.at9am(handler)
+send.Order.shipped({ orderId })
 ```
 
 ## Durability Levels
 
 dotdo provides three distinct durability levels, each optimized for different use cases:
 
-### Fire-and-Forget: `$.send`
+### Fire-and-Forget: `send`
 
 Use when you don't need to wait for results or handle failures inline. Events are queued for async processing.
 
 ```typescript
+import { send } from 'dotdo/workflows'
+
 // Non-blocking, non-durable
-// Returns immediately, doesn't wait for result
-$.send('Order.shipped', { orderId, trackingNumber })
+// Returns immediately via PipelinePromise
+send.Order.shipped({ orderId, trackingNumber })
 
 // Use for:
 // - Analytics events
@@ -78,28 +86,34 @@ $.send('Order.shipped', { orderId, trackingNumber })
 **Example: Analytics Pipeline**
 
 ```typescript
+import { on, send } from 'dotdo/workflows'
+
 on.Customer.signup(async (event) => {
   // Fire analytics event without waiting
-  $.send('Analytics.track', {
+  send.Analytics.track({
     event: 'signup',
     userId: event.data.id,
     source: event.data.source,
     timestamp: Date.now(),
   })
 
-  // Continue with critical path
-  await $.do('Email.sendWelcome', event.data)
+  // Continue with critical path (using runtime.do)
+  await runtime.do('Email.sendWelcome', event.data)
 })
 ```
 
-### Single Attempt: `$.try`
+### Single Attempt: `runtime.try`
 
 Use when you want a result but can handle failures gracefully. Single execution attempt with no retries.
 
 ```typescript
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
 // Blocking, non-durable
 // Single attempt, returns result or throws
-const inventory = await $.try('Inventory.check', { sku: 'ABC123' })
+const inventory = await runtime.try('Inventory.check', { sku: 'ABC123' })
 
 // Use for:
 // - Quick lookups
@@ -117,17 +131,21 @@ const inventory = await $.try('Inventory.check', { sku: 'ABC123' })
 **Example: Validation Before Checkout**
 
 ```typescript
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
 async function processCheckout(cart: Cart) {
   try {
     // Quick inventory check - no need for retries
-    const available = await $.try('Inventory.checkAll', cart.items)
+    const available = await runtime.try('Inventory.checkAll', cart.items)
 
     if (!available.allInStock) {
       return { error: 'Some items out of stock', items: available.outOfStock }
     }
 
     // Proceed with durable checkout
-    await $.do('Checkout.process', cart)
+    await runtime.do('Checkout.process', cart)
   } catch (error) {
     // Inventory service unavailable - handle gracefully
     return { error: 'Please try again later' }
@@ -135,14 +153,18 @@ async function processCheckout(cart: Cart) {
 }
 ```
 
-### Durable with Retries: `$.do`
+### Durable with Retries: `runtime.do`
 
 Use for critical operations that must succeed. Automatically persists state and retries on failure.
 
 ```typescript
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
 // Blocking, durable, retries on failure
 // Persisted to DO storage, replayed on restart
-const receipt = await $.do('Payment.charge', {
+const receipt = await runtime.do('Payment.charge', {
   customerId,
   amount: 9999,
   currency: 'usd',
@@ -165,15 +187,20 @@ const receipt = await $.do('Payment.charge', {
 **Example: Order Fulfillment**
 
 ```typescript
+import { on } from 'dotdo/workflows'
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
 on.Order.placed(async (event) => {
   const order = event.data
 
   // Each step is durable - if the workflow crashes,
   // completed steps are skipped on replay
-  await $.do('Inventory.reserve', order.items)
-  await $.do('Payment.charge', order.payment)
-  await $.do('Shipping.createLabel', order.address)
-  await $.do('Notification.send', {
+  await runtime.do('Inventory.reserve', order.items)
+  await runtime.do('Payment.charge', order.payment)
+  await runtime.do('Shipping.createLabel', order.address)
+  await runtime.do('Notification.send', {
     type: 'order_confirmed',
     orderId: order.id,
   })
@@ -184,13 +211,13 @@ on.Order.placed(async (event) => {
 
 | Scenario | Level | Why |
 |----------|-------|-----|
-| Log page view | `$.send` | Don't block rendering for analytics |
-| Validate email format | `$.try` | Pure function, no side effects |
-| Charge credit card | `$.do` | Critical, must retry on failure |
-| Send welcome email | `$.do` | Important, should retry if mail server is down |
-| Update search index | `$.send` | Eventually consistent is fine |
-| Check inventory | `$.try` | Fast lookup, can show "check failed" message |
-| Create invoice | `$.do` | Business-critical, must persist |
+| Log page view | `send` | Don't block rendering for analytics |
+| Validate email format | `runtime.try` | Pure function, no side effects |
+| Charge credit card | `runtime.do` | Critical, must retry on failure |
+| Send welcome email | `runtime.do` | Important, should retry if mail server is down |
+| Update search index | `send` | Eventually consistent is fine |
+| Check inventory | `runtime.try` | Fast lookup, can show "check failed" message |
+| Create invoice | `runtime.do` | Business-critical, must persist |
 
 ## Event Handlers
 
@@ -198,25 +225,28 @@ Subscribe to domain events with the `on` proxy:
 
 ```typescript
 import { on } from 'dotdo/workflows'
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
 
 // Noun.verb pattern maps to business domain
 on.Customer.signup(async (event) => {
   const { id, email, name } = event.data
 
-  await $.do('CRM.createContact', { id, email, name })
-  await $.do('Email.sendWelcome', { email, name })
-  await $.do('Analytics.identify', { userId: id })
+  await runtime.do('CRM.createContact', { id, email, name })
+  await runtime.do('Email.sendWelcome', { email, name })
+  await runtime.do('Analytics.identify', { userId: id })
 })
 
 on.Payment.failed(async (event) => {
-  await $.do('Notification.sendPaymentFailed', event.data)
-  await $.do('Dunning.startSequence', event.data.customerId)
+  await runtime.do('Notification.sendPaymentFailed', event.data)
+  await runtime.do('Dunning.startSequence', event.data.customerId)
 })
 
 on.Subscription.cancelled(async (event) => {
-  await $.do('Billing.stopRecurring', event.data)
-  await $.do('Email.sendCancellation', event.data)
-  await $.do('Retention.startWinback', event.data.customerId)
+  await runtime.do('Billing.stopRecurring', event.data)
+  await runtime.do('Email.sendCancellation', event.data)
+  await runtime.do('Retention.startWinback', event.data.customerId)
 })
 ```
 

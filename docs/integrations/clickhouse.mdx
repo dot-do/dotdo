@@ -1,18 +1,15 @@
 ---
 title: ClickHouse
-description: Drop-in replacement for ClickHouse analytics with edge compatibility and MergeTree-style tables.
+description: ClickHouse-compatible analytics engine with edge compatibility and MergeTree-style tables.
 ---
 
 # ClickHouse
 
-Drop-in replacement for ClickHouse analytics database. Your existing ClickHouse queries work unchanged - just swap the import.
+ClickHouse-compatible analytics engine that runs entirely in-memory on the edge. Provides SQL interface, MergeTree tables, and OLAP aggregations.
 
 ```typescript
-// Before: ClickHouse client
-import { createClient } from '@clickhouse/client'
-
-// After: dotdo
-import { ClickHouseClient, MergeTreeTable } from '@dotdo/clickhouse'
+// Import from the dotdo compat layer
+import { ClickHouseClient, MergeTreeTable } from 'dotdo/db/compat/clickhouse'
 
 // SQL Interface - code stays the same
 const client = new ClickHouseClient({ mode: 'memory' })
@@ -42,59 +39,66 @@ const result = await client.query<{ user_id: number; total: number }>(`
 
 ## Why clickhouse.do?
 
-| ClickHouse | @dotdo/clickhouse |
+| ClickHouse | dotdo/db/compat/clickhouse |
 |------------|-------------------|
 | Requires dedicated server | Edge-compatible (Cloudflare Workers) |
 | Heavy resource footprint | Lightweight in-memory engine |
 | Complex deployment | Zero infrastructure |
-| Network latency to cluster | Zero latency in local mode |
+| Network latency to cluster | Zero latency (in-memory) |
 | Separate analytics stack | Unified with your application |
 
-**This is an analytics compatibility layer.** It provides ClickHouse-compatible SQL and table APIs that run entirely in-memory on the edge, or can connect to a real ClickHouse cluster for production workloads.
+**This is an in-memory analytics compatibility layer.** It provides ClickHouse-compatible SQL and table APIs that run entirely in-memory on the edge. This is ideal for request-scoped analytics, aggregations, and OLAP operations.
 
 ## Features
 
 ### Implemented (Core APIs)
 
-**MergeTree Table Engines**
+**MergeTree Table Engines (Schema Only)**
 - `MergeTree` - Basic sorted table with ordered storage
-- `ReplacingMergeTree` - Deduplication by primary key with version column
-- `AggregatingMergeTree` - Pre-aggregated data storage
-- `SummingMergeTree` - Automatic summation on merge
-- `CollapsingMergeTree` - Row collapsing with sign column
+- `ReplacingMergeTree` - Schema support (versionColumn stored but deduplication not active)
+- `AggregatingMergeTree` - Schema support for pre-aggregated data types
+- `SummingMergeTree` - Schema support (summation behavior not active on merge)
+- `CollapsingMergeTree` - Schema support (signColumn stored but collapsing not active)
+- `VersionedCollapsingMergeTree` - Schema support
+
+Note: Engine types are stored for compatibility but merge/compaction behaviors are not implemented. All engines currently behave like basic MergeTree (sorted storage).
 
 **SQL Queries**
 - `CREATE TABLE` with ENGINE, ORDER BY, PARTITION BY, PRIMARY KEY, TTL
 - `INSERT INTO` with VALUES and batch inserts
 - `SELECT` with WHERE, GROUP BY, ORDER BY, LIMIT, OFFSET
-- `WITH` clause (Common Table Expressions)
+- `WITH` clause (Common Table Expressions - single CTE)
 - `DROP TABLE` and `TRUNCATE`
 
 **Aggregate Functions**
 - Basic: `count`, `sum`, `avg`, `min`, `max`
-- Distinct: `uniq`, `uniqExact`, `uniqHLL12`
+- Distinct: `uniq`, `uniqExact` (exact via Set), `uniqHLL12` (HyperLogLog approximation)
 - Statistical: `quantile`, `quantiles`, `stddevPop`, `varPop`
 - Ordering: `argMin`, `argMax`, `first_value`, `last_value`
 - Array: `groupArray`, `groupUniqArray`, `topK`
 - Conditional: `sumIf`, `countIf`, `avgIf`
-- Approximate: `anyHeavy`
+- Approximate: `anyHeavy` (Space-Saving algorithm)
 
-**Window Functions**
-- Ranking: `row_number()`, `rank()`, `dense_rank()`
-- Offset: `lag()`, `lead()` with custom offset and defaults
-- Running aggregates: Running `sum()`, `avg()`, `min()`, `max()`
-- Frame specification: ROWS, RANGE, UNBOUNDED PRECEDING/FOLLOWING
+**Window Functions (via Table API)**
+- Ranking: `rowNumber`, `rank`, `denseRank` (via `selectWithWindow`)
+- Offset: `lag`, `lead` with custom offset and defaults
+- Running aggregates: `sum`, `avg` with frame specification
+- Frame specification: ROWS, UNBOUNDED PRECEDING/FOLLOWING, CURRENT ROW
 
-**OLAP Operations**
-- `CUBE` - All dimension combinations
-- `ROLLUP` - Hierarchical subtotals
-- `GROUPING SETS` - Custom groupings
-- `WITH TOTALS` - Grand totals in GROUP BY
+Note: Window functions are available via the `MergeTreeTable.selectWithWindow()` method, not via SQL queries.
+
+**OLAP Operations (via Table API)**
+- `cube()` - All dimension combinations
+- `rollup()` - Hierarchical subtotals
+- `groupingSets()` - Custom groupings
+- `groupBy()` with `withTotals` option
+
+Note: CUBE/ROLLUP/GROUPING SETS are available via table methods, not SQL.
 
 **Materialized Views**
 - Pre-computed aggregations with caching
 - On-demand or interval-based refresh
-- Staleness detection
+- Staleness detection via `isStale(maxAge)`
 
 ### Not Yet Implemented
 
@@ -103,20 +107,17 @@ const result = await client.query<{ user_id: number; total: number }>(`
 - Array joins
 - JOINs between tables
 - Mutations (ALTER TABLE)
-- Remote ClickHouse connections (planned)
-
-## Installation
-
-```bash
-npm install @dotdo/clickhouse
-```
+- Remote ClickHouse connections
+- Window functions via SQL (use Table API instead)
+- CUBE/ROLLUP via SQL (use Table API instead)
+- Actual merge/compaction behavior for specialized engines
 
 ## Quick Start
 
 ### SQL Interface
 
 ```typescript
-import { ClickHouseClient } from '@dotdo/clickhouse'
+import { ClickHouseClient } from 'dotdo/db/compat/clickhouse'
 
 const client = new ClickHouseClient({ mode: 'memory' })
 
@@ -159,7 +160,7 @@ console.log(result.rows)
 ### Direct Table API
 
 ```typescript
-import { MergeTreeTable } from '@dotdo/clickhouse'
+import { MergeTreeTable } from 'dotdo/db/compat/clickhouse'
 
 interface PageView {
   timestamp: Date
@@ -211,7 +212,7 @@ const byUrl = pageViews.groupBy(['url'], {
 ### Time-Series Analytics
 
 ```typescript
-import { MergeTreeTable, MaterializedView } from '@dotdo/clickhouse'
+import { MergeTreeTable, MaterializedView } from 'dotdo/db/compat/clickhouse'
 
 interface Metric {
   timestamp: Date

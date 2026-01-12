@@ -43,7 +43,7 @@ const ticket = await client.tickets.create({
 
 ## Features
 
-### Implemented (Core APIs)
+### Implemented APIs
 
 **Tickets**
 - `create()`, `get()`, `update()`, `delete()`, `list()`, `search()`
@@ -65,16 +65,39 @@ const ticket = await client.tickets.create({
 **Automations**
 - `create()`, `get()`, `update()`, `delete()`, `list()`
 
+**Ticket Fields**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+
+**Ticket Forms**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+- `clone()`, `reorder()`
+
+**Views**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `listActive()`, `listCompact()`
+- `count()`, `tickets()`, `execute()`, `preview()`
+
+**Macros**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `listActive()`
+- `apply()`, `search()`
+
+**Groups**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `listAssignable()`
+- `memberships()`, `addMember()`, `removeMember()`, `setDefaultForUser()`
+
+**Webhooks**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+- `test()`, `getSigningSecret()`, `rotateSigningSecret()`
+
+**Targets (Legacy)**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+
 ### Not Yet Implemented
 
-- Views
-- Groups
-- Macros
-- SLA Policies
+- SLA Policies (read-only types available)
+- Brands (read-only types available)
 - Satisfaction Ratings
 - Suspended Tickets
 - Tags (standalone API)
-- Search (global)
 - Talk (voice)
 - Chat
 - Guide (help center)
@@ -553,6 +576,221 @@ const automation = await client.automations.create({
 })
 ```
 
+## Ticket Fields
+
+### Create a Ticket Field
+
+```typescript
+const field = await client.ticketFields.create({
+  type: 'tagger',
+  title: 'Product Category',
+  description: 'Select the product category',
+  active: true,
+  required: false,
+  visible_in_portal: true,
+  editable_in_portal: true,
+  custom_field_options: [
+    { name: 'Hardware', value: 'hardware' },
+    { name: 'Software', value: 'software' },
+    { name: 'Services', value: 'services' },
+  ],
+})
+```
+
+### List Ticket Fields
+
+```typescript
+const result = await client.ticketFields.list()
+
+for (const field of result.ticket_fields) {
+  console.log(`${field.title} (${field.type}): ${field.id}`)
+}
+```
+
+## Ticket Forms
+
+### Create a Ticket Form
+
+```typescript
+const form = await client.ticketForms.create({
+  name: 'Bug Report Form',
+  end_user_visible: true,
+  active: true,
+  ticket_field_ids: [12345, 12346, 12347],
+})
+```
+
+### Clone and Reorder Forms
+
+```typescript
+// Clone an existing form
+const cloned = await client.ticketForms.clone(formId)
+
+// Reorder forms
+await client.ticketForms.reorder([form1Id, form2Id, form3Id])
+```
+
+## Views
+
+### Create a View
+
+```typescript
+const view = await client.views.create({
+  title: 'High Priority Open Tickets',
+  active: true,
+  conditions: {
+    all: [
+      { field: 'status', operator: 'is', value: 'open' },
+      { field: 'priority', operator: 'is', value: 'high' },
+    ],
+    any: [],
+  },
+  output: {
+    columns: ['subject', 'requester', 'status', 'priority'],
+    sort_by: 'created_at',
+    sort_order: 'desc',
+  },
+})
+```
+
+### Execute a View
+
+```typescript
+// Get tickets matching view conditions
+const result = await client.views.execute(viewId)
+console.log(`Found ${result.count} tickets`)
+
+for (const ticket of result.tickets) {
+  console.log(`${ticket.id}: ${ticket.subject}`)
+}
+
+// Get ticket count for a view
+const count = await client.views.count(viewId)
+console.log(`View has ${count.view_count.value} tickets`)
+```
+
+### Preview a View
+
+```typescript
+// Test view conditions without saving
+const preview = await client.views.preview({
+  title: 'Test View',
+  conditions: {
+    all: [{ field: 'status', operator: 'is', value: 'open' }],
+    any: [],
+  },
+})
+console.log(`Preview found ${preview.count} tickets`)
+```
+
+## Macros
+
+### Create a Macro
+
+```typescript
+const macro = await client.macros.create({
+  title: 'Close and Thank',
+  description: 'Close ticket with a thank you message',
+  active: true,
+  actions: [
+    { field: 'status', value: 'solved' },
+    { field: 'comment_value', value: 'Thank you for contacting us!' },
+  ],
+})
+```
+
+### Apply a Macro
+
+```typescript
+// Preview what a macro would do to a ticket
+const result = await client.macros.apply(macroId, ticketId)
+
+console.log('Changes:', result.result.ticket)
+if (result.result.comment) {
+  console.log('Comment:', result.result.comment.body)
+}
+```
+
+### Search Macros
+
+```typescript
+const result = await client.macros.search('thank')
+for (const macro of result.macros) {
+  console.log(`${macro.title}: ${macro.description}`)
+}
+```
+
+## Groups
+
+### Create a Group
+
+```typescript
+const group = await client.groups.create({
+  name: 'Technical Support',
+  description: 'Handles technical issues',
+})
+```
+
+### Manage Group Memberships
+
+```typescript
+// Add a user to a group
+const membership = await client.groups.addMember(groupId, userId)
+
+// List group members
+const members = await client.groups.memberships(groupId)
+for (const m of members.group_memberships) {
+  console.log(`User ${m.user_id} in group ${m.group_id}`)
+}
+
+// Set default group for a user
+await client.groups.setDefaultForUser(userId, membershipId)
+
+// Remove from group
+await client.groups.removeMember(membershipId)
+```
+
+### List Assignable Groups
+
+```typescript
+// Get groups that tickets can be assigned to
+const result = await client.groups.listAssignable()
+```
+
+## Webhooks
+
+### Create a Webhook
+
+```typescript
+const webhook = await client.webhooks.create({
+  name: 'Ticket Created Notification',
+  endpoint: 'https://example.com/webhooks/zendesk',
+  http_method: 'POST',
+  request_format: 'json',
+  status: 'active',
+  subscriptions: ['conditional_ticket_events'],
+  authentication: {
+    type: 'bearer_token',
+    data: { token: 'your_secret_token' },
+  },
+})
+```
+
+### Test and Manage Signing Secrets
+
+```typescript
+// Test a webhook
+const testResult = await client.webhooks.test(webhookId)
+console.log('Test status:', testResult.status)
+
+// Get signing secret for verification
+const secret = await client.webhooks.getSigningSecret(webhookId)
+console.log('Algorithm:', secret.signing_secret.algorithm)
+
+// Rotate signing secret
+const newSecret = await client.webhooks.rotateSigningSecret(webhookId)
+```
+
 ## Error Handling
 
 ```typescript
@@ -595,6 +833,13 @@ import type {
   Attachment,
   Trigger,
   Automation,
+  TicketField,
+  TicketForm,
+  View,
+  Macro,
+  Group,
+  Webhook,
+  Target,
 
   // Params
   TicketCreateParams,
@@ -606,6 +851,13 @@ import type {
   CommentCreateParams,
   TriggerCreateParams,
   AutomationCreateParams,
+  TicketFieldCreateParams,
+  TicketFormCreateParams,
+  ViewCreateParams,
+  MacroCreateParams,
+  GroupCreateParams,
+  WebhookCreateParams,
+  TargetCreateParams,
 
   // Responses
   TicketListResponse,
@@ -613,6 +865,17 @@ import type {
   OrganizationListResponse,
   CommentListResponse,
   SearchResponse,
+  TicketFieldListResponse,
+  TicketFormListResponse,
+  ViewListResponse,
+  ViewCountResponse,
+  ViewTicketsResponse,
+  MacroListResponse,
+  MacroApplyResult,
+  GroupListResponse,
+  GroupMembershipListResponse,
+  WebhookListResponse,
+  TargetListResponse,
 
   // Supporting types
   CustomField,
@@ -620,6 +883,9 @@ import type {
   SatisfactionRating,
   TriggerCondition,
   TriggerAction,
+  ViewCondition,
+  MacroAction,
+  GroupMembership,
 
   // Client types
   ClientConfig,
@@ -823,10 +1089,15 @@ async function routeTicket(ticketId: number) {
 | Attachments | Full | Upload + get + delete |
 | Triggers | Full | CRUD + listActive |
 | Automations | Full | CRUD |
-| Views | Not yet | |
-| Groups | Not yet | |
-| Macros | Not yet | |
-| SLA Policies | Not yet | |
+| Ticket Fields | Full | CRUD for custom fields |
+| Ticket Forms | Full | CRUD + clone + reorder |
+| Views | Full | CRUD + execute + count + preview |
+| Macros | Full | CRUD + apply + search |
+| Groups | Full | CRUD + memberships management |
+| Webhooks | Full | CRUD + test + signing secrets |
+| Targets | Full | Legacy API, CRUD |
+| SLA Policies | Types only | Read-only type definitions |
+| Brands | Types only | Read-only type definitions |
 | Talk | Not yet | Voice API |
 | Chat | Not yet | Real-time chat |
 | Guide | Not yet | Help center |

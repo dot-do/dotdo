@@ -13,10 +13,16 @@ import { initializeApp } from 'firebase/app'
 import { getFirestore, collection, addDoc } from 'firebase/firestore'
 import { getDatabase, ref, set } from 'firebase/database'
 
-// After: dotdo
-import { initializeApp } from '@dotdo/firebase'
-import { getFirestore, collection, addDoc } from '@dotdo/firebase/firestore'
-import { getDatabase, ref, set } from '@dotdo/firebase/database'
+// After: dotdo (unified import)
+import {
+  initializeApp,
+  getFirestore,
+  collection,
+  addDoc,
+  getDatabase,
+  ref,
+  set,
+} from '@dotdo/firebase'
 
 // Code stays the same
 const app = initializeApp({ projectId: 'my-project' })
@@ -134,8 +140,8 @@ npm install @dotdo/firebase
 ### Firestore
 
 ```typescript
-import { initializeApp } from '@dotdo/firebase'
 import {
+  initializeApp,
   getFirestore,
   collection,
   doc,
@@ -147,7 +153,7 @@ import {
   where,
   orderBy,
   limit,
-} from '@dotdo/firebase/firestore'
+} from '@dotdo/firebase'
 
 // Initialize app
 const app = initializeApp({ projectId: 'my-project' })
@@ -189,8 +195,8 @@ querySnapshot.forEach((doc) => {
 ### Realtime Database
 
 ```typescript
-import { initializeApp } from '@dotdo/firebase'
 import {
+  initializeApp,
   getDatabase,
   ref,
   set,
@@ -198,7 +204,7 @@ import {
   update,
   push,
   onValue,
-} from '@dotdo/firebase/database'
+} from '@dotdo/firebase'
 
 // Initialize app
 const app = initializeApp({
@@ -241,7 +247,7 @@ unsubscribe()
 
 ## Inbound Mode - Using firebase.do Locally
 
-For testing and development, the SDK uses in-memory storage backed by Durable Object SQLite. No Firebase project or emulator required.
+For testing and development, the SDK uses in-memory storage. No Firebase project or emulator required.
 
 ```typescript
 import { initializeApp, getFirestore, collection, addDoc, getDocs } from '@dotdo/firebase'
@@ -264,9 +270,10 @@ console.log('Users:', snapshot.size) // 1
 ### Real-time Listeners in Local Mode
 
 ```typescript
-import { getFirestore, collection, onSnapshot, addDoc } from '@dotdo/firebase'
+import { initializeApp, getFirestore, collection, onSnapshot, addDoc } from '@dotdo/firebase'
 
-const db = getFirestore()
+const app = initializeApp({ projectId: 'local-test' })
+const db = getFirestore(app)
 const usersRef = collection(db, 'users')
 
 // Set up listener
@@ -291,9 +298,10 @@ unsubscribe()
 ### Transactions in Local Mode
 
 ```typescript
-import { getFirestore, doc, setDoc, runTransaction } from '@dotdo/firebase'
+import { initializeApp, getFirestore, doc, setDoc, runTransaction } from '@dotdo/firebase'
 
-const db = getFirestore()
+const app = initializeApp({ projectId: 'local-test' })
+const db = getFirestore(app)
 
 // Set up accounts
 await setDoc(doc(db, 'accounts/alice'), { balance: 100 })
@@ -316,34 +324,7 @@ await runTransaction(db, async (transaction) => {
 })
 ```
 
-## Outbound Mode - Connecting to Real Firebase
-
-For production, connect to your actual Firebase project:
-
-```typescript
-import { initializeApp } from '@dotdo/firebase'
-import { getFirestore, collection, addDoc } from '@dotdo/firebase/firestore'
-
-const app = initializeApp({
-  apiKey: 'your-api-key',
-  authDomain: 'your-project.firebaseapp.com',
-  projectId: 'your-project',
-  storageBucket: 'your-project.appspot.com',
-  messagingSenderId: '123456789',
-  appId: '1:123456789:web:abcdef',
-  databaseURL: 'https://your-project.firebaseio.com',
-})
-
-const db = getFirestore(app)
-
-// All operations go to real Firebase
-await addDoc(collection(db, 'users'), {
-  name: 'Production User',
-  createdAt: new Date(),
-})
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -366,30 +347,6 @@ export default {
     })
   },
 }
-```
-
-### Extended Configuration for Durable Objects
-
-```typescript
-import { initializeApp } from '@dotdo/firebase'
-
-const app = initializeApp({
-  projectId: 'my-project',
-  // DO namespace binding
-  doNamespace: env.FIREBASE_DO,
-  // Sharding configuration
-  shard: {
-    algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
-    count: 4,
-    key: 'tenantId',
-  },
-  // Replica configuration
-  replica: {
-    readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
-    writeThrough: true,
-    jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
-  },
-})
 ```
 
 ## API Reference
@@ -465,6 +422,9 @@ const app = initializeApp({
 ### Data Converter
 
 ```typescript
+import { doc, getDoc, Timestamp } from '@dotdo/firebase'
+import type { QueryDocumentSnapshot } from '@dotdo/firebase'
+
 interface User {
   name: string
   age: number
@@ -497,6 +457,8 @@ const user: User = snapshot.data()! // Typed!
 ### Batch Writes
 
 ```typescript
+import { writeBatch, doc, increment } from '@dotdo/firebase'
+
 const batch = writeBatch(db)
 
 // Multiple operations in one batch
@@ -512,6 +474,8 @@ await batch.commit()
 ### Pagination
 
 ```typescript
+import { query, collection, orderBy, limit, getDocs, startAfter } from '@dotdo/firebase'
+
 // First page
 const first = query(
   collection(db, 'users'),
@@ -536,6 +500,8 @@ const nextSnapshot = await getDocs(next)
 ### Real-time Chat
 
 ```typescript
+import { ref, push, set, onChildAdded } from '@dotdo/firebase'
+
 // Realtime Database
 const messagesRef = ref(db, `chats/${chatId}/messages`)
 

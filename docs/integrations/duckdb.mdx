@@ -467,65 +467,113 @@ interface DuckDBInstance {
   readonly path: string
   readonly open: boolean
 
-  query<T>(sql: string, params?: unknown[]): Promise<QueryResult<T>>
-  registerBuffer(name: string, buffer: ArrayBuffer | Uint8Array): Promise<BufferRegistrationResult>
+  query<T>(sql: string, params?: unknown[], options?: QueryOptions): Promise<QueryResult<T>>
+  registerBuffer(name: string, buffer: ArrayBuffer | Uint8Array, options?: BufferRegistrationOptions): Promise<BufferRegistrationResult>
   dropBuffer(name: string): Promise<void>
   close(): Promise<void>
+}
+
+interface QueryResult<T> {
+  rows: T[]
+  columns: ColumnInfo[]
+  rowsAffected?: number
+}
+
+interface BufferRegistrationResult {
+  name: string
+  sizeBytes: number
+  overwritten: boolean
 }
 ```
 
 ### FTS Functions
 
 ```typescript
+import {
+  createFTSIndex,
+  dropFTSIndex,
+  search,
+  rebuildIndex,
+  listIndexes,
+} from '@dotdo/duckdb-wasm/fts'
+
 // Create full-text search index
 createFTSIndex(db: DuckDBInstance, config: {
   table: string
   columns: string | string[]
-  stemmer?: StemmerLanguage  // 'english', 'porter', etc.
-  overwrite?: boolean
+  indexName?: string
+  stemmer?: StemmerLanguage  // 'english', 'porter', etc. Default: 'porter'
+  docIdColumn?: string       // Default: 'rowid'
+  ignoreCase?: boolean       // Default: true
+  stripAccents?: boolean     // Default: true
+  overwrite?: boolean        // Default: false
 }): Promise<FTSCreateResult>
+
+// Drop an FTS index
+dropFTSIndex(db: DuckDBInstance, table: string): Promise<FTSDropResult>
 
 // Search with BM25 ranking
 search<T>(db: DuckDBInstance, table: string, query: string, options?: {
-  limit?: number
-  offset?: number
-  minScore?: number
-  select?: string[]
+  limit?: number      // Default: 10
+  offset?: number     // Default: 0
+  minScore?: number   // Default: 0
+  select?: string[] | '*'
   where?: string
 }): Promise<FTSSearchResults<T>>
 
 // Rebuild index after data changes
 rebuildIndex(db: DuckDBInstance, table: string): Promise<FTSRebuildResult>
+
+// List all FTS indexes
+listIndexes(db: DuckDBInstance): Promise<FTSIndexInfo[]>
 ```
 
 ### VSS Functions
 
 ```typescript
+import {
+  loadVSS,
+  createVectorIndex,
+  dropVectorIndex,
+  getIndexStats,
+  search,
+  estimateMemory,
+} from '@dotdo/duckdb-wasm/vss'
+
 // Load VSS extension
 loadVSS(db: DuckDBInstance): Promise<VSSExtensionState>
 
 // Create HNSW vector index
 createVectorIndex(db: DuckDBInstance, table: string, column: string, options: {
   dimensions: number
-  metric?: 'l2' | 'l2sq' | 'cosine' | 'ip'
-  M?: number                // HNSW parameter (default: 16)
-  efConstruction?: number   // HNSW parameter (default: 200)
-  efSearch?: number         // HNSW parameter (default: 64)
+  metric?: 'l2' | 'l2sq' | 'cosine' | 'ip'  // Default: 'l2sq'
+  M?: number                 // HNSW parameter (default: 16)
+  efConstruction?: number    // HNSW parameter (default: 200)
+  efSearch?: number          // HNSW parameter (default: 64)
+  indexName?: string         // Auto-generated if not provided
+  failIfExists?: boolean     // Default: false (uses IF NOT EXISTS)
 }): Promise<void>
+
+// Drop a vector index
+dropVectorIndex(db: DuckDBInstance, table: string, column: string, indexName?: string): Promise<void>
+
+// Get index statistics
+getIndexStats(db: DuckDBInstance, table: string, column: string, indexName?: string): Promise<IndexStats>
 
 // k-NN vector search
 search<T>(db: DuckDBInstance, table: string, column: string, queryVector: number[], options?: {
-  k?: number
-  filter?: string
-  select?: string[]
-  idColumn?: string
+  k?: number           // Default: 10
+  efSearch?: number    // Override index default
+  filter?: string      // SQL WHERE clause
+  select?: string[]    // Additional columns to return
+  idColumn?: string    // Default: 'id'
 }): Promise<SearchResult<T>[]>
 
 // Estimate memory requirements
 estimateMemory(params: {
   vectorCount: number
   dimensions: number
-  M?: number
+  M?: number           // Default: 16
 }): MemoryEstimation
 ```
 
@@ -558,11 +606,14 @@ try {
 
 ## Types
 
+### DuckDB Node.js API Types
+
 ```typescript
 import type {
   // Configuration
   DatabaseConfig,
   AccessMode,
+  ExtendedDuckDBConfig,
 
   // Results
   QueryResult,
@@ -582,26 +633,70 @@ import type {
   IDatabase,
   IConnection,
   IStatement,
+} from '@dotdo/duckdb'
 
-  // WASM types
-  DuckDBInstance,
+// Error class
+import { DuckDBError } from '@dotdo/duckdb'
+```
+
+### DuckDB WASM Types
+
+```typescript
+import type {
+  // Configuration
   DuckDBConfig,
+  InstantiateOptions,
+
+  // Instance
+  DuckDBInstance,
+
+  // Results
+  QueryResult,
+  QueryOptions,
+  ColumnInfo,
+
+  // Metrics
   InstantiationResult,
   InstantiationMetrics,
 
-  // FTS types
-  FTSIndexConfig,
-  FTSSearchOptions,
-  FTSSearchResults,
-  StemmerLanguage,
+  // Buffer registration
+  BufferRegistrationOptions,
+  BufferRegistrationResult,
+} from '@dotdo/duckdb-wasm'
+```
 
-  // VSS types
+### FTS Types
+
+```typescript
+import type {
+  FTSIndexConfig,
+  FTSIndexInfo,
+  FTSSearchOptions,
+  FTSSearchResult,
+  FTSSearchResults,
+  FTSCreateResult,
+  FTSDropResult,
+  FTSRebuildResult,
+  StemmerLanguage,
+} from '@dotdo/duckdb-wasm/fts'
+
+import { FTSError, FTSErrorCode } from '@dotdo/duckdb-wasm/fts'
+```
+
+### VSS Types
+
+```typescript
+import type {
   VectorIndexConfig,
+  CreateVectorIndexOptions,
   SearchOptions,
   SearchResult,
+  IndexStats,
   DistanceMetric,
+  MemoryEstimationParams,
   MemoryEstimation,
-} from '@dotdo/duckdb'
+  VSSExtensionState,
+} from '@dotdo/duckdb-wasm/vss'
 ```
 
 ## Performance Tips
@@ -631,13 +726,16 @@ while (true) {
 ### WASM Module Caching
 
 ```typescript
-import { createDuckDB, isCached, clearCache } from '@dotdo/duckdb-wasm'
+import { createDuckDB, isCached, clearCache, getHeapUsage } from '@dotdo/duckdb-wasm'
 
 // First call loads WASM from CDN (~500ms cold start)
 const db1 = await createDuckDB()
 
 // Subsequent calls use cached module (~50ms warm start)
 console.log(isCached()) // true
+
+// Check estimated heap usage
+console.log(getHeapUsage()) // e.g., 39321600 (bytes)
 
 // Clear cache if needed
 clearCache()

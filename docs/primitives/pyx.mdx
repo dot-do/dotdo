@@ -1,0 +1,326 @@
+---
+title: pyx - Python on Edge
+description: Run Python code in V8 isolates with Pyodide, enabling scientific computing and ML inference at the edge
+---
+
+# pyx - Python on Edge
+
+Run Python at the edge. Scientific computing, data analysis, and ML inference in V8 isolates with sub-second cold starts and memory snapshots.
+
+pyx provides Python execution using Pyodide (WebAssembly Python). It includes a full Python AST parser, safety analyzer, and code transformations for Pyodide compatibility.
+
+## Quick Start
+
+```typescript
+import { py } from 'pyx'
+
+// Execute Python code
+const result = await py.exec(`
+  import numpy as np
+  arr = np.array([1, 2, 3, 4, 5])
+  np.mean(arr)
+`)
+console.log(result.result) // 3.0
+```
+
+## Sessions
+
+Persistent sessions maintain state across multiple executions:
+
+```typescript
+const session = await py.session()
+
+// Build up state
+await session.run('x = 10')
+await session.run('y = 20')
+
+// Access previous variables
+const sum = await session.run('x + y')
+console.log(sum.result) // 30
+
+// Install packages in the session
+await session.install(['pandas', 'scipy'])
+
+// Get all variables
+const vars = await session.getVariables()
+console.log(vars) // { x: 10, y: 20 }
+
+// Clean up
+await session.close()
+```
+
+## Snapshots
+
+Create memory snapshots to restore session state instantly:
+
+```typescript
+// Create a session with packages
+const session = await py.session()
+await session.install(['numpy', 'pandas'])
+await session.run('import numpy as np; data = np.zeros(1000)')
+
+// Snapshot the state
+const snapshot = await session.snapshot()
+console.log(`Snapshot size: ${snapshot.size} bytes`)
+
+// Later, restore from snapshot (instant cold start)
+const restored = await snapshot.restore()
+const result = await restored.run('data.shape')
+console.log(result.result) // (1000,)
+```
+
+## Package Installation
+
+Install Python packages at runtime:
+
+```typescript
+// Install packages globally
+await py.install(['numpy', 'pandas', 'scikit-learn'])
+
+// Install with execution
+const result = await py.exec(`
+  import pandas as pd
+  df = pd.DataFrame({'a': [1, 2, 3]})
+  df.mean()
+`, {
+  packages: ['pandas']
+})
+```
+
+## Notebooks
+
+Jupyter-style notebooks with cells:
+
+```typescript
+import { createNotebook } from 'pyx'
+
+const notebook = await createNotebook('analysis')
+
+// Add cells
+notebook.addCell('code', 'import numpy as np')
+notebook.addCell('code', 'data = np.random.rand(100)')
+notebook.addCell('code', 'np.mean(data)')
+
+// Execute all cells
+const results = await notebook.executeAll()
+
+// Export to .ipynb
+const ipynb = notebook.toIPynb()
+await $.fs.write('analysis.ipynb', ipynb)
+```
+
+## Safety Analysis
+
+pyx includes a comprehensive safety analyzer that detects potentially dangerous operations:
+
+```typescript
+import { analyzeSafety } from 'pyx'
+
+const report = analyzeSafety(`
+  import os
+  os.system('rm -rf /')
+`)
+
+console.log(report.safe)       // false
+console.log(report.violations) // [{ type: 'dangerous_import', module: 'os', ... }]
+```
+
+### Detected Threats
+
+| Category | Examples |
+|----------|----------|
+| Dangerous imports | os, subprocess, socket, ctypes |
+| Code execution | exec(), eval(), compile() |
+| Filesystem access | open(), pathlib operations |
+| Network access | urllib, requests, socket |
+| Serialization | pickle.load(), marshal |
+| FFI | ctypes, cffi |
+| Resource exhaustion | while True, infinite recursion |
+
+## AST Utilities
+
+Parse and analyze Python code:
+
+```typescript
+import { parse, walk, getNodesOfType } from 'pyx'
+
+const ast = parse(`
+def greet(name):
+    return f"Hello, {name}!"
+`)
+
+// Walk the AST
+walk(ast, {
+  FunctionDef(node) {
+    console.log(`Found function: ${node.name}`)
+  }
+})
+
+// Find specific nodes
+const imports = getNodesOfType(ast, 'Import')
+```
+
+## Code Transformations
+
+Transform Python code for Pyodide compatibility:
+
+```typescript
+import { wrapAsync, capturePrint, rewriteImports } from 'pyx'
+
+// Wrap async code
+const asyncCode = wrapAsync(`
+  await asyncio.sleep(1)
+  result = await fetch_data()
+`)
+
+// Capture print output
+const capturedCode = capturePrint(`
+  print("Hello")
+  print("World")
+`)
+
+// Rewrite imports for Pyodide
+const rewritten = rewriteImports(`
+  import numpy
+  from scipy import stats
+`)
+```
+
+## Virtual Environments
+
+Manage packages in isolated environments:
+
+```typescript
+import { VirtualEnv } from 'pyx'
+
+const venv = new VirtualEnv()
+
+// Install packages
+await venv.install('numpy', '^1.24.0')
+await venv.install('pandas', '^2.0.0')
+
+// Check Pyodide compatibility
+const compatible = venv.checkCompatibility()
+if (!compatible.allCompatible) {
+  console.log('Incompatible packages:', compatible.issues)
+}
+
+// Export requirements
+const requirements = venv.exportRequirements()
+// numpy>=1.24.0,<2.0.0
+// pandas>=2.0.0,<3.0.0
+```
+
+## Execution Options
+
+```typescript
+const result = await py.exec(code, {
+  // Timeout in milliseconds (default: 30000)
+  timeout: 60000,
+
+  // Environment variables
+  env: {
+    DEBUG: 'true'
+  },
+
+  // Pre-install packages
+  packages: ['numpy', 'pandas'],
+
+  // Capture output
+  captureStdout: true,
+  captureStderr: true
+})
+
+console.log(result.stdout)   // Captured print output
+console.log(result.stderr)   // Error output
+console.log(result.duration) // Execution time in ms
+```
+
+## Type Definitions
+
+```typescript
+interface PyExecResult {
+  result: unknown      // Return value of last expression
+  stdout: string       // Captured stdout
+  stderr: string       // Captured stderr
+  duration: number     // Execution time in ms
+}
+
+interface PySession {
+  id: string
+  run(code: string, options?: PyExecOptions): Promise<PyExecResult>
+  install(packages: string[]): Promise<void>
+  snapshot(): Promise<PySnapshot>
+  getVariables(): Promise<Record<string, unknown>>
+  close(): Promise<void>
+}
+
+interface PySnapshot {
+  id: string
+  sessionId: string
+  size: number
+  createdAt: Date
+  restore(): Promise<PySession>
+}
+
+interface SafetyReport {
+  safe: boolean
+  violations: SafetyViolation[]
+}
+
+interface SafetyViolation {
+  type: string
+  message: string
+  line?: number
+  column?: number
+}
+```
+
+## Performance
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| Cold start | ~1s | First execution loads Pyodide |
+| Warm execution | 10-50ms | Subsequent calls |
+| Snapshot restore | 50-200ms | Depends on snapshot size |
+| Package install | 1-10s | Depends on package size |
+
+## Supported Packages
+
+pyx supports most pure-Python packages and many scientific packages compiled for Pyodide:
+
+- **Core**: numpy, pandas, scipy, scikit-learn
+- **Visualization**: matplotlib, plotly
+- **ML/AI**: pytorch (subset), tensorflow-lite
+- **NLP**: nltk, spacy (limited)
+- **Data**: pyarrow, openpyxl
+
+Check Pyodide package availability at [pyodide.org/en/stable/usage/packages-in-pyodide.html](https://pyodide.org/en/stable/usage/packages-in-pyodide.html).
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      pyx API                                 │
+│              py.exec() / py.session()                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │  AST Parser │  │   Safety    │  │ Transforms  │          │
+│  │  (Python)   │  │  Analyzer   │  │ (Pyodide)   │          │
+│  └─────────────┘  └─────────────┘  └─────────────┘          │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                    Pyodide Runtime                           │
+│              (WebAssembly Python 3.11+)                      │
+├─────────────────────────────────────────────────────────────┤
+│                    V8 Isolate                                │
+│              (Cloudflare Workers)                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Next Steps
+
+- [fsx](/docs/primitives/fsx) - Filesystem for Python data files
+- [bashx](/docs/primitives/bashx) - Alternative for shell-based Python scripts
+- [Capabilities](/docs/sdk/capabilities) - Add Python to your DOs

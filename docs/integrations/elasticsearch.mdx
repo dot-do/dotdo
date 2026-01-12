@@ -12,7 +12,7 @@ Drop-in replacement for the official Elasticsearch JavaScript client. Your exist
 import { Client } from '@elastic/elasticsearch'
 
 // After: dotdo
-import { createClient } from '@dotdo/elasticsearch'
+import { createClient } from 'dotdo/compat/elasticsearch'
 
 // Code stays the same
 const client = createClient()
@@ -37,10 +37,10 @@ const results = await client.search({
 })
 ```
 
-## Why elasticsearch.do?
+## Why dotdo Elasticsearch?
 
-| Elasticsearch | @dotdo/elasticsearch |
-|---------------|----------------------|
+| Elasticsearch | dotdo/compat/elasticsearch |
+|---------------|----------------------------|
 | Requires ES cluster | Runs entirely on the edge |
 | JVM-based infrastructure | Edge-compatible (Cloudflare Workers) |
 | Network latency to cluster | Zero latency in local mode |
@@ -126,8 +126,10 @@ const results = await client.search({
 
 ## Installation
 
+The Elasticsearch compat layer is included in the dotdo package:
+
 ```bash
-npm install @dotdo/elasticsearch
+npm install dotdo
 ```
 
 ## Quick Start
@@ -135,7 +137,7 @@ npm install @dotdo/elasticsearch
 ### Basic Search
 
 ```typescript
-import { createClient } from '@dotdo/elasticsearch'
+import { createClient } from 'dotdo/compat/elasticsearch'
 
 const client = createClient()
 
@@ -231,7 +233,7 @@ console.log(aggResults.aggregations?.by_category)
 For development and testing, the client runs entirely in-memory with no external dependencies:
 
 ```typescript
-import { createClient } from '@dotdo/elasticsearch'
+import { createClient } from 'dotdo/compat/elasticsearch'
 
 // Create local client (no cluster needed)
 const client = createClient({
@@ -332,7 +334,7 @@ const results = await client.search({
 For production scenarios requiring a full Elasticsearch cluster, you can configure the client to proxy requests:
 
 ```typescript
-import { createClient } from '@dotdo/elasticsearch'
+import { createClient } from 'dotdo/compat/elasticsearch'
 
 const client = createClient({
   // Future: Configure outbound proxy to ES cluster
@@ -347,7 +349,7 @@ Works in Cloudflare Workers without Node.js dependencies:
 
 ```typescript
 // worker.ts
-import { createClient } from '@dotdo/elasticsearch'
+import { createClient } from 'dotdo/compat/elasticsearch'
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -667,16 +669,31 @@ import type {
   // Query types
   Query,
   MatchQuery,
+  MultiMatchQuery,
+  MatchPhraseQuery,
   BoolQuery,
   TermQuery,
+  TermsQuery,
   RangeQuery,
+  ExistsQuery,
+  PrefixQuery,
+  WildcardQuery,
+  IdsQuery,
+  FunctionScoreQuery,
   KnnQuery,
 
   // Aggregation types
   Aggregation,
   AggregationResult,
   TermsAggregationResult,
+  HistogramAggregationResult,
+  DateHistogramAggregationResult,
+  RangeAggregationResult,
+  MetricAggregationResult,
   StatsAggregationResult,
+  ExtendedStatsAggregationResult,
+  PercentilesAggregationResult,
+  TopHitsAggregationResult,
 
   // Index types
   IndexMappings,
@@ -688,26 +705,47 @@ import type {
   IndexResponse,
   GetRequest,
   GetResponse,
+  DeleteRequest,
+  DeleteResponse,
+  UpdateRequest,
+  UpdateResponse,
   BulkRequest,
   BulkResponse,
 
-  // Errors
+  // Client types
+  ElasticsearchClient,
+  ElasticsearchClientOptions,
+  ClusterHealthResponse,
+  ClusterStatsResponse,
+  InfoResponse,
+} from 'dotdo/compat/elasticsearch'
+
+// Error classes (import directly, not as types)
+import {
   ElasticsearchError,
   ResponseError,
   NotFoundError,
-} from '@dotdo/elasticsearch'
+  ConflictError,
+  BadRequestError,
+  ConnectionError,
+  TimeoutError,
+} from 'dotdo/compat/elasticsearch'
 ```
 
 ## Error Handling
 
 ```typescript
-import { ResponseError, NotFoundError } from '@dotdo/elasticsearch'
+import { ResponseError, NotFoundError, ConflictError, BadRequestError } from 'dotdo/compat/elasticsearch'
 
 try {
   await client.get({ index: 'products', id: 'non-existent' })
 } catch (error) {
   if (error instanceof NotFoundError) {
     console.log('Document not found')
+  } else if (error instanceof ConflictError) {
+    console.log('Document version conflict')
+  } else if (error instanceof BadRequestError) {
+    console.log('Invalid request')
   } else if (error instanceof ResponseError) {
     console.log('Status:', error.meta.statusCode)
     console.log('Body:', error.meta.body)

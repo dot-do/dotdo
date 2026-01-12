@@ -436,21 +436,19 @@ import {
   ObjectNotFoundError,
   IndexNotFoundError,
   InvalidFilterError,
-  InvalidSettingsError,
 } from '@dotdo/algolia'
 
 try {
   await index.getObject('nonexistent-id')
 } catch (error) {
   if (error instanceof ObjectNotFoundError) {
-    console.error('Object not found:', error.objectID)
+    console.error('Object not found:', error.message)
   } else if (error instanceof IndexNotFoundError) {
-    console.error('Index not found:', error.indexName)
+    console.error('Index not found:', error.message)
   } else if (error instanceof InvalidFilterError) {
-    console.error('Invalid filter syntax:', error.filter)
-    console.error('Parse error:', error.parseError)
+    console.error('Invalid filter syntax:', error.message)
   } else if (error instanceof AlgoliaError) {
-    console.error('Algolia error:', error.message)
+    console.error('Algolia error:', error.message, error.status)
   }
 }
 ```
@@ -459,11 +457,10 @@ try {
 
 | Error Type | Description |
 |------------|-------------|
-| `AlgoliaError` | Base error for all Algolia operations |
-| `ObjectNotFoundError` | Object with specified objectID not found |
-| `IndexNotFoundError` | Index does not exist |
-| `InvalidFilterError` | Filter syntax is invalid |
-| `InvalidSettingsError` | Settings configuration is invalid |
+| `AlgoliaError` | Base error for all Algolia operations (includes `status` code) |
+| `ObjectNotFoundError` | Object with specified objectID not found (status 404) |
+| `IndexNotFoundError` | Index does not exist (status 404) |
+| `InvalidFilterError` | Filter syntax is invalid (status 400) |
 
 ### Search Errors
 
@@ -551,6 +548,7 @@ After migration, note these differences:
 |---------|---------------|----------------|
 | Data location | Algolia Cloud | DO SQLite (local) |
 | Typo tolerance | Full | Basic (prefix only) |
+| Geo search | Full | Types only (not yet filtering) |
 | Synonyms | Yes | Not yet |
 | Query Rules | Yes | Not yet |
 | Personalization | Yes | Not yet |
@@ -572,12 +570,12 @@ What's different from Algolia Cloud:
 | Settings | Implemented | searchableAttributes, faceting, highlighting |
 | Multi-index | Implemented | multipleQueries, multipleGetObjects |
 | Typo tolerance | Partial | Basic prefix matching only |
+| Geo search | Partial | Types defined; filtering not yet implemented |
 | Synonyms | Not implemented | |
 | Query Rules | Not implemented | |
 | A/B Testing | Not implemented | |
 | Analytics | Not implemented | |
 | Personalization | Not implemented | |
-| Geo search | Not implemented | |
 | Recommend | Not implemented | |
 
 ### Scoring Differences

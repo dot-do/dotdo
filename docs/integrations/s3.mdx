@@ -39,33 +39,61 @@ await client.send(new PutObjectCommand({
 
 ### Implemented
 
-**S3Client Commands**
+**Bucket Commands**
+- `CreateBucketCommand` - Create a bucket
+- `DeleteBucketCommand` - Delete an empty bucket
+- `HeadBucketCommand` - Check if bucket exists
+- `ListBucketsCommand` - List all buckets with pagination
+
+**Object Commands**
 - `PutObjectCommand` - Upload objects
-- `GetObjectCommand` - Download objects
+- `GetObjectCommand` - Download objects (with range support)
 - `HeadObjectCommand` - Get object metadata
 - `DeleteObjectCommand` - Delete single object
 - `DeleteObjectsCommand` - Batch delete
 - `ListObjectsV2Command` - List objects with pagination
-- `CopyObjectCommand` - Copy objects
+- `CopyObjectCommand` - Copy objects (with metadata directive)
+
+**Multipart Upload Commands**
 - `CreateMultipartUploadCommand` - Start multipart upload
 - `UploadPartCommand` - Upload part
 - `CompleteMultipartUploadCommand` - Complete multipart
 - `AbortMultipartUploadCommand` - Abort multipart
+- `ListPartsCommand` - List uploaded parts
+- `ListMultipartUploadsCommand` - List in-progress uploads
+
+**CORS Configuration**
+- `PutBucketCorsCommand` - Configure CORS rules
+- `GetBucketCorsCommand` - Get CORS configuration
+- `DeleteBucketCorsCommand` - Remove CORS configuration
+
+**Lifecycle Configuration**
+- `PutBucketLifecycleConfigurationCommand` - Configure lifecycle rules
+- `GetBucketLifecycleConfigurationCommand` - Get lifecycle rules
+- `DeleteBucketLifecycleCommand` - Remove lifecycle rules
+
+**Versioning**
+- `PutBucketVersioningCommand` - Enable/suspend versioning
+- `GetBucketVersioningCommand` - Get versioning status
+- `ListObjectVersionsCommand` - List object versions
 
 **Presigned URLs**
-- `getSignedUrl()` - Generate presigned URLs for uploads/downloads
-- Expiration control
-- Content-type restrictions
+- `getSignedUrl()` - Generate presigned URLs (AWS SDK compatible)
+- `getSignedGetUrl()` - Convenience method for downloads
+- `getSignedPutUrl()` - Convenience method for uploads
+- `getSignedDeleteUrl()` - Convenience method for deletes
+- `getSignedHeadUrl()` - Convenience method for metadata checks
+- AWS Signature V4 signing
+- Expiration control (up to 7 days)
+- Custom header support
 
 ### Not Yet Implemented
 
-- Bucket operations (CreateBucket, DeleteBucket, ListBuckets)
-- Object versioning
 - Object tagging
-- Lifecycle policies
 - Replication
 - S3 Select
 - Inventory
+- Object Lock
 
 ## Quick Start
 
@@ -285,8 +313,7 @@ Generate temporary URLs for direct uploads/downloads without exposing credential
 ### Download URL
 
 ```typescript
-import { S3Client, GetObjectCommand } from '@dotdo/s3'
-import { getSignedUrl } from '@dotdo/s3/presigner'
+import { S3Client, GetObjectCommand, getSignedUrl } from '@dotdo/s3'
 
 const client = new S3Client({ region: 'auto' })
 
@@ -305,8 +332,7 @@ return new Response(JSON.stringify({ downloadUrl: url }))
 ### Upload URL
 
 ```typescript
-import { S3Client, PutObjectCommand } from '@dotdo/s3'
-import { getSignedUrl } from '@dotdo/s3/presigner'
+import { S3Client, PutObjectCommand, getSignedUrl } from '@dotdo/s3'
 
 const client = new S3Client({ region: 'auto' })
 
@@ -483,10 +509,10 @@ const response = await awsClient.send(new GetObjectCommand({
 
 ### Direct R2 Access
 
-For maximum performance, use R2 bindings directly:
+For maximum performance, use R2 bindings directly with the `R2Store` utility:
 
 ```typescript
-import { createR2Store } from '@dotdo/s3/r2'
+import { createR2Store } from 'dotdo/cloudflare/r2'
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -563,7 +589,7 @@ Access R2 from within Durable Objects:
 
 ```typescript
 import { DO } from 'dotdo'
-import { createR2Store } from '@dotdo/s3/r2'
+import { createR2Store, type R2Store } from 'dotdo/cloudflare/r2'
 
 export class DocumentStore extends DO {
   private store: R2Store
@@ -608,7 +634,7 @@ Examples:
 - `acme/uploads/user-1/photo.jpg` - User upload with filename
 
 ```typescript
-import { buildPath, parsePath } from '@dotdo/s3/r2'
+import { buildPath, parsePath } from 'dotdo/cloudflare/r2'
 
 // Build path
 const path = buildPath({
@@ -630,35 +656,69 @@ Full TypeScript support with AWS SDK-compatible types:
 
 ```typescript
 import type {
-  S3Client,
+  // Client config
   S3ClientConfig,
+  ExtendedS3ClientConfig,
+  ResponseMetadata,
+  StreamingBody,
 
-  // Commands
-  PutObjectCommand,
+  // Bucket operations
+  CreateBucketCommandInput,
+  CreateBucketCommandOutput,
+  DeleteBucketCommandInput,
+  DeleteBucketCommandOutput,
+  HeadBucketCommandInput,
+  HeadBucketCommandOutput,
+  ListBucketsCommandInput,
+  ListBucketsCommandOutput,
+
+  // Object operations
   PutObjectCommandInput,
   PutObjectCommandOutput,
-  GetObjectCommand,
   GetObjectCommandInput,
   GetObjectCommandOutput,
-  HeadObjectCommand,
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  ListObjectsV2Command,
-  CopyObjectCommand,
+  HeadObjectCommandInput,
+  HeadObjectCommandOutput,
+  DeleteObjectCommandInput,
+  DeleteObjectCommandOutput,
+  DeleteObjectsCommandInput,
+  DeleteObjectsCommandOutput,
+  CopyObjectCommandInput,
+  CopyObjectCommandOutput,
+  ListObjectsV2CommandInput,
+  ListObjectsV2CommandOutput,
 
-  // Multipart
-  CreateMultipartUploadCommand,
-  UploadPartCommand,
-  CompleteMultipartUploadCommand,
-  AbortMultipartUploadCommand,
+  // Multipart operations
+  CreateMultipartUploadCommandInput,
+  CreateMultipartUploadCommandOutput,
+  UploadPartCommandInput,
+  UploadPartCommandOutput,
+  CompleteMultipartUploadCommandInput,
+  CompleteMultipartUploadCommandOutput,
+  AbortMultipartUploadCommandInput,
+  AbortMultipartUploadCommandOutput,
+  ListPartsCommandInput,
+  ListPartsCommandOutput,
+  ListMultipartUploadsCommandInput,
+  ListMultipartUploadsCommandOutput,
 
-  // Common types
-  _Object,
-  ObjectIdentifier,
-  CommonPrefix,
+  // CORS types
+  CORSRule,
+  CORSConfiguration,
+
+  // Lifecycle types
+  LifecycleRule,
+  LifecycleConfiguration,
+
+  // Versioning types
+  VersioningStatus,
+  ObjectVersion,
+
+  // Storage class
+  StorageClass,
 } from '@dotdo/s3'
 
-// R2 types
+// R2 Store types (from dotdo/cloudflare/r2)
 import type {
   R2Store,
   R2StoreConfig,
@@ -671,13 +731,25 @@ import type {
   R2ListResult,
   PresignedUrlOptions,
   PathComponents,
-} from '@dotdo/s3/r2'
+} from 'dotdo/cloudflare/r2'
 ```
 
 ## Error Handling
 
+The S3 compat layer provides all standard S3 error types:
+
 ```typescript
-import { S3Client, GetObjectCommand, S3ServiceException } from '@dotdo/s3'
+import {
+  S3Client,
+  GetObjectCommand,
+  S3ServiceException,
+  NoSuchKey,
+  NoSuchBucket,
+  BucketAlreadyExists,
+  BucketNotEmpty,
+  NoSuchUpload,
+  AccessDenied,
+} from '@dotdo/s3'
 
 const client = new S3Client({ region: 'auto' })
 
@@ -687,23 +759,26 @@ try {
     Key: 'missing.txt',
   }))
 } catch (error) {
-  if (error instanceof S3ServiceException) {
-    switch (error.name) {
-      case 'NoSuchKey':
-        console.log('Object not found')
-        break
-      case 'NoSuchBucket':
-        console.log('Bucket not found')
-        break
-      case 'AccessDenied':
-        console.log('Permission denied')
-        break
-      default:
-        console.log('S3 error:', error.message)
-    }
+  // Type-specific error handling
+  if (error instanceof NoSuchKey) {
+    console.log('Object not found')
+  } else if (error instanceof NoSuchBucket) {
+    console.log('Bucket not found')
+  } else if (error instanceof AccessDenied) {
+    console.log('Permission denied')
+  } else if (error instanceof S3ServiceException) {
+    // Generic S3 error
+    console.log('S3 error:', error.name, error.message)
+    console.log('Fault:', error.$fault) // 'client' or 'server'
   }
 }
 ```
+
+All error classes extend `S3ServiceException` with:
+- `name` - Error type (e.g., `NoSuchKey`)
+- `message` - Human-readable description
+- `$fault` - Either `'client'` (4xx) or `'server'` (5xx, retryable)
+- `$metadata` - Response metadata including `httpStatusCode`
 
 ## Migration from AWS S3
 

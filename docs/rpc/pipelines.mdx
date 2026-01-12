@@ -232,7 +232,7 @@ if (results[1].status === 'fulfilled') {
 
 ## Pipeline Inspection
 
-For debugging, you can inspect the pipeline before execution:
+For debugging, you can inspect the pipeline before execution using `describe()`:
 
 ```typescript
 const spec = priya`define the MVP`
@@ -240,7 +240,7 @@ const app = ralph`build ${spec}`
 const deployed = tom`ship ${app}`
 
 // Get the pipeline graph without executing
-console.log(deployed._pipeline)
+console.log(deployed.describe())
 // {
 //   nodes: [
 //     { id: 0, agent: 'priya', prompt: 'define the MVP' },
@@ -250,6 +250,10 @@ console.log(deployed._pipeline)
 //   return: 2
 // }
 ```
+
+<Callout type="info">
+The `describe()` method returns the dependency graph without executing the pipeline. This is useful for debugging and visualizing how calls will be batched.
+</Callout>
 
 ## Real-World Example: Sprint Planning
 
@@ -296,7 +300,7 @@ All the dependency relationships are explicit in the code. The server figures ou
    ])
    ```
 
-5. **Profile your pipelines** - Use `._pipeline` to verify your code creates the graph you expect.
+5. **Profile your pipelines** - Use `.describe()` to verify your code creates the graph you expect.
 
 ## Summary
 

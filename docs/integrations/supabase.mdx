@@ -100,17 +100,21 @@ const { data, error } = await supabase
 - `functions.invoke()` - Call edge functions
 - `functions.setAuth()` - Set auth token
 
-### Extended Features (DO-backed)
+### Extended Configuration (DO-backed)
 
-**Sharding**
-- Consistent hashing, range, or hash-based sharding
-- Configurable shard count
-- Custom shard key routing
+When using with a Durable Object namespace binding, the following options are available for production routing:
 
-**Replication**
-- Read preference (primary, secondary, nearest)
-- Write-through to all replicas
-- Jurisdiction constraints (EU, US, FedRAMP)
+**Sharding** (configuration passed to DO routing layer)
+- `algorithm`: 'consistent' | 'range' | 'hash'
+- `count`: number of shards
+- `key`: field name for shard routing
+
+**Replication** (configuration passed to DO routing layer)
+- `readPreference`: 'primary' | 'secondary' | 'nearest'
+- `writeThrough`: boolean
+- `jurisdiction`: 'eu' | 'us' | 'fedramp'
+
+Note: In local/testing mode, these options are accepted but the in-memory implementation doesn't actively use them. They take effect when connected to a real DO namespace for production deployments.
 
 ## Installation
 
@@ -336,33 +340,9 @@ describe('User Service', () => {
 - **Offline**: Works without internet
 - **Fast tests**: Run thousands of tests in seconds
 
-## Outbound Mode - Connecting to Real Supabase
+## Usage in Cloudflare Workers
 
-For production, the client forwards requests to Supabase's API:
-
-```typescript
-import { createClient } from '@dotdo/supabase'
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-    },
-  }
-)
-
-// All requests go to your Supabase project
-const { data } = await supabase
-  .from('users')
-  .select('*')
-```
-
-### Edge Compatibility
-
-Works in Cloudflare Workers without Node.js dependencies:
+The SDK is edge-compatible and works in Cloudflare Workers without Node.js dependencies:
 
 ```typescript
 // worker.ts
@@ -371,10 +351,12 @@ import { createClient } from '@dotdo/supabase'
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const supabase = createClient(
-      env.SUPABASE_URL,
-      env.SUPABASE_ANON_KEY
+      'https://my-project.supabase.co',
+      'anon-key'
     )
 
+    // Currently runs in-memory mode
+    // Full API compatibility for development/testing
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -389,7 +371,11 @@ export default {
 }
 ```
 
+Note: The current implementation runs entirely in-memory. Future versions will support forwarding to real Supabase APIs when provided with valid credentials.
+
 ### Extended DO Configuration
+
+When deploying to production with Durable Objects, you can configure sharding and replication:
 
 ```typescript
 import { createClient } from '@dotdo/supabase'
@@ -404,25 +390,27 @@ const supabase = createClient(
       persistSession: true,
     },
 
-    // Extended DO options
+    // Extended DO options (production only)
     doNamespace: env.DO_NAMESPACE,
 
-    // Automatic sharding
+    // Sharding configuration
     shard: {
-      algorithm: 'consistent', // or 'range', 'hash'
+      algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
       count: 16,
       key: 'tenant_id',
     },
 
-    // Multi-region replication
+    // Replication configuration
     replica: {
-      readPreference: 'nearest', // or 'primary', 'secondary'
+      readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
       writeThrough: true,
-      jurisdiction: 'eu', // or 'us', 'fedramp'
+      jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
     },
   }
 )
 ```
+
+Note: Sharding and replication options are passed to the DO routing layer. In local testing mode (without a DO namespace binding), the client works fully but these options have no effect.
 
 ## API Reference
 
@@ -586,6 +574,8 @@ import type {
 
 ## Architecture
 
+The current implementation provides a complete in-memory Supabase SDK that's API-compatible with `@supabase/supabase-js`. This allows testing and development without requiring a real Supabase project.
+
 ```
 +-------------------------------------------------------------+
 |                    Your Application                          |
@@ -594,22 +584,19 @@ import type {
 |  await supabase.from('users').select()                      |
 +-------------------------------------------------------------+
                               |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|   Production Mode        |     |     Local Mode          |
-|   (Real Supabase)        |     |     (DO SQLite)         |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> api.supabase.co     |     |  -> In-memory storage   |
-|  -> PostgreSQL          |     |  -> DO SQLite           |
-|  -> Supabase Auth       |     |  -> Mock auth           |
-|  -> Supabase Storage    |     |  -> In-memory blobs     |
-|  -> Supabase Realtime   |     |  -> Local events        |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
+                              v
++-------------------------------------------------------------+
+|                  @dotdo/supabase (In-Memory)                |
++-------------------------------------------------------------+
+|  Database:   In-memory Map<table, Row[]>                    |
+|  Auth:       In-memory user/session storage                 |
+|  Storage:    In-memory Blob storage                         |
+|  Realtime:   In-memory event dispatch                       |
+|  Functions:  Mock invocation handler                        |
++-------------------------------------------------------------+
 ```
+
+Each `createClient()` call creates an isolated instance with its own storage, making it ideal for testing where you need clean state between tests.
 
 ## Migration from Supabase SDK
 

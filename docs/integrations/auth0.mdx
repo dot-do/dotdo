@@ -42,19 +42,19 @@ const user = await management.users.get({ id: 'user_123' })
 
 **ManagementClient**
 - `users.create()` / `users.get()` / `users.update()` / `users.delete()` - Full CRUD
+- `users.getAll()` - List all users (with pagination)
 - `users.getByEmail()` - Find users by email
 - `users.getRoles()` / `users.assignRoles()` / `users.removeRoles()` - Role management
 - `users.getPermissions()` - Permission aggregation from roles
 - `users.getEnrollments()` / `users.deleteEnrollment()` - MFA management
 - `users.link()` / `users.unlink()` - Identity linking
-- `users.block()` / `users.unblock()` - User blocking
-- `connections.create()` / `connections.get()` / `connections.update()` / `connections.delete()`
-- `roles.create()` / `roles.get()` / `roles.update()` / `roles.delete()`
+- `connections.create()` / `connections.get()` / `connections.getByName()` / `connections.update()` / `connections.delete()` / `connections.getAll()`
+- `roles.create()` / `roles.get()` / `roles.update()` / `roles.delete()` / `roles.getAll()`
 - `roles.getPermissions()` / `roles.addPermissions()` / `roles.removePermissions()`
-- `clients.create()` / `clients.get()` / `clients.update()` / `clients.delete()`
+- `roles.getUsers()` - Get users assigned to a role
+- `clients.create()` / `clients.get()` / `clients.update()` / `clients.delete()` / `clients.getAll()`
 - `clients.rotateSecret()` - Rotate client secrets
-- `resourceServers.create()` / `resourceServers.get()` / `resourceServers.update()` / `resourceServers.delete()`
-- `organizations.*` - Full organization support with members, roles, connections, and invitations
+- `resourceServers.create()` / `resourceServers.get()` / `resourceServers.update()` / `resourceServers.delete()` / `resourceServers.getAll()`
 
 **AuthenticationClient**
 - `database.signUp()` - User registration
@@ -69,12 +69,15 @@ const user = await management.users.get({ id: 'user_123' })
 
 ### Not Yet Implemented
 
+- Organizations API (`organizations.*`)
+- User blocking (`users.block()` / `users.unblock()`)
 - Custom database connections
 - Social connections (Google, GitHub, etc.) - use OAuth directly
 - SAML/WS-Federation
 - Anomaly detection
 - Breached password detection
 - Attack protection
+- Proxy mode to real Auth0 tenant
 
 ## Installation
 
@@ -302,67 +305,6 @@ const tokens = await auth.passwordless.verify({
 })
 ```
 
-### Organizations (Multi-Tenancy)
-
-```typescript
-import { ManagementClient } from '@dotdo/auth0'
-
-const management = new ManagementClient({
-  domain: 'your-tenant.auth0.com',
-  token: 'management-api-token',
-})
-
-// Create an organization
-const org = await management.organizations.create({
-  name: 'acme-corp',
-  display_name: 'Acme Corporation',
-  branding: {
-    logo_url: 'https://acme.com/logo.png',
-    colors: {
-      primary: '#0066CC',
-      page_background: '#FFFFFF',
-    },
-  },
-  metadata: {
-    plan: 'enterprise',
-    seats: 100,
-  },
-})
-
-// Add members
-await management.organizations.addMembers(
-  { id: org.id },
-  { members: ['user_123', 'user_456'] }
-)
-
-// Assign roles to members
-await management.organizations.addMemberRoles(
-  { id: org.id, user_id: 'user_123' },
-  { roles: ['org_admin'] }
-)
-
-// Enable connections
-await management.organizations.addEnabledConnection(
-  { id: org.id },
-  {
-    connection_id: 'con_abc123',
-    assign_membership_on_login: true,
-  }
-)
-
-// Invite new members
-const invitation = await management.organizations.createInvitation(
-  { id: org.id },
-  {
-    inviter: { name: 'Admin' },
-    invitee: { email: 'newuser@example.com' },
-    client_id: 'your-client-id',
-    roles: ['org_member'],
-    ttl_sec: 604800, // 7 days
-  }
-)
-```
-
 ## Inbound Compatibility (auth0.do as Auth Provider)
 
 Use auth0.do as a drop-in replacement for Auth0. Your frontend code works unchanged:
@@ -426,25 +368,6 @@ export default handleAuth()
 // AUTH0_ISSUER_BASE_URL=https://your-app.auth0.do
 // AUTH0_CLIENT_ID=your-client-id
 // AUTH0_CLIENT_SECRET=your-client-secret
-```
-
-## Outbound - Connecting to Real Auth0
-
-If you need to proxy to an actual Auth0 tenant (hybrid mode):
-
-```typescript
-import { ManagementClient } from '@dotdo/auth0'
-
-const management = new ManagementClient({
-  domain: 'your-real-tenant.auth0.com',
-  clientId: env.AUTH0_CLIENT_ID,
-  clientSecret: env.AUTH0_CLIENT_SECRET,
-  // Enable proxy mode to forward requests to Auth0
-  proxyMode: true,
-})
-
-// Requests are forwarded to Auth0's API
-const user = await management.users.get({ id: 'auth0|123456' })
 ```
 
 ## Integration with dotdo Auth Middleware
@@ -535,11 +458,11 @@ import type {
   Auth0MFAEnrollment,
   Auth0MFAChallenge,
 
-  // Organization types
-  Auth0Organization,
-  Auth0OrganizationMember,
-  Auth0OrganizationInvitation,
-  CreateOrganizationParams,
+  // Log types
+  Auth0Log,
+
+  // Error types
+  Auth0Error,
 
   // Pagination types
   PaginationParams,
@@ -553,7 +476,7 @@ import { Auth0APIError } from '@dotdo/auth0'
 ## Error Handling
 
 ```typescript
-import { Auth0APIError, Auth0ValidationError, Auth0AuthenticationError } from '@dotdo/auth0'
+import { Auth0APIError } from '@dotdo/auth0'
 
 try {
   await management.users.get({ id: 'invalid-user-id' })
@@ -562,18 +485,19 @@ try {
     console.error('Status:', error.statusCode)      // 404
     console.error('Message:', error.message)        // 'User not found: invalid-user-id'
     console.error('Error Code:', error.errorCode)   // 'inexistent_user'
+    console.error('Error:', error.error)            // 'Not Found'
   }
 }
 ```
 
-### Error Types
+### Auth0APIError Properties
 
-| Error Type | Description |
-|------------|-------------|
-| `Auth0APIError` | Base error for all API errors |
-| `Auth0ValidationError` | Invalid request parameters |
-| `Auth0AuthenticationError` | Authentication/authorization failures |
-| `Auth0RateLimitError` | Rate limit exceeded |
+| Property | Type | Description |
+|----------|------|-------------|
+| `statusCode` | `number` | HTTP status code (e.g., 404, 401, 400) |
+| `error` | `string` | Error type (e.g., 'Not Found', 'Unauthorized') |
+| `message` | `string` | Human-readable error message |
+| `errorCode` | `string?` | Auth0-specific error code (optional) |
 
 ### Common Error Codes
 
@@ -591,7 +515,7 @@ try {
 ### Authentication Errors
 
 ```typescript
-import { AuthenticationClient } from '@dotdo/auth0'
+import { AuthenticationClient, Auth0APIError } from '@dotdo/auth0'
 
 const auth = new AuthenticationClient({
   domain: 'your-tenant.auth0.do',
@@ -606,38 +530,18 @@ try {
     password: 'wrong-password',
   })
 } catch (error) {
-  if (error instanceof Auth0AuthenticationError) {
+  if (error instanceof Auth0APIError) {
     switch (error.errorCode) {
       case 'invalid_grant':
         console.error('Invalid username or password')
         break
       case 'mfa_required':
-        console.error('MFA token:', error.mfaToken)
-        // Prompt user for MFA code
+        console.error('MFA required - use mfa.challenge() and mfa.verify()')
         break
       case 'too_many_attempts':
         console.error('Account locked due to too many failed attempts')
         break
     }
-  }
-}
-```
-
-### Rate Limiting
-
-```typescript
-import { Auth0RateLimitError } from '@dotdo/auth0'
-
-try {
-  // Bulk operations
-  for (const user of users) {
-    await management.users.create(user)
-  }
-} catch (error) {
-  if (error instanceof Auth0RateLimitError) {
-    console.error('Rate limited, retry after:', error.retryAfter, 'seconds')
-    // Wait and retry
-    await new Promise(r => setTimeout(r, error.retryAfter * 1000))
   }
 }
 ```
@@ -664,7 +568,7 @@ Auth data is stored in Durable Object SQLite with the shared auth primitives:
 |  |   MFAManager     |  |  OAuthManager    |               |
 |  |  - TOTP          |  |  - Grants        |               |
 |  |  - Email/SMS OTP |  |  - PKCE          |               |
-|  |  - Recovery      |  |  - Revocation    |               |
+|  |  - Challenges    |  |  - Revocation    |               |
 |  +------------------+  +------------------+               |
 +----------------------------------------------------------+
                             |
@@ -675,7 +579,7 @@ Auth data is stored in Durable Object SQLite with the shared auth primitives:
 |  |                    SQLite                           |  |
 |  |  - users, sessions, mfa_factors                     |  |
 |  |  - roles, permissions, connections                  |  |
-|  |  - organizations, members, invitations              |  |
+|  |  - clients, resource_servers                        |  |
 |  +----------------------------------------------------+  |
 +----------------------------------------------------------+
 ```
@@ -746,19 +650,24 @@ What's different from Auth0 Cloud:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| User management | Full | CRUD, metadata, blocking |
+| User management | Full | CRUD, metadata, identity linking |
 | Password auth | Full | Signup, login, reset |
 | JWT tokens | Full | HS256, RS256 support |
 | Refresh tokens | Full | Rotation, revocation |
 | MFA (TOTP) | Full | Enrollment, verification |
 | MFA (Email/SMS) | Full | OTP delivery (bring your own transport) |
 | Roles & Permissions | Full | RBAC with inheritance |
-| Organizations | Full | Multi-tenancy support |
+| Connections | Full | Create, update, delete connections |
+| Clients | Full | Application management with secret rotation |
+| Resource Servers | Full | API definitions with scopes |
+| User blocking | Not implemented | Use user deletion or custom metadata |
+| Organizations | Not implemented | Multi-tenancy planned |
 | Social connections | Not implemented | Use OAuth directly |
 | SAML | Not implemented | |
 | Custom database | Not implemented | |
 | Anomaly detection | Not implemented | |
 | Breached passwords | Not implemented | |
+| Proxy to Auth0 | Not implemented | Self-hosted only |
 
 ## Related
 

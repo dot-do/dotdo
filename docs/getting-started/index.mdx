@@ -3,13 +3,40 @@ title: Getting Started
 description: Build your first AI-powered startup in minutes
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # Getting Started
 
-It's Tuesday. You're one person. By Friday, you'll have a product, engineering, marketing, and sales team shipping code.
+**dotdo** is a Business-as-Code framework that lets you build autonomous businesses run by AI agents. Your code defines the business logic; AI agents execute the work.
+
+<Cards>
+  <Card title="Quick Start" href="/docs/getting-started/quickstart">
+    Build and deploy your first startup in 5 minutes.
+  </Card>
+  <Card title="Installation" href="/docs/getting-started/installation">
+    Set up dotdo on your machine.
+  </Card>
+</Cards>
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+| Requirement | Version | Why |
+|------------|---------|-----|
+| Node.js | 18+ | V8 isolate compatibility |
+| Cloudflare account | Free tier works | Durable Objects hosting |
+| TypeScript | 5+ | Template literal types |
+
+<Callout type="info">
+New to Cloudflare? Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com). You get 100,000 Durable Object requests/day for free.
+</Callout>
+
+---
 
 ## What You'll Build
 
-A startup that runs itself. AI agents do the work. You make the decisions.
+It's Tuesday. You're one person. By Friday, you'll have a product, engineering, marketing, and sales team shipping code.
 
 ```typescript title="my-startup.ts"
 import { Startup } from 'dotdo'
@@ -50,18 +77,6 @@ do {
 ```
 
 The `await tom.approve(app)` is necessary because you need the boolean result to decide whether to continue the loop.
-
-## Prerequisites
-
-| Requirement | Version | Why |
-|------------|---------|-----|
-| Node.js | 18+ | V8 isolate compatibility |
-| Cloudflare account | Free tier works | Durable Objects hosting |
-| TypeScript | 5+ | Template literal types |
-
-<Callout type="info">
-New to Cloudflare? Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com). You get 100,000 Durable Object requests/day for free.
-</Callout>
 
 ## Your AI Team
 
@@ -105,14 +120,3 @@ await sally`start selling ${announcement}`
 ```
 
 The difference: milliseconds vs seconds. Cents vs dollars. One person vs needing a DevOps team.
-
-## Next Steps
-
-<Cards>
-  <Card title="Installation" href="/docs/getting-started/installation">
-    Get dotdo running locally in 2 minutes.
-  </Card>
-  <Card title="Quickstart" href="/docs/getting-started/quickstart">
-    Build and deploy your first startup in 5 minutes.
-  </Card>
-</Cards>

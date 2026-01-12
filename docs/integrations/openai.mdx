@@ -1,6 +1,6 @@
 ---
 title: OpenAI
-description: Drop-in replacement for the OpenAI SDK with edge compatibility, multi-provider routing, and named agent integration.
+description: Drop-in replacement for the OpenAI SDK with edge compatibility and automatic retries.
 ---
 
 # OpenAI
@@ -27,12 +27,10 @@ const completion = await client.chat.completions.create({
 | OpenAI SDK | openai.do |
 |------------|-----------|
 | Node.js only | Edge-compatible (Workers, Deno, Bun) |
-| Single provider | Multi-provider routing with failover |
 | No built-in retries | Automatic retries with exponential backoff |
 | Manual error handling | Typed errors with request IDs |
-| Separate from agents | Integrated with named agents (Priya, Ralph, Tom) |
 
-**This is a reimplementation.** The SDK provides 100% API compatibility while adding edge runtime support, multi-provider routing, and integration with dotdo's agent system.
+**This is a reimplementation.** The SDK provides 100% API compatibility while adding edge runtime support and automatic retries.
 
 ## Features
 
@@ -59,9 +57,12 @@ const completion = await client.chat.completions.create({
 - `models.del()` - Delete fine-tuned models
 
 **Assistants API**
-- Full Assistants API support (threads, messages, runs)
-- File search and code interpreter tools
-- Run streaming
+- `AssistantsClient` with in-memory storage backend
+- Assistant CRUD operations
+- Thread management
+- Message handling
+- Run execution with tool calls
+- Polling helpers (`runs.poll()`, `runs.createAndPoll()`)
 
 ### Not Yet Implemented
 
@@ -276,7 +277,7 @@ const localClient = new OpenAI({
 
 ## Multi-Provider Routing
 
-For production use, route requests across multiple providers with automatic failover:
+For production use, route requests across multiple providers with automatic failover using `createOpenAIWithRuntime`:
 
 ```typescript
 import { createOpenAIWithRuntime } from '@dotdo/openai'
@@ -285,12 +286,11 @@ const client = createOpenAIWithRuntime({
   providers: [
     { name: 'openai', apiKey: process.env.OPENAI_API_KEY },
     { name: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
-    { name: 'google', apiKey: process.env.GOOGLE_API_KEY },
   ],
   strategy: 'priority',  // 'priority' | 'round-robin' | 'least-latency' | 'cost-optimized'
   fallback: {
     enabled: true,
-    maxAttempts: 3,
+    maxAttempts: 2,
   },
 })
 
@@ -303,7 +303,14 @@ const completion = await client.chat.completions.create({
 // Get routing statistics
 const stats = client.getStats()
 console.log(stats)
-// { openai: { requests: 100, failures: 2 }, anthropic: { requests: 5, failures: 0 } }
+// {
+//   totalRequests: 100,
+//   totalTokens: 50000,
+//   byProvider: {
+//     openai: { requests: 95, tokens: 47500, costUsd: 1.50, errors: 2, averageLatencyMs: 450 },
+//     anthropic: { requests: 5, tokens: 2500, costUsd: 0.08, errors: 0, averageLatencyMs: 380 }
+//   }
+// }
 ```
 
 ### Routing Strategies
@@ -311,27 +318,32 @@ console.log(stats)
 | Strategy | Description |
 |----------|-------------|
 | `priority` | Use first provider, failover to next (default) |
-| `round-robin` | Distribute requests evenly |
-| `least-latency` | Route to fastest provider |
-| `cost-optimized` | Route to cheapest provider for the model |
+| `round-robin` | Distribute requests evenly across providers |
+| `least-latency` | Route to provider with lowest average latency |
+| `cost-optimized` | Route based on model pricing (basic implementation) |
+
+### Supported Providers
+
+Currently supported providers for multi-provider routing:
+- `openai` - OpenAI API
+- `anthropic` - Anthropic Claude API
 
 ## Agent Integration
 
-Integrate with dotdo's named agents for specialized AI personas:
+Named agents from `agents.do` can use OpenAI (or Anthropic) as their backend. By default, agents use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
 
 ```typescript
-import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+import { priya, ralph, tom } from 'agents.do'
 
-// Named agents use OpenAI under the hood
+// Named agents work with OpenAI or Anthropic
 const spec = await priya`define the MVP for ${hypothesis}`
 let app = await ralph`build ${spec}`
 
-do {
-  app = await ralph`improve ${app} per ${tom}`
-} while (!await tom.approve(app))
-
-await mark`announce the launch of ${app}`
-await sally`start selling ${app}`
+// Tom can review and approve
+const review = await tom.approve(app)
+if (review.approved) {
+  console.log('Code approved!')
+}
 ```
 
 ### Named Agent Personas
@@ -345,14 +357,14 @@ await sally`start selling ${app}`
 | Sally | Sales | Outreach, demos, closing |
 | Quinn | QA | Testing, quality assurance |
 
-### Using OpenAI with Agents
+### Configuring Agents
 
-Configure agents to use specific OpenAI models:
+Configure agents to use specific models and parameters:
 
 ```typescript
 import { ralph } from 'agents.do'
 
-// Use GPT-4 for Ralph
+// Use GPT-4 with custom settings
 const codeRalph = ralph.withConfig({
   model: 'gpt-4-turbo',
   temperature: 0.2,
@@ -361,56 +373,73 @@ const codeRalph = ralph.withConfig({
 
 const code = await codeRalph`implement a REST API for ${spec}`
 
-// Stream responses
+// Streaming (simulated chunking of response)
 for await (const chunk of ralph.stream`build ${feature}`) {
   process.stdout.write(chunk)
 }
 ```
 
+Note: The `.stream` method currently simulates streaming by chunking the full response. True provider-level streaming is planned.
+
 ## Assistants API
 
-Full support for OpenAI's Assistants API:
+The `AssistantsClient` provides an OpenAI Assistants-compatible API with an in-memory storage backend:
 
 ```typescript
 import { AssistantsClient } from '@dotdo/openai'
 
-const assistants = new AssistantsClient({
+const client = new AssistantsClient({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
 // Create an assistant
-const assistant = await assistants.assistants.create({
+const assistant = await client.assistants.create({
   name: 'Math Tutor',
   instructions: 'You are a helpful math tutor.',
   model: 'gpt-4-turbo',
-  tools: [{ type: 'code_interpreter' }],
+  tools: [{ type: 'function', function: { name: 'calculate', parameters: {} } }],
 })
 
 // Create a thread
-const thread = await assistants.threads.create()
+const thread = await client.threads.create()
 
 // Add a message
-await assistants.messages.create(thread.id, {
+await client.messages.create(thread.id, {
   role: 'user',
   content: 'Solve x^2 + 2x + 1 = 0',
 })
 
-// Run the assistant
-const run = await assistants.runs.create(thread.id, {
+// Create and poll for completion (convenience method)
+const run = await client.runs.createAndPoll(thread.id, {
   assistant_id: assistant.id,
 })
 
-// Wait for completion
-let runStatus = await assistants.runs.retrieve(thread.id, run.id)
-while (runStatus.status === 'in_progress' || runStatus.status === 'queued') {
-  await new Promise((r) => setTimeout(r, 1000))
-  runStatus = await assistants.runs.retrieve(thread.id, run.id)
-}
-
 // Get messages
-const messages = await assistants.messages.list(thread.id)
+const messages = await client.messages.list(thread.id)
 console.log(messages.data[0].content)
 ```
+
+### Tool Handling
+
+When a run requires tool outputs, you can submit them:
+
+```typescript
+// Check if run requires action
+if (run.status === 'requires_action') {
+  const toolCalls = run.required_action?.submit_tool_outputs.tool_calls
+
+  const toolOutputs = toolCalls.map((tc) => ({
+    tool_call_id: tc.id,
+    output: JSON.stringify({ result: 'computed value' }),
+  }))
+
+  await client.runs.submitToolOutputs(thread.id, run.id, {
+    tool_outputs: toolOutputs,
+  })
+}
+```
+
+Note: The Assistants API uses local in-memory storage by default. Data does not persist across restarts.
 
 ## TypeScript Types
 
@@ -443,10 +472,20 @@ import type {
   // Common
   Usage,
   RequestOptions,
+
+  // Assistants (selected types)
+  Assistant,
+  Thread,
+  AssistantMessage,
+  Run,
+  RunStatus,
 } from '@dotdo/openai'
 
-// Error types
-import { OpenAIError } from '@dotdo/openai'
+// Client classes and errors
+import { OpenAI, OpenAIError, AssistantsClient } from '@dotdo/openai'
+
+// Multi-provider routing
+import { createOpenAIWithRuntime } from '@dotdo/openai'
 ```
 
 ## Error Handling

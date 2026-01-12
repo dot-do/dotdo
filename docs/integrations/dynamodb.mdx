@@ -1,11 +1,11 @@
 ---
 title: DynamoDB
-description: Drop-in replacement for the AWS DynamoDB SDK with edge compatibility and local testing support.
+description: In-memory DynamoDB-compatible SDK for testing and edge development with AWS SDK v3 API compatibility.
 ---
 
 # DynamoDB
 
-Drop-in replacement for the AWS DynamoDB JavaScript SDK (v3). Your existing `@aws-sdk/client-dynamodb` code works unchanged - just swap the import.
+In-memory implementation of the AWS DynamoDB JavaScript SDK (v3) API. Ideal for testing and development without requiring AWS credentials or network access.
 
 ```typescript
 // Before: AWS SDK
@@ -41,13 +41,12 @@ const result = await client.send(new GetItemCommand({
 | AWS DynamoDB SDK | @dotdo/dynamodb |
 |------------------|-----------------|
 | Node.js runtime required | Edge-compatible (Cloudflare Workers) |
-| Real API calls in tests | Local testing with in-memory storage |
-| Network latency to AWS | Zero latency in local mode |
-| AWS credentials required | No credentials for local development |
-| Pay per request/provisioned | Free in local mode |
-| Regional deployment | Runs on edge (300+ cities) |
+| Real API calls in tests | In-memory storage for fast testing |
+| Network latency to AWS | Zero latency (in-memory) |
+| AWS credentials required | No credentials needed |
+| Pay per request/provisioned | Free (in-memory) |
 
-**This is a proxy/compatibility layer.** It can either forward to real AWS DynamoDB (production) or run entirely locally backed by Durable Objects with SQLite storage for testing and development. The API surface matches AWS SDK v3.
+**This is an in-memory DynamoDB implementation.** It provides a DynamoDB-compatible API backed by in-memory storage for testing and development. The API surface matches AWS SDK v3.
 
 ## Features
 
@@ -229,9 +228,9 @@ await client.send(new DeleteItemCommand({
 }))
 ```
 
-## Inbound Mode - Using dynamodb.do Locally
+## Local Testing
 
-For testing and development, the client runs entirely in-memory backed by Durable Objects with SQLite storage:
+The client runs entirely in-memory, making it perfect for testing:
 
 ```typescript
 import {
@@ -280,7 +279,50 @@ const result = await client.send(new QueryCommand({
 clearAllTables()
 ```
 
-### Conditional Writes in Local Mode
+### Using in Vitest
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  DynamoDBClient,
+  CreateTableCommand,
+  PutItemCommand,
+  GetItemCommand,
+  clearAllTables,
+} from '@dotdo/dynamodb'
+
+describe('User Repository', () => {
+  const client = new DynamoDBClient({ region: 'us-east-1' })
+
+  beforeEach(async () => {
+    // Clear all data between tests
+    clearAllTables()
+
+    // Create test table
+    await client.send(new CreateTableCommand({
+      TableName: 'Users',
+      KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+      AttributeDefinitions: [{ AttributeName: 'pk', AttributeType: 'S' }],
+    }))
+  })
+
+  it('should store and retrieve users', async () => {
+    await client.send(new PutItemCommand({
+      TableName: 'Users',
+      Item: { pk: { S: 'user#1' }, name: { S: 'Alice' } },
+    }))
+
+    const result = await client.send(new GetItemCommand({
+      TableName: 'Users',
+      Key: { pk: { S: 'user#1' } },
+    }))
+
+    expect(result.Item?.name?.S).toBe('Alice')
+  })
+})
+```
+
+### Conditional Writes
 
 ```typescript
 // Put with condition (prevents overwrite)
@@ -297,7 +339,7 @@ try {
 }
 ```
 
-### Transactions in Local Mode
+### Transactions
 
 ```typescript
 import { TransactWriteItemsCommand } from '@dotdo/dynamodb'
@@ -326,90 +368,6 @@ await client.send(new TransactWriteItemsCommand({
     },
   ],
 }))
-```
-
-## Outbound Mode - Connecting to Real AWS DynamoDB
-
-For production, configure the client with AWS credentials to connect to real DynamoDB:
-
-```typescript
-import { DynamoDBClient, PutItemCommand } from '@dotdo/dynamodb'
-
-const client = new DynamoDBClient({
-  region: 'us-east-1',
-  credentials: {
-    accessKeyId: env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-  },
-})
-
-// All requests go to dynamodb.us-east-1.amazonaws.com
-await client.send(new PutItemCommand({
-  TableName: 'ProductionUsers',
-  Item: {
-    pk: { S: 'USER#123' },
-    sk: { S: 'PROFILE' },
-    name: { S: 'Alice' },
-  },
-}))
-```
-
-### Edge Compatibility
-
-Works in Cloudflare Workers without Node.js dependencies:
-
-```typescript
-// worker.ts
-import { DynamoDBClient, QueryCommand, marshallItem, unmarshallItem } from '@dotdo/dynamodb'
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const client = new DynamoDBClient({
-      region: env.AWS_REGION,
-      credentials: {
-        accessKeyId: env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-      },
-    })
-
-    const url = new URL(request.url)
-    const userId = url.searchParams.get('userId')
-
-    const result = await client.send(new QueryCommand({
-      TableName: 'Users',
-      KeyConditionExpression: 'pk = :pk',
-      ExpressionAttributeValues: {
-        ':pk': { S: `USER#${userId}` },
-      },
-    }))
-
-    const items = result.Items?.map(unmarshallItem) ?? []
-
-    return Response.json({ items })
-  },
-}
-```
-
-### Extended Configuration (DO Backing)
-
-```typescript
-const client = new DynamoDBClient({
-  region: 'us-east-1',
-  // DO namespace for distributed storage
-  doNamespace: env.DYNAMODB_DO,
-  // Sharding configuration
-  shard: {
-    algorithm: 'consistent',
-    count: 16,
-    key: 'pk',
-  },
-  // Replica configuration
-  replica: {
-    readPreference: 'nearest',
-    writeThrough: true,
-    jurisdiction: 'eu',
-  },
-})
 ```
 
 ## API Reference
@@ -671,7 +629,6 @@ import type {
 
   // Config
   DynamoDBClientConfig,
-  ExtendedDynamoDBClientConfig,
 
   // Response
   ResponseMetadata,
@@ -679,34 +636,17 @@ import type {
 } from '@dotdo/dynamodb'
 ```
 
-## Migration from AWS SDK
+## Using with AWS SDK Code
 
-### Package Change
+The `@dotdo/dynamodb` package matches the AWS SDK v3 API, making it easy to use your existing DynamoDB code in tests.
 
-```bash
-# Remove
-npm uninstall @aws-sdk/client-dynamodb
-
-# Install
-npm install @dotdo/dynamodb
-```
-
-### Import Change
+### Test Setup
 
 ```typescript
-// Before
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb'
-
-// After
+// In your tests, swap the import
 import { DynamoDBClient, PutItemCommand } from '@dotdo/dynamodb'
-```
 
-### Code Compatibility
-
-Your existing DynamoDB code should work unchanged:
-
-```typescript
-// This code works with both @aws-sdk/client-dynamodb and @dotdo/dynamodb
+// Your existing code works unchanged
 const client = new DynamoDBClient({ region: 'us-east-1' })
 
 await client.send(new PutItemCommand({
@@ -727,6 +667,35 @@ const result = await client.send(new QueryCommand({
 }))
 ```
 
+### Dependency Injection Pattern
+
+For swappable implementations between test and production:
+
+```typescript
+// repository.ts
+import type { DynamoDBClient as IDynamoDBClient } from '@dotdo/dynamodb'
+
+export class UserRepository {
+  constructor(private client: IDynamoDBClient) {}
+
+  async getUser(id: string) {
+    const result = await this.client.send(new GetItemCommand({
+      TableName: 'Users',
+      Key: { pk: { S: `USER#${id}` } },
+    }))
+    return result.Item
+  }
+}
+
+// In tests
+import { DynamoDBClient } from '@dotdo/dynamodb'
+const repo = new UserRepository(new DynamoDBClient({}))
+
+// In production
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+const repo = new UserRepository(new DynamoDBClient({ region: 'us-east-1' }))
+```
+
 ## Architecture
 
 ```
@@ -737,30 +706,28 @@ const result = await client.send(new QueryCommand({
 |  await client.send(new PutItemCommand({ ... }))             |
 +-------------------------------------------------------------+
                               |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|   Production Mode       |     |     Local Mode          |
-|   (AWS DynamoDB)        |     |     (DO + SQLite)       |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> dynamodb.aws.com    |     |  -> In-memory storage   |
-|  -> Real tables         |     |  -> No network calls    |
-|  -> AWS credentials     |     |  -> No credentials      |
-|  -> Pay per use         |     |  -> Free local testing  |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
+                              v
++-------------------------------------------------------------+
+|                   In-Memory Storage                          |
++-------------------------------------------------------------+
+|                                                              |
+|  -> Global Map<string, TableMeta> for tables                 |
+|  -> Map<string, Item> per table for items                    |
+|  -> Full expression parsing (Key, Filter, Update, etc.)      |
+|  -> clearAllTables() to reset state between tests            |
+|                                                              |
++-------------------------------------------------------------+
 ```
 
-### Local Mode Benefits
+### Benefits
 
 - **Zero latency**: No network round-trips
-- **No AWS costs**: Free local development
+- **No AWS costs**: Free testing and development
 - **No credentials**: Works without AWS setup
 - **Predictable**: No external dependencies
 - **Testable**: Full control over data
 - **Offline**: Works without internet
+- **Fast tests**: In-memory storage for instant operations
 
 ## Common Patterns
 

@@ -11,28 +11,27 @@ Drop-in replacement for the Anthropic SDK. Your existing `@anthropic-ai/sdk` cod
 // Before: Anthropic SDK
 import Anthropic from '@anthropic-ai/sdk'
 
-// After: dotdo
-import Anthropic from '@dotdo/anthropic'
+// After: dotdo compat layer
+import { Anthropic } from 'compat/anthropic'
 
 // Code stays the same
 const client = new Anthropic({ apiKey: 'sk-ant-xxx' })
 
 const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   messages: [{ role: 'user', content: 'Hello!' }],
 })
 ```
 
-## Why anthropic.do?
+## Why Use the Compat Layer?
 
-| Anthropic SDK | anthropic.do |
+| Anthropic SDK | dotdo compat |
 |---------------|--------------|
 | Node.js runtime only | Edge-compatible (V8 isolates) |
 | No built-in retry logic | Automatic retries with backoff |
 | Manual timeout handling | Configurable timeout (default 10min) |
 | Separate from your DO code | Native integration with Durable Objects |
-| Direct API calls | Can route through DO for caching/logging |
 
 **This is a compatibility wrapper.** Requests are forwarded to Anthropic's API, but with edge compatibility and enhanced error handling. The wrapper is designed to work in Cloudflare Workers, Deno, Bun, and other edge runtimes.
 
@@ -54,23 +53,24 @@ const message = await client.messages.create({
 
 ## Quick Start
 
-### Install
+### Import
 
-```bash
-npm install @dotdo/anthropic
+```typescript
+// Import from the compat layer
+import { Anthropic } from 'compat/anthropic'
 ```
 
 ### Basic Message
 
 ```typescript
-import Anthropic from '@dotdo/anthropic'
+import { Anthropic } from 'compat/anthropic'
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
 const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   messages: [
     { role: 'user', content: 'What is the capital of France?' }
@@ -85,7 +85,7 @@ console.log(message.content[0].text)
 
 ```typescript
 const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   system: 'You are a helpful assistant that responds in JSON format.',
   messages: [
@@ -98,7 +98,7 @@ const message = await client.messages.create({
 
 ```typescript
 const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   messages: [
     { role: 'user', content: 'My name is Alice.' },
@@ -117,7 +117,7 @@ Stream responses for real-time output:
 
 ```typescript
 const stream = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   messages: [{ role: 'user', content: 'Write a haiku about coding' }],
   stream: true,
@@ -186,7 +186,7 @@ Define tools for Claude to call:
 
 ```typescript
 const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   tools: [
     {
@@ -230,7 +230,7 @@ Complete tool use conversation:
 ```typescript
 // Step 1: Initial request with tools
 const response1 = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   tools: [weatherTool],
   messages: [
@@ -247,7 +247,7 @@ if (response1.stop_reason === 'tool_use') {
 
   // Step 3: Continue conversation with tool result
   const response2 = await client.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
     tools: [weatherTool],
     messages: [
@@ -290,7 +290,7 @@ tool_choice: { type: 'tool', name: 'get_weather' }
 
 ```typescript
 const stream = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-20250514',
   max_tokens: 1024,
   tools: [weatherTool],
   messages: [{ role: 'user', content: 'What is the weather?' }],
@@ -311,40 +311,12 @@ for await (const event of stream) {
 const input = JSON.parse(toolInput)
 ```
 
-## Inbound - Using anthropic.do
+## Direct Anthropic API Access
 
-Route requests through dotdo for additional capabilities:
-
-```typescript
-import Anthropic from '@dotdo/anthropic'
-
-// Point to anthropic.do for logging, caching, rate limiting
-const client = new Anthropic({
-  apiKey: 'your-api-key',
-  baseURL: 'https://anthropic.do/v1',
-})
-
-// Same API, with DO-backed features
-const message = await client.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
-  max_tokens: 1024,
-  messages: [{ role: 'user', content: 'Hello!' }],
-})
-```
-
-Benefits of routing through anthropic.do:
-- Request/response logging to DO SQLite
-- Response caching for identical requests
-- Rate limiting per tenant
-- Usage tracking and analytics
-- Fallback handling
-
-## Outbound - Connecting to Anthropic
-
-For direct Anthropic API access with edge compatibility:
+The compat layer connects directly to Anthropic's API with edge compatibility:
 
 ```typescript
-import Anthropic from '@dotdo/anthropic'
+import { Anthropic } from 'compat/anthropic'
 
 // Direct to Anthropic API (default)
 const client = new Anthropic({
@@ -358,20 +330,19 @@ const client = new Anthropic({
   timeout: 120000, // 2 minute timeout
   maxRetries: 3,   // Retry failed requests
   defaultHeaders: {
-    'anthropic-beta': 'tools-2024-05-16',
+    'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
   },
 })
 ```
 
 ## Named Agent Integration
 
-Use Anthropic models with dotdo's named agents:
+The named agents in dotdo use Claude (via `@anthropic-ai/sdk`) by default when `ANTHROPIC_API_KEY` is set:
 
 ```typescript
-import { ralph, tom, priya } from 'agents.do'
-import Anthropic from '@dotdo/anthropic'
+import { priya, ralph, tom } from 'agents/named'
 
-// Named agents use Claude under the hood
+// Named agents automatically use Claude when ANTHROPIC_API_KEY is set
 const spec = await priya`define the MVP for ${hypothesis}`
 let app = await ralph`build ${spec}`
 
@@ -380,43 +351,27 @@ do {
 } while (!await tom.approve(app))
 ```
 
-### Custom Agent with Anthropic
+### Agent Configuration
+
+Named agents can be configured with specific models:
 
 ```typescript
-import { Agent } from 'agents.do'
-import Anthropic from '@dotdo/anthropic'
+import { ralph } from 'agents/named'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-// Create a custom agent with Anthropic
-const analyst = new Agent({
-  name: 'Analyst',
-  model: 'claude-3-5-sonnet-20241022',
-  client,
-  system: `You are a data analyst. Analyze data and provide insights.
-    Focus on actionable recommendations.`,
-  tools: [
-    {
-      name: 'query_database',
-      description: 'Query the analytics database',
-      input_schema: {
-        type: 'object',
-        properties: {
-          sql: { type: 'string', description: 'SQL query to execute' },
-        },
-        required: ['sql'],
-      },
-    },
-  ],
+// Configure with a specific model
+const customRalph = ralph.withConfig({
+  model: 'claude-sonnet-4-20250514',
+  maxTokens: 8192,
+  temperature: 0.7,
 })
 
-const analysis = await analyst`analyze sales trends for Q4`
+const code = await customRalph`implement a REST API for user management`
 ```
 
 ### Combining Named Agents
 
 ```typescript
-import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+import { priya, ralph, tom, mark, sally, quinn } from 'agents/named'
 
 // Product development workflow
 const spec = await priya`define MVP for AI-powered todo app`
@@ -424,7 +379,7 @@ const code = await ralph`implement ${spec}`
 const review = await tom`review ${code}`
 
 // If approved, launch
-if (await tom.approve(code)) {
+if ((await tom.approve(code)).approved) {
   const announcement = await mark`write launch announcement for ${spec}`
   const pitch = await sally`create sales pitch for ${spec}`
   await quinn`create test plan for ${spec}`
@@ -433,35 +388,43 @@ if (await tom.approve(code)) {
 
 ## Model Selection
 
-All Claude models are supported:
+All Claude models are supported. The model string is passed directly to the API:
 
 ```typescript
-// Claude 3.5 (recommended for most use cases)
+// Claude 4 (latest generation)
+model: 'claude-sonnet-4-20250514'
+model: 'claude-opus-4-5-20251101'
+
+// Claude 3.5
 model: 'claude-3-5-sonnet-20241022'
 model: 'claude-3-5-haiku-20241022'
 
-// Claude 3 (original release)
+// Claude 3
 model: 'claude-3-opus-20240229'
 model: 'claude-3-sonnet-20240229'
 model: 'claude-3-haiku-20240307'
 ```
 
+The compat layer is a passthrough - any model ID that Anthropic's API accepts will work.
+
 ## Configuration Options
 
 ```typescript
+import { Anthropic, type AnthropicConfig } from 'compat/anthropic'
+
 const client = new Anthropic({
   // Required
   apiKey: 'sk-ant-xxx',
 
   // Optional
-  baseURL: 'https://api.anthropic.com', // API endpoint
-  timeout: 600000,                       // Request timeout (ms)
-  maxRetries: 2,                         // Retry count
-  apiVersion: '2023-06-01',              // API version
+  baseURL: 'https://api.anthropic.com', // API endpoint (default)
+  timeout: 600000,                       // Request timeout in ms (default: 10 minutes)
+  maxRetries: 2,                         // Retry count (default: 2)
+  apiVersion: '2023-06-01',              // API version (default)
 
   // Custom headers for all requests
   defaultHeaders: {
-    'anthropic-beta': 'tools-2024-05-16',
+    'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
   },
 
   // Custom fetch implementation (for testing)

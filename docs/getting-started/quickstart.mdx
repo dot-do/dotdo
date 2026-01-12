@@ -43,15 +43,17 @@ cd saas-idea
 npm install
 ```
 
+This creates a new project with `wrangler.jsonc`, `tsconfig.json`, and a basic Durable Object in `src/index.ts`.
+
 </Step>
 
 <Step>
 
 ## Define Your Hypothesis
 
-Open `src/startup.ts` and set your hypothesis:
+Open `src/index.ts` and replace its contents with your startup definition:
 
-```typescript title="src/startup.ts"
+```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
 
@@ -90,11 +92,14 @@ export class SaasIdea extends Startup {
 npm run dev
 ```
 
-Open [http://localhost:8787](http://localhost:8787). You'll see:
+You should see:
 
-- Your startup's dashboard
-- Agent activity feed
-- Current state of `app`
+```
+Starting local server...
+Ready on http://localhost:8787
+```
+
+Your startup is now running locally as a Durable Object.
 
 </Step>
 
@@ -102,13 +107,17 @@ Open [http://localhost:8787](http://localhost:8787). You'll see:
 
 ## Trigger the Launch
 
-Click "Launch" in the dashboard, or call the API:
+Call the launch API:
 
 ```bash
 curl -X POST http://localhost:8787/launch
 ```
 
-Watch the agents work. Priya writes the spec. Ralph builds. Tom reviews. The loop continues until Tom approves. Then Mark announces and Sally starts selling.
+Watch the logs as the agents work. Priya writes the spec. Ralph builds. Tom reviews. The loop continues until Tom approves. Then Mark announces and Sally starts selling.
+
+<Callout type="info">
+**Viewing logs:** Run `npx wrangler tail` in a separate terminal to see real-time logs from your worker, or check the terminal where you ran `npm run dev`.
+</Callout>
 
 </Step>
 

@@ -1,0 +1,456 @@
+---
+title: DO (Base Class)
+description: The foundational Durable Object class providing identity, storage, WorkflowContext, and lifecycle operations.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# DO - Base Durable Object Class
+
+The `DO` class is the foundation for all Durable Objects in dotdo. It provides identity management, persistent storage via Drizzle/SQLite, the WorkflowContext (`$`), event handling, scheduling, and lifecycle operations.
+
+## Overview
+
+The DO class exists in three tiers for bundle size optimization:
+
+| Tier | Size | Features |
+|------|------|----------|
+| `DOTiny` | ~15KB | Identity, db, fetch, toJSON |
+| `DOBase` | ~80KB | + WorkflowContext, stores, events, scheduling |
+| `DOFull` | ~120KB | + Lifecycle (fork, clone, branch, promote) |
+
+<Callout type="info">
+When you import `DO` from `dotdo`, you get `DOFull` with all features. Use specific import paths for smaller bundles.
+</Callout>
+
+## Basic Usage
+
+```typescript
+import { DO } from 'dotdo'
+
+class MyService extends DO {
+  static override readonly $type = 'MyService'
+
+  async onStart() {
+    // Called when the DO initializes
+    this.$.on.Order.created(async (event) => {
+      console.log('New order:', event.data)
+    })
+  }
+
+  async processOrder(orderId: string) {
+    const order = await this.things.get(orderId)
+    return this.$.do('fulfill-order', order)
+  }
+}
+```
+
+## Identity
+
+Every DO has a unique identity through its namespace (`ns`):
+
+```typescript
+class MyDO extends DO {
+  async getInfo() {
+    return {
+      ns: this.ns,           // 'https://mydo.example.com'
+      $type: this.$type,     // 'MyDO'
+      branch: this.currentBranch,  // 'main'
+    }
+  }
+}
+```
+
+### Type Discrimination
+
+The `$type` property enables runtime type checking:
+
+```typescript
+class Customer extends DO {
+  static override readonly $type = 'Customer'
+}
+
+// Instance methods
+customer.$type                    // 'Customer'
+customer.isType('Customer')       // true
+customer.extendsType('DO')        // true
+customer.isInstanceOfType('DO')   // true
+customer.getTypeHierarchy()       // ['Customer', 'DO']
+customer.assertType('Customer')   // throws if wrong type
+```
+
+## WorkflowContext (`$`)
+
+The `$` property provides the workflow context for all operations:
+
+### Execution Modes
+
+```typescript
+// Fire-and-forget (non-blocking, non-durable)
+this.$.send('event.name', { data })
+
+// Quick attempt (blocking, non-durable, with timeout)
+const result = await this.$.try('action', data, { timeout: 5000 })
+
+// Durable execution (blocking, with retries)
+const result = await this.$.do('action', data, {
+  retry: {
+    maxAttempts: 3,
+    initialDelayMs: 100,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+    jitter: true,
+  }
+})
+```
+
+### Event Subscriptions
+
+```typescript
+// Subscribe to domain events
+this.$.on.Customer.created(async (event) => {
+  await this.sendWelcomeEmail(event.data)
+})
+
+this.$.on.Order.paid(async (event) => {
+  await this.fulfillOrder(event.data)
+})
+
+// With handler options
+this.$.on.Payment.failed(async (event) => {
+  await this.retryPayment(event.data)
+}, { priority: 'high', timeout: 30000 })
+```
+
+### Scheduling
+
+```typescript
+// Interval-based scheduling
+this.$.every.hour(async () => {
+  await this.generateHourlyReport()
+})
+
+this.$.every(30).minutes(async () => {
+  await this.syncData()
+})
+
+// Cron-style scheduling
+this.$.every.monday.at('9am')(async () => {
+  await this.sendWeeklyDigest()
+})
+
+this.$.every.day.at('midnight')(async () => {
+  await this.runDailyMaintenance()
+})
+```
+
+### AI Functions
+
+```typescript
+// Text generation
+const summary = await this.$.write('Summarize this document', { document })
+
+// Structured extraction
+const entities = await this.$.extract('Extract entities', { text })
+
+// Classification
+const isSpam = await this.$.is('spam', message)
+
+// Decision making
+const action = await this.$.decide('What action to take?', options)
+```
+
+### Domain Resolution
+
+```typescript
+// Resolve and call methods on other DOs
+const customer = this.$.Customer('cust-123')
+await customer.notify('Your order shipped!')
+
+// Chain method calls
+await this.$.Order('ord-456').cancel({ reason: 'Customer request' })
+```
+
+## Storage
+
+### Built-in Stores
+
+```typescript
+// Things store - domain entities
+const customer = await this.things.get('cust-123')
+const customers = await this.things.list()
+const created = await this.things.create({ name: 'John', email: 'john@example.com' })
+await this.things.update('cust-123', { status: 'active' })
+await this.things.delete('cust-123')
+
+// Relationships store
+await this.rels.create({ verb: 'owns', from: 'user-1', to: 'order-1' })
+const relationships = await this.rels.list({ from: 'user-1' })
+
+// Actions store - action lifecycle
+const action = await this.actions.create({ type: 'process-order', target: 'ord-1' })
+await this.actions.complete(action.id, result)
+await this.actions.fail(action.id, error)
+
+// Events store
+await this.events.emit('customer.created', { id: 'cust-123' })
+const events = await this.events.list({ verb: 'customer.created' })
+
+// Search store
+const results = await this.search.query('urgent orders')
+
+// Objects store - DO registry
+await this.objects.register('child-do-id', 'ChildClass')
+const obj = await this.objects.get('child-do-id')
+
+// DLQ store - failed events
+await this.dlq.add({ eventId: 'evt-1', error: 'Processing failed' })
+await this.dlq.replay('evt-1')
+```
+
+### Raw Storage Access
+
+```typescript
+// Direct Drizzle/SQLite access
+const results = await this.db.select().from(schema.things)
+
+// Raw DurableObjectStorage
+await this.storage.put('key', value)
+const value = await this.storage.get('key')
+```
+
+## Lifecycle Operations
+
+These operations are available in `DOFull`:
+
+### Fork
+
+Create a new DO with copied state (new identity, fresh history):
+
+```typescript
+const result = await this.fork({
+  to: 'https://new-instance.do',
+  branch: 'main',
+})
+// result: { ns: 'https://new-instance.do', doId: '...' }
+```
+
+### Clone
+
+Copy state to another DO (preserves target identity):
+
+```typescript
+// Atomic clone (blocking)
+const result = await this.clone('https://backup.do')
+
+// Staged clone (two-phase commit)
+const staged = await this.clone('https://backup.do', { mode: 'staged' })
+await this.commitClone(staged.token)
+// or: await this.abortClone(staged.token, 'Changed my mind')
+
+// Eventual consistency clone
+const handle = await this.clone('https://replica.do', { mode: 'eventual' })
+await handle.pause()
+await handle.resume()
+const status = await handle.getSyncStatus()
+
+// Resumable clone (with checkpoints)
+const handle = await this.clone('https://large-target.do', { mode: 'resumable' })
+const progress = await handle.getProgress()
+await handle.pause()
+await handle.resume()
+```
+
+### Compact
+
+Squash history to current state:
+
+```typescript
+const result = await this.compact()
+// result: { thingsCompacted: 100, actionsArchived: 50, eventsArchived: 200 }
+```
+
+### Move
+
+Relocate DO to a specific data center:
+
+```typescript
+const result = await this.moveTo('ewr')
+// result: { newDoId: '...', region: 'ewr' }
+
+// Valid colo codes: ewr, lax, sfo, ord, dfw, sea, atl, iad,
+// lhr, fra, ams, cdg, sin, hkg, nrt, syd, gru, jnb, bom, etc.
+```
+
+### Branching
+
+Git-like branching for state:
+
+```typescript
+// Create a branch
+await this.branch('feature-x')
+// result: { name: 'feature-x', head: 5 }
+
+// Switch branches or versions
+await this.checkout('feature-x')
+await this.checkout('@v3')      // Specific version
+await this.checkout('@~2')      // 2 versions back
+
+// Merge branches
+await this.merge('feature-x')
+// result: { merged: true } or { merged: false, conflicts: ['id:field'] }
+```
+
+### Promote/Demote
+
+Move a Thing to its own DO or back:
+
+```typescript
+// Promote a Thing to its own DO
+const result = await this.promote('thing-123', {
+  targetNs: 'https://thing-123.do',
+  preserveHistory: true,
+})
+
+// Demote this DO back into a parent
+const result = await this.demote('https://parent.do', {
+  thingId: 'demoted-thing',
+  preserveHistory: true,
+})
+```
+
+### Sharding
+
+Horizontal scaling across multiple DOs:
+
+```typescript
+// Shard based on a key
+const result = await this.shard({
+  shardCount: 4,
+  shardKey: 'customerId',
+  strategy: 'hash',
+})
+
+// Query across shards
+const results = await this.queryShards({
+  query: 'SELECT * FROM things WHERE status = "active"',
+  aggregation: 'merge',
+})
+
+// Rebalance shards
+await this.rebalanceShards({ targetCount: 8 })
+
+// Unshard (merge back)
+await this.unshard()
+```
+
+## HTTP Handling
+
+DOs automatically handle HTTP requests:
+
+```typescript
+class MyDO extends DO {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/custom') {
+      return Response.json({ custom: true })
+    }
+
+    // Fall back to built-in handling
+    return super.fetch(request)
+  }
+}
+```
+
+### Built-in Endpoints
+
+- `GET /health` - Health check with `$type` and `ns`
+- `GET /resolve?path=...&ref=...` - Cross-DO Thing resolution
+- `POST /clone-receive` - Receive clone data
+- `POST /transfer` - Receive demoted state
+
+## Capabilities
+
+Check and use optional capabilities:
+
+```typescript
+if (this.hasCapability('fs')) {
+  await this.$.fs.read('/config.json')
+}
+
+if (this.hasCapability('git')) {
+  await this.$.git.commit('Update config')
+}
+
+if (this.hasCapability('bash')) {
+  await this.$.bash('npm install')
+}
+```
+
+## Location Detection
+
+Get the DO's geographic location:
+
+```typescript
+const location = await this.getLocation()
+// location: {
+//   colo: 'ewr',
+//   city: 'Newark',
+//   region: 'us-east',
+//   cfHint: 'enam',
+//   detectedAt: Date,
+//   coordinates?: { lat, lng }
+// }
+
+// React to location changes
+protected async onLocationDetected(location: DOLocation) {
+  console.log(`Running in ${location.city}`)
+}
+```
+
+## API Reference
+
+### Constructor
+
+```typescript
+constructor(ctx: DurableObjectState, env: Env)
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `ns` | `string` | Namespace URL (identity) |
+| `$type` | `string` | Type discriminator |
+| `$` | `WorkflowContext` | Workflow context |
+| `db` | `DrizzleSqliteDODatabase` | Drizzle database |
+| `storage` | `DurableObjectStorage` | Raw storage access |
+| `currentBranch` | `string` | Current branch name |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `initialize(config)` | `Promise<void>` | Initialize with namespace |
+| `getLocation()` | `Promise<DOLocation>` | Get geographic location |
+| `hasCapability(name)` | `boolean` | Check for capability |
+| `fork(options)` | `Promise<ForkResult>` | Fork to new DO |
+| `clone(target, options?)` | `Promise<CloneResult>` | Clone to target |
+| `compact()` | `Promise<CompactResult>` | Squash history |
+| `moveTo(colo)` | `Promise<MoveResult>` | Move to colo |
+| `branch(name)` | `Promise<BranchResult>` | Create branch |
+| `checkout(ref)` | `Promise<CheckoutResult>` | Switch branch/version |
+| `merge(branch)` | `Promise<MergeResult>` | Merge branch |
+| `promote(thingId, options?)` | `Promise<PromoteResult>` | Promote Thing to DO |
+| `demote(targetNs, options?)` | `Promise<DemoteResult>` | Demote DO to Thing |
+| `shard(options)` | `Promise<ShardResult>` | Shard horizontally |
+| `unshard(options?)` | `Promise<void>` | Merge shards |
+| `toJSON()` | `Record<string, unknown>` | Serialize to JSON |
+
+## See Also
+
+- [WorkflowContext](/docs/concepts/workflow-context) - Deep dive into `$`
+- [Worker](/docs/objects/worker) - Building workers
+- [Entity](/docs/objects/entity) - Domain modeling
+- [Startup](/docs/objects/startup) - Business containers
