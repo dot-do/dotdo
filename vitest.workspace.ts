@@ -298,6 +298,9 @@ export default defineWorkspace([
   // @dotdo/stripe package tests (Stripe API compatibility layer)
   createNodeWorkspace('stripe', ['packages/stripe/tests/**/*.test.ts']),
 
+  // @dotdo/hubspot package tests (HubSpot API compatibility layer)
+  createNodeWorkspace('hubspot', ['packages/hubspot/tests/**/*.test.ts']),
+
   // @dotdo/shopify package tests (Shopify API compatibility layer)
   createNodeWorkspace('shopify', ['packages/shopify/tests/**/*.test.ts']),
 
@@ -324,6 +327,63 @@ export default defineWorkspace([
 
   // @dotdo/openai package tests (OpenAI API compatibility layer)
   createNodeWorkspace('openai', ['packages/openai/tests/**/*.test.ts']),
+
+  // @dotdo/cohere package tests (Cohere SDK compat layer)
+  createNodeWorkspace('cohere', ['packages/cohere/tests/**/*.test.ts']),
+
+  // @dotdo/intercom package tests (Intercom SDK compat layer)
+  createNodeWorkspace('intercom', ['packages/intercom/tests/**/*.test.ts']),
+
+  // @dotdo/sentry package tests (Sentry SDK compat layer)
+  createNodeWorkspace('sentry', ['packages/sentry/tests/**/*.test.ts']),
+
+  // @dotdo/analytics package tests (Analytics SDK compat layer)
+  createNodeWorkspace('analytics', ['packages/analytics/tests/**/*.test.ts']),
+
+  // @dotdo/pusher package tests (Pusher SDK compat layer)
+  createNodeWorkspace('pusher', ['packages/pusher/tests/**/*.test.ts']),
+
+  // @dotdo/sqs package tests (AWS SQS SDK compat layer)
+  createNodeWorkspace('sqs', ['packages/sqs/tests/**/*.test.ts']),
+
+  // @dotdo/algolia package tests (Algolia SDK compat layer)
+  createNodeWorkspace('algolia', ['packages/algolia/tests/**/*.test.ts']),
+
+  // @dotdo/cubejs package tests (Cube.js headless BI compat layer)
+  createNodeWorkspace('cubejs', ['packages/cubejs/tests/**/*.test.ts']),
+
+  // @dotdo/zendesk package tests (Zendesk SDK compat layer)
+  createNodeWorkspace('zendesk', ['packages/zendesk/tests/**/*.test.ts']),
+
+  // @dotdo/segment package tests (Segment SDK compat layer)
+  createNodeWorkspace('segment', ['packages/segment/tests/**/*.test.ts']),
+
+  // @dotdo/salesforce package tests (Salesforce jsforce compat layer)
+  createNodeWorkspace('salesforce', ['packages/salesforce/tests/**/*.test.ts']),
+
+  // @dotdo/flags package tests (Feature Flags SDK)
+  createNodeWorkspace('pkg-flags', ['packages/flags/tests/**/*.test.ts']),
+
+  // @dotdo/emails package tests (Email service with SendGrid/Resend compatibility)
+  createNodeWorkspace('emails', ['packages/emails/tests/**/*.test.ts']),
+
+  // @dotdo/n8n package tests (n8n-compatible workflow automation)
+  createNodeWorkspace('n8n', ['packages/n8n/tests/**/*.test.ts']),
+
+  // @dotdo/couchdb package tests (CouchDB-compatible API with in-memory backend)
+  createNodeWorkspace('couchdb', ['packages/couchdb/tests/**/*.test.ts']),
+
+  // @dotdo/supabase package tests (Supabase SDK compat layer)
+  createNodeWorkspace('supabase', ['packages/supabase/tests/**/*.test.ts']),
+
+  // @dotdo/supabase-auth package tests (Supabase Auth with in-memory backend)
+  createNodeWorkspace('supabase-auth', ['packages/supabase-auth/tests/**/*.test.ts']),
+
+  // @dotdo/auth package tests (Multi-provider auth with in-memory backend)
+  createNodeWorkspace('auth', ['packages/auth/tests/**/*.test.ts']),
+
+  // @dotdo/zapier package tests (Zapier Platform Core compat layer)
+  createNodeWorkspace('zapier', ['packages/zapier/tests/**/*.test.ts']),
 
   // @dotdo/react package tests (React hooks and components - jsdom environment)
   {
