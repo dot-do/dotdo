@@ -162,9 +162,9 @@ describe('Docs Multi-Collection Architecture', () => {
 })
 
 describe('Static Prerender Configuration', () => {
-  // NOTE: Prerender is currently disabled due to @mdxui/primitives SSR compatibility issue
-  // See: ERR_UNKNOWN_FILE_EXTENSION for .tsx files in node_modules
-  // Re-enable these tests once the SSR issue is fixed
+  // NOTE: Prerender disabled due to RSC boundary issues - some routes import client-only modules
+  // The SSR noExternal config fixes package bundling (dotdo-si2va RESOLVED)
+  // New issue: RSC boundary violations in admin routes (xterm, etc.)
   describe('Vite Prerender Config', () => {
     it.skip('should have prerender enabled in vite.config.ts', async () => {
       // Read vite.config.ts and verify prerender is enabled

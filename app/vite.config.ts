@@ -10,6 +10,21 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  // SSR configuration - force Vite to bundle packages that export raw TSX or have SSR issues
+  // noExternal forces Vite to transform these packages during SSR build
+  ssr: {
+    noExternal: [
+      // @mdxui packages export raw TSX files
+      '@mdxui/primitives',
+      '@mdxui/cockpit',
+      '@mdxui/beacon',
+      '@mdxui/themes',
+      // @workos-inc/widgets has SSR compatibility issues with @radix-ui/themes
+      '@workos-inc/widgets',
+      // @xterm/xterm has ESM export issues during SSR
+      '@xterm/xterm',
+    ],
+  },
   plugins: [
     mdx(await import('./source.config')),
     tailwindcss(),
@@ -24,8 +39,9 @@ export default defineConfig({
       // Static prerendering for zero-cost Cloudflare static assets deployment
       // Uses multi-collection splitting for memory-efficient builds
       // @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
-      // TODO: Re-enable once @mdxui/primitives SSR compatibility is fixed
-      // Current error: ERR_UNKNOWN_FILE_EXTENSION for .tsx files in node_modules
+      // NOTE: Disabled due to RSC boundary issues during prerender
+      // The SSR noExternal config fixes package bundling, but some routes
+      // import client-only modules during SSR (xterm, admin components)
       prerender: {
         enabled: false,
         // Lower concurrency to manage memory (default 14)
