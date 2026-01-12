@@ -4,7 +4,33 @@
  * @module @dotdo/react
  */
 
-import type { DOClient, ClientConfig } from '@dotdo/client'
+import type { RpcClient, ConnectionState } from '@dotdo/client'
+
+/**
+ * Connection state features that may be available on some client implementations.
+ * These methods allow monitoring and managing the connection lifecycle.
+ */
+export interface ConnectionStateFeatures {
+  /** Current connection state (optional - may not be available on all implementations) */
+  connectionState?: ConnectionState
+  /** Register a connection state change listener */
+  on?(event: 'connectionStateChange', handler: (state: ConnectionState) => void): void
+  /** Remove a connection state change listener */
+  off?(event: 'connectionStateChange', handler: (state: ConnectionState) => void): void
+  /** Disconnect the client */
+  disconnect?(): void
+}
+
+/**
+ * Extended client interface for React bindings.
+ *
+ * This combines RpcClient with optional connection state management methods
+ * that may be available on some client implementations.
+ */
+export type ReactDotdoClient = RpcClient & ConnectionStateFeatures
+
+// Re-export for backwards compatibility
+export type { ConnectionState } from '@dotdo/client'
 
 /**
  * Base item type with required $id field.
@@ -54,7 +80,7 @@ export interface DotdoContextValue {
   /** Namespace URL for the Durable Object */
   ns: string
   /** The underlying client instance */
-  client: DOClient<unknown, unknown> | null
+  client: ReactDotdoClient | null
   /** WebSocket connections by collection key */
   connections: Map<string, WebSocket>
   /** Get an existing connection for a collection */

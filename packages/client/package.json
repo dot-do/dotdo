@@ -1,16 +1,16 @@
 {
   "name": "@dotdo/client",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Cap'n Web RPC Client SDK for Durable Objects with automatic promise pipelining",
   "author": "dotdo <hello@dotdo.dev>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "url": "git+https://github.com/dotdo-dev/dotdo.git",
     "directory": "packages/client"
   },
-  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/client#readme",
+  "homepage": "https://dotdo.dev",
   "bugs": {
     "url": "https://github.com/dotdo-dev/dotdo/issues"
   },
@@ -18,11 +18,15 @@
     "dotdo",
     "durable-objects",
     "cloudflare",
+    "cloudflare-workers",
     "rpc",
     "websocket",
     "client",
     "capnweb",
-    "promise-pipelining"
+    "promise-pipelining",
+    "edge",
+    "real-time",
+    "sdk"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -51,7 +55,7 @@
   "devDependencies": {
     "tsup": "^8.5.1",
     "typescript": "^5.7.0",
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.4"
   },
   "sideEffects": false
 }

@@ -26,7 +26,7 @@
  */
 
 import * as React from 'react'
-import type { ConnectionState } from '@dotdo/client'
+import type { ConnectionState } from '../types'
 import { useDotdoContext } from '../context'
 
 /**
@@ -56,18 +56,27 @@ export function useConnectionState(): ConnectionState {
       return
     }
 
-    // Set initial state
-    setState(client.connectionState)
+    // Set initial state - check if connectionState property exists
+    if (client.connectionState !== undefined) {
+      setState(client.connectionState)
+    } else {
+      // Default to 'connected' if the client exists but doesn't expose connection state
+      setState('connected')
+    }
 
-    // Listen for changes
+    // Listen for changes if the client supports it
     const handleStateChange = (newState: ConnectionState) => {
       setState(newState)
     }
 
-    client.on('connectionStateChange', handleStateChange)
+    if (client.on) {
+      client.on('connectionStateChange', handleStateChange)
+    }
 
     return () => {
-      client.off('connectionStateChange', handleStateChange)
+      if (client.off) {
+        client.off('connectionStateChange', handleStateChange)
+      }
     }
   }, [client])
 

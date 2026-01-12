@@ -1,15 +1,16 @@
 {
   "name": "@dotdo/react",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
-  "description": "React bindings for dotdo Durable Objects",
+  "description": "React hooks and components for dotdo Durable Objects - real-time sync, live queries, and admin UI",
   "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "url": "git+https://github.com/dotdo-dev/dotdo.git",
     "directory": "packages/react"
   },
-  "homepage": "https://github.com/dotdo-dev/dotdo/tree/main/packages/react#readme",
+  "homepage": "https://dotdo.dev",
   "bugs": {
     "url": "https://github.com/dotdo-dev/dotdo/issues"
   },
@@ -36,6 +37,11 @@
       "types": "./dist/admin/index.d.ts",
       "import": "./dist/admin/index.js",
       "require": "./dist/admin/index.cjs"
+    },
+    "./sync": {
+      "types": "./dist/sync/index.d.ts",
+      "import": "./dist/sync/index.js",
+      "require": "./dist/sync/index.cjs"
     }
   },
   "files": [
@@ -50,10 +56,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
-    "@dotdo/client": "workspace:*"
-  },
   "peerDependencies": {
+    "@dotdo/client": ">=0.3.0",
     "react": ">=18.0.0",
     "zod": ">=3.0.0"
   },
@@ -79,10 +83,15 @@
   "keywords": [
     "dotdo",
     "react",
+    "react-hooks",
     "durable-objects",
     "cloudflare",
+    "cloudflare-workers",
     "real-time",
-    "sync"
-  ],
-  "license": "MIT"
+    "sync",
+    "live-query",
+    "websocket",
+    "edge",
+    "tanstack-query"
+  ]
 }

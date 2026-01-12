@@ -29,12 +29,11 @@ interface CapnWebModule {
 }
 
 // Import capnweb with type assertion to avoid deep type analysis.
-// We use require() here because:
-// 1. It prevents TypeScript from analyzing capnweb's recursive generic types
-// 2. Bundlers (esbuild, webpack, vite) transform this for browser/Worker environments
-// 3. Node.js supports require() natively
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const capnweb: CapnWebModule = require('capnweb') as CapnWebModule
+// Using `import * as` with type assertion prevents TypeScript from
+// analyzing capnweb's recursive generic types while allowing Vite
+// to properly alias the import in test environments.
+import * as capnwebModule from 'capnweb'
+const capnweb = capnwebModule as unknown as CapnWebModule
 
 /**
  * Create a WebSocket RPC session

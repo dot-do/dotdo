@@ -17,6 +17,9 @@ export const CLOUDFLARE_WORKERS_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/cloudf
 /** chdb mock path for environments without native module */
 export const CHDB_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/chdb.ts')
 
+/** capnweb mock path for ESM/CJS compatibility in tests */
+export const CAPNWEB_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/capnweb.ts')
+
 /** drizzle-orm/durable-sqlite mock path */
 export const DRIZZLE_DURABLE_SQLITE_MOCK = resolve(PROJECT_ROOT, 'tests/mocks/drizzle-durable-sqlite.ts')
 
@@ -79,6 +82,9 @@ export const sharedTestConfig: Partial<UserConfig['test']> = {
   },
 }
 
+/** @dotdo/client source path for direct imports */
+export const DOTDO_CLIENT = resolve(PROJECT_ROOT, 'packages/client/src/index.ts')
+
 /**
  * Shared resolve configuration for Node.js test environments
  * Provides mock for cloudflare:workers module and drizzle-orm/durable-sqlite
@@ -92,8 +98,11 @@ export const nodeResolveConfig: UserConfig['resolve'] = {
     '@tanstack/db': TANSTACK_DB_MOCK,
     '@dotdo/tanstack/sync': DOTDO_TANSTACK_SYNC_MOCK,
     '@dotdo/client/adapters': DOTDO_CLIENT_ADAPTERS,
+    '@dotdo/client': DOTDO_CLIENT,
     'humans.do': HUMANS_DO,
     'fsx.do': FSX_DO,
+    // capnweb mock for ESM/CJS compatibility in node tests
+    capnweb: CAPNWEB_MOCK,
   },
 }
 

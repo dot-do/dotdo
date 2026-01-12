@@ -41,9 +41,9 @@
  */
 
 import * as React from 'react'
-import { createClient, type DOClient, type ClientConfig } from '@dotdo/client'
+import { createClient, type ClientConfig } from '@dotdo/client'
 import { DotdoContext } from './context'
-import type { DotdoContextValue } from './types'
+import type { DotdoContextValue, ReactDotdoClient } from './types'
 
 /**
  * Props for the DO provider component.
@@ -69,11 +69,11 @@ export interface DOProps {
  */
 export function DO({ ns, config, children }: DOProps): React.ReactElement {
   // Create client instance
-  const clientRef = React.useRef<DOClient<unknown, unknown> | null>(null)
+  const clientRef = React.useRef<ReactDotdoClient | null>(null)
 
   // Lazily initialize client
   if (!clientRef.current) {
-    clientRef.current = createClient(ns, config)
+    clientRef.current = createClient(ns, config) as ReactDotdoClient
   }
 
   // Track WebSocket connections by collection
@@ -94,8 +94,10 @@ export function DO({ ns, config, children }: DOProps): React.ReactElement {
       }
       connectionsRef.current.clear()
 
-      // Disconnect the client
-      clientRef.current?.disconnect()
+      // Disconnect the client if it supports it
+      if (clientRef.current?.disconnect) {
+        clientRef.current.disconnect()
+      }
     }
   }, [])
 
