@@ -388,13 +388,18 @@ class InMemoryOrderManager implements OrderManager {
     }
 
     const now = new Date()
+    const historyEntry: StatusHistoryEntry = {
+      status,
+      timestamp: now,
+      metadata: metadata as Record<string, unknown> | undefined,
+    }
     const updated: Order = {
       ...order,
       status,
       updatedAt: now,
       statusHistory: [
         ...(order.statusHistory ?? []),
-        { status, timestamp: now, metadata },
+        historyEntry,
       ],
     }
 

@@ -250,6 +250,7 @@ function generateId(prefix: string): string {
 function cartesianProduct<T>(arrays: T[][]): T[][] {
   if (arrays.length === 0) return [[]]
   const [first, ...rest] = arrays
+  if (!first || first.length === 0) return [[]]
   const restProduct = cartesianProduct(rest)
   return first.flatMap((value) => restProduct.map((product) => [value, ...product]))
 }
@@ -531,7 +532,7 @@ class InMemoryCatalog implements Catalog {
     return combinations.map((combo) => {
       const result: Record<string, string> = {}
       optionNames.forEach((name, i) => {
-        result[name] = combo[i]
+        result[name] = combo[i] ?? ''
       })
       return result
     })

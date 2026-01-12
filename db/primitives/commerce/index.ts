@@ -18,9 +18,7 @@
 export {
   // Types
   type ProductStatus,
-  type OptionType,
   type ProductOption,
-  type ProductOptionValue,
   type ProductVariant,
   type Product,
   type Category,
@@ -28,7 +26,8 @@ export {
   type UpdateProductInput,
   type CreateVariantInput,
   type CreateCategoryInput,
-  type ProductSearchOptions,
+  type ProductQuery,
+  type QueryOptions,
 
   // Interface
   type Catalog,
@@ -65,16 +64,15 @@ export {
 export {
   // Types
   type OrderStatus,
-  type PaymentStatus,
   type FulfillmentStatus,
   type Address,
   type OrderLineItem,
-  type Payment,
+  type PaymentInfo,
   type Refund,
   type Shipment,
   type Order,
   type CreateOrderInput,
-  type OrderSearchOptions,
+  type OrderQuery,
 
   // Interface
   type OrderManager,
@@ -89,13 +87,13 @@ export {
 
 export {
   // Types
-  type StockMovementType,
+  type MovementType,
   type StockMovement,
-  type StockLevel,
+  type InventoryLevel,
   type Reservation,
   type InventoryOptions,
   type LowStockAlert,
-  type LocationInventory,
+  type InventoryLocation,
 
   // Interface
   type InventoryManager,
@@ -110,14 +108,11 @@ export {
 
 export {
   // Types
-  type PriceRuleType,
   type DiscountType,
   type PriceRule,
   type DiscountCode,
   type BulkDiscount,
-  type PriceRequest,
-  type PriceResult,
-  type AppliedDiscount,
+  type PricingContext,
   type CustomerSegment,
 
   // Interface
@@ -130,6 +125,12 @@ export {
 // =============================================================================
 // Commerce Engine - Unified interface
 // =============================================================================
+
+import { createCatalog as _createCatalog } from './catalog'
+import { createCartManager as _createCartManager } from './cart'
+import { createOrderManager as _createOrderManager } from './orders'
+import { createInventoryManager as _createInventoryManager } from './inventory'
+import { createPricingEngine as _createPricingEngine } from './pricing'
 
 export interface CommerceEngine {
   catalog: import('./catalog').Catalog
@@ -149,10 +150,10 @@ export interface CommerceEngineOptions {
  */
 export function createCommerceEngine(options?: CommerceEngineOptions): CommerceEngine {
   return {
-    catalog: createCatalog(),
-    cart: createCartManager(options?.cart),
-    orders: createOrderManager(),
-    inventory: createInventoryManager(options?.inventory),
-    pricing: createPricingEngine(),
+    catalog: _createCatalog(),
+    cart: _createCartManager(options?.cart),
+    orders: _createOrderManager(),
+    inventory: _createInventoryManager(options?.inventory),
+    pricing: _createPricingEngine(),
   }
 }

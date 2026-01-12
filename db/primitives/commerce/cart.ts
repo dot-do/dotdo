@@ -331,7 +331,7 @@ class InMemoryCartManager implements CartManager {
 
     if (existingIndex >= 0) {
       // Update existing item
-      const existing = items[existingIndex]
+      const existing = items[existingIndex]!
       const newQuantity = existing.quantity + input.quantity
 
       if (
@@ -341,11 +341,12 @@ class InMemoryCartManager implements CartManager {
         throw new Error('Maximum quantity exceeded')
       }
 
-      items[existingIndex] = {
+      const updatedItem: CartItem = {
         ...existing,
         quantity: newQuantity,
       }
-      item = items[existingIndex]
+      items[existingIndex] = updatedItem
+      item = updatedItem
     } else {
       // Check max items
       if (
@@ -422,7 +423,8 @@ class InMemoryCartManager implements CartManager {
     if (quantity === 0) {
       items.splice(itemIndex, 1)
     } else {
-      items[itemIndex] = { ...items[itemIndex], quantity }
+      const existingItem = items[itemIndex]!
+      items[itemIndex] = { ...existingItem, quantity }
     }
 
     const { subtotal, itemCount } = this.calculateTotals(items)
