@@ -82,6 +82,18 @@ export {
   AbortMultipartUploadCommand,
   ListPartsCommand,
   ListMultipartUploadsCommand,
+  // CORS commands
+  PutBucketCorsCommand,
+  GetBucketCorsCommand,
+  DeleteBucketCorsCommand,
+  // Lifecycle commands
+  PutBucketLifecycleConfigurationCommand,
+  GetBucketLifecycleConfigurationCommand,
+  DeleteBucketLifecycleCommand,
+  // Versioning commands
+  PutBucketVersioningCommand,
+  GetBucketVersioningCommand,
+  ListObjectVersionsCommand,
   // Type
   type Command,
 } from './commands'
@@ -110,6 +122,9 @@ export {
   InternalError,
   ServiceUnavailable,
   SlowDown,
+  NoSuchCORSConfiguration,
+  NoSuchLifecycleConfiguration,
+  validateBucketName,
 } from './errors'
 
 // Types
@@ -157,6 +172,48 @@ export type {
   ListPartsCommandOutput,
   ListMultipartUploadsCommandInput,
   ListMultipartUploadsCommandOutput,
+  // CORS types
+  CORSRule,
+  CORSConfiguration,
+  PutBucketCorsCommandInput,
+  PutBucketCorsCommandOutput,
+  GetBucketCorsCommandInput,
+  GetBucketCorsCommandOutput,
+  DeleteBucketCorsCommandInput,
+  DeleteBucketCorsCommandOutput,
+  // Lifecycle types
+  LifecycleTag,
+  LifecycleFilter,
+  LifecycleExpiration,
+  LifecycleTransition,
+  NoncurrentVersionExpiration,
+  NoncurrentVersionTransition,
+  AbortIncompleteMultipartUpload,
+  LifecycleRule,
+  LifecycleConfiguration,
+  PutBucketLifecycleConfigurationCommandInput,
+  PutBucketLifecycleConfigurationCommandOutput,
+  GetBucketLifecycleConfigurationCommandInput,
+  GetBucketLifecycleConfigurationCommandOutput,
+  DeleteBucketLifecycleCommandInput,
+  DeleteBucketLifecycleCommandOutput,
+  // Versioning types
+  VersioningStatus,
+  MFADeleteStatus,
+  VersioningConfiguration,
+  PutBucketVersioningCommandInput,
+  PutBucketVersioningCommandOutput,
+  GetBucketVersioningCommandInput,
+  GetBucketVersioningCommandOutput,
+  ObjectVersion,
+  DeleteMarkerEntry,
+  ListObjectVersionsCommandInput,
+  ListObjectVersionsCommandOutput,
+  // Extended types
+  ObjectOwnership,
+  ExtendedCreateBucketCommandInput,
+  ExtendedListBucketsCommandInput,
+  ExtendedListBucketsCommandOutput,
 } from './types'
 
 // Backend (for advanced usage)

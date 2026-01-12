@@ -663,7 +663,7 @@ export class Webhooks {
     const signature = await crypto.subtle.sign('HMAC', key, messageData)
 
     // Base64 encode
-    return btoa(String.fromCharCode(...new Uint8Array(signature)))
+    return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
   }
 
   /**
@@ -975,6 +975,43 @@ export {
   type WhatsAppStatusPayload,
   type TwilioWhatsAppConfig,
 } from './whatsapp'
+
+// =============================================================================
+// Voice Module
+// =============================================================================
+
+export {
+  VoiceClient,
+  VoiceResponse,
+  VoiceAPIError,
+  createVoiceClient,
+  parseVoiceWebhook,
+  parseRecordingStatusCallback,
+  validateWebhookSignature,
+  type VoiceCallCreateParams,
+  type Recording,
+  type RecordingCreateParams,
+  type RecordingUpdateParams,
+  type Conference,
+  type Participant,
+  type ParticipantUpdateParams,
+  type VoiceWebhookPayload,
+  type RecordingStatusCallbackPayload,
+  type SayOptions,
+  type PlayOptions,
+  type PauseOptions,
+  type GatherOptions,
+  type RecordOptions,
+  type DialOptions,
+  type NumberOptions,
+  type ClientOptions,
+  type SipOptions,
+  type ConferenceOptions,
+  type QueueOptions,
+  type RedirectOptions,
+  type RejectOptions,
+  type EnqueueOptions,
+} from './voice'
 
 // =============================================================================
 // Default Export

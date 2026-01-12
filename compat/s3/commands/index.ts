@@ -41,6 +41,21 @@ import type {
   AbortMultipartUploadCommandInput,
   ListPartsCommandInput,
   ListMultipartUploadsCommandInput,
+  // CORS operations
+  PutBucketCorsCommandInput,
+  GetBucketCorsCommandInput,
+  DeleteBucketCorsCommandInput,
+  // Lifecycle operations
+  PutBucketLifecycleConfigurationCommandInput,
+  GetBucketLifecycleConfigurationCommandInput,
+  DeleteBucketLifecycleCommandInput,
+  // Versioning operations
+  PutBucketVersioningCommandInput,
+  GetBucketVersioningCommandInput,
+  ListObjectVersionsCommandInput,
+  // Extended types
+  ExtendedCreateBucketCommandInput,
+  ExtendedListBucketsCommandInput,
 } from '../types'
 
 // =============================================================================
@@ -357,6 +372,178 @@ export class ListMultipartUploadsCommand {
 // Command Type Union
 // =============================================================================
 
+// =============================================================================
+// CORS Configuration Commands
+// =============================================================================
+
+/**
+ * Configures CORS rules for a bucket
+ *
+ * @example
+ * ```typescript
+ * await client.send(new PutBucketCorsCommand({
+ *   Bucket: 'my-bucket',
+ *   CORSConfiguration: {
+ *     CORSRules: [
+ *       {
+ *         AllowedOrigins: ['https://example.com'],
+ *         AllowedMethods: ['GET', 'PUT'],
+ *         AllowedHeaders: ['*'],
+ *         MaxAgeSeconds: 3600,
+ *       },
+ *     ],
+ *   },
+ * }))
+ * ```
+ */
+export class PutBucketCorsCommand {
+  constructor(readonly input: PutBucketCorsCommandInput) {}
+}
+
+/**
+ * Gets the CORS configuration for a bucket
+ *
+ * @example
+ * ```typescript
+ * const result = await client.send(new GetBucketCorsCommand({
+ *   Bucket: 'my-bucket',
+ * }))
+ * console.log(result.CORSRules)
+ * ```
+ */
+export class GetBucketCorsCommand {
+  constructor(readonly input: GetBucketCorsCommandInput) {}
+}
+
+/**
+ * Deletes the CORS configuration for a bucket
+ *
+ * @example
+ * ```typescript
+ * await client.send(new DeleteBucketCorsCommand({
+ *   Bucket: 'my-bucket',
+ * }))
+ * ```
+ */
+export class DeleteBucketCorsCommand {
+  constructor(readonly input: DeleteBucketCorsCommandInput) {}
+}
+
+// =============================================================================
+// Lifecycle Configuration Commands
+// =============================================================================
+
+/**
+ * Configures lifecycle rules for a bucket
+ *
+ * @example
+ * ```typescript
+ * await client.send(new PutBucketLifecycleConfigurationCommand({
+ *   Bucket: 'my-bucket',
+ *   LifecycleConfiguration: {
+ *     Rules: [
+ *       {
+ *         ID: 'expire-old-logs',
+ *         Status: 'Enabled',
+ *         Filter: { Prefix: 'logs/' },
+ *         Expiration: { Days: 30 },
+ *       },
+ *     ],
+ *   },
+ * }))
+ * ```
+ */
+export class PutBucketLifecycleConfigurationCommand {
+  constructor(readonly input: PutBucketLifecycleConfigurationCommandInput) {}
+}
+
+/**
+ * Gets the lifecycle configuration for a bucket
+ *
+ * @example
+ * ```typescript
+ * const result = await client.send(new GetBucketLifecycleConfigurationCommand({
+ *   Bucket: 'my-bucket',
+ * }))
+ * console.log(result.Rules)
+ * ```
+ */
+export class GetBucketLifecycleConfigurationCommand {
+  constructor(readonly input: GetBucketLifecycleConfigurationCommandInput) {}
+}
+
+/**
+ * Deletes the lifecycle configuration for a bucket
+ *
+ * @example
+ * ```typescript
+ * await client.send(new DeleteBucketLifecycleCommand({
+ *   Bucket: 'my-bucket',
+ * }))
+ * ```
+ */
+export class DeleteBucketLifecycleCommand {
+  constructor(readonly input: DeleteBucketLifecycleCommandInput) {}
+}
+
+// =============================================================================
+// Versioning Commands
+// =============================================================================
+
+/**
+ * Configures versioning for a bucket
+ *
+ * @example
+ * ```typescript
+ * await client.send(new PutBucketVersioningCommand({
+ *   Bucket: 'my-bucket',
+ *   VersioningConfiguration: {
+ *     Status: 'Enabled',
+ *   },
+ * }))
+ * ```
+ */
+export class PutBucketVersioningCommand {
+  constructor(readonly input: PutBucketVersioningCommandInput) {}
+}
+
+/**
+ * Gets the versioning state of a bucket
+ *
+ * @example
+ * ```typescript
+ * const result = await client.send(new GetBucketVersioningCommand({
+ *   Bucket: 'my-bucket',
+ * }))
+ * console.log(result.Status) // 'Enabled' | 'Suspended' | undefined
+ * ```
+ */
+export class GetBucketVersioningCommand {
+  constructor(readonly input: GetBucketVersioningCommandInput) {}
+}
+
+/**
+ * Lists all versions of objects in a bucket
+ *
+ * @example
+ * ```typescript
+ * const result = await client.send(new ListObjectVersionsCommand({
+ *   Bucket: 'my-bucket',
+ *   Prefix: 'folder/',
+ * }))
+ * for (const version of result.Versions || []) {
+ *   console.log(version.Key, version.VersionId, version.IsLatest)
+ * }
+ * ```
+ */
+export class ListObjectVersionsCommand {
+  constructor(readonly input: ListObjectVersionsCommandInput) {}
+}
+
+// =============================================================================
+// Command Type Union
+// =============================================================================
+
 /**
  * Union type of all S3 commands
  */
@@ -378,3 +565,15 @@ export type Command =
   | AbortMultipartUploadCommand
   | ListPartsCommand
   | ListMultipartUploadsCommand
+  // CORS commands
+  | PutBucketCorsCommand
+  | GetBucketCorsCommand
+  | DeleteBucketCorsCommand
+  // Lifecycle commands
+  | PutBucketLifecycleConfigurationCommand
+  | GetBucketLifecycleConfigurationCommand
+  | DeleteBucketLifecycleCommand
+  // Versioning commands
+  | PutBucketVersioningCommand
+  | GetBucketVersioningCommand
+  | ListObjectVersionsCommand

@@ -111,11 +111,22 @@ export interface HeadBucketCommandOutput {
   $metadata: ResponseMetadata
 }
 
-export interface ListBucketsCommandInput {}
+export interface ListBucketsCommandInput {
+  /** Maximum number of buckets to return */
+  MaxBuckets?: number
+  /** Continuation token for pagination */
+  ContinuationToken?: string
+  /** Filter buckets by name prefix */
+  Prefix?: string
+  /** Filter buckets by region */
+  BucketRegion?: string
+}
 
 export interface ListBucketsCommandOutput {
-  Buckets?: Array<{ Name?: string; CreationDate?: Date }>
+  Buckets?: Array<{ Name?: string; CreationDate?: Date; BucketRegion?: string }>
   Owner?: { ID?: string; DisplayName?: string }
+  /** Continuation token for next page */
+  ContinuationToken?: string
   $metadata: ResponseMetadata
 }
 
@@ -476,4 +487,292 @@ export interface InternalPart {
   etag: string
   size: number
   lastModified: Date
+}
+
+// =============================================================================
+// CORS Configuration Types
+// =============================================================================
+
+export interface CORSRule {
+  /** Origins allowed to make cross-origin requests */
+  AllowedOrigins: string[]
+  /** HTTP methods allowed (GET, PUT, POST, DELETE, HEAD) */
+  AllowedMethods: ('GET' | 'PUT' | 'POST' | 'DELETE' | 'HEAD')[]
+  /** Headers allowed in preflight requests */
+  AllowedHeaders?: string[]
+  /** Headers exposed to the browser */
+  ExposeHeaders?: string[]
+  /** Time in seconds that browser caches preflight response */
+  MaxAgeSeconds?: number
+  /** Unique ID for this rule */
+  ID?: string
+}
+
+export interface CORSConfiguration {
+  CORSRules: CORSRule[]
+}
+
+export interface PutBucketCorsCommandInput {
+  Bucket: string
+  CORSConfiguration: CORSConfiguration
+}
+
+export interface PutBucketCorsCommandOutput {
+  $metadata: ResponseMetadata
+}
+
+export interface GetBucketCorsCommandInput {
+  Bucket: string
+}
+
+export interface GetBucketCorsCommandOutput {
+  CORSRules?: CORSRule[]
+  $metadata: ResponseMetadata
+}
+
+export interface DeleteBucketCorsCommandInput {
+  Bucket: string
+}
+
+export interface DeleteBucketCorsCommandOutput {
+  $metadata: ResponseMetadata
+}
+
+// =============================================================================
+// Lifecycle Configuration Types
+// =============================================================================
+
+export interface LifecycleTag {
+  Key: string
+  Value: string
+}
+
+export interface LifecycleFilter {
+  Prefix?: string
+  Tag?: LifecycleTag
+  And?: {
+    Prefix?: string
+    Tags?: LifecycleTag[]
+    ObjectSizeGreaterThan?: number
+    ObjectSizeLessThan?: number
+  }
+  ObjectSizeGreaterThan?: number
+  ObjectSizeLessThan?: number
+}
+
+export interface LifecycleExpiration {
+  /** Number of days after creation to expire */
+  Days?: number
+  /** Specific date to expire */
+  Date?: Date
+  /** Whether to delete expired delete markers */
+  ExpiredObjectDeleteMarker?: boolean
+}
+
+export interface LifecycleTransition {
+  /** Number of days after creation to transition */
+  Days?: number
+  /** Specific date to transition */
+  Date?: Date
+  /** Target storage class */
+  StorageClass: StorageClass
+}
+
+export interface NoncurrentVersionExpiration {
+  /** Days after becoming noncurrent to expire */
+  NoncurrentDays: number
+  /** Number of newer versions to retain */
+  NewerNoncurrentVersions?: number
+}
+
+export interface NoncurrentVersionTransition {
+  /** Days after becoming noncurrent to transition */
+  NoncurrentDays: number
+  /** Target storage class */
+  StorageClass: StorageClass
+  /** Number of newer versions to retain */
+  NewerNoncurrentVersions?: number
+}
+
+export interface AbortIncompleteMultipartUpload {
+  /** Days after initiation to abort */
+  DaysAfterInitiation: number
+}
+
+export interface LifecycleRule {
+  /** Unique identifier for the rule (max 255 chars) */
+  ID?: string
+  /** Rule status */
+  Status: 'Enabled' | 'Disabled'
+  /** Filter for objects this rule applies to */
+  Filter?: LifecycleFilter
+  /** Expiration settings */
+  Expiration?: LifecycleExpiration
+  /** Transition settings (can have multiple) */
+  Transitions?: LifecycleTransition[]
+  /** Noncurrent version expiration */
+  NoncurrentVersionExpiration?: NoncurrentVersionExpiration
+  /** Noncurrent version transitions */
+  NoncurrentVersionTransitions?: NoncurrentVersionTransition[]
+  /** Abort incomplete multipart uploads */
+  AbortIncompleteMultipartUpload?: AbortIncompleteMultipartUpload
+}
+
+export interface LifecycleConfiguration {
+  Rules: LifecycleRule[]
+}
+
+export interface PutBucketLifecycleConfigurationCommandInput {
+  Bucket: string
+  LifecycleConfiguration: LifecycleConfiguration
+}
+
+export interface PutBucketLifecycleConfigurationCommandOutput {
+  $metadata: ResponseMetadata
+}
+
+export interface GetBucketLifecycleConfigurationCommandInput {
+  Bucket: string
+}
+
+export interface GetBucketLifecycleConfigurationCommandOutput {
+  Rules?: LifecycleRule[]
+  $metadata: ResponseMetadata
+}
+
+export interface DeleteBucketLifecycleCommandInput {
+  Bucket: string
+}
+
+export interface DeleteBucketLifecycleCommandOutput {
+  $metadata: ResponseMetadata
+}
+
+// =============================================================================
+// Versioning Types
+// =============================================================================
+
+export type VersioningStatus = 'Enabled' | 'Suspended'
+export type MFADeleteStatus = 'Enabled' | 'Disabled'
+
+export interface VersioningConfiguration {
+  Status: VersioningStatus
+  MFADelete?: MFADeleteStatus
+}
+
+export interface PutBucketVersioningCommandInput {
+  Bucket: string
+  VersioningConfiguration: VersioningConfiguration
+}
+
+export interface PutBucketVersioningCommandOutput {
+  $metadata: ResponseMetadata
+}
+
+export interface GetBucketVersioningCommandInput {
+  Bucket: string
+}
+
+export interface GetBucketVersioningCommandOutput {
+  Status?: VersioningStatus
+  MFADelete?: MFADeleteStatus
+  $metadata: ResponseMetadata
+}
+
+// =============================================================================
+// List Object Versions Types
+// =============================================================================
+
+export interface ObjectVersion {
+  Key?: string
+  VersionId?: string
+  IsLatest?: boolean
+  LastModified?: Date
+  ETag?: string
+  Size?: number
+  StorageClass?: StorageClass
+  Owner?: { ID?: string; DisplayName?: string }
+}
+
+export interface DeleteMarkerEntry {
+  Key?: string
+  VersionId?: string
+  IsLatest?: boolean
+  LastModified?: Date
+  Owner?: { ID?: string; DisplayName?: string }
+}
+
+export interface ListObjectVersionsCommandInput {
+  Bucket: string
+  Prefix?: string
+  Delimiter?: string
+  MaxKeys?: number
+  KeyMarker?: string
+  VersionIdMarker?: string
+  EncodingType?: 'url'
+}
+
+export interface ListObjectVersionsCommandOutput {
+  Name?: string
+  Prefix?: string
+  Delimiter?: string
+  MaxKeys?: number
+  IsTruncated?: boolean
+  KeyMarker?: string
+  VersionIdMarker?: string
+  NextKeyMarker?: string
+  NextVersionIdMarker?: string
+  Versions?: ObjectVersion[]
+  DeleteMarkers?: DeleteMarkerEntry[]
+  CommonPrefixes?: Array<{ Prefix?: string }>
+  EncodingType?: 'url'
+  $metadata: ResponseMetadata
+}
+
+// =============================================================================
+// Extended Bucket Types
+// =============================================================================
+
+export type ObjectOwnership = 'BucketOwnerEnforced' | 'BucketOwnerPreferred' | 'ObjectWriter'
+
+export interface ExtendedCreateBucketCommandInput extends CreateBucketCommandInput {
+  /** Object ownership setting */
+  ObjectOwnership?: ObjectOwnership
+  /** Enable object lock for the bucket */
+  ObjectLockEnabledForBucket?: boolean
+}
+
+export interface ExtendedListBucketsCommandInput extends ListBucketsCommandInput {
+  /** Maximum number of buckets to return */
+  MaxBuckets?: number
+  /** Continuation token for pagination */
+  ContinuationToken?: string
+  /** Filter buckets by name prefix */
+  Prefix?: string
+  /** Filter buckets by region */
+  BucketRegion?: string
+}
+
+export interface ExtendedListBucketsCommandOutput extends ListBucketsCommandOutput {
+  /** Continuation token for next page */
+  ContinuationToken?: string
+}
+
+// =============================================================================
+// Internal Extended Types (for backends)
+// =============================================================================
+
+export interface InternalBucketExtended extends InternalBucket {
+  /** Object ownership setting */
+  objectOwnership?: ObjectOwnership
+  /** Whether object lock is enabled */
+  objectLockEnabled?: boolean
+  /** Versioning status */
+  versioningStatus?: VersioningStatus
+  /** MFA delete status */
+  mfaDeleteStatus?: MFADeleteStatus
+  /** CORS configuration */
+  corsConfiguration?: CORSConfiguration
+  /** Lifecycle configuration */
+  lifecycleConfiguration?: LifecycleConfiguration
 }

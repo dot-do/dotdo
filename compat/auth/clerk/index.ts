@@ -138,6 +138,46 @@
 export { Clerk, createClerkClient } from './backend-api'
 export type { ClerkClientOptions } from './backend-api'
 
+// Alias for createClerkClient (matches @clerk/backend naming)
+export { createClerkClient as clerkClient } from './backend-api'
+
+// Webhooks
+export { Webhook, createWebhook, WebhookVerificationError } from './webhooks'
+export type { WebhookHeaders, WebhookVerifyOptions } from './webhooks'
+
+// Standalone verifyToken function
+import { Clerk as ClerkClass, type ClerkClientOptions as ClerkOpts } from './backend-api'
+
+/**
+ * Standalone token verification function
+ *
+ * @example
+ * ```typescript
+ * import { verifyToken } from '@dotdo/clerk'
+ *
+ * const payload = await verifyToken(token, {
+ *   secretKey: 'sk_live_xxx',
+ *   authorizedParties: ['https://example.com'],
+ * })
+ * ```
+ */
+export async function verifyToken(
+  token: string,
+  options: {
+    secretKey: string
+    authorizedParties?: string[]
+    jwtKey?: string
+  }
+): Promise<{ userId: string; sessionId: string; claims: Record<string, unknown> }> {
+  const clerk = new ClerkClass({
+    secretKey: options.secretKey,
+    jwtKey: options.jwtKey,
+  })
+  return clerk.verifyToken(token, {
+    authorizedParties: options.authorizedParties,
+  })
+}
+
 // Types
 export type {
   // User types
@@ -159,10 +199,21 @@ export type {
   ClerkOrganization,
   ClerkOrganizationMembership,
   ClerkOrganizationInvitation,
+  ClerkOrganizationRole,
+  ClerkOrganizationPermission,
+  ClerkOrganizationDomain,
+  ClerkDomainVerification,
   ClerkPublicUserData,
   CreateOrganizationParams,
   UpdateOrganizationParams,
   CreateInvitationParams,
+  CreateMembershipParams,
+  UpdateMembershipParams,
+  CreateRoleParams,
+  UpdateRoleParams,
+  CreatePermissionParams,
+  CreateDomainParams,
+  UpdateDomainParams,
   // JWT template types
   ClerkJWTTemplate,
   CreateJWTTemplateParams,
@@ -183,3 +234,7 @@ export type {
 } from './types'
 
 export { ClerkAPIError } from './types'
+
+// Organizations API
+export { createOrganizationsManager } from './organizations'
+export type { OrganizationsAPI } from './organizations'

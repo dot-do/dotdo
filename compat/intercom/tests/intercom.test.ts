@@ -512,6 +512,429 @@ describe('@dotdo/intercom - Contacts', () => {
       expect(contact.id).toBe('contact_123')
     })
   })
+
+  describe('archive', () => {
+    it('should archive a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /contacts/contact_123/archive',
+            {
+              status: 200,
+              body: { type: 'contact', id: 'contact_123', archived: true },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.archive('contact_123')
+
+      expect(result.archived).toBe(true)
+      expect(result.id).toBe('contact_123')
+    })
+  })
+
+  describe('unarchive', () => {
+    it('should unarchive a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /contacts/contact_123/unarchive',
+            {
+              status: 200,
+              body: { type: 'contact', id: 'contact_123', archived: false },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.unarchive('contact_123')
+
+      expect(result.archived).toBe(false)
+      expect(result.id).toBe('contact_123')
+    })
+  })
+
+  describe('findByEmail', () => {
+    it('should find a contact by email', async () => {
+      const expectedContact = mockContact()
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /contacts/search',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [expectedContact],
+                total_count: 1,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const contact = await client.contacts.findByEmail('user@example.com')
+
+      expect(contact?.email).toBe('user@example.com')
+    })
+
+    it('should return null when not found', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /contacts/search',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [],
+                total_count: 0,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 0 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const contact = await client.contacts.findByEmail('notfound@example.com')
+
+      expect(contact).toBeNull()
+    })
+  })
+
+  describe('findByExternalId', () => {
+    it('should find a contact by external ID', async () => {
+      const expectedContact = mockContact({ external_id: 'ext_user_123' })
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'POST /contacts/search',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [expectedContact],
+                total_count: 1,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const contact = await client.contacts.findByExternalId('ext_user_123')
+
+      expect(contact?.external_id).toBe('ext_user_123')
+    })
+  })
+
+  describe('convertToUser', () => {
+    it('should convert a lead to a user', async () => {
+      const convertedContact = mockContact({ role: 'user' })
+      const mockFetch = createMockFetch(
+        new Map([['POST /contacts/lead_123/convert', { status: 200, body: convertedContact }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const contact = await client.contacts.convertToUser('lead_123', {})
+
+      expect(contact.role).toBe('user')
+    })
+
+    it('should convert a lead and merge with existing user', async () => {
+      const mergedContact = mockContact({ id: 'user_456', role: 'user' })
+      const mockFetch = createMockFetch(
+        new Map([['POST /contacts/lead_123/convert', { status: 200, body: mergedContact }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const contact = await client.contacts.convertToUser('lead_123', {
+        user: { id: 'user_456' },
+      })
+
+      expect(contact.id).toBe('user_456')
+    })
+  })
+
+  describe('tags', () => {
+    it('should add a tag to a contact', async () => {
+      const mockTag = { type: 'tag' as const, id: 'tag_123', name: 'VIP' }
+      const mockFetch = createMockFetch(
+        new Map([['POST /contacts/contact_123/tags', { status: 200, body: mockTag }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const tag = await client.contacts.tags.add('contact_123', { id: 'tag_123' })
+
+      expect(tag.id).toBe('tag_123')
+      expect(tag.name).toBe('VIP')
+    })
+
+    it('should remove a tag from a contact', async () => {
+      const mockTag = { type: 'tag' as const, id: 'tag_123', name: 'VIP' }
+      const mockFetch = createMockFetch(
+        new Map([['DELETE /contacts/contact_123/tags/tag_123', { status: 200, body: mockTag }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const tag = await client.contacts.tags.remove('contact_123', 'tag_123')
+
+      expect(tag.id).toBe('tag_123')
+    })
+
+    it('should list tags on a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /contacts/contact_123/tags',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [
+                  { type: 'tag', id: 'tag_123', name: 'VIP' },
+                  { type: 'tag', id: 'tag_456', name: 'Enterprise' },
+                ],
+                total_count: 2,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.tags.list('contact_123')
+
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].name).toBe('VIP')
+    })
+  })
+
+  describe('companies', () => {
+    it('should attach a contact to a company', async () => {
+      const mockCompany = {
+        type: 'company' as const,
+        id: 'company_123',
+        company_id: 'acme',
+        name: 'Acme Inc',
+        created_at: Math.floor(Date.now() / 1000),
+        updated_at: Math.floor(Date.now() / 1000),
+        remote_created_at: null,
+        size: 50,
+        website: 'https://acme.com',
+        industry: 'Technology',
+        monthly_spend: 5000,
+        session_count: 100,
+        user_count: 10,
+        custom_attributes: {},
+        tags: { type: 'list' as const, data: [] },
+        segments: { type: 'list' as const, data: [] },
+      }
+      const mockFetch = createMockFetch(
+        new Map([['POST /contacts/contact_123/companies', { status: 200, body: mockCompany }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const company = await client.contacts.companies.attach('contact_123', { id: 'company_123' })
+
+      expect(company.id).toBe('company_123')
+      expect(company.name).toBe('Acme Inc')
+    })
+
+    it('should detach a contact from a company', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'DELETE /contacts/contact_123/companies/company_123',
+            {
+              status: 200,
+              body: { type: 'company', id: 'company_123', deleted: true },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.companies.detach('contact_123', 'company_123')
+
+      expect(result.deleted).toBe(true)
+      expect(result.id).toBe('company_123')
+    })
+
+    it('should list companies for a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /contacts/contact_123/companies',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [
+                  { type: 'company', id: 'company_123', name: 'Acme Inc' },
+                  { type: 'company', id: 'company_456', name: 'Beta Corp' },
+                ],
+                total_count: 2,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.companies.list('contact_123')
+
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].name).toBe('Acme Inc')
+    })
+  })
+
+  describe('notes', () => {
+    it('should create a note on a contact', async () => {
+      const mockNote = {
+        type: 'note' as const,
+        id: 'note_123',
+        created_at: Math.floor(Date.now() / 1000),
+        body: 'VIP customer - handle with care',
+        author: {
+          type: 'admin' as const,
+          id: 'admin_123',
+          name: 'Support Agent',
+        },
+      }
+      const mockFetch = createMockFetch(
+        new Map([['POST /contacts/contact_123/notes', { status: 200, body: mockNote }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const note = await client.contacts.notes.create('contact_123', {
+        body: 'VIP customer - handle with care',
+        admin_id: 'admin_123',
+      })
+
+      expect(note.id).toBe('note_123')
+      expect(note.body).toBe('VIP customer - handle with care')
+    })
+
+    it('should list notes on a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /contacts/contact_123/notes',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [
+                  { type: 'note', id: 'note_123', body: 'First note', created_at: 1000, author: { type: 'admin', id: 'admin_123' } },
+                  { type: 'note', id: 'note_456', body: 'Second note', created_at: 2000, author: { type: 'admin', id: 'admin_123' } },
+                ],
+                total_count: 2,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.notes.list('contact_123')
+
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].body).toBe('First note')
+    })
+  })
+
+  describe('segments', () => {
+    it('should list segments for a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /contacts/contact_123/segments',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [
+                  { type: 'segment', id: 'segment_123', name: 'Active Users', created_at: 1000, updated_at: 2000, person_type: 'user' },
+                  { type: 'segment', id: 'segment_456', name: 'Premium', created_at: 1000, updated_at: 2000, person_type: 'user' },
+                ],
+                total_count: 2,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.segments.list('contact_123')
+
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].name).toBe('Active Users')
+    })
+  })
+
+  describe('subscriptions', () => {
+    it('should list subscriptions for a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'GET /contacts/contact_123/subscriptions',
+            {
+              status: 200,
+              body: {
+                type: 'list',
+                data: [
+                  { id: 'sub_123', consent_type: 'opt_in', status: 'subscribed' },
+                  { id: 'sub_456', consent_type: 'opt_out', status: 'unsubscribed' },
+                ],
+                total_count: 2,
+                pages: { type: 'pages', page: 1, per_page: 50, total_pages: 1 },
+              },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.subscriptions.list('contact_123')
+
+      expect(result.data).toHaveLength(2)
+      expect(result.data[0].status).toBe('subscribed')
+    })
+
+    it('should update subscription for a contact', async () => {
+      const mockFetch = createMockFetch(
+        new Map([
+          [
+            'PUT /contacts/contact_123/subscriptions/sub_123',
+            {
+              status: 200,
+              body: { id: 'sub_123', consent_type: 'opt_out', status: 'unsubscribed' },
+            },
+          ],
+        ])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const result = await client.contacts.subscriptions.update('contact_123', 'sub_123', {
+        consent_type: 'opt_out',
+      })
+
+      expect(result.consent_type).toBe('opt_out')
+      expect(result.status).toBe('unsubscribed')
+    })
+  })
 })
 
 // =============================================================================
@@ -755,6 +1178,170 @@ describe('@dotdo/intercom - Conversations', () => {
       })
 
       expect(result.conversations).toHaveLength(1)
+    })
+  })
+
+  describe('addTag', () => {
+    it('should add a tag to a conversation', async () => {
+      const mockTag = { type: 'tag' as const, id: 'tag_456', name: 'VIP' }
+      const mockFetch = createMockFetch(
+        new Map([['POST /conversations/conv_123/tags', { status: 200, body: mockTag }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const tag = await client.conversations.addTag({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        tag_id: 'tag_456',
+      })
+
+      expect(tag.id).toBe('tag_456')
+      expect(tag.type).toBe('tag')
+    })
+  })
+
+  describe('removeTag', () => {
+    it('should remove a tag from a conversation', async () => {
+      const mockTag = { type: 'tag' as const, id: 'tag_456', name: 'VIP' }
+      const mockFetch = createMockFetch(
+        new Map([['DELETE /conversations/conv_123/tags/tag_456', { status: 200, body: mockTag }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const tag = await client.conversations.removeTag({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        tag_id: 'tag_456',
+      })
+
+      expect(tag.id).toBe('tag_456')
+    })
+  })
+
+  describe('addNote', () => {
+    it('should add an internal note to a conversation', async () => {
+      const expectedConversation = mockConversation()
+      const mockFetch = createMockFetch(
+        new Map([['POST /conversations/conv_123/reply', { status: 200, body: expectedConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.addNote({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        body: 'VIP customer - handle with care',
+      })
+
+      expect(conversation.id).toBe('conv_123')
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/conversations/conv_123/reply'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"message_type":"note"'),
+        })
+      )
+    })
+  })
+
+  describe('setPriority', () => {
+    it('should set a conversation as priority', async () => {
+      const priorityConversation = mockConversation({ priority: 'priority' })
+      const mockFetch = createMockFetch(
+        new Map([['PUT /conversations/conv_123', { status: 200, body: priorityConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.setPriority({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        priority: 'priority',
+      })
+
+      expect(conversation.priority).toBe('priority')
+    })
+
+    it('should remove priority from a conversation', async () => {
+      const notPriorityConversation = mockConversation({ priority: 'not_priority' })
+      const mockFetch = createMockFetch(
+        new Map([['PUT /conversations/conv_123', { status: 200, body: notPriorityConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.setPriority({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        priority: 'not_priority',
+      })
+
+      expect(conversation.priority).toBe('not_priority')
+    })
+  })
+
+  describe('redact', () => {
+    it('should redact a conversation part', async () => {
+      const expectedConversation = mockConversation()
+      const mockFetch = createMockFetch(
+        new Map([['POST /conversations/redact', { status: 200, body: expectedConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.redact({
+        type: 'conversation_part',
+        conversation_id: 'conv_123',
+        conversation_part_id: 'part_456',
+      })
+
+      expect(conversation.id).toBe('conv_123')
+    })
+  })
+
+  describe('runAssignmentRules', () => {
+    it('should run assignment rules on a conversation', async () => {
+      const expectedConversation = mockConversation({ admin_assignee_id: 'admin_auto' })
+      const mockFetch = createMockFetch(
+        new Map([['POST /conversations/conv_123/run_assignment_rules', { status: 200, body: expectedConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.runAssignmentRules('conv_123')
+
+      expect(conversation.admin_assignee_id).toBe('admin_auto')
+    })
+  })
+
+  describe('attachContact', () => {
+    it('should attach a contact to a conversation', async () => {
+      const expectedConversation = mockConversation()
+      const mockFetch = createMockFetch(
+        new Map([['POST /conversations/conv_123/customers', { status: 200, body: expectedConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.attachContact({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        customer: { intercom_user_id: 'contact_456' },
+      })
+
+      expect(conversation.id).toBe('conv_123')
+    })
+  })
+
+  describe('detachContact', () => {
+    it('should detach a contact from a conversation', async () => {
+      const expectedConversation = mockConversation()
+      const mockFetch = createMockFetch(
+        new Map([['DELETE /conversations/conv_123/customers/contact_456', { status: 200, body: expectedConversation }]])
+      )
+
+      const client = new Client({ tokenAuth: { token: 'test' }, fetch: mockFetch })
+      const conversation = await client.conversations.detachContact({
+        id: 'conv_123',
+        admin_id: 'admin_123',
+        contact_id: 'contact_456',
+      })
+
+      expect(conversation.id).toBe('conv_123')
     })
   })
 })

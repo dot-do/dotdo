@@ -327,12 +327,71 @@ export interface ClerkOrganizationInvitation {
   object: 'organization_invitation'
   email_address: string
   role: string
+  role_name?: string
   organization_id: string
-  status: 'pending' | 'accepted' | 'revoked'
+  inviter_user_id?: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
   public_metadata: Record<string, unknown>
   private_metadata: Record<string, unknown>
+  expires_at?: number
   created_at: number
   updated_at: number
+}
+
+/**
+ * Organization role
+ */
+export interface ClerkOrganizationRole {
+  id: string
+  object: 'role'
+  name: string
+  key: string
+  description: string
+  permissions: string[]
+  is_creator_eligible: boolean
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Organization permission
+ */
+export interface ClerkOrganizationPermission {
+  id: string
+  object: 'permission'
+  name: string
+  key: string
+  description: string
+  type: 'system' | 'custom'
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Organization domain
+ */
+export interface ClerkOrganizationDomain {
+  id: string
+  object: 'organization_domain'
+  organization_id: string
+  name: string
+  enrollment_mode: 'manual_invitation' | 'automatic_invitation' | 'automatic_suggestion'
+  affiliation_email_address?: string
+  total_pending_invitations: number
+  total_pending_suggestions: number
+  verification: ClerkDomainVerification | null
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Domain verification status
+ */
+export interface ClerkDomainVerification {
+  status: 'unverified' | 'verified'
+  strategy: 'email_code' | 'dns_record'
+  attempts: number
+  expires_at: number | null
 }
 
 /**
@@ -341,10 +400,77 @@ export interface ClerkOrganizationInvitation {
 export interface CreateInvitationParams {
   email_address: string
   role: string
-  inviter_user_id: string
+  inviter_user_id?: string
   public_metadata?: Record<string, unknown>
   private_metadata?: Record<string, unknown>
   redirect_url?: string
+  expires_in_days?: number
+}
+
+/**
+ * Create membership parameters
+ */
+export interface CreateMembershipParams {
+  organizationId: string
+  userId: string
+  role: string
+  public_metadata?: Record<string, unknown>
+  private_metadata?: Record<string, unknown>
+}
+
+/**
+ * Update membership parameters
+ */
+export interface UpdateMembershipParams {
+  organizationId: string
+  userId: string
+  role: string
+  public_metadata?: Record<string, unknown>
+  private_metadata?: Record<string, unknown>
+}
+
+/**
+ * Create role parameters
+ */
+export interface CreateRoleParams {
+  name: string
+  key: string
+  description?: string
+  permissions?: string[]
+}
+
+/**
+ * Update role parameters
+ */
+export interface UpdateRoleParams {
+  name?: string
+  description?: string
+  permissions?: string[]
+}
+
+/**
+ * Create permission parameters
+ */
+export interface CreatePermissionParams {
+  name: string
+  key: string
+  description?: string
+}
+
+/**
+ * Create domain parameters
+ */
+export interface CreateDomainParams {
+  name: string
+  enrollment_mode?: 'manual_invitation' | 'automatic_invitation' | 'automatic_suggestion'
+  verified?: boolean
+}
+
+/**
+ * Update domain parameters
+ */
+export interface UpdateDomainParams {
+  enrollment_mode?: 'manual_invitation' | 'automatic_invitation' | 'automatic_suggestion'
 }
 
 // ============================================================================

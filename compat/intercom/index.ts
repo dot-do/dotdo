@@ -94,6 +94,11 @@ export {
   Client,
   IntercomError,
   ContactsResource,
+  ContactTagsResource,
+  ContactCompaniesResource,
+  ContactNotesResource,
+  ContactSegmentsResource,
+  ContactSubscriptionsResource,
   ConversationsResource,
   MessagesResource,
   EventsResource,
@@ -133,6 +138,38 @@ export type {
   SearchQuery,
   SearchQueryField,
   SearchQueryNested,
+  ArchivedContact,
+  UnarchivedContact,
+  ContactTagParams,
+  ContactCompanyAttachParams,
+  ContactCompanyDetachParams,
+
+  // Tag types
+  Tag,
+  TagCreateParams,
+  TagUpdateParams,
+  DeletedTag,
+
+  // Company types
+  Company,
+  CompanyPlan,
+  CompanyCreateParams,
+  CompanyUpdateParams,
+  CompanyListParams,
+  CompanyScrollResponse,
+  DeletedCompany,
+
+  // Note types
+  Note,
+  NoteCreateParams,
+
+  // Segment types
+  Segment,
+
+  // Subscription types
+  SubscriptionType,
+  ContactSubscription,
+  ContactSubscriptionUpdateParams,
 
   // Conversation types
   Conversation,
@@ -154,6 +191,13 @@ export type {
   ConversationOpenParams,
   ConversationSnoozeParams,
   ConversationSearchParams,
+  ConversationTagParams,
+  ConversationUntagParams,
+  ConversationNoteParams,
+  ConversationRedactParams,
+  ConversationSetPriorityParams,
+  ConversationAttachContactParams,
+  ConversationDetachContactParams,
 
   // Message types
   Message,

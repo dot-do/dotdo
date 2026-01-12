@@ -443,3 +443,131 @@ export class SlowDown extends S3ServiceException {
     this.name = 'SlowDown'
   }
 }
+
+// =============================================================================
+// Configuration Errors
+// =============================================================================
+
+/**
+ * No CORS configuration exists for the bucket
+ */
+export class NoSuchCORSConfiguration extends S3ServiceException {
+  override readonly name = 'NoSuchCORSConfiguration'
+
+  constructor(options: S3ErrorOptions = {}) {
+    super({
+      message: options.message || 'NoSuchCORSConfiguration: The CORS configuration does not exist',
+      $metadata: { httpStatusCode: 404 },
+      ...options,
+    })
+    this.name = 'NoSuchCORSConfiguration'
+  }
+}
+
+/**
+ * No lifecycle configuration exists for the bucket
+ */
+export class NoSuchLifecycleConfiguration extends S3ServiceException {
+  override readonly name = 'NoSuchLifecycleConfiguration'
+
+  constructor(options: S3ErrorOptions = {}) {
+    super({
+      message: options.message || 'NoSuchLifecycleConfiguration: The lifecycle configuration does not exist',
+      $metadata: { httpStatusCode: 404 },
+      ...options,
+    })
+    this.name = 'NoSuchLifecycleConfiguration'
+  }
+}
+
+// =============================================================================
+// Bucket Name Validation
+// =============================================================================
+
+/**
+ * Validates an S3 bucket name according to AWS naming rules.
+ *
+ * Rules:
+ * - Must be between 3 and 63 characters long
+ * - Can only contain lowercase letters, numbers, hyphens, and periods
+ * - Must begin and end with a letter or number
+ * - Cannot contain consecutive periods
+ * - Cannot be formatted as an IP address (e.g., 192.168.1.1)
+ * - Cannot start with 'xn--' (IDN prefix)
+ * - Cannot end with '-s3alias' (S3 access point alias suffix)
+ *
+ * @param name - The bucket name to validate
+ * @returns true if valid
+ * @throws InvalidBucketName if the name is invalid
+ */
+export function validateBucketName(name: string): boolean {
+  // Check length (3-63 characters)
+  if (name.length < 3) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must be at least 3 characters long',
+    })
+  }
+  if (name.length > 63) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must be no more than 63 characters long',
+    })
+  }
+
+  // Check for uppercase characters
+  if (name !== name.toLowerCase()) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must not contain uppercase characters',
+    })
+  }
+
+  // Check for valid characters (lowercase letters, numbers, hyphens, periods)
+  if (!/^[a-z0-9.-]+$/.test(name)) {
+    throw new InvalidBucketName({
+      message: 'Bucket name can only contain lowercase letters, numbers, hyphens, and periods',
+    })
+  }
+
+  // Check if starts with a letter or number
+  if (!/^[a-z0-9]/.test(name)) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must start with a letter or number',
+    })
+  }
+
+  // Check if ends with a letter or number
+  if (!/[a-z0-9]$/.test(name)) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must end with a letter or number',
+    })
+  }
+
+  // Check for consecutive periods
+  if (name.includes('..')) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must not contain consecutive periods',
+    })
+  }
+
+  // Check for IP address format
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name)) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must not be formatted as an IP address',
+    })
+  }
+
+  // Check for xn-- prefix (IDN)
+  if (name.startsWith('xn--')) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must not start with the xn-- prefix',
+    })
+  }
+
+  // Check for -s3alias suffix
+  if (name.endsWith('-s3alias')) {
+    throw new InvalidBucketName({
+      message: 'Bucket name must not end with the -s3alias suffix',
+    })
+  }
+
+  return true
+}

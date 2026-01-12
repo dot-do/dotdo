@@ -261,6 +261,303 @@ export interface DeletedContact extends DeletedObject {
   type: 'contact'
 }
 
+/**
+ * Parameters for archiving a contact
+ */
+export interface ContactArchiveParams {
+  id: string
+}
+
+/**
+ * Parameters for unarchiving a contact
+ */
+export interface ContactUnarchiveParams {
+  id: string
+}
+
+/**
+ * Archived contact response
+ */
+export interface ArchivedContact {
+  type: 'contact'
+  id: string
+  archived: true
+}
+
+/**
+ * Unarchived contact response
+ */
+export interface UnarchivedContact {
+  type: 'contact'
+  id: string
+  archived: false
+}
+
+// =============================================================================
+// Tag Types
+// =============================================================================
+
+/**
+ * Intercom Tag object
+ */
+export interface Tag {
+  type: 'tag'
+  id: string
+  name: string
+  applied_at?: number
+  applied_by?: {
+    type: 'admin'
+    id: string
+  }
+}
+
+/**
+ * Parameters for creating a tag
+ */
+export interface TagCreateParams {
+  name: string
+}
+
+/**
+ * Parameters for updating a tag
+ */
+export interface TagUpdateParams {
+  name: string
+}
+
+/**
+ * Deleted tag response
+ */
+export interface DeletedTag extends DeletedObject {
+  type: 'tag'
+}
+
+/**
+ * Parameters for tagging a contact
+ */
+export interface ContactTagParams {
+  id: string
+}
+
+/**
+ * Parameters for untagging a contact
+ */
+export interface ContactUntagParams {
+  id: string
+}
+
+// =============================================================================
+// Company Types
+// =============================================================================
+
+/**
+ * Company plan
+ */
+export interface CompanyPlan {
+  type: 'plan'
+  id: string
+  name: string
+}
+
+/**
+ * Intercom Company object
+ */
+export interface Company {
+  type: 'company'
+  id: string
+  company_id: string
+  name: string
+  created_at: number
+  updated_at: number
+  remote_created_at: number | null
+  plan?: CompanyPlan
+  size: number | null
+  website: string | null
+  industry: string | null
+  monthly_spend: number | null
+  session_count: number
+  user_count: number
+  custom_attributes: CustomAttributes
+  tags: {
+    type: 'list'
+    data: TagRef[]
+  }
+  segments: {
+    type: 'list'
+    data: Array<{
+      type: 'segment'
+      id: string
+    }>
+  }
+}
+
+/**
+ * Parameters for creating a company
+ */
+export interface CompanyCreateParams {
+  company_id: string
+  name?: string
+  remote_created_at?: number
+  plan?: string
+  size?: number
+  website?: string
+  industry?: string
+  monthly_spend?: number
+  custom_attributes?: CustomAttributes
+}
+
+/**
+ * Parameters for updating a company
+ */
+export interface CompanyUpdateParams {
+  company_id?: string
+  name?: string
+  remote_created_at?: number
+  plan?: string
+  size?: number
+  website?: string
+  industry?: string
+  monthly_spend?: number
+  custom_attributes?: CustomAttributes
+}
+
+/**
+ * Parameters for listing companies
+ */
+export interface CompanyListParams {
+  per_page?: number
+  page?: number
+  order?: 'asc' | 'desc'
+}
+
+/**
+ * Parameters for attaching a contact to a company
+ */
+export interface ContactCompanyAttachParams {
+  id: string
+}
+
+/**
+ * Parameters for detaching a contact from a company
+ */
+export interface ContactCompanyDetachParams {
+  id: string
+}
+
+/**
+ * Deleted company response
+ */
+export interface DeletedCompany extends DeletedObject {
+  type: 'company'
+}
+
+/**
+ * Scroll response for companies
+ */
+export interface CompanyScrollResponse {
+  type: 'list'
+  data: Company[]
+  pages: Pages
+  scroll_param?: string
+}
+
+// =============================================================================
+// Note Types
+// =============================================================================
+
+/**
+ * Intercom Note object
+ */
+export interface Note {
+  type: 'note'
+  id: string
+  created_at: number
+  body: string
+  author: {
+    type: 'admin'
+    id: string
+    name?: string
+    email?: string
+    away_mode_enabled?: boolean
+    away_mode_reassign?: boolean
+    avatar?: {
+      type: 'avatar'
+      image_url: string
+    }
+  }
+  contact?: {
+    type: 'contact'
+    id: string
+  }
+}
+
+/**
+ * Parameters for creating a note on a contact
+ */
+export interface NoteCreateParams {
+  body: string
+  admin_id: string
+}
+
+// =============================================================================
+// Segment Types
+// =============================================================================
+
+/**
+ * Intercom Segment object
+ */
+export interface Segment {
+  type: 'segment'
+  id: string
+  name: string
+  created_at: number
+  updated_at: number
+  person_type: 'user' | 'lead' | 'contact'
+  count?: number
+}
+
+// =============================================================================
+// Subscription Types
+// =============================================================================
+
+/**
+ * Subscription type object
+ */
+export interface SubscriptionType {
+  type: 'subscription_type'
+  id: string
+  name: string
+  description: string
+  consent_type: 'opt_in' | 'opt_out'
+  content_types: Array<'email' | 'sms_message'>
+  default_translation?: {
+    name: string
+    description: string
+    locale: string
+  }
+  translations?: Array<{
+    name: string
+    description: string
+    locale: string
+  }>
+}
+
+/**
+ * Contact subscription preference
+ */
+export interface ContactSubscription {
+  id: string
+  consent_type: 'opt_in' | 'opt_out'
+  status: 'subscribed' | 'unsubscribed'
+}
+
+/**
+ * Parameters for updating contact subscriptions
+ */
+export interface ContactSubscriptionUpdateParams {
+  consent_type: 'opt_in' | 'opt_out'
+}
+
 // =============================================================================
 // Conversation Types
 // =============================================================================
@@ -529,6 +826,96 @@ export interface ConversationSearchParams {
     field: string
     order: 'ascending' | 'descending'
   }
+}
+
+/**
+ * Parameters for adding a tag to a conversation
+ */
+export interface ConversationTagParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID performing the action */
+  admin_id: string
+  /** Tag ID to add */
+  tag_id: string
+}
+
+/**
+ * Parameters for removing a tag from a conversation
+ */
+export interface ConversationUntagParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID performing the action */
+  admin_id: string
+  /** Tag ID to remove */
+  tag_id: string
+}
+
+/**
+ * Parameters for adding a note to a conversation
+ */
+export interface ConversationNoteParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID adding the note */
+  admin_id: string
+  /** Note content (HTML supported) */
+  body: string
+}
+
+/**
+ * Parameters for redacting conversation content
+ */
+export interface ConversationRedactParams {
+  /** Type of content to redact */
+  type: 'conversation_part' | 'source'
+  /** Conversation ID */
+  conversation_id: string
+  /** Conversation part ID (required when type is 'conversation_part') */
+  conversation_part_id?: string
+  /** Source ID (required when type is 'source') */
+  source_id?: string
+}
+
+/**
+ * Parameters for setting conversation priority
+ */
+export interface ConversationSetPriorityParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID performing the action */
+  admin_id: string
+  /** Priority level */
+  priority: 'priority' | 'not_priority'
+}
+
+/**
+ * Parameters for attaching a contact to a conversation
+ */
+export interface ConversationAttachContactParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID performing the action */
+  admin_id: string
+  /** Customer identification */
+  customer: {
+    intercom_user_id?: string
+    user_id?: string
+    email?: string
+  }
+}
+
+/**
+ * Parameters for detaching a contact from a conversation
+ */
+export interface ConversationDetachContactParams {
+  /** Conversation ID */
+  id: string
+  /** Admin ID performing the action */
+  admin_id: string
+  /** Contact ID to detach */
+  contact_id: string
 }
 
 // =============================================================================

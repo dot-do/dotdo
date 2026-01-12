@@ -23,6 +23,12 @@ import type {
   ConversationOpenParams,
   ConversationSnoozeParams,
   ConversationSearchParams,
+  ConversationTagParams,
+  ConversationUntagParams,
+  ConversationNoteParams,
+  ConversationRedactParams,
+  ConversationSetPriorityParams,
+  TagRef,
   Message,
   MessageCreateParams,
 } from './types'
@@ -207,6 +213,227 @@ export class ConversationsResource {
    */
   async search(params: ConversationSearchParams, options?: RequestOptions): Promise<ConversationListResponse> {
     return this.client._request('POST', '/conversations/search', params as Record<string, unknown>, options)
+  }
+
+  /**
+   * Add a tag to a conversation
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.addTag({
+   *   id: 'conv_123',
+   *   admin_id: 'admin_123',
+   *   tag_id: 'tag_456',
+   * })
+   * ```
+   *
+   * @param params - Tag parameters
+   * @param options - Request options
+   * @returns The tag that was added
+   */
+  async addTag(params: ConversationTagParams, options?: RequestOptions): Promise<TagRef> {
+    const { id, tag_id, admin_id } = params
+    return this.client._request(
+      'POST',
+      `/conversations/${id}/tags`,
+      { id: tag_id, admin_id } as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Remove a tag from a conversation
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.removeTag({
+   *   id: 'conv_123',
+   *   admin_id: 'admin_123',
+   *   tag_id: 'tag_456',
+   * })
+   * ```
+   *
+   * @param params - Untag parameters
+   * @param options - Request options
+   * @returns The tag that was removed
+   */
+  async removeTag(params: ConversationUntagParams, options?: RequestOptions): Promise<TagRef> {
+    const { id, tag_id, admin_id } = params
+    return this.client._request(
+      'DELETE',
+      `/conversations/${id}/tags/${tag_id}`,
+      { admin_id } as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Add an internal note to a conversation
+   *
+   * Notes are only visible to admins and not shown to the customer.
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.addNote({
+   *   id: 'conv_123',
+   *   admin_id: 'admin_123',
+   *   body: 'VIP customer - handle with care',
+   * })
+   * ```
+   *
+   * @param params - Note parameters
+   * @param options - Request options
+   * @returns The updated conversation
+   */
+  async addNote(params: ConversationNoteParams, options?: RequestOptions): Promise<Conversation> {
+    const { id, admin_id, body } = params
+    return this.client._request(
+      'POST',
+      `/conversations/${id}/reply`,
+      {
+        type: 'admin',
+        admin_id,
+        body,
+        message_type: 'note',
+      } as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Redact a conversation part
+   *
+   * Permanently removes sensitive content from a conversation part.
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.redact({
+   *   type: 'conversation_part',
+   *   conversation_id: 'conv_123',
+   *   conversation_part_id: 'part_456',
+   * })
+   * ```
+   *
+   * @param params - Redact parameters
+   * @param options - Request options
+   * @returns The redacted conversation part
+   */
+  async redact(params: ConversationRedactParams, options?: RequestOptions): Promise<Conversation> {
+    return this.client._request(
+      'POST',
+      '/conversations/redact',
+      params as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Set the priority of a conversation
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.setPriority({
+   *   id: 'conv_123',
+   *   admin_id: 'admin_123',
+   *   priority: 'priority',
+   * })
+   * ```
+   *
+   * @param params - Priority parameters
+   * @param options - Request options
+   * @returns The updated conversation
+   */
+  async setPriority(params: ConversationSetPriorityParams, options?: RequestOptions): Promise<Conversation> {
+    const { id, admin_id, priority } = params
+    return this.client._request(
+      'PUT',
+      `/conversations/${id}`,
+      { admin_id, priority } as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Run assignment rules on a conversation
+   *
+   * Triggers auto-assignment based on configured rules.
+   *
+   * @param id - Conversation ID
+   * @param options - Request options
+   * @returns The updated conversation
+   */
+  async runAssignmentRules(id: string, options?: RequestOptions): Promise<Conversation> {
+    return this.client._request(
+      'POST',
+      `/conversations/${id}/run_assignment_rules`,
+      undefined,
+      options
+    )
+  }
+
+  /**
+   * Attach a contact to a conversation
+   *
+   * Useful for group conversations or adding participants.
+   *
+   * @example
+   * ```typescript
+   * await client.conversations.attachContact({
+   *   id: 'conv_123',
+   *   admin_id: 'admin_123',
+   *   customer: {
+   *     intercom_user_id: 'contact_456',
+   *   },
+   * })
+   * ```
+   *
+   * @param params - Attach contact parameters
+   * @param options - Request options
+   * @returns The updated conversation
+   */
+  async attachContact(
+    params: {
+      id: string
+      admin_id: string
+      customer: {
+        intercom_user_id?: string
+        user_id?: string
+        email?: string
+      }
+    },
+    options?: RequestOptions
+  ): Promise<Conversation> {
+    const { id, ...body } = params
+    return this.client._request(
+      'POST',
+      `/conversations/${id}/customers`,
+      body as Record<string, unknown>,
+      options
+    )
+  }
+
+  /**
+   * Detach a contact from a conversation
+   *
+   * @param params - Detach contact parameters
+   * @param options - Request options
+   * @returns The updated conversation
+   */
+  async detachContact(
+    params: {
+      id: string
+      admin_id: string
+      contact_id: string
+    },
+    options?: RequestOptions
+  ): Promise<Conversation> {
+    const { id, contact_id, admin_id } = params
+    return this.client._request(
+      'DELETE',
+      `/conversations/${id}/customers/${contact_id}`,
+      { admin_id } as Record<string, unknown>,
+      options
+    )
   }
 }
 

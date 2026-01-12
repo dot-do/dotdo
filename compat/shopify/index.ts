@@ -66,6 +66,50 @@ export * from './orders'
 export * from './customers'
 export * from './inventory'
 
+// Re-export Storefront API
+export {
+  createStorefrontClient,
+  STOREFRONT_API_VERSION,
+  StorefrontAPIError,
+  type StorefrontClient,
+  type StorefrontConfig,
+  type StorefrontResponse,
+  type StorefrontError,
+  type StorefrontProduct,
+  type StorefrontCollection,
+  type ProductVariant,
+  type ProductConnection,
+  type CollectionConnection,
+  type Cart,
+  type CartLine,
+  type CartLineInput,
+  type CartLineUpdateInput,
+  type CartCreatePayload,
+  type CartLinesAddPayload,
+  type CartLinesUpdatePayload,
+  type CartLinesRemovePayload,
+  type Checkout,
+  type CheckoutCreateInput,
+  type CheckoutCreatePayload,
+  type CheckoutLineItemInput,
+  type Customer as StorefrontCustomer,
+  type CustomerAccessToken,
+  type CustomerAccessTokenCreatePayload,
+  type CustomerCreateInput,
+  type CustomerCreatePayload,
+  type CustomerUpdateInput,
+  type CustomerUpdatePayload,
+  type MoneyV2,
+  type MailingAddress,
+  type MailingAddressInput,
+  type Image,
+  type PageInfo,
+  type ConnectionArgs,
+  type ProductSortKeys,
+  type CollectionSortKeys,
+  type ProductFilter,
+} from './storefront'
+
 const DEFAULT_RETRIES = 2
 const DEFAULT_TIMEOUT = 60000 // 60 seconds
 const RETRY_WAIT_BASE = 500 // 500ms base for exponential backoff

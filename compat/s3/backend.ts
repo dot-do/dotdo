@@ -21,6 +21,11 @@ import type {
   InternalMultipartUpload,
   InternalPart,
   StorageClass,
+  CORSConfiguration,
+  LifecycleConfiguration,
+  VersioningStatus,
+  MFADeleteStatus,
+  InternalBucketExtended,
 } from './types'
 
 // =============================================================================
@@ -29,12 +34,26 @@ import type {
 
 export interface StorageBackend {
   // Bucket operations
-  createBucket(name: string, region?: string): Promise<void>
+  createBucket(name: string, region?: string, options?: CreateBucketOptions): Promise<void>
   deleteBucket(name: string): Promise<void>
-  headBucket(name: string): Promise<InternalBucket>
-  listBuckets(): Promise<InternalBucket[]>
+  headBucket(name: string): Promise<InternalBucketExtended>
+  listBuckets(options?: ListBucketsOptions): Promise<ListBucketsResult>
   bucketExists(name: string): Promise<boolean>
   bucketIsEmpty(name: string): Promise<boolean>
+
+  // CORS operations
+  putBucketCors(name: string, config: CORSConfiguration): Promise<void>
+  getBucketCors(name: string): Promise<CORSConfiguration | null>
+  deleteBucketCors(name: string): Promise<void>
+
+  // Lifecycle operations
+  putBucketLifecycle(name: string, config: LifecycleConfiguration): Promise<void>
+  getBucketLifecycle(name: string): Promise<LifecycleConfiguration | null>
+  deleteBucketLifecycle(name: string): Promise<void>
+
+  // Versioning operations
+  putBucketVersioning(name: string, status: VersioningStatus, mfaDelete?: MFADeleteStatus): Promise<void>
+  getBucketVersioning(name: string): Promise<{ status?: VersioningStatus; mfaDelete?: MFADeleteStatus }>
 
   // Object operations
   putObject(
@@ -97,6 +116,23 @@ export interface StorageBackend {
 // =============================================================================
 // Backend Option Types
 // =============================================================================
+
+export interface CreateBucketOptions {
+  objectOwnership?: 'BucketOwnerEnforced' | 'BucketOwnerPreferred' | 'ObjectWriter'
+  objectLockEnabled?: boolean
+}
+
+export interface ListBucketsOptions {
+  maxBuckets?: number
+  continuationToken?: string
+  prefix?: string
+  bucketRegion?: string
+}
+
+export interface ListBucketsResult {
+  buckets: InternalBucketExtended[]
+  continuationToken?: string
+}
 
 export interface PutObjectOptions {
   contentType?: string
@@ -171,7 +207,7 @@ export interface ListMultipartUploadsResult {
  * In-memory storage backend for testing
  */
 export class MemoryBackend implements StorageBackend {
-  private buckets: Map<string, InternalBucket> = new Map()
+  private buckets: Map<string, InternalBucketExtended> = new Map()
   private objects: Map<string, Map<string, InternalObject>> = new Map()
   private multipartUploads: Map<string, InternalMultipartUpload> = new Map()
 
@@ -179,11 +215,13 @@ export class MemoryBackend implements StorageBackend {
   // Bucket Operations
   // --------------------------------------------------------------------------
 
-  async createBucket(name: string, region?: string): Promise<void> {
+  async createBucket(name: string, region?: string, options?: CreateBucketOptions): Promise<void> {
     this.buckets.set(name, {
       name,
       creationDate: new Date(),
       region,
+      objectOwnership: options?.objectOwnership,
+      objectLockEnabled: options?.objectLockEnabled,
     })
     this.objects.set(name, new Map())
   }
@@ -193,7 +231,7 @@ export class MemoryBackend implements StorageBackend {
     this.objects.delete(name)
   }
 
-  async headBucket(name: string): Promise<InternalBucket> {
+  async headBucket(name: string): Promise<InternalBucketExtended> {
     const bucket = this.buckets.get(name)
     if (!bucket) {
       throw new Error('NoSuchBucket')
@@ -201,8 +239,47 @@ export class MemoryBackend implements StorageBackend {
     return bucket
   }
 
-  async listBuckets(): Promise<InternalBucket[]> {
-    return Array.from(this.buckets.values())
+  async listBuckets(options?: ListBucketsOptions): Promise<ListBucketsResult> {
+    let buckets = Array.from(this.buckets.values())
+
+    // Filter by prefix
+    if (options?.prefix) {
+      buckets = buckets.filter((b) => b.name.startsWith(options.prefix!))
+    }
+
+    // Filter by region
+    if (options?.bucketRegion) {
+      buckets = buckets.filter((b) => b.region === options.bucketRegion)
+    }
+
+    // Sort alphabetically by name
+    buckets.sort((a, b) => a.name.localeCompare(b.name))
+
+    // Handle pagination
+    let startIndex = 0
+    if (options?.continuationToken) {
+      try {
+        const decodedToken = atob(options.continuationToken)
+        const idx = buckets.findIndex((b) => b.name > decodedToken)
+        startIndex = idx >= 0 ? idx : buckets.length
+      } catch {
+        // Invalid token, start from beginning
+      }
+    }
+
+    const maxBuckets = options?.maxBuckets ?? 1000
+    const endIndex = startIndex + maxBuckets
+    const resultBuckets = buckets.slice(startIndex, endIndex)
+
+    let continuationToken: string | undefined
+    if (endIndex < buckets.length && resultBuckets.length > 0) {
+      continuationToken = btoa(resultBuckets[resultBuckets.length - 1].name)
+    }
+
+    return {
+      buckets: resultBuckets,
+      continuationToken,
+    }
   }
 
   async bucketExists(name: string): Promise<boolean> {
@@ -564,6 +641,88 @@ export class MemoryBackend implements StorageBackend {
   }
 
   // --------------------------------------------------------------------------
+  // CORS Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketCors(name: string, config: CORSConfiguration): Promise<void> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    bucket.corsConfiguration = config
+  }
+
+  async getBucketCors(name: string): Promise<CORSConfiguration | null> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    return bucket.corsConfiguration || null
+  }
+
+  async deleteBucketCors(name: string): Promise<void> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    delete bucket.corsConfiguration
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketLifecycle(name: string, config: LifecycleConfiguration): Promise<void> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    bucket.lifecycleConfiguration = config
+  }
+
+  async getBucketLifecycle(name: string): Promise<LifecycleConfiguration | null> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    return bucket.lifecycleConfiguration || null
+  }
+
+  async deleteBucketLifecycle(name: string): Promise<void> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    delete bucket.lifecycleConfiguration
+  }
+
+  // --------------------------------------------------------------------------
+  // Versioning Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketVersioning(name: string, status: VersioningStatus, mfaDelete?: MFADeleteStatus): Promise<void> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    bucket.versioningStatus = status
+    if (mfaDelete) {
+      bucket.mfaDeleteStatus = mfaDelete
+    }
+  }
+
+  async getBucketVersioning(name: string): Promise<{ status?: VersioningStatus; mfaDelete?: MFADeleteStatus }> {
+    const bucket = this.buckets.get(name)
+    if (!bucket) {
+      throw new Error('NoSuchBucket')
+    }
+    return {
+      status: bucket.versioningStatus,
+      mfaDelete: bucket.mfaDeleteStatus,
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Utility
   // --------------------------------------------------------------------------
 
@@ -586,7 +745,7 @@ export class MemoryBackend implements StorageBackend {
  */
 export class R2Backend implements StorageBackend {
   private r2: R2Bucket
-  private bucketMeta: Map<string, InternalBucket> = new Map()
+  private bucketMeta: Map<string, InternalBucketExtended> = new Map()
   private multipartUploads: Map<string, InternalMultipartUpload> = new Map()
 
   constructor(r2Bucket: R2Bucket) {
@@ -618,7 +777,7 @@ export class R2Backend implements StorageBackend {
   // Bucket Operations
   // --------------------------------------------------------------------------
 
-  async createBucket(name: string, region?: string): Promise<void> {
+  async createBucket(name: string, region?: string, options?: CreateBucketOptions): Promise<void> {
     const metaKey = await this.getBucketMetaKey(name)
     const existing = await this.r2.head(metaKey)
 
@@ -626,10 +785,12 @@ export class R2Backend implements StorageBackend {
       throw new Error('BucketAlreadyExists')
     }
 
-    const bucketMeta: InternalBucket = {
+    const bucketMeta: InternalBucketExtended = {
       name,
       creationDate: new Date(),
       region,
+      objectOwnership: options?.objectOwnership,
+      objectLockEnabled: options?.objectLockEnabled,
     }
 
     await this.r2.put(metaKey, JSON.stringify(bucketMeta))
@@ -648,7 +809,7 @@ export class R2Backend implements StorageBackend {
     this.bucketMeta.delete(name)
   }
 
-  async headBucket(name: string): Promise<InternalBucket> {
+  async headBucket(name: string): Promise<InternalBucketExtended> {
     // Check cache first
     if (this.bucketMeta.has(name)) {
       return this.bucketMeta.get(name)!
@@ -661,27 +822,64 @@ export class R2Backend implements StorageBackend {
       throw new Error('NoSuchBucket')
     }
 
-    const bucketMeta = JSON.parse(await obj.text()) as InternalBucket
+    const bucketMeta = JSON.parse(await obj.text()) as InternalBucketExtended
     bucketMeta.creationDate = new Date(bucketMeta.creationDate)
     this.bucketMeta.set(name, bucketMeta)
 
     return bucketMeta
   }
 
-  async listBuckets(): Promise<InternalBucket[]> {
+  async listBuckets(options?: ListBucketsOptions): Promise<ListBucketsResult> {
     const listed = await this.r2.list({ prefix: '__bucket_meta__/' })
-    const buckets: InternalBucket[] = []
+    let buckets: InternalBucketExtended[] = []
 
     for (const obj of listed.objects) {
       const content = await this.r2.get(obj.key)
       if (content) {
-        const meta = JSON.parse(await content.text()) as InternalBucket
+        const meta = JSON.parse(await content.text()) as InternalBucketExtended
         meta.creationDate = new Date(meta.creationDate)
         buckets.push(meta)
       }
     }
 
-    return buckets
+    // Filter by prefix
+    if (options?.prefix) {
+      buckets = buckets.filter((b) => b.name.startsWith(options.prefix!))
+    }
+
+    // Filter by region
+    if (options?.bucketRegion) {
+      buckets = buckets.filter((b) => b.region === options.bucketRegion)
+    }
+
+    // Sort alphabetically by name
+    buckets.sort((a, b) => a.name.localeCompare(b.name))
+
+    // Handle pagination
+    let startIndex = 0
+    if (options?.continuationToken) {
+      try {
+        const decodedToken = atob(options.continuationToken)
+        const idx = buckets.findIndex((b) => b.name > decodedToken)
+        startIndex = idx >= 0 ? idx : buckets.length
+      } catch {
+        // Invalid token, start from beginning
+      }
+    }
+
+    const maxBuckets = options?.maxBuckets ?? 1000
+    const endIndex = startIndex + maxBuckets
+    const resultBuckets = buckets.slice(startIndex, endIndex)
+
+    let continuationToken: string | undefined
+    if (endIndex < buckets.length && resultBuckets.length > 0) {
+      continuationToken = btoa(resultBuckets[resultBuckets.length - 1].name)
+    }
+
+    return {
+      buckets: resultBuckets,
+      continuationToken,
+    }
   }
 
   async bucketExists(name: string): Promise<boolean> {
@@ -1032,6 +1230,84 @@ export class R2Backend implements StorageBackend {
       nextUploadIdMarker: isTruncated
         ? resultUploads[resultUploads.length - 1]?.uploadId
         : undefined,
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // CORS Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketCors(name: string, config: CORSConfiguration): Promise<void> {
+    const bucket = await this.headBucket(name)
+    bucket.corsConfiguration = config
+
+    // Persist to R2
+    const metaKey = await this.getBucketMetaKey(name)
+    await this.r2.put(metaKey, JSON.stringify(bucket))
+  }
+
+  async getBucketCors(name: string): Promise<CORSConfiguration | null> {
+    const bucket = await this.headBucket(name)
+    return bucket.corsConfiguration || null
+  }
+
+  async deleteBucketCors(name: string): Promise<void> {
+    const bucket = await this.headBucket(name)
+    delete bucket.corsConfiguration
+
+    // Persist to R2
+    const metaKey = await this.getBucketMetaKey(name)
+    await this.r2.put(metaKey, JSON.stringify(bucket))
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketLifecycle(name: string, config: LifecycleConfiguration): Promise<void> {
+    const bucket = await this.headBucket(name)
+    bucket.lifecycleConfiguration = config
+
+    // Persist to R2
+    const metaKey = await this.getBucketMetaKey(name)
+    await this.r2.put(metaKey, JSON.stringify(bucket))
+  }
+
+  async getBucketLifecycle(name: string): Promise<LifecycleConfiguration | null> {
+    const bucket = await this.headBucket(name)
+    return bucket.lifecycleConfiguration || null
+  }
+
+  async deleteBucketLifecycle(name: string): Promise<void> {
+    const bucket = await this.headBucket(name)
+    delete bucket.lifecycleConfiguration
+
+    // Persist to R2
+    const metaKey = await this.getBucketMetaKey(name)
+    await this.r2.put(metaKey, JSON.stringify(bucket))
+  }
+
+  // --------------------------------------------------------------------------
+  // Versioning Operations
+  // --------------------------------------------------------------------------
+
+  async putBucketVersioning(name: string, status: VersioningStatus, mfaDelete?: MFADeleteStatus): Promise<void> {
+    const bucket = await this.headBucket(name)
+    bucket.versioningStatus = status
+    if (mfaDelete) {
+      bucket.mfaDeleteStatus = mfaDelete
+    }
+
+    // Persist to R2
+    const metaKey = await this.getBucketMetaKey(name)
+    await this.r2.put(metaKey, JSON.stringify(bucket))
+  }
+
+  async getBucketVersioning(name: string): Promise<{ status?: VersioningStatus; mfaDelete?: MFADeleteStatus }> {
+    const bucket = await this.headBucket(name)
+    return {
+      status: bucket.versioningStatus,
+      mfaDelete: bucket.mfaDeleteStatus,
     }
   }
 

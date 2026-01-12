@@ -36,7 +36,15 @@
 
 // Re-export from separate modules
 export { Client, IntercomError } from './client'
-export { ContactsResource, type IntercomClientInterface } from './contacts'
+export {
+  ContactsResource,
+  ContactTagsResource,
+  ContactCompaniesResource,
+  ContactNotesResource,
+  ContactSegmentsResource,
+  ContactSubscriptionsResource,
+  type IntercomClientInterface,
+} from './contacts'
 export { ConversationsResource, MessagesResource } from './conversations'
 export { ArticlesResource } from './articles'
 export { EventsResource } from './events'

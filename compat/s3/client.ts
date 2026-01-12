@@ -54,6 +54,20 @@ import type {
   AbortMultipartUploadCommandOutput,
   ListPartsCommandOutput,
   ListMultipartUploadsCommandOutput,
+  // CORS types
+  PutBucketCorsCommandOutput,
+  GetBucketCorsCommandOutput,
+  DeleteBucketCorsCommandOutput,
+  // Lifecycle types
+  PutBucketLifecycleConfigurationCommandOutput,
+  GetBucketLifecycleConfigurationCommandOutput,
+  DeleteBucketLifecycleCommandOutput,
+  // Versioning types
+  PutBucketVersioningCommandOutput,
+  GetBucketVersioningCommandOutput,
+  ListObjectVersionsCommandOutput,
+  // Extended types
+  ExtendedListBucketsCommandOutput,
 } from './types'
 
 import {
@@ -74,6 +88,18 @@ import {
   AbortMultipartUploadCommand,
   ListPartsCommand,
   ListMultipartUploadsCommand,
+  // CORS commands
+  PutBucketCorsCommand,
+  GetBucketCorsCommand,
+  DeleteBucketCorsCommand,
+  // Lifecycle commands
+  PutBucketLifecycleConfigurationCommand,
+  GetBucketLifecycleConfigurationCommand,
+  DeleteBucketLifecycleCommand,
+  // Versioning commands
+  PutBucketVersioningCommand,
+  GetBucketVersioningCommand,
+  ListObjectVersionsCommand,
   type Command,
 } from './commands'
 
@@ -93,6 +119,9 @@ import {
   InternalError,
   ServiceUnavailable,
   SlowDown,
+  NoSuchCORSConfiguration,
+  NoSuchLifecycleConfiguration,
+  validateBucketName,
 } from './errors'
 
 import {
@@ -194,7 +223,7 @@ export class S3Client {
           return (await this.handleHeadBucket(command, metadata)) as T
         }
         if (command instanceof ListBucketsCommand) {
-          return (await this.handleListBuckets(metadata)) as T
+          return (await this.handleListBuckets(command, metadata)) as T
         }
         if (command instanceof PutObjectCommand) {
           return (await this.handlePutObject(command, metadata)) as T
@@ -234,6 +263,39 @@ export class S3Client {
         }
         if (command instanceof ListMultipartUploadsCommand) {
           return (await this.handleListMultipartUploads(command, metadata)) as T
+        }
+
+        // CORS commands
+        if (command instanceof PutBucketCorsCommand) {
+          return (await this.handlePutBucketCors(command, metadata)) as T
+        }
+        if (command instanceof GetBucketCorsCommand) {
+          return (await this.handleGetBucketCors(command, metadata)) as T
+        }
+        if (command instanceof DeleteBucketCorsCommand) {
+          return (await this.handleDeleteBucketCors(command, metadata)) as T
+        }
+
+        // Lifecycle commands
+        if (command instanceof PutBucketLifecycleConfigurationCommand) {
+          return (await this.handlePutBucketLifecycle(command, metadata)) as T
+        }
+        if (command instanceof GetBucketLifecycleConfigurationCommand) {
+          return (await this.handleGetBucketLifecycle(command, metadata)) as T
+        }
+        if (command instanceof DeleteBucketLifecycleCommand) {
+          return (await this.handleDeleteBucketLifecycle(command, metadata)) as T
+        }
+
+        // Versioning commands
+        if (command instanceof PutBucketVersioningCommand) {
+          return (await this.handlePutBucketVersioning(command, metadata)) as T
+        }
+        if (command instanceof GetBucketVersioningCommand) {
+          return (await this.handleGetBucketVersioning(command, metadata)) as T
+        }
+        if (command instanceof ListObjectVersionsCommand) {
+          return (await this.handleListObjectVersions(command, metadata)) as T
         }
 
         throw new Error(`Unknown command: ${(command as { constructor: { name: string } }).constructor.name}`)
@@ -281,7 +343,9 @@ export class S3Client {
         error instanceof NoSuchUpload ||
         error instanceof InternalError ||
         error instanceof ServiceUnavailable ||
-        error instanceof SlowDown) {
+        error instanceof SlowDown ||
+        error instanceof NoSuchCORSConfiguration ||
+        error instanceof NoSuchLifecycleConfiguration) {
       return error as {
         name: string
         message: string
@@ -358,6 +422,9 @@ export class S3Client {
   ): Promise<CreateBucketCommandOutput> {
     const { Bucket, CreateBucketConfiguration } = command.input
 
+    // Validate bucket name
+    validateBucketName(Bucket)
+
     // Check if bucket already exists
     const exists = await this.backend.bucketExists(Bucket)
     if (exists) {
@@ -421,19 +488,29 @@ export class S3Client {
   }
 
   private async handleListBuckets(
+    command: ListBucketsCommand,
     metadata: ResponseMetadata
-  ): Promise<ListBucketsCommandOutput> {
-    const buckets = await this.backend.listBuckets()
+  ): Promise<ExtendedListBucketsCommandOutput> {
+    const { MaxBuckets, ContinuationToken, Prefix, BucketRegion } = command.input || {}
+
+    const result = await this.backend.listBuckets({
+      maxBuckets: MaxBuckets,
+      continuationToken: ContinuationToken,
+      prefix: Prefix,
+      bucketRegion: BucketRegion,
+    })
 
     return {
-      Buckets: buckets.map((b) => ({
+      Buckets: result.buckets.map((b) => ({
         Name: b.name,
         CreationDate: b.creationDate,
+        BucketRegion: b.region,
       })),
       Owner: {
         ID: 'default-owner-id',
         DisplayName: 'Default Owner',
       },
+      ContinuationToken: result.continuationToken,
       $metadata: metadata,
     }
   }
@@ -885,6 +962,234 @@ export class S3Client {
         Initiated: u.initiated,
       })),
       CommonPrefixes: result.commonPrefixes.map((p) => ({ Prefix: p })),
+      $metadata: metadata,
+    }
+  }
+
+  // ===========================================================================
+  // CORS Handlers
+  // ===========================================================================
+
+  private async handlePutBucketCors(
+    command: PutBucketCorsCommand,
+    metadata: ResponseMetadata
+  ): Promise<PutBucketCorsCommandOutput> {
+    const { Bucket, CORSConfiguration } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    await this.backend.putBucketCors(Bucket, CORSConfiguration)
+
+    return {
+      $metadata: metadata,
+    }
+  }
+
+  private async handleGetBucketCors(
+    command: GetBucketCorsCommand,
+    metadata: ResponseMetadata
+  ): Promise<GetBucketCorsCommandOutput> {
+    const { Bucket } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    const config = await this.backend.getBucketCors(Bucket)
+
+    if (!config) {
+      throw new NoSuchCORSConfiguration()
+    }
+
+    return {
+      CORSRules: config.CORSRules,
+      $metadata: metadata,
+    }
+  }
+
+  private async handleDeleteBucketCors(
+    command: DeleteBucketCorsCommand,
+    metadata: ResponseMetadata
+  ): Promise<DeleteBucketCorsCommandOutput> {
+    const { Bucket } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    await this.backend.deleteBucketCors(Bucket)
+
+    return {
+      $metadata: { ...metadata, httpStatusCode: 204 },
+    }
+  }
+
+  // ===========================================================================
+  // Lifecycle Handlers
+  // ===========================================================================
+
+  private async handlePutBucketLifecycle(
+    command: PutBucketLifecycleConfigurationCommand,
+    metadata: ResponseMetadata
+  ): Promise<PutBucketLifecycleConfigurationCommandOutput> {
+    const { Bucket, LifecycleConfiguration } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    await this.backend.putBucketLifecycle(Bucket, LifecycleConfiguration)
+
+    return {
+      $metadata: metadata,
+    }
+  }
+
+  private async handleGetBucketLifecycle(
+    command: GetBucketLifecycleConfigurationCommand,
+    metadata: ResponseMetadata
+  ): Promise<GetBucketLifecycleConfigurationCommandOutput> {
+    const { Bucket } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    const config = await this.backend.getBucketLifecycle(Bucket)
+
+    if (!config) {
+      throw new NoSuchLifecycleConfiguration()
+    }
+
+    return {
+      Rules: config.Rules,
+      $metadata: metadata,
+    }
+  }
+
+  private async handleDeleteBucketLifecycle(
+    command: DeleteBucketLifecycleCommand,
+    metadata: ResponseMetadata
+  ): Promise<DeleteBucketLifecycleCommandOutput> {
+    const { Bucket } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    await this.backend.deleteBucketLifecycle(Bucket)
+
+    return {
+      $metadata: { ...metadata, httpStatusCode: 204 },
+    }
+  }
+
+  // ===========================================================================
+  // Versioning Handlers
+  // ===========================================================================
+
+  private async handlePutBucketVersioning(
+    command: PutBucketVersioningCommand,
+    metadata: ResponseMetadata
+  ): Promise<PutBucketVersioningCommandOutput> {
+    const { Bucket, VersioningConfiguration } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    await this.backend.putBucketVersioning(
+      Bucket,
+      VersioningConfiguration.Status,
+      VersioningConfiguration.MFADelete
+    )
+
+    return {
+      $metadata: metadata,
+    }
+  }
+
+  private async handleGetBucketVersioning(
+    command: GetBucketVersioningCommand,
+    metadata: ResponseMetadata
+  ): Promise<GetBucketVersioningCommandOutput> {
+    const { Bucket } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    const result = await this.backend.getBucketVersioning(Bucket)
+
+    return {
+      Status: result.status,
+      MFADelete: result.mfaDelete,
+      $metadata: metadata,
+    }
+  }
+
+  private async handleListObjectVersions(
+    command: ListObjectVersionsCommand,
+    metadata: ResponseMetadata
+  ): Promise<ListObjectVersionsCommandOutput> {
+    const { Bucket, Prefix, Delimiter, MaxKeys, KeyMarker, VersionIdMarker, EncodingType } = command.input
+
+    // Check if bucket exists
+    const exists = await this.backend.bucketExists(Bucket)
+    if (!exists) {
+      throw new NoSuchBucket()
+    }
+
+    // Note: Full versioning requires version-aware object storage
+    // This implementation provides basic structure for future versioning support
+    // Currently returns objects as single "versions" without version ID
+
+    const result = await this.backend.listObjects(Bucket, {
+      prefix: Prefix,
+      delimiter: Delimiter,
+      maxKeys: MaxKeys ?? 1000,
+      startAfter: KeyMarker,
+    })
+
+    return {
+      Name: Bucket,
+      Prefix,
+      Delimiter,
+      MaxKeys: MaxKeys ?? 1000,
+      IsTruncated: result.isTruncated,
+      KeyMarker,
+      VersionIdMarker,
+      NextKeyMarker: result.nextContinuationToken,
+      Versions: result.objects.map((obj) => ({
+        Key: obj.key,
+        VersionId: 'null', // Default version ID when versioning is not enabled
+        IsLatest: true,
+        LastModified: obj.lastModified,
+        ETag: obj.etag,
+        Size: obj.size,
+        StorageClass: obj.storageClass,
+      })),
+      DeleteMarkers: [],
+      CommonPrefixes: result.commonPrefixes.map((p) => ({ Prefix: p })),
+      EncodingType,
       $metadata: metadata,
     }
   }
