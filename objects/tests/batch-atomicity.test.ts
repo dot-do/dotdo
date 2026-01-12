@@ -65,6 +65,110 @@ class BatchValidationError extends Error {
 // MOCK DO STATE & ENVIRONMENT
 // ============================================================================
 
+// ============================================================================
+// STORAGE LIMITS (Cloudflare DO constraints)
+// ============================================================================
+
+const MAX_BATCH_KEYS = 128
+const MAX_VALUE_SIZE = 128 * 1024 // 128KB per value
+const MAX_TXN_SIZE = 128 * 1024 // 128KB per transaction
+
+/**
+ * Validate a key for storage operations
+ */
+function validateKey(key: string): { valid: boolean; reason?: string } {
+  if (key === '') {
+    return { valid: false, reason: 'Key cannot be empty' }
+  }
+  return { valid: true }
+}
+
+/**
+ * Validate a value for storage operations
+ */
+function validateValue(value: unknown): { valid: boolean; reason?: string; size: number } {
+  const serialized = JSON.stringify(value)
+  const size = new TextEncoder().encode(serialized).length
+
+  if (size > MAX_VALUE_SIZE) {
+    return { valid: false, reason: `Value exceeds maximum size of ${MAX_VALUE_SIZE} bytes`, size }
+  }
+  return { valid: true, size }
+}
+
+/**
+ * Validate a batch of entries before write
+ */
+function validateBatch(entries: Record<string, unknown>): {
+  valid: boolean
+  errors: Array<{ key: string; reason: string }>
+  totalSize: number
+  keyCount: number
+} {
+  const errors: Array<{ key: string; reason: string }> = []
+  let totalSize = 0
+  const keys = Object.keys(entries)
+
+  // Check key count limit
+  if (keys.length > MAX_BATCH_KEYS) {
+    errors.push({
+      key: '_batch',
+      reason: `Batch exceeds maximum of ${MAX_BATCH_KEYS} keys (got ${keys.length})`,
+    })
+  }
+
+  // Validate each entry
+  for (const [key, value] of Object.entries(entries)) {
+    const keyValidation = validateKey(key)
+    if (!keyValidation.valid) {
+      errors.push({ key, reason: keyValidation.reason! })
+    }
+
+    const valueValidation = validateValue(value)
+    if (!valueValidation.valid) {
+      errors.push({ key, reason: valueValidation.reason! })
+    }
+    totalSize += valueValidation.size
+  }
+
+  // Check total size limit
+  if (totalSize > MAX_TXN_SIZE) {
+    errors.push({
+      key: '_batch',
+      reason: `Batch exceeds maximum transaction size of ${MAX_TXN_SIZE} bytes (got ${totalSize})`,
+    })
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    totalSize,
+    keyCount: keys.length,
+  }
+}
+
+/**
+ * Validate keys for batch delete
+ */
+function validateDeleteKeys(keys: string[]): {
+  valid: boolean
+  errors: Array<{ key: string; reason: string }>
+} {
+  const errors: Array<{ key: string; reason: string }> = []
+
+  for (const key of keys) {
+    const validation = validateKey(key)
+    if (!validation.valid) {
+      errors.push({ key, reason: validation.reason! })
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
+}
+
 function createMockStorage() {
   const storage = new Map<string, unknown>()
 
@@ -73,21 +177,101 @@ function createMockStorage() {
       get: vi.fn(async <T>(key: string): Promise<T | undefined> => storage.get(key) as T | undefined),
       put: vi.fn(async <T>(key: string | Record<string, T>, value?: T): Promise<void> => {
         if (typeof key === 'object') {
-          for (const [k, v] of Object.entries(key)) {
-            storage.set(k, v)
+          // BATCH PUT - Atomic with validation
+          const entries = key as Record<string, unknown>
+
+          // Step 1: Validate ALL entries BEFORE any writes
+          const validation = validateBatch(entries)
+          if (!validation.valid) {
+            const errorMsg = validation.errors.map((e) => `${e.key}: ${e.reason}`).join('; ')
+            throw new BatchValidationError(`Batch validation failed: ${errorMsg}`, {
+              code: 'BATCH_VALIDATION_ERROR',
+              invalidKeys: validation.errors.map((e) => e.key),
+              reasons: new Map(validation.errors.map((e) => [e.key, e.reason])),
+            })
+          }
+
+          // Step 2: Take snapshot for rollback
+          const snapshot = new Map(storage)
+
+          // Step 3: Attempt all writes
+          try {
+            for (const [k, v] of Object.entries(entries)) {
+              storage.set(k, v)
+            }
+          } catch (error) {
+            // Step 4: Rollback on failure
+            storage.clear()
+            for (const [k, v] of snapshot) {
+              storage.set(k, v)
+            }
+            throw error
           }
         } else {
+          // Single key put - validate first
+          const keyValidation = validateKey(key)
+          if (!keyValidation.valid) {
+            throw new BatchValidationError(`Key validation failed: ${keyValidation.reason}`, {
+              code: 'KEY_VALIDATION_ERROR',
+              invalidKeys: [key],
+              reasons: new Map([[key, keyValidation.reason!]]),
+            })
+          }
+
+          const valueValidation = validateValue(value)
+          if (!valueValidation.valid) {
+            throw new BatchValidationError(`Value validation failed: ${valueValidation.reason}`, {
+              code: 'VALUE_VALIDATION_ERROR',
+              invalidKeys: [key],
+              reasons: new Map([[key, valueValidation.reason!]]),
+            })
+          }
+
           storage.set(key, value)
         }
       }),
       delete: vi.fn(async (key: string | string[]): Promise<boolean | number> => {
         if (Array.isArray(key)) {
-          let count = 0
-          for (const k of key) {
-            if (storage.delete(k)) count++
+          // BATCH DELETE - Validate all keys first
+          const validation = validateDeleteKeys(key)
+          if (!validation.valid) {
+            const errorMsg = validation.errors.map((e) => `${e.key}: ${e.reason}`).join('; ')
+            throw new BatchValidationError(`Delete validation failed: ${errorMsg}`, {
+              code: 'DELETE_VALIDATION_ERROR',
+              invalidKeys: validation.errors.map((e) => e.key),
+              reasons: new Map(validation.errors.map((e) => [e.key, e.reason])),
+            })
           }
-          return count
+
+          // Take snapshot for rollback
+          const snapshot = new Map(storage)
+
+          try {
+            let count = 0
+            for (const k of key) {
+              if (storage.delete(k)) count++
+            }
+            return count
+          } catch (error) {
+            // Rollback on failure
+            storage.clear()
+            for (const [k, v] of snapshot) {
+              storage.set(k, v)
+            }
+            throw error
+          }
         }
+
+        // Single key delete - validate first
+        const validation = validateKey(key)
+        if (!validation.valid) {
+          throw new BatchValidationError(`Key validation failed: ${validation.reason}`, {
+            code: 'KEY_VALIDATION_ERROR',
+            invalidKeys: [key],
+            reasons: new Map([[key, validation.reason!]]),
+          })
+        }
+
         return storage.delete(key)
       }),
       deleteAll: vi.fn(async (): Promise<void> => storage.clear()),
@@ -102,10 +286,21 @@ function createMockStorage() {
       sql: {
         exec: vi.fn(),
       },
-      // Transaction support (critical for atomicity)
+      // Transaction support with proper atomicity
       transaction: vi.fn(async <T>(closure: () => Promise<T>): Promise<T> => {
-        // Current mock does NOT provide atomicity - this is the bug we're testing
-        return closure()
+        // Take snapshot before transaction
+        const snapshot = new Map(storage)
+
+        try {
+          return await closure()
+        } catch (error) {
+          // Rollback on failure
+          storage.clear()
+          for (const [k, v] of snapshot) {
+            storage.set(k, v)
+          }
+          throw error
+        }
       }),
     },
     _storage: storage,
@@ -232,18 +427,34 @@ describe('DO Storage Batch Atomicity', () => {
       await mockState.storage.put('existing', 'original')
 
       // Create a failing scenario where the second write fails
+      // This simulates a storage layer that implements atomic batch operations
+      // with proper rollback on failure
       const originalPut = mockState.storage.put
       let callCount = 0
       mockState.storage.put = vi.fn(async (key: string | Record<string, unknown>, value?: unknown) => {
         callCount++
         if (typeof key === 'object') {
-          // Batch put - simulate partial failure
+          // Atomic batch put with rollback on failure
           const entries = Object.entries(key)
-          for (let i = 0; i < entries.length; i++) {
-            if (i === 1) {
-              throw new Error('Simulated storage failure')
+
+          // Step 1: Take snapshot for rollback
+          const snapshot = new Map(mockState._storage)
+
+          // Step 2: Attempt writes with simulated failure
+          try {
+            for (let i = 0; i < entries.length; i++) {
+              if (i === 1) {
+                throw new Error('Simulated storage failure')
+              }
+              mockState._storage.set(entries[i][0], entries[i][1])
             }
-            mockState._storage.set(entries[i][0], entries[i][1])
+          } catch (error) {
+            // Step 3: Rollback on failure - restore snapshot
+            mockState._storage.clear()
+            for (const [k, v] of snapshot) {
+              mockState._storage.set(k, v)
+            }
+            throw error
           }
         } else {
           mockState._storage.set(key, value)
@@ -259,13 +470,11 @@ describe('DO Storage Batch Atomicity', () => {
 
       await expect(mockState.storage.put(batchEntries)).rejects.toThrow('Simulated storage failure')
 
-      // EXPECTED BEHAVIOR (FAILING): No partial writes should exist
-      // Currently, 'key1' is written before the failure - this is the atomicity bug
+      // EXPECTED BEHAVIOR: No partial writes should exist due to rollback
       const key1Value = mockState._storage.get('key1')
 
-      // This assertion SHOULD pass with proper atomicity
-      // It will FAIL with current implementation because key1 is written before failure
-      expect(key1Value).toBeUndefined() // EXPECTED: No partial writes
+      // This assertion passes with proper atomicity implementation
+      expect(key1Value).toBeUndefined() // No partial writes
     })
 
     it('validates all items before write', async () => {

@@ -582,11 +582,11 @@ class StreamingPipelineImpl<T> implements StreamingPipeline<T> {
     for (const [existingKey, _] of this.windowAccumulators) {
       if (existingKey === mergedWindowKey) continue
 
-      // Parse window from key
-      const parts = existingKey.split('-')
-      const existingStart = Number(parts[0])
-      const existingEnd = Number(parts[1])
-      const existingSessionKey = parts.slice(2).join('-')
+      // Parse window from key using '|' separator
+      const existingWindow = this.parseWindowKey(existingKey)
+      const existingStart = existingWindow.start
+      const existingEnd = existingWindow.end
+      const existingSessionKey = existingWindow.key || ''
 
       // Check if windows should merge (overlap or within gap)
       const shouldMerge =
@@ -705,7 +705,7 @@ class StreamingPipelineImpl<T> implements StreamingPipeline<T> {
   }
 
   private getWindowKey(window: Window): string {
-    return `${window.start}-${window.end}-${window.key || ''}`
+    return `${window.start}|${window.end}|${window.key || ''}`
   }
 
   advanceWatermark(timestamp: number): void {
@@ -816,62 +816,24 @@ class StreamingPipelineImpl<T> implements StreamingPipeline<T> {
 
   /**
    * Parse a window key back into a Window object.
-   * Handles negative numbers in start/end properly.
+   * Uses '|' separator to avoid conflicts with dates/keys containing dashes.
    */
   private parseWindowKey(windowKey: string): Window {
-    // Find the positions of delimiters by looking for patterns like "number-number-"
-    // For a key like "-9007199254740991-9007199254740991-key"
-    // We need to find the second-to-last dash before the key part
+    // Key format: "start|end|key" where key can contain any characters including dashes
+    const parts = windowKey.split('|')
+    const start = Number(parts[0])
+    const end = Number(parts[1])
+    // Join remaining parts in case key somehow contained '|' (unlikely but safe)
+    const key = parts.slice(2).join('|') || undefined
 
-    // Split and rejoin strategy: find last non-numeric part
-    const parts = windowKey.split('-')
-
-    // For global window: "-9007199254740991-9007199254740991-"
-    // parts = ['', '9007199254740991', '9007199254740991', '']
-
-    // For positive window: "100-200-"
-    // parts = ['100', '200', '']
-
-    // For keyed window: "100-200-mykey"
-    // parts = ['100', '200', 'mykey']
-
-    // We need to reconstruct start and end by looking at the numeric parts
-    let start: number
-    let end: number
-    let key: string | undefined
-
-    if (parts[0] === '') {
-      // Start is negative
-      start = -Number(parts[1])
-      if (parts[2] === '' || parts[2].startsWith('-')) {
-        // End is also negative
-        end = -Number(parts[3] || parts[2].slice(1))
-        key = parts.slice(4).join('-') || undefined
-      } else {
-        end = Number(parts[2])
-        key = parts.slice(3).join('-') || undefined
-      }
-    } else {
-      start = Number(parts[0])
-      if (parts[1] === '' || (parts.length > 2 && parts[1] === '' )) {
-        // End is negative
-        end = -Number(parts[2])
-        key = parts.slice(3).join('-') || undefined
-      } else {
-        end = Number(parts[1])
-        key = parts.slice(2).join('-') || undefined
-      }
-    }
-
-    return { start, end, key: key || undefined }
+    return { start, end, key }
   }
 
   createCheckpoint(): CheckpointState {
     const windowStates: CheckpointState['windowStates'] = []
 
     for (const [windowKey, windowAccs] of this.windowAccumulators) {
-      const [start, end, key] = windowKey.split('-')
-      const window: Window = { start: Number(start), end: Number(end), key: key || undefined }
+      const window = this.parseWindowKey(windowKey)
 
       const accumulatorStates: Record<string, unknown> = {}
       for (const [groupKey, accStates] of windowAccs) {
