@@ -1,0 +1,687 @@
+---
+title: "@dotdo/ably"
+description: Drop-in replacement for Ably Realtime SDK with optional outbound mode for gradual migration.
+---
+
+# @dotdo/ably
+
+Drop-in replacement for the Ably SDK. Provides the same API with support for both self-hosted (ably.do) and outbound (Ably Cloud) modes.
+
+```typescript
+import Ably from '@dotdo/ably'
+
+// Works exactly like the official SDK
+const ably = new Ably.Realtime('your-api-key')
+const channel = ably.channels.get('my-channel')
+
+channel.subscribe('greeting', (message) => {
+  console.log('Received:', message.data)
+})
+
+channel.publish('greeting', { text: 'Hello, World!' })
+```
+
+<Callout type="info">
+Looking for a fully managed edge deployment? See [ably.do](/docs/integrations/ably/service) for production workloads with unlimited connections.
+</Callout>
+
+## Why @dotdo/ably?
+
+| Ably SDK | @dotdo/ably |
+|----------|-------------|
+| Only connects to Ably Cloud | Connect to Ably Cloud OR self-hosted |
+| Locked to Ably pricing | Choose your backend |
+| No migration path | Gradual migration support |
+
+This package is ideal for:
+- **Testing** - Validate your code works with the Ably API
+- **Gradual migration** - Move from Ably Cloud to self-hosted incrementally
+- **Hybrid deployments** - Some channels on Ably, others on dotdo
+
+## Installation
+
+```bash
+npm install @dotdo/ably
+```
+
+## Modes of Operation
+
+### Inbound Mode (Default)
+
+Routes to your DO infrastructure (ably.do):
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime({
+  key: 'your-dotdo-key',
+  // Automatically routes to your DO infrastructure
+})
+
+const channel = ably.channels.get('notifications')
+channel.subscribe((message) => {
+  console.log('Received:', message.data)
+})
+```
+
+### Outbound Mode
+
+Routes to Ably Cloud infrastructure:
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime({
+  key: 'your-ably-api-key',
+  outbound: true, // Route to Ably's infrastructure
+})
+
+// Everything works the same
+const channel = ably.channels.get('my-channel')
+await channel.publish('event', { data: 'value' })
+```
+
+Useful for:
+- Gradual migration from Ably to ably.do
+- Using Ably features not yet supported in ably.do
+- Hybrid deployments
+
+### Direct DO Integration
+
+For maximum performance, connect directly to Durable Objects:
+
+```typescript
+const ably = new Ably.Realtime({
+  key: 'my-key',
+  doNamespace: env.REALTIME_DO, // DO binding
+})
+
+// Events delivered directly via RPC, no HTTP round-trip
+const channel = ably.channels.get('my-channel')
+await channel.publish('event', data)
+```
+
+## Quick Start
+
+### Realtime Client
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime('your-api-key')
+
+// Subscribe to a channel
+const channel = ably.channels.get('my-channel')
+
+// Subscribe to messages
+channel.subscribe('greeting', (message) => {
+  console.log('Received:', message.data)
+})
+
+// Publish a message
+channel.publish('greeting', { text: 'Hello, World!' })
+
+// Connection state
+ably.connection.on('connected', () => {
+  console.log('Connected! Connection ID:', ably.connection.id)
+})
+
+ably.connection.on((stateChange) => {
+  console.log(`Connection: ${stateChange.previous} -> ${stateChange.current}`)
+})
+```
+
+### REST Client
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Rest('your-api-key')
+
+// Publish to a channel
+const channel = ably.channels.get('my-channel')
+await channel.publish('greeting', { text: 'Hello from REST!' })
+
+// Get message history
+const history = await channel.history()
+history.items.forEach((message) => {
+  console.log('Message:', message.data)
+})
+
+// Get presence members
+const presence = await channel.presence.get()
+presence.forEach((member) => {
+  console.log('Member:', member.clientId)
+})
+```
+
+## Features
+
+### Implemented
+
+| Feature | Status |
+|---------|--------|
+| Realtime channels | Supported |
+| Presence | Supported |
+| Message history | Supported |
+| Connection state management | Supported |
+| Channel attach/detach | Supported |
+| Publish/subscribe | Supported |
+| REST API | Supported |
+| Token authentication | Supported |
+| Channel rewind | Supported |
+| Message ordering | Supported |
+
+### Planned
+
+| Feature | Status |
+|---------|--------|
+| Push notifications | Planned |
+| Webhooks | Planned |
+
+## Channel Operations
+
+### Publishing Messages
+
+```typescript
+const channel = ably.channels.get('updates')
+
+// Publish single message
+channel.publish('event-name', { key: 'value' })
+
+// Publish with callback
+channel.publish('event-name', data, (err) => {
+  if (err) {
+    console.error('Publish failed:', err)
+  } else {
+    console.log('Published successfully')
+  }
+})
+
+// Publish multiple messages
+channel.publish([
+  { name: 'event-1', data: { a: 1 } },
+  { name: 'event-2', data: { b: 2 } },
+])
+
+// Publish without event name
+channel.publish(null, 'plain message')
+```
+
+### Subscribing to Messages
+
+```typescript
+const channel = ably.channels.get('news')
+
+// Subscribe to specific event
+channel.subscribe('breaking', (message) => {
+  console.log('Breaking news:', message.data)
+  console.log('Message ID:', message.id)
+  console.log('Timestamp:', message.timestamp)
+})
+
+// Subscribe to all events
+channel.subscribe((message) => {
+  console.log(`Event: ${message.name}`, message.data)
+})
+
+// Unsubscribe from specific event
+channel.unsubscribe('breaking', handler)
+
+// Unsubscribe from all
+channel.unsubscribe()
+```
+
+### Channel State
+
+```typescript
+const channel = ably.channels.get('my-channel')
+
+// Attach explicitly (usually automatic)
+await channel.attach()
+
+// Check channel state
+console.log('State:', channel.state) // 'attached', 'detached', etc.
+
+// Listen to state changes
+channel.on('attached', () => {
+  console.log('Channel attached')
+})
+
+channel.on('detached', () => {
+  console.log('Channel detached')
+})
+
+channel.on((stateChange) => {
+  console.log(`Channel: ${stateChange.previous} -> ${stateChange.current}`)
+})
+
+// Detach from channel
+await channel.detach()
+```
+
+## Presence
+
+Track who's online in a channel.
+
+### Entering Presence
+
+```typescript
+const channel = ably.channels.get('chat-room')
+
+// Enter presence with client data
+await channel.presence.enter({ status: 'online', name: 'Alice' })
+
+// Update presence data
+await channel.presence.update({ status: 'away', name: 'Alice' })
+
+// Leave presence
+await channel.presence.leave()
+
+// Enter with callback
+channel.presence.enter({ status: 'online' }, (err) => {
+  if (err) {
+    console.error('Enter failed:', err)
+  }
+})
+```
+
+### Subscribing to Presence
+
+```typescript
+const channel = ably.channels.get('chat-room')
+
+// Subscribe to all presence events
+channel.presence.subscribe((member) => {
+  console.log(`${member.action}: ${member.clientId}`)
+  console.log('Data:', member.data)
+})
+
+// Subscribe to specific actions
+channel.presence.subscribe('enter', (member) => {
+  console.log(`${member.clientId} entered`)
+})
+
+channel.presence.subscribe('leave', (member) => {
+  console.log(`${member.clientId} left`)
+})
+
+channel.presence.subscribe('update', (member) => {
+  console.log(`${member.clientId} updated:`, member.data)
+})
+
+// Get current presence members
+const members = await channel.presence.get()
+members.forEach((member) => {
+  console.log(`${member.clientId}: ${member.data.status}`)
+})
+
+// Unsubscribe
+channel.presence.unsubscribe()
+```
+
+### Presence Actions
+
+| Action | Description |
+|--------|-------------|
+| `enter` | Client entered the channel |
+| `leave` | Client left the channel |
+| `update` | Client updated their data |
+| `present` | Initial sync of existing member |
+
+## Message History
+
+Retrieve past messages from a channel.
+
+```typescript
+const channel = ably.channels.get('events')
+
+// Get recent history
+const history = await channel.history()
+history.items.forEach((message) => {
+  console.log(`[${message.timestamp}] ${message.name}: ${message.data}`)
+})
+
+// Get history with options
+const filtered = await channel.history({
+  limit: 100,
+  direction: 'backwards',
+  start: Date.now() - 3600000, // Last hour
+  end: Date.now(),
+})
+
+// Paginate through history
+let page = await channel.history({ limit: 10 })
+while (page) {
+  page.items.forEach((message) => {
+    console.log(message.data)
+  })
+
+  if (page.hasNext()) {
+    page = await page.next()
+  } else {
+    break
+  }
+}
+```
+
+### Channel Rewind
+
+Subscribe and receive historical messages first:
+
+```typescript
+const channel = ably.channels.get('notifications', {
+  params: {
+    rewind: '10', // Receive last 10 messages
+  },
+})
+
+channel.subscribe((message) => {
+  // First 10 messages are historical, then live
+  console.log(message.data)
+})
+```
+
+## Connection Management
+
+```typescript
+const ably = new Ably.Realtime({
+  key: 'your-api-key',
+  autoConnect: false, // Don't auto-connect
+})
+
+// Manual connect
+ably.connection.connect()
+
+// Disconnect
+ably.connection.close()
+
+// Check state
+if (ably.connection.state === 'connected') {
+  // Safe to publish
+}
+
+// Connection state events
+ably.connection.on('connecting', () => {
+  console.log('Connecting...')
+})
+
+ably.connection.on('connected', () => {
+  console.log('Connected!')
+  console.log('Connection ID:', ably.connection.id)
+  console.log('Recovery key:', ably.connection.recoveryKey)
+})
+
+ably.connection.on('disconnected', () => {
+  console.log('Disconnected')
+})
+
+ably.connection.on('suspended', () => {
+  console.log('Connection suspended')
+})
+
+ably.connection.on('failed', () => {
+  console.log('Connection failed')
+})
+
+ably.connection.on('closed', () => {
+  console.log('Connection closed')
+})
+```
+
+### Connection States
+
+| State | Description |
+|-------|-------------|
+| `initialized` | Client created, not yet connecting |
+| `connecting` | Attempting to connect |
+| `connected` | Connected and ready |
+| `disconnected` | Temporarily disconnected |
+| `suspended` | Long-term disconnection |
+| `closing` | Connection closing |
+| `closed` | Connection closed |
+| `failed` | Connection failed permanently |
+
+## Authentication
+
+### API Key
+
+```typescript
+// Simple API key (development)
+const ably = new Ably.Realtime('your-api-key')
+
+// Explicit key option
+const ably = new Ably.Realtime({
+  key: 'your-api-key',
+})
+```
+
+### Token Authentication
+
+```typescript
+// Token from auth endpoint
+const ably = new Ably.Realtime({
+  authUrl: '/api/ably/auth',
+  authMethod: 'POST',
+})
+
+// Custom auth callback
+const ably = new Ably.Realtime({
+  authCallback: async (tokenParams, callback) => {
+    try {
+      const response = await fetch('/api/ably/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tokenParams),
+      })
+      const tokenRequest = await response.json()
+      callback(null, tokenRequest)
+    } catch (err) {
+      callback(err, null)
+    }
+  },
+})
+```
+
+### Server-Side Token Generation
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Rest('your-api-key')
+
+// Generate token request
+app.post('/api/ably/auth', async (req, res) => {
+  const tokenParams = {
+    clientId: req.user.id,
+    capability: {
+      'chat:*': ['publish', 'subscribe', 'presence'],
+      'notifications:*': ['subscribe'],
+    },
+  }
+
+  const tokenRequest = await ably.auth.createTokenRequest(tokenParams)
+  res.json(tokenRequest)
+})
+
+// Generate token directly
+const token = await ably.auth.requestToken({
+  clientId: 'user-123',
+  ttl: 3600000, // 1 hour
+})
+```
+
+## TypeScript Types
+
+```typescript
+import type {
+  // Client types
+  Realtime,
+  Rest,
+  RealtimeOptions,
+  RestOptions,
+  Connection,
+  ConnectionState,
+  ConnectionStateChange,
+  RealtimeChannel,
+  RestChannel,
+
+  // Message types
+  Message,
+  PresenceMessage,
+  PresenceAction,
+
+  // Auth types
+  TokenParams,
+  TokenRequest,
+  TokenDetails,
+  AuthOptions,
+
+  // History types
+  PaginatedResult,
+  HistoryParams,
+
+  // Presence types
+  PresenceParams,
+  PresenceMember,
+
+  // Channel types
+  ChannelOptions,
+  ChannelState,
+  ChannelStateChange,
+} from '@dotdo/ably'
+```
+
+## Error Handling
+
+```typescript
+import { AblyError, ErrorInfo } from '@dotdo/ably'
+
+try {
+  await channel.publish('event', data)
+} catch (error) {
+  if (error instanceof AblyError) {
+    console.error('Ably error:', error.message)
+    console.error('Error code:', error.code)
+    console.error('Status code:', error.statusCode)
+  }
+}
+
+// Channel state errors
+channel.on('failed', (stateChange) => {
+  console.error('Channel failed:', stateChange.reason)
+})
+
+// Connection errors
+ably.connection.on('failed', (stateChange) => {
+  console.error('Connection failed:', stateChange.reason)
+})
+```
+
+## Migration from Ably
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall ably
+
+# Install
+npm install @dotdo/ably
+```
+
+### Import Change
+
+```typescript
+// Before
+import Ably from 'ably'
+
+// After
+import Ably from '@dotdo/ably'
+```
+
+### Code Changes
+
+No code changes required! Your existing Ably code works unchanged:
+
+```typescript
+// This exact code works with both Ably and @dotdo/ably
+const ably = new Ably.Realtime('your-api-key')
+const channel = ably.channels.get('my-channel')
+
+channel.subscribe('event', (msg) => {
+  console.log(msg.data)
+})
+
+await channel.publish('event', { hello: 'world' })
+```
+
+### Auth Endpoint
+
+Your existing auth endpoint works unchanged:
+
+```typescript
+// This exact code works with both Ably and @dotdo/ably
+app.post('/api/ably/auth', async (req, res) => {
+  const tokenRequest = await ably.auth.createTokenRequest({
+    clientId: req.user.id,
+  })
+  res.json(tokenRequest)
+})
+```
+
+## API Reference
+
+### Realtime Client
+
+| Method | Description |
+|--------|-------------|
+| `new Ably.Realtime(options)` | Create realtime client |
+| `ably.channels.get(name, options?)` | Get channel |
+| `ably.connection.connect()` | Connect to server |
+| `ably.connection.close()` | Close connection |
+| `ably.connection.on(event, callback)` | Listen to connection events |
+| `ably.connection.off(event?, callback?)` | Remove connection listener |
+| `ably.auth.authorize(tokenParams?, authOptions?)` | Authorize client |
+| `ably.auth.createTokenRequest(tokenParams?)` | Create token request |
+
+### REST Client
+
+| Method | Description |
+|--------|-------------|
+| `new Ably.Rest(options)` | Create REST client |
+| `ably.channels.get(name)` | Get channel |
+| `ably.auth.requestToken(tokenParams?)` | Request token |
+| `ably.auth.createTokenRequest(tokenParams?)` | Create token request |
+| `ably.stats(options?)` | Get usage stats |
+
+### Channel API
+
+| Method | Description |
+|--------|-------------|
+| `channel.attach()` | Attach to channel |
+| `channel.detach()` | Detach from channel |
+| `channel.publish(name, data, callback?)` | Publish message |
+| `channel.subscribe(event?, callback)` | Subscribe to messages |
+| `channel.unsubscribe(event?, callback?)` | Unsubscribe from messages |
+| `channel.history(options?)` | Get message history |
+| `channel.on(event, callback)` | Listen to channel state |
+| `channel.off(event?, callback?)` | Remove channel listener |
+
+### Presence API
+
+| Method | Description |
+|--------|-------------|
+| `channel.presence.enter(data?, callback?)` | Enter presence |
+| `channel.presence.update(data?, callback?)` | Update presence data |
+| `channel.presence.leave(data?, callback?)` | Leave presence |
+| `channel.presence.get(options?)` | Get current members |
+| `channel.presence.subscribe(action?, callback)` | Subscribe to presence |
+| `channel.presence.unsubscribe(action?, callback?)` | Unsubscribe from presence |
+| `channel.presence.history(options?)` | Get presence history |
+
+## Related
+
+- [ably.do](/docs/integrations/ably/service) - Managed Ably on the edge
+- [Pusher Integration](/docs/integrations/pusher) - Pusher compat layer
+- [Realtime SDKs](/docs/compat/realtime) - All realtime integrations

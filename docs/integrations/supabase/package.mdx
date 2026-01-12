@@ -1,9 +1,9 @@
 ---
-title: Supabase
-description: Drop-in replacement for the Supabase JS SDK with edge compatibility, local testing, and Durable Object persistence.
+title: "@dotdo/supabase"
+description: Drop-in replacement for the Supabase JS SDK with edge compatibility, local testing, and in-memory storage.
 ---
 
-# Supabase
+# @dotdo/supabase
 
 Drop-in replacement for `@supabase/supabase-js`. Your existing Supabase code works unchanged - just swap the import.
 
@@ -26,18 +26,27 @@ const { data, error } = await supabase
   .eq('active', true)
 ```
 
-## Why supabase.do?
+<Callout type="info">
+Looking for persistent storage? See [supabase.do](/docs/integrations/supabase/service) for a fully managed Supabase-compatible edge service.
+</Callout>
+
+## Why @dotdo/supabase?
 
 | Supabase SDK | @dotdo/supabase |
 |--------------|-----------------|
 | Node.js runtime required | Edge-compatible (Cloudflare Workers) |
-| External PostgreSQL required | Local DO SQLite or real Supabase |
+| External PostgreSQL required | In-memory, no external dependencies |
 | Network latency for all operations | Zero latency in local mode |
-| No built-in sharding | Automatic sharding with DO routing |
-| Single region | Multi-region with jurisdiction support |
-| Requires separate test project | Same code, local testing mode |
+| Requires separate test project | Same code, isolated testing |
+| Complex CI/CD setup | Works anywhere, instantly |
 
-**This is a proxy/compatibility layer.** It can either forward to real Supabase APIs (production) or run entirely locally using Durable Object SQLite for testing and development. The API surface matches Supabase's official SDK.
+**This is an in-memory implementation** with a Supabase-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and development where you need Supabase semantics without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/supabase
+```
 
 ## Features
 
@@ -99,28 +108,6 @@ const { data, error } = await supabase
 **Edge Functions**
 - `functions.invoke()` - Call edge functions
 - `functions.setAuth()` - Set auth token
-
-### Extended Configuration (DO-backed)
-
-When using with a Durable Object namespace binding, the following options are available for production routing:
-
-**Sharding** (configuration passed to DO routing layer)
-- `algorithm`: 'consistent' | 'range' | 'hash'
-- `count`: number of shards
-- `key`: field name for shard routing
-
-**Replication** (configuration passed to DO routing layer)
-- `readPreference`: 'primary' | 'secondary' | 'nearest'
-- `writeThrough`: boolean
-- `jurisdiction`: 'eu' | 'us' | 'fedramp'
-
-Note: In local/testing mode, these options are accepted but the in-memory implementation doesn't actively use them. They take effect when connected to a real DO namespace for production deployments.
-
-## Installation
-
-```bash
-npm install @dotdo/supabase
-```
 
 ## Quick Start
 
@@ -266,36 +253,9 @@ await presenceChannel.track({
 })
 ```
 
-## Inbound Mode - Using supabase.do Locally
+## Testing Patterns
 
-For testing and development, the client runs entirely in-memory backed by DO SQLite:
-
-```typescript
-import { createClient } from '@dotdo/supabase'
-
-// Create local instance (no real Supabase connection needed)
-const supabase = createClient('https://local.supabase.co', 'local-key')
-
-// Use exactly like real Supabase SDK
-const { data, error } = await supabase
-  .from('users')
-  .insert({ name: 'Test User', email: 'test@example.com' })
-  .select()
-  .single()
-
-// Auth works locally too
-await supabase.auth.signUp({
-  email: 'test@example.com',
-  password: 'password123',
-})
-
-// Storage backed by in-memory blobs
-await supabase.storage
-  .from('uploads')
-  .upload('test.txt', new Blob(['content']))
-```
-
-### Testing Patterns
+@dotdo/supabase is ideal for unit tests - no external Supabase project required:
 
 ```typescript
 import { createClient } from '@dotdo/supabase'
@@ -328,21 +288,31 @@ describe('User Service', () => {
 
     expect(found.email).toBe('test@example.com')
   })
+
+  it('should handle authentication', async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email: 'test@example.com',
+      password: 'password123',
+    })
+
+    expect(error).toBeNull()
+    expect(data.user?.email).toBe('test@example.com')
+  })
 })
 ```
 
 ### Local Mode Benefits
 
-- **Zero latency**: No network round-trips
-- **No API limits**: Unlimited requests
-- **Predictable**: No external dependencies
-- **Isolated**: Each client instance has separate storage
-- **Offline**: Works without internet
-- **Fast tests**: Run thousands of tests in seconds
+- **Zero latency** - No network round-trips
+- **No API limits** - Unlimited requests
+- **Predictable** - No external dependencies
+- **Isolated** - Each client instance has separate storage
+- **Offline** - Works without internet
+- **Fast tests** - Run thousands of tests in seconds
 
-## Usage in Cloudflare Workers
+## Edge Compatibility
 
-The SDK is edge-compatible and works in Cloudflare Workers without Node.js dependencies:
+Works in Cloudflare Workers without Node.js dependencies:
 
 ```typescript
 // worker.ts
@@ -370,47 +340,6 @@ export default {
   },
 }
 ```
-
-Note: The current implementation runs entirely in-memory. Future versions will support forwarding to real Supabase APIs when provided with valid credentials.
-
-### Extended DO Configuration
-
-When deploying to production with Durable Objects, you can configure sharding and replication:
-
-```typescript
-import { createClient } from '@dotdo/supabase'
-
-const supabase = createClient(
-  'https://project.supabase.co',
-  'anon-key',
-  {
-    // Standard Supabase options
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-    },
-
-    // Extended DO options (production only)
-    doNamespace: env.DO_NAMESPACE,
-
-    // Sharding configuration
-    shard: {
-      algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
-      count: 16,
-      key: 'tenant_id',
-    },
-
-    // Replication configuration
-    replica: {
-      readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
-      writeThrough: true,
-      jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
-    },
-  }
-)
-```
-
-Note: Sharding and replication options are passed to the DO routing layer. In local testing mode (without a DO namespace binding), the client works fully but these options have no effect.
 
 ## API Reference
 
@@ -566,37 +495,8 @@ import type {
   RealtimeChannel,
   RealtimePresenceState,
   RealtimePostgresChangesPayload,
-
-  // Extended DO config
-  ExtendedSupabaseConfig,
 } from '@dotdo/supabase'
 ```
-
-## Architecture
-
-The current implementation provides a complete in-memory Supabase SDK that's API-compatible with `@supabase/supabase-js`. This allows testing and development without requiring a real Supabase project.
-
-```
-+-------------------------------------------------------------+
-|                    Your Application                          |
-|                                                              |
-|  const supabase = createClient(url, key)                    |
-|  await supabase.from('users').select()                      |
-+-------------------------------------------------------------+
-                              |
-                              v
-+-------------------------------------------------------------+
-|                  @dotdo/supabase (In-Memory)                |
-+-------------------------------------------------------------+
-|  Database:   In-memory Map<table, Row[]>                    |
-|  Auth:       In-memory user/session storage                 |
-|  Storage:    In-memory Blob storage                         |
-|  Realtime:   In-memory event dispatch                       |
-|  Functions:  Mock invocation handler                        |
-+-------------------------------------------------------------+
-```
-
-Each `createClient()` call creates an isolated instance with its own storage, making it ideal for testing where you need clean state between tests.
 
 ## Migration from Supabase SDK
 
@@ -648,7 +548,6 @@ const channel = supabase
 
 ## Related
 
-- [PostgreSQL Integration](/docs/integrations/postgres) - Direct PostgreSQL compat layer
+- [supabase.do](/docs/integrations/supabase/service) - Managed Supabase on the edge
+- [Postgres Integration](/docs/integrations/postgres) - Direct PostgreSQL compat layer
 - [Pusher Integration](/docs/integrations/pusher) - Realtime alternatives
-- [S3 Integration](/docs/integrations/s3) - Storage alternatives
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

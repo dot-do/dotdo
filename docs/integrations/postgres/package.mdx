@@ -1,0 +1,361 @@
+---
+title: "@dotdo/postgres"
+description: Drop-in replacement for pg (node-postgres) backed by Durable Objects, compatible with Cloudflare Workers.
+---
+
+# @dotdo/postgres
+
+Drop-in replacement for `pg` (node-postgres) that works in Cloudflare Workers. Same API as the standard pg driver, backed by DO SQLite - your code works unchanged.
+
+```typescript
+import { Client, Pool } from '@dotdo/postgres'
+
+const client = new Client('postgres://localhost/mydb')
+await client.connect()
+const { rows } = await client.query('SELECT * FROM users WHERE id = $1', [1])
+await client.end()
+```
+
+<Callout type="info">
+Looking for full Postgres with pgvector? See [postgres.do](/docs/integrations/postgres/service) for EdgePostgres with vector search and AI workload support.
+</Callout>
+
+## Why @dotdo/postgres?
+
+| pg (Node.js) | @dotdo/postgres |
+|--------------|-----------------|
+| Requires Node.js | Works in Workers |
+| External Postgres server | Backed by DO SQLite |
+| Network latency | Edge-local |
+| Connection management | Stateless |
+| Complex test setup | Perfect for unit tests |
+
+**This is a pg-compatible layer** with the same API as node-postgres. Ideal for migrating existing pg code to Cloudflare Workers, running tests without a real Postgres server, and using pg-compatible ORMs on the edge.
+
+## Installation
+
+```bash
+npm install @dotdo/postgres
+```
+
+## Quick Start
+
+### Simple Client
+
+```typescript
+import { Client } from '@dotdo/postgres'
+
+const client = new Client({
+  host: 'localhost',
+  database: 'mydb',
+  user: 'postgres',
+  password: 'secret',
+})
+
+await client.connect()
+
+// Parameterized query
+const { rows } = await client.query(
+  'SELECT * FROM users WHERE id = $1',
+  [1]
+)
+
+// INSERT with RETURNING
+const { rows: newUser } = await client.query(
+  'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+  ['Alice', 'alice@example.com']
+)
+
+await client.end()
+```
+
+### Connection Pool
+
+```typescript
+import { Pool } from '@dotdo/postgres'
+
+const pool = new Pool({
+  connectionString: 'postgres://user:pass@localhost/mydb',
+  max: 20,
+  idleTimeoutMillis: 30000,
+})
+
+// Simple query (auto-checkout)
+const { rows } = await pool.query('SELECT * FROM users')
+
+// Manual checkout for transactions
+const client = await pool.connect()
+try {
+  await client.query('BEGIN')
+  await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [100, 1])
+  await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [100, 2])
+  await client.query('COMMIT')
+} catch (e) {
+  await client.query('ROLLBACK')
+  throw e
+} finally {
+  client.release()
+}
+
+await pool.end()
+```
+
+## Drop-in Replacement
+
+Your existing `pg` code works unchanged - just swap the import:
+
+```typescript
+// Before
+import { Client, Pool } from 'pg'
+
+// After
+import { Client, Pool } from '@dotdo/postgres'
+
+// Code stays exactly the same
+const client = new Client()
+await client.connect()
+const result = await client.query('SELECT $1::text as message', ['Hello'])
+console.log(result.rows[0].message) // Hello
+```
+
+## ORM Support
+
+### Drizzle ORM
+
+```typescript
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from '@dotdo/postgres'
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const db = drizzle(pool)
+
+// Use Drizzle as normal
+const users = await db.select().from(usersTable)
+```
+
+### Kysely
+
+```typescript
+import { Kysely, PostgresDialect } from 'kysely'
+import { Pool } from '@dotdo/postgres'
+
+const db = new Kysely({
+  dialect: new PostgresDialect({
+    pool: new Pool({ connectionString: process.env.DATABASE_URL }),
+  }),
+})
+
+// Use Kysely as normal
+const users = await db.selectFrom('users').selectAll().execute()
+```
+
+## Transactions
+
+```typescript
+import { Client } from '@dotdo/postgres'
+
+const client = new Client()
+await client.connect()
+
+// Standard transaction
+await client.query('BEGIN')
+try {
+  await client.query('INSERT INTO orders (user_id, total) VALUES ($1, $2)', [1, 99.99])
+  await client.query('UPDATE inventory SET count = count - 1 WHERE product_id = $1', [42])
+  await client.query('COMMIT')
+} catch (e) {
+  await client.query('ROLLBACK')
+  throw e
+}
+
+await client.end()
+```
+
+## Error Handling
+
+```typescript
+import { Client, DatabaseError, ConnectionError } from '@dotdo/postgres'
+
+const client = new Client()
+await client.connect()
+
+try {
+  await client.query('SELECT * FROM nonexistent_table')
+} catch (e) {
+  if (e instanceof DatabaseError) {
+    console.log('SQLSTATE:', e.code)      // '42P01' (undefined_table)
+    console.log('Severity:', e.severity)   // 'ERROR'
+    console.log('Message:', e.message)
+  }
+}
+
+// Common SQLSTATE codes
+// 23505 - unique_violation (duplicate key)
+// 42P01 - undefined_table (table not found)
+// 42P07 - duplicate_table (table already exists)
+// 42601 - syntax_error (SQL syntax error)
+// 23502 - not_null_violation
+```
+
+## Type Constants
+
+```typescript
+import { types } from '@dotdo/postgres'
+
+types.BOOL      // 16
+types.INT2      // 21
+types.INT4      // 23
+types.INT8      // 20
+types.FLOAT4    // 700
+types.FLOAT8    // 701
+types.TEXT      // 25
+types.VARCHAR   // 1043
+types.JSON      // 114
+types.JSONB     // 3802
+types.UUID      // 2950
+types.DATE      // 1082
+types.TIME      // 1083
+types.TIMESTAMP // 1114
+types.NUMERIC   // 1700
+```
+
+## Utilities
+
+```typescript
+// Escape strings for SQL
+client.escapeLiteral("it's a test")     // "'it''s a test'"
+client.escapeIdentifier('column"name')  // '"column""name"'
+
+// Native bindings (simulated)
+import { native } from '@dotdo/postgres'
+const { Client, Pool } = native()
+```
+
+## API Compatibility
+
+### Supported Features
+
+| Feature | pg | @dotdo/postgres |
+|---------|-----|-----------------|
+| Client API | Yes | Yes |
+| Pool API | Yes | Yes |
+| Parameterized queries | Yes | Yes |
+| Transactions | Yes | Yes |
+| Connection events | Yes | Yes |
+| Type parsing | Yes | Yes |
+| COPY commands | Yes | No |
+| Cursors | Yes | Partial |
+| Pub/Sub (LISTEN/NOTIFY) | Yes | No |
+| SSL/TLS | Yes | N/A (internal) |
+| Native bindings | Yes | Simulated |
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Client } from '@dotdo/postgres'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Client()
+    await client.connect()
+
+    const url = new URL(request.url)
+
+    if (request.method === 'GET' && url.pathname === '/users') {
+      const { rows } = await client.query('SELECT * FROM users')
+      return Response.json(rows)
+    }
+
+    await client.end()
+    return new Response('Not Found', { status: 404 })
+  },
+}
+```
+
+## Testing
+
+@dotdo/postgres is ideal for unit tests - no external Postgres required:
+
+```typescript
+import { Client } from '@dotdo/postgres'
+
+describe('UserRepository', () => {
+  let client: Client
+
+  beforeEach(async () => {
+    client = new Client()
+    await client.connect()
+    await client.query('CREATE TABLE IF NOT EXISTS users (id SERIAL, name TEXT)')
+  })
+
+  afterEach(async () => {
+    await client.query('DROP TABLE IF EXISTS users')
+    await client.end()
+  })
+
+  it('should create a user', async () => {
+    const { rows } = await client.query(
+      'INSERT INTO users (name) VALUES ($1) RETURNING *',
+      ['Alice']
+    )
+    expect(rows[0].name).toBe('Alice')
+  })
+})
+```
+
+## Migration from pg
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall pg @types/pg
+
+# Install
+npm install @dotdo/postgres
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Client, Pool } from 'pg'
+
+// After
+import { Client, Pool } from '@dotdo/postgres'
+
+// All your existing code works unchanged
+const client = new Client()
+await client.connect()
+const result = await client.query('SELECT $1::text as message', ['Hello'])
+console.log(result.rows[0].message)
+```
+
+### Configuration Compatibility
+
+Your existing connection configuration works unchanged:
+
+```typescript
+// Connection string (works with both)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+})
+
+// Object config (works with both)
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'postgres',
+  password: 'secret',
+})
+```
+
+## Related
+
+- [postgres.do](/docs/integrations/postgres/service) - Full Postgres with pgvector on the edge
+- [MongoDB Integration](/docs/integrations/mongo) - Document database support
+- [Databases Overview](/docs/compat/databases) - All database SDK implementations

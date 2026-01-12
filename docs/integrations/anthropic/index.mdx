@@ -1,0 +1,121 @@
+---
+title: Anthropic (Claude AI)
+description: Choose between @dotdo/anthropic (OSS package) and anthropic.do (managed edge service) for Claude AI integration.
+---
+
+# Anthropic Integration
+
+dotdo provides two ways to work with Anthropic's Claude AI:
+
+| | @dotdo/anthropic | anthropic.do |
+|---|------------------|--------------|
+| **Type** | OSS npm package | Managed edge service |
+| **API Key** | Your Anthropic API key | Managed credentials |
+| **Use case** | Testing, development, direct API access | Production workloads, edge deployment |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/anthropic` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/anthropic - Direct Anthropic API with edge compatibility
+import { Anthropic } from '@dotdo/anthropic'
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const message = await client.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+```typescript
+// anthropic.do - Managed edge service with built-in features
+import { Claude } from 'anthropic.do'
+
+const claude = new Claude('https://your-worker.workers.dev')
+const message = await claude.chat('Hello!')
+// Automatic caching, rate limiting, usage tracking
+```
+
+## When to Use Each
+
+### Use @dotdo/anthropic when:
+
+- **Unit testing** - Mock-friendly client for isolated tests
+- **Direct API access** - Need full control over Anthropic API calls
+- **Edge functions** - Drop-in replacement for `@anthropic-ai/sdk` in Workers
+- **Development** - Existing code using Anthropic SDK patterns
+
+<Callout type="info">
+@dotdo/anthropic is a drop-in replacement for the official Anthropic SDK. Same API, but edge-compatible with automatic retries and timeout handling.
+</Callout>
+
+### Use anthropic.do when:
+
+- **Production applications** - Managed credentials, automatic scaling
+- **Global edge deployment** - Responses cached at the edge
+- **Multi-tenant SaaS** - Per-tenant usage tracking and rate limiting
+- **AI agent orchestration** - Built-in conversation memory and tool management
+
+<Callout type="info">
+anthropic.do is Claude on the Edge - a fully managed service that handles API keys, caching, rate limiting, and usage tracking automatically.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/anthropic | anthropic.do |
+|---------|------------------|--------------|
+| Messages API | Supported | Supported |
+| Streaming | Supported | Supported |
+| Tool use | Supported | Supported |
+| Vision (images) | Supported | Supported |
+| All Claude models | Supported | Supported |
+| Automatic retries | Supported | Supported |
+| Response caching | Not supported | Supported |
+| Usage tracking | Not supported | Supported |
+| Rate limiting | Not supported | Supported |
+| Conversation memory | Not supported | Supported |
+| Multi-tenant isolation | Not supported | Supported |
+| Managed API keys | Not supported | Supported |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/anthropic/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/anthropic</h3>
+    <p className="text-sm text-muted-foreground">Edge-compatible Anthropic SDK for testing and development</p>
+  </a>
+  <a href="/docs/integrations/anthropic/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">anthropic.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Claude on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/anthropic` for development, then upgrade to `anthropic.do` for production:
+
+```typescript
+// Development (package) - direct API access
+import { Anthropic } from '@dotdo/anthropic'
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+const message = await client.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+
+// Production (service) - managed with caching
+import { Claude } from 'anthropic.do'
+const claude = new Claude('https://your-anthropic.workers.dev')
+
+const message = await claude.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+Both packages share the same Messages API interface, making migration seamless.

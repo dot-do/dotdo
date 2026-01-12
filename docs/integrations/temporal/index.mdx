@@ -179,7 +179,7 @@ export class OrderWorkflow extends Workflow {
                     v
 +----------------------------------------------------+
 |          Cloudflare Global Network                 |
-|              300+ cities, <50ms                    |
+|              300+ cities, \<50ms                    |
 +----------------------------------------------------+
 ```
 
@@ -189,8 +189,8 @@ Both approaches support durable execution patterns (retries, timeouts, long-runn
 
 | Metric | @dotdo/temporal | temporal.do | Native Temporal |
 |--------|-----------------|-------------|-----------------|
-| Workflow start | <5ms | <3ms | 50-200ms |
-| Activity dispatch | <3ms | <2ms | 20-100ms |
+| Workflow start | \<5ms | \<3ms | 50-200ms |
+| Activity dispatch | \<3ms | \<2ms | 20-100ms |
 | Sleep cost | DO time (or FREE with CF Workflows) | FREE | Cluster resources |
-| Global P99 | <50ms | <30ms | Region-dependent |
-| Cold start | <1ms (V8 isolates) | <1ms | 100ms-2s |
+| Global P99 | \<50ms | \<30ms | Region-dependent |
+| Cold start | \<1ms (V8 isolates) | \<1ms | 100ms-2s |

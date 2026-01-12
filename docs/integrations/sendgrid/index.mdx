@@ -1,0 +1,129 @@
+---
+title: SendGrid
+description: Choose between @dotdo/sendgrid (OSS package) and sendgrid.do (managed edge service) for transactional email.
+---
+
+# SendGrid Integration
+
+dotdo provides two ways to work with SendGrid-compatible email APIs:
+
+| | @dotdo/sendgrid | sendgrid.do |
+|---|-----------------|-------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | SendGrid API | Durable Object SQLite |
+| **Persistence** | Via SendGrid | Full local durability |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | SendGrid account | Zero (we manage it) |
+| **Install** | `npm install @dotdo/sendgrid` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/sendgrid - Drop-in replacement for @sendgrid/mail
+import sgMail from '@dotdo/sendgrid'
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+await sgMail.send({
+  to: 'recipient@example.com',
+  from: 'sender@example.com',
+  subject: 'Hello',
+  text: 'Hello World',
+})
+// Emails sent via SendGrid API
+```
+
+```typescript
+// sendgrid.do - Managed edge email service
+import { SendGridClient } from 'sendgrid.do'
+
+const client = new SendGridClient('https://your-worker.workers.dev')
+await client.mail.send({
+  to: 'recipient@example.com',
+  from: 'sender@example.com',
+  subject: 'Hello',
+  text: 'Hello World',
+})
+// Emails stored in DO, delivered with exactly-once guarantees
+```
+
+## When to Use Each
+
+### Use @dotdo/sendgrid when:
+
+- **Unit testing** - Mock SendGrid without external dependencies
+- **Prototyping** - Quick iteration with familiar SendGrid API
+- **Existing SendGrid account** - Drop-in replacement for `@sendgrid/mail`
+- **Development** - Local email capture without hitting SendGrid servers
+
+<Callout type="info">
+@dotdo/sendgrid is a complete SendGrid API replacement. Perfect for development and testing, with optional routing to the real SendGrid API in production.
+</Callout>
+
+### Use sendgrid.do when:
+
+- **Production applications** - Exactly-once delivery guarantees
+- **Global edge deployment** - Email processing close to users
+- **Audit requirements** - Built-in temporal store for email history
+- **Transactional batching** - Atomic email operations with outbox pattern
+
+<Callout type="info">
+sendgrid.do is email on the Edge - a fully managed service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/sendgrid | sendgrid.do |
+|---------|-----------------|-------------|
+| Single/Multiple Send | Supported | Supported |
+| Dynamic Templates | Supported | Supported |
+| Personalizations | Supported | Supported |
+| Attachments | Supported | Supported |
+| Template CRUD | Supported (via SendGrid) | Supported (local storage) |
+| Contact Management | Supported | Supported |
+| Lists Management | Supported | Supported |
+| Email Statistics | Supported | Supported |
+| Exactly-Once Delivery | Supported | Supported |
+| Idempotent Sending | Supported | Supported |
+| Email Log History | Supported | Supported (temporal queries) |
+| Transactional Batching | Supported | Supported (ACID) |
+| Webhook Handling | Planned | Supported |
+| Offline Capture | Supported (dev mode) | N/A (always persistent) |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/sendgrid/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/sendgrid</h3>
+    <p className="text-sm text-muted-foreground">Drop-in SendGrid replacement for testing and development</p>
+  </a>
+  <a href="/docs/integrations/sendgrid/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">sendgrid.do</h3>
+    <p className="text-sm text-muted-foreground">Managed email on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/sendgrid` for development, then upgrade to `sendgrid.do` for production:
+
+```typescript
+// Development (package) - routes to local DO or SendGrid
+import sgMail from '@dotdo/sendgrid'
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+await sgMail.send({ to, from, subject, html })
+
+// Production (service) - same API, edge delivery
+import { SendGridClient } from 'sendgrid.do'
+const client = new SendGridClient('https://your-email.workers.dev')
+await client.mail.send({ to, from, subject, html })
+
+// Your email sending code stays the same
+await client.mail.send({
+  to: 'user@example.com',
+  from: 'noreply@yourapp.com',
+  templateId: 'd-welcome-template',
+  dynamicTemplateData: { name: 'Alice' },
+})
+```
+
+Both packages share the same SendGrid-compatible API, making migration seamless.

@@ -1,0 +1,649 @@
+---
+title: "@dotdo/pinecone"
+description: Pinecone-compatible in-memory vector store with HNSW indexing for edge environments and testing.
+---
+
+# @dotdo/pinecone
+
+Pinecone-compatible vector store that runs entirely in-memory with HNSW indexing. Provides a familiar Pinecone API for edge environments (Cloudflare Workers) and testing scenarios where no external vector database is needed.
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone()
+const index = pinecone.index('products')
+
+await index.upsert([
+  { id: 'vec1', values: [0.1, 0.2, 0.3, ...], metadata: { category: 'electronics' } },
+])
+
+const results = await index.query({
+  vector: [0.1, 0.2, 0.3, ...],
+  topK: 10,
+  filter: { category: { $eq: 'electronics' } },
+})
+```
+
+<Callout type="info">
+Looking for persistent storage? See [pinecone.do](/docs/integrations/pinecone/service) for a fully managed Pinecone-compatible edge vector database.
+</Callout>
+
+## Why @dotdo/pinecone?
+
+| Pinecone SDK | @dotdo/pinecone |
+|--------------|-----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Requires Pinecone server | In-memory HNSW, no external dependencies |
+| Network latency | Zero latency |
+| Connection management | Stateless, instant startup |
+| Complex test setup | Perfect for unit tests |
+
+**This is an in-memory implementation** with a Pinecone-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and edge environments where you need vector search without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/pinecone
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Pinecone Client**
+- `index()` - Get or create a vector index
+- `createIndex()` - Create a new index with dimensions and metric
+- `deleteIndex()` - Delete an index
+- `listIndexes()` - List all indexes
+- `describeIndex()` - Get index metadata and stats
+
+**Index Operations**
+- `upsert()` - Insert or update vectors with metadata
+- `query()` - Similarity search with filters
+- `fetch()` - Retrieve vectors by ID
+- `delete()` - Delete vectors by ID or filter
+- `update()` - Update vector values or metadata
+- `describeIndexStats()` - Get index statistics
+
+**Namespaces**
+- `namespace()` - Partition vectors within an index
+- Namespace-scoped operations
+
+**Filtering**
+- Metadata filters with `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`
+- Array filters with `$in`, `$nin`
+- Logical operators `$and`, `$or`
+
+### Not Yet Implemented
+
+- Collections (create/list/describe/delete)
+- Inference API
+- Serverless indexes
+- Pod-based indexes
+- Replication configuration
+
+## Quick Start
+
+### Create Index and Upsert Vectors
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone()
+
+// Create an index
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine',
+})
+
+// Get the index
+const index = pinecone.index('products')
+
+// Upsert vectors with metadata
+await index.upsert([
+  {
+    id: 'product-1',
+    values: embedding1, // Float32Array or number[]
+    metadata: {
+      name: 'MacBook Pro',
+      category: 'electronics',
+      price: 2499,
+      inStock: true,
+    },
+  },
+  {
+    id: 'product-2',
+    values: embedding2,
+    metadata: {
+      name: 'AirPods Pro',
+      category: 'electronics',
+      price: 249,
+      inStock: true,
+    },
+  },
+])
+```
+
+### Query Vectors
+
+```typescript
+// Simple similarity search
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  includeMetadata: true,
+})
+
+for (const match of results.matches) {
+  console.log(`${match.id}: ${match.score}`)
+  console.log(match.metadata)
+}
+
+// Query with metadata filters
+const filtered = await index.query({
+  vector: queryEmbedding,
+  topK: 5,
+  filter: {
+    $and: [
+      { category: { $eq: 'electronics' } },
+      { price: { $lt: 500 } },
+      { inStock: { $eq: true } },
+    ],
+  },
+  includeMetadata: true,
+  includeValues: false,
+})
+```
+
+### Fetch and Delete
+
+```typescript
+// Fetch specific vectors
+const fetched = await index.fetch(['product-1', 'product-2'])
+console.log(fetched.vectors['product-1'])
+
+// Delete by IDs
+await index.delete(['product-3'])
+
+// Delete by filter
+await index.delete({
+  filter: { category: { $eq: 'discontinued' } },
+})
+
+// Delete all vectors in namespace
+await index.namespace('temp').deleteAll()
+```
+
+### Namespaces
+
+```typescript
+const index = pinecone.index('products')
+
+// Work with specific namespace
+const electronics = index.namespace('electronics')
+
+await electronics.upsert([
+  { id: 'laptop-1', values: [...], metadata: { brand: 'Apple' } },
+])
+
+const results = await electronics.query({
+  vector: queryVector,
+  topK: 10,
+})
+
+// Default namespace
+const defaultNs = index.namespace('')
+```
+
+### HNSW Configuration
+
+```typescript
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine', // 'cosine' | 'euclidean' | 'dotproduct'
+
+  // HNSW parameters (EdgeVec-specific)
+  spec: {
+    hnsw: {
+      m: 16,              // Max connections per node (default: 16)
+      efConstruction: 200, // Build-time search width (default: 200)
+    },
+  },
+})
+
+// Configure search-time ef
+const results = await index.query({
+  vector: queryVector,
+  topK: 10,
+  ef: 100, // Search-time candidate list size
+})
+```
+
+### Distance Metrics
+
+```typescript
+// Cosine similarity (default) - normalized vectors
+await pinecone.createIndex({
+  name: 'embeddings',
+  dimension: 384,
+  metric: 'cosine',
+})
+
+// Euclidean distance (L2) - spatial data
+await pinecone.createIndex({
+  name: 'locations',
+  dimension: 2,
+  metric: 'euclidean',
+})
+
+// Dot product - when vectors are pre-normalized
+await pinecone.createIndex({
+  name: 'recommendations',
+  dimension: 768,
+  metric: 'dotproduct',
+})
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Pinecone } from '@dotdo/pinecone'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const pinecone = new Pinecone()
+    const index = pinecone.index('products')
+
+    const body = await request.json()
+    const results = await index.query({
+      vector: body.embedding,
+      topK: 10,
+      filter: body.filter,
+      includeMetadata: true,
+    })
+
+    return Response.json(results)
+  },
+}
+```
+
+## API Reference
+
+### Pinecone(options)
+
+Create a new Pinecone-compatible client.
+
+```typescript
+const pinecone = new Pinecone({
+  // Request timeout in ms
+  timeout: 30000,
+})
+```
+
+### Index Operations
+
+#### createIndex(options)
+
+Create a new vector index.
+
+```typescript
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine', // 'cosine' | 'euclidean' | 'dotproduct'
+
+  // EdgeVec HNSW config
+  spec: {
+    hnsw: {
+      m: 16,
+      efConstruction: 200,
+    },
+  },
+})
+```
+
+#### listIndexes()
+
+List all indexes.
+
+```typescript
+const { indexes } = await pinecone.listIndexes()
+
+for (const index of indexes) {
+  console.log(`${index.name}: ${index.dimension}D, ${index.metric}`)
+}
+```
+
+#### describeIndex(name)
+
+Get index details.
+
+```typescript
+const info = await pinecone.describeIndex('products')
+// {
+//   name: 'products',
+//   dimension: 1536,
+//   metric: 'cosine',
+//   status: { ready: true },
+//   spec: { hnsw: { m: 16, efConstruction: 200 } },
+// }
+```
+
+#### deleteIndex(name)
+
+Delete an index.
+
+```typescript
+await pinecone.deleteIndex('products')
+```
+
+### Vector Operations
+
+#### upsert(vectors)
+
+Insert or update vectors.
+
+```typescript
+await index.upsert([
+  {
+    id: 'vec-1',
+    values: [0.1, 0.2, ...], // number[] or Float32Array
+    metadata: { key: 'value' },
+  },
+])
+
+// Response
+{
+  upsertedCount: 1
+}
+```
+
+#### query(options)
+
+Query for similar vectors.
+
+```typescript
+const results = await index.query({
+  vector: queryVector,
+  topK: 10,
+  filter: { category: { $eq: 'electronics' } },
+  includeMetadata: true,
+  includeValues: false,
+})
+
+// Response
+{
+  matches: [
+    {
+      id: 'vec-1',
+      score: 0.95,
+      metadata: { category: 'electronics', name: 'Laptop' },
+    },
+  ],
+  namespace: '',
+}
+```
+
+#### fetch(ids)
+
+Retrieve vectors by ID.
+
+```typescript
+const results = await index.fetch(['vec-1', 'vec-2'])
+
+// Response
+{
+  vectors: {
+    'vec-1': {
+      id: 'vec-1',
+      values: [0.1, 0.2, ...],
+      metadata: { ... },
+    },
+  },
+  namespace: '',
+}
+```
+
+#### update(options)
+
+Update vector values or metadata.
+
+```typescript
+await index.update({
+  id: 'vec-1',
+  values: newVector,        // Optional: update values
+  metadata: { key: 'new' }, // Optional: update metadata
+})
+```
+
+#### delete(options)
+
+Delete vectors.
+
+```typescript
+// Delete by IDs
+await index.delete(['vec-1', 'vec-2'])
+
+// Delete by filter
+await index.delete({
+  filter: { category: { $eq: 'deprecated' } },
+})
+
+// Delete all in namespace
+await index.namespace('temp').deleteAll()
+```
+
+#### describeIndexStats()
+
+Get index statistics.
+
+```typescript
+const stats = await index.describeIndexStats()
+
+// Response
+{
+  dimension: 1536,
+  indexFullness: 0.05,
+  totalVectorCount: 5000,
+  namespaces: {
+    '': { vectorCount: 3000 },
+    'products': { vectorCount: 2000 },
+  },
+}
+```
+
+### Filter Syntax
+
+Pinecone-compatible metadata filters:
+
+```typescript
+// Equality
+{ field: { $eq: 'value' } }
+
+// Comparison
+{ price: { $gt: 100 } }
+{ price: { $gte: 100 } }
+{ price: { $lt: 500 } }
+{ price: { $lte: 500 } }
+{ status: { $ne: 'deleted' } }
+
+// Array membership
+{ category: { $in: ['electronics', 'computers'] } }
+{ tag: { $nin: ['spam', 'test'] } }
+
+// Logical operators
+{
+  $and: [
+    { category: { $eq: 'electronics' } },
+    { price: { $lt: 1000 } },
+  ]
+}
+
+{
+  $or: [
+    { brand: { $eq: 'Apple' } },
+    { brand: { $eq: 'Samsung' } },
+  ]
+}
+```
+
+## Testing with @dotdo/pinecone
+
+@dotdo/pinecone is ideal for unit tests - no external Pinecone required:
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+describe('ProductSearch', () => {
+  let pinecone: Pinecone
+  let index: Index
+
+  beforeEach(async () => {
+    // Fresh in-memory store for each test
+    pinecone = new Pinecone()
+    await pinecone.createIndex({ name: 'products', dimension: 384, metric: 'cosine' })
+    index = pinecone.index('products')
+  })
+
+  it('should find similar products', async () => {
+    await index.upsert([
+      { id: 'laptop', values: laptopEmbedding, metadata: { category: 'electronics' } },
+      { id: 'phone', values: phoneEmbedding, metadata: { category: 'electronics' } },
+    ])
+
+    const results = await index.query({
+      vector: queryEmbedding,
+      topK: 2,
+      includeMetadata: true,
+    })
+
+    expect(results.matches).toHaveLength(2)
+    expect(results.matches[0].metadata?.category).toBe('electronics')
+  })
+})
+```
+
+## Error Handling
+
+```typescript
+import { Pinecone, PineconeError, PineconeNotFoundError } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone()
+
+try {
+  const index = pinecone.index('products')
+  const results = await index.query({
+    vector: queryEmbedding,
+    topK: 10,
+  })
+} catch (error) {
+  if (error instanceof PineconeNotFoundError) {
+    console.error('Index or vector not found:', error.message)
+  } else if (error instanceof PineconeError) {
+    console.error('Pinecone error:', error.message)
+    console.error('Status:', error.status)
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `PineconeError` | Base error class for all Pinecone errors |
+| `PineconeConnectionError` | Connection or network failures |
+| `PineconeNotFoundError` | Index or vector not found (404) |
+| `PineconeConflictError` | Resource already exists (409) |
+| `PineconeRateLimitError` | Too many requests (429) |
+
+## Types
+
+Full TypeScript support with Pinecone-compatible types:
+
+```typescript
+import type {
+  // Client types
+  Pinecone,
+  PineconeConfiguration,
+  Index,
+
+  // Vector types
+  Vector,
+  ScoredVector,
+  RecordMetadata,
+
+  // Operation types
+  UpsertRequest,
+  UpsertResponse,
+  QueryRequest,
+  QueryResponse,
+  FetchRequest,
+  FetchResponse,
+  DeleteRequest,
+  UpdateRequest,
+
+  // Index types
+  CreateIndexRequest,
+  IndexDescription,
+  IndexStats,
+
+  // Filter types
+  Filter,
+  FilterOperator,
+} from '@dotdo/pinecone'
+```
+
+## Migration from Pinecone SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @pinecone-database/pinecone
+
+# Install
+npm install @dotdo/pinecone
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Pinecone } from '@pinecone-database/pinecone'
+
+// After
+import { Pinecone } from '@dotdo/pinecone'
+```
+
+### Code Compatibility
+
+Your existing Pinecone code works unchanged:
+
+```typescript
+// This code works with both @pinecone-database/pinecone and @dotdo/pinecone
+const pinecone = new Pinecone()
+const index = pinecone.index('products')
+
+await index.upsert([
+  { id: 'vec-1', values: embedding, metadata: { category: 'tech' } }
+])
+
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  filter: { category: { $eq: 'tech' } },
+  includeMetadata: true,
+})
+```
+
+## Related
+
+- [pinecone.do](/docs/integrations/pinecone/service) - Managed Pinecone on the edge
+- [Elasticsearch Integration](/docs/integrations/elasticsearch) - Full-text + vector hybrid search
+- [Algolia Integration](/docs/integrations/algolia) - Full-text search

@@ -1,0 +1,163 @@
+---
+title: Neon
+description: Choose between @dotdo/neon (OSS package) and neon.do (managed edge service) for your PostgreSQL needs.
+---
+
+# Neon Integration
+
+dotdo provides two ways to work with Neon/PostgreSQL-compatible APIs:
+
+| | @dotdo/neon | neon.do |
+|---|-------------|---------|
+| **Type** | OSS npm package | Managed edge service |
+| **Storage** | Durable Object SQLite | Durable Object SQLite |
+| **Persistence** | Session-scoped | Full durability |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/neon` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/neon - Drop-in replacement for @neondatabase/serverless
+import { neon, Pool } from '@dotdo/neon'
+
+const sql = neon(process.env.DATABASE_URL)
+const users = await sql`SELECT * FROM users WHERE id = ${userId}`
+
+// Pool for pg-compatible code
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const { rows } = await pool.query('SELECT * FROM users')
+```
+
+```typescript
+// neon.do - Managed edge PostgreSQL
+import { NeonClient } from 'neon.do'
+
+const client = new NeonClient('https://your-neon.workers.dev')
+const db = client.database('myapp')
+
+const users = await db.query`SELECT * FROM users WHERE id = ${userId}`
+// Data persists globally with edge-local access
+```
+
+## When to Use Each
+
+### Use @dotdo/neon when:
+
+- **Migrating from @neondatabase/serverless** - Drop-in replacement with same API
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Prototyping** - Quick iteration without infrastructure setup
+- **CI/CD pipelines** - Tests that need PostgreSQL semantics
+
+<Callout type="info">
+@dotdo/neon is a complete drop-in replacement for @neondatabase/serverless. Your existing code works unchanged - just swap the import.
+</Callout>
+
+### Use neon.do when:
+
+- **Production applications** - Real user data that must persist
+- **Global edge deployment** - Data close to users worldwide
+- **AI/Agent workloads** - Vector search, embeddings, LLM tool calling
+- **Multi-tenant SaaS** - Isolated databases per tenant
+- **Real-time analytics** - Edge-local query execution
+
+<Callout type="info">
+neon.do is PostgreSQL on the Edge - a fully managed service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/neon | neon.do |
+|---------|-------------|---------|
+| SQL Template Tag | Full | Full |
+| Parameterized Queries | Full | Full |
+| Transactions | Full | Full ACID |
+| Pool/Client API | Full (pg-compatible) | Full (pg-compatible) |
+| PostgreSQL Error Codes | Full | Full |
+| Vector Search | - | Cloudflare Vectorize |
+| Full-Text Search | Basic | FTS5 with scoring |
+| Change Notifications | - | Real-time via WebSocket |
+| Multi-Database | - | Per-tenant isolation |
+| Wire Protocol | - | psql, pgAdmin compatible |
+| MCP Protocol | - | AI agent integration |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/neon/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/neon</h3>
+    <p className="text-sm text-muted-foreground">Drop-in replacement for @neondatabase/serverless for testing and development</p>
+  </a>
+  <a href="/docs/integrations/neon/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">neon.do</h3>
+    <p className="text-sm text-muted-foreground">Managed PostgreSQL on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/neon` for development, then upgrade to `neon.do` for production:
+
+```typescript
+// Development (package) - Drop-in for @neondatabase/serverless
+import { neon, Pool } from '@dotdo/neon'
+
+const sql = neon('postgres://localhost/mydb')
+const users = await sql`SELECT * FROM users WHERE active = ${true}`
+
+// Production (service) - Same API, global persistence
+import { NeonClient } from 'neon.do'
+
+const client = new NeonClient('https://your-neon.workers.dev')
+const sql = client.sql('mydb')
+
+// Your application code stays the same
+const users = await sql`SELECT * FROM users WHERE active = ${true}`
+```
+
+Both packages share the same SQL template tag API, making migration seamless.
+
+## Architecture Comparison
+
+### @dotdo/neon
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { neon } from '@dotdo/neon'     |
++-----------------------------------------+
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
++---------------+     +---------------+
+|  Local Mode   |     | Production    |
+|  (DO SQLite)  |     | (Real Neon)   |
++---------------+     +---------------+
+```
+
+### neon.do
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { NeonClient } from 'neon.do'   |
++-----------------------------------------+
+                    |
+                    v
++-----------------------------------------+
+|           neon.do Worker                |
++-----------------------------------------+
+|  SQL Parser  |  Query Engine  |  MCP    |
++-----------------------------------------+
+|       Durable Object SQLite             |
++-----------------------------------------+
+|     Vectorize     |        R2           |
+| (Vector Search)   |  (Large Objects)    |
++-----------------------------------------+
+```
+
+Both approaches support the same PostgreSQL semantics - choose based on whether you need development/testing convenience or production-grade global persistence.

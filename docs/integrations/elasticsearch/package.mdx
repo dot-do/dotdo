@@ -1,0 +1,777 @@
+---
+title: "@dotdo/elasticsearch"
+description: Elasticsearch-compatible in-memory search engine for edge environments and testing.
+---
+
+# @dotdo/elasticsearch
+
+Elasticsearch-compatible search engine that runs entirely in-memory. Provides a familiar Elasticsearch API for edge environments (Cloudflare Workers) and testing scenarios where no external cluster is needed.
+
+```typescript
+import { createClient } from '@dotdo/elasticsearch'
+
+const client = createClient()
+
+await client.indices.create({
+  index: 'products',
+  mappings: {
+    properties: {
+      name: { type: 'text' },
+      price: { type: 'float' },
+    },
+  },
+})
+
+await client.index({
+  index: 'products',
+  id: '1',
+  document: { name: 'MacBook Pro', price: 2499 },
+})
+
+const results = await client.search({
+  index: 'products',
+  query: { match: { name: 'macbook' } },
+})
+```
+
+<Callout type="info">
+Looking for persistent storage? See [elasticsearch.do](/docs/integrations/elasticsearch/service) for a fully managed Elasticsearch-compatible edge search service.
+</Callout>
+
+## Why @dotdo/elasticsearch?
+
+| Elasticsearch | @dotdo/elasticsearch |
+|---------------|----------------------|
+| Requires ES cluster | In-memory, no external dependencies |
+| JVM-based infrastructure | Edge-compatible (Cloudflare Workers) |
+| Network latency to cluster | Zero latency |
+| Complex cluster management | Single instance, instant startup |
+| Expensive at scale | Free (no cluster costs) |
+| Heavy for simple use cases | Lightweight |
+
+**This is an in-memory implementation** with an Elasticsearch-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and edge environments where you need search without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/elasticsearch
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Document Operations**
+- `index()` - Index a single document
+- `get()` - Retrieve document by ID
+- `delete()` - Delete a document
+- `update()` - Partial document update
+- `bulk()` - Bulk indexing operations
+
+**Search**
+- `search()` - Full search API with Query DSL
+
+**Query Types**
+- `match` - Full-text search with analysis
+- `multi_match` - Search across multiple fields
+- `match_phrase` - Phrase matching
+- `term` / `terms` - Exact value matching
+- `range` - Numeric and date range queries
+- `bool` - Compound boolean queries (must, filter, should, must_not)
+- `exists` - Field existence check
+- `prefix` - Prefix matching
+- `wildcard` - Wildcard pattern matching
+- `ids` - Match by document IDs
+- `match_all` / `match_none` - Match all or no documents
+- `function_score` - Custom scoring functions
+
+**Aggregations**
+- Bucket: `terms`, `histogram`, `date_histogram`, `range`, `date_range`, `filter`, `filters`, `nested`
+- Metric: `avg`, `sum`, `min`, `max`, `value_count`, `cardinality`, `stats`, `extended_stats`, `percentiles`, `top_hits`
+- Nested sub-aggregations
+
+**Vector Search**
+- `knn` query - k-nearest neighbors
+- Hybrid search (BM25 + KNN)
+- RRF (Reciprocal Rank Fusion) for result combination
+
+**Index Management**
+- `indices.create()` - Create index with mappings
+- `indices.delete()` - Delete index
+- `indices.exists()` - Check if index exists
+- `indices.get()` - Get index info
+- `indices.refresh()` - Refresh index
+- `indices.putMapping()` / `getMapping()` - Manage mappings
+- `indices.putSettings()` / `getSettings()` - Manage settings
+
+**Cluster Operations**
+- `cluster.health()` - Cluster health status
+- `cluster.stats()` - Cluster statistics
+- `ping()` - Connection check
+- `info()` - Cluster info
+
+**Additional Features**
+- Source filtering (`_source`)
+- Highlighting
+- Sorting (field, score, multi-field)
+- Pagination (from/size)
+- Score tracking and min_score filtering
+
+### Not Yet Implemented
+
+- Scroll API
+- Point in Time (PIT)
+- Multi-search (_msearch)
+- Reindex API
+- Aliases
+- Index templates
+- Ingest pipelines
+- SQL API
+
+## Quick Start
+
+### Basic Search
+
+```typescript
+import { createClient } from '@dotdo/elasticsearch'
+
+const client = createClient()
+
+// Create index with mappings
+await client.indices.create({
+  index: 'products',
+  mappings: {
+    properties: {
+      name: { type: 'text', analyzer: 'standard' },
+      description: { type: 'text' },
+      category: { type: 'keyword' },
+      price: { type: 'float' },
+      rating: { type: 'float' },
+      inStock: { type: 'boolean' },
+      createdAt: { type: 'date' },
+    },
+  },
+})
+
+// Index documents
+await client.index({
+  index: 'products',
+  id: 'product-1',
+  document: {
+    name: 'MacBook Pro 16',
+    description: 'Apple laptop with M3 Pro chip for professional use',
+    category: 'electronics',
+    price: 2499,
+    rating: 4.8,
+    inStock: true,
+    createdAt: '2024-01-15T10:00:00Z',
+  },
+})
+
+// Search with full-text query
+const results = await client.search({
+  index: 'products',
+  query: {
+    bool: {
+      must: [
+        { match: { description: 'laptop' } },
+      ],
+      filter: [
+        { range: { price: { lte: 2000 } } },
+      ],
+    },
+  },
+  sort: [{ price: 'asc' }],
+})
+
+console.log(results.hits.hits)
+```
+
+### Bulk Indexing
+
+```typescript
+await client.bulk({
+  operations: [
+    { index: { _index: 'products', _id: 'product-2' } },
+    { name: 'ThinkPad X1', description: 'Business laptop', category: 'electronics', price: 1899 },
+    { index: { _index: 'products', _id: 'product-3' } },
+    { name: 'Sony Headphones', description: 'Wireless noise cancelling', category: 'audio', price: 399 },
+  ],
+  refresh: true,
+})
+```
+
+### Aggregations
+
+```typescript
+const aggResults = await client.search({
+  index: 'products',
+  size: 0,
+  aggs: {
+    by_category: {
+      terms: { field: 'category' },
+      aggs: {
+        avg_price: { avg: { field: 'price' } },
+        max_rating: { max: { field: 'rating' } },
+      },
+    },
+    price_histogram: {
+      histogram: { field: 'price', interval: 500 },
+    },
+  },
+})
+
+console.log(aggResults.aggregations?.by_category)
+```
+
+### Vector Search
+
+```typescript
+const client = createClient({
+  vector: {
+    dimensions: 384,
+    metric: 'cosine',
+    M: 16,
+    efConstruction: 200,
+  },
+})
+
+await client.indices.create({
+  index: 'products',
+  mappings: {
+    properties: {
+      name: { type: 'text' },
+      embedding: { type: 'dense_vector', dims: 384 },
+    },
+  },
+})
+
+// Index with vectors
+await client.index({
+  index: 'products',
+  id: '1',
+  document: {
+    name: 'MacBook Pro',
+    embedding: [...], // 384-dimensional vector
+  },
+})
+
+// KNN search
+const results = await client.search({
+  index: 'products',
+  knn: {
+    field: 'embedding',
+    query_vector: queryVector,
+    k: 10,
+    num_candidates: 100,
+  },
+})
+```
+
+### Hybrid Search with RRF
+
+```typescript
+const results = await client.search({
+  index: 'products',
+  query: {
+    match: { description: 'laptop professional' },
+  },
+  knn: {
+    field: 'embedding',
+    query_vector: queryVector,
+    k: 50,
+  },
+  rank: {
+    rrf: {
+      window_size: 100,
+      rank_constant: 60,
+    },
+  },
+})
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { createClient } from '@dotdo/elasticsearch'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = createClient()
+    const url = new URL(request.url)
+    const query = url.searchParams.get('q') || ''
+
+    const results = await client.search({
+      index: 'products',
+      query: {
+        multi_match: {
+          query,
+          fields: ['name', 'description'],
+        },
+      },
+    })
+
+    return Response.json(results.hits.hits)
+  },
+}
+```
+
+## API Reference
+
+### createClient(options)
+
+Create a new Elasticsearch-compatible client.
+
+```typescript
+const client = createClient({
+  // Default index for operations
+  defaultIndex: 'my-index',
+
+  // Vector search configuration
+  vector: {
+    dimensions: 384,        // Vector dimensions
+    metric: 'cosine',       // Distance metric: 'cosine' | 'l2' | 'dot'
+    M: 16,                  // HNSW M parameter
+    efConstruction: 200,    // HNSW ef parameter
+  },
+
+  // Request options
+  timeout: 30000,           // Request timeout in ms
+  maxRetries: 3,            // Max retry attempts
+})
+```
+
+### Document Operations
+
+#### index(request)
+
+Index a single document.
+
+```typescript
+const response = await client.index({
+  index: 'products',
+  id: 'product-1',          // Optional, auto-generated if omitted
+  document: {
+    name: 'Product Name',
+    price: 99,
+  },
+  refresh: true,            // Refresh index after indexing
+})
+
+// Response
+{
+  _index: 'products',
+  _id: 'product-1',
+  _version: 1,
+  result: 'created',        // 'created' | 'updated'
+  _shards: { total: 1, successful: 1, failed: 0 },
+  _seq_no: 1,
+  _primary_term: 1,
+}
+```
+
+#### get(request)
+
+Retrieve a document by ID.
+
+```typescript
+const response = await client.get({
+  index: 'products',
+  id: 'product-1',
+})
+
+// Response
+{
+  _index: 'products',
+  _id: 'product-1',
+  _version: 1,
+  found: true,
+  _source: { name: 'Product Name', price: 99 },
+}
+```
+
+#### update(request)
+
+Partial document update.
+
+```typescript
+const response = await client.update({
+  index: 'products',
+  id: 'product-1',
+  doc: { price: 89 },       // Partial update
+})
+```
+
+#### delete(request)
+
+Delete a document.
+
+```typescript
+const response = await client.delete({
+  index: 'products',
+  id: 'product-1',
+})
+```
+
+#### bulk(request)
+
+Bulk indexing operations.
+
+```typescript
+const response = await client.bulk({
+  operations: [
+    { index: { _index: 'products', _id: '1' } },
+    { name: 'Product 1', price: 99 },
+    { index: { _index: 'products', _id: '2' } },
+    { name: 'Product 2', price: 149 },
+    { update: { _index: 'products', _id: '1' } },
+    { doc: { price: 89 } },
+    { delete: { _index: 'products', _id: '3' } },
+  ],
+  refresh: true,
+})
+
+// Response
+{
+  took: 5,
+  errors: false,
+  items: [
+    { index: { _id: '1', result: 'created', status: 201 } },
+    { index: { _id: '2', result: 'created', status: 201 } },
+    { update: { _id: '1', result: 'updated', status: 200 } },
+    { delete: { _id: '3', result: 'deleted', status: 200 } },
+  ],
+}
+```
+
+### Search
+
+#### search(request)
+
+Execute a search query.
+
+```typescript
+const response = await client.search({
+  index: 'products',
+
+  // Query DSL
+  query: {
+    bool: {
+      must: [{ match: { name: 'laptop' } }],
+      filter: [{ term: { category: 'electronics' } }],
+      should: [{ match: { description: 'professional' } }],
+      must_not: [{ term: { inStock: false } }],
+    },
+  },
+
+  // Pagination
+  from: 0,
+  size: 10,
+
+  // Sorting
+  sort: [
+    { price: 'asc' },
+    { _score: 'desc' },
+  ],
+
+  // Source filtering
+  _source: ['name', 'price', 'category'],
+
+  // Highlighting
+  highlight: {
+    fields: {
+      description: { fragment_size: 150 },
+    },
+    pre_tags: ['<em>'],
+    post_tags: ['</em>'],
+  },
+
+  // Aggregations
+  aggs: {
+    categories: { terms: { field: 'category' } },
+    avg_price: { avg: { field: 'price' } },
+  },
+
+  // Vector search
+  knn: {
+    field: 'embedding',
+    query_vector: [...],
+    k: 10,
+    num_candidates: 100,
+    filter: { term: { category: 'electronics' } },
+  },
+
+  // Hybrid ranking
+  rank: {
+    rrf: { window_size: 100, rank_constant: 60 },
+  },
+
+  // Scoring options
+  track_scores: true,
+  min_score: 0.5,
+})
+
+// Response
+{
+  took: 5,
+  timed_out: false,
+  _shards: { total: 1, successful: 1, skipped: 0, failed: 0 },
+  hits: {
+    total: { value: 42, relation: 'eq' },
+    max_score: 2.5,
+    hits: [
+      {
+        _index: 'products',
+        _id: 'product-1',
+        _score: 2.5,
+        _source: { name: 'MacBook Pro', price: 2499, category: 'electronics' },
+        highlight: { description: ['Apple <em>laptop</em> with...'] },
+      },
+    ],
+  },
+  aggregations: {
+    categories: {
+      buckets: [{ key: 'electronics', doc_count: 25 }],
+    },
+    avg_price: { value: 799.5 },
+  },
+}
+```
+
+### Index Management
+
+```typescript
+// Create index
+await client.indices.create({
+  index: 'products',
+  mappings: {
+    properties: {
+      name: { type: 'text', analyzer: 'standard' },
+      category: { type: 'keyword' },
+      price: { type: 'float' },
+      createdAt: { type: 'date' },
+    },
+  },
+  settings: {
+    number_of_shards: 1,
+    number_of_replicas: 0,
+  },
+})
+
+// Check existence
+const exists = await client.indices.exists({ index: 'products' })
+
+// Get index info
+const info = await client.indices.get({ index: 'products' })
+
+// Delete index
+await client.indices.delete({ index: 'products' })
+
+// Update mappings
+await client.indices.putMapping({
+  index: 'products',
+  body: {
+    properties: {
+      newField: { type: 'keyword' },
+    },
+  },
+})
+```
+
+### Cluster Operations
+
+```typescript
+// Health check
+const health = await client.cluster.health()
+// { status: 'green', number_of_nodes: 1, ... }
+
+// Cluster stats
+const stats = await client.cluster.stats()
+// { indices: { count: 5, docs: { count: 1000 } }, ... }
+
+// Ping
+const alive = await client.ping()  // true
+
+// Cluster info
+const info = await client.info()
+// { name: 'dotdo-node', version: { number: '8.0.0' }, ... }
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Document,
+  Hit,
+  SearchHits,
+  SearchResponse,
+  SearchRequest,
+
+  // Query types
+  Query,
+  MatchQuery,
+  MultiMatchQuery,
+  MatchPhraseQuery,
+  BoolQuery,
+  TermQuery,
+  TermsQuery,
+  RangeQuery,
+  ExistsQuery,
+  PrefixQuery,
+  WildcardQuery,
+  IdsQuery,
+  FunctionScoreQuery,
+  KnnQuery,
+
+  // Aggregation types
+  Aggregation,
+  AggregationResult,
+  TermsAggregationResult,
+  HistogramAggregationResult,
+  DateHistogramAggregationResult,
+  RangeAggregationResult,
+  MetricAggregationResult,
+  StatsAggregationResult,
+  ExtendedStatsAggregationResult,
+  PercentilesAggregationResult,
+  TopHitsAggregationResult,
+
+  // Index types
+  IndexMappings,
+  FieldMapping,
+  IndexSettings,
+
+  // Request/Response types
+  IndexRequest,
+  IndexResponse,
+  GetRequest,
+  GetResponse,
+  DeleteRequest,
+  DeleteResponse,
+  UpdateRequest,
+  UpdateResponse,
+  BulkRequest,
+  BulkResponse,
+
+  // Client types
+  ElasticsearchClient,
+  ElasticsearchClientOptions,
+  ClusterHealthResponse,
+  ClusterStatsResponse,
+  InfoResponse,
+} from '@dotdo/elasticsearch'
+
+// Error classes (import directly, not as types)
+import {
+  ElasticsearchError,
+  ResponseError,
+  NotFoundError,
+  ConflictError,
+  BadRequestError,
+  ConnectionError,
+  TimeoutError,
+} from '@dotdo/elasticsearch'
+```
+
+## Error Handling
+
+```typescript
+import { ResponseError, NotFoundError, ConflictError, BadRequestError } from '@dotdo/elasticsearch'
+
+try {
+  await client.get({ index: 'products', id: 'non-existent' })
+} catch (error) {
+  if (error instanceof NotFoundError) {
+    console.log('Document not found')
+  } else if (error instanceof ConflictError) {
+    console.log('Document version conflict')
+  } else if (error instanceof BadRequestError) {
+    console.log('Invalid request')
+  } else if (error instanceof ResponseError) {
+    console.log('Status:', error.meta.statusCode)
+    console.log('Body:', error.meta.body)
+  }
+}
+```
+
+## Testing with @dotdo/elasticsearch
+
+@dotdo/elasticsearch is ideal for unit tests - no external Elasticsearch required:
+
+```typescript
+import { createClient } from '@dotdo/elasticsearch'
+
+describe('ProductSearch', () => {
+  let client: ReturnType<typeof createClient>
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    client = createClient()
+  })
+
+  it('should search products by name', async () => {
+    await client.indices.create({ index: 'products' })
+    await client.index({
+      index: 'products',
+      id: '1',
+      document: { name: 'MacBook Pro', price: 2499 },
+      refresh: true,
+    })
+
+    const results = await client.search({
+      index: 'products',
+      query: { match: { name: 'macbook' } },
+    })
+
+    expect(results.hits.hits).toHaveLength(1)
+    expect(results.hits.hits[0]._source.name).toBe('MacBook Pro')
+  })
+})
+```
+
+## Migration from @elastic/elasticsearch
+
+### Import Change
+
+```typescript
+// Before: Elasticsearch client
+import { Client } from '@elastic/elasticsearch'
+
+// After: dotdo Elasticsearch
+import { createClient } from '@dotdo/elasticsearch'
+```
+
+### Code Migration
+
+Replace `Client` with `createClient`:
+
+```typescript
+// Before
+const client = new Client({ node: 'http://localhost:9200' })
+
+// After
+const client = createClient()
+
+// All Elasticsearch operations work the same
+await client.index({
+  index: 'products',
+  id: '1',
+  document: { name: 'Product', price: 99 },
+})
+const results = await client.search({
+  index: 'products',
+  query: { match_all: {} },
+})
+```
+
+## Related
+
+- [elasticsearch.do](/docs/integrations/elasticsearch/service) - Managed Elasticsearch on the edge
+- [Algolia Integration](/docs/integrations/algolia) - Another search integration
+- [Vector Search](/docs/database/vector) - Semantic similarity search

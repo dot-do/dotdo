@@ -1,0 +1,598 @@
+---
+title: "@dotdo/clickhouse"
+description: ClickHouse-compatible analytics engine for edge environments and testing.
+---
+
+# @dotdo/clickhouse
+
+ClickHouse-compatible analytics engine that runs entirely in-memory. Provides SQL interface, MergeTree tables, and OLAP aggregations for edge environments (Cloudflare Workers) and testing scenarios where no external database is needed.
+
+```typescript
+import { ClickHouseClient } from '@dotdo/clickhouse'
+
+const client = new ClickHouseClient({ mode: 'memory' })
+
+await client.query(`
+  CREATE TABLE hits (
+    event_date Date,
+    user_id UInt64,
+    views UInt32
+  ) ENGINE = MergeTree()
+  ORDER BY (event_date, user_id)
+`)
+
+await client.query(`INSERT INTO hits VALUES ('2024-01-01', 1, 100)`)
+
+const result = await client.query<{ user_id: number; total: number }>(`
+  SELECT user_id, sum(views) as total
+  FROM hits
+  GROUP BY user_id
+`)
+```
+
+<Callout type="info">
+Looking for persistent storage? See [clickhouse.do](/docs/integrations/clickhouse/service) for a fully managed ClickHouse-compatible edge database.
+</Callout>
+
+## Why @dotdo/clickhouse?
+
+| ClickHouse Server | @dotdo/clickhouse |
+|-------------------|-------------------|
+| Requires dedicated server | Edge-compatible (Cloudflare Workers) |
+| Heavy resource footprint | Lightweight in-memory engine |
+| Complex deployment | Zero infrastructure |
+| Network latency to cluster | Zero latency (in-memory) |
+| Separate analytics stack | Unified with your application |
+
+**This is an in-memory analytics implementation** with a ClickHouse-compatible SQL interface. Data does not persist between restarts. Ideal for testing, request-scoped analytics, and edge environments where you need OLAP capabilities without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/clickhouse
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**MergeTree Table Engines (Schema Only)**
+- `MergeTree` - Basic sorted table with ordered storage
+- `ReplacingMergeTree` - Schema support (versionColumn stored but deduplication not active)
+- `AggregatingMergeTree` - Schema support for pre-aggregated data types
+- `SummingMergeTree` - Schema support (summation behavior not active on merge)
+- `CollapsingMergeTree` - Schema support (signColumn stored but collapsing not active)
+- `VersionedCollapsingMergeTree` - Schema support
+
+Note: Engine types are stored for compatibility but merge/compaction behaviors are not implemented. All engines currently behave like basic MergeTree (sorted storage).
+
+**SQL Queries**
+- `CREATE TABLE` with ENGINE, ORDER BY, PARTITION BY, PRIMARY KEY, TTL
+- `INSERT INTO` with VALUES and batch inserts
+- `SELECT` with WHERE, GROUP BY, ORDER BY, LIMIT, OFFSET
+- `WITH` clause (Common Table Expressions - single CTE)
+- `DROP TABLE` and `TRUNCATE`
+
+**Aggregate Functions**
+- Basic: `count`, `sum`, `avg`, `min`, `max`
+- Distinct: `uniq`, `uniqExact` (exact via Set), `uniqHLL12` (HyperLogLog approximation)
+- Statistical: `quantile`, `quantiles`, `stddevPop`, `varPop`
+- Ordering: `argMin`, `argMax`, `first_value`, `last_value`
+- Array: `groupArray`, `groupUniqArray`, `topK`
+- Conditional: `sumIf`, `countIf`, `avgIf`
+- Approximate: `anyHeavy` (Space-Saving algorithm)
+
+**Window Functions (via Table API)**
+- Ranking: `rowNumber`, `rank`, `denseRank` (via `selectWithWindow`)
+- Offset: `lag`, `lead` with custom offset and defaults
+- Running aggregates: `sum`, `avg` with frame specification
+- Frame specification: ROWS, UNBOUNDED PRECEDING/FOLLOWING, CURRENT ROW
+
+Note: Window functions are available via the `MergeTreeTable.selectWithWindow()` method, not via SQL queries.
+
+**OLAP Operations (via Table API)**
+- `cube()` - All dimension combinations
+- `rollup()` - Hierarchical subtotals
+- `groupingSets()` - Custom groupings
+- `groupBy()` with `withTotals` option
+
+Note: CUBE/ROLLUP/GROUPING SETS are available via table methods, not SQL.
+
+**Materialized Views**
+- Pre-computed aggregations with caching
+- On-demand or interval-based refresh
+- Staleness detection via `isStale(maxAge)`
+
+### Not Yet Implemented
+
+- Distributed tables
+- Dictionary functions
+- Array joins
+- JOINs between tables
+- Mutations (ALTER TABLE)
+- Remote ClickHouse connections
+- Window functions via SQL (use Table API instead)
+- CUBE/ROLLUP via SQL (use Table API instead)
+- Actual merge/compaction behavior for specialized engines
+
+## Quick Start
+
+### SQL Interface
+
+```typescript
+import { ClickHouseClient } from '@dotdo/clickhouse'
+
+const client = new ClickHouseClient({ mode: 'memory' })
+
+// Create analytics table
+await client.query(`
+  CREATE TABLE events (
+    event_date Date,
+    event_type String,
+    user_id UInt64,
+    revenue Float64
+  ) ENGINE = MergeTree()
+  ORDER BY (event_date, event_type)
+  PARTITION BY toYYYYMM(event_date)
+`)
+
+// Insert event data
+await client.query(`
+  INSERT INTO events VALUES
+  ('2024-01-15', 'purchase', 1001, 99.99),
+  ('2024-01-15', 'signup', 1002, 0),
+  ('2024-01-16', 'purchase', 1001, 149.99),
+  ('2024-01-16', 'purchase', 1003, 29.99)
+`)
+
+// Aggregate query
+const result = await client.query<{ event_type: string; total: number; cnt: number }>(`
+  SELECT event_type, sum(revenue) as total, count(*) as cnt
+  FROM events
+  GROUP BY event_type
+  ORDER BY total DESC
+`)
+
+console.log(result.rows)
+// [
+//   { event_type: 'purchase', total: 279.97, cnt: 3 },
+//   { event_type: 'signup', total: 0, cnt: 1 }
+// ]
+```
+
+### Direct Table API
+
+```typescript
+import { MergeTreeTable } from '@dotdo/clickhouse'
+
+interface PageView {
+  timestamp: Date
+  url: string
+  user_id: number
+  duration_ms: number
+}
+
+const pageViews = new MergeTreeTable<PageView>({
+  name: 'page_views',
+  engine: 'MergeTree',
+  columns: [
+    { name: 'timestamp', type: 'DateTime' },
+    { name: 'url', type: 'String' },
+    { name: 'user_id', type: 'UInt64' },
+    { name: 'duration_ms', type: 'UInt32' },
+  ],
+  orderBy: ['timestamp', 'user_id'],
+})
+
+// Batch insert
+pageViews.insertBatch([
+  { timestamp: new Date(), url: '/home', user_id: 1, duration_ms: 1500 },
+  { timestamp: new Date(), url: '/products', user_id: 1, duration_ms: 3200 },
+  { timestamp: new Date(), url: '/home', user_id: 2, duration_ms: 800 },
+])
+
+// Query with filters
+const results = pageViews.select({
+  where: { user_id: 1 },
+  orderBy: [{ column: 'duration_ms', direction: 'DESC' }],
+  limit: 10,
+})
+
+// Aggregations
+const stats = pageViews.aggregate({
+  count: '*',
+  avg: 'duration_ms',
+  max: 'duration_ms',
+})
+
+// GROUP BY
+const byUrl = pageViews.groupBy(['url'], {
+  count: '*',
+  avg: 'duration_ms',
+})
+```
+
+### Time-Series Analytics
+
+```typescript
+import { MergeTreeTable, MaterializedView } from '@dotdo/clickhouse'
+
+interface Metric {
+  timestamp: Date
+  metric_name: string
+  value: number
+  tags: string
+}
+
+const metrics = new MergeTreeTable<Metric>({
+  name: 'metrics',
+  engine: 'MergeTree',
+  columns: [
+    { name: 'timestamp', type: 'DateTime' },
+    { name: 'metric_name', type: 'String' },
+    { name: 'value', type: 'Float64' },
+    { name: 'tags', type: 'String' },
+  ],
+  orderBy: ['metric_name', 'timestamp'],
+  ttl: 'timestamp + INTERVAL 30 DAY',
+})
+
+// Create materialized view for pre-aggregated metrics
+const hourlyMetrics = new MaterializedView({
+  name: 'metrics_hourly',
+  source: metrics,
+  aggregations: {
+    sum: 'value',
+    avg: 'value',
+    min: 'value',
+    max: 'value',
+    count: '*',
+  },
+  groupBy: ['metric_name'],
+  refreshInterval: 60000, // Refresh every minute
+})
+
+// Insert metrics
+metrics.insertBatch([
+  { timestamp: new Date(), metric_name: 'cpu_usage', value: 45.2, tags: 'host=server1' },
+  { timestamp: new Date(), metric_name: 'cpu_usage', value: 62.8, tags: 'host=server2' },
+  { timestamp: new Date(), metric_name: 'memory_mb', value: 4096, tags: 'host=server1' },
+])
+
+// Query from materialized view (fast, pre-computed)
+const cpuStats = hourlyMetrics.get({ metric_name: 'cpu_usage' })
+console.log('CPU avg:', cpuStats?.avg)
+```
+
+### Window Functions
+
+```typescript
+const sales = new MergeTreeTable<SalesRow>({
+  name: 'sales',
+  engine: 'MergeTree',
+  columns: [
+    { name: 'sale_date', type: 'Date' },
+    { name: 'product', type: 'String' },
+    { name: 'amount', type: 'Float64' },
+  ],
+  orderBy: ['sale_date'],
+})
+
+// Ranking within partitions
+const ranked = sales.selectWithWindow({
+  columns: ['product', 'amount'],
+  window: {
+    rowNumber: 'rank',
+    partitionBy: ['product'],
+    orderBy: [{ column: 'amount', direction: 'DESC' }],
+  },
+})
+
+// Running totals
+const withRunningTotal = sales.selectWithWindow({
+  columns: ['sale_date', 'amount'],
+  window: {
+    sum: { column: 'amount', alias: 'running_total' },
+    orderBy: [{ column: 'sale_date', direction: 'ASC' }],
+    frame: { type: 'ROWS', start: 'UNBOUNDED PRECEDING', end: 'CURRENT ROW' },
+  },
+})
+
+// Compare to previous value
+const withLag = sales.selectWithWindow({
+  columns: ['sale_date', 'amount'],
+  window: {
+    lag: { column: 'amount', offset: 1, default: 0, alias: 'prev_amount' },
+    orderBy: [{ column: 'sale_date', direction: 'ASC' }],
+  },
+})
+```
+
+### CUBE and ROLLUP
+
+```typescript
+// ROLLUP for hierarchical subtotals
+const rollup = sales.rollup({
+  dimensions: ['category', 'product'],
+  measures: {
+    total: { $sum: 'amount' },
+    count: { $count: {} },
+  },
+})
+// Returns: (category, product), (category, null), (null, null)
+
+// CUBE for all combinations
+const cube = sales.cube({
+  dimensions: ['category', 'region'],
+  measures: {
+    total: { $sum: 'amount' },
+  },
+})
+// Returns: (category, region), (category, null), (null, region), (null, null)
+
+// GROUPING SETS for specific combinations
+const sets = sales.groupingSets({
+  sets: [
+    ['category', 'region'],
+    ['category'],
+    [],
+  ],
+  measures: {
+    total: { $sum: 'amount' },
+  },
+})
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { ClickHouseClient } from '@dotdo/clickhouse'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new ClickHouseClient({ mode: 'memory' })
+
+    // Create table for this request's analytics
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS request_metrics (
+        timestamp DateTime,
+        path String,
+        status UInt16,
+        latency_ms UInt32
+      ) ENGINE = MergeTree()
+      ORDER BY timestamp
+    `)
+
+    // Process and aggregate request data
+    const result = await client.query(`
+      SELECT path, avg(latency_ms) as avg_latency, count(*) as requests
+      FROM request_metrics
+      GROUP BY path
+      ORDER BY requests DESC
+      LIMIT 10
+    `)
+
+    return Response.json(result.rows)
+  },
+}
+```
+
+## API Reference
+
+### ClickHouseClient
+
+```typescript
+interface ClickHouseConfig {
+  mode: 'memory' | 'remote'
+  host?: string
+  port?: number
+  database?: string
+  user?: string
+  password?: string
+}
+
+class ClickHouseClient {
+  constructor(config: ClickHouseConfig)
+
+  // Execute SQL query
+  query<T>(sql: string): Promise<QueryResult<T>>
+
+  // Get table by name
+  getTable(name: string): MergeTreeTable | undefined
+
+  // List all tables
+  listTables(): string[]
+
+  // Close client
+  close(): Promise<void>
+}
+
+interface QueryResult<T> {
+  success: boolean
+  rows: T[]
+  rowsAffected?: number
+  statistics?: QueryStatistics
+  error?: string
+}
+
+interface QueryStatistics {
+  rowsRead: number
+  rowsReturned: number
+  bytesRead: number
+  elapsedMs: number
+}
+```
+
+### MergeTreeTable
+
+```typescript
+interface TableSchema<T> {
+  name: string
+  engine: 'MergeTree' | 'ReplacingMergeTree' | 'AggregatingMergeTree' | 'SummingMergeTree' | 'CollapsingMergeTree'
+  columns: ColumnDef[]
+  orderBy: (keyof T)[]
+  partitionBy?: string
+  primaryKey?: (keyof T)[]
+  ttl?: string
+  versionColumn?: string  // For ReplacingMergeTree
+  signColumn?: string     // For CollapsingMergeTree
+}
+
+class MergeTreeTable<T> {
+  constructor(schema: TableSchema<T>)
+
+  // Insert operations
+  insert(row: T): void
+  insertBatch(rows: T[]): void
+  insertColumnar(data: { [K in keyof T]?: T[K][] }): void
+
+  // Query operations
+  rowCount(): number
+  selectAll(): T[]
+  select(options: SelectOptions<T>): T[]
+
+  // Aggregations
+  aggregate(spec: AggregateSpec): AggregateResult
+  groupBy(columns: string[], aggregations: AggregateSpec, options?: GroupByOptions): GroupByResult
+
+  // Window functions
+  selectWithWindow(options: WindowSelectOptions<T>): T[]
+
+  // OLAP operations
+  cube(spec: CubeRollupSpec<T>): GroupedRow[]
+  rollup(spec: CubeRollupSpec<T>): GroupedRow[]
+  groupingSets(spec: GroupingSetsSpec<T>): GroupedRow[]
+}
+```
+
+### MaterializedView
+
+```typescript
+class MaterializedView<T> {
+  constructor(config: {
+    name: string
+    source: MergeTreeTable<T>
+    aggregations: AggregateSpec
+    groupBy: (keyof T)[]
+    refreshInterval?: number  // Auto-refresh in milliseconds
+  })
+
+  // Get all cached results
+  getResults(): Record<string, unknown>[]
+
+  // Get result for specific group key
+  get(keyValues: Record<string, unknown>): Record<string, unknown> | undefined
+
+  // Manual refresh
+  refresh(): void
+
+  // Check if cache is stale
+  isStale(maxAge: number): boolean
+
+  // Cleanup
+  dispose(): void
+}
+```
+
+## Testing with ClickHouseClient
+
+ClickHouseClient is ideal for unit tests - no external ClickHouse required:
+
+```typescript
+import { ClickHouseClient, MergeTreeTable } from '@dotdo/clickhouse'
+
+describe('AnalyticsRepository', () => {
+  let client: ClickHouseClient
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    client = new ClickHouseClient({ mode: 'memory' })
+  })
+
+  it('should aggregate events', async () => {
+    await client.query(`
+      CREATE TABLE events (
+        event_type String,
+        count UInt32
+      ) ENGINE = MergeTree()
+      ORDER BY event_type
+    `)
+
+    await client.query(`
+      INSERT INTO events VALUES
+      ('click', 10),
+      ('click', 20),
+      ('view', 100)
+    `)
+
+    const result = await client.query<{ event_type: string; total: number }>(`
+      SELECT event_type, sum(count) as total
+      FROM events
+      GROUP BY event_type
+    `)
+
+    expect(result.rows).toContainEqual({ event_type: 'click', total: 30 })
+    expect(result.rows).toContainEqual({ event_type: 'view', total: 100 })
+  })
+})
+```
+
+## Types
+
+```typescript
+import type {
+  // Client types
+  ClickHouseClient,
+  ClickHouseConfig,
+  QueryResult,
+  QueryStatistics,
+
+  // Table types
+  MergeTreeTable,
+  TableSchema,
+  ColumnDef,
+  ClickHouseType,
+  MergeTreeEngine,
+
+  // Query types
+  SelectOptions,
+  WhereClause,
+  WhereOperator,
+  OrderByClause,
+
+  // Aggregation types
+  AggregateSpec,
+  AggregateResult,
+  GroupByOptions,
+  GroupByResult,
+
+  // Window types
+  WindowSpec,
+  WindowSelectOptions,
+
+  // OLAP types
+  CubeRollupSpec,
+  GroupedRow,
+
+  // Engine types
+  ClickHouseEngine,
+  QueryPlanner,
+  MaterializedView,
+  PlanNode,
+  ExplainResult,
+
+  // Aggregator types
+  Aggregator,
+  AggregatorState,
+  AggregatorType,
+} from '@dotdo/clickhouse'
+```
+
+## Related
+
+- [clickhouse.do](/docs/integrations/clickhouse/service) - Managed ClickHouse on the edge
+- [Postgres Integration](/docs/integrations/postgres) - SQL database support
+- [mongo.do](/docs/integrations/mongo/service) - MongoDB on the edge

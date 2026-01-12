@@ -1,9 +1,9 @@
 ---
-title: InfluxDB
-description: Drop-in replacement for InfluxDB v2 with Flux queries, line protocol, and time-series primitives on the edge.
+title: "@dotdo/influxdb"
+description: InfluxDB v2-compatible time-series storage for edge environments and testing.
 ---
 
-# InfluxDB
+# @dotdo/influxdb
 
 Drop-in replacement for InfluxDB v2 API. Your existing InfluxDB queries and line protocol work unchanged - just swap the import.
 
@@ -28,7 +28,11 @@ writeApi.writePoint(
 await writeApi.close()
 ```
 
-## Why influxdb.do?
+<Callout type="info">
+Looking for persistent storage? See [influxdb.do](/docs/integrations/influxdb/service) for a fully managed time-series database on the edge.
+</Callout>
+
+## Why @dotdo/influxdb?
 
 | InfluxDB | @dotdo/influxdb |
 |----------|-----------------|
@@ -39,6 +43,12 @@ await writeApi.close()
 | Connection pooling issues | DO-backed storage |
 
 **This is a time-series compatibility layer.** It provides InfluxDB v2 compatible APIs backed by unified primitives (TemporalStore, TypedColumnStore, WindowManager, InvertedIndex).
+
+## Installation
+
+```bash
+npm install @dotdo/influxdb
+```
 
 ## Features
 
@@ -98,12 +108,6 @@ await writeApi.close()
 - Telegraf plugin compatibility
 - Remote InfluxDB cluster connections
 - Organizations API (full CRUD)
-
-## Installation
-
-```bash
-npm install @dotdo/influxdb
-```
 
 ## Quick Start
 
@@ -467,7 +471,7 @@ const restored = SeriesTagIndex.deserialize(bytes)
 index.remove('cpu:host=server01,region=us-west')
 ```
 
-## Edge Deployment
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -509,6 +513,42 @@ export default {
     return Response.json({ stats })
   },
 }
+```
+
+## Testing with @dotdo/influxdb
+
+@dotdo/influxdb is ideal for unit tests - no external InfluxDB required:
+
+```typescript
+import { InfluxDB, Point } from '@dotdo/influxdb'
+
+describe('MetricsCollector', () => {
+  let client: InfluxDB
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    client = new InfluxDB({ org: 'test' })
+  })
+
+  it('should record cpu metrics', async () => {
+    const writeApi = client.getWriteApi('test', 'metrics')
+
+    writeApi.writePoint(
+      Point('cpu').tag('host', 'test-host').floatField('usage', 45.2)
+    )
+    await writeApi.close()
+
+    const queryApi = client.getQueryApi('test')
+    const rows = await queryApi.collectRows(`
+      from(bucket: "metrics")
+      |> range(start: -1h)
+      |> filter(fn: (r) => r._measurement == "cpu")
+    `)
+
+    expect(rows.length).toBe(1)
+    expect(rows[0]._value).toBe(45.2)
+  })
+})
 ```
 
 ## API Reference
@@ -732,161 +772,37 @@ const timestamp = resolveRelativeTime('-1h', Date.now())
 const client = createClient({ org: 'my-org' })
 ```
 
-## Common Patterns
+## Migration from @influxdata/influxdb-client
 
-### IoT Sensor Data
+### Import Change
 
 ```typescript
-import { InfluxDB, Point, RetentionManager, DownsampleManager } from '@dotdo/influxdb'
+// Before: InfluxDB official client
+import { InfluxDB, Point } from '@influxdata/influxdb-client'
 
-// Initialize
-const client = new InfluxDB({ org: 'iot' })
-const retention = new RetentionManager()
-const downsample = new DownsampleManager()
-
-// Set up retention policies
-retention.createPolicy('realtime', { duration: '24h' })
-retention.createPolicy('hourly', { duration: '30d' })
-retention.createPolicy('daily', { duration: '1y' })
-
-// Set up downsampling
-downsample.createRule({
-  name: 'sensors_hourly',
-  sourceBucket: 'sensors',
-  destinationBucket: 'sensors_hourly',
-  measurement: 'temperature',
-  windowSize: '1h',
-  aggregation: 'mean',
-  groupBy: ['device_id', 'location'],
-})
-
-// Ingest sensor data
-async function ingestReading(deviceId: string, location: string, temp: number) {
-  const writeApi = client.getWriteApi('iot', 'sensors')
-
-  writeApi.writePoint(
-    Point('temperature')
-      .tag('device_id', deviceId)
-      .tag('location', location)
-      .floatField('celsius', temp)
-  )
-
-  await writeApi.close()
-
-  // Also process for downsampling
-  downsample.process('sensors', {
-    measurement: 'temperature',
-    tags: { device_id: deviceId, location: location },
-    fields: { celsius: temp },
-    timestamp: Date.now(),
-  })
-}
-
-// Query recent readings
-async function getRecentReadings(location: string) {
-  const queryApi = client.getQueryApi('iot')
-
-  return queryApi.collectRows(`
-    from(bucket: "sensors")
-    |> range(start: -1h)
-    |> filter(fn: (r) => r._measurement == "temperature")
-    |> filter(fn: (r) => r.location == "${location}")
-  `)
-}
+// After: dotdo
+import { InfluxDB, Point } from '@dotdo/influxdb'
 ```
 
-### Application Metrics
+### Code Migration
+
+Replace InfluxDB client initialization:
 
 ```typescript
-import { InfluxDB, Point, TimeSeriesStorage } from '@dotdo/influxdb'
+// Before
+const client = new InfluxDB({ url: 'http://localhost:8086', token: 'my-token' })
 
-const client = new InfluxDB({ org: 'app' })
-const storage = new TimeSeriesStorage()
+// After
+const client = new InfluxDB({ org: 'my-org' })
 
-// Record request metrics
-async function recordRequest(
-  path: string,
-  method: string,
-  statusCode: number,
-  latencyMs: number
-) {
-  const writeApi = client.getWriteApi('app', 'requests')
-
-  writeApi.writePoint(
-    Point('http_request')
-      .tag('path', path)
-      .tag('method', method)
-      .tag('status_class', `${Math.floor(statusCode / 100)}xx`)
-      .intField('status', statusCode)
-      .intField('latency_ms', latencyMs)
-  )
-
-  await writeApi.close()
-}
-
-// Calculate percentiles
-async function getLatencyStats(path: string) {
-  const queryApi = client.getQueryApi('app')
-
-  const [mean, p95, p99] = await Promise.all([
-    queryApi.collectRows(`
-      from(bucket: "requests")
-      |> range(start: -1h)
-      |> filter(fn: (r) => r.path == "${path}")
-      |> mean()
-    `),
-    // Note: percentile queries would need custom implementation
-  ])
-
-  return { mean }
-}
-```
-
-### Real-Time Dashboard
-
-```typescript
-import { InfluxDB, ContinuousQuery } from '@dotdo/influxdb'
-
-const client = new InfluxDB({ org: 'dashboard' })
-
-// Set up real-time aggregation for dashboard
-const realtimeStats = new Map<string, number>()
-
-const cq = new ContinuousQuery({
-  name: 'dashboard_1m',
-  sourceBucket: 'events',
-  destinationBucket: 'dashboard',
-  measurement: 'page_view',
-  windowSize: '1m',
-  aggregation: 'count',
-  groupBy: ['page'],
-  onResult: (point) => {
-    const page = point.tags.page ?? 'unknown'
-    realtimeStats.set(page, point.fields.count as number)
-  },
-})
-
-// Ingest page views
-function trackPageView(page: string, userId: string) {
-  const point = {
-    measurement: 'page_view',
-    tags: { page, user_id: userId },
-    fields: { count: 1 },
-    timestamp: Date.now(),
-  }
-
-  // Process through continuous query
-  cq.process(point)
-}
-
-// Get current stats
-function getDashboardStats() {
-  return Object.fromEntries(realtimeStats)
-}
+// All InfluxDB operations work the same
+const writeApi = client.getWriteApi('my-org', 'my-bucket')
+writeApi.writePoint(Point('cpu').tag('host', 'server01').floatField('usage', 45.2))
+await writeApi.close()
 ```
 
 ## Related
 
-- [ClickHouse](/docs/integrations/clickhouse) - Analytics database compatibility
+- [influxdb.do](/docs/integrations/influxdb/service) - Managed InfluxDB on the edge
+- [ClickHouse Integration](/docs/integrations/clickhouse) - Analytics database compatibility
 - [Time-Series Storage](/docs/storage) - Storage tier documentation
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

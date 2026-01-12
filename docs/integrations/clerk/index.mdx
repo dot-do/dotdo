@@ -1,0 +1,147 @@
+---
+title: Clerk
+description: Choose between @dotdo/clerk (OSS package) and clerk.do (managed edge service) for your authentication needs.
+---
+
+# Clerk Integration
+
+dotdo provides two ways to work with Clerk-compatible authentication APIs:
+
+| | @dotdo/clerk | clerk.do |
+|---|--------------|----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Storage** | In-memory | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/clerk` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/clerk - In-memory, great for tests
+import { createClerkClient } from '@dotdo/clerk'
+
+const clerk = createClerkClient({
+  secretKey: 'sk_test_...',
+})
+const user = await clerk.users.createUser({
+  email_address: ['test@example.com'],
+  password: 'TestPassword123!',
+})
+// Data lost on restart
+```
+
+```typescript
+// clerk.do - Persistent edge auth
+import { ClerkClient } from 'clerk.do'
+
+const clerk = new ClerkClient('https://your-clerk.workers.dev')
+const user = await clerk.users.createUser({
+  email_address: ['user@example.com'],
+  password: 'SecurePassword123!',
+})
+// Data persists globally
+```
+
+## When to Use Each
+
+### Use @dotdo/clerk when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Prototyping** - Quick iteration without infrastructure setup
+- **CI/CD pipelines** - Tests that need Clerk API semantics
+- **Local development** - Full Clerk API without network calls
+
+<Callout type="info">
+@dotdo/clerk is a complete in-memory Clerk implementation. Perfect for tests and development, but data doesn't persist between restarts.
+</Callout>
+
+### Use clerk.do when:
+
+- **Production applications** - Real user data that must persist
+- **Global edge deployment** - Authentication close to users worldwide
+- **Multi-tenant SaaS** - Organization and membership management
+- **Self-hosted auth** - Full data ownership and compliance
+
+<Callout type="info">
+clerk.do is Clerk on the Edge - a fully managed authentication service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/clerk | clerk.do |
+|---------|--------------|----------|
+| User CRUD | Full | Full |
+| Sessions & JWT | Full | Full |
+| Organizations | Full | Full |
+| Memberships & Roles | Full | Full |
+| Password Management | Full | Full |
+| Email/Phone Verification | Full | Full |
+| MFA/TOTP | Verification only | Full enrollment |
+| JWT Templates | Full | Full |
+| Webhooks | Full | Full |
+| OAuth Providers | - | Planned |
+| SAML SSO | - | Planned |
+| Edge Latency | N/A (in-memory) | 0ms cold start |
+| Data Persistence | None | SQLite in DO |
+
+## Pricing Comparison
+
+| | Clerk | clerk.do |
+|---|-------|----------|
+| **Pricing Model** | Per-MAU ($0.02-0.05/MAU) | Flat resource pricing |
+| **User Limits** | 10K (Free), varies by plan | Unlimited |
+| **Session Storage** | Clerk infrastructure | Your DO SQLite |
+| **Latency** | Single region | Edge (300+ cities) |
+| **Data Residency** | US/EU regions | Your choice |
+| **Self-hosted** | No | Yes |
+
+**The math:** 50,000 MAU on Clerk = $1,000-2,500/month. On clerk.do, it's included in your Cloudflare usage.
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/clerk/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/clerk</h3>
+    <p className="text-sm text-muted-foreground">In-memory Clerk for testing and development</p>
+  </a>
+  <a href="/docs/integrations/clerk/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">clerk.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Clerk on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/clerk` for development, then upgrade to `clerk.do` for production:
+
+```typescript
+// Development (package)
+import { createClerkClient } from '@dotdo/clerk'
+const clerk = createClerkClient({ secretKey: 'sk_test_...' })
+
+// Production (service) - same API!
+import { ClerkClient } from 'clerk.do'
+const clerk = new ClerkClient('https://your-clerk.workers.dev')
+
+// Your application code stays the same
+const user = await clerk.users.getUser(userId)
+const { data: sessions } = await clerk.sessions.getSessionList({ user_id: userId })
+```
+
+Both packages share the same Clerk-compatible API, making migration seamless.
+
+## Drop-in Replacement
+
+Both packages are designed as drop-in replacements for `@clerk/clerk-sdk-node`:
+
+```typescript
+// Before (official Clerk SDK)
+import { createClerkClient } from '@clerk/clerk-sdk-node'
+
+// After (dotdo - same API)
+import { createClerkClient } from '@dotdo/clerk'
+```
+
+Your existing Clerk code works unchanged. No migration required.

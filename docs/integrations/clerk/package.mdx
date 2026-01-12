@@ -1,67 +1,11 @@
 ---
-title: Clerk
-description: Drop-in replacement for @clerk/clerk-sdk-node with full user, session, and organization management on Durable Objects.
+title: "@dotdo/clerk"
+description: Clerk-compatible authentication SDK for edge environments and testing.
 ---
 
-# Clerk
+# @dotdo/clerk
 
-Drop-in replacement for `@clerk/clerk-sdk-node`. Same API, self-hosted on Durable Objects.
-
-```typescript
-// Before
-import { createClerkClient } from '@clerk/clerk-sdk-node'
-
-// After
-import { createClerkClient } from '@dotdo/clerk'
-```
-
-Your existing Clerk code works unchanged. No migration required.
-
-## Why clerk.do?
-
-| Feature | Clerk | clerk.do |
-|---------|-------|----------|
-| **Pricing** | Per-MAU ($0.02-0.05/MAU) | Flat resource pricing |
-| **User limits** | 10K (Free), varies by plan | Unlimited |
-| **Session storage** | Clerk infrastructure | Your DO SQLite |
-| **Latency** | Single region | Edge (300+ cities) |
-| **Data residency** | US/EU regions | Your choice |
-| **Self-hosted** | No | Yes |
-
-The math: 50,000 MAU on Clerk = $1,000-2,500/month. On dotdo, it's included.
-
-## Features
-
-| Feature | Status |
-|---------|--------|
-| User CRUD | Supported |
-| User metadata | Supported |
-| Email/phone verification | Supported |
-| Password management | Supported |
-| User banning/locking | Supported |
-| Sessions | Supported |
-| Session tokens (JWT) | Supported |
-| Token verification | Supported |
-| Organizations | Supported |
-| Organization memberships | Supported |
-| Organization invitations | Supported |
-| Roles & permissions | Supported |
-| JWT templates | Supported |
-| Webhooks | Supported |
-| MFA/TOTP verification | Supported |
-| OAuth providers | Planned |
-| SAML SSO | Planned |
-| Full TOTP enrollment | Planned |
-
-## Quick Start
-
-### Install
-
-```bash
-npm install @dotdo/clerk
-```
-
-### Create Client
+Drop-in replacement for `@clerk/clerk-sdk-node`. Same API, runs in-memory for testing and edge environments.
 
 ```typescript
 import { createClerkClient } from '@dotdo/clerk'
@@ -70,11 +14,101 @@ const clerk = createClerkClient({
   secretKey: 'sk_test_...',
   publishableKey: 'pk_test_...',
 })
+
+const user = await clerk.users.createUser({
+  email_address: ['alice@example.com'],
+  password: 'SecurePassword123!',
+  first_name: 'Alice',
+})
 ```
+
+<Callout type="info">
+Looking for persistent storage? See [clerk.do](/docs/integrations/clerk/service) for a fully managed Clerk-compatible edge service.
+</Callout>
+
+## Why @dotdo/clerk?
+
+| Clerk SDK | @dotdo/clerk |
+|-----------|--------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Requires Clerk account | In-memory, no external dependencies |
+| Network latency | Zero latency |
+| Per-MAU pricing | Free for testing |
+| Complex test setup | Perfect for unit tests |
+
+**This is an in-memory implementation** with a Clerk-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and development where you need authentication without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/clerk
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**User Management**
+- `createUser()`, `getUser()`, `getUserList()` - User CRUD
+- `updateUser()`, `deleteUser()` - User modifications
+- `banUser()`, `unbanUser()` - User banning
+- `lockUser()`, `unlockUser()` - Account locking
+- `verifyPassword()` - Password verification
+- User metadata (public/private/unsafe)
+
+**Sessions**
+- `getSession()`, `getSessionList()` - Session retrieval
+- `getToken()` - JWT generation with templates
+- `revokeSession()` - Session revocation
+- `verifyToken()` - JWT verification
+
+**Organizations**
+- `createOrganization()`, `getOrganization()` - Org CRUD
+- `updateOrganization()`, `deleteOrganization()`
+- `createOrganizationMembership()` - Add members
+- `updateOrganizationMembership()` - Update roles
+- `deleteOrganizationMembership()` - Remove members
+- `createOrganizationInvitation()` - Send invites
+- `revokeOrganizationInvitation()` - Revoke invites
+
+**Roles & Permissions**
+- `createOrganizationRole()` - Define custom roles
+- Role-based permissions
+
+**JWT Templates**
+- `createJWTTemplate()` - Create templates
+- `getJWTTemplate()`, `listJWTTemplates()`
+- `updateJWTTemplate()`, `deleteJWTTemplate()`
+
+**Verification**
+- Email verification with codes
+- Phone verification with codes
+- TOTP verification
+- MFA disable
+
+**Webhooks**
+- Svix-compatible webhook verification
+- All standard Clerk event types
+
+### Not Yet Implemented
+
+- OAuth providers (Google, GitHub, etc.)
+- SAML SSO
+- Full TOTP enrollment flow
+- Passkeys/WebAuthn
+
+## Quick Start
 
 ### User Management
 
 ```typescript
+import { createClerkClient } from '@dotdo/clerk'
+
+const clerk = createClerkClient({
+  secretKey: 'sk_test_...',
+  publishableKey: 'pk_test_...',
+})
+
 // Create a user
 const user = await clerk.users.createUser({
   email_address: ['user@example.com'],
@@ -282,40 +316,6 @@ const { verified } = await clerk.users.verifyTOTP({
 await clerk.users.disableMFA(user.id)
 ```
 
-## Inbound Compatibility
-
-Works with Clerk frontend libraries:
-
-```typescript
-// @clerk/nextjs - pages directory
-import { ClerkProvider } from '@clerk/nextjs'
-
-export default function App({ Component, pageProps }) {
-  return (
-    <ClerkProvider
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-      // Point to your clerk.do backend
-      backendUrl="https://clerk.your-domain.com"
-    >
-      <Component {...pageProps} />
-    </ClerkProvider>
-  )
-}
-```
-
-```typescript
-// @clerk/clerk-react
-import { ClerkProvider, SignIn, SignUp, UserButton } from '@clerk/clerk-react'
-
-function App() {
-  return (
-    <ClerkProvider publishableKey={publishableKey}>
-      <UserButton />
-    </ClerkProvider>
-  )
-}
-```
-
 ### Webhook Handling
 
 ```typescript
@@ -356,107 +356,7 @@ app.post('/webhooks/clerk', async (req, res) => {
 })
 ```
 
-## Outbound - Connecting to Real Clerk
-
-For hybrid setups where you want to use Clerk for some features:
-
-```typescript
-import { createClerkClient } from '@dotdo/clerk'
-
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-  // Enable outbound mode to proxy to real Clerk
-  outbound: {
-    enabled: true,
-    baseUrl: 'https://api.clerk.com',
-  },
-})
-
-// Requests are forwarded to Clerk's API
-const user = await clerk.users.getUser('user_123')
-```
-
-## Integration with dotdo Auth Middleware
-
-Connect clerk.do with dotdo's authentication middleware:
-
-```typescript
-import { authMiddleware, createSessionValidator } from '@dotdo/api/middleware/auth'
-import { createClerkClient } from '@dotdo/clerk'
-
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-})
-
-// Create a session validator using Clerk
-const validateClerkSession = async (token: string) => {
-  try {
-    const { userId, sessionId, claims } = await clerk.verifyToken(token)
-    const user = await clerk.users.getUser(userId)
-
-    return {
-      userId,
-      email: user.email_addresses[0]?.email_address,
-      role: user.public_metadata.role as 'admin' | 'user' ?? 'user',
-      expiresAt: new Date(claims.exp * 1000),
-      activeOrganizationId: claims.org_id,
-    }
-  } catch {
-    return null
-  }
-}
-
-// Use with Hono middleware
-app.use('*', authMiddleware({
-  validateSession: validateClerkSession,
-  sessionCache: env.KV,
-  sessionCacheTtl: 300,
-}))
-
-// Protected routes
-app.get('/api/user', requireAuth(), async (c) => {
-  const auth = c.get('auth')
-  return c.json({ userId: auth.userId })
-})
-
-app.get('/api/admin', requireRole('admin'), async (c) => {
-  return c.json({ message: 'Admin only' })
-})
-```
-
-### Durable Object Integration
-
-For maximum performance, run clerk.do directly in your DO:
-
-```typescript
-import { DurableObject } from 'cloudflare:workers'
-import { createClerkClient } from '@dotdo/clerk'
-
-export class AuthDO extends DurableObject {
-  private clerk = createClerkClient({
-    secretKey: this.env.CLERK_SECRET_KEY,
-  })
-
-  async createUser(params: CreateUserParams) {
-    return this.clerk.users.createUser(params)
-  }
-
-  async verifySession(token: string) {
-    return this.clerk.verifyToken(token)
-  }
-
-  async getUserOrganizations(userId: string) {
-    const { data } = await this.clerk.organizations.getOrganizationMembershipList({
-      userId,
-    })
-    return data.map(m => m.organization)
-  }
-}
-```
-
-## TypeScript Types
-
-Full TypeScript support with Clerk-compatible types:
+## Type-Safe Usage
 
 ```typescript
 import type {
@@ -468,27 +368,18 @@ import type {
   ClerkUser,
   ClerkEmailAddress,
   ClerkPhoneNumber,
-  ClerkWeb3Wallet,
-  ClerkExternalAccount,
-  ClerkVerification,
   CreateUserParams,
   UpdateUserParams,
 
   // Session types
   ClerkSession,
-  ClerkSessionActor,
   ClerkSessionClaims,
 
   // Organization types
   ClerkOrganization,
   ClerkOrganizationMembership,
   ClerkOrganizationInvitation,
-  ClerkOrganizationRole,
-  ClerkOrganizationPermission,
-  ClerkOrganizationDomain,
   CreateOrganizationParams,
-  UpdateOrganizationParams,
-  CreateInvitationParams,
 
   // JWT types
   ClerkJWTTemplate,
@@ -504,10 +395,7 @@ import type {
 
   // Error types
   ClerkError,
-  ClerkErrorDetail,
 } from '@dotdo/clerk'
-
-import { ClerkAPIError } from '@dotdo/clerk'
 ```
 
 ## Error Handling
@@ -535,7 +423,54 @@ try {
 // - verification_expired: Verification code expired
 ```
 
-## Migration from Clerk
+## Testing with @dotdo/clerk
+
+@dotdo/clerk is ideal for unit tests - no external Clerk required:
+
+```typescript
+import { createClerkClient } from '@dotdo/clerk'
+
+describe('AuthService', () => {
+  let clerk: ReturnType<typeof createClerkClient>
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    clerk = createClerkClient({
+      secretKey: 'sk_test_...',
+    })
+  })
+
+  it('should create and authenticate a user', async () => {
+    const user = await clerk.users.createUser({
+      email_address: ['test@example.com'],
+      password: 'TestPassword123!',
+    })
+    expect(user.id).toBeDefined()
+
+    const { verified } = await clerk.users.verifyPassword({
+      userId: user.id,
+      password: 'TestPassword123!',
+    })
+    expect(verified).toBe(true)
+  })
+
+  it('should manage organizations', async () => {
+    const user = await clerk.users.createUser({
+      email_address: ['owner@example.com'],
+      password: 'TestPassword123!',
+    })
+
+    const org = await clerk.organizations.createOrganization({
+      name: 'Test Org',
+      created_by: user.id,
+    })
+
+    expect(org.name).toBe('Test Org')
+  })
+})
+```
+
+## Migration from Clerk SDK
 
 ### Package Change
 
@@ -567,144 +502,6 @@ CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_WEBHOOK_SECRET=whsec_...
 ```
 
-## Architecture
-
-Each tenant gets isolated user storage in Durable Objects:
-
-```
-+-----------------------------------------------------------+
-|                      Client App                            |
-|            clerk.users.getUser(userId)                     |
-+-----------------------------------------------------------+
-                            |
-                            v
-+-----------------------------------------------------------+
-|                  Edge (Nearest Colo)                       |
-|                   0ms cold start                           |
-+-----------------------------------------------------------+
-                            |
-                            v
-+-----------------------------------------------------------+
-|                      Auth DO                               |
-|                                                            |
-|   +---------------------------------------------------+   |
-|   |                  SQLite State                      |   |
-|   |   - Users table (with indexes)                    |   |
-|   |   - Sessions table                                |   |
-|   |   - Organizations table                           |   |
-|   |   - Memberships table                             |   |
-|   |   - Invitations table                             |   |
-|   |   - JWT templates                                 |   |
-|   +---------------------------------------------------+   |
-|                                                            |
-|   +---------------------------------------------------+   |
-|   |              Temporal Store                        |   |
-|   |   - Session tokens with TTL                       |   |
-|   |   - Verification codes with expiry                |   |
-|   |   - Password reset tokens                         |   |
-|   +---------------------------------------------------+   |
-+-----------------------------------------------------------+
-```
-
-Benefits over Clerk:
-- **Edge-native**: Auth checks at nearest location (300+ cities)
-- **No per-user fees**: Pay only for compute
-- **Data ownership**: Your data stays in your infrastructure
-- **Full API compatibility**: Drop-in replacement
-
-## Common Patterns
-
-### Multi-Tenant SaaS
-
-```typescript
-// Each organization is a tenant
-const org = await clerk.organizations.createOrganization({
-  name: tenantName,
-  created_by: adminUserId,
-})
-
-// Add members with roles
-await clerk.organizations.createOrganizationMembership({
-  organizationId: org.id,
-  userId: newUserId,
-  role: 'member',
-})
-
-// Check permissions in middleware
-app.use('/api/:orgId/*', async (c, next) => {
-  const auth = c.get('auth')
-  const orgId = c.req.param('orgId')
-
-  const { data: memberships } = await clerk.organizations.getOrganizationMembershipList({
-    userId: auth.userId,
-    organizationId: orgId,
-  })
-
-  if (memberships.length === 0) {
-    throw new HTTPException(403, { message: 'Not a member of this organization' })
-  }
-
-  c.set('membership', memberships[0])
-  return next()
-})
-```
-
-### Role-Based Access Control
-
-```typescript
-// Define custom roles with permissions (roles are global, not per-org)
-await clerk.organizations.createOrganizationRole({
-  name: 'Editor',
-  key: 'editor',
-  description: 'Can edit content',
-  permissions: ['content:read', 'content:write'],
-})
-
-await clerk.organizations.createOrganizationRole({
-  name: 'Viewer',
-  key: 'viewer',
-  description: 'Read-only access',
-  permissions: ['content:read'],
-})
-
-// Get membership list and check permissions
-const { data: memberships } = await clerk.organizations.getOrganizationMembershipList({
-  organizationId: org.id,
-})
-
-const userMembership = memberships.find(m => m.public_user_data.user_id === user.id)
-
-if (userMembership?.permissions.includes('content:write')) {
-  // Allow write access
-}
-```
-
-### Impersonation
-
-Session impersonation is supported via the sessions module when using the extended API:
-
-```typescript
-import { createSessionsManager } from '@dotdo/clerk'
-
-// Using the sessions manager directly for advanced use cases
-const sessionsManager = createSessionsManager({
-  userManager,
-  jwtSecret: 'your-secret',
-})
-
-// Create impersonation session with actor
-const session = await sessionsManager.createSession({
-  userId: targetUserId,
-  actor: { sub: adminUserId },
-})
-
-// Verify impersonation in middleware
-const { claims } = await clerk.verifyToken(token)
-if (claims.act) {
-  console.log(`Impersonated by: ${claims.act.sub}`)
-}
-```
-
 ## API Reference
 
 ### ClerkClient
@@ -733,7 +530,6 @@ if (claims.act) {
 | `verifyPassword(params)` | Verify user password |
 | `verifyTOTP(params)` | Verify TOTP code |
 | `disableMFA(userId)` | Disable all MFA factors |
-| `getOrganizationMembershipList(params)` | Get user's org memberships |
 
 ### Sessions API
 
@@ -761,6 +557,6 @@ if (claims.act) {
 
 ## Related
 
+- [clerk.do](/docs/integrations/clerk/service) - Managed Clerk on the edge
 - [Auth0 Integration](/docs/integrations/auth0) - Auth0 compatibility layer
 - [API Middleware](/docs/api/middleware) - Request middleware including auth
-- [Security Authentication](/docs/security/authentication) - Authentication patterns

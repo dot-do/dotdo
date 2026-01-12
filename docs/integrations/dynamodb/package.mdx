@@ -1,20 +1,15 @@
 ---
-title: DynamoDB
-description: In-memory DynamoDB-compatible SDK for testing and edge development with AWS SDK v3 API compatibility.
+title: "@dotdo/dynamodb"
+description: DynamoDB-compatible in-memory SDK for edge environments and testing with AWS SDK v3 API compatibility.
 ---
 
-# DynamoDB
+# @dotdo/dynamodb
 
 In-memory implementation of the AWS DynamoDB JavaScript SDK (v3) API. Ideal for testing and development without requiring AWS credentials or network access.
 
 ```typescript
-// Before: AWS SDK
-import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-dynamodb'
-
-// After: dotdo
 import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@dotdo/dynamodb'
 
-// Code stays the same
 const client = new DynamoDBClient({ region: 'us-east-1' })
 
 await client.send(new PutItemCommand({
@@ -36,7 +31,11 @@ const result = await client.send(new GetItemCommand({
 }))
 ```
 
-## Why dynamodb.do?
+<Callout type="info">
+Looking for persistent storage? See [dynamodb.do](/docs/integrations/dynamodb/service) for a fully managed DynamoDB-compatible edge database.
+</Callout>
+
+## Why @dotdo/dynamodb?
 
 | AWS DynamoDB SDK | @dotdo/dynamodb |
 |------------------|-----------------|
@@ -47,6 +46,12 @@ const result = await client.send(new GetItemCommand({
 | Pay per request/provisioned | Free (in-memory) |
 
 **This is an in-memory DynamoDB implementation.** It provides a DynamoDB-compatible API backed by in-memory storage for testing and development. The API surface matches AWS SDK v3.
+
+## Installation
+
+```bash
+npm install @dotdo/dynamodb
+```
 
 ## Features
 
@@ -100,12 +105,6 @@ const result = await client.send(new GetItemCommand({
 - Backup and Restore
 - PartiQL queries
 - Export to S3
-
-## Installation
-
-```bash
-npm install @dotdo/dynamodb
-```
 
 ## Quick Start
 
@@ -228,7 +227,7 @@ await client.send(new DeleteItemCommand({
 }))
 ```
 
-## Local Testing
+## Testing with @dotdo/dynamodb
 
 The client runs entirely in-memory, making it perfect for testing:
 
@@ -325,6 +324,8 @@ describe('User Repository', () => {
 ### Conditional Writes
 
 ```typescript
+import { ConditionalCheckFailedException } from '@dotdo/dynamodb'
+
 // Put with condition (prevents overwrite)
 try {
   await client.send(new PutItemCommand({
@@ -636,38 +637,34 @@ import type {
 } from '@dotdo/dynamodb'
 ```
 
-## Using with AWS SDK Code
+## Edge Compatibility
 
-The `@dotdo/dynamodb` package matches the AWS SDK v3 API, making it easy to use your existing DynamoDB code in tests.
-
-### Test Setup
+Works in Cloudflare Workers without Node.js dependencies:
 
 ```typescript
-// In your tests, swap the import
-import { DynamoDBClient, PutItemCommand } from '@dotdo/dynamodb'
+// worker.ts
+import { DynamoDBClient, PutItemCommand, QueryCommand, clearAllTables } from '@dotdo/dynamodb'
 
-// Your existing code works unchanged
-const client = new DynamoDBClient({ region: 'us-east-1' })
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new DynamoDBClient({ region: 'us-east-1' })
+    const url = new URL(request.url)
 
-await client.send(new PutItemCommand({
-  TableName: 'Users',
-  Item: {
-    pk: { S: 'USER#123' },
-    sk: { S: 'PROFILE' },
-    name: { S: 'Alice' },
+    if (request.method === 'POST' && url.pathname === '/items') {
+      const body = await request.json()
+      await client.send(new PutItemCommand({
+        TableName: 'Items',
+        Item: body,
+      }))
+      return Response.json({ success: true })
+    }
+
+    return new Response('Not Found', { status: 404 })
   },
-}))
-
-const result = await client.send(new QueryCommand({
-  TableName: 'Users',
-  KeyConditionExpression: 'pk = :pk',
-  ExpressionAttributeValues: {
-    ':pk': { S: 'USER#123' },
-  },
-}))
+}
 ```
 
-### Dependency Injection Pattern
+## Dependency Injection Pattern
 
 For swappable implementations between test and production:
 
@@ -695,39 +692,6 @@ const repo = new UserRepository(new DynamoDBClient({}))
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 const repo = new UserRepository(new DynamoDBClient({ region: 'us-east-1' }))
 ```
-
-## Architecture
-
-```
-+-------------------------------------------------------------+
-|                    Your Application                          |
-|                                                              |
-|  const client = new DynamoDBClient({ region: 'us-east-1' }) |
-|  await client.send(new PutItemCommand({ ... }))             |
-+-------------------------------------------------------------+
-                              |
-                              v
-+-------------------------------------------------------------+
-|                   In-Memory Storage                          |
-+-------------------------------------------------------------+
-|                                                              |
-|  -> Global Map<string, TableMeta> for tables                 |
-|  -> Map<string, Item> per table for items                    |
-|  -> Full expression parsing (Key, Filter, Update, etc.)      |
-|  -> clearAllTables() to reset state between tests            |
-|                                                              |
-+-------------------------------------------------------------+
-```
-
-### Benefits
-
-- **Zero latency**: No network round-trips
-- **No AWS costs**: Free testing and development
-- **No credentials**: Works without AWS setup
-- **Predictable**: No external dependencies
-- **Testable**: Full control over data
-- **Offline**: Works without internet
-- **Fast tests**: In-memory storage for instant operations
 
 ## Common Patterns
 
@@ -843,6 +807,6 @@ await client.send(new UpdateItemCommand({
 
 ## Related
 
+- [dynamodb.do](/docs/integrations/dynamodb/service) - Managed DynamoDB on the edge
 - [Postgres Integration](/docs/integrations/postgres) - SQL database integration
 - [S3 Integration](/docs/integrations/s3) - Object storage integration
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

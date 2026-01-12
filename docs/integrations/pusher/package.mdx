@@ -1,9 +1,9 @@
 ---
-title: Pusher
-description: Drop-in replacement for Pusher Channels, self-hosted on Durable Objects with unlimited connections.
+title: "@dotdo/pusher"
+description: Drop-in replacement for pusher-js, self-hosted on Durable Objects with unlimited connections.
 ---
 
-# Pusher
+# @dotdo/pusher
 
 Drop-in replacement for `pusher-js`. Same API, self-hosted on Durable Objects.
 
@@ -17,20 +17,25 @@ import Pusher from '@dotdo/pusher'
 
 Your existing Pusher code works unchanged. No migration required.
 
-## Why pusher.do?
+<Callout type="info">
+Looking for a managed service? See [pusher.do](/docs/integrations/pusher/service) for zero-ops production deployment.
+</Callout>
 
-| Feature | Pusher | pusher.do |
-|---------|--------|-----------|
-| **Connections/channel** | 100 (Free), 10K (Enterprise) | Unlimited |
-| **Per-connection fees** | Yes ($0.0001/connection/day) | No |
-| **Per-message fees** | Yes ($0.000001/message) | No |
-| **Channel limit** | 100 per app (Free) | Unlimited |
-| **Message size** | 10KB | 128KB |
-| **Latency** | Single region | Edge (300+ cities) |
-| **Cold start** | N/A (hosted) | 0ms (V8 isolates) |
-| **Self-hosted** | No | Yes |
+## Why @dotdo/pusher?
 
-The math: 10,000 concurrent connections for 30 days on Pusher = $30/month minimum. On dotdo, it's included.
+| pusher-js | @dotdo/pusher |
+|-----------|---------------|
+| Requires Pusher Cloud subscription | Self-hosted on your Workers |
+| Per-connection and per-message fees | Pay only for compute |
+| Connection limits | Unlimited connections |
+| Single region latency | Edge deployment (300+ cities) |
+| 10KB message size | 128KB message size |
+
+## Installation
+
+```bash
+npm install @dotdo/pusher
+```
 
 ## Features
 
@@ -48,12 +53,6 @@ The math: 10,000 concurrent connections for 30 days on Pusher = $30/month minimu
 | Channel authorization endpoint | Planned |
 | Encrypted channels | Planned |
 | Webhooks | Planned |
-
-## Installation
-
-```bash
-npm install @dotdo/pusher
-```
 
 ## Quick Start
 
@@ -84,7 +83,6 @@ pusher.connection.bind('state_change', ({ previous, current }) => {
   console.log(`Connection: ${previous} -> ${current}`)
 })
 ```
-
 
 ## Channel Types
 
@@ -124,7 +122,9 @@ privateChannel.bind('pusher:subscription_error', (error) => {
 privateChannel.trigger('client-typing', { user: 'alice' })
 ```
 
-Note: Server-side authorization is planned. Currently, channels are auto-authorized for development.
+<Callout type="warn">
+Server-side authorization is planned. Currently, channels are auto-authorized for development.
+</Callout>
 
 ### Presence Channels
 
@@ -161,7 +161,9 @@ const specificMember = presence.members.get('user-123')
 const allMembers = presence.members.toArray()
 ```
 
-Note: Server-side presence authorization is planned. Currently, presence data is auto-generated for development.
+<Callout type="warn">
+Server-side presence authorization is planned. Currently, presence data is auto-generated for development.
+</Callout>
 
 ## Event Binding
 
@@ -267,7 +269,6 @@ Rules for client events:
 - Event name must start with `client-`
 - Channel must be subscribed
 - Sender does not receive their own event
-
 
 ## Connection Management
 
@@ -385,93 +386,47 @@ pusher.connection.bind('error', (error) => {
 })
 ```
 
-## Migration from Pusher
+## Testing with @dotdo/pusher
 
-### Package Change
-
-```bash
-# Remove
-npm uninstall pusher-js
-
-# Install
-npm install @dotdo/pusher
-```
-
-### Import Change
+@dotdo/pusher is ideal for unit tests - no external Pusher required:
 
 ```typescript
-// Before
-import Pusher from 'pusher-js'
+import Pusher, { _clearAll } from '@dotdo/pusher'
 
-// After
-import Pusher from '@dotdo/pusher'
-```
+describe('ChatRoom', () => {
+  let pusher: Pusher
 
-### Configuration
+  beforeEach(() => {
+    _clearAll() // Reset all channels
+    pusher = new Pusher('test-key')
+  })
 
-```typescript
-// Before: Pusher Cloud
-const pusher = new Pusher('your-key', {
-  cluster: 'us2',
-  forceTLS: true,
+  afterEach(() => {
+    pusher.disconnect()
+  })
+
+  it('should receive messages', async () => {
+    const channel = pusher.subscribe('chat-room')
+    const messages: any[] = []
+
+    channel.bind('message', (data) => {
+      messages.push(data)
+    })
+
+    // Simulate incoming message
+    channel.trigger('client-message', { text: 'Hello' })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe('Hello')
+  })
 })
-
-// After: dotdo (identical)
-const pusher = new Pusher('your-key', {
-  cluster: 'us2',
-  forceTLS: true,
-})
 ```
-
-## Architecture
-
-Each channel is backed by a Durable Object:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Client                                │
-│           pusher.subscribe('my-channel')                     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Edge (Nearest Colo)                       │
-│              WebSocket terminates here                       │
-│                  0ms cold start                              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Channel DO                               │
-│                                                              │
-│   ┌────────────────────────────────────────────────────┐    │
-│   │               SQLite State                          │    │
-│   │   - Connection registry                             │    │
-│   │   - Presence members                                │    │
-│   │   - Channel metadata                                │    │
-│   └────────────────────────────────────────────────────┘    │
-│                                                              │
-│   ┌────────────────────────────────────────────────────┐    │
-│   │         Hibernatable WebSockets                     │    │
-│   │   - 0 CPU when idle                                 │    │
-│   │   - Wake on message                                 │    │
-│   │   - Unlimited connections                           │    │
-│   └────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Benefits over Pusher Cloud:
-- **Edge-native**: Connections terminate at nearest location (300+ cities)
-- **No connection limits**: Durable Objects scale horizontally
-- **No per-message fees**: Pay only for compute
-- **Self-hosted**: Your data stays in your infrastructure
 
 ## Common Patterns
 
 ### Real-Time Chat
 
 ```typescript
-// Client
 const chat = pusher.subscribe('presence-chat-room') as PresenceChannel
 
 chat.bind('pusher:subscription_succeeded', (members) => {
@@ -498,26 +453,6 @@ chat.trigger('client-message', {
 })
 ```
 
-### Live Notifications
-
-```typescript
-// Client subscribes to user-specific channel
-const notifications = pusher.subscribe(`private-user-${userId}`)
-
-notifications.bind('notification', (data) => {
-  showNotification(data.title, data.body)
-})
-
-// Another client (e.g., sender) triggers notification via client event
-const senderChannel = pusher.subscribe(`private-user-${recipientId}`)
-senderChannel.trigger('client-notification', {
-  title: 'New message',
-  body: 'You have a new message from Alice',
-})
-```
-
-Note: Server-triggered events will be available when the Server SDK is implemented.
-
 ### Typing Indicators
 
 ```typescript
@@ -541,6 +476,17 @@ chat.bind('client-typing', (data) => {
   } else {
     hideTypingIndicator(data.user)
   }
+})
+```
+
+### Live Notifications
+
+```typescript
+// Client subscribes to user-specific channel
+const notifications = pusher.subscribe(`private-user-${userId}`)
+
+notifications.bind('notification', (data) => {
+  showNotification(data.title, data.body)
 })
 ```
 
@@ -587,7 +533,46 @@ chat.bind('client-typing', (data) => {
 | `channel.members.get(userId)` | Get member by ID |
 | `channel.members.toArray()` | Get all members |
 
+## Migration from pusher-js
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall pusher-js
+
+# Install
+npm install @dotdo/pusher
+```
+
+### Import Change
+
+```typescript
+// Before
+import Pusher from 'pusher-js'
+
+// After
+import Pusher from '@dotdo/pusher'
+```
+
+### Configuration
+
+```typescript
+// Before: Pusher Cloud
+const pusher = new Pusher('your-key', {
+  cluster: 'us2',
+  forceTLS: true,
+})
+
+// After: dotdo (identical API)
+const pusher = new Pusher('your-key', {
+  cluster: 'us2',
+  forceTLS: true,
+})
+```
+
 ## Related
 
+- [pusher.do](/docs/integrations/pusher/service) - Managed Pusher on the edge
 - [Realtime SDKs](/docs/compat/realtime) - Pusher, Ably, Socket.IO
 - [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS

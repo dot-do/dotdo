@@ -1,0 +1,176 @@
+---
+title: DuckDB
+description: Choose between @dotdo/duckdb (OSS package) and duckdb.do (managed edge service) for your analytical query needs.
+---
+
+# DuckDB Integration
+
+dotdo provides two ways to work with DuckDB-compatible analytical APIs:
+
+| | @dotdo/duckdb | duckdb.do |
+|---|---------------|-----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Runtime** | Node.js compatible | Edge-native WASM |
+| **Persistence** | In-memory or file | Durable Object SQLite |
+| **Use case** | Testing, local dev | Production analytics |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/duckdb` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/duckdb - Node.js-compatible API for testing
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+db.run('CREATE TABLE users (id INTEGER, name VARCHAR, age INTEGER)')
+db.run('INSERT INTO users VALUES (?, ?, ?)', [1, 'Alice', 30])
+
+const users = db.all('SELECT * FROM users WHERE age > ?', [25])
+// Great for unit tests - data resets on restart
+```
+
+```typescript
+// duckdb.do - Edge-native WASM analytics
+import { createDuckDB } from 'duckdb.do'
+
+const db = await createDuckDB(env)
+const result = await db.query(`
+  SELECT region, SUM(revenue) as total
+  FROM parquet_scan('sales.parquet')
+  GROUP BY region
+`)
+// Production-ready with R2/Parquet integration
+```
+
+## When to Use Each
+
+### Use @dotdo/duckdb when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Local development** - Quick iteration with familiar DuckDB API
+- **CI/CD pipelines** - Tests that need analytical SQL semantics
+- **Prototyping** - Experiment with DuckDB queries before production
+
+<Callout type="info">
+@dotdo/duckdb is a Node.js-compatible DuckDB implementation. Perfect for tests and development, but designed for local environments rather than edge deployment.
+</Callout>
+
+### Use duckdb.do when:
+
+- **Production analytics** - Real-time analytics at the edge
+- **Parquet queries** - Scan Parquet files from R2/S3
+- **Vector search** - HNSW-based semantic similarity
+- **Full-text search** - BM25-ranked text search
+- **Iceberg tables** - Query Apache Iceberg tables on R2
+
+<Callout type="info">
+duckdb.do is DuckDB on the Edge - analytical queries running in Cloudflare Workers via WebAssembly with native R2/Parquet integration.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/duckdb | duckdb.do |
+|---------|---------------|-----------|
+| CRUD Operations | ✅ Full | ✅ Full |
+| Prepared Statements | ✅ Full | ✅ Full |
+| Aggregate Functions | ✅ Full | ✅ Full |
+| Window Functions | ✅ Full | ✅ Full |
+| Edge Runtime | ❌ Node.js only | ✅ Cloudflare Workers |
+| R2/Parquet Integration | ❌ | ✅ Native |
+| Vector Search (VSS) | ❌ | ✅ HNSW indexes |
+| Full-Text Search (FTS) | ❌ | ✅ BM25 ranking |
+| Iceberg Tables | ❌ | ✅ Full support |
+| WASM Execution | ❌ | ✅ Pure WASM |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/duckdb/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/duckdb</h3>
+    <p className="text-sm text-muted-foreground">Node.js-compatible DuckDB for testing and development</p>
+  </a>
+  <a href="/docs/integrations/duckdb/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">duckdb.do</h3>
+    <p className="text-sm text-muted-foreground">Managed DuckDB WASM on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/duckdb` for development, then use `duckdb.do` for production:
+
+```typescript
+// Development (package) - Node.js compatible
+import { Database } from '@dotdo/duckdb'
+
+const db = new Database(':memory:')
+db.run('CREATE TABLE events (id INTEGER, event_type VARCHAR, timestamp TIMESTAMP)')
+
+const results = db.all(`
+  SELECT event_type, COUNT(*) as count
+  FROM events
+  GROUP BY event_type
+`)
+```
+
+```typescript
+// Production (service) - Edge WASM with Parquet
+import { createDuckDB, registerBuffer } from 'duckdb.do'
+
+const db = await createDuckDB(env)
+
+// Load Parquet from R2
+const file = await env.R2_BUCKET.get('events.parquet')
+await db.registerBuffer('events.parquet', await file.arrayBuffer())
+
+const results = await db.query(`
+  SELECT event_type, COUNT(*) as count
+  FROM parquet_scan('events.parquet')
+  GROUP BY event_type
+`)
+```
+
+Both packages share similar SQL syntax - the migration primarily involves switching to the WASM runtime and leveraging edge-specific features like R2 integration.
+
+## Architecture Comparison
+
+### @dotdo/duckdb
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { Database } from '@dotdo/duckdb' │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│           Node.js Runtime                │
+├─────────────────────────────────────────┤
+│  -> Shared SQL Engine                    │
+│  -> In-memory or file storage            │
+│  -> Local development                    │
+└─────────────────────────────────────────┘
+```
+
+### duckdb.do
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { createDuckDB } from 'duckdb.do' │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│           duckdb.do Worker               │
+├─────────────────────────────────────────┤
+│  DuckDB WASM  │  FTS Extension  │  VSS  │
+├─────────────────────────────────────────┤
+│           R2 / Parquet / Iceberg         │
+└─────────────────────────────────────────┘
+```
+
+Both approaches support analytical SQL - choose `@dotdo/duckdb` for local development and testing, `duckdb.do` for production edge analytics.

@@ -1,0 +1,176 @@
+---
+title: ClickHouse
+description: Choose between @dotdo/clickhouse (OSS package) and clickhouse.do (managed analytics service) for your analytics needs.
+---
+
+# ClickHouse Integration
+
+dotdo provides two ways to work with ClickHouse-compatible analytics APIs:
+
+| | @dotdo/clickhouse | clickhouse.do |
+|---|-------------------|---------------|
+| **Type** | OSS npm package | Managed analytics service |
+| **Storage** | In-memory | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, request-scoped analytics | Production OLAP workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/clickhouse` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/clickhouse - In-memory, great for tests
+import { ClickHouseClient } from '@dotdo/clickhouse'
+
+const client = new ClickHouseClient({ mode: 'memory' })
+
+await client.query(`
+  CREATE TABLE events (
+    event_date Date,
+    user_id UInt64,
+    views UInt32
+  ) ENGINE = MergeTree()
+  ORDER BY (event_date, user_id)
+`)
+
+await client.query(`INSERT INTO events VALUES ('2024-01-01', 1, 100)`)
+// Data lost on restart
+```
+
+```typescript
+// clickhouse.do - Persistent edge analytics
+import { ClickHouseClient } from 'clickhouse.do'
+
+const client = new ClickHouseClient('https://your-worker.workers.dev')
+
+await client.query(`
+  SELECT toStartOfHour(timestamp) as hour, count(*) as events
+  FROM events
+  WHERE timestamp > now() - INTERVAL 24 HOUR
+  GROUP BY hour
+`)
+// Data persists globally
+```
+
+## When to Use Each
+
+### Use @dotdo/clickhouse when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Request-scoped analytics** - Aggregate data within a single request
+- **Prototyping** - Quick iteration on OLAP queries without infrastructure
+- **Edge functions** - Need ClickHouse API but no persistence required
+
+<Callout type="info">
+@dotdo/clickhouse is a complete in-memory ClickHouse implementation with MergeTree tables and OLAP functions. Perfect for tests and development, but data doesn't persist between restarts.
+</Callout>
+
+### Use clickhouse.do when:
+
+- **Production analytics** - Real metrics and event data that must persist
+- **Global edge deployment** - Analytics close to users worldwide
+- **Time-series data** - Long-term storage with TTL and retention policies
+- **Dashboard backends** - Pre-aggregated materialized views for dashboards
+- **Real-time analytics** - Streaming aggregations and windowed queries
+
+<Callout type="info">
+clickhouse.do is ClickHouse on the Edge - a fully managed OLAP service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/clickhouse | clickhouse.do |
+|---------|-------------------|---------------|
+| MergeTree Engine | ✅ Schema only | ✅ Full (merge/compaction) |
+| SQL Queries | ✅ Core subset | ✅ Full ClickHouse SQL |
+| Aggregate Functions | ✅ 20+ functions | ✅ 100+ functions |
+| Window Functions | ✅ Via Table API | ✅ Native SQL |
+| CUBE/ROLLUP | ✅ Via Table API | ✅ Native SQL |
+| Materialized Views | ✅ In-memory | ✅ Persistent |
+| JOINs | ❌ | ✅ Full |
+| Distributed Tables | ❌ | ✅ Sharded |
+| TTL Policies | ✅ Schema only | ✅ Active |
+| Wire Protocol | ❌ | ✅ Native ClickHouse clients |
+| ClickHouse Pipes | ❌ | ✅ CDC integration |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/clickhouse/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/clickhouse</h3>
+    <p className="text-sm text-muted-foreground">In-memory ClickHouse for testing and development</p>
+  </a>
+  <a href="/docs/integrations/clickhouse/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">clickhouse.do</h3>
+    <p className="text-sm text-muted-foreground">Managed ClickHouse on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/clickhouse` for development, then upgrade to `clickhouse.do` for production:
+
+```typescript
+// Development (package)
+import { ClickHouseClient, MergeTreeTable } from '@dotdo/clickhouse'
+const client = new ClickHouseClient({ mode: 'memory' })
+
+// Production (service) - same SQL syntax!
+import { ClickHouseClient } from 'clickhouse.do'
+const client = new ClickHouseClient('https://your-analytics.workers.dev')
+
+// Your analytics queries stay the same
+const result = await client.query(`
+  SELECT event_type, sum(revenue) as total
+  FROM events
+  GROUP BY event_type
+  ORDER BY total DESC
+`)
+```
+
+Both packages share ClickHouse-compatible SQL, making migration seamless.
+
+## Architecture Comparison
+
+### @dotdo/clickhouse
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { ClickHouseClient }            │
+│        from '@dotdo/clickhouse'         │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│           In-Memory Engine              │
+│                                         │
+│  MergeTree Tables  │  SQL Parser        │
+│  Aggregators       │  Window Functions  │
+└─────────────────────────────────────────┘
+```
+
+### clickhouse.do
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { ClickHouseClient }            │
+│        from 'clickhouse.do'             │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│         clickhouse.do Worker            │
+├─────────────────────────────────────────┤
+│  Query Engine  │  Materialized Views    │
+├─────────────────────────────────────────┤
+│        Durable Object SQLite            │
+├─────────────────────────────────────────┤
+│  R2 (Cold Storage)  │  Vectorize (ML)   │
+└─────────────────────────────────────────┘
+```
+
+Both approaches support the same OLAP patterns (aggregations, window functions, time-series) - choose based on whether you need ephemeral in-memory analytics or persistent edge storage.
