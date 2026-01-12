@@ -17,6 +17,10 @@
   },
   "author": "dotdo team",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.1.0"
+  },
   "type": "module",
   "workspaces": [
     "packages/*"

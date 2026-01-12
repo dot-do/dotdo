@@ -3,7 +3,26 @@
  * CLI Entry Point
  *
  * Main entry point for the `do` CLI command.
+ * Requires Bun runtime: https://bun.sh
  */
+
+// Runtime check for helpful error if run without Bun
+if (typeof Bun === 'undefined') {
+  console.error(`
+dotdo CLI requires Bun runtime.
+
+Install Bun:
+  curl -fsSL https://bun.sh/install | bash
+
+Then run:
+  bunx dotdo <command>
+
+Or install globally:
+  bun add -g dotdo
+  do <command>
+`)
+  process.exit(1)
+}
 
 import { route, parseArgv, helpText, version } from './index'
 import { commands } from './commands/index'
