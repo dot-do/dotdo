@@ -139,10 +139,15 @@
     "./presets": {
       "types": "./dist/objects/presets/index.d.ts",
       "default": "./dist/objects/presets/index.js"
+    },
+    "./app": {
+      "types": "./dist/do/app.d.ts",
+      "default": "./dist/do/app.js"
     }
   },
   "files": [
     "dist",
+    "app/dist",
     "cli/*.ts",
     "cli/*.js",
     "cli/commands",
@@ -153,6 +158,7 @@
     "cli/README.md"
   ],
   "scripts": {
+    "prepublishOnly": "pnpm run typecheck && pnpm run build && pnpm run build:app",
     "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
     "dev": "wrangler dev",
     "dev:app": "cd app && pnpm run dev",

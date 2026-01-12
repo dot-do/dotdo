@@ -38,6 +38,9 @@
 // Re-export DO from full.ts (includes all capabilities)
 export { DO, capabilities, withFs, withGit, withBash } from './full'
 
+// Dashboard app - ready to deploy
+export { app } from './app'
+
 // Core Durable Object classes (excluding base DO which is overridden above)
 export { Agent, Human, Worker } from '../objects'
 export { Entity, Collection, Directory, Package, Product } from '../objects'
