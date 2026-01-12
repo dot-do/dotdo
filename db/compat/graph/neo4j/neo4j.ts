@@ -1604,14 +1604,17 @@ function traversePath(
 
   for (const rel of rels) {
     const nextNodeId = rel.startNodeId === startNode.id ? rel.endNodeId : rel.startNodeId
-    if (visited.has(nextNodeId)) continue
 
-    const nextNode = storage.getNode(nextNodeId)
+    // Allow self-loops only on the first hop (when we have a direct relationship to self)
+    const isSelfLoop = nextNodeId === startNode.id
+    if (visited.has(nextNodeId) && !isSelfLoop) continue
+
+    const nextNode = isSelfLoop ? startNode : storage.getNode(nextNodeId)
     if (!nextNode) continue
 
     if (hops === 1) {
       results.push({ endNode: nextNode, rels: [rel] })
-    } else {
+    } else if (!isSelfLoop) {
       const newVisited = new Set(visited)
       newVisited.add(nextNodeId)
       const subPaths = traversePath(nextNode, relPattern, hops - 1, storage, newVisited)

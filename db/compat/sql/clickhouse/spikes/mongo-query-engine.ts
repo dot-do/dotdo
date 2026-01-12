@@ -97,7 +97,8 @@ export interface QueryExpression {
 
 /** Top-level MongoDB query */
 export interface MongoQuery {
-  [field: string]: QueryValue | undefined
+  // Index signature includes all possible value types for compatibility
+  [field: string]: QueryValue | MongoQuery[] | MongoQuery | { $search: string; $language?: string } | { $near: number[]; $k?: number } | undefined
   $and?: MongoQuery[]
   $or?: MongoQuery[]
   $not?: MongoQuery

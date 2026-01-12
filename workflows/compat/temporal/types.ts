@@ -408,3 +408,54 @@ export interface WorkerHandler {
   /** Optional: Set of activity types this worker handles */
   activityTypes?: Set<string>
 }
+
+// ============================================================================
+// ACTIVITY WORKER POOL TYPES
+// ============================================================================
+
+/**
+ * Heartbeat details for long-running activities.
+ * Activities should periodically report progress via heartbeat.
+ */
+export interface HeartbeatDetails {
+  /** Progress percentage (0-100) */
+  progress?: number
+  /** Current status message */
+  message?: string
+  /** Custom details */
+  [key: string]: unknown
+}
+
+/**
+ * Activity worker status for health checks and monitoring.
+ */
+export interface ActivityWorkerStatus {
+  /** Task queue this worker handles */
+  taskQueue: string
+  /** Number of currently executing activities */
+  activeCount: number
+  /** Maximum concurrent activities allowed */
+  maxConcurrent: number
+  /** List of registered activity names */
+  activities: string[]
+  /** Worker start time */
+  startedAt?: number
+  /** Total activities processed */
+  totalProcessed?: number
+  /** Total activities failed */
+  totalFailed?: number
+}
+
+/**
+ * Options for remote activity execution via service binding.
+ */
+export interface RemoteActivityOptions {
+  /** Task queue where the activity worker is running */
+  taskQueue: string
+  /** Start-to-close timeout */
+  startToCloseTimeout?: string | number
+  /** Heartbeat timeout - activity must heartbeat within this interval */
+  heartbeatTimeout?: string | number
+  /** Retry policy */
+  retry?: RetryPolicy
+}

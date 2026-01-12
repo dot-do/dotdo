@@ -128,6 +128,128 @@ export {
 } from './schema-evolution'
 
 // =============================================================================
+// STATE MANAGEMENT
+// =============================================================================
+
+// StatefulOperator - Flink-style stream state management
+export {
+  // Core types
+  type StateBackend,
+  type StateSnapshot,
+  type StateDescriptor,
+  type StateTTLConfig,
+  type StateAccess,
+  type StateEntry,
+  type StateSerializer,
+  // InMemory backend
+  InMemoryStateBackend,
+  // KeyedState
+  type KeyedState,
+  type Partitioner,
+  HashPartitioner,
+  RangePartitioner,
+  createKeyedState,
+  // WindowState (renamed to avoid conflict with window-manager)
+  type WindowState as StatefulWindowState,
+  type WindowKey,
+  type WindowAssigner as StatefulWindowAssigner,
+  TumblingWindowAssigner as StatefulTumblingWindowAssigner,
+  SlidingWindowAssigner as StatefulSlidingWindowAssigner,
+  SessionWindowAssigner as StatefulSessionWindowAssigner,
+  createWindowState,
+  // CheckpointBarrier (renamed to avoid conflict with exactly-once-context)
+  type CheckpointBarrier as StatefulCheckpointBarrier,
+  type CheckpointOptions as StatefulCheckpointOptions,
+  type CheckpointResult,
+  type CheckpointSource,
+  type CheckpointSink,
+  type CheckpointCoordinatorConfig,
+  BarrierAligner,
+  CheckpointCoordinator,
+  // TTL
+  type TTLPolicy,
+  type CleanupStrategy,
+  type CleanupResult,
+  type AlarmScheduler,
+  TTLStateWrapper,
+  // Recovery
+  type CheckpointMetadata,
+  type CheckpointStore,
+  type StatefulOperator,
+  StateRecoveryManager,
+  // Metrics
+  type StateMetrics,
+  type MetricsRegistry,
+  type Counter as StateCounter,
+  type Gauge as StateGauge,
+  type Histogram as StateHistogram,
+  MetricsStateWrapper,
+  createStateMetrics,
+} from './stateful-operator'
+
+// =============================================================================
+// ORCHESTRATION
+// =============================================================================
+
+// DAGScheduler - Workflow orchestration with dependency resolution
+export {
+  // Core types
+  type TaskNode,
+  type TaskNodeOptions,
+  type DAG,
+  type DAGOptions,
+  type DAGRun,
+  type TaskResult,
+  type TaskStatus,
+  type DAGRunStatus,
+  type TaskContext,
+  // Dependency resolution
+  type DependencyResolver,
+  createDependencyResolver,
+  // Factories
+  createTaskNode,
+  createDAG,
+  dag,
+  task,
+  // Parallel execution
+  type ParallelExecutor,
+  type ExecutorOptions,
+  createParallelExecutor,
+  // Retry policies
+  type RetryPolicy,
+  type RetryPolicyInstance,
+  type BackoffStrategy,
+  type FixedBackoff,
+  type ExponentialBackoff,
+  type ExponentialJitterBackoff,
+  type CustomBackoff,
+  createRetryPolicy,
+  // State persistence
+  type DAGStateStore,
+  type DAGRunState,
+  type ListRunsOptions,
+  createInMemoryStateStore,
+  // Cron triggers
+  type CronTrigger,
+  type CronTriggerOptions,
+  type ParsedCron,
+  type ScheduleTrigger,
+  type CronScheduleTrigger,
+  type IntervalScheduleTrigger,
+  type EventScheduleTrigger,
+  createCronTrigger,
+  parseCronExpression,
+  // Dynamic tasks
+  type DynamicTaskGenerator,
+  // Cross-DAG dependencies
+  type ExternalDependency,
+  type DAGTrigger,
+  type Sensor,
+  type SensorOptions,
+  createSensor,
+} from './dag-scheduler'
+
+// =============================================================================
 // UTILITIES
 // =============================================================================
 

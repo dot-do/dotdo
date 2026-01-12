@@ -94,3 +94,44 @@ export type {
   NotificationCategory,
   NotificationSeverityLevel,
 } from './types'
+
+// Re-export graph algorithms
+export {
+  GraphAlgorithms,
+  type GraphNode,
+  type GraphEdge,
+  type PathResult,
+  type PageRankResult,
+  type CentralityResult,
+  type ComponentResult,
+  type PathConfig,
+  type PageRankConfig,
+  type ComponentConfig,
+  type CentralityConfig,
+  type TraversalConfig,
+} from './algorithms'
+
+// Re-export Cypher parser
+export {
+  CypherParser,
+  parseCypher,
+  parseCypherWhere,
+  CypherParseError,
+  type CypherNodePattern,
+  type CypherRelationshipPattern,
+  type CypherPathPattern,
+  type CypherSetClause,
+  type CypherRemoveClause,
+  type CypherReturnItem,
+  type ParsedCypherQuery,
+} from './cypher-parser'
+
+// Re-export graph storage (primitives integration)
+export {
+  GraphStorage,
+  createGraphStorage,
+  type StoredNode,
+  type StoredRelationship,
+  type GraphStorageOptions,
+  type GraphQueryOptions,
+} from './graph-storage'

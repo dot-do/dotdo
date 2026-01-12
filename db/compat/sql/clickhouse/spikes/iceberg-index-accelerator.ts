@@ -272,7 +272,7 @@ export class IcebergIndexAccelerator {
   private r2FetchCount = 0
 
   // Column cache (for recently accessed cold data)
-  private columnCache: Map<string, unknown[]> = new Map()
+  private columnCache: Map<string, Record<string, unknown[]>> = new Map()
   private cacheMaxBytes = 50 * 1024 * 1024 // 50MB cache limit
 
   /**
@@ -419,7 +419,7 @@ export class IcebergIndexAccelerator {
       if (this.columnCache.has(cacheKey)) {
         queryStats.cacheHits++
         const cached = this.columnCache.get(cacheKey)!
-        this.mergeColumnData(columnData, cached as Record<string, unknown[]>)
+        this.mergeColumnData(columnData, cached)
         continue
       }
 
@@ -473,7 +473,7 @@ export class IcebergIndexAccelerator {
   /**
    * Execute query entirely from index
    */
-  private executeFromIndex(query: ParsedQuery): unknown {
+  private executeFromIndex(query: ParsedQuery): unknown[] {
     this.readCount++
 
     if (query.isCountOnly) {

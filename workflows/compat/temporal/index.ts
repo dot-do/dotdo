@@ -3240,6 +3240,96 @@ export function random(): number {
 // EXPORTS
 // ============================================================================
 
+// Re-export activity worker pool types from activities module
+export {
+  createActivityWorker,
+  ActivityWorker,
+  registerRemoteActivityWorker,
+  getRemoteActivityWorker,
+  hasRemoteActivityWorker,
+  clearRemoteActivityWorkers,
+  type ActivityWorkerConfig,
+  type ActivityWorkerFunction,
+  type ActivityDefinitions,
+  type HeartbeatContext,
+  type HeartbeatActivityFunction,
+  type ActivityExecutionRequest,
+  type ActivityExecutionResponse,
+  type ActivityHeartbeatMessage,
+  type ActivityWorkerBinding,
+} from './activities'
+
+// Re-export unified primitives integration
+export {
+  // Activity deduplication
+  createActivityDeduplicationContext,
+  type ActivityDeduplicationContext,
+  // Workflow history store
+  createWorkflowHistoryStore,
+  type WorkflowHistoryStore,
+  type WorkflowHistoryEvent,
+  type WorkflowEventType,
+  // Timer and deadline management
+  createWorkflowTimerManager,
+  createWorkflowDeadlineManager,
+  type WorkflowTimerManager,
+  type WorkflowDeadlineManager,
+  type WorkflowTimerConfig,
+  type DeadlineConfig,
+  // Unified runtime
+  createUnifiedWorkflowRuntime,
+  type UnifiedWorkflowRuntime,
+  type UnifiedWorkflowRuntimeConfig,
+  // Re-exported primitives
+  ExactlyOnceContext,
+  createExactlyOnceContext,
+  createTemporalStore,
+  WindowManager,
+  EventTimeTrigger,
+  CountTrigger,
+  ProcessingTimeTrigger,
+  PurgingTrigger,
+  Trigger,
+  TriggerResult,
+  WatermarkService,
+  createWatermarkService,
+  seconds,
+  minutes,
+  hours,
+  milliseconds,
+} from './unified-primitives'
+
+// Re-export saga / compensation patterns
+export {
+  Saga,
+  SagaBuilder,
+  runSaga,
+  parallel,
+  withRetry,
+  withTimeout,
+  createDistributedSagaCoordinator,
+  SagaTimeoutError,
+  SagaCompensationError,
+  type SagaStep,
+  type SagaStepResult,
+  type SagaResult,
+  type SagaOptions,
+  type SagaState,
+  type SagaHandle,
+  type ParallelSagaSteps,
+  type DistributedSagaCoordinator,
+} from './saga'
+
+// Import activity worker functions for use in default export
+import {
+  createActivityWorker as _createActivityWorker,
+  ActivityWorker as _ActivityWorker,
+  registerRemoteActivityWorker as _registerRemoteActivityWorker,
+  getRemoteActivityWorker as _getRemoteActivityWorker,
+  hasRemoteActivityWorker as _hasRemoteActivityWorker,
+  clearRemoteActivityWorkers as _clearRemoteActivityWorkers,
+} from './activities'
+
 export default {
   defineSignal,
   defineQuery,
@@ -3291,6 +3381,13 @@ export default {
   createStorageStrategy,
   CFWorkflowsStorageStrategy,
   InMemoryStorageStrategy,
+  // Activity worker pool (for independent scaling)
+  createActivityWorker: _createActivityWorker,
+  ActivityWorker: _ActivityWorker,
+  registerRemoteActivityWorker: _registerRemoteActivityWorker,
+  getRemoteActivityWorker: _getRemoteActivityWorker,
+  hasRemoteActivityWorker: _hasRemoteActivityWorker,
+  clearRemoteActivityWorkers: _clearRemoteActivityWorkers,
   // Utility for testing
   __clearTemporalState,
 }

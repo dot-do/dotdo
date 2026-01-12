@@ -615,8 +615,8 @@ export class ThingsDB {
     ).count
 
     // Get page count and page size for size calculation
-    const pageCount = this.db.pragma('page_count')[0]['page_count'] as number
-    const pageSize = this.db.pragma('page_size')[0]['page_size'] as number
+    const pageCount = (this.db.pragma('page_count')[0] as Record<string, unknown>)['page_count'] as number
+    const pageSize = (this.db.pragma('page_size')[0] as Record<string, unknown>)['page_size'] as number
 
     return {
       thingCount,

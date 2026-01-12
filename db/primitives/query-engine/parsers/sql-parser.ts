@@ -883,14 +883,18 @@ export class SQLWhereParser {
     // Check for aggregate functions
     const token = this.current()
     if (token.type === 'KEYWORD' && ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ROW_NUMBER'].includes(token.value)) {
+      const fnName = token.value
       this.advance()
       this.match('(')
 
       let column: string | undefined
+      let columnArg = '*'
       if (this.current().value === '*') {
         this.advance()
+        columnArg = '*'
       } else if (this.current().value !== ')') {
         column = this.parseColumnRef()
+        columnArg = column
       }
 
       this.match(')')
@@ -915,8 +919,9 @@ export class SQLWhereParser {
         alias = this.parseIdentifier()
       }
 
+      // Return the full aggregate expression as source
       return {
-        source: column || token.value,
+        source: `${fnName}(${columnArg})`,
         alias,
         include: true,
       }

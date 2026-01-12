@@ -58,6 +58,7 @@ export interface ColumnConfig {
   type: JSONType
   nullable: boolean
   extractionThreshold: number // Frequency threshold for extraction
+  isExtracted?: boolean // Whether column has been extracted (from schema evolution)
 }
 
 // ============================================================================
