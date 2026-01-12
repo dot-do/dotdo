@@ -19,12 +19,15 @@ Filesystem capability for workflows that need file access.
 
 | Method | Description |
 |--------|-------------|
-| `readFile(path)` | Read file contents |
-| `writeFile(path, content)` | Write content to file |
-| `readDir(path)` | List directory contents |
+| `read(path, options?)` | Read file contents as string |
+| `write(path, content, options?)` | Write content to file |
+| `list(path, options?)` | List directory entries |
 | `exists(path)` | Check if path exists |
+| `delete(path)` | Delete file or directory |
 | `mkdir(path, options?)` | Create directory |
-| `rm(path, options?)` | Remove file or directory |
+| `stat(path)` | Get file/directory metadata |
+| `copy(src, dest)` | Copy file |
+| `move(src, dest)` | Move/rename file |
 
 ### Usage
 
@@ -34,8 +37,8 @@ const processConfig = async ($: WorkflowContext) => {
     throw new CapabilityError('fs', 'not_available', 'Filesystem required')
   }
 
-  const config = await $.fs.readFile('/config.json')
-  const parsed = JSON.parse(config.toString())
+  const config = await $.fs.read('/config.json')
+  const parsed = JSON.parse(config)
   return parsed
 }
 ```
@@ -111,7 +114,7 @@ Type guards for capability checking:
 // Check for filesystem capability
 if (hasFs($)) {
   // $ is now typed as WithFs
-  await $.fs.readFile('/data.json')
+  await $.fs.read('/data.json')
 }
 
 // Check for git capability

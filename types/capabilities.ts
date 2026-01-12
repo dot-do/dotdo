@@ -120,10 +120,42 @@ export interface FileStats {
 }
 
 /**
+ * Options for file read operations.
+ */
+export interface FsReadOptions {
+  encoding?: 'utf8' | 'base64' | 'binary'
+}
+
+/**
+ * Options for file write operations.
+ */
+export interface FsWriteOptions {
+  encoding?: 'utf8' | 'base64' | 'binary'
+}
+
+/**
+ * Directory entry returned by list operations.
+ */
+export interface FsEntry {
+  name: string
+  isDirectory: boolean
+}
+
+/**
+ * Options for directory listing operations.
+ */
+export interface FsListOptions {
+  filter?: (entry: FsEntry) => boolean
+}
+
+/**
  * Filesystem capability interface for workflows that need file access.
  *
  * Provides a unified API for file operations that can be backed by
- * different implementations (Node.js fs, Cloudflare R2, etc.).
+ * different implementations (DurableObjectStorage, fsx.do, etc.).
+ *
+ * All paths should be absolute (starting with `/`). Paths are automatically
+ * normalized to handle trailing slashes and ensure consistency.
  *
  * @example
  * ```typescript
@@ -132,8 +164,8 @@ export interface FileStats {
  *     throw new CapabilityError('fs', 'not_available', 'Filesystem required')
  *   }
  *
- *   const config = await $.fs.readFile('/config.json')
- *   const parsed = JSON.parse(config.toString())
+ *   const config = await $.fs.read('/config.json')
+ *   const parsed = JSON.parse(config)
  *   return parsed
  * }
  * ```
@@ -142,47 +174,51 @@ export interface FsCapability extends CapabilityModule {
   readonly name: 'fs'
 
   /**
-   * Read the entire contents of a file.
+   * Read file content as a string.
    *
-   * @param path - Absolute or relative path to the file
-   * @returns File contents as string or Buffer
+   * @param path - Absolute path to the file
+   * @param options - Read options (encoding)
+   * @returns File content as string
    * @throws Error if file doesn't exist or cannot be read
    *
    * @example
    * ```typescript
-   * const content = await $.fs.readFile('/app/config.json')
+   * const content = await $.fs.read('/app/config.json')
    * ```
    */
-  readFile(path: string): Promise<string | Buffer>
+  read(path: string, options?: FsReadOptions): Promise<string>
 
   /**
    * Write content to a file, creating it if it doesn't exist.
    *
-   * @param path - Absolute or relative path to the file
-   * @param content - Content to write (string or Buffer)
-   * @throws Error if parent directory doesn't exist or write fails
+   * Parent directories are NOT automatically created. Use `mkdir` with
+   * `recursive: true` first if needed.
+   *
+   * @param path - Absolute path to the file
+   * @param content - String content to write
+   * @param options - Write options (encoding)
    *
    * @example
    * ```typescript
-   * await $.fs.writeFile('/app/output.txt', 'Hello, World!')
+   * await $.fs.write('/app/output.txt', 'Hello, World!')
    * ```
    */
-  writeFile(path: string, content: string | Buffer): Promise<void>
+  write(path: string, content: string, options?: FsWriteOptions): Promise<void>
 
   /**
-   * Read the contents of a directory.
+   * List entries in a directory.
    *
-   * @param path - Path to the directory
-   * @returns Array of file and directory names in the directory
-   * @throws Error if path doesn't exist or isn't a directory
+   * @param path - Absolute path to directory
+   * @param options - List options (filter function)
+   * @returns Array of directory entries with name and isDirectory flag
    *
    * @example
    * ```typescript
-   * const files = await $.fs.readDir('/app/src')
-   * // ['index.ts', 'utils', 'components']
+   * const entries = await $.fs.list('/app/src')
+   * const files = entries.filter(e => !e.isDirectory)
    * ```
    */
-  readDir(path: string): Promise<string[]>
+  list(path: string, options?: FsListOptions): Promise<FsEntry[]>
 
   /**
    * Check if a file or directory exists at the given path.
@@ -200,6 +236,19 @@ export interface FsCapability extends CapabilityModule {
   exists(path: string): Promise<boolean>
 
   /**
+   * Delete a file or empty directory.
+   *
+   * @param path - Absolute path to delete
+   * @throws Error if path doesn't exist
+   *
+   * @example
+   * ```typescript
+   * await $.fs.delete('/app/temp/cache.json')
+   * ```
+   */
+  delete(path: string): Promise<void>
+
+  /**
    * Create a directory at the given path.
    *
    * @param path - Path where directory should be created
@@ -214,23 +263,9 @@ export interface FsCapability extends CapabilityModule {
   mkdir(path: string, options?: MkdirOptions): Promise<void>
 
   /**
-   * Remove a file or directory.
+   * Get file or directory metadata.
    *
-   * @param path - Path to remove
-   * @param options - Options for removal
-   * @throws Error if path doesn't exist (unless force: true)
-   *
-   * @example
-   * ```typescript
-   * await $.fs.rm('/app/temp', { recursive: true })
-   * ```
-   */
-  rm(path: string, options?: RmOptions): Promise<void>
-
-  /**
-   * Get file or directory statistics.
-   *
-   * @param path - Path to stat
+   * @param path - Absolute path to stat
    * @returns File statistics object
    * @throws Error if path doesn't exist
    *
@@ -242,34 +277,38 @@ export interface FsCapability extends CapabilityModule {
    * }
    * ```
    */
-  stat?(path: string): Promise<FileStats>
+  stat(path: string): Promise<FileStats>
 
   /**
-   * Copy a file or directory.
+   * Copy a file to a new location.
    *
-   * @param src - Source path
-   * @param dest - Destination path
-   * @param options - Copy options (recursive for directories)
+   * @param src - Source file path
+   * @param dest - Destination file path
+   * @throws Error if source doesn't exist
    *
    * @example
    * ```typescript
-   * await $.fs.copy('/app/config.json', '/app/config.backup.json')
+   * await $.fs.copy('/app/config.json', '/backup/config.json')
    * ```
    */
-  copy?(src: string, dest: string, options?: { recursive?: boolean }): Promise<void>
+  copy(src: string, dest: string): Promise<void>
 
   /**
-   * Move/rename a file or directory.
+   * Move a file to a new location.
    *
-   * @param src - Source path
-   * @param dest - Destination path
+   * This is an atomic operation: the source is deleted only after
+   * the destination is successfully written.
+   *
+   * @param src - Source file path
+   * @param dest - Destination file path
+   * @throws Error if source doesn't exist
    *
    * @example
    * ```typescript
-   * await $.fs.move('/app/old-name.ts', '/app/new-name.ts')
+   * await $.fs.move('/tmp/upload.json', '/data/file.json')
    * ```
    */
-  move?(src: string, dest: string): Promise<void>
+  move(src: string, dest: string): Promise<void>
 }
 
 // ============================================================================

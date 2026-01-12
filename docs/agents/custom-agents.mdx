@@ -3,9 +3,15 @@ title: Custom Agents
 description: Build domain-specific AI agents for your industry
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
 # Custom Agents
 
 Build domain-specific agents for your industry. Legal reviewers. Healthcare coordinators. Financial analysts. Your domain, your agents.
+
+<Callout type="info">
+The declarative class property syntax shown below is the planned API. For production use with the current implementation, see the [Named Agents](/docs/agents/named-agents) documentation for working patterns, or use the `objects/Agent` base class with `registerTool()` method.
+</Callout>
 
 ## Basic Agent
 
@@ -30,7 +36,10 @@ That's it. A custom agent is a class with a name, role, and instructions.
 ## Agent Configuration
 
 ```typescript
-import { Agent, stepCountIs } from 'dotdo'
+import { Agent } from 'dotdo'
+
+// Stop conditions (planned API - not yet exported from dotdo)
+const stepCountIs = (n: number) => (step: number) => step >= n
 
 export class FinancialAnalyst extends Agent {
   name = 'Finn'
@@ -66,7 +75,8 @@ export class FinancialAnalyst extends Agent {
 Agents become powerful when they have tools:
 
 ```typescript
-import { Agent, tool } from 'dotdo'
+import { Agent } from 'dotdo'
+import { tool } from 'agents.do' // Tool definition helper
 import { z } from 'zod'
 
 const searchDatabase = tool({
@@ -347,11 +357,16 @@ export class PhoneSupport extends Agent {
 }
 ```
 
-## Registering Custom Agents
+## Registering Custom Agents (Planned)
+
+<Callout type="info">
+The `registerAgent` function is part of the planned API. Currently, use the factory pattern shown in `agents/named/factory.ts` to create named agent functions.
+</Callout>
 
 Make your agents available like named agents:
 
 ```typescript
+// Planned API
 import { registerAgent } from 'dotdo'
 
 // Register your custom agents
