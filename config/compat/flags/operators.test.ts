@@ -314,7 +314,7 @@ describe('Targeting Operators', () => {
           values: ['.com', '.org'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
         expect(testClause(clause, { email: 'user@example.org' })).toBe(true)
         expect(testClause(clause, { email: 'user@example.net' })).toBe(false)
       })
@@ -328,8 +328,8 @@ describe('Targeting Operators', () => {
           values: ['^[a-z]+@example\\.com$'],
         }
 
-        expect(testClause(clause, { email: 'user@example.com.ai' })).toBe(true)
-        expect(testClause(clause, { email: 'admin@example.com.ai' })).toBe(true)
+        expect(testClause(clause, { email: 'user@example.com' })).toBe(true)
+        expect(testClause(clause, { email: 'admin@example.com' })).toBe(true)
       })
 
       it('should not match when string does not match regex', () => {
