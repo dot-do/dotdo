@@ -168,7 +168,18 @@ export {
 } from './backend'
 
 // Presigning
-export { getSignedUrl } from './presign'
+export {
+  getSignedUrl,
+  getSignedGetUrl,
+  getSignedPutUrl,
+  getSignedDeleteUrl,
+  getSignedHeadUrl,
+} from './presign'
+export type {
+  GetSignedUrlOptions,
+  PutSignedUrlOptions,
+  ExtendedPresigningArguments,
+} from './presign'
 
 // =============================================================================
 // Test Utilities

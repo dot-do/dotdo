@@ -3,6 +3,13 @@
  *
  * AWS SDK v3 compatible S3 client with pluggable storage backends.
  *
+ * Features:
+ * - API-compatible with @aws-sdk/client-s3 v3
+ * - Pluggable backends: MemoryBackend (testing), R2Backend (production)
+ * - Built-in retry with exponential backoff
+ * - Circuit breaker support for resilience
+ * - Streaming uploads and downloads
+ *
  * @example
  * ```typescript
  * // In-memory storage (for testing)
@@ -11,12 +18,16 @@
  * // R2 backend (for production)
  * const client = new S3Client({ r2Bucket: env.MY_BUCKET })
  *
- * // Standard configuration
+ * // Standard configuration with retry
  * const client = new S3Client({
  *   region: 'us-east-1',
  *   credentials: {
  *     accessKeyId: 'AKIAEXAMPLE',
  *     secretAccessKey: 'EXAMPLESECRETKEY',
+ *   },
+ *   retryConfig: {
+ *     maxRetries: 3,
+ *     initialDelay: 1000,
  *   },
  * })
  * ```
@@ -79,7 +90,16 @@ import {
   BucketAlreadyExists,
   BucketNotEmpty,
   NoSuchUpload,
+  InternalError,
+  ServiceUnavailable,
+  SlowDown,
 } from './errors'
+
+import {
+  createRetryHandler,
+  type RetryHandler,
+  type RetryConfig,
+} from '../core/retry'
 
 // =============================================================================
 // S3Client Class
@@ -91,6 +111,11 @@ import {
  * Supports pluggable storage backends:
  * - MemoryBackend: In-memory storage for testing
  * - R2Backend: Cloudflare R2 for production
+ *
+ * Features:
+ * - Built-in retry with exponential backoff for transient failures
+ * - Circuit breaker pattern for resilience
+ * - Streaming support for large objects
  *
  * @example
  * ```typescript
@@ -110,6 +135,7 @@ import {
 export class S3Client {
   readonly config: ExtendedS3ClientConfig
   private backend: StorageBackend
+  private retryHandler: RetryHandler
 
   constructor(config: ExtendedS3ClientConfig = {}) {
     this.config = {
@@ -126,75 +152,200 @@ export class S3Client {
     } else {
       this.backend = defaultMemoryBackend
     }
+
+    // Initialize retry handler with config
+    this.retryHandler = createRetryHandler({
+      maxRetries: config.retryConfig?.maxRetries ?? 3,
+      initialDelay: config.retryConfig?.initialDelay ?? 1000,
+      maxDelay: config.retryConfig?.maxDelay ?? 32000,
+      multiplier: config.retryConfig?.multiplier ?? 2,
+      jitter: config.retryConfig?.jitter ?? 0.25,
+      timeoutBudget: config.retryConfig?.timeoutBudget ?? 60000,
+    })
   }
 
   /**
    * Send a command to S3
+   *
+   * Automatically retries on transient failures (5xx errors, timeouts).
+   * Non-retryable errors (4xx) are thrown immediately.
    */
   async send<T>(command: Command): Promise<T> {
-    const metadata: ResponseMetadata = {
-      httpStatusCode: 200,
-      requestId: crypto.randomUUID(),
-    }
+    const startTime = Date.now()
+    let attempts = 0
 
-    try {
-      if (command instanceof CreateBucketCommand) {
-        return (await this.handleCreateBucket(command, metadata)) as T
-      }
-      if (command instanceof DeleteBucketCommand) {
-        return (await this.handleDeleteBucket(command, metadata)) as T
-      }
-      if (command instanceof HeadBucketCommand) {
-        return (await this.handleHeadBucket(command, metadata)) as T
-      }
-      if (command instanceof ListBucketsCommand) {
-        return (await this.handleListBuckets(metadata)) as T
-      }
-      if (command instanceof PutObjectCommand) {
-        return (await this.handlePutObject(command, metadata)) as T
-      }
-      if (command instanceof GetObjectCommand) {
-        return (await this.handleGetObject(command, metadata)) as T
-      }
-      if (command instanceof HeadObjectCommand) {
-        return (await this.handleHeadObject(command, metadata)) as T
-      }
-      if (command instanceof DeleteObjectCommand) {
-        return (await this.handleDeleteObject(command, metadata)) as T
-      }
-      if (command instanceof DeleteObjectsCommand) {
-        return (await this.handleDeleteObjects(command, metadata)) as T
-      }
-      if (command instanceof CopyObjectCommand) {
-        return (await this.handleCopyObject(command, metadata)) as T
-      }
-      if (command instanceof ListObjectsV2Command) {
-        return (await this.handleListObjectsV2(command, metadata)) as T
-      }
-      if (command instanceof CreateMultipartUploadCommand) {
-        return (await this.handleCreateMultipartUpload(command, metadata)) as T
-      }
-      if (command instanceof UploadPartCommand) {
-        return (await this.handleUploadPart(command, metadata)) as T
-      }
-      if (command instanceof CompleteMultipartUploadCommand) {
-        return (await this.handleCompleteMultipartUpload(command, metadata)) as T
-      }
-      if (command instanceof AbortMultipartUploadCommand) {
-        return (await this.handleAbortMultipartUpload(command, metadata)) as T
-      }
-      if (command instanceof ListPartsCommand) {
-        return (await this.handleListParts(command, metadata)) as T
-      }
-      if (command instanceof ListMultipartUploadsCommand) {
-        return (await this.handleListMultipartUploads(command, metadata)) as T
+    const executeCommand = async (): Promise<T> => {
+      attempts++
+      const metadata: ResponseMetadata = {
+        httpStatusCode: 200,
+        requestId: crypto.randomUUID(),
+        attempts,
+        totalRetryDelay: Date.now() - startTime,
       }
 
-      throw new Error(`Unknown command: ${(command as { constructor: { name: string } }).constructor.name}`)
-    } catch (error) {
-      this.handleError(error)
-      throw error
+      try {
+        if (command instanceof CreateBucketCommand) {
+          return (await this.handleCreateBucket(command, metadata)) as T
+        }
+        if (command instanceof DeleteBucketCommand) {
+          return (await this.handleDeleteBucket(command, metadata)) as T
+        }
+        if (command instanceof HeadBucketCommand) {
+          return (await this.handleHeadBucket(command, metadata)) as T
+        }
+        if (command instanceof ListBucketsCommand) {
+          return (await this.handleListBuckets(metadata)) as T
+        }
+        if (command instanceof PutObjectCommand) {
+          return (await this.handlePutObject(command, metadata)) as T
+        }
+        if (command instanceof GetObjectCommand) {
+          return (await this.handleGetObject(command, metadata)) as T
+        }
+        if (command instanceof HeadObjectCommand) {
+          return (await this.handleHeadObject(command, metadata)) as T
+        }
+        if (command instanceof DeleteObjectCommand) {
+          return (await this.handleDeleteObject(command, metadata)) as T
+        }
+        if (command instanceof DeleteObjectsCommand) {
+          return (await this.handleDeleteObjects(command, metadata)) as T
+        }
+        if (command instanceof CopyObjectCommand) {
+          return (await this.handleCopyObject(command, metadata)) as T
+        }
+        if (command instanceof ListObjectsV2Command) {
+          return (await this.handleListObjectsV2(command, metadata)) as T
+        }
+        if (command instanceof CreateMultipartUploadCommand) {
+          return (await this.handleCreateMultipartUpload(command, metadata)) as T
+        }
+        if (command instanceof UploadPartCommand) {
+          return (await this.handleUploadPart(command, metadata)) as T
+        }
+        if (command instanceof CompleteMultipartUploadCommand) {
+          return (await this.handleCompleteMultipartUpload(command, metadata)) as T
+        }
+        if (command instanceof AbortMultipartUploadCommand) {
+          return (await this.handleAbortMultipartUpload(command, metadata)) as T
+        }
+        if (command instanceof ListPartsCommand) {
+          return (await this.handleListParts(command, metadata)) as T
+        }
+        if (command instanceof ListMultipartUploadsCommand) {
+          return (await this.handleListMultipartUploads(command, metadata)) as T
+        }
+
+        throw new Error(`Unknown command: ${(command as { constructor: { name: string } }).constructor.name}`)
+      } catch (error) {
+        // Convert and check if retryable
+        const s3Error = this.convertToS3Error(error)
+
+        // Only retry on server errors (5xx) - client errors (4xx) are not retryable
+        if (s3Error.$fault === 'server') {
+          throw error // Let retry handler handle it
+        }
+
+        // Non-retryable error - throw immediately without retry
+        throw s3Error
+      }
     }
+
+    // Use retry handler for R2 backend operations (which may have transient failures)
+    if (this.config.r2Bucket) {
+      try {
+        return await this.retryHandler.execute(executeCommand)
+      } catch (error) {
+        throw this.convertToS3Error(error)
+      }
+    }
+
+    // For memory backend, execute directly without retry
+    return executeCommand()
+  }
+
+  /**
+   * Convert an error to an S3-compatible error
+   */
+  private convertToS3Error(error: unknown): {
+    name: string
+    message: string
+    $fault: 'client' | 'server'
+    $metadata: ResponseMetadata
+  } & Error {
+    // Already an S3 error
+    if (error instanceof NoSuchBucket ||
+        error instanceof NoSuchKey ||
+        error instanceof BucketAlreadyExists ||
+        error instanceof BucketNotEmpty ||
+        error instanceof NoSuchUpload ||
+        error instanceof InternalError ||
+        error instanceof ServiceUnavailable ||
+        error instanceof SlowDown) {
+      return error as {
+        name: string
+        message: string
+        $fault: 'client' | 'server'
+        $metadata: ResponseMetadata
+      } & Error
+    }
+
+    // Backend error messages
+    if (error instanceof Error) {
+      switch (error.message) {
+        case 'NoSuchBucket':
+          return new NoSuchBucket() as {
+            name: string
+            message: string
+            $fault: 'client' | 'server'
+            $metadata: ResponseMetadata
+          } & Error
+        case 'NoSuchKey':
+          return new NoSuchKey() as {
+            name: string
+            message: string
+            $fault: 'client' | 'server'
+            $metadata: ResponseMetadata
+          } & Error
+        case 'BucketAlreadyExists':
+          return new BucketAlreadyExists() as {
+            name: string
+            message: string
+            $fault: 'client' | 'server'
+            $metadata: ResponseMetadata
+          } & Error
+        case 'BucketNotEmpty':
+          return new BucketNotEmpty() as {
+            name: string
+            message: string
+            $fault: 'client' | 'server'
+            $metadata: ResponseMetadata
+          } & Error
+        case 'NoSuchUpload':
+          return new NoSuchUpload() as {
+            name: string
+            message: string
+            $fault: 'client' | 'server'
+            $metadata: ResponseMetadata
+          } & Error
+      }
+
+      // Treat unknown errors as server errors (retryable)
+      return new InternalError({ message: error.message }) as {
+        name: string
+        message: string
+        $fault: 'client' | 'server'
+        $metadata: ResponseMetadata
+      } & Error
+    }
+
+    // Unknown error type
+    return new InternalError({ message: String(error) }) as {
+      name: string
+      message: string
+      $fault: 'client' | 'server'
+      $metadata: ResponseMetadata
+    } & Error
   }
 
   // ===========================================================================
@@ -775,21 +926,4 @@ export class S3Client {
     return result
   }
 
-  private handleError(error: unknown): void {
-    // Convert backend errors to S3 errors
-    if (error instanceof Error) {
-      switch (error.message) {
-        case 'NoSuchBucket':
-          throw new NoSuchBucket()
-        case 'NoSuchKey':
-          throw new NoSuchKey()
-        case 'BucketAlreadyExists':
-          throw new BucketAlreadyExists()
-        case 'BucketNotEmpty':
-          throw new BucketNotEmpty()
-        case 'NoSuchUpload':
-          throw new NoSuchUpload()
-      }
-    }
-  }
 }

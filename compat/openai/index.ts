@@ -151,5 +151,67 @@ export type {
   RequestOptions,
 } from './types'
 
+// Assistants API
+export {
+  AssistantsClient,
+  createAssistantsClient,
+  AssistantsAPIError,
+} from './assistants'
+export type {
+  // Assistant types
+  Assistant,
+  AssistantTool,
+  FunctionTool,
+  FileSearchConfig,
+  ToolResources,
+  ResponseFormat,
+  CreateAssistantRequest,
+  UpdateAssistantRequest,
+
+  // Thread types
+  Thread,
+  CreateThreadRequest,
+  UpdateThreadRequest,
+
+  // Message types
+  Message as AssistantMessage,
+  MessageContent,
+  MessageContentInput,
+  Annotation,
+  Attachment,
+  CreateMessageRequest,
+  UpdateMessageRequest,
+  ListMessagesParams,
+
+  // Run types
+  Run,
+  RunStatus,
+  RequiredAction,
+  ToolCall as AssistantToolCall,
+  RunError,
+  Usage as AssistantUsage,
+  TruncationStrategy,
+  ToolChoice,
+  CreateRunRequest,
+  SubmitToolOutputsRequest,
+  ToolOutput,
+  CreateThreadAndRunRequest,
+
+  // Run Step types
+  RunStep,
+  StepDetails,
+  RunStepToolCall,
+  CodeInterpreterOutput,
+  FileSearchResult,
+
+  // List types
+  ListResponse,
+  ListParams,
+  DeleteResponse,
+
+  // Client config
+  AssistantsClientConfig,
+} from './assistants'
+
 // Default export
 export { OpenAI as default } from './openai'

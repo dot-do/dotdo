@@ -40,6 +40,21 @@ export interface ExtendedS3ClientConfig extends S3ClientConfig {
   r2Bucket?: R2Bucket
   /** Use in-memory storage (for testing) */
   useMemoryStorage?: boolean
+  /** Retry configuration for resilience */
+  retryConfig?: {
+    /** Maximum number of retry attempts (default: 3) */
+    maxRetries?: number
+    /** Initial delay in milliseconds (default: 1000) */
+    initialDelay?: number
+    /** Maximum delay cap in milliseconds (default: 32000) */
+    maxDelay?: number
+    /** Backoff multiplier (default: 2) */
+    multiplier?: number
+    /** Jitter factor 0-1 (default: 0.25 for +/-25%) */
+    jitter?: number
+    /** Total timeout budget in milliseconds (default: 60000) */
+    timeoutBudget?: number
+  }
 }
 
 // =============================================================================
