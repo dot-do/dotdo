@@ -1,0 +1,558 @@
+---
+title: RPC Streaming
+description: Server-sent events, bidirectional streaming, and backpressure handling
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# RPC Streaming
+
+Stream data from your Durable Objects to clients in real-time. Server-sent events for one-way streaming, WebSockets for bidirectional communication.
+
+```typescript
+// Server: stream events from DO
+async *streamOrders(userId: string) {
+  for await (const order of this.$.state.orderStream) {
+    if (order.userId === userId) {
+      yield order
+    }
+  }
+}
+
+// Client: consume the stream
+for await (const order of $.Customer('alice').streamOrders('alice')) {
+  console.log('New order:', order)
+}
+```
+
+## Server-Sent Events
+
+SSE provides efficient one-way streaming from server to client.
+
+### Basic SSE Handler
+
+```typescript
+import { DO } from 'dotdo'
+
+export class StreamingDO extends DO {
+  // Return an async generator for SSE
+  async *streamUpdates(topic: string): AsyncGenerator<Update> {
+    // Subscribe to updates
+    const subscription = this.$.subscribe(topic)
+
+    try {
+      for await (const event of subscription) {
+        yield {
+          type: event.type,
+          data: event.data,
+          timestamp: Date.now(),
+        }
+      }
+    } finally {
+      // Cleanup when client disconnects
+      subscription.unsubscribe()
+    }
+  }
+
+  // Stream with initial state
+  async *streamWithState(key: string): AsyncGenerator<StateUpdate> {
+    // Send current state first
+    yield {
+      type: 'initial',
+      state: this.$.state[key],
+    }
+
+    // Then stream updates
+    for await (const update of this.$.watch(key)) {
+      yield {
+        type: 'update',
+        delta: update,
+      }
+    }
+  }
+}
+```
+
+### Client Consumption
+
+```typescript
+import { $Context } from 'dotdo'
+
+const $ = $Context('https://my-app.example.com.ai')
+
+// Consume SSE stream
+async function watchUpdates() {
+  const stream = $.Notifications('user-123').streamUpdates('orders')
+
+  for await (const update of stream) {
+    console.log('Update:', update)
+
+    // Handle different update types
+    switch (update.type) {
+      case 'created':
+        displayNewOrder(update.data)
+        break
+      case 'updated':
+        refreshOrder(update.data)
+        break
+      case 'deleted':
+        removeOrder(update.data.id)
+        break
+    }
+  }
+}
+
+// With abort controller for cleanup
+const controller = new AbortController()
+
+async function watchWithAbort() {
+  try {
+    const stream = $.Notifications('user-123').streamUpdates('orders')
+
+    for await (const update of stream) {
+      if (controller.signal.aborted) break
+      handleUpdate(update)
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') throw error
+  }
+}
+
+// Stop streaming
+function stopWatching() {
+  controller.abort()
+}
+```
+
+### SSE with Heartbeats
+
+Keep connections alive with periodic heartbeats:
+
+```typescript
+export class HeartbeatStreamDO extends DO {
+  async *streamWithHeartbeat(topic: string): AsyncGenerator<StreamEvent> {
+    const HEARTBEAT_INTERVAL = 30000 // 30 seconds
+
+    // Create heartbeat generator
+    async function* heartbeats() {
+      while (true) {
+        await new Promise((r) => setTimeout(r, HEARTBEAT_INTERVAL))
+        yield { type: 'heartbeat' as const, timestamp: Date.now() }
+      }
+    }
+
+    // Merge data stream with heartbeats
+    const dataStream = this.$.subscribe(topic)
+    const heartbeatStream = heartbeats()
+
+    // Race between data and heartbeat
+    while (true) {
+      const result = await Promise.race([
+        dataStream.next().then((r) => ({ source: 'data', ...r })),
+        heartbeatStream.next().then((r) => ({ source: 'heartbeat', ...r })),
+      ])
+
+      if (result.done) break
+
+      if (result.source === 'heartbeat') {
+        yield result.value as { type: 'heartbeat'; timestamp: number }
+      } else {
+        yield {
+          type: 'data' as const,
+          payload: result.value,
+          timestamp: Date.now(),
+        }
+      }
+    }
+  }
+}
+```
+
+## Bidirectional Streaming
+
+For two-way communication, use WebSocket connections.
+
+### WebSocket Handler
+
+```typescript
+import { DO } from 'dotdo'
+
+export class ChatDO extends DO {
+  // WebSocket sessions
+  private sessions = new Map<string, WebSocket>()
+
+  // Handle new WebSocket connection
+  async webSocketOpen(ws: WebSocket, userId: string) {
+    this.sessions.set(userId, ws)
+
+    // Send connection confirmation
+    ws.send(JSON.stringify({
+      type: 'connected',
+      userId,
+      timestamp: Date.now(),
+    }))
+
+    // Send recent messages
+    const recentMessages = this.$.state.messages.slice(-50)
+    ws.send(JSON.stringify({
+      type: 'history',
+      messages: recentMessages,
+    }))
+  }
+
+  // Handle incoming messages
+  async webSocketMessage(ws: WebSocket, message: string) {
+    const data = JSON.parse(message)
+
+    switch (data.type) {
+      case 'message':
+        await this.handleMessage(data)
+        break
+      case 'typing':
+        await this.broadcastTyping(data.userId)
+        break
+      case 'read':
+        await this.markAsRead(data.messageId, data.userId)
+        break
+    }
+  }
+
+  // Handle disconnect
+  async webSocketClose(ws: WebSocket, code: number, reason: string) {
+    // Find and remove session
+    for (const [userId, socket] of this.sessions) {
+      if (socket === ws) {
+        this.sessions.delete(userId)
+        await this.broadcastUserLeft(userId)
+        break
+      }
+    }
+  }
+
+  // Broadcast to all connected clients
+  private broadcast(message: unknown) {
+    const data = JSON.stringify(message)
+    for (const ws of this.sessions.values()) {
+      ws.send(data)
+    }
+  }
+
+  private async handleMessage(data: { userId: string; content: string }) {
+    const message = {
+      id: crypto.randomUUID(),
+      userId: data.userId,
+      content: data.content,
+      timestamp: Date.now(),
+    }
+
+    // Persist message
+    this.$.state.messages.push(message)
+
+    // Broadcast to all clients
+    this.broadcast({
+      type: 'message',
+      message,
+    })
+  }
+}
+```
+
+### Client WebSocket
+
+```typescript
+import { $Context } from 'dotdo'
+
+const $ = $Context('https://chat.example.com.ai')
+
+class ChatClient {
+  private ws: WebSocket | null = null
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 5
+
+  async connect(roomId: string, userId: string) {
+    // Get WebSocket URL from DO
+    const wsUrl = await $.Chat(roomId).getWebSocketUrl(userId)
+
+    this.ws = new WebSocket(wsUrl)
+
+    this.ws.onopen = () => {
+      console.log('Connected to chat')
+      this.reconnectAttempts = 0
+    }
+
+    this.ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      this.handleMessage(data)
+    }
+
+    this.ws.onclose = () => {
+      this.handleDisconnect()
+    }
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
+    }
+  }
+
+  private handleMessage(data: ChatEvent) {
+    switch (data.type) {
+      case 'connected':
+        this.onConnected(data)
+        break
+      case 'history':
+        this.onHistory(data.messages)
+        break
+      case 'message':
+        this.onNewMessage(data.message)
+        break
+      case 'typing':
+        this.onTyping(data.userId)
+        break
+    }
+  }
+
+  private handleDisconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++
+      const delay = Math.pow(2, this.reconnectAttempts) * 1000
+      setTimeout(() => this.connect(this.roomId, this.userId), delay)
+    }
+  }
+
+  send(content: string) {
+    this.ws?.send(JSON.stringify({
+      type: 'message',
+      content,
+    }))
+  }
+
+  sendTyping() {
+    this.ws?.send(JSON.stringify({ type: 'typing' }))
+  }
+
+  disconnect() {
+    this.maxReconnectAttempts = 0 // Prevent reconnection
+    this.ws?.close()
+  }
+}
+```
+
+## Backpressure
+
+Handle slow consumers without overwhelming memory.
+
+### Buffered Streaming
+
+```typescript
+export class BufferedStreamDO extends DO {
+  async *streamWithBackpressure(
+    topic: string,
+    options: { bufferSize?: number; dropPolicy?: 'oldest' | 'newest' } = {}
+  ): AsyncGenerator<Event> {
+    const { bufferSize = 100, dropPolicy = 'oldest' } = options
+
+    const buffer: Event[] = []
+    const subscription = this.$.subscribe(topic)
+
+    // Background task to fill buffer
+    const fillBuffer = async () => {
+      for await (const event of subscription) {
+        if (buffer.length >= bufferSize) {
+          if (dropPolicy === 'oldest') {
+            buffer.shift() // Remove oldest
+          } else {
+            continue // Drop newest (this event)
+          }
+        }
+        buffer.push(event)
+      }
+    }
+
+    // Start background fill (don't await)
+    fillBuffer().catch(console.error)
+
+    // Yield from buffer as consumer is ready
+    while (true) {
+      if (buffer.length > 0) {
+        yield buffer.shift()!
+      } else {
+        // Wait for more data
+        await new Promise((r) => setTimeout(r, 10))
+      }
+    }
+  }
+}
+```
+
+### Throttled Streaming
+
+Rate-limit stream output:
+
+```typescript
+export class ThrottledStreamDO extends DO {
+  async *throttledStream(
+    topic: string,
+    intervalMs: number = 100
+  ): AsyncGenerator<Event[]> {
+    const batch: Event[] = []
+    let lastFlush = Date.now()
+
+    for await (const event of this.$.subscribe(topic)) {
+      batch.push(event)
+
+      const now = Date.now()
+      if (now - lastFlush >= intervalMs && batch.length > 0) {
+        yield [...batch]
+        batch.length = 0
+        lastFlush = now
+      }
+    }
+
+    // Flush remaining
+    if (batch.length > 0) {
+      yield batch
+    }
+  }
+}
+```
+
+### Pausable Streams
+
+Allow clients to pause and resume:
+
+```typescript
+export class PausableStreamDO extends DO {
+  private pausedStreams = new Map<string, boolean>()
+
+  async *pausableStream(streamId: string, topic: string): AsyncGenerator<Event> {
+    this.pausedStreams.set(streamId, false)
+
+    try {
+      for await (const event of this.$.subscribe(topic)) {
+        // Wait while paused
+        while (this.pausedStreams.get(streamId)) {
+          await new Promise((r) => setTimeout(r, 100))
+        }
+
+        yield event
+      }
+    } finally {
+      this.pausedStreams.delete(streamId)
+    }
+  }
+
+  async pauseStream(streamId: string) {
+    this.pausedStreams.set(streamId, true)
+  }
+
+  async resumeStream(streamId: string) {
+    this.pausedStreams.set(streamId, false)
+  }
+}
+```
+
+## Stream Transformations
+
+Transform streams server-side to reduce bandwidth.
+
+### Filtering
+
+```typescript
+export class FilteredStreamDO extends DO {
+  async *filteredStream(
+    topic: string,
+    filter: { type?: string; minPriority?: number }
+  ): AsyncGenerator<Event> {
+    for await (const event of this.$.subscribe(topic)) {
+      // Apply filters server-side
+      if (filter.type && event.type !== filter.type) continue
+      if (filter.minPriority && event.priority < filter.minPriority) continue
+
+      yield event
+    }
+  }
+}
+```
+
+### Aggregation
+
+```typescript
+export class AggregatedStreamDO extends DO {
+  async *aggregatedStream(
+    topic: string,
+    windowMs: number = 1000
+  ): AsyncGenerator<AggregatedMetrics> {
+    let metrics = { count: 0, sum: 0, min: Infinity, max: -Infinity }
+    let windowStart = Date.now()
+
+    for await (const event of this.$.subscribe(topic)) {
+      const value = event.value as number
+
+      metrics.count++
+      metrics.sum += value
+      metrics.min = Math.min(metrics.min, value)
+      metrics.max = Math.max(metrics.max, value)
+
+      if (Date.now() - windowStart >= windowMs) {
+        yield {
+          ...metrics,
+          avg: metrics.sum / metrics.count,
+          windowStart,
+          windowEnd: Date.now(),
+        }
+
+        // Reset for next window
+        metrics = { count: 0, sum: 0, min: Infinity, max: -Infinity }
+        windowStart = Date.now()
+      }
+    }
+  }
+}
+```
+
+### Deduplication
+
+```typescript
+export class DedupedStreamDO extends DO {
+  async *dedupedStream(
+    topic: string,
+    keyFn: (event: Event) => string,
+    windowMs: number = 5000
+  ): AsyncGenerator<Event> {
+    const seen = new Map<string, number>()
+
+    for await (const event of this.$.subscribe(topic)) {
+      const key = keyFn(event)
+      const lastSeen = seen.get(key)
+      const now = Date.now()
+
+      // Skip if seen within window
+      if (lastSeen && now - lastSeen < windowMs) {
+        continue
+      }
+
+      seen.set(key, now)
+
+      // Cleanup old entries periodically
+      if (seen.size > 1000) {
+        for (const [k, time] of seen) {
+          if (now - time > windowMs) seen.delete(k)
+        }
+      }
+
+      yield event
+    }
+  }
+}
+```
+
+<Callout type="info" title="Stream Processing on the Edge">
+All stream transformations run inside your Durable Object. Clients receive only the processed data, reducing bandwidth and client-side complexity.
+</Callout>
+
+## Related
+
+- [RPC Server](/docs/rpc/server) - Set up RPC handlers
+- [Client SDK](/docs/rpc/client) - Connect from clients
+- [Request Batching](/docs/rpc/batching) - Optimize multiple calls
+- [Promise Pipelining](/docs/rpc/pipelines) - Single round trip execution

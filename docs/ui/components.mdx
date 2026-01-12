@@ -1,0 +1,767 @@
+---
+title: UI Components
+description: Primitive components for building interfaces with MDXUI
+---
+
+# UI Components
+
+MDXUI provides two component libraries: **Beacon** for marketing sites and **Cockpit** for applications. Both share a consistent design language and theming system.
+
+## Overview
+
+MDXUI components are organized into three layers:
+
+1. **Primitives** - Low-level building blocks (Button, Input, Card, etc.)
+2. **Beacon** - Marketing site components (Hero, Features, Pricing)
+3. **Cockpit** - Application components (Dashboard, DataTable, Charts)
+
+All components are fully typed, accessible, and themeable.
+
+```typescript
+// Primitives
+import { Button, Input, Card, Badge, Avatar } from 'mdxui/primitives'
+
+// Marketing sites
+import { Hero, Features, Pricing } from 'mdxui/site'
+
+// Applications
+import { Dashboard, DataTable, Chart } from 'mdxui/app'
+```
+
+## Primitive Components
+
+The foundation of MDXUI. These atomic components are used to build higher-level Beacon and Cockpit components.
+
+### Button
+
+Interactive button with multiple variants and sizes:
+
+```tsx
+import { Button } from 'mdxui/primitives'
+
+// Variants
+<Button variant="primary">Primary</Button>
+<Button variant="secondary">Secondary</Button>
+<Button variant="outline">Outline</Button>
+<Button variant="ghost">Ghost</Button>
+<Button variant="destructive">Delete</Button>
+
+// Sizes
+<Button size="sm">Small</Button>
+<Button size="md">Medium</Button>
+<Button size="lg">Large</Button>
+
+// States
+<Button loading>Loading...</Button>
+<Button disabled>Disabled</Button>
+
+// With icons
+<Button icon={<PlusIcon />}>Add Item</Button>
+<Button iconRight={<ArrowRightIcon />}>Continue</Button>
+```
+
+#### Button Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `variant` | `'primary' \| 'secondary' \| 'outline' \| 'ghost' \| 'destructive'` | `'primary'` | Visual style |
+| `size` | `'sm' \| 'md' \| 'lg'` | `'md'` | Button size |
+| `loading` | `boolean` | `false` | Show loading spinner |
+| `disabled` | `boolean` | `false` | Disable interaction |
+| `icon` | `ReactNode` | - | Left icon |
+| `iconRight` | `ReactNode` | - | Right icon |
+| `asChild` | `boolean` | `false` | Render as child element |
+
+### Input
+
+Text input with label, validation, and error states:
+
+```tsx
+import { Input } from 'mdxui/primitives'
+
+// Basic
+<Input label="Email" placeholder="you@example.com" />
+
+// With validation
+<Input
+  label="Password"
+  type="password"
+  required
+  minLength={8}
+  error="Password must be at least 8 characters"
+/>
+
+// With description
+<Input
+  label="API Key"
+  description="Your secret API key for authentication"
+  readOnly
+  value={apiKey}
+/>
+
+// Sizes
+<Input size="sm" placeholder="Small" />
+<Input size="md" placeholder="Medium" />
+<Input size="lg" placeholder="Large" />
+```
+
+#### Input Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `label` | `string` | - | Input label |
+| `description` | `string` | - | Helper text below input |
+| `error` | `string` | - | Error message |
+| `size` | `'sm' \| 'md' \| 'lg'` | `'md'` | Input size |
+| `icon` | `ReactNode` | - | Left icon |
+| `iconRight` | `ReactNode` | - | Right icon |
+
+### Card
+
+Container component with header, body, and footer sections:
+
+```tsx
+import { Card, CardHeader, CardBody, CardFooter } from 'mdxui/primitives'
+
+<Card>
+  <CardHeader>
+    <h3>Card Title</h3>
+    <p>Card description</p>
+  </CardHeader>
+  <CardBody>
+    <p>Card content goes here.</p>
+  </CardBody>
+  <CardFooter>
+    <Button variant="outline">Cancel</Button>
+    <Button>Save</Button>
+  </CardFooter>
+</Card>
+
+// Variants
+<Card variant="elevated">Elevated with shadow</Card>
+<Card variant="outlined">Bordered card</Card>
+<Card variant="filled">Filled background</Card>
+
+// Interactive
+<Card interactive onClick={handleClick}>
+  Clickable card
+</Card>
+```
+
+### Badge
+
+Status and category indicators:
+
+```tsx
+import { Badge } from 'mdxui/primitives'
+
+// Variants
+<Badge variant="default">Default</Badge>
+<Badge variant="success">Active</Badge>
+<Badge variant="warning">Pending</Badge>
+<Badge variant="error">Failed</Badge>
+<Badge variant="info">New</Badge>
+
+// Sizes
+<Badge size="sm">Small</Badge>
+<Badge size="md">Medium</Badge>
+<Badge size="lg">Large</Badge>
+
+// With dot indicator
+<Badge dot variant="success">Online</Badge>
+```
+
+### Avatar
+
+User and entity avatars with fallback support:
+
+```tsx
+import { Avatar, AvatarGroup } from 'mdxui/primitives'
+
+// Basic
+<Avatar src="/user.jpg" alt="John Doe" />
+
+// With fallback
+<Avatar src="/missing.jpg" fallback="JD" />
+
+// Sizes
+<Avatar size="sm" src="/user.jpg" />
+<Avatar size="md" src="/user.jpg" />
+<Avatar size="lg" src="/user.jpg" />
+<Avatar size="xl" src="/user.jpg" />
+
+// Avatar group
+<AvatarGroup max={3}>
+  <Avatar src="/user1.jpg" />
+  <Avatar src="/user2.jpg" />
+  <Avatar src="/user3.jpg" />
+  <Avatar src="/user4.jpg" />
+</AvatarGroup>
+```
+
+### Select
+
+Dropdown selection component:
+
+```tsx
+import { Select, SelectOption } from 'mdxui/primitives'
+
+<Select label="Country" placeholder="Select a country">
+  <SelectOption value="us">United States</SelectOption>
+  <SelectOption value="uk">United Kingdom</SelectOption>
+  <SelectOption value="ca">Canada</SelectOption>
+</Select>
+
+// Multiple selection
+<Select label="Tags" multiple>
+  <SelectOption value="bug">Bug</SelectOption>
+  <SelectOption value="feature">Feature</SelectOption>
+  <SelectOption value="docs">Documentation</SelectOption>
+</Select>
+```
+
+### Modal
+
+Dialog and modal components:
+
+```tsx
+import { Modal, ModalHeader, ModalBody, ModalFooter } from 'mdxui/primitives'
+
+<Modal open={isOpen} onClose={handleClose}>
+  <ModalHeader>
+    <h2>Confirm Action</h2>
+  </ModalHeader>
+  <ModalBody>
+    <p>Are you sure you want to proceed?</p>
+  </ModalBody>
+  <ModalFooter>
+    <Button variant="outline" onClick={handleClose}>Cancel</Button>
+    <Button onClick={handleConfirm}>Confirm</Button>
+  </ModalFooter>
+</Modal>
+```
+
+### Tabs
+
+Tabbed navigation component:
+
+```tsx
+import { Tabs, TabList, Tab, TabPanel } from 'mdxui/primitives'
+
+<Tabs defaultValue="overview">
+  <TabList>
+    <Tab value="overview">Overview</Tab>
+    <Tab value="analytics">Analytics</Tab>
+    <Tab value="settings">Settings</Tab>
+  </TabList>
+  <TabPanel value="overview">
+    Overview content
+  </TabPanel>
+  <TabPanel value="analytics">
+    Analytics content
+  </TabPanel>
+  <TabPanel value="settings">
+    Settings content
+  </TabPanel>
+</Tabs>
+```
+
+## Beacon Components (Sites)
+
+Beacon components are optimized for marketing sites, landing pages, and documentation.
+
+### Site Structure
+
+The foundational components for any marketing site:
+
+```tsx
+import type { SiteComponents } from 'mdxui'
+
+const components: SiteComponents = {
+  Site,        // Root wrapper with theme and providers
+  Header,      // Navigation header with logo, nav, CTA
+  Footer,      // Footer with link groups and social
+  LandingPage, // Container for landing page sections
+  Page,        // Generic content page layout
+}
+```
+
+#### Site Component
+
+Wraps your entire site with theme context and global configuration:
+
+```tsx
+<Site name="Acme Analytics" domain="acme.analytics" theme="dark">
+  <Header
+    logo={<Logo />}
+    nav={[
+      { label: 'Features', href: '/features' },
+      { label: 'Pricing', href: '/pricing' },
+      { label: 'Docs', href: '/docs' },
+    ]}
+    cta={{ text: 'Get Started', href: '/signup' }}
+  />
+  <LandingPage>
+    {children}
+  </LandingPage>
+  <Footer
+    logo={<Logo />}
+    links={footerLinks}
+    social={socialLinks}
+    copyright="2024 Acme Inc."
+  />
+</Site>
+```
+
+#### Header Props
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `logo` | `ReactNode` | Logo element or URL |
+| `nav` | `NavItem[]` | Navigation links |
+| `cta` | `{ text, href }` | Primary call-to-action button |
+| `LinkComponent` | `Component` | Custom link component (for Next.js, etc.) |
+
+### Content Sections
+
+Components for building landing page sections:
+
+```tsx
+// Hero, Features, Pricing, Testimonials, CTA, FAQ
+import { Hero, Features, Pricing, Testimonials, CTA, FAQ } from 'mdxui/site'
+```
+
+These section components share consistent APIs for building compelling landing pages.
+
+### Blog & Docs
+
+Auto-wired components that fetch from Platform.do collections:
+
+```tsx
+<Blog
+  site="acme"
+  limit={10}
+  layout="grid"
+  showCategories
+/>
+
+<Docs
+  project="acme-docs"
+  showSidebar
+  showToc
+  showSearch
+/>
+```
+
+| Component | Collection | Description |
+|-----------|------------|-------------|
+| `Blog` | `posts` | Blog listing with categories |
+| `BlogPost` | `posts` | Single blog post view |
+| `Docs` | `docs` | Documentation with sidebar |
+| `DocsPage` | `docs` | Single documentation page |
+
+## Cockpit Components (Apps)
+
+Cockpit components are optimized for SaaS dashboards, admin panels, and developer portals.
+
+### App Structure
+
+```tsx
+import type { AppComponents } from 'mdxui'
+
+const components: AppComponents = {
+  App,       // Root wrapper with auth
+  Shell,     // App shell with sidebar/header
+  Sidebar,   // Navigation sidebar
+  Header,    // App header with breadcrumbs
+  Dashboard, // Dashboard view
+  Settings,  // Settings page
+}
+```
+
+#### App Component
+
+Wraps your application with authentication and theme:
+
+```tsx
+<App
+  name="Acme Dashboard"
+  auth={{
+    provider: 'workos',
+    clientId: process.env.WORKOS_CLIENT_ID,
+  }}
+>
+  <Shell sidebar header>
+    <Dashboard title="Overview" metrics={metrics}>
+      {children}
+    </Dashboard>
+  </Shell>
+</App>
+```
+
+#### Shell Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `sidebar` | `boolean` | `true` | Show sidebar |
+| `header` | `boolean` | `true` | Show header |
+| `sidebarCollapsed` | `boolean` | `false` | Sidebar collapsed by default |
+
+### Dashboard Components
+
+```tsx
+import {
+  DashboardGrid,
+  KPICard,
+  ActivityFeed,
+  AgentStatus,
+  DataTable,
+} from 'mdxui/app'
+```
+
+#### KPICard
+
+Display key metrics with trend indicators:
+
+```tsx
+<DashboardGrid>
+  <KPICard
+    label="Monthly Revenue"
+    value="$125,000"
+    change={12.5}
+    trend="up"
+  />
+  <KPICard
+    label="Active Users"
+    value="8,420"
+    change={-2.3}
+    trend="down"
+  />
+  <KPICard
+    label="Conversion Rate"
+    value="3.2%"
+    trend="neutral"
+  />
+</DashboardGrid>
+```
+
+#### DataTable
+
+Render tabular data with sorting and filtering:
+
+```tsx
+<DataTable
+  data={customers}
+  columns={[
+    { key: 'name', label: 'Name' },
+    { key: 'email', label: 'Email' },
+    { key: 'plan', label: 'Plan' },
+    { key: 'mrr', label: 'MRR', format: 'currency' },
+  ]}
+  pageSize={10}
+/>
+```
+
+### Chart Components
+
+MDXUI wraps Recharts with consistent theming:
+
+```tsx
+import { AreaChart, BarChart, LineChart, PieChart } from 'mdxui/app'
+```
+
+#### AreaChart
+
+```tsx
+<AreaChart
+  data={revenueData}
+  xKey="month"
+  yKey={['revenue', 'expenses']}
+  title="Revenue vs Expenses"
+  height={300}
+  showLegend
+  showTooltip
+  showGrid
+/>
+```
+
+#### Chart Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | `T[]` | `[]` | Chart data array |
+| `xKey` | `keyof T` | - | X-axis data key |
+| `yKey` | `keyof T \| (keyof T)[]` | - | Y-axis data key(s) |
+| `title` | `string` | - | Chart title |
+| `height` | `number` | `200` | Chart height in pixels |
+| `colors` | `string[]` | Theme colors | Custom color palette |
+| `showLegend` | `boolean` | `false` | Show chart legend |
+| `showTooltip` | `boolean` | `true` | Show tooltip on hover |
+| `showGrid` | `boolean` | `true` | Show grid lines |
+| `animate` | `boolean` | `true` | Enable animations |
+
+### Developer Components
+
+Auto-wired components for developer portals:
+
+```tsx
+<DeveloperDashboard
+  project="acme-api"
+  showAPIKeys
+  showWebhooks
+  showUsage
+  showLogs
+/>
+```
+
+Individual components:
+
+```tsx
+<APIKeys project="acme" allowCreate allowDelete showLastUsed />
+<Webhooks project="acme" allowCreate allowEdit showLogs />
+<Usage project="acme" period="month" showBreakdown />
+<Team workspace="acme" allowInvite allowRoleChange />
+<Billing customer="cus_123" showInvoices showPaymentMethods />
+```
+
+## Component Composition
+
+MDXUI components compose naturally in MDX:
+
+```mdx
+<Site name="Acme">
+  <Header logo={<Logo />} nav={nav} cta={cta} />
+
+  <LandingPage>
+    <Hero
+      title="Build Faster"
+      subtitle="Ship in days, not months"
+      callToAction="Get Started"
+      actions={{ primary: '/signup' }}
+    />
+
+    <Features
+      title="Why Acme?"
+      features={features}
+      variant="grid"
+      columns={3}
+    />
+
+    <Pricing
+      title="Simple Pricing"
+      tiers={tiers}
+      showToggle
+    />
+  </LandingPage>
+
+  <Footer logo={<Logo />} links={links} />
+</Site>
+```
+
+## Theming and Variants
+
+MDXUI uses CSS variables for theming, making it easy to customize colors, typography, and spacing.
+
+### Theme Configuration
+
+Configure themes at the Site or App level:
+
+```tsx
+import { Site, createTheme } from 'mdxui'
+
+const customTheme = createTheme({
+  colors: {
+    primary: '#6366f1',
+    secondary: '#8b5cf6',
+    accent: '#f59e0b',
+    background: '#ffffff',
+    foreground: '#0f172a',
+    muted: '#64748b',
+    border: '#e2e8f0',
+    error: '#ef4444',
+    success: '#22c55e',
+    warning: '#f59e0b',
+  },
+  fonts: {
+    sans: 'Inter, system-ui, sans-serif',
+    mono: 'JetBrains Mono, monospace',
+  },
+  radii: {
+    sm: '4px',
+    md: '8px',
+    lg: '12px',
+    full: '9999px',
+  },
+})
+
+<Site theme={customTheme}>
+  {children}
+</Site>
+```
+
+### Dark Mode
+
+Components automatically adapt to dark mode:
+
+```tsx
+<Site theme="dark">
+  {/* All components render in dark mode */}
+</Site>
+
+// Or use system preference
+<Site theme="system">
+  {children}
+</Site>
+```
+
+### Component Variants
+
+Most components accept a `variant` prop for different visual styles:
+
+```tsx
+// Button variants
+<Button variant="primary" />
+<Button variant="secondary" />
+<Button variant="outline" />
+<Button variant="ghost" />
+<Button variant="destructive" />
+
+// Card variants
+<Card variant="elevated" />
+<Card variant="outlined" />
+<Card variant="filled" />
+
+// Badge variants
+<Badge variant="success" />
+<Badge variant="warning" />
+<Badge variant="error" />
+```
+
+### Size Variants
+
+Components support consistent sizing:
+
+```tsx
+// All components use the same size scale
+<Button size="sm" />
+<Input size="sm" />
+<Avatar size="sm" />
+
+<Button size="md" />  // Default
+<Input size="md" />
+<Avatar size="md" />
+
+<Button size="lg" />
+<Input size="lg" />
+<Avatar size="lg" />
+```
+
+## Accessibility
+
+All MDXUI components follow WAI-ARIA guidelines and are designed for full accessibility support.
+
+### Keyboard Navigation
+
+All interactive components are fully keyboard accessible:
+
+```tsx
+// Buttons respond to Enter and Space
+<Button>Accessible Button</Button>
+
+// Tabs support arrow key navigation
+<Tabs>
+  <TabList>
+    <Tab>Tab 1</Tab>  {/* Arrow Left/Right to navigate */}
+    <Tab>Tab 2</Tab>
+  </TabList>
+</Tabs>
+
+// Modals trap focus and support Escape to close
+<Modal open={isOpen} onClose={handleClose}>
+  {/* Focus is trapped within modal */}
+</Modal>
+```
+
+### ARIA Attributes
+
+Components automatically include appropriate ARIA attributes:
+
+```tsx
+// Input with error has aria-invalid and aria-describedby
+<Input
+  label="Email"
+  error="Invalid email address"
+  // Renders: aria-invalid="true" aria-describedby="email-error"
+/>
+
+// Loading buttons announce to screen readers
+<Button loading>
+  Saving...
+  {/* Renders: aria-busy="true" aria-live="polite" */}
+</Button>
+```
+
+### Focus Management
+
+Focus is managed automatically for complex components:
+
+```tsx
+// Modal focuses first focusable element on open
+<Modal open={isOpen}>
+  <Input autoFocus />  {/* Receives focus when modal opens */}
+</Modal>
+
+// Focus returns to trigger on close
+<Button onClick={() => setOpen(true)}>
+  Open Modal  {/* Focus returns here when modal closes */}
+</Button>
+```
+
+### Motion Preferences
+
+Components respect `prefers-reduced-motion`:
+
+```tsx
+// Charts disable animations when user prefers reduced motion
+<AreaChart data={data} animate />
+// Automatically disables when prefers-reduced-motion: reduce
+
+// Explicit control
+import { usePrefersReducedMotion } from 'mdxui/hooks'
+
+function MyComponent() {
+  const prefersReducedMotion = usePrefersReducedMotion()
+  return <AreaChart animate={!prefersReducedMotion} />
+}
+```
+
+### Color Contrast
+
+All color combinations meet WCAG 2.1 AA standards:
+
+- Text on backgrounds: minimum 4.5:1 contrast ratio
+- Large text: minimum 3:1 contrast ratio
+- Focus indicators: clearly visible on all backgrounds
+
+## Runtime Validation
+
+Every component has a Zod schema for runtime validation:
+
+```tsx
+import { HeroPropsSchema, DashboardPropsSchema } from 'mdxui/zod'
+
+// Validate props at runtime
+const result = HeroPropsSchema.safeParse(props)
+if (!result.success) {
+  console.error(result.error)
+}
+
+// Generate TypeScript types
+type HeroProps = z.infer<typeof HeroPropsSchema>
+```
+
+## Related
+
+- [UI Overview](/docs/ui) - Introduction to MDXUI
+- [Getting Started](/docs/getting-started) - Quick start guide
+- [Tutorials](/docs/tutorials) - Build real applications with MDXUI

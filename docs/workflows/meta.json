@@ -1,5 +1,10 @@
 {
   "root": true,
   "title": "Workflows",
-  "description": "Durable workflow orchestration with the $ context DSL"
+  "description": "Durable workflow orchestration with the $ context DSL",
+  "pages": [
+    "index",
+    "---Trigger Types---",
+    "triggers"
+  ]
 }

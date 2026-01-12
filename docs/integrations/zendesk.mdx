@@ -1,0 +1,838 @@
+---
+title: Zendesk
+description: Drop-in replacement for the Zendesk SDK with edge compatibility and local testing support.
+---
+
+# Zendesk
+
+Drop-in replacement for the node-zendesk SDK. Your existing Zendesk code works unchanged - just swap the import.
+
+```typescript
+// Before: node-zendesk
+import zendesk from 'node-zendesk'
+
+// After: dotdo
+import Zendesk from '@dotdo/zendesk'
+
+// Code stays the same
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: env.ZENDESK_API_TOKEN,
+})
+
+const ticket = await client.tickets.create({
+  subject: 'Help needed',
+  description: 'I need assistance with...',
+  priority: 'high',
+  requester: { email: 'user@example.com' },
+})
+```
+
+## Why zendesk.do?
+
+| node-zendesk | @dotdo/zendesk |
+|--------------|----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real API calls in tests | Local testing with mock responses |
+| Network latency | Zero latency in local mode |
+| Requires webhook tunnel for dev | Built-in event simulation |
+| Separate test mode | Same code, different backends |
+
+**This is a proxy/compatibility layer.** It can either forward to real Zendesk APIs (production) or run entirely locally for testing and development. The API surface matches Zendesk's official SDK.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Tickets**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `search()`
+- `createComment()`, `listComments()` - Add and list ticket comments
+
+**Users**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `search()`
+- `merge()` - Merge two user accounts
+
+**Organizations**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+
+**Attachments**
+- `upload()`, `get()`, `delete()`
+
+**Triggers**
+- `create()`, `get()`, `update()`, `delete()`, `list()`, `listActive()`
+
+**Automations**
+- `create()`, `get()`, `update()`, `delete()`, `list()`
+
+### Not Yet Implemented
+
+- Views
+- Groups
+- Macros
+- SLA Policies
+- Satisfaction Ratings
+- Suspended Tickets
+- Tags (standalone API)
+- Search (global)
+- Talk (voice)
+- Chat
+- Guide (help center)
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/zendesk
+```
+
+### Basic Usage
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: env.ZENDESK_API_TOKEN,
+})
+
+// Create a ticket
+const ticket = await client.tickets.create({
+  subject: 'Password reset not working',
+  description: 'I cannot reset my password. The email never arrives.',
+  priority: 'high',
+  type: 'incident',
+  requester: { email: 'user@example.com' },
+  tags: ['login', 'urgent'],
+})
+
+console.log('Created ticket:', ticket.id)
+
+// Add a comment
+await client.tickets.createComment(ticket.id, {
+  body: 'We are investigating this issue.',
+  public: true,
+})
+```
+
+## Inbound - Using zendesk.do Locally
+
+For testing and development, use mock fetch to simulate Zendesk responses:
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+// Create a mock fetch for testing
+const mockResponses = new Map([
+  ['POST /api/v2/tickets', {
+    status: 201,
+    body: {
+      ticket: {
+        id: 123,
+        subject: 'Test ticket',
+        status: 'new',
+        // ... other fields
+      }
+    }
+  }]
+])
+
+const mockFetch = async (url: string, options?: RequestInit) => {
+  // Match against mock responses
+  const urlObj = new URL(url)
+  const key = `${options?.method ?? 'GET'} ${urlObj.pathname}`
+  const response = mockResponses.get(key)
+
+  return {
+    ok: response?.status >= 200 && response?.status < 300,
+    status: response?.status ?? 404,
+    json: async () => response?.body ?? { error: 'Not found' }
+  }
+}
+
+const client = new Zendesk.Client({
+  subdomain: 'test',
+  email: 'test@example.com',
+  token: 'test_token',
+  fetch: mockFetch, // Inject mock fetch
+})
+
+// Now all API calls use mock responses
+const ticket = await client.tickets.create({
+  subject: 'Test ticket',
+  description: 'Testing...',
+})
+
+console.log(ticket.id) // 123
+```
+
+### Testing Patterns
+
+```typescript
+import { describe, it, expect, vi } from 'vitest'
+import Zendesk from '@dotdo/zendesk'
+
+describe('Support workflow', () => {
+  it('should create and update ticket', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          ticket: { id: 1, subject: 'Help', status: 'new' }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ticket: { id: 1, subject: 'Help', status: 'pending' }
+        })
+      })
+
+    const client = new Zendesk.Client({
+      subdomain: 'test',
+      email: 'test@example.com',
+      token: 'test',
+      fetch: mockFetch,
+    })
+
+    const ticket = await client.tickets.create({
+      subject: 'Help',
+      description: 'Need assistance',
+    })
+    expect(ticket.status).toBe('new')
+
+    const updated = await client.tickets.update(ticket.id, {
+      status: 'pending',
+    })
+    expect(updated.status).toBe('pending')
+  })
+})
+```
+
+## Outbound - Connecting to Real Zendesk
+
+For production, the client connects to Zendesk's API:
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: env.ZENDESK_SUBDOMAIN,
+  email: env.ZENDESK_EMAIL,
+  token: env.ZENDESK_API_TOKEN,
+})
+
+// All requests go to {subdomain}.zendesk.com
+const tickets = await client.tickets.list({ status: 'open' })
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import Zendesk from '@dotdo/zendesk'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new Zendesk.Client({
+      subdomain: env.ZENDESK_SUBDOMAIN,
+      email: env.ZENDESK_EMAIL,
+      token: env.ZENDESK_API_TOKEN,
+    })
+
+    const url = new URL(request.url)
+
+    if (url.pathname === '/api/tickets' && request.method === 'POST') {
+      const body = await request.json()
+
+      const ticket = await client.tickets.create({
+        subject: body.subject,
+        description: body.description,
+        requester: { email: body.email },
+        priority: body.priority ?? 'normal',
+      })
+
+      return Response.json({ ticketId: ticket.id })
+    }
+
+    return new Response('Not found', { status: 404 })
+  },
+}
+```
+
+### Authentication Options
+
+```typescript
+// API Token authentication (recommended)
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: 'api_token_here',
+})
+
+// Password authentication (legacy)
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  password: 'password_here',
+})
+
+// OAuth token authentication
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  oauthToken: 'oauth_token_here',
+})
+```
+
+## Tickets
+
+### Create a Ticket
+
+```typescript
+const ticket = await client.tickets.create({
+  subject: 'Cannot login to my account',
+  description: 'Getting "invalid credentials" error even with correct password',
+  type: 'incident',
+  priority: 'high',
+  requester: { email: 'user@example.com', name: 'John Doe' },
+  tags: ['login', 'authentication'],
+  custom_fields: [
+    { id: 12345, value: 'enterprise' },
+  ],
+})
+```
+
+### Update a Ticket
+
+```typescript
+const ticket = await client.tickets.update(123, {
+  status: 'pending',
+  assignee_id: 456,
+  priority: 'urgent',
+  comment: {
+    body: 'Escalating to engineering team.',
+    public: false, // Internal note
+  },
+})
+```
+
+### List Tickets
+
+```typescript
+// List all tickets
+const result = await client.tickets.list()
+console.log(result.tickets)
+console.log(result.count)
+
+// Filter by status
+const openTickets = await client.tickets.list({ status: 'open' })
+
+// With pagination
+const page1 = await client.tickets.list({ per_page: 25, page: 1 })
+if (page1.next_page) {
+  // Fetch next page...
+}
+```
+
+### Search Tickets
+
+```typescript
+// Search by query string (Zendesk search syntax)
+const results = await client.tickets.search('status:open priority:high')
+
+// Search for specific requester
+const userTickets = await client.tickets.search('requester:user@example.com')
+
+// Search by tags
+const urgentTickets = await client.tickets.search('tags:urgent')
+```
+
+### Add Comments
+
+```typescript
+// Public reply
+await client.tickets.createComment(123, {
+  body: 'Thank you for contacting us. We have resolved your issue.',
+  public: true,
+})
+
+// Internal note
+await client.tickets.createComment(123, {
+  body: 'Customer confirmed issue is resolved via phone.',
+  public: false,
+})
+
+// Comment with attachment
+await client.tickets.createComment(123, {
+  body: 'Please see the attached screenshot.',
+  public: true,
+  uploads: ['upload_token_from_attachments_api'],
+})
+```
+
+### List Comments
+
+```typescript
+const comments = await client.tickets.listComments(123)
+
+for (const comment of comments.comments) {
+  console.log(`${comment.author_id}: ${comment.body}`)
+  console.log(`Public: ${comment.public}`)
+}
+```
+
+## Users
+
+### Create a User
+
+```typescript
+const user = await client.users.create({
+  name: 'Jane Smith',
+  email: 'jane@example.com',
+  role: 'end-user',
+  phone: '+1-555-123-4567',
+  time_zone: 'America/New_York',
+  user_fields: {
+    company_size: 'enterprise',
+    plan: 'pro',
+  },
+})
+```
+
+### Search Users
+
+```typescript
+// Search by email
+const results = await client.users.search({ query: 'jane@example.com' })
+
+// Search by external ID
+const results = await client.users.search({ external_id: 'ext_123' })
+```
+
+### Merge Users
+
+```typescript
+// Merge source user into target user
+// All tickets from source are moved to target
+const mergedUser = await client.users.merge(targetUserId, sourceUserId)
+```
+
+### List Users
+
+```typescript
+// List all users
+const result = await client.users.list()
+
+// Filter by role
+const agents = await client.users.list({ role: 'agent' })
+const endUsers = await client.users.list({ role: 'end-user' })
+```
+
+## Organizations
+
+### Create an Organization
+
+```typescript
+const org = await client.organizations.create({
+  name: 'Acme Corporation',
+  domain_names: ['acme.com', 'acme.io'],
+  details: 'Enterprise customer since 2020',
+  notes: 'Primary contact: John Smith',
+  tags: ['enterprise', 'priority'],
+  organization_fields: {
+    industry: 'technology',
+    employees: '500-1000',
+  },
+})
+```
+
+### Update an Organization
+
+```typescript
+const org = await client.organizations.update(789, {
+  name: 'Acme Corp',
+  shared_tickets: true,
+  shared_comments: true,
+})
+```
+
+### List Organizations
+
+```typescript
+const result = await client.organizations.list()
+
+for (const org of result.organizations) {
+  console.log(`${org.name}: ${org.domain_names.join(', ')}`)
+}
+```
+
+## Attachments
+
+### Upload an Attachment
+
+```typescript
+const upload = await client.attachments.upload({
+  filename: 'screenshot.png',
+  contentType: 'image/png',
+  data: fileBuffer, // Uint8Array, ArrayBuffer, or string
+})
+
+// Use the token when creating comments
+await client.tickets.createComment(123, {
+  body: 'See attached screenshot',
+  uploads: [upload.token],
+})
+```
+
+### Get an Attachment
+
+```typescript
+const attachment = await client.attachments.get(2001)
+console.log(attachment.content_url) // Download URL
+console.log(attachment.file_name)
+console.log(attachment.size)
+```
+
+## Triggers
+
+### Create a Trigger
+
+```typescript
+const trigger = await client.triggers.create({
+  title: 'Auto-assign urgent tickets',
+  conditions: {
+    all: [
+      { field: 'priority', operator: 'is', value: 'urgent' },
+      { field: 'assignee_id', operator: 'is', value: '' },
+    ],
+    any: [],
+  },
+  actions: [
+    { field: 'assignee_id', value: '456' },
+    { field: 'notification_user', value: ['assignee', 'New urgent ticket assigned'] },
+  ],
+  active: true,
+})
+```
+
+### List Triggers
+
+```typescript
+// List all triggers
+const result = await client.triggers.list()
+
+// List only active triggers
+const active = await client.triggers.listActive()
+```
+
+## Automations
+
+### Create an Automation
+
+```typescript
+const automation = await client.automations.create({
+  title: 'Close stale pending tickets',
+  conditions: {
+    all: [
+      { field: 'status', operator: 'is', value: 'pending' },
+      { field: 'pending_hours', operator: 'greater_than', value: '72' },
+    ],
+    any: [],
+  },
+  actions: [
+    { field: 'status', value: 'closed' },
+    { field: 'comment_value', value: 'Ticket auto-closed due to inactivity.' },
+  ],
+  active: true,
+})
+```
+
+## Error Handling
+
+```typescript
+import Zendesk, { ZendeskError } from '@dotdo/zendesk'
+
+try {
+  await client.tickets.get(999999)
+} catch (error) {
+  if (error instanceof ZendeskError) {
+    console.log('Error:', error.error)           // 'RecordNotFound'
+    console.log('Status:', error.statusCode)     // 404
+    console.log('Message:', error.message)       // 'Ticket not found'
+    console.log('Details:', error.details)       // Additional error info
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `RecordNotFound` | Resource does not exist |
+| `InvalidRequest` | Invalid parameters |
+| `AuthenticationFailed` | Invalid credentials |
+| `Forbidden` | Insufficient permissions |
+| `RateLimited` | Too many requests |
+| `UnprocessableEntity` | Validation failed |
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Ticket,
+  User,
+  Organization,
+  Comment,
+  Attachment,
+  Trigger,
+  Automation,
+
+  // Params
+  TicketCreateParams,
+  TicketUpdateParams,
+  TicketListParams,
+  UserCreateParams,
+  UserSearchParams,
+  OrganizationCreateParams,
+  CommentCreateParams,
+  TriggerCreateParams,
+  AutomationCreateParams,
+
+  // Responses
+  TicketListResponse,
+  UserListResponse,
+  OrganizationListResponse,
+  CommentListResponse,
+  SearchResponse,
+
+  // Supporting types
+  CustomField,
+  Via,
+  SatisfactionRating,
+  TriggerCondition,
+  TriggerAction,
+
+  // Client types
+  ClientConfig,
+  RequestOptions,
+
+  // Errors
+  ZendeskError,
+  ZendeskErrorResponse,
+} from '@dotdo/zendesk'
+```
+
+## Migration from node-zendesk
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall node-zendesk
+
+# Install
+npm install @dotdo/zendesk
+```
+
+### Import Change
+
+```typescript
+// Before
+import zendesk from 'node-zendesk'
+const client = zendesk.createClient({
+  username: 'admin@example.com',
+  token: 'api_token',
+  remoteUri: 'https://mycompany.zendesk.com/api/v2',
+})
+
+// After
+import Zendesk from '@dotdo/zendesk'
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: 'api_token',
+})
+```
+
+### Code Compatibility
+
+Your existing Zendesk code should work with minor adjustments:
+
+```typescript
+// This code works with @dotdo/zendesk
+const ticket = await client.tickets.create({
+  subject: 'Help needed',
+  description: 'I need assistance',
+  priority: 'high',
+})
+
+const user = await client.users.create({
+  name: 'John Doe',
+  email: 'john@example.com',
+})
+
+const org = await client.organizations.create({
+  name: 'Acme Inc',
+})
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const client = new Zendesk.Client({...})                   |
+|  await client.tickets.create(...)                           |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode       |     |     Test Mode           |
+|   (Real Zendesk)        |     |     (Mock Fetch)        |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> {subdomain}.zendesk |     |  -> Mock responses      |
+|  -> Real tickets        |     |  -> No network calls    |
+|  -> Live API            |     |  -> Predictable data    |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Benefits
+
+- **Edge-native**: Runs on Cloudflare Workers without Node.js
+- **Zero latency testing**: Mock fetch for instant responses
+- **Type-safe**: Full TypeScript definitions
+- **API compatible**: Drop-in replacement for node-zendesk
+
+## Common Patterns
+
+### Support Ticket Workflow
+
+```typescript
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: env.ZENDESK_SUBDOMAIN,
+  email: env.ZENDESK_EMAIL,
+  token: env.ZENDESK_API_TOKEN,
+})
+
+// 1. Create ticket from customer request
+async function createSupportTicket(request: {
+  email: string
+  subject: string
+  description: string
+}) {
+  // Find or create user
+  let user: User
+  const search = await client.users.search({ query: request.email })
+
+  if (search.users.length > 0) {
+    user = search.users[0]
+  } else {
+    user = await client.users.create({
+      email: request.email,
+      name: request.email.split('@')[0],
+      role: 'end-user',
+    })
+  }
+
+  // Create ticket
+  return client.tickets.create({
+    subject: request.subject,
+    description: request.description,
+    requester_id: user.id,
+  })
+}
+
+// 2. Auto-assign based on tags
+async function autoAssign(ticketId: number) {
+  const ticket = await client.tickets.get(ticketId)
+
+  let assigneeId: number | null = null
+  if (ticket.tags.includes('billing')) {
+    assigneeId = BILLING_TEAM_ID
+  } else if (ticket.tags.includes('technical')) {
+    assigneeId = TECH_TEAM_ID
+  }
+
+  if (assigneeId) {
+    await client.tickets.update(ticketId, { assignee_id: assigneeId })
+  }
+}
+
+// 3. Escalate overdue tickets
+async function escalateOverdue() {
+  const results = await client.tickets.search(
+    'status:open updated<24hours priority:high'
+  )
+
+  for (const ticket of results.results) {
+    await client.tickets.update(ticket.id, {
+      priority: 'urgent',
+      comment: {
+        body: 'Auto-escalated due to SLA breach.',
+        public: false,
+      },
+    })
+  }
+}
+```
+
+### Multi-Tenant Help Desk
+
+```typescript
+// Route tickets to organization-specific queues
+async function routeTicket(ticketId: number) {
+  const ticket = await client.tickets.get(ticketId)
+
+  if (ticket.organization_id) {
+    const org = await client.organizations.get(ticket.organization_id)
+
+    // Enterprise customers get priority
+    if (org.tags.includes('enterprise')) {
+      await client.tickets.update(ticketId, {
+        priority: 'high',
+        tags: [...ticket.tags, 'enterprise-support'],
+      })
+    }
+  }
+}
+```
+
+## API Coverage
+
+| Resource | Coverage | Notes |
+|----------|----------|-------|
+| Tickets | Full | CRUD + search + comments |
+| Users | Full | CRUD + search + merge |
+| Organizations | Full | CRUD |
+| Attachments | Full | Upload + get + delete |
+| Triggers | Full | CRUD + listActive |
+| Automations | Full | CRUD |
+| Views | Not yet | |
+| Groups | Not yet | |
+| Macros | Not yet | |
+| SLA Policies | Not yet | |
+| Talk | Not yet | Voice API |
+| Chat | Not yet | Real-time chat |
+| Guide | Not yet | Help center |
+
+## Related
+
+- [Events Overview](/docs/events) - Event handling including webhooks
+- [SDK Events](/docs/sdk/events) - Event subscription patterns
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

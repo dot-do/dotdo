@@ -1,0 +1,445 @@
+---
+title: PlanetScale Integration
+description: Drop-in replacement for @planetscale/database serverless driver backed by Durable Objects with MySQL compatibility.
+---
+
+# PlanetScale Integration
+
+## Overview
+
+Drop-in replacement for `@planetscale/database` serverless driver. Your existing PlanetScale code works unchanged - just swap the import.
+
+```typescript
+// Before
+import { connect } from '@planetscale/database'
+
+// After
+import { connect } from '@dotdo/planetscale'
+
+// Code stays exactly the same
+const conn = connect({
+  host: process.env.DATABASE_HOST,
+  username: process.env.DATABASE_USERNAME,
+  password: process.env.DATABASE_PASSWORD
+})
+
+const { rows } = await conn.execute('SELECT * FROM users WHERE id = ?', [1])
+```
+
+## Why planetscale.do?
+
+| @planetscale/database | @dotdo/planetscale |
+|-----------------------|--------------------|
+| Requires external PlanetScale DB | Backed by DO SQLite |
+| Network latency to cloud | Edge-local (0ms) |
+| HTTP-based | HTTP-compatible API |
+| Pay per request | Included in Workers |
+| Branch deploys external | Branch state in DO |
+| Connection overhead | Instant connections |
+
+## Features
+
+- **Serverless MySQL** - HTTP-based query execution with `?` placeholder parameters
+- **Edge-compatible** - Runs natively on Cloudflare Workers, no external connections needed
+- **MySQL syntax** - AUTO_INCREMENT, backtick identifiers, ON DUPLICATE KEY UPDATE
+- **Transactions** - Atomic multi-statement execution with automatic rollback
+- **Type safety** - Generic type parameters for typed query results
+- **Cast helpers** - `hex()`, `datetime()`, `json()` for type formatting
+- **DO sharding** - Optional sharding and replica configuration for scale
+
+## Installation
+
+```bash
+npm install @dotdo/planetscale
+```
+
+## Quick Start
+
+### Basic Queries
+
+```typescript
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: 'aws.connect.psdb.cloud',
+  username: 'your_username',
+  password: 'your_password',
+})
+
+// Simple SELECT
+const { rows } = await conn.execute('SELECT * FROM users')
+
+// With typed results
+interface User {
+  id: number
+  name: string
+  email: string
+}
+
+const { rows: users } = await conn.execute<User>(
+  'SELECT id, name, email FROM users WHERE active = ?',
+  [true]
+)
+```
+
+### Parameterized Queries
+
+PlanetScale uses `?` placeholders for parameters (MySQL style):
+
+```typescript
+// Single parameter
+const { rows } = await conn.execute(
+  'SELECT * FROM users WHERE id = ?',
+  [1]
+)
+
+// Multiple parameters
+await conn.execute(
+  'INSERT INTO users (name, email, age) VALUES (?, ?, ?)',
+  ['Alice', 'alice@example.com', 30]
+)
+
+// IN clause
+const { rows } = await conn.execute(
+  'SELECT * FROM products WHERE category IN (?, ?, ?)',
+  ['electronics', 'books', 'clothing']
+)
+```
+
+### INSERT with Auto-Increment
+
+```typescript
+const result = await conn.execute(
+  'INSERT INTO users (name, email) VALUES (?, ?)',
+  ['Bob', 'bob@example.com']
+)
+
+console.log(result.insertId)      // Auto-generated ID
+console.log(result.rowsAffected)  // 1
+```
+
+### UPDATE and DELETE
+
+```typescript
+// UPDATE returns rowsAffected
+const updateResult = await conn.execute(
+  'UPDATE users SET status = ? WHERE last_login < ?',
+  ['inactive', '2024-01-01']
+)
+console.log(`Updated ${updateResult.rowsAffected} users`)
+
+// DELETE returns rowsAffected
+const deleteResult = await conn.execute(
+  'DELETE FROM sessions WHERE expired_at < ?',
+  [new Date().toISOString()]
+)
+console.log(`Deleted ${deleteResult.rowsAffected} sessions`)
+```
+
+## Inbound Mode (Drop-in Replacement)
+
+Use as a local PlanetScale replacement during development or testing. All data is stored in Durable Objects with full MySQL compatibility.
+
+```typescript
+// Your existing PlanetScale code
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: process.env.DATABASE_HOST,
+  username: process.env.DATABASE_USERNAME,
+  password: process.env.DATABASE_PASSWORD,
+})
+
+// Works exactly like @planetscale/database
+const { rows, headers, size, time } = await conn.execute(
+  'SELECT * FROM products WHERE price > ?',
+  [100]
+)
+
+console.log(`Found ${size} products in ${time}ms`)
+console.log('Columns:', headers)
+```
+
+### With ORMs
+
+```typescript
+// Drizzle ORM (MySQL mode)
+import { drizzle } from 'drizzle-orm/planetscale-serverless'
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: process.env.DATABASE_HOST,
+  username: process.env.DATABASE_USERNAME,
+  password: process.env.DATABASE_PASSWORD,
+})
+
+const db = drizzle(conn)
+```
+
+### Next.js / React Integration
+
+```typescript
+// lib/db.ts
+import { connect } from '@dotdo/planetscale'
+
+export const conn = connect({
+  host: process.env.DATABASE_HOST,
+  username: process.env.DATABASE_USERNAME,
+  password: process.env.DATABASE_PASSWORD,
+})
+
+// app/api/users/route.ts
+import { conn } from '@/lib/db'
+
+export async function GET() {
+  const { rows } = await conn.execute('SELECT * FROM users LIMIT 10')
+  return Response.json(rows)
+}
+```
+
+## Outbound Mode (External PlanetScale)
+
+When configured with real PlanetScale credentials, queries are routed to your external PlanetScale database:
+
+```typescript
+import { connect } from '@dotdo/planetscale'
+
+// Connect to real PlanetScale
+const conn = connect({
+  host: 'aws.connect.psdb.cloud',
+  username: process.env.PLANETSCALE_USERNAME,
+  password: process.env.PLANETSCALE_PASSWORD,
+})
+
+// Optional: custom fetch for edge runtime
+const conn = connect({
+  host: 'aws.connect.psdb.cloud',
+  username: process.env.PLANETSCALE_USERNAME,
+  password: process.env.PLANETSCALE_PASSWORD,
+  fetch: globalThis.fetch,
+})
+
+// Enable PlanetScale Boost (query caching)
+const conn = connect({
+  host: 'aws.connect.psdb.cloud',
+  username: process.env.PLANETSCALE_USERNAME,
+  password: process.env.PLANETSCALE_PASSWORD,
+  boost: true,
+})
+```
+
+## Transactions
+
+Execute multiple queries atomically with automatic commit/rollback:
+
+```typescript
+// Atomic money transfer
+await conn.transaction(async (tx) => {
+  await tx.execute(
+    'UPDATE accounts SET balance = balance - ? WHERE id = ?',
+    [100, 1]
+  )
+  await tx.execute(
+    'UPDATE accounts SET balance = balance + ? WHERE id = ?',
+    [100, 2]
+  )
+})
+
+// Return value from transaction
+const total = await conn.transaction(async (tx) => {
+  await tx.execute('INSERT INTO orders (user_id, amount) VALUES (?, ?)', [1, 99.99])
+  const { rows } = await tx.execute('SELECT SUM(amount) as total FROM orders WHERE user_id = ?', [1])
+  return rows[0].total
+})
+
+// Automatic rollback on error
+try {
+  await conn.transaction(async (tx) => {
+    await tx.execute('UPDATE inventory SET count = count - 1 WHERE id = ?', [productId])
+    // If this fails, the inventory update is rolled back
+    await tx.execute('INSERT INTO orders (product_id) VALUES (?)', [productId])
+  })
+} catch (e) {
+  console.error('Transaction failed, changes rolled back')
+}
+```
+
+## API Reference
+
+### connect(config)
+
+Create a new database connection.
+
+```typescript
+function connect(config: Config): Connection
+```
+
+**Config options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `host` | `string` | PlanetScale host (e.g., `aws.connect.psdb.cloud`) |
+| `username` | `string` | Database username |
+| `password` | `string` | Database password |
+| `url` | `string` | Connection URL (alternative to host/user/pass) |
+| `fetch` | `typeof fetch` | Custom fetch function for HTTP requests |
+| `format` | `'json' \| 'array'` | Response format |
+| `boost` | `boolean` | Enable PlanetScale Boost query caching |
+
+**Extended DO config:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `doNamespace` | `DurableObjectNamespace` | DO binding for production routing |
+| `shard` | `object` | Sharding configuration |
+| `shard.algorithm` | `'consistent' \| 'range' \| 'hash'` | Sharding algorithm |
+| `shard.count` | `number` | Number of shards |
+| `shard.key` | `string` | Shard key field |
+| `replica` | `object` | Replica configuration |
+| `replica.readPreference` | `'primary' \| 'secondary' \| 'nearest'` | Read preference |
+| `replica.writeThrough` | `boolean` | Write-through to all replicas |
+| `replica.jurisdiction` | `'eu' \| 'us' \| 'fedramp'` | Jurisdiction constraint |
+
+### conn.execute(sql, args?)
+
+Execute a SQL query with optional parameters.
+
+```typescript
+async execute<T = Row>(sql: string, args?: unknown[]): Promise<ExecutedQuery<T>>
+```
+
+**ExecutedQuery result:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `headers` | `string[]` | Column names |
+| `rows` | `T[]` | Row data as array of objects |
+| `size` | `number` | Number of rows returned |
+| `time` | `number` | Execution time in milliseconds |
+| `insertId` | `number \| string` | Last insert ID (for INSERT with AUTO_INCREMENT) |
+| `rowsAffected` | `number` | Rows affected (for INSERT/UPDATE/DELETE) |
+
+### conn.transaction(fn)
+
+Execute queries atomically within a transaction.
+
+```typescript
+async transaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>
+```
+
+The transaction is committed if the function completes successfully, or rolled back if an error is thrown.
+
+### Cast Helpers
+
+Format values for MySQL queries:
+
+```typescript
+import { hex, datetime, json, cast } from '@dotdo/planetscale'
+
+// Binary to hex
+const hexStr = hex(Buffer.from('hello'))  // '68656c6c6f'
+
+// Date to MySQL datetime
+const dtStr = datetime(new Date())  // '2024-01-15 12:30:45'
+
+// Object to JSON string
+const jsonStr = json({ name: 'Alice' })  // '{"name":"Alice"}'
+
+// Or use the cast object
+cast.hex(buffer)
+cast.datetime(date)
+cast.json(obj)
+```
+
+### DatabaseError
+
+Error class for database errors.
+
+```typescript
+class DatabaseError extends Error {
+  code: string      // Error code (e.g., 'ER_NO_SUCH_TABLE')
+  status?: number   // HTTP status for HTTP-level errors
+  body?: unknown    // Error body from server
+}
+```
+
+**Common error codes:**
+
+| Code | Description |
+|------|-------------|
+| `ER_NO_SUCH_TABLE` | Table not found |
+| `ER_TABLE_EXISTS_ERROR` | Table already exists |
+| `ER_DUP_ENTRY` | Duplicate key (unique constraint violation) |
+| `ER_PARSE_ERROR` | SQL syntax error |
+| `INVALID_CONFIG` | Invalid connection configuration |
+
+## MySQL Syntax Support
+
+The PlanetScale compat layer supports common MySQL syntax:
+
+```typescript
+// AUTO_INCREMENT
+await conn.execute(`
+  CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255)
+  )
+`)
+
+// Backtick identifiers
+await conn.execute('SELECT * FROM `my-table` WHERE `column-name` = ?', [value])
+
+// UNSIGNED integers
+await conn.execute('CREATE TABLE t (val INT UNSIGNED)')
+
+// ON DUPLICATE KEY UPDATE
+await conn.execute(
+  'INSERT INTO users (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = ?',
+  [1, 'Alice', 'Alice']
+)
+
+// LIMIT with OFFSET
+await conn.execute('SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 20')
+
+// LIKE with wildcards
+await conn.execute('SELECT * FROM users WHERE name LIKE ?', ['Ali%'])
+
+// ORDER BY multiple columns
+await conn.execute('SELECT * FROM users ORDER BY status DESC, name ASC')
+```
+
+## Extended DO Configuration
+
+For production deployments, configure sharding and replication:
+
+```typescript
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: 'localhost',
+  username: 'test',
+  password: 'test',
+
+  // Shard across multiple Durable Objects
+  shard: {
+    algorithm: 'consistent',
+    count: 8,
+    key: 'tenant_id',
+  },
+
+  // Read from replicas
+  replica: {
+    readPreference: 'nearest',
+    writeThrough: false,
+    jurisdiction: 'eu',
+  },
+
+  // Production DO binding
+  doNamespace: env.DATABASE,
+})
+```
+
+## Related
+
+- [PostgreSQL Integration](/docs/integrations/postgres) - pg-compatible driver for Postgres syntax
+- [Databases Overview](/docs/compat/databases) - All database SDK implementations

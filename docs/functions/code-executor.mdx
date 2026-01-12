@@ -1,0 +1,403 @@
+---
+title: Code Function Executor
+description: Execute TypeScript functions in a controlled, sandboxed environment with timeouts, retries, and resource limits
+---
+
+# Code Function Executor
+
+The CodeFunctionExecutor runs TypeScript/JavaScript handlers in a controlled V8 isolate environment with context injection, sandboxing, timeouts, retries, and resource limits.
+
+## Overview
+
+Code functions are the fastest and most deterministic function type. They execute synchronously or asynchronously in a sandboxed environment that provides:
+
+- **Context injection** - env, state, services, logging, events
+- **Sandboxed execution** - restricted globals for security
+- **Timeout handling** - configurable execution limits
+- **Retry logic** - exponential backoff, fixed, or linear strategies
+- **Resource limits** - memory, CPU time, output size
+- **Streaming output** - async iterator support
+
+## Basic Usage
+
+```typescript
+import { CodeFunction } from 'dotdo'
+
+export const calculateTotal = CodeFunction({
+  input: { items: 'CartItem[]' },
+  output: 'number',
+  handler: async ({ items }) => {
+    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  }
+})
+```
+
+## Sync vs Async Execution
+
+### Synchronous Functions
+
+Simple computations that return immediately:
+
+```typescript
+const multiply = CodeFunction({
+  input: { a: 'number', b: 'number' },
+  output: 'number',
+  handler: ({ a, b }) => a * b
+})
+```
+
+### Asynchronous Functions
+
+Functions that need to await external resources:
+
+```typescript
+const fetchUser = CodeFunction({
+  input: { userId: 'string' },
+  output: 'User',
+  handler: async ({ userId }, ctx) => {
+    const cached = await ctx.state.get(`user:${userId}`)
+    if (cached) return cached
+
+    const user = await ctx.services.db.query(
+      'SELECT * FROM users WHERE id = ?',
+      [userId]
+    )
+    await ctx.state.put(`user:${userId}`, user[0])
+    return user[0]
+  }
+})
+```
+
+## Execution Context
+
+Every handler receives an `ExecutionContext` with access to:
+
+```typescript
+interface ExecutionContext {
+  functionId: string
+  invocationId: string
+  env: Record<string, string>      // Environment variables
+  state: {                          // Durable Object storage
+    get: <T>(key: string) => Promise<T | null>
+    put: <T>(key: string, value: T) => Promise<void>
+    delete: (key: string) => Promise<boolean>
+    list: (options?: { prefix?: string }) => Promise<Map<string, unknown>>
+  }
+  services: {                       // Platform services
+    ai: { generate: (opts) => Promise<{ text: string }> }
+    kv: { get, put }
+    db: { query }
+    queue: { send }
+    fetch: (url, init?) => Promise<Response>
+  }
+  log: { debug, info, warn, error }
+  emit: (event: string, data: unknown) => Promise<void>
+  signal: AbortSignal
+}
+```
+
+### Using Context Services
+
+```typescript
+const processOrder = CodeFunction({
+  input: { orderId: 'string' },
+  output: 'OrderResult',
+  handler: async ({ orderId }, ctx) => {
+    ctx.log.info('Processing order', { orderId })
+
+    const order = await ctx.services.db.query(
+      'SELECT * FROM orders WHERE id = ?',
+      [orderId]
+    )
+
+    await ctx.emit('order.processing', { orderId })
+
+    const result = await ctx.services.fetch(
+      `${ctx.env.PAYMENT_API}/charge`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ amount: order[0].total })
+      }
+    )
+
+    return { success: true, transactionId: result.id }
+  }
+})
+```
+
+## Error Handling
+
+### Error Types
+
+The executor provides specific error types for different failure scenarios:
+
+```typescript
+import {
+  ExecutionTimeoutError,
+  ExecutionSandboxError,
+  ExecutionResourceError,
+  ExecutionRetryExhaustedError,
+  ExecutionCancelledError,
+  ExecutionValidationError
+} from 'dotdo/executors'
+```
+
+### Handling Errors
+
+```typescript
+const riskyOperation = CodeFunction({
+  input: { data: 'unknown' },
+  output: 'Result',
+  handler: async ({ data }, ctx) => {
+    try {
+      const result = await processData(data)
+      return { success: true, result }
+    } catch (error) {
+      ctx.log.error('Processing failed', { error: error.message })
+      throw error // Will be caught by executor
+    }
+  }
+})
+```
+
+### Custom Error Recovery
+
+```typescript
+const withFallback = CodeFunction({
+  input: { query: 'string' },
+  output: 'SearchResult[]',
+  handler: async ({ query }, ctx) => {
+    try {
+      return await ctx.services.search(query)
+    } catch (error) {
+      // Fall back to cached results
+      const cached = await ctx.state.get(`search:${query}`)
+      if (cached) return cached
+      throw new Error('Search unavailable and no cached results')
+    }
+  }
+})
+```
+
+## Timeouts and Resource Limits
+
+### Configuring Timeouts
+
+```typescript
+const slowOperation = CodeFunction({
+  input: { url: 'string' },
+  output: 'Response',
+  timeout: 60000, // 60 seconds
+  handler: async ({ url }, ctx) => {
+    return ctx.services.fetch(url)
+  }
+})
+```
+
+### Resource Limits
+
+```typescript
+const limitedFunction = CodeFunction({
+  input: { data: 'Buffer' },
+  output: 'ProcessedData',
+  resourceLimits: {
+    maxMemory: 128 * 1024 * 1024,  // 128MB
+    maxCpuTime: 5000,               // 5 seconds
+    maxOutputSize: 10 * 1024 * 1024 // 10MB
+  },
+  handler: async ({ data }) => {
+    return heavyProcessing(data)
+  }
+})
+```
+
+## Retry Configuration
+
+### Exponential Backoff
+
+```typescript
+const reliableCall = CodeFunction({
+  input: { endpoint: 'string' },
+  output: 'ApiResponse',
+  retry: {
+    maxAttempts: 3,
+    delay: 1000,
+    backoff: 'exponential',
+    maxDelay: 30000,
+    retryOnTimeout: true,
+    onRetry: ({ attempt, delay, error }) => {
+      console.log(`Retry ${attempt} after ${delay}ms: ${error.message}`)
+    }
+  },
+  handler: async ({ endpoint }, ctx) => {
+    return ctx.services.fetch(endpoint)
+  }
+})
+```
+
+### Conditional Retries
+
+```typescript
+const selectiveRetry = CodeFunction({
+  input: { request: 'Request' },
+  output: 'Response',
+  retry: {
+    maxAttempts: 5,
+    delay: 500,
+    backoff: 'linear',
+    increment: 500,
+    retryIf: (error) => {
+      // Only retry on network errors or 5xx
+      return error.name === 'NetworkError' ||
+             error.statusCode >= 500
+    }
+  },
+  handler: async ({ request }, ctx) => {
+    return processRequest(request)
+  }
+})
+```
+
+## Sandboxed Execution
+
+The executor runs code in a sandboxed environment with restricted globals:
+
+### Allowed Globals
+
+- Standard JavaScript: `JSON`, `Math`, `Date`, `Array`, `Object`, `String`, `Number`, `Boolean`
+- Async primitives: `Promise`, `setTimeout`, `clearTimeout`, `queueMicrotask`
+- Web APIs: `URL`, `URLSearchParams`, `Response`, `Request`, `Headers`, `fetch`
+- Typed arrays: `Uint8Array`, `ArrayBuffer`, `TextEncoder`, `TextDecoder`
+- Crypto: `crypto`
+
+### Restricted Globals
+
+The following are blocked in sandboxed mode:
+
+- `require`, `process`, `global`, `globalThis`
+- `eval`, `Function` (dynamic code execution)
+- Prototype modification (`__proto__`, `Object.prototype`)
+
+### Disabling Sandbox
+
+For trusted code that needs full access:
+
+```typescript
+const trustedFunction = CodeFunction({
+  input: { script: 'string' },
+  output: 'unknown',
+  sandboxed: false, // Use with caution
+  handler: async ({ script }) => {
+    return eval(script) // Only in non-sandboxed mode
+  }
+})
+```
+
+## Streaming Output
+
+For long-running operations that produce incremental results:
+
+```typescript
+const streamingProcess = CodeFunction({
+  input: { items: 'Item[]' },
+  output: 'ProcessedItem[]',
+  streaming: true,
+  handler: async function* ({ items }, ctx) {
+    for (const item of items) {
+      const processed = await processItem(item)
+      await ctx.emit('stream.chunk', { data: processed })
+      yield processed
+    }
+  }
+})
+
+// Consuming the stream
+const stream = await executor.executeStreaming(handler, input)
+
+for await (const chunk of stream) {
+  if (chunk.type === 'chunk') {
+    console.log('Received:', chunk.data)
+  }
+  if (chunk.type === 'result') {
+    console.log('Final result:', chunk.value)
+  }
+}
+```
+
+## Input/Output Validation
+
+### Schema Validation
+
+```typescript
+const validatedFunction = CodeFunction({
+  inputSchema: {
+    type: 'object',
+    properties: {
+      email: { type: 'string' },
+      age: { type: 'integer' }
+    },
+    required: ['email']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      userId: { type: 'string' }
+    },
+    required: ['success']
+  },
+  handler: async ({ email, age }) => {
+    const user = await createUser(email, age)
+    return { success: true, userId: user.id }
+  }
+})
+```
+
+## Cancellation
+
+Support for cancellable operations:
+
+```typescript
+const cancellableOperation = CodeFunction({
+  input: { taskId: 'string' },
+  output: 'TaskResult',
+  handler: async ({ taskId }, ctx) => {
+    const steps = await getTaskSteps(taskId)
+
+    for (const step of steps) {
+      // Check for cancellation between steps
+      if (ctx.signal.aborted) {
+        throw new ExecutionCancelledError('Task cancelled')
+      }
+
+      await executeStep(step)
+    }
+
+    return { completed: true }
+  }
+})
+
+// Cancelling execution
+const controller = new AbortController()
+const result = executor.execute(handler, input, { signal: controller.signal })
+
+// Cancel after 5 seconds
+setTimeout(() => controller.abort(), 5000)
+```
+
+## Best Practices
+
+1. **Keep handlers focused** - One function, one responsibility
+2. **Use context services** - Leverage injected services rather than importing directly
+3. **Handle errors gracefully** - Provide meaningful error messages
+4. **Set appropriate timeouts** - Match timeout to expected execution time
+5. **Use retries for transient failures** - Network issues, rate limits
+6. **Log important operations** - Use `ctx.log` for observability
+7. **Emit events for monitoring** - Use `ctx.emit` for workflow integration
+
+## Related
+
+- [Concepts: Functions](/docs/concepts/functions) - Function types and cascade patterns
+- [SDK: Functions](/docs/sdk/functions) - DOFunction type reference
+- [Agents](/docs/agents) - AI agents for agentic functions
+- [Humans](/docs/humans) - Human-in-the-loop functions and escalation

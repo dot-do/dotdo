@@ -1,0 +1,405 @@
+---
+title: Durable Object Storage
+description: SQLite-powered persistent storage in Durable Objects with transactions and key-value operations
+---
+
+# Durable Object Storage
+
+Every Durable Object has its own embedded SQLite database. No external database connections, no cold starts, just persistent storage running at the edge.
+
+## Overview
+
+DO Storage combines the power of SQLite with Cloudflare's global edge network:
+
+- **SQLite in every DO** - Full SQL capabilities per instance
+- **Strong consistency** - Single-writer guarantee
+- **Zero cold starts** - Data is co-located with your code
+- **10GB per DO** - Plenty of room for active working sets
+- **Global edge** - 300+ cities worldwide
+
+## Basic Storage Operations
+
+### Key-Value Operations
+
+The simplest way to store data is key-value:
+
+```typescript
+import { DO } from 'dotdo'
+
+export class UserDO extends DO {
+  async saveProfile(profile: UserProfile) {
+    await this.ctx.storage.put('profile', profile)
+  }
+
+  async getProfile(): Promise<UserProfile | undefined> {
+    return this.ctx.storage.get<UserProfile>('profile')
+  }
+
+  async deleteProfile() {
+    await this.ctx.storage.delete('profile')
+  }
+
+  async getAllData(): Promise<Map<string, unknown>> {
+    return this.ctx.storage.list()
+  }
+}
+```
+
+### Batch Operations
+
+Store multiple values atomically:
+
+```typescript
+export class CartDO extends DO {
+  async updateCart(items: CartItem[]) {
+    // Atomic batch write
+    const entries = items.map(item => [`item:${item.id}`, item])
+    await this.ctx.storage.put(Object.fromEntries(entries))
+  }
+
+  async getCartItems(itemIds: string[]): Promise<Map<string, CartItem>> {
+    // Batch read
+    const keys = itemIds.map(id => `item:${id}`)
+    return this.ctx.storage.get<CartItem>(keys)
+  }
+
+  async clearCart() {
+    // List and delete all items
+    const items = await this.ctx.storage.list({ prefix: 'item:' })
+    await this.ctx.storage.delete([...items.keys()])
+  }
+}
+```
+
+## SQLite via Drizzle ORM
+
+dotdo uses Drizzle ORM for type-safe SQL operations:
+
+```typescript
+import { DO } from 'dotdo'
+import { eq, and, desc } from 'drizzle-orm'
+
+export class OrderDO extends DO {
+  async createOrder(order: NewOrder) {
+    // Insert with Drizzle
+    const [created] = await this.db
+      .insert(schema.things)
+      .values({
+        id: crypto.randomUUID(),
+        type: 'Order',
+        name: `Order #${order.orderNumber}`,
+        data: order,
+      })
+      .returning()
+
+    return created
+  }
+
+  async getOrdersByStatus(status: string) {
+    // Query with type-safe filters
+    return this.db
+      .select()
+      .from(schema.things)
+      .where(
+        and(
+          eq(schema.things.type, 'Order'),
+          eq(sql`json_extract(data, '$.status')`, status)
+        )
+      )
+      .orderBy(desc(schema.things.createdAt))
+  }
+
+  async updateOrderStatus(orderId: string, status: string) {
+    // Update with JSON patching
+    return this.db
+      .update(schema.things)
+      .set({
+        data: sql`json_set(data, '$.status', ${status})`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.things.id, orderId))
+      .returning()
+  }
+}
+```
+
+## Transaction Support
+
+All DO storage operations support ACID transactions:
+
+### Automatic Transactions
+
+Single operations are automatically transactional:
+
+```typescript
+// This is atomic
+await this.ctx.storage.put({
+  'user:profile': profile,
+  'user:settings': settings,
+  'user:lastUpdated': Date.now(),
+})
+```
+
+### Explicit Transactions
+
+Use `transaction()` for complex operations:
+
+```typescript
+export class BankAccountDO extends DO {
+  async transfer(toAccountId: string, amount: number) {
+    return await this.ctx.storage.transaction(async (txn) => {
+      // Read current balance
+      const balance = await txn.get<number>('balance') ?? 0
+
+      if (balance < amount) {
+        throw new Error('Insufficient funds')
+      }
+
+      // Deduct from this account
+      await txn.put('balance', balance - amount)
+
+      // Record the transfer
+      const transfers = await txn.get<Transfer[]>('transfers') ?? []
+      transfers.push({
+        id: crypto.randomUUID(),
+        to: toAccountId,
+        amount,
+        timestamp: Date.now(),
+      })
+      await txn.put('transfers', transfers)
+
+      return { newBalance: balance - amount }
+    })
+  }
+}
+```
+
+### SQL Transactions with Drizzle
+
+Drizzle transactions for complex queries:
+
+```typescript
+export class InventoryDO extends DO {
+  async reserveStock(productId: string, quantity: number) {
+    return await this.db.transaction(async (tx) => {
+      // Get current stock with lock
+      const [product] = await tx
+        .select()
+        .from(schema.things)
+        .where(eq(schema.things.id, productId))
+        .for('update')
+
+      const stock = (product?.data as ProductData)?.stock ?? 0
+
+      if (stock < quantity) {
+        throw new Error(`Insufficient stock: ${stock} < ${quantity}`)
+      }
+
+      // Reserve the stock
+      await tx
+        .update(schema.things)
+        .set({
+          data: sql`json_set(data, '$.stock', ${stock - quantity})`,
+        })
+        .where(eq(schema.things.id, productId))
+
+      // Create reservation record
+      await tx.insert(schema.things).values({
+        id: crypto.randomUUID(),
+        type: 'Reservation',
+        data: { productId, quantity, expiresAt: Date.now() + 900000 },
+      })
+
+      return { reserved: quantity, remaining: stock - quantity }
+    })
+  }
+}
+```
+
+## Working with the Things Store
+
+dotdo provides a higher-level `things` store for common operations:
+
+```typescript
+export class CustomerDO extends DO {
+  async onStart() {
+    // Register event handlers
+    this.$.on.Customer.created(async (event) => {
+      await this.sendWelcomeEmail(event.data)
+    })
+  }
+
+  async createCustomer(data: CustomerData) {
+    // Uses the things store internally
+    return await this.things.create({
+      type: 'Customer',
+      name: data.name,
+      data: {
+        email: data.email,
+        plan: data.plan,
+        createdAt: new Date().toISOString(),
+      },
+    })
+  }
+
+  async findCustomersByPlan(plan: string) {
+    return await this.things.find({
+      type: 'Customer',
+      where: { 'data.plan': plan },
+    })
+  }
+
+  async updateCustomer(id: string, updates: Partial<CustomerData>) {
+    return await this.things.update(id, { data: updates })
+  }
+}
+```
+
+## Storage Patterns
+
+### Prefix-Based Organization
+
+Use prefixes for logical grouping:
+
+```typescript
+export class SessionDO extends DO {
+  private readonly PREFIXES = {
+    session: 'session:',
+    token: 'token:',
+    attempt: 'attempt:',
+  } as const
+
+  async createSession(userId: string) {
+    const sessionId = crypto.randomUUID()
+    const token = crypto.randomUUID()
+
+    await this.ctx.storage.put({
+      [`${this.PREFIXES.session}${sessionId}`]: {
+        userId,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
+      },
+      [`${this.PREFIXES.token}${token}`]: sessionId,
+    })
+
+    return { sessionId, token }
+  }
+
+  async listActiveSessions() {
+    return this.ctx.storage.list({ prefix: this.PREFIXES.session })
+  }
+}
+```
+
+### Versioned Data
+
+Track data versions for optimistic concurrency:
+
+```typescript
+export class DocumentDO extends DO {
+  async updateDocument(id: string, content: string, expectedVersion: number) {
+    const current = await this.ctx.storage.get<Document>(`doc:${id}`)
+
+    if (!current) {
+      throw new Error('Document not found')
+    }
+
+    if (current.version !== expectedVersion) {
+      throw new Error('Conflict: document was modified')
+    }
+
+    const updated = {
+      ...current,
+      content,
+      version: current.version + 1,
+      updatedAt: Date.now(),
+    }
+
+    await this.ctx.storage.put(`doc:${id}`, updated)
+    return updated
+  }
+}
+```
+
+### Time-Series Data
+
+Store time-series data with timestamp keys:
+
+```typescript
+export class MetricsDO extends DO {
+  async recordMetric(name: string, value: number) {
+    const timestamp = Date.now()
+    const key = `metric:${name}:${timestamp}`
+
+    await this.ctx.storage.put(key, {
+      name,
+      value,
+      timestamp,
+    })
+  }
+
+  async getMetrics(name: string, since: number) {
+    const prefix = `metric:${name}:`
+    const all = await this.ctx.storage.list({ prefix })
+
+    return [...all.entries()]
+      .filter(([key]) => {
+        const ts = parseInt(key.split(':')[2])
+        return ts >= since
+      })
+      .map(([_, value]) => value)
+  }
+}
+```
+
+## Storage Limits and Best Practices
+
+### Limits
+
+| Limit | Value |
+|-------|-------|
+| Storage per DO | 10 GB |
+| Key size | 2 KB |
+| Value size | 128 KB |
+| Batch operation size | 128 |
+
+### Best Practices
+
+1. **Keep hot data small** - Move cold data to R2
+2. **Use prefixes** - Organize data for efficient listing
+3. **Batch operations** - Reduce round trips
+4. **Transaction boundaries** - Keep transactions short
+5. **Shard by entity** - One DO per customer/tenant
+
+### Handling Large Values
+
+For values over 128 KB, use R2:
+
+```typescript
+export class FileDO extends DO {
+  async storeFile(id: string, content: ArrayBuffer) {
+    if (content.byteLength > 128 * 1024) {
+      // Large file goes to R2
+      await this.env.R2.put(`files/${this.ns}/${id}`, content)
+      await this.ctx.storage.put(`file:${id}`, {
+        id,
+        location: 'r2',
+        size: content.byteLength,
+      })
+    } else {
+      // Small file stays in DO storage
+      await this.ctx.storage.put(`file:${id}`, {
+        id,
+        location: 'local',
+        content: new Uint8Array(content),
+      })
+    }
+  }
+}
+```
+
+## Related Documentation
+
+- [Hot Tier](/docs/storage/hot-tier) - DO SQLite as the hot tier
+- [R2 Object Storage](/docs/storage/r2) - For large objects and cold data
+- [Database Overview](/docs/database) - Schema and data management

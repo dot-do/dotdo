@@ -8,7 +8,12 @@
     "authentication",
     "---Access Control---",
     "authorization",
+    "---Data Protection---",
+    "encryption",
     "---Secrets---",
-    "vault"
+    "vault",
+    "secrets",
+    "---Compliance---",
+    "compliance"
   ]
 }

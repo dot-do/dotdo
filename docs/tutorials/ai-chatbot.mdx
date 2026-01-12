@@ -1,0 +1,765 @@
+---
+title: AI Chatbot
+description: Build an AI-powered chatbot with conversation memory, streaming responses, and multi-provider support in 25 minutes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Build an AI Chatbot in 25 Minutes
+
+Conversational AI with memory. Streaming responses. Switch between OpenAI and Anthropic with a single line. All backed by Durable Objects for persistent conversation state.
+
+By the end, you'll have a deployed chatbot that remembers conversations, streams responses in real-time, and can be customized with your own persona.
+
+---
+
+## Prerequisites
+
+Before starting this tutorial, you'll need:
+
+- Node.js 18+
+- A Cloudflare account (free tier works)
+- An OpenAI API key or Anthropic API key
+- Basic familiarity with TypeScript
+
+---
+
+<Steps>
+
+<Step>
+
+## Create the Project
+
+```bash
+npx dotdo init my-chatbot --template chatbot
+cd my-chatbot
+npm install
+```
+
+You get:
+- Agent SDK configured
+- Conversation state management
+- Streaming response handling
+- Multi-provider support
+
+</Step>
+
+<Step>
+
+## Configure Environment
+
+Create `.env` with your API keys:
+
+```bash title=".env"
+# Choose your provider (or use both)
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional: Custom model
+DEFAULT_MODEL=gpt-4o
+# Or for Claude:
+# DEFAULT_MODEL=claude-sonnet-4-20250514
+```
+
+<Callout type="info">
+You only need one provider. The SDK supports hot-swapping between providers without code changes.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Set Up the Agent
+
+Create `src/agent.ts` - your AI chatbot configuration:
+
+```typescript title="src/agent.ts"
+import { createOpenAIProvider, createClaudeProvider } from 'dotdo/agents'
+import type { AgentConfig, ToolDefinition } from 'dotdo/agents'
+
+// Choose your provider
+const provider = process.env.ANTHROPIC_API_KEY
+  ? createClaudeProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : createOpenAIProvider({ apiKey: process.env.OPENAI_API_KEY })
+
+// Define chatbot configuration
+export const chatbotConfig: AgentConfig = {
+  id: 'chatbot',
+  name: 'Assistant',
+  model: process.env.DEFAULT_MODEL ?? 'gpt-4o',
+  instructions: `
+    You are a helpful, friendly assistant. You:
+    - Answer questions clearly and concisely
+    - Ask clarifying questions when needed
+    - Remember context from earlier in the conversation
+    - Are honest when you don't know something
+  `,
+  maxSteps: 10,
+}
+
+// Create the agent
+export const chatbot = provider.createAgent(chatbotConfig)
+```
+
+</Step>
+
+<Step>
+
+## Build Conversation State Management
+
+Create `src/conversation.ts` - each conversation is a Durable Object:
+
+```typescript title="src/conversation.ts"
+import { DO } from 'dotdo'
+import { chatbot } from './agent'
+import type { Message, AgentResult } from 'dotdo/agents'
+
+interface ConversationState {
+  messages: Message[]
+  createdAt: Date
+  lastMessageAt: Date
+  metadata: Record<string, unknown>
+}
+
+export class Conversation extends DO {
+  state: ConversationState = {
+    messages: [],
+    createdAt: new Date(),
+    lastMessageAt: new Date(),
+    metadata: {}
+  }
+
+  async init() {
+    // Clean up old conversations after 7 days of inactivity
+    $.every.day.at3am(async () => {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      if (this.state.lastMessageAt < sevenDaysAgo) {
+        await this.clear()
+      }
+    })
+  }
+
+  /**
+   * Send a message and get a response
+   */
+  async sendMessage(content: string): Promise<AgentResult> {
+    // Add user message
+    this.state.messages.push({
+      role: 'user',
+      content
+    })
+    this.state.lastMessageAt = new Date()
+
+    // Run the agent with conversation history
+    const result = await chatbot.run({
+      messages: this.state.messages
+    })
+
+    // Store assistant response
+    this.state.messages.push({
+      role: 'assistant',
+      content: result.text
+    })
+
+    // Track for analytics - fire and forget
+    $.send('message.sent', {
+      conversationId: this.id,
+      promptTokens: result.usage.promptTokens,
+      completionTokens: result.usage.completionTokens
+    })
+
+    return result
+  }
+
+  /**
+   * Stream a response for real-time display
+   */
+  streamMessage(content: string) {
+    // Add user message
+    this.state.messages.push({
+      role: 'user',
+      content
+    })
+    this.state.lastMessageAt = new Date()
+
+    // Return the stream - caller handles iteration
+    return chatbot.stream({
+      messages: this.state.messages
+    })
+  }
+
+  /**
+   * Get conversation history
+   */
+  async getHistory(): Promise<Message[]> {
+    return this.state.messages
+  }
+
+  /**
+   * Clear conversation
+   */
+  async clear() {
+    this.state.messages = []
+    this.state.lastMessageAt = new Date()
+    return { cleared: true }
+  }
+
+  /**
+   * Set conversation metadata
+   */
+  async setMetadata(metadata: Record<string, unknown>) {
+    this.state.metadata = { ...this.state.metadata, ...metadata }
+  }
+}
+```
+
+<Callout type="info">
+Each conversation is its own Durable Object instance. The DO ID is typically the user's session ID or a unique conversation ID. State persists automatically between requests.
+</Callout>
+
+</Step>
+
+<Step>
+
+## Add Tool Support
+
+Enhance your chatbot with tools in `src/tools.ts`:
+
+```typescript title="src/tools.ts"
+import { Tool } from 'dotdo/agents'
+import { z } from 'zod'
+
+// Weather tool example
+export const getWeather = Tool({
+  name: 'get_weather',
+  description: 'Get the current weather for a location',
+  inputSchema: z.object({
+    location: z.string().describe('City name or zip code'),
+    units: z.enum(['celsius', 'fahrenheit']).default('celsius')
+  }),
+  execute: async ({ location, units }) => {
+    // In production, call a weather API
+    const temp = units === 'celsius' ? 22 : 72
+    return {
+      location,
+      temperature: temp,
+      units,
+      conditions: 'Sunny',
+      humidity: 45
+    }
+  }
+})
+
+// Search tool example
+export const searchWeb = Tool({
+  name: 'search_web',
+  description: 'Search the web for information',
+  inputSchema: z.object({
+    query: z.string().describe('Search query'),
+    limit: z.number().default(5).describe('Number of results')
+  }),
+  execute: async ({ query, limit }) => {
+    // In production, use a search API
+    return {
+      query,
+      results: [
+        { title: 'Example Result', url: 'https://example.com', snippet: '...' }
+      ]
+    }
+  }
+})
+
+// Export all tools
+export const chatbotTools = [getWeather, searchWeb]
+```
+
+Update your agent to use tools:
+
+```typescript title="src/agent.ts" {4,20}
+import { createOpenAIProvider, createClaudeProvider } from 'dotdo/agents'
+import type { AgentConfig } from 'dotdo/agents'
+import { chatbotTools } from './tools'
+
+const provider = process.env.ANTHROPIC_API_KEY
+  ? createClaudeProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : createOpenAIProvider({ apiKey: process.env.OPENAI_API_KEY })
+
+export const chatbotConfig: AgentConfig = {
+  id: 'chatbot',
+  name: 'Assistant',
+  model: process.env.DEFAULT_MODEL ?? 'gpt-4o',
+  instructions: `
+    You are a helpful, friendly assistant. You:
+    - Answer questions clearly and concisely
+    - Use tools when they would help answer the question
+    - Ask clarifying questions when needed
+    - Remember context from earlier in the conversation
+  `,
+  tools: chatbotTools,
+  maxSteps: 10,
+}
+
+export const chatbot = provider.createAgent(chatbotConfig)
+```
+
+</Step>
+
+<Step>
+
+## Build the API
+
+Create `src/api.ts`:
+
+```typescript title="src/api.ts"
+import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
+import { Conversation } from './conversation'
+
+const app = new Hono()
+
+// Send a message (non-streaming)
+app.post('/chat/:conversationId', async (c) => {
+  const { message } = await c.req.json()
+  const conversationId = c.req.param('conversationId')
+
+  const conversation = await Conversation.get(conversationId)
+  const result = await conversation.sendMessage(message)
+
+  return c.json({
+    response: result.text,
+    toolCalls: result.toolCalls,
+    usage: result.usage
+  })
+})
+
+// Stream a message (SSE)
+app.post('/chat/:conversationId/stream', async (c) => {
+  const { message } = await c.req.json()
+  const conversationId = c.req.param('conversationId')
+
+  const conversation = await Conversation.get(conversationId)
+  const stream = conversation.streamMessage(message)
+
+  return streamSSE(c, async (sse) => {
+    for await (const event of stream) {
+      switch (event.type) {
+        case 'text-delta':
+          await sse.writeSSE({
+            event: 'text',
+            data: JSON.stringify({ text: event.data.textDelta })
+          })
+          break
+
+        case 'tool-call-start':
+          await sse.writeSSE({
+            event: 'tool-start',
+            data: JSON.stringify({
+              toolCallId: event.data.toolCallId,
+              toolName: event.data.toolName
+            })
+          })
+          break
+
+        case 'done':
+          await sse.writeSSE({
+            event: 'done',
+            data: JSON.stringify({
+              usage: event.data.finalResult.usage
+            })
+          })
+          break
+
+        case 'error':
+          await sse.writeSSE({
+            event: 'error',
+            data: JSON.stringify({ error: event.data.error.message })
+          })
+          break
+      }
+    }
+  })
+})
+
+// Get conversation history
+app.get('/chat/:conversationId/history', async (c) => {
+  const conversationId = c.req.param('conversationId')
+  const conversation = await Conversation.get(conversationId)
+  const history = await conversation.getHistory()
+  return c.json({ messages: history })
+})
+
+// Clear conversation
+app.delete('/chat/:conversationId', async (c) => {
+  const conversationId = c.req.param('conversationId')
+  const conversation = await Conversation.get(conversationId)
+  await conversation.clear()
+  return c.json({ cleared: true })
+})
+
+// Create new conversation
+app.post('/chat', async (c) => {
+  const { metadata } = await c.req.json().catch(() => ({}))
+  const conversationId = `conv_${$.id()}`
+
+  const conversation = await Conversation.get(conversationId)
+  if (metadata) {
+    await conversation.setMetadata(metadata)
+  }
+
+  return c.json({ conversationId })
+})
+
+export default app
+```
+
+</Step>
+
+<Step>
+
+## Add a Simple Frontend
+
+Create `src/client.ts` for browser usage:
+
+```typescript title="src/client.ts"
+export class ChatClient {
+  private baseUrl: string
+  private conversationId: string | null = null
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl
+  }
+
+  async createConversation(metadata?: Record<string, unknown>): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata })
+    })
+    const { conversationId } = await response.json()
+    this.conversationId = conversationId
+    return conversationId
+  }
+
+  async sendMessage(message: string): Promise<string> {
+    if (!this.conversationId) {
+      await this.createConversation()
+    }
+
+    const response = await fetch(`${this.baseUrl}/chat/${this.conversationId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    })
+    const { response: text } = await response.json()
+    return text
+  }
+
+  async *streamMessage(message: string): AsyncGenerator<string> {
+    if (!this.conversationId) {
+      await this.createConversation()
+    }
+
+    const response = await fetch(`${this.baseUrl}/chat/${this.conversationId}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    })
+
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+
+    if (!reader) {
+      throw new Error('No response body')
+    }
+
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = JSON.parse(line.slice(6))
+          if (data.text) {
+            yield data.text
+          }
+        }
+      }
+    }
+  }
+
+  async getHistory() {
+    if (!this.conversationId) {
+      return []
+    }
+
+    const response = await fetch(`${this.baseUrl}/chat/${this.conversationId}/history`)
+    const { messages } = await response.json()
+    return messages
+  }
+
+  async clear() {
+    if (!this.conversationId) return
+
+    await fetch(`${this.baseUrl}/chat/${this.conversationId}`, {
+      method: 'DELETE'
+    })
+    this.conversationId = null
+  }
+}
+```
+
+Example usage in a web page:
+
+```html title="index.html"
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Chatbot</title>
+  <style>
+    #messages { height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; }
+    .user { color: blue; }
+    .assistant { color: green; }
+  </style>
+</head>
+<body>
+  <div id="messages"></div>
+  <input type="text" id="input" placeholder="Type a message..." />
+  <button id="send">Send</button>
+
+  <script type="module">
+    import { ChatClient } from './client.js'
+
+    const client = new ChatClient('http://localhost:8787')
+    const messages = document.getElementById('messages')
+    const input = document.getElementById('input')
+    const send = document.getElementById('send')
+
+    send.onclick = async () => {
+      const message = input.value
+      input.value = ''
+
+      // Show user message
+      messages.innerHTML += `<div class="user">You: ${message}</div>`
+
+      // Stream response
+      const responseDiv = document.createElement('div')
+      responseDiv.className = 'assistant'
+      responseDiv.textContent = 'Assistant: '
+      messages.appendChild(responseDiv)
+
+      for await (const chunk of client.streamMessage(message)) {
+        responseDiv.textContent += chunk
+        messages.scrollTop = messages.scrollHeight
+      }
+    }
+
+    input.onkeypress = (e) => {
+      if (e.key === 'Enter') send.click()
+    }
+  </script>
+</body>
+</html>
+```
+
+</Step>
+
+<Step>
+
+## Test Locally
+
+```bash
+npm run dev
+```
+
+Test the chatbot:
+
+```bash
+# Create a conversation
+curl -X POST http://localhost:8787/chat \
+  -H "Content-Type: application/json"
+
+# Response: {"conversationId":"conv_abc123"}
+
+# Send a message
+curl -X POST http://localhost:8787/chat/conv_abc123 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello! What can you help me with?"}'
+
+# Send another message (maintains context)
+curl -X POST http://localhost:8787/chat/conv_abc123 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"What was my first message?"}'
+
+# The chatbot will remember the conversation!
+
+# Test streaming
+curl -X POST http://localhost:8787/chat/conv_abc123/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Tell me a short story"}'
+
+# Get history
+curl http://localhost:8787/chat/conv_abc123/history
+```
+
+</Step>
+
+<Step>
+
+## Deploy to Production
+
+```bash
+npm run deploy
+```
+
+Set production secrets:
+
+```bash
+npx wrangler secret put OPENAI_API_KEY
+# Or for Claude:
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+Your chatbot is now live at `my-chatbot.workers.dev`.
+
+</Step>
+
+</Steps>
+
+---
+
+## What You Built
+
+In 25 minutes, you've deployed an AI chatbot with:
+
+| Feature | Implementation |
+|---------|----------------|
+| Conversation memory | Durable Object per conversation |
+| Streaming responses | SSE with real-time text chunks |
+| Multi-provider support | OpenAI or Anthropic with one line |
+| Tool support | Weather, search, and custom tools |
+| Session management | Create, continue, clear conversations |
+| Auto-cleanup | Old conversations cleaned up daily |
+
+---
+
+## Key Patterns Used
+
+### Durable Object Per Conversation
+
+```typescript
+// Each conversation is its own DO instance
+const conversation = await Conversation.get(conversationId)
+await conversation.sendMessage(message)
+```
+
+State persists automatically. Messages are stored between requests.
+
+### Streaming with SSE
+
+```typescript
+// Server
+return streamSSE(c, async (sse) => {
+  for await (const event of stream) {
+    await sse.writeSSE({ event: 'text', data: event.data.textDelta })
+  }
+})
+
+// Client
+for await (const chunk of client.streamMessage(message)) {
+  output.textContent += chunk
+}
+```
+
+### Provider Swapping
+
+```typescript
+// Switch providers without code changes
+const provider = process.env.ANTHROPIC_API_KEY
+  ? createClaudeProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : createOpenAIProvider({ apiKey: process.env.OPENAI_API_KEY })
+```
+
+---
+
+## Extending Your Chatbot
+
+### Add Custom Persona
+
+```typescript
+const chatbotConfig: AgentConfig = {
+  id: 'support-bot',
+  name: 'Support Assistant',
+  model: 'gpt-4o',
+  instructions: `
+    You are a customer support agent for Acme Corp.
+    You help with:
+    - Account issues
+    - Billing questions
+    - Product troubleshooting
+
+    Always be polite and professional.
+    If you can't help, offer to escalate to a human.
+  `,
+}
+```
+
+### Add Memory Summarization
+
+```typescript
+// When conversation gets long, summarize older messages
+async summarizeIfNeeded() {
+  if (this.state.messages.length > 50) {
+    const oldMessages = this.state.messages.slice(0, 40)
+
+    const summary = await $.ai`
+      Summarize this conversation in 2-3 sentences:
+      ${JSON.stringify(oldMessages)}
+    `
+
+    // Replace old messages with summary
+    this.state.messages = [
+      { role: 'system', content: `Previous context: ${summary}` },
+      ...this.state.messages.slice(40)
+    ]
+  }
+}
+```
+
+### Add Rate Limiting
+
+```typescript
+async sendMessage(content: string): Promise<AgentResult> {
+  // Check rate limit
+  const key = `rate:${this.id}`
+  const count = await $.kv.get(key) ?? 0
+
+  if (count > 100) {
+    throw new Error('Rate limit exceeded. Please try again later.')
+  }
+
+  await $.kv.put(key, count + 1, { expirationTtl: 3600 })
+
+  // Continue with message...
+}
+```
+
+---
+
+## Next Steps
+
+Your chatbot is live. Now explore:
+
+- [Custom agents](/docs/agents/custom-agents) - Create specialized personas
+- [Named agents](/docs/agents/named-agents) - Use Priya, Ralph, and the team
+- [Human escalation](/docs/humans) - Route to humans when needed
+- [SaaS tutorial](/docs/tutorials/saas-starter) - Add subscriptions
+
+---
+
+**You built a chatbot. It remembers conversations. It streams responses. Go have a chat.**

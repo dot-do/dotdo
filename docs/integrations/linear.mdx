@@ -1,0 +1,828 @@
+---
+title: Linear
+description: Drop-in replacement for the Linear SDK with edge compatibility and local testing support.
+---
+
+# Linear
+
+Drop-in replacement for the Linear JavaScript SDK. Your existing `@linear/sdk` code works unchanged - just swap the import.
+
+```typescript
+// Before: Linear SDK
+import { LinearClient } from '@linear/sdk'
+
+// After: dotdo
+import { LinearClient } from '@dotdo/linear'
+
+// Code stays the same
+const linear = new LinearClient({ apiKey: env.LINEAR_API_KEY })
+
+const { issue } = await linear.issueCreate({
+  teamId: 'team-id',
+  title: 'Implement authentication',
+  priority: 1,
+})
+
+await linear.issueUpdate(issue.id, {
+  description: 'Add OAuth2 and SAML support',
+})
+```
+
+## Why linear.do?
+
+| Linear SDK | @dotdo/linear |
+|------------|---------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real API calls in tests | Local testing with LinearLocal |
+| Network latency | Zero latency in local mode |
+| Requires network for dev | Built-in webhook simulation |
+| GraphQL complexity | Same GraphQL-style API, simpler internals |
+
+**This is a proxy/compatibility layer.** It can either forward to real Linear APIs (production) or run entirely locally for testing and development. The API surface matches Linear's official SDK.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Teams**
+- `teamCreate()`, `team()`, `teams()`, `teamUpdate()`
+- Default workflow states (Backlog, Todo, In Progress, Done, Canceled)
+- Issue counts and active cycle tracking
+
+**Issues**
+- `issueCreate()`, `issue()`, `issues()`, `issueUpdate()`, `issueArchive()`, `issueDelete()`
+- `searchIssues()` - Full-text search across title, description, identifier
+- Priority levels (0-4: No priority, Urgent, High, Medium, Low)
+- Workflow state transitions with automatic timestamps
+- Parent/child relationships (sub-tasks)
+- Issue relations (blocks, duplicate, related)
+
+**Projects**
+- `projectCreate()`, `project()`, `projects()`, `projectUpdate()`, `projectArchive()`
+- `searchProjects()` - Text search
+- Project states (backlog, planned, started, paused, completed, canceled)
+- Progress tracking
+- Project milestones
+- Project updates with health status
+
+**Cycles (Sprints)**
+- `cycleCreate()`, `cycle()`, `cycles()`, `cycleUpdate()`, `cycleArchive()`
+- Active cycle detection
+- Scope and issue count history
+- Progress tracking
+
+**Comments**
+- `commentCreate()`, `comment()`, `commentUpdate()`, `commentDelete()`
+- Threaded comments (parent/child)
+
+**Labels**
+- `issueLabelCreate()`, `issueLabels()`, `issueLabelUpdate()`, `issueLabelArchive()`
+- Hierarchical labels (parent/child)
+- Team-specific and organization-wide labels
+
+**Workflow States**
+- `workflowStateCreate()`, `workflowStateUpdate()`
+- State types: backlog, unstarted, started, completed, canceled
+- Custom colors and positions
+
+**Users**
+- `user()`, `users()`, `userUpdate()`
+- `viewer` - Current authenticated user
+
+**Webhooks**
+- `webhookCreate()`, `webhooks()`, `webhookUpdate()`, `webhookDelete()`
+- Signature verification with `LinearLocal.webhooks.verifyRequest()`
+- Event types: Issue, Comment, Project, Cycle, ProjectUpdate, Reaction
+
+### Not Yet Implemented
+
+- Roadmaps
+- Favorites
+- Notifications
+- OAuth flows
+- Integrations management
+- Audit logs
+- Analytics
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/linear
+```
+
+### Basic Usage
+
+```typescript
+import { LinearClient } from '@dotdo/linear'
+
+const linear = new LinearClient({ apiKey: env.LINEAR_API_KEY })
+
+// Create a team
+const { team } = await linear.teamCreate({
+  name: 'Engineering',
+  key: 'ENG',
+})
+
+// Create an issue
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Implement feature X',
+  priority: 2, // High
+  description: 'Full description here',
+})
+
+// Update issue
+await linear.issueUpdate(issue.id, {
+  stateId: 'in-progress-state-id',
+  assigneeId: 'user-id',
+})
+
+console.log('Issue:', issue.identifier) // ENG-1
+```
+
+## Inbound - Using linear.do Locally
+
+For testing and development, use `LinearLocal` - a complete in-memory Linear implementation:
+
+```typescript
+import { LinearLocal } from '@dotdo/linear'
+
+// Create local Linear instance (no API key needed)
+const linear = new LinearLocal()
+
+// Use exactly like real Linear SDK
+const { team } = await linear.teamCreate({
+  name: 'Engineering',
+  key: 'ENG',
+})
+
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Ship MVP',
+  priority: 1,
+})
+
+// Time-travel query (dotdo extension)
+const issueYesterday = await linear.issueAsOf(
+  issue.id,
+  Date.now() - 86400000
+)
+```
+
+### Webhook Events in Local Mode
+
+```typescript
+const linear = new LinearLocal({
+  webhooks: true,
+  onWebhookEvent: async (event) => {
+    console.log('Webhook event:', event.type, event.action)
+    // Handle event...
+  },
+})
+
+// Create operations trigger webhook events
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'New feature',
+})
+// onWebhookEvent receives: { type: 'Issue', action: 'create', data: issue }
+```
+
+### Time-Travel Queries (LinearLocal Extension)
+
+```typescript
+const linear = new LinearLocal()
+
+const { team } = await linear.teamCreate({ name: 'Product', key: 'PROD' })
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Original title',
+})
+const createdAt = Date.now()
+
+await linear.issueUpdate(issue.id, { title: 'Updated title' })
+
+// Retrieve issue as it was at creation time
+const historicalIssue = await linear.issueAsOf(issue.id, createdAt)
+console.log(historicalIssue?.title) // 'Original title'
+
+// Get full issue history
+const history = await linear.issueHistory(issue.id)
+```
+
+## Outbound - Connecting to Real Linear
+
+For production, the client connects to Linear's API:
+
+```typescript
+import { LinearClient } from '@dotdo/linear'
+
+const linear = new LinearClient({
+  apiKey: env.LINEAR_API_KEY,
+  // Or use OAuth access token:
+  // accessToken: env.LINEAR_ACCESS_TOKEN,
+})
+
+// All requests go to api.linear.app
+const { issue } = await linear.issueCreate({
+  teamId: 'team-uuid',
+  title: 'Production issue',
+})
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { LinearClient } from '@dotdo/linear'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const linear = new LinearClient({ apiKey: env.LINEAR_API_KEY })
+
+    const { issue } = await linear.issueCreate({
+      teamId: env.DEFAULT_TEAM_ID,
+      title: 'Issue from edge worker',
+      priority: 2,
+    })
+
+    return Response.json({ issueId: issue.id, identifier: issue.identifier })
+  },
+}
+```
+
+## Webhooks
+
+### Verifying Webhook Signatures
+
+```typescript
+import { LinearLocal } from '@dotdo/linear'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const payload = await request.text()
+
+    const isValid = await LinearLocal.webhooks.verifyRequest(
+      payload,
+      {
+        'linear-signature': request.headers.get('linear-signature')!,
+        'linear-timestamp': request.headers.get('linear-timestamp')!,
+      },
+      env.LINEAR_WEBHOOK_SECRET
+    )
+
+    if (!isValid) {
+      return new Response('Invalid signature', { status: 401 })
+    }
+
+    const event = JSON.parse(payload)
+
+    switch (event.type) {
+      case 'Issue':
+        if (event.action === 'create') {
+          console.log('New issue:', event.data.title)
+        }
+        break
+
+      case 'Comment':
+        console.log('Comment activity:', event.action)
+        break
+
+      case 'Project':
+        if (event.action === 'update') {
+          console.log('Project updated:', event.data.name)
+        }
+        break
+    }
+
+    return new Response('OK', { status: 200 })
+  },
+}
+```
+
+### Webhook Event Types
+
+```typescript
+import type { WebhookDeliveryPayload, WebhookResourceType, WebhookAction } from '@dotdo/linear'
+
+// Resource types
+type ResourceTypes =
+  | 'Issue'
+  | 'IssueLabel'
+  | 'Comment'
+  | 'Cycle'
+  | 'Project'
+  | 'ProjectUpdate'
+  | 'Reaction'
+
+// Action types
+type Actions = 'create' | 'update' | 'remove'
+
+// Full event payload
+interface WebhookEvent {
+  action: WebhookAction
+  type: WebhookResourceType
+  createdAt: string
+  url: string
+  webhookTimestamp: number
+  webhookId: string
+  organizationId: string
+  data: Record<string, unknown>
+  updatedFrom?: Record<string, unknown>
+}
+```
+
+### Creating Test Webhook Headers
+
+```typescript
+import { LinearLocal } from '@dotdo/linear'
+
+const payload = JSON.stringify({
+  type: 'Issue',
+  action: 'create',
+  data: { id: 'issue-1', title: 'Test Issue' },
+})
+
+const headers = await LinearLocal.webhooks.createHeader(
+  payload,
+  'your-webhook-secret',
+  Date.now()
+)
+
+// Use in tests
+const response = await fetch('/webhook', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...headers,
+  },
+  body: payload,
+})
+```
+
+## Projects and Cycles
+
+### Create a Project with Milestones
+
+```typescript
+const linear = new LinearLocal()
+
+// Create team
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+
+// Create project
+const { project } = await linear.projectCreate({
+  name: 'Q1 Launch',
+  teamIds: [team.id],
+  targetDate: '2025-03-31',
+  state: 'planned',
+})
+
+// Add milestones
+await linear.projectMilestoneCreate({
+  projectId: project.id,
+  name: 'Alpha Release',
+  targetDate: '2025-02-15',
+})
+
+await linear.projectMilestoneCreate({
+  projectId: project.id,
+  name: 'Beta Release',
+  targetDate: '2025-03-01',
+})
+
+// Post a project update
+await linear.projectUpdateCreate({
+  projectId: project.id,
+  body: 'Kicked off development this week. On track for alpha.',
+  health: 'onTrack',
+})
+```
+
+### Create a Sprint Cycle
+
+```typescript
+const linear = new LinearLocal()
+
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+
+// Create two-week sprint
+const now = new Date()
+const sprintEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+
+const { cycle } = await linear.cycleCreate({
+  teamId: team.id,
+  name: 'Sprint 1',
+  startsAt: now.toISOString(),
+  endsAt: sprintEnd.toISOString(),
+})
+
+// Add issues to sprint
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'User authentication',
+  cycleId: cycle.id,
+  priority: 1,
+})
+
+// Get active cycle
+const activeCycle = await team.activeCycle
+console.log('Current sprint:', activeCycle?.name)
+```
+
+## Issue Relations
+
+### Create Issue Dependencies
+
+```typescript
+const linear = new LinearLocal()
+
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+
+// Create blocking and blocked issues
+const { issue: authIssue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Implement auth service',
+})
+
+const { issue: dashboardIssue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Build user dashboard',
+})
+
+// Dashboard is blocked by auth
+await linear.issueRelationCreate({
+  issueId: dashboardIssue.id,
+  relatedIssueId: authIssue.id,
+  type: 'blocks',
+})
+
+// Query blocked issues
+const blockedBy = await dashboardIssue.blockedBy?.()
+console.log('Blocked by:', blockedBy?.nodes.map((i) => i.identifier))
+```
+
+### Sub-tasks (Parent/Child)
+
+```typescript
+const { issue: epic } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'User Management Epic',
+})
+
+const { issue: subtask1 } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Design user profiles',
+  parentId: epic.id,
+})
+
+const { issue: subtask2 } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Implement profile API',
+  parentId: epic.id,
+})
+
+// Get children
+const children = await epic.children?.()
+console.log('Sub-tasks:', children?.nodes.map((i) => i.title))
+```
+
+## Filtering and Searching
+
+### Filter Issues
+
+```typescript
+// High priority issues
+const highPriority = await linear.issues({
+  filter: {
+    priority: { lte: 2 }, // Urgent or High
+  },
+  orderBy: 'priority',
+})
+
+// Unassigned issues in backlog
+const backlog = await linear.issues({
+  filter: {
+    assignee: { null: true },
+    state: { type: { eq: 'backlog' } },
+  },
+})
+
+// Issues in a specific project
+const projectIssues = await linear.issues({
+  filter: {
+    project: { id: { eq: 'project-id' } },
+  },
+})
+
+// Complex filter with AND/OR
+const filtered = await linear.issues({
+  filter: {
+    or: [
+      { priority: { eq: 1 } }, // Urgent
+      { dueDate: { lt: new Date().toISOString() } }, // Overdue
+    ],
+    and: [
+      { state: { type: { neq: 'completed' } } },
+    ],
+  },
+})
+```
+
+### Search Issues
+
+```typescript
+// Full-text search
+const results = await linear.searchIssues('authentication')
+
+// Search with filters
+const projectResults = await linear.searchIssues('bug', {
+  filter: {
+    project: { id: { eq: 'project-id' } },
+  },
+})
+```
+
+## Error Handling
+
+```typescript
+import { LinearClient } from '@dotdo/linear'
+
+try {
+  await linear.issue('nonexistent-id')
+} catch (error) {
+  if (error instanceof Error && 'code' in error) {
+    console.log('Error code:', (error as Error & { code: string }).code) // 'NotFound'
+    console.log('Message:', error.message) // 'Issue not found: nonexistent-id'
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core
+  ID,
+  DateTime,
+  Connection,
+  PageInfo,
+  PaginationArgs,
+  SuccessPayload,
+
+  // Teams
+  Team,
+  TeamCreateInput,
+  TeamUpdateInput,
+  TeamPayload,
+
+  // Issues
+  Issue,
+  IssueCreateInput,
+  IssueUpdateInput,
+  IssuePayload,
+  IssuePriority,
+  IssueFilterArgs,
+  IssueFilter,
+  IssueRelation,
+  IssueRelationType,
+  IssueHistory,
+
+  // Projects
+  Project,
+  ProjectState,
+  ProjectCreateInput,
+  ProjectUpdateInput,
+  ProjectPayload,
+  ProjectMilestone,
+  ProjectUpdate,
+  ProjectUpdateHealth,
+
+  // Cycles
+  Cycle,
+  CycleCreateInput,
+  CycleUpdateInput,
+  CyclePayload,
+
+  // Comments
+  Comment,
+  CommentCreateInput,
+  CommentUpdateInput,
+  CommentPayload,
+
+  // Labels
+  IssueLabel,
+  IssueLabelCreateInput,
+  IssueLabelPayload,
+
+  // Workflow States
+  WorkflowState,
+  WorkflowStateType,
+  WorkflowStateCreateInput,
+
+  // Users
+  User,
+  UserUpdateInput,
+
+  // Webhooks
+  Webhook,
+  WebhookCreateInput,
+  WebhookResourceType,
+  WebhookAction,
+  WebhookDeliveryPayload,
+
+  // Config
+  LinearClientConfig,
+  LinearLocalConfig,
+} from '@dotdo/linear'
+```
+
+## Migration from Linear SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @linear/sdk
+
+# Install
+npm install @dotdo/linear
+```
+
+### Import Change
+
+```typescript
+// Before
+import { LinearClient } from '@linear/sdk'
+const linear = new LinearClient({ apiKey: 'xxx' })
+
+// After
+import { LinearClient } from '@dotdo/linear'
+const linear = new LinearClient({ apiKey: 'xxx' })
+```
+
+### Code Compatibility
+
+Your existing Linear SDK code should work unchanged:
+
+```typescript
+// This code works with both @linear/sdk and @dotdo/linear
+const { team } = await linear.teamCreate({
+  name: 'Engineering',
+  key: 'ENG',
+})
+
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Implement feature',
+  priority: 2,
+})
+
+await linear.issueUpdate(issue.id, {
+  stateId: 'done-state-id',
+})
+```
+
+## Architecture
+
+```
++-----------------------------------------------------------------+
+|                      Your Application                           |
+|                                                                 |
+|  const linear = new LinearClient(config) // or LinearLocal()   |
+|  await linear.issueCreate(...)                                  |
++-----------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++---------------------------+   +---------------------------+
+|   Production Mode         |   |     Local Mode            |
+|   (LinearClient)          |   |     (LinearLocal)         |
++---------------------------+   +---------------------------+
+|                           |   |                           |
+|  -> api.linear.app        |   |  -> TemporalStore         |
+|  -> Real issues/projects  |   |  -> WindowManager         |
+|  -> GraphQL API           |   |  -> In-memory storage     |
+|  -> Live webhooks         |   |  -> Time-travel queries   |
+|                           |   |  -> Webhook simulation    |
++---------------------------+   +---------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero latency**: No network round-trips
+- **No API limits**: Unlimited requests
+- **Predictable**: No external dependencies
+- **Time-travel**: Query historical state
+- **Testable**: Control time, simulate webhooks
+- **Offline**: Works without internet
+
+### dotdo Primitives Used
+
+- **TemporalStore**: Issue and project state with version history
+- **WindowManager**: Cycle/sprint duration tracking with triggers
+
+## Common Patterns
+
+### Issue Triage Workflow
+
+```typescript
+import { LinearLocal } from '@dotdo/linear'
+
+const linear = new LinearLocal()
+
+// Get triaged issues
+async function getTriagedIssues(teamId: string) {
+  return linear.issues({
+    filter: {
+      team: { id: { eq: teamId } },
+      state: { type: { eq: 'unstarted' } },
+      priority: { neq: 0 }, // Has priority set
+    },
+    orderBy: 'priority',
+  })
+}
+
+// Auto-assign based on workload
+async function autoAssign(issueId: string, teamId: string) {
+  const users = await linear.users()
+  const assignments = await Promise.all(
+    users.nodes.map(async (user) => {
+      const assigned = await linear.issues({
+        filter: {
+          assignee: { id: { eq: user.id } },
+          state: { type: { eq: 'started' } },
+        },
+      })
+      return { user, count: assigned.nodes.length }
+    })
+  )
+
+  const leastBusy = assignments.sort((a, b) => a.count - b.count)[0]
+
+  await linear.issueUpdate(issueId, {
+    assigneeId: leastBusy.user.id,
+  })
+}
+```
+
+### Sprint Metrics
+
+```typescript
+async function getSprintMetrics(cycleId: string) {
+  const cycle = await linear.cycle(cycleId)
+  const issues = await cycle.issues?.()
+
+  const total = issues?.nodes.length ?? 0
+  const completed = issues?.nodes.filter(
+    (i) => i.state.type === 'completed'
+  ).length ?? 0
+  const inProgress = issues?.nodes.filter(
+    (i) => i.state.type === 'started'
+  ).length ?? 0
+
+  return {
+    total,
+    completed,
+    inProgress,
+    remaining: total - completed,
+    progress: total > 0 ? (completed / total) * 100 : 0,
+    daysLeft: Math.ceil(
+      (new Date(cycle.endsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)
+    ),
+  }
+}
+```
+
+## API Coverage
+
+| Resource | Coverage | Notes |
+|----------|----------|-------|
+| Teams | Full | All CRUD + workflow states |
+| Issues | Full | Including relations, history |
+| Projects | Full | Including milestones, updates |
+| Cycles | Full | Sprint tracking |
+| Comments | Full | Threaded comments |
+| Labels | Full | Hierarchical labels |
+| Workflow States | Full | Custom states |
+| Users | Full | CRUD + viewer |
+| Webhooks | Full | Signature verification |
+| Reactions | Partial | Create only |
+| Attachments | Types only | |
+| Roadmaps | Not yet | |
+| Favorites | Not yet | |
+| Notifications | Not yet | |
+| OAuth | Not yet | |
+
+## Related
+
+- [Events Overview](/docs/events) - Event handling including webhooks
+- [SDK Events](/docs/sdk/events) - Event subscription patterns
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

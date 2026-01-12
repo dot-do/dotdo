@@ -4,6 +4,11 @@
   "root": true,
   "pages": [
     "index",
+    "---Cloudflare Workers---",
+    "cloudflare",
+    "preview",
+    "rollback",
+    "monitoring",
     "---Horizontal Scaling---",
     "sharding",
     "---Multi-Region---",

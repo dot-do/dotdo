@@ -1,0 +1,484 @@
+---
+title: Rollbacks
+description: Version management, rollback procedures, and canary deployments for safe production updates
+---
+
+# Rollbacks
+
+When a deployment goes wrong, you need to roll back quickly. Cloudflare Workers maintains deployment history, allowing instant rollbacks to previous versions. This guide covers version management, rollback procedures, and canary deployment strategies.
+
+## Version Management
+
+### Viewing Deployments
+
+```bash
+# List recent deployments
+wrangler deployments list
+
+# Output:
+# Deployment ID                           Created             Author
+# abc123-def456-ghi789                    2024-01-15 10:30    you@example.com
+# xyz789-uvw456-rst123                    2024-01-14 15:45    you@example.com
+# ...
+```
+
+### Deployment Details
+
+```bash
+# View specific deployment
+wrangler deployments view abc123-def456-ghi789
+
+# Shows:
+# - Deployment ID
+# - Created timestamp
+# - Author email
+# - Bindings at time of deployment
+# - Source map availability
+```
+
+### Tagging Deployments
+
+Use Durable Object migration tags to track versions:
+
+```toml
+[[migrations]]
+tag = "v1.2.3"
+new_classes = ["Startup"]
+
+# After schema changes
+[[migrations]]
+tag = "v1.3.0"
+renamed_classes = [{ from = "OldClass", to = "NewClass" }]
+deleted_classes = ["DeprecatedClass"]
+```
+
+## Rollback Procedures
+
+### Instant Rollback
+
+```bash
+# Rollback to previous deployment
+wrangler rollback
+
+# Rollback to specific deployment
+wrangler rollback --deployment-id abc123-def456-ghi789
+
+# Rollback with confirmation
+wrangler rollback --yes
+```
+
+### Rollback in CI/CD
+
+```yaml
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 'Deployment ID to rollback to (empty for previous)'
+        required: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rollback
+        run: |
+          if [ -n "${{ inputs.deployment_id }}" ]; then
+            wrangler rollback --deployment-id "${{ inputs.deployment_id }}" --yes
+          else
+            wrangler rollback --yes
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Rollback completed for ${{ github.repository }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### Programmatic Rollback
+
+```typescript
+// scripts/rollback.ts
+import { unstable_dev } from 'wrangler'
+
+async function rollback(targetDeploymentId?: string) {
+  const deployments = await listDeployments()
+
+  const target = targetDeploymentId
+    ? deployments.find(d => d.id === targetDeploymentId)
+    : deployments[1] // Previous deployment
+
+  if (!target) {
+    throw new Error('Target deployment not found')
+  }
+
+  console.log(`Rolling back to: ${target.id} (${target.created_at})`)
+
+  await executeRollback(target.id)
+
+  // Verify rollback
+  const health = await checkHealth()
+  if (!health.ok) {
+    throw new Error('Rollback verification failed')
+  }
+
+  console.log('Rollback successful')
+}
+```
+
+## Canary Deployments
+
+### Traffic Splitting
+
+Deploy to a percentage of traffic before full rollout:
+
+```typescript
+// src/canary.ts
+export function shouldUseCanary(request: Request): boolean {
+  // Route 5% of traffic to canary
+  const clientId = request.headers.get('CF-Connecting-IP') || ''
+  const hash = hashCode(clientId)
+  return (hash % 100) < 5
+}
+
+function hashCode(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash = hash & hash
+  }
+  return Math.abs(hash)
+}
+```
+
+### Canary with Feature Flags
+
+```typescript
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  async fetch(request: Request) {
+    const canaryEnabled = await this.env.KV.get('canary:enabled')
+    const canaryPercent = parseInt(await this.env.KV.get('canary:percent') || '0')
+
+    if (canaryEnabled === 'true' && this.shouldRouteToCanary(request, canaryPercent)) {
+      return this.handleCanary(request)
+    }
+
+    return this.handleProduction(request)
+  }
+
+  shouldRouteToCanary(request: Request, percent: number): boolean {
+    const ip = request.headers.get('CF-Connecting-IP') || ''
+    const hash = this.hashCode(ip)
+    return (hash % 100) < percent
+  }
+
+  async handleCanary(request: Request) {
+    // New code path
+    try {
+      return await this.newHandler(request)
+    } catch (error) {
+      // Log canary error
+      console.error('Canary error:', error)
+      // Fall back to production
+      return this.handleProduction(request)
+    }
+  }
+}
+```
+
+### Gradual Rollout
+
+```bash
+#!/bin/bash
+# gradual-rollout.sh
+
+# Start at 1%
+wrangler kv:key put canary:percent "1" --binding SETTINGS
+wrangler kv:key put canary:enabled "true" --binding SETTINGS
+
+echo "Canary at 1% - monitoring for 10 minutes..."
+sleep 600
+
+# Check error rates
+ERROR_RATE=$(curl -s "https://api.example.com/metrics/errors" | jq '.rate')
+if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+  echo "Error rate too high ($ERROR_RATE) - rolling back"
+  wrangler kv:key put canary:enabled "false" --binding SETTINGS
+  exit 1
+fi
+
+# Increase to 10%
+wrangler kv:key put canary:percent "10" --binding SETTINGS
+echo "Canary at 10% - monitoring for 10 minutes..."
+sleep 600
+
+# Continue gradual increase...
+for percent in 25 50 75 100; do
+  ERROR_RATE=$(curl -s "https://api.example.com/metrics/errors" | jq '.rate')
+  if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+    echo "Error rate too high ($ERROR_RATE) - rolling back"
+    wrangler kv:key put canary:enabled "false" --binding SETTINGS
+    exit 1
+  fi
+
+  wrangler kv:key put canary:percent "$percent" --binding SETTINGS
+  echo "Canary at $percent%"
+  sleep 300
+done
+
+echo "Full rollout complete"
+wrangler kv:key put canary:enabled "false" --binding SETTINGS
+```
+
+## Blue-Green Deployments
+
+### Dual Environment Setup
+
+```toml
+# Blue environment (current production)
+[env.blue]
+name = "my-startup-blue"
+routes = [{ pattern = "api.example.com/*", zone_name = "example.com" }]
+
+# Green environment (new version)
+[env.green]
+name = "my-startup-green"
+routes = []  # No routes until promoted
+```
+
+### Switching Traffic
+
+```bash
+#!/bin/bash
+# blue-green-switch.sh
+
+# Deploy to green
+wrangler deploy --env green
+
+# Test green environment
+curl -f https://my-startup-green.workers.dev/health || exit 1
+
+# Switch routes
+wrangler route update \
+  --pattern "api.example.com/*" \
+  --zone "example.com" \
+  --script "my-startup-green"
+
+# Remove blue routes
+wrangler route delete \
+  --pattern "api.example.com/*" \
+  --zone "example.com" \
+  --script "my-startup-blue"
+
+echo "Traffic switched to green"
+```
+
+### Automated Blue-Green
+
+```yaml
+name: Blue-Green Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run build
+
+      - name: Determine Target
+        id: target
+        run: |
+          CURRENT=$(wrangler route list --zone example.com | grep api.example.com | awk '{print $2}')
+          if [[ "$CURRENT" == *"blue"* ]]; then
+            echo "deploy_to=green" >> $GITHUB_OUTPUT
+            echo "switch_from=blue" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_to=blue" >> $GITHUB_OUTPUT
+            echo "switch_from=green" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Target
+        run: wrangler deploy --env ${{ steps.target.outputs.deploy_to }}
+
+      - name: Health Check
+        run: |
+          URL="https://my-startup-${{ steps.target.outputs.deploy_to }}.workers.dev"
+          curl -f "$URL/health" || exit 1
+
+      - name: Switch Traffic
+        run: |
+          wrangler route update \
+            --pattern "api.example.com/*" \
+            --zone "example.com" \
+            --script "my-startup-${{ steps.target.outputs.deploy_to }}"
+```
+
+## Rollback Strategies
+
+### Automatic Rollback on Errors
+
+```typescript
+// src/health-monitor.ts
+export class HealthMonitor {
+  private errorCount = 0
+  private requestCount = 0
+  private readonly threshold = 0.05 // 5% error rate
+
+  recordRequest(success: boolean) {
+    this.requestCount++
+    if (!success) this.errorCount++
+
+    // Check after every 100 requests
+    if (this.requestCount % 100 === 0) {
+      this.checkHealth()
+    }
+  }
+
+  private async checkHealth() {
+    const errorRate = this.errorCount / this.requestCount
+
+    if (errorRate > this.threshold) {
+      console.error(`Error rate ${errorRate} exceeds threshold ${this.threshold}`)
+      await this.triggerRollback()
+    }
+  }
+
+  private async triggerRollback() {
+    // Notify via webhook
+    await fetch(process.env.ROLLBACK_WEBHOOK!, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'rollback',
+        reason: 'High error rate',
+        errorRate: this.errorCount / this.requestCount,
+      }),
+    })
+  }
+}
+```
+
+### Database Migration Rollbacks
+
+```typescript
+// Handle Durable Object migrations carefully
+export class MyStartup extends Startup {
+  async migrate() {
+    const currentVersion = await this.storage.get('schema_version') || 0
+
+    try {
+      if (currentVersion < 1) {
+        await this.migrateV1()
+        await this.storage.put('schema_version', 1)
+      }
+      if (currentVersion < 2) {
+        await this.migrateV2()
+        await this.storage.put('schema_version', 2)
+      }
+    } catch (error) {
+      console.error('Migration failed:', error)
+      // Migrations should be forward-only
+      // Rollback the deployment, not the data
+      throw error
+    }
+  }
+
+  private async migrateV1() {
+    // Always write migrations that are backward compatible
+    // Old code should still work with new schema
+  }
+}
+```
+
+## Deployment History
+
+### Tracking Changes
+
+```typescript
+// Track deployments in your DO
+export class MyStartup extends Startup {
+  async recordDeployment() {
+    const deploymentId = this.env.CF_DEPLOYMENT_ID
+    const version = this.env.VERSION
+
+    await this.things.Deployment.create({
+      id: deploymentId,
+      version,
+      deployedAt: new Date().toISOString(),
+      author: this.env.DEPLOY_AUTHOR,
+    })
+  }
+}
+```
+
+### Deployment Audit Log
+
+```typescript
+// Query deployment history
+const deployments = await startup.things.Deployment.list({
+  orderBy: { deployedAt: 'desc' },
+  limit: 20,
+})
+
+for (const d of deployments) {
+  console.log(`${d.version} - ${d.deployedAt} by ${d.author}`)
+}
+```
+
+## Best Practices
+
+### Pre-Deployment Checklist
+
+1. **Run tests**: `npm test`
+2. **Check types**: `npm run typecheck`
+3. **Review changes**: `git diff HEAD~1`
+4. **Verify secrets**: `wrangler secret list`
+5. **Check migrations**: Review `[[migrations]]` tags
+
+### Rollback Checklist
+
+1. **Identify the issue**: Check logs with `wrangler tail`
+2. **Find stable version**: `wrangler deployments list`
+3. **Execute rollback**: `wrangler rollback --deployment-id <id>`
+4. **Verify health**: Check endpoints and metrics
+5. **Notify team**: Alert relevant stakeholders
+6. **Post-mortem**: Document what went wrong
+
+### Version Pinning
+
+```json
+{
+  "scripts": {
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:tag": "npm version patch && npm run deploy"
+  }
+}
+```
+
+```toml
+[vars]
+VERSION = "1.2.3"  # Update with each deployment
+```
+
+## Related
+
+- [Cloudflare Deployment](/docs/deployment/cloudflare) - Base deployment configuration
+- [Preview Deployments](/docs/deployment/preview) - Test before production
+- [Monitoring](/docs/deployment/monitoring) - Detect issues early
+- [Observability](/docs/observability) - Debugging production issues

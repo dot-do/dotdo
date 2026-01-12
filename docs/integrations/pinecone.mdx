@@ -1,0 +1,698 @@
+---
+title: Pinecone
+description: Drop-in replacement for the Pinecone SDK with edge-compatible HNSW vector search backed by Durable Objects
+---
+
+# Pinecone
+
+Drop-in replacement for the official Pinecone JavaScript SDK. Your existing `@pinecone-database/pinecone` code works unchanged - just swap the import.
+
+```typescript
+// Before: Pinecone
+import { Pinecone } from '@pinecone-database/pinecone'
+
+// After: dotdo
+import { Pinecone } from '@dotdo/pinecone'
+
+// Code stays the same
+const pinecone = new Pinecone()
+const index = pinecone.index('products')
+
+await index.upsert([
+  { id: 'vec1', values: [0.1, 0.2, 0.3, ...], metadata: { category: 'electronics' } },
+  { id: 'vec2', values: [0.4, 0.5, 0.6, ...], metadata: { category: 'clothing' } },
+])
+
+const results = await index.query({
+  vector: [0.1, 0.2, 0.3, ...],
+  topK: 10,
+  filter: { category: { $eq: 'electronics' } },
+})
+```
+
+## Why pinecone.do?
+
+| Pinecone Cloud | pinecone.do |
+|----------------|-------------|
+| Managed vector database | Runs entirely on the edge |
+| Per-vector pricing | Flat resource pricing |
+| Network latency to clusters | Edge-local HNSW in DO |
+| Cold start delays | 0ms cold starts (V8 isolates) |
+| Separate infrastructure | Unified with your DO data |
+| Regional deployment | Global (300+ cities) |
+
+**This is a reimplementation.** Your data lives in Durable Object storage with EdgeVec HNSW indexes - not proxied to Pinecone servers. The API key is used for namespacing, not authentication.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Pinecone Client**
+- `index()` - Get or create a vector index
+- `createIndex()` - Create a new index with dimensions and metric
+- `deleteIndex()` - Delete an index
+- `listIndexes()` - List all indexes
+- `describeIndex()` - Get index metadata and stats
+
+**Index Operations**
+- `upsert()` - Insert or update vectors with metadata
+- `query()` - Similarity search with filters
+- `fetch()` - Retrieve vectors by ID
+- `delete()` - Delete vectors by ID or filter
+- `update()` - Update vector values or metadata
+- `describeIndexStats()` - Get index statistics
+
+**Namespaces**
+- `namespace()` - Partition vectors within an index
+- Namespace-scoped operations
+
+**Filtering**
+- Metadata filters with `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`
+- Array filters with `$in`, `$nin`
+- Logical operators `$and`, `$or`
+
+### Not Yet Implemented
+
+- Collections (create/list/describe/delete)
+- Inference API
+- Serverless indexes
+- Pod-based indexes
+- Replication configuration
+- Backup/restore
+
+## Installation
+
+```bash
+npm install @dotdo/pinecone
+```
+
+## Quick Start
+
+### Create Index and Upsert Vectors
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone()
+
+// Create an index
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine',
+})
+
+// Get the index
+const index = pinecone.index('products')
+
+// Upsert vectors with metadata
+await index.upsert([
+  {
+    id: 'product-1',
+    values: embedding1, // Float32Array or number[]
+    metadata: {
+      name: 'MacBook Pro',
+      category: 'electronics',
+      price: 2499,
+      inStock: true,
+    },
+  },
+  {
+    id: 'product-2',
+    values: embedding2,
+    metadata: {
+      name: 'AirPods Pro',
+      category: 'electronics',
+      price: 249,
+      inStock: true,
+    },
+  },
+  {
+    id: 'product-3',
+    values: embedding3,
+    metadata: {
+      name: 'Cotton T-Shirt',
+      category: 'clothing',
+      price: 29,
+      inStock: false,
+    },
+  },
+])
+```
+
+### Query Vectors
+
+```typescript
+// Simple similarity search
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  includeMetadata: true,
+})
+
+for (const match of results.matches) {
+  console.log(`${match.id}: ${match.score}`)
+  console.log(match.metadata)
+}
+
+// Query with metadata filters
+const filtered = await index.query({
+  vector: queryEmbedding,
+  topK: 5,
+  filter: {
+    $and: [
+      { category: { $eq: 'electronics' } },
+      { price: { $lt: 500 } },
+      { inStock: { $eq: true } },
+    ],
+  },
+  includeMetadata: true,
+  includeValues: false,
+})
+```
+
+### Fetch and Delete
+
+```typescript
+// Fetch specific vectors
+const fetched = await index.fetch(['product-1', 'product-2'])
+console.log(fetched.vectors['product-1'])
+
+// Delete by IDs
+await index.delete(['product-3'])
+
+// Delete by filter
+await index.delete({
+  filter: { category: { $eq: 'discontinued' } },
+})
+
+// Delete all vectors in namespace
+await index.namespace('temp').deleteAll()
+```
+
+### Namespaces
+
+```typescript
+const index = pinecone.index('products')
+
+// Work with specific namespace
+const electronics = index.namespace('electronics')
+
+await electronics.upsert([
+  { id: 'laptop-1', values: [...], metadata: { brand: 'Apple' } },
+])
+
+const results = await electronics.query({
+  vector: queryVector,
+  topK: 10,
+})
+
+// Default namespace
+const defaultNs = index.namespace('')
+```
+
+### Batch Operations
+
+```typescript
+// Upsert in batches (automatically chunked)
+const vectors = generateVectors(10000) // Large dataset
+
+await index.upsert(vectors, {
+  batchSize: 100, // Vectors per batch
+})
+
+// Batch query
+const queries = [queryVector1, queryVector2, queryVector3]
+const batchResults = await Promise.all(
+  queries.map(vector => index.query({ vector, topK: 10 }))
+)
+```
+
+## Inbound Mode - Using EdgeVec Locally
+
+EdgeVec provides a full HNSW implementation running in Durable Objects:
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+// Create client (runs entirely on edge)
+const pinecone = new Pinecone()
+
+// Use exactly like Pinecone
+const index = pinecone.index('embeddings')
+
+await index.upsert([
+  {
+    id: 'doc-1',
+    values: new Float32Array([0.1, 0.2, 0.3, /* ... 1533 more */]),
+    metadata: { title: 'Introduction to ML', topic: 'machine-learning' },
+  },
+])
+
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  filter: { topic: { $eq: 'machine-learning' } },
+  includeMetadata: true,
+})
+```
+
+### HNSW Configuration
+
+```typescript
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine', // 'cosine' | 'euclidean' | 'dotproduct'
+
+  // HNSW parameters (EdgeVec-specific)
+  spec: {
+    hnsw: {
+      m: 16,              // Max connections per node (default: 16)
+      efConstruction: 200, // Build-time search width (default: 200)
+    },
+  },
+})
+
+// Configure search-time ef
+const results = await index.query({
+  vector: queryVector,
+  topK: 10,
+  ef: 100, // Search-time candidate list size
+})
+```
+
+### Distance Metrics
+
+```typescript
+// Cosine similarity (default) - normalized vectors
+await pinecone.createIndex({
+  name: 'embeddings',
+  dimension: 384,
+  metric: 'cosine',
+})
+
+// Euclidean distance (L2) - spatial data
+await pinecone.createIndex({
+  name: 'locations',
+  dimension: 2,
+  metric: 'euclidean',
+})
+
+// Dot product - when vectors are pre-normalized
+await pinecone.createIndex({
+  name: 'recommendations',
+  dimension: 768,
+  metric: 'dotproduct',
+})
+```
+
+## Outbound Mode - Connecting to Pinecone Cloud
+
+For production scenarios requiring Pinecone's managed infrastructure:
+
+```typescript
+import { Pinecone } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone({
+  apiKey: env.PINECONE_API_KEY,
+  // Requests proxy to Pinecone cloud
+})
+
+// Same API, backed by Pinecone infrastructure
+const index = pinecone.index('products')
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Pinecone } from '@dotdo/pinecone'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const pinecone = new Pinecone()
+    const index = pinecone.index('products')
+
+    const body = await request.json()
+    const results = await index.query({
+      vector: body.embedding,
+      topK: 10,
+      filter: body.filter,
+      includeMetadata: true,
+    })
+
+    return Response.json(results)
+  },
+}
+```
+
+## API Reference
+
+### Pinecone(options)
+
+Create a new Pinecone-compatible client.
+
+```typescript
+const pinecone = new Pinecone({
+  // API key (optional for local mode)
+  apiKey: 'your-api-key',
+
+  // Request timeout in ms
+  timeout: 30000,
+})
+```
+
+### Index Operations
+
+#### createIndex(options)
+
+Create a new vector index.
+
+```typescript
+await pinecone.createIndex({
+  name: 'products',
+  dimension: 1536,
+  metric: 'cosine', // 'cosine' | 'euclidean' | 'dotproduct'
+
+  // EdgeVec HNSW config
+  spec: {
+    hnsw: {
+      m: 16,
+      efConstruction: 200,
+    },
+  },
+})
+```
+
+#### listIndexes()
+
+List all indexes.
+
+```typescript
+const { indexes } = await pinecone.listIndexes()
+
+for (const index of indexes) {
+  console.log(`${index.name}: ${index.dimension}D, ${index.metric}`)
+}
+```
+
+#### describeIndex(name)
+
+Get index details.
+
+```typescript
+const info = await pinecone.describeIndex('products')
+// {
+//   name: 'products',
+//   dimension: 1536,
+//   metric: 'cosine',
+//   status: { ready: true },
+//   spec: { hnsw: { m: 16, efConstruction: 200 } },
+// }
+```
+
+#### deleteIndex(name)
+
+Delete an index.
+
+```typescript
+await pinecone.deleteIndex('products')
+```
+
+### Vector Operations
+
+#### upsert(vectors)
+
+Insert or update vectors.
+
+```typescript
+await index.upsert([
+  {
+    id: 'vec-1',
+    values: [0.1, 0.2, ...], // number[] or Float32Array
+    metadata: { key: 'value' },
+  },
+])
+
+// Response
+{
+  upsertedCount: 1
+}
+```
+
+#### query(options)
+
+Query for similar vectors.
+
+```typescript
+const results = await index.query({
+  vector: queryVector,
+  topK: 10,
+  filter: { category: { $eq: 'electronics' } },
+  includeMetadata: true,
+  includeValues: false,
+})
+
+// Response
+{
+  matches: [
+    {
+      id: 'vec-1',
+      score: 0.95,
+      metadata: { category: 'electronics', name: 'Laptop' },
+    },
+  ],
+  namespace: '',
+}
+```
+
+#### fetch(ids)
+
+Retrieve vectors by ID.
+
+```typescript
+const results = await index.fetch(['vec-1', 'vec-2'])
+
+// Response
+{
+  vectors: {
+    'vec-1': {
+      id: 'vec-1',
+      values: [0.1, 0.2, ...],
+      metadata: { ... },
+    },
+  },
+  namespace: '',
+}
+```
+
+#### update(options)
+
+Update vector values or metadata.
+
+```typescript
+await index.update({
+  id: 'vec-1',
+  values: newVector,        // Optional: update values
+  metadata: { key: 'new' }, // Optional: update metadata
+})
+```
+
+#### delete(options)
+
+Delete vectors.
+
+```typescript
+// Delete by IDs
+await index.delete(['vec-1', 'vec-2'])
+
+// Delete by filter
+await index.delete({
+  filter: { category: { $eq: 'deprecated' } },
+})
+
+// Delete all in namespace
+await index.namespace('temp').deleteAll()
+```
+
+#### describeIndexStats()
+
+Get index statistics.
+
+```typescript
+const stats = await index.describeIndexStats()
+
+// Response
+{
+  dimension: 1536,
+  indexFullness: 0.05,
+  totalVectorCount: 5000,
+  namespaces: {
+    '': { vectorCount: 3000 },
+    'products': { vectorCount: 2000 },
+  },
+}
+```
+
+### Filter Syntax
+
+Pinecone-compatible metadata filters:
+
+```typescript
+// Equality
+{ field: { $eq: 'value' } }
+
+// Comparison
+{ price: { $gt: 100 } }
+{ price: { $gte: 100 } }
+{ price: { $lt: 500 } }
+{ price: { $lte: 500 } }
+{ status: { $ne: 'deleted' } }
+
+// Array membership
+{ category: { $in: ['electronics', 'computers'] } }
+{ tag: { $nin: ['spam', 'test'] } }
+
+// Logical operators
+{
+  $and: [
+    { category: { $eq: 'electronics' } },
+    { price: { $lt: 1000 } },
+  ]
+}
+
+{
+  $or: [
+    { brand: { $eq: 'Apple' } },
+    { brand: { $eq: 'Samsung' } },
+  ]
+}
+```
+
+## Types
+
+Full TypeScript support with Pinecone-compatible types:
+
+```typescript
+import type {
+  // Client types
+  Pinecone,
+  PineconeConfiguration,
+  Index,
+
+  // Vector types
+  Vector,
+  ScoredVector,
+  RecordMetadata,
+
+  // Operation types
+  UpsertRequest,
+  UpsertResponse,
+  QueryRequest,
+  QueryResponse,
+  FetchRequest,
+  FetchResponse,
+  DeleteRequest,
+  UpdateRequest,
+
+  // Index types
+  CreateIndexRequest,
+  IndexDescription,
+  IndexStats,
+
+  // Filter types
+  Filter,
+  FilterOperator,
+} from '@dotdo/pinecone'
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const index = pinecone.index('products')                    |
+|  await index.query({ vector: [...], topK: 10 })              |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Local Mode            |     |   Proxy Mode            |
+|   (EdgeVec)             |     |   (Future)              |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  EdgeVecDO              |     |  -> Pinecone Cloud      |
+|  (Durable Object)       |     |                         |
+|                         |     |  -> Pinecone Serverless |
+|  ┌───────────────────┐  |     |                         |
+|  │   HNSW Index      │  |     |                         |
+|  │   (in-memory)     │  |     |                         |
+|  └───────────────────┘  |     |                         |
+|                         |     |                         |
+|  ┌───────────────────┐  |     |                         |
+|  │   SQLite Storage  │  |     |                         |
+|  │   (persistence)   │  |     |                         |
+|  └───────────────────┘  |     |                         |
+|                         |     |                         |
+|  ┌───────────────────┐  |     |                         |
+|  │   R2 Backup       │  |     |                         |
+|  │   (Parquet)       │  |     |                         |
+|  └───────────────────┘  |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero latency**: Edge-local HNSW search
+- **No infrastructure**: No external vector DB needed
+- **Edge-native**: Runs in Cloudflare Workers (V8 isolates)
+- **Persistent**: Vectors survive DO hibernation
+- **Cost-effective**: No per-vector pricing
+- **Testable**: Easy unit testing
+
+### EdgeVec Features
+
+- **HNSW algorithm**: State-of-the-art approximate nearest neighbor search
+- **Configurable parameters**: Tune M and efConstruction for speed/recall tradeoff
+- **Multiple metrics**: Cosine, Euclidean (L2), and Dot Product
+- **Filtered search**: Metadata filters applied during search
+- **Batch operations**: Efficient bulk upsert and delete
+- **Persistence**: Automatic backup to R2 as Parquet files
+- **Quantization**: Product and Scalar quantization for memory efficiency
+
+## Limitations
+
+What's different from Pinecone Cloud:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Upsert/Query/Fetch | Implemented | Full compatibility |
+| Metadata filters | Implemented | All operators supported |
+| Namespaces | Implemented | Partition vectors |
+| Index management | Implemented | Create/delete/describe |
+| Batch operations | Implemented | Auto-chunking |
+| Collections | Not implemented | |
+| Inference API | Not implemented | Use Workers AI instead |
+| Serverless spec | Not implemented | All indexes use EdgeVec |
+| Pod configuration | Not implemented | |
+| Replication | Partial | DO replication only |
+
+### Scaling Considerations
+
+- **DO storage limit**: ~1GB per Durable Object
+- **Max vectors**: Depends on dimension (1536D ~ 150k vectors per DO)
+- **Horizontal scaling**: Shard across multiple DOs for larger datasets
+- **Query latency**: Sub-millisecond for typical workloads
+
+## Related
+
+- [Elasticsearch Integration](/docs/integrations/elasticsearch) - Full-text + vector hybrid search
+- [Algolia Integration](/docs/integrations/algolia) - Full-text search
+- [Vector Databases](/docs/compat/vector) - Vector database SDKs overview
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

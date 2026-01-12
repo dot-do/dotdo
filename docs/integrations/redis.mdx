@@ -1,0 +1,701 @@
+---
+title: Redis
+description: Drop-in replacement for ioredis/node-redis with edge compatibility and Durable Object storage support.
+---
+
+# Redis
+
+Drop-in replacement for ioredis and node-redis. Your existing Redis code works unchanged - just swap the import.
+
+```typescript
+// Before: ioredis
+import Redis from 'ioredis'
+
+// After: dotdo
+import { Redis } from '@dotdo/redis'
+
+// Code stays the same
+const redis = new Redis()
+
+await redis.set('user:123', JSON.stringify({ name: 'Alice' }))
+const user = await redis.get('user:123')
+
+await redis.hset('session:abc', { userId: '123', role: 'admin' })
+await redis.expire('session:abc', 3600)
+```
+
+## Why redis.do?
+
+| ioredis/node-redis | @dotdo/redis |
+|-------------------|--------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Requires Redis server | Runs locally on Durable Objects |
+| External dependency | Zero network latency in local mode |
+| Connection management | Stateless, no connection pools |
+| Single region | Global edge deployment |
+
+**This is a compatibility layer.** It can either run entirely locally using Durable Object storage (development/edge) or connect to a real Redis instance like Upstash (production). The API surface matches ioredis.
+
+## Features
+
+### Implemented (Full Coverage)
+
+**Strings**
+- `get()`, `set()`, `mget()`, `mset()`
+- `incr()`, `decr()`, `incrby()`, `decrby()`, `incrbyfloat()`
+- `append()`, `strlen()`, `getrange()`, `setrange()`
+- `setnx()`, `setex()`, `psetex()`, `getset()`, `getdel()`
+- SET options: `EX`, `PX`, `EXAT`, `PXAT`, `NX`, `XX`, `GET`, `KEEPTTL`
+
+**Hashes**
+- `hget()`, `hset()`, `hmget()`, `hmset()`, `hgetall()`
+- `hdel()`, `hexists()`, `hkeys()`, `hvals()`, `hlen()`
+- `hincrby()`, `hincrbyfloat()`, `hsetnx()`
+
+**Lists**
+- `lpush()`, `rpush()`, `lpop()`, `rpop()`
+- `lrange()`, `llen()`, `lindex()`, `lset()`
+- `lrem()`, `ltrim()`, `linsert()`, `lpos()`
+
+**Sets**
+- `sadd()`, `srem()`, `smembers()`, `sismember()`, `smismember()`
+- `scard()`, `sinter()`, `sunion()`, `sdiff()`
+- `sinterstore()`, `sunionstore()`, `sdiffstore()`
+- `srandmember()`, `spop()`, `smove()`
+
+**Sorted Sets**
+- `zadd()`, `zrem()`, `zrange()`, `zrevrange()`
+- `zscore()`, `zrank()`, `zrevrank()`, `zcard()`, `zcount()`
+- `zincrby()`, `zrangebyscore()`, `zrevrangebyscore()`
+- `zpopmin()`, `zpopmax()`, `zlexcount()`
+- ZADD options: `NX`, `XX`, `GT`, `LT`, `CH`, `INCR`
+
+**Keys**
+- `del()`, `exists()`, `expire()`, `expireat()`, `pexpire()`, `pexpireat()`
+- `ttl()`, `pttl()`, `persist()`, `keys()`, `type()`
+- `rename()`, `renamenx()`, `scan()`, `unlink()`, `copy()`, `randomkey()`
+
+**Pub/Sub**
+- `publish()`, `subscribe()`, `unsubscribe()`
+- `psubscribe()`, `punsubscribe()`
+- Event handlers: `message`, `pmessage`
+
+**Transactions**
+- `multi()`, `exec()`, `discard()`
+- `watch()`, `unwatch()` (optimistic locking)
+- `pipeline()` (batch commands)
+
+**Server**
+- `ping()`, `echo()`, `dbsize()`
+- `flushdb()`, `flushall()`, `time()`, `info()`, `select()`
+
+### Not Yet Implemented
+
+- Cluster commands (`CLUSTER INFO`, `CLUSTER NODES`)
+- Streams (`XADD`, `XREAD`, `XGROUP`)
+- Lua scripting (`EVAL`, `EVALSHA`)
+- Blocking commands (`BLPOP`, `BRPOP`, `BLMOVE`)
+- HyperLogLog (`PFADD`, `PFCOUNT`, `PFMERGE`)
+- Geospatial (`GEOADD`, `GEODIST`, `GEOSEARCH`)
+
+## Installation
+
+```bash
+npm install @dotdo/redis
+```
+
+## Quick Start
+
+```typescript
+import { Redis, createClient } from '@dotdo/redis'
+
+// ioredis-style constructor
+const redis = new Redis()
+
+// Or node-redis-style factory
+const client = createClient()
+
+// Basic operations
+await redis.set('key', 'value')
+const value = await redis.get('key')
+
+// With expiry
+await redis.set('session', 'data', { EX: 3600 })
+
+// Increment counters
+await redis.incr('pageviews')
+await redis.incrby('score', 10)
+
+// Hash operations
+await redis.hset('user:123', {
+  name: 'Alice',
+  email: 'alice@example.com',
+  score: '100'
+})
+
+const user = await redis.hgetall('user:123')
+console.log(user.name) // 'Alice'
+```
+
+## Inbound Mode - Using redis.do Locally
+
+For local development and edge deployment, the client uses Durable Object storage as the backend. No Redis server required.
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+// Create local Redis instance (no server needed)
+const redis = new Redis()
+
+// Runs entirely in-memory/DO storage
+await redis.set('key', 'value')
+await redis.lpush('queue', 'task1', 'task2')
+await redis.zadd('leaderboard', 100, 'player1', 200, 'player2')
+```
+
+### Primitive Storage Backend
+
+For enhanced features like time-travel queries and distributed routing, use the `PrimitiveStorage` backend:
+
+```typescript
+import { createPrimitiveStorage } from '@dotdo/redis'
+
+const storage = createPrimitiveStorage({
+  keyPrefix: 'myapp:',
+  enableTimeTravel: true,
+  maxVersionsPerKey: 10,
+  partitionCount: 4, // For distributed routing
+})
+
+// Set and get values
+await storage.setString('key', 'value', { EX: 3600 })
+const value = await storage.getString('key')
+
+// Time-travel queries (if enabled)
+const historicalValue = await storage.getAsOf('key', Date.now() - 60000)
+
+// Snapshots
+const snapshotId = await storage.createSnapshot()
+await storage.restoreSnapshot(snapshotId)
+```
+
+### Extended Configuration
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis({
+  // Key prefix for all operations
+  keyPrefix: 'myapp:',
+
+  // DO-specific options
+  doNamespace: env.REDIS_DO,
+
+  // Sharding configuration
+  shard: {
+    algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
+    count: 4,
+  },
+
+  // Replica configuration
+  replica: {
+    readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
+    writeThrough: true,
+    jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
+  },
+
+  // Storage backend preference
+  storage: {
+    preferKV: true,    // Use KV for simple types
+    preferSQLite: true, // Use SQLite for complex types
+  },
+})
+```
+
+## Outbound Mode - Connecting to Real Redis
+
+For production, connect to external Redis services like Upstash:
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+// Connect to Upstash Redis
+const redis = new Redis({
+  host: 'your-instance.upstash.io',
+  port: 6379,
+  password: env.REDIS_PASSWORD,
+  tls: true,
+})
+
+// Or use connection URL
+const redis = new Redis(env.REDIS_URL)
+// redis://default:password@your-instance.upstash.io:6379
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Redis } from '@dotdo/redis'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const redis = new Redis({
+      url: env.REDIS_URL,
+    })
+
+    // Rate limiting
+    const ip = request.headers.get('CF-Connecting-IP')!
+    const key = `rate:${ip}`
+
+    const count = await redis.incr(key)
+    if (count === 1) {
+      await redis.expire(key, 60)
+    }
+
+    if (count > 100) {
+      return new Response('Rate limited', { status: 429 })
+    }
+
+    return new Response('OK')
+  },
+}
+```
+
+## API Reference
+
+### String Commands
+
+```typescript
+// GET/SET
+await redis.set('key', 'value')
+await redis.set('key', 'value', { EX: 60 })      // Expire in 60 seconds
+await redis.set('key', 'value', { PX: 60000 })   // Expire in 60000 ms
+await redis.set('key', 'value', { NX: true })    // Only if not exists
+await redis.set('key', 'value', { XX: true })    // Only if exists
+await redis.set('key', 'new', { GET: true })     // Return old value
+
+const value = await redis.get('key')             // Returns string | null
+
+// MGET/MSET
+await redis.mset('k1', 'v1', 'k2', 'v2')
+await redis.mset({ k1: 'v1', k2: 'v2' })
+const values = await redis.mget('k1', 'k2')      // ['v1', 'v2']
+
+// Counters
+await redis.incr('counter')                      // Increment by 1
+await redis.decr('counter')                      // Decrement by 1
+await redis.incrby('counter', 5)                 // Increment by 5
+await redis.incrbyfloat('counter', 0.5)          // Increment by 0.5
+
+// String manipulation
+await redis.append('key', ' world')              // Returns new length
+await redis.strlen('key')                        // Returns length
+await redis.getrange('key', 0, 4)                // Substring
+await redis.setrange('key', 6, 'Redis')          // Replace substring
+```
+
+### Hash Commands
+
+```typescript
+// HGET/HSET
+await redis.hset('user', 'name', 'Alice')
+await redis.hset('user', { name: 'Alice', email: 'alice@example.com' })
+const name = await redis.hget('user', 'name')
+
+// HMGET/HMSET/HGETALL
+await redis.hmset('user', { name: 'Alice', age: '30' })
+const [name, age] = await redis.hmget('user', 'name', 'age')
+const user = await redis.hgetall('user')         // { name: 'Alice', age: '30' }
+
+// Field operations
+await redis.hdel('user', 'email')                // Delete field
+await redis.hexists('user', 'name')              // 1 if exists
+await redis.hkeys('user')                        // ['name', 'age']
+await redis.hvals('user')                        // ['Alice', '30']
+await redis.hlen('user')                         // 2
+
+// Increment hash fields
+await redis.hincrby('user', 'score', 10)
+await redis.hincrbyfloat('user', 'balance', 0.5)
+await redis.hsetnx('user', 'role', 'user')       // Set if not exists
+```
+
+### List Commands
+
+```typescript
+// PUSH/POP
+await redis.lpush('queue', 'a', 'b', 'c')        // Push to head
+await redis.rpush('queue', 'x', 'y', 'z')        // Push to tail
+const item = await redis.lpop('queue')           // Pop from head
+const items = await redis.rpop('queue', 2)       // Pop 2 from tail
+
+// RANGE/INDEX
+const range = await redis.lrange('queue', 0, -1) // All elements
+await redis.lindex('queue', 0)                   // Element at index
+await redis.lset('queue', 0, 'new')              // Set at index
+await redis.llen('queue')                        // List length
+
+// Manipulation
+await redis.lrem('queue', 2, 'value')            // Remove occurrences
+await redis.ltrim('queue', 0, 99)                // Keep first 100
+await redis.linsert('queue', 'BEFORE', 'b', 'a') // Insert before/after
+await redis.lpos('queue', 'value')               // Find index
+```
+
+### Set Commands
+
+```typescript
+// ADD/REMOVE/MEMBERS
+await redis.sadd('tags', 'redis', 'cache', 'fast')
+await redis.srem('tags', 'cache')
+const members = await redis.smembers('tags')     // ['redis', 'fast']
+
+// Membership
+await redis.sismember('tags', 'redis')           // 1 if member
+await redis.smismember('tags', 'a', 'b', 'c')    // [1, 0, 0]
+await redis.scard('tags')                        // Set size
+
+// Set operations
+await redis.sinter('set1', 'set2')               // Intersection
+await redis.sunion('set1', 'set2')               // Union
+await redis.sdiff('set1', 'set2')                // Difference
+await redis.sinterstore('dest', 'set1', 'set2')  // Store result
+
+// Random operations
+await redis.srandmember('tags')                  // Random member
+await redis.srandmember('tags', 2)               // 2 random members
+await redis.spop('tags')                         // Pop random
+await redis.smove('src', 'dst', 'member')        // Move between sets
+```
+
+### Sorted Set Commands
+
+```typescript
+// ZADD/ZREM
+await redis.zadd('scores', 100, 'alice', 200, 'bob')
+await redis.zadd('scores', { NX: true }, 150, 'charlie') // Only if not exists
+await redis.zrem('scores', 'alice')
+
+// Range queries
+const top3 = await redis.zrange('scores', 0, 2)           // By rank
+const bottom3 = await redis.zrevrange('scores', 0, 2)     // Reversed
+const withScores = await redis.zrange('scores', 0, 2, 'WITHSCORES')
+// ['bob', '200', 'charlie', '150']
+
+// Score queries
+await redis.zrangebyscore('scores', 100, 200)   // By score range
+await redis.zrevrangebyscore('scores', 200, 100)
+await redis.zcount('scores', '-inf', '+inf')    // Count in range
+
+// Score/rank operations
+const score = await redis.zscore('scores', 'bob')      // '200'
+const rank = await redis.zrank('scores', 'bob')        // 0-based rank
+const revRank = await redis.zrevrank('scores', 'bob')  // Reverse rank
+await redis.zincrby('scores', 50, 'bob')               // Increment score
+
+// Pop operations
+const min = await redis.zpopmin('scores')       // ['alice', '100']
+const max = await redis.zpopmax('scores', 2)    // Pop 2 highest
+```
+
+### Key Commands
+
+```typescript
+// Delete/exists
+await redis.del('key1', 'key2')                 // Delete keys
+await redis.unlink('key1', 'key2')              // Async delete
+const count = await redis.exists('k1', 'k2')    // Count existing
+
+// Expiry
+await redis.expire('key', 3600)                 // Expire in seconds
+await redis.pexpire('key', 3600000)             // Expire in ms
+await redis.expireat('key', timestamp)          // Expire at Unix time
+await redis.pexpireat('key', msTimestamp)       // Expire at Unix ms
+
+const ttl = await redis.ttl('key')              // TTL in seconds
+const pttl = await redis.pttl('key')            // TTL in ms
+await redis.persist('key')                      // Remove expiry
+
+// Key discovery
+const keys = await redis.keys('user:*')         // Find by pattern
+const type = await redis.type('key')            // 'string', 'hash', etc.
+const [cursor, keys] = await redis.scan(0, { MATCH: 'user:*', COUNT: 100 })
+
+// Rename/copy
+await redis.rename('old', 'new')                // Rename key
+await redis.renamenx('old', 'new')              // Rename if not exists
+await redis.copy('src', 'dst')                  // Copy key
+await redis.copy('src', 'dst', { REPLACE: true })
+```
+
+### Transactions
+
+```typescript
+// Multi/Exec
+const results = await redis
+  .multi()
+  .set('key1', 'value1')
+  .set('key2', 'value2')
+  .get('key1')
+  .exec()
+// [[null, 'OK'], [null, 'OK'], [null, 'value1']]
+
+// Discard
+const multi = redis.multi()
+multi.set('key', 'value')
+await multi.discard()  // Abort transaction
+
+// Watch (optimistic locking)
+await redis.watch('balance')
+
+const balance = parseInt(await redis.get('balance')!)
+if (balance >= 100) {
+  const results = await redis
+    .multi()
+    .decrby('balance', 100)
+    .exec()
+
+  if (results === null) {
+    // Transaction aborted - key was modified
+    console.log('Concurrent modification detected')
+  }
+}
+
+await redis.unwatch()
+```
+
+### Pipelines
+
+```typescript
+// Pipeline (no transaction guarantees, but faster)
+const results = await redis
+  .pipeline()
+  .set('k1', 'v1')
+  .set('k2', 'v2')
+  .get('k1')
+  .incr('counter')
+  .exec()
+
+// Results: [[null, 'OK'], [null, 'OK'], [null, 'v1'], [null, 1]]
+
+// Efficient bulk operations
+const pipeline = redis.pipeline()
+for (let i = 0; i < 1000; i++) {
+  pipeline.set(`key:${i}`, `value:${i}`)
+}
+await pipeline.exec()
+```
+
+### Pub/Sub
+
+```typescript
+// Publisher
+const publisher = new Redis()
+await publisher.publish('notifications', JSON.stringify({ type: 'alert' }))
+
+// Subscriber
+const subscriber = new Redis()
+
+subscriber.on('message', (channel, message) => {
+  console.log(`Received on ${channel}: ${message}`)
+})
+
+subscriber.on('pmessage', (pattern, channel, message) => {
+  console.log(`Pattern ${pattern} matched ${channel}: ${message}`)
+})
+
+await subscriber.subscribe('notifications', 'events')
+await subscriber.psubscribe('user:*')
+
+// Cleanup
+await subscriber.unsubscribe('notifications')
+await subscriber.punsubscribe('user:*')
+```
+
+## Common Patterns
+
+### Caching
+
+```typescript
+async function getUser(userId: string) {
+  const cached = await redis.get(`user:${userId}`)
+  if (cached) {
+    return JSON.parse(cached)
+  }
+
+  const user = await db.query(`SELECT * FROM users WHERE id = ?`, [userId])
+  await redis.set(`user:${userId}`, JSON.stringify(user), { EX: 3600 })
+  return user
+}
+```
+
+### Rate Limiting
+
+```typescript
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const key = `rate:${userId}`
+  const limit = 100
+  const window = 60
+
+  const count = await redis.incr(key)
+  if (count === 1) {
+    await redis.expire(key, window)
+  }
+
+  return count <= limit
+}
+```
+
+### Session Storage
+
+```typescript
+async function createSession(userId: string) {
+  const sessionId = crypto.randomUUID()
+  await redis.hmset(`session:${sessionId}`, {
+    userId,
+    createdAt: Date.now().toString(),
+  })
+  await redis.expire(`session:${sessionId}`, 86400)
+  return sessionId
+}
+
+async function getSession(sessionId: string) {
+  const session = await redis.hgetall(`session:${sessionId}`)
+  return Object.keys(session).length ? session : null
+}
+```
+
+### Leaderboard
+
+```typescript
+async function updateScore(playerId: string, score: number) {
+  await redis.zadd('leaderboard', score, playerId)
+}
+
+async function getTopPlayers(count: number = 10) {
+  return redis.zrevrange('leaderboard', 0, count - 1, 'WITHSCORES')
+}
+
+async function getPlayerRank(playerId: string) {
+  const rank = await redis.zrevrank('leaderboard', playerId)
+  return rank !== null ? rank + 1 : null
+}
+```
+
+### Distributed Lock
+
+```typescript
+async function acquireLock(resource: string, ttl: number = 10): Promise<string | null> {
+  const lockId = crypto.randomUUID()
+  const acquired = await redis.set(`lock:${resource}`, lockId, { NX: true, EX: ttl })
+  return acquired ? lockId : null
+}
+
+async function releaseLock(resource: string, lockId: string): Promise<boolean> {
+  const current = await redis.get(`lock:${resource}`)
+  if (current === lockId) {
+    await redis.del(`lock:${resource}`)
+    return true
+  }
+  return false
+}
+```
+
+## Error Handling
+
+```typescript
+import { Redis, ReplyError, RedisError } from '@dotdo/redis'
+
+try {
+  await redis.lpush('string-key', 'value')
+} catch (error) {
+  if (error instanceof ReplyError) {
+    // WRONGTYPE Operation against a key holding the wrong kind of value
+    console.error('Redis command error:', error.message)
+    console.error('Command:', error.command)
+  } else if (error instanceof RedisError) {
+    console.error('Redis error:', error.message)
+  }
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Client types
+  Redis,
+  RedisOptions,
+  ExtendedRedisOptions,
+  ClientStatus,
+
+  // Command interfaces
+  Pipeline,
+  Multi,
+  SetOptions,
+  ZAddOptions,
+  ZRangeOptions,
+
+  // Value types
+  RedisKey,
+  RedisValue,
+  ScanResult,
+
+  // Events
+  RedisEvents,
+} from '@dotdo/redis'
+
+// Error classes
+import { RedisError, ReplyError, TransactionError } from '@dotdo/redis'
+```
+
+## Migration from ioredis
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall ioredis
+
+# Install
+npm install @dotdo/redis
+```
+
+### Import Change
+
+```typescript
+// Before
+import Redis from 'ioredis'
+const redis = new Redis()
+
+// After (named import)
+import { Redis } from '@dotdo/redis'
+const redis = new Redis()
+```
+
+### Code Compatibility
+
+Your existing ioredis code should work unchanged:
+
+```typescript
+// This code works with both ioredis and @dotdo/redis
+const redis = new Redis()
+
+await redis.set('key', 'value', 'EX', 3600)
+await redis.hset('user', { name: 'Alice', age: '30' })
+await redis.zadd('scores', 100, 'player1', 200, 'player2')
+
+const pipeline = redis.pipeline()
+pipeline.incr('counter')
+pipeline.get('counter')
+const results = await pipeline.exec()
+```
+
+## Related
+
+- [Realtime SDKs](/docs/compat/realtime) - Pusher, Ably, Socket.IO
+- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

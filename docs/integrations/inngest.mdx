@@ -1,0 +1,808 @@
+---
+title: Inngest
+description: Drop-in replacement for Inngest SDK with edge-native durable functions and zero external dependencies.
+---
+
+# Inngest
+
+Drop-in replacement for the Inngest SDK. Your existing `inngest` code works unchanged - just swap the import.
+
+```typescript
+// Before: Inngest
+import { Inngest } from 'inngest'
+
+// After: dotdo
+import { Inngest } from '@dotdo/inngest'
+
+// Code stays the same
+const inngest = new Inngest({ id: 'my-app' })
+
+export const processOrder = inngest.createFunction(
+  { id: 'process-order' },
+  { event: 'order/created' },
+  async ({ event, step }) => {
+    const user = await step.run('fetch-user', async () => {
+      return await fetchUser(event.data.userId)
+    })
+
+    await step.sleep('wait-a-bit', '1h')
+
+    await step.run('send-email', async () => {
+      await sendEmail(user.email, 'Order confirmed!')
+    })
+  }
+)
+```
+
+## Why inngest.do?
+
+| Feature | Inngest | inngest.do |
+|---------|---------|------------|
+| **API Compatibility** | - | 100% |
+| **Events leave infra** | Yes (to Inngest servers) | No |
+| **Cold start** | ~50ms | 0ms (V8 isolates) |
+| **Global edge** | 5 regions | 300+ cities |
+| **Max duration** | 2 hours | Unlimited |
+| **Pricing** | Per-step billing | Included |
+| **Self-hosted** | Enterprise only | Always |
+| **DO integration** | N/A | Native |
+
+**Inngest is great.** Event-driven durable functions with a beautiful API.
+
+**But it's another service.** Events leave your infrastructure, hop to Inngest's servers, then back to your workers. Extra latency. Extra cost. Extra vendor dependency.
+
+**inngest.do runs on dotdo's infrastructure.** Same API, same patterns - but your functions execute on Cloudflare's edge in 300+ cities. Events never leave your infrastructure. Zero cold starts. Scales to millions of concurrent executions.
+
+## Features
+
+| Feature | Status |
+|---------|--------|
+| Event-driven functions | Supported |
+| Cron triggers | Supported |
+| step.run (durable steps) | Supported |
+| step.sleep (durable sleep) | Supported |
+| step.waitForEvent | Supported |
+| step.sendEvent | Supported |
+| step.invoke | Supported |
+| step.parallel | Supported |
+| Middleware | Supported |
+| Throttling | Supported |
+| Concurrency limits | Supported |
+| Rate limiting | Supported |
+| Debouncing | Supported |
+| Batch events | Supported |
+| Cancellation | Supported |
+| Cancel on event | Supported |
+| Retries | Supported |
+| NonRetriableError | Supported |
+| RetryAfterError | Supported |
+| serve() handler | Supported |
+| step.ai.infer | Planned |
+| Encrypted channels | Planned |
+
+## Installation
+
+```bash
+npm install @dotdo/inngest
+```
+
+## Quick Start
+
+### Basic Function
+
+```typescript
+import { Inngest } from '@dotdo/inngest'
+
+// Create a client
+const inngest = new Inngest({ id: 'my-app' })
+
+// Define a function
+const helloWorld = inngest.createFunction(
+  { id: 'hello-world' },
+  { event: 'test/hello' },
+  async ({ event, step }) => {
+    const greeting = await step.run('create-greeting', () => {
+      return `Hello, ${event.data.name}!`
+    })
+    return greeting
+  }
+)
+
+// Send an event to trigger the function
+await inngest.send({
+  name: 'test/hello',
+  data: { name: 'World' }
+})
+```
+
+### Event Triggers
+
+```typescript
+// Event trigger
+const onUserSignup = inngest.createFunction(
+  { id: 'on-user-signup' },
+  { event: 'user/signup' },
+  async ({ event }) => {
+    await sendWelcomeEmail(event.data.email)
+  }
+)
+
+// Cron trigger
+const dailyReport = inngest.createFunction(
+  { id: 'daily-report' },
+  { cron: '0 9 * * MON-FRI' },
+  async () => {
+    await generateReport()
+  }
+)
+
+// String shorthand
+const quickHandler = inngest.createFunction(
+  { id: 'quick' },
+  'payment/received',
+  async ({ event }) => event.data.amount
+)
+```
+
+### Durable Steps
+
+```typescript
+const processOrder = inngest.createFunction(
+  { id: 'process-order' },
+  { event: 'order/created' },
+  async ({ event, step }) => {
+    // step.run - memoized execution
+    const user = await step.run('fetch-user', async () => {
+      return await fetchUser(event.data.userId)
+    })
+
+    // step.sleep - durable sleep (function pauses, not blocked)
+    await step.sleep('wait-for-processing', '30m')
+
+    // step.sendEvent - send events from within a function
+    await step.sendEvent('notify', {
+      name: 'order/processed',
+      data: { orderId: event.data.orderId }
+    })
+
+    // step.waitForEvent - wait for correlated event
+    const approval = await step.waitForEvent('wait-approval', {
+      event: 'order/approved',
+      timeout: '24h',
+      match: 'data.orderId',
+    })
+
+    if (!approval) {
+      throw new Error('Order approval timed out')
+    }
+
+    return { success: true }
+  }
+)
+```
+
+### Parallel Execution
+
+```typescript
+const fn = inngest.createFunction(
+  { id: 'parallel-example' },
+  { event: 'data/process' },
+  async ({ step }) => {
+    const [user, order, inventory] = await step.parallel('fetch-all', [
+      async () => fetchUser(userId),
+      async () => fetchOrder(orderId),
+      async () => checkInventory(productId),
+    ])
+
+    return { user, order, inventory }
+  }
+)
+```
+
+### Invoke Other Functions
+
+```typescript
+const helperFn = inngest.createFunction(
+  { id: 'helper' },
+  { event: 'helper/trigger' },
+  async ({ event }) => {
+    return { processed: event.data.input }
+  }
+)
+
+const mainFn = inngest.createFunction(
+  { id: 'main' },
+  { event: 'main/trigger' },
+  async ({ step }) => {
+    const result = await step.invoke('call-helper', {
+      function: helperFn,
+      data: { input: 'test-value' },
+      timeout: '5m',
+    })
+    return result
+  }
+)
+```
+
+## Inbound Mode - Local Development
+
+For testing and development, the compat layer runs entirely in-memory with no external dependencies:
+
+```typescript
+import { Inngest } from '@dotdo/inngest'
+import { InMemoryStepStorage } from '@dotdo/inngest/storage'
+
+// Create local Inngest instance
+const inngest = new Inngest({
+  id: 'my-app',
+  storage: new InMemoryStepStorage(),
+})
+
+// Define functions
+const processPayment = inngest.createFunction(
+  { id: 'process-payment' },
+  { event: 'payment/created' },
+  async ({ event, step }) => {
+    const validated = await step.run('validate', async () => {
+      return validatePayment(event.data)
+    })
+
+    await step.sleep('fraud-check-delay', '5s')
+
+    const result = await step.run('charge', async () => {
+      return chargeCard(validated)
+    })
+
+    return result
+  }
+)
+
+// Send events - triggers functions locally
+await inngest.send({
+  name: 'payment/created',
+  data: { amount: 2000, currency: 'usd' }
+})
+```
+
+### Testing with Vitest
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Inngest } from '@dotdo/inngest'
+
+describe('Payment Processing', () => {
+  let inngest: Inngest
+
+  beforeEach(() => {
+    inngest = new Inngest({ id: 'test-app' })
+    vi.useFakeTimers()
+  })
+
+  it('should process payment with steps', async () => {
+    let stepExecuted = false
+
+    const fn = inngest.createFunction(
+      { id: 'test-fn' },
+      { event: 'test/event' },
+      async ({ step }) => {
+        const result = await step.run('my-step', () => {
+          stepExecuted = true
+          return 42
+        })
+        return result
+      }
+    )
+
+    const result = await fn.invoke({
+      name: 'test/event',
+      data: {},
+    })
+
+    expect(stepExecuted).toBe(true)
+    expect(result).toBe(42)
+  })
+
+  it('should handle sleep steps', async () => {
+    const fn = inngest.createFunction(
+      { id: 'sleep-test' },
+      { event: 'test/sleep' },
+      async ({ step }) => {
+        await step.sleep('wait', '1h')
+        return 'completed'
+      }
+    )
+
+    const promise = fn.invoke({ name: 'test/sleep', data: {} })
+
+    // Advance time
+    await vi.advanceTimersByTimeAsync(3600000)
+
+    const result = await promise
+    expect(result).toBe('completed')
+  })
+})
+```
+
+## Outbound Mode - Production Deployment
+
+For production on Cloudflare Workers with Durable Objects:
+
+```typescript
+import { Inngest } from '@dotdo/inngest'
+import { DOStepStorage } from '@dotdo/inngest/storage'
+
+export class WorkflowDO extends DurableObject {
+  private inngest: Inngest
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+
+    this.inngest = new Inngest({
+      id: 'my-app',
+      storage: new DOStepStorage(state),
+      state: state, // Required for waitForEvent
+    })
+
+    // Register functions
+    this.registerFunctions()
+  }
+
+  private registerFunctions() {
+    this.inngest.createFunction(
+      { id: 'process-order' },
+      { event: 'order/created' },
+      async ({ event, step }) => {
+        // Steps are durably persisted in DO storage
+        const user = await step.run('fetch-user', async () => {
+          return await fetchUser(event.data.userId)
+        })
+
+        // Sleep survives DO hibernation
+        await step.sleep('wait', '1h')
+
+        return { processed: true }
+      }
+    )
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    // Handle incoming events
+    const event = await request.json()
+    const result = await this.inngest.send(event)
+    return Response.json(result)
+  }
+}
+```
+
+### HTTP Serve Handler
+
+Use the `serve()` function to create an HTTP handler compatible with any framework:
+
+```typescript
+import { Inngest, serve } from '@dotdo/inngest'
+
+const inngest = new Inngest({ id: 'my-app' })
+
+const fn1 = inngest.createFunction(
+  { id: 'fn-1' },
+  { event: 'event/1' },
+  async () => 'result 1'
+)
+
+const fn2 = inngest.createFunction(
+  { id: 'fn-2' },
+  { event: 'event/2' },
+  async () => 'result 2'
+)
+
+// Create fetch handler
+const handler = serve(inngest, [fn1, fn2], {
+  path: '/api/inngest',
+})
+
+// Use with Cloudflare Workers
+export default { fetch: handler }
+```
+
+## Function Configuration
+
+All Inngest function options are supported:
+
+```typescript
+const fn = inngest.createFunction(
+  {
+    id: 'robust-function',
+    name: 'My Robust Function',
+
+    // Retry configuration
+    retries: {
+      attempts: 5,
+      backoff: 'exponential',
+      initialInterval: '1s',
+      maxInterval: '1h'
+    },
+
+    // Timeouts
+    timeouts: {
+      function: '30m',
+      step: '5m'
+    },
+
+    // Rate limiting
+    rateLimit: {
+      key: 'event.data.userId',
+      limit: 10,
+      period: '1m'
+    },
+
+    // Throttling
+    throttle: {
+      key: 'event.data.customerId',
+      count: 5,
+      period: '1h'
+    },
+
+    // Debouncing
+    debounce: {
+      key: 'event.data.userId',
+      period: '5s'
+    },
+
+    // Concurrency control
+    concurrency: {
+      limit: 10,
+      key: 'event.data.accountId',
+      scope: 'fn'
+    },
+
+    // Batching
+    batchEvents: {
+      maxSize: 100,
+      timeout: '5s',
+      key: 'event.data.tenant'
+    },
+
+    // Cancel on events
+    cancelOn: [{
+      event: 'order/cancelled',
+      match: 'data.orderId'
+    }]
+  },
+  { event: 'order/created' },
+  handler
+)
+```
+
+## Error Handling
+
+### NonRetriableError
+
+```typescript
+import { NonRetriableError } from '@dotdo/inngest'
+
+await step.run('validate', () => {
+  if (!isValid(data)) {
+    // This error will NOT trigger retries
+    throw new NonRetriableError('Invalid data format')
+  }
+})
+```
+
+### RetryAfterError
+
+```typescript
+import { RetryAfterError } from '@dotdo/inngest'
+
+await step.run('call-api', async () => {
+  const response = await fetch(url)
+
+  if (response.status === 429) {
+    const retryAfter = response.headers.get('Retry-After')
+    throw new RetryAfterError('Rate limited', retryAfter)
+  }
+
+  return response.json()
+})
+```
+
+### StepError
+
+```typescript
+import { StepError } from '@dotdo/inngest'
+
+try {
+  await step.run('risky-step', async () => {
+    throw new Error('Something went wrong')
+  })
+} catch (error) {
+  if (error instanceof StepError) {
+    console.log('Step failed:', error.stepId)
+    console.log('Cause:', error.cause)
+  }
+}
+```
+
+## Middleware
+
+Extend functionality with middleware:
+
+```typescript
+import type { InngestMiddleware } from '@dotdo/inngest'
+
+const loggingMiddleware: InngestMiddleware = {
+  name: 'logging',
+
+  init: () => {
+    console.log('Middleware initialized')
+  },
+
+  onSendEvent: (events) => {
+    console.log('Sending events:', events.length)
+    return events
+  },
+
+  onFunctionRun: ({ fn, event, runId }) => ({
+    beforeExecution: () => {
+      console.log(`Starting ${fn.id}`)
+    },
+    afterExecution: () => {
+      console.log(`Completed ${fn.id}`)
+    },
+    transformInput: (ctx) => ctx,
+    transformOutput: (result) => result,
+    onError: (error) => {
+      console.error(`Error in ${fn.id}:`, error)
+    }
+  })
+}
+
+const inngest = new Inngest({
+  id: 'my-app',
+  middleware: [loggingMiddleware]
+})
+```
+
+## Cancellation
+
+### Cancel by Run ID
+
+```typescript
+// Get active runs
+const runs = await inngest.getRuns({ functionId: 'my-function' })
+
+// Cancel a specific run
+await inngest.cancel(runs[0].runId, 'User requested cancellation')
+```
+
+### Cancel on Event
+
+```typescript
+const fn = inngest.createFunction(
+  {
+    id: 'process-order',
+    cancelOn: [{
+      event: 'order/cancelled',
+      match: 'data.orderId',
+    }]
+  },
+  { event: 'order/created' },
+  async ({ event, step }) => {
+    try {
+      await step.sleep('processing', '5m')
+      await step.run('complete', () => {
+        // This won't execute if cancelled
+      })
+    } catch (error) {
+      if (error instanceof CancellationError) {
+        console.log('Order was cancelled:', error.reason)
+      }
+      throw error
+    }
+  }
+)
+
+// Cancel by sending the cancel event
+await inngest.send({
+  name: 'order/cancelled',
+  data: { orderId: 'order-123' }
+})
+```
+
+## Batch Events
+
+Process multiple events together:
+
+```typescript
+const fn = inngest.createFunction(
+  {
+    id: 'batch-processor',
+    batchEvents: {
+      maxSize: 100,
+      timeout: '5s',
+      key: 'event.data.tenant',
+    },
+  },
+  { event: 'data/ingest' },
+  async ({ events, event }) => {
+    // events = all batched events
+    // event = first event in batch
+
+    console.log(`Processing ${events.length} events`)
+
+    for (const e of events) {
+      await processEvent(e.data)
+    }
+  }
+)
+```
+
+## API Reference
+
+### Inngest Client
+
+| Method | Description |
+|--------|-------------|
+| `new Inngest(config)` | Create client instance |
+| `inngest.send(event)` | Send one or more events |
+| `inngest.createFunction(config, trigger, handler)` | Create a function |
+| `inngest.getFunctions()` | Get all registered functions |
+| `inngest.getFunction(id)` | Get function by ID |
+| `inngest.getRuns(options)` | Get active runs |
+| `inngest.getRunState(runId)` | Get run state |
+| `inngest.cancel(runId, reason?)` | Cancel a run |
+
+### InngestConfig
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Application identifier |
+| `eventKey` | string? | Event key (optional) |
+| `middleware` | Middleware[]? | Middleware array |
+| `storage` | StepStorage? | Durable storage backend |
+| `state` | DurableObjectState? | DO state for waitForEvent |
+| `logger` | Logger? | Custom logger |
+
+### Step Tools
+
+| Method | Description |
+|--------|-------------|
+| `step.run(id, fn)` | Execute durable step with memoization |
+| `step.sleep(id, duration)` | Sleep for duration |
+| `step.waitForEvent(id, opts)` | Wait for correlated event |
+| `step.sendEvent(id, event)` | Send event(s) |
+| `step.invoke(id, opts)` | Invoke another function |
+| `step.parallel(id, fns)` | Run steps in parallel |
+| `step.ai.infer(id, opts)` | AI inference (experimental) |
+
+### Error Types
+
+| Class | Description |
+|-------|-------------|
+| `NonRetriableError` | Error that should not retry |
+| `RetryAfterError` | Error with retry delay |
+| `StepError` | Error from step execution |
+| `CancellationError` | Function was cancelled |
+| `InvokeTimeoutError` | Invoked function timed out |
+
+### Duration Formats
+
+```typescript
+// Supported duration formats
+'5s'     // 5 seconds
+'30sec'  // 30 seconds
+'5m'     // 5 minutes
+'30min'  // 30 minutes
+'1h'     // 1 hour
+'2hr'    // 2 hours
+'1d'     // 1 day
+'1w'     // 1 week
+1000     // 1000 milliseconds (number)
+```
+
+## Architecture
+
+```
+Event: { name: 'order/created', data: {...} }
+         |
+         v
++------------------------------------------+
+|         inngest.send()                    |
+|    Generate event ID, add timestamp       |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Middleware: onSendEvent           |
+|    Transform, validate, log events        |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Event Router                      |
+|    Match event name to registered fns     |
+|    Deliver to waitForEvent waiters        |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Middleware: onFunctionRun         |
+|    beforeExecution, transformInput        |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Function Execution                |
+|    step.run -> memoized execution         |
+|    step.sleep -> durable timer            |
+|    step.waitForEvent -> suspend/resume    |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Middleware: afterExecution        |
+|    transformOutput, cleanup               |
++------------------------------------------+
+         |
+         v
+Result: returned to caller or stored
+```
+
+## Migration from Inngest
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall inngest
+
+# Install
+npm install @dotdo/inngest
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Inngest } from 'inngest'
+
+// After
+import { Inngest } from '@dotdo/inngest'
+```
+
+### Code Compatibility
+
+Your existing Inngest code works unchanged:
+
+```typescript
+// This code works with both inngest and @dotdo/inngest
+const inngest = new Inngest({ id: 'my-app' })
+
+const fn = inngest.createFunction(
+  { id: 'my-function' },
+  { event: 'my/event' },
+  async ({ event, step }) => {
+    const result = await step.run('step-1', async () => {
+      return await doSomething(event.data)
+    })
+
+    await step.sleep('wait', '1h')
+
+    return result
+  }
+)
+```
+
+## Performance
+
+- **0ms cold start** via V8 isolates
+- **<1ms** event routing and dispatch
+- **Unlimited duration** with Durable Objects
+- **Global edge** execution in 300+ cities
+- **Scales to millions** of concurrent executions
+
+## Related
+
+- [Workflow DSL](/docs/workflows) - Native dotdo workflow syntax
+- [Durable Objects](/docs/architecture/durable-objects) - Understanding DO-based durability
+- [Events Overview](/docs/events) - Event handling patterns
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

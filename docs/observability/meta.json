@@ -8,6 +8,10 @@
     "logging",
     "metrics",
     "tracing",
+    "analytics",
+    "---Operations---",
+    "alerts",
+    "debugging",
     "---Integrations---",
     "dashboards"
   ]

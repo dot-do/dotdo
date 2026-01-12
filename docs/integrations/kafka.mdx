@@ -1,0 +1,751 @@
+---
+title: Kafka
+description: Drop-in replacement for KafkaJS with edge compatibility and Durable Object-backed message streaming.
+---
+
+# Kafka
+
+Drop-in replacement for KafkaJS. Your existing `kafkajs` code works unchanged - just swap the import.
+
+```typescript
+// Before: KafkaJS
+import { Kafka } from 'kafkajs'
+
+// After: dotdo
+import { Kafka } from '@dotdo/kafka'
+
+// Code stays the same
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['localhost:9092'],
+})
+
+const producer = kafka.producer()
+await producer.connect()
+
+await producer.send({
+  topic: 'orders',
+  messages: [
+    { key: 'order-123', value: JSON.stringify({ product: 'Widget', qty: 5 }) },
+  ],
+})
+```
+
+## Why kafka.do?
+
+| KafkaJS | @dotdo/kafka |
+|---------|--------------|
+| Requires Kafka cluster | Runs on Durable Objects |
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Complex infrastructure | Zero infrastructure |
+| Network latency to brokers | Co-located with your Workers |
+| Separate dev/prod environments | Same code, different backends |
+| Cluster management overhead | Serverless scaling |
+
+**This is a compatibility layer.** It can either run entirely on Durable Objects (local/development) or connect to real Kafka/Confluent clusters (production). The API surface matches KafkaJS.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Producer**
+- `connect()`, `disconnect()`
+- `send()` - Single topic messages
+- `sendBatch()` - Multi-topic batch sending
+- `transaction()` - Transactional producer support
+- Custom partitioners (default, round-robin, murmur2, sticky)
+- Idempotent producer support
+
+**Consumer**
+- `connect()`, `disconnect()`
+- `subscribe()` - Topic subscription with patterns
+- `run()` - `eachMessage` and `eachBatch` handlers
+- `seek()` - Seek to specific offsets
+- `pause()`, `resume()`, `paused()` - Partition control
+- `commitOffsets()` - Manual offset commits
+- Consumer group coordination with rebalancing
+
+**Admin**
+- `connect()`, `disconnect()`
+- `createTopics()`, `deleteTopics()`
+- `createPartitions()`
+- `listTopics()`, `fetchTopicMetadata()`
+- `fetchTopicOffsets()`, `fetchTopicOffsetsByTimestamp()`
+- `listGroups()`, `describeGroups()`, `deleteGroups()`
+- `resetOffsets()`, `setOffsets()`, `fetchOffsets()`
+- `describeCluster()`, `describeConfigs()`, `alterConfigs()`
+
+**Consumer Groups**
+- Automatic rebalancing
+- Range and round-robin assignment strategies
+- Session timeouts and heartbeats
+- Offset management
+
+### Not Yet Implemented
+
+- SSL/TLS connections
+- SASL authentication (PLAIN, SCRAM, OAUTHBEARER)
+- Compression (GZIP, Snappy, LZ4, ZSTD)
+- Admin ACL operations
+- Quotas management
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/kafka
+```
+
+### Producer Example
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'order-service',
+  brokers: ['localhost:9092'],
+})
+
+const producer = kafka.producer()
+await producer.connect()
+
+// Send a single message
+await producer.send({
+  topic: 'orders',
+  messages: [
+    {
+      key: 'order-123',
+      value: JSON.stringify({
+        orderId: '123',
+        customer: 'john@example.com',
+        items: [{ sku: 'WIDGET-001', qty: 2 }],
+      }),
+      headers: {
+        'correlation-id': 'abc-123',
+      },
+    },
+  ],
+})
+
+// Send batch to multiple topics
+await producer.sendBatch({
+  topicMessages: [
+    {
+      topic: 'orders',
+      messages: [{ value: 'Order created' }],
+    },
+    {
+      topic: 'notifications',
+      messages: [{ value: 'Notify customer' }],
+    },
+  ],
+})
+
+await producer.disconnect()
+```
+
+### Consumer Example
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'order-processor',
+  brokers: ['localhost:9092'],
+})
+
+const consumer = kafka.consumer({ groupId: 'order-processing-group' })
+await consumer.connect()
+
+await consumer.subscribe({
+  topics: ['orders'],
+  fromBeginning: true,
+})
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    console.log({
+      topic,
+      partition,
+      offset: message.offset,
+      key: message.key?.toString(),
+      value: message.value?.toString(),
+      headers: message.headers,
+    })
+  },
+})
+```
+
+### Batch Processing
+
+```typescript
+await consumer.run({
+  eachBatch: async ({
+    batch,
+    resolveOffset,
+    heartbeat,
+    commitOffsetsIfNecessary,
+    isRunning,
+  }) => {
+    for (const message of batch.messages) {
+      if (!isRunning()) break
+
+      // Process message
+      console.log(`Processing: ${message.value?.toString()}`)
+
+      // Mark as processed
+      resolveOffset(message.offset)
+
+      // Keep session alive
+      await heartbeat()
+    }
+
+    // Commit processed offsets
+    await commitOffsetsIfNecessary()
+  },
+})
+```
+
+## Inbound - Using kafka.do Locally
+
+For testing and development, the SDK runs entirely on Durable Objects with in-memory storage:
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+// Create local Kafka instance (no brokers needed)
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: [], // Empty for local mode
+})
+
+// Admin operations
+const admin = kafka.admin()
+await admin.connect()
+
+await admin.createTopics({
+  topics: [
+    { topic: 'events', numPartitions: 3, replicationFactor: 1 },
+    { topic: 'logs', numPartitions: 1 },
+  ],
+})
+
+const topics = await admin.listTopics()
+console.log('Topics:', topics)
+
+await admin.disconnect()
+```
+
+### Topic Management
+
+```typescript
+const admin = kafka.admin()
+await admin.connect()
+
+// Create topics with configuration
+await admin.createTopics({
+  topics: [
+    {
+      topic: 'orders',
+      numPartitions: 6,
+      replicationFactor: 1,
+      configEntries: [
+        { name: 'retention.ms', value: '604800000' }, // 7 days
+        { name: 'cleanup.policy', value: 'delete' },
+      ],
+    },
+  ],
+})
+
+// Get topic metadata
+const metadata = await admin.fetchTopicMetadata({ topics: ['orders'] })
+console.log('Partitions:', metadata.topics[0].partitions.length)
+
+// Get partition offsets
+const offsets = await admin.fetchTopicOffsets('orders')
+for (const { partition, offset, high, low } of offsets) {
+  console.log(`Partition ${partition}: ${low} - ${high}`)
+}
+```
+
+### Consumer Groups
+
+```typescript
+const admin = kafka.admin()
+await admin.connect()
+
+// List consumer groups
+const { groups } = await admin.listGroups()
+console.log('Groups:', groups.map(g => g.groupId))
+
+// Describe consumer group
+const { groups: descriptions } = await admin.describeGroups(['order-processing-group'])
+for (const group of descriptions) {
+  console.log(`Group: ${group.groupId}, State: ${group.state}`)
+  for (const member of group.members) {
+    console.log(`  Member: ${member.memberId} (${member.clientId})`)
+  }
+}
+
+// Reset offsets
+await admin.resetOffsets({
+  groupId: 'order-processing-group',
+  topic: 'orders',
+  earliest: true,
+})
+```
+
+### Transactions
+
+```typescript
+const producer = kafka.producer({
+  transactionalId: 'order-processor-txn',
+  idempotent: true,
+})
+await producer.connect()
+
+const transaction = await producer.transaction()
+
+try {
+  await transaction.send({
+    topic: 'orders',
+    messages: [{ value: 'Order created' }],
+  })
+
+  await transaction.send({
+    topic: 'inventory',
+    messages: [{ value: 'Stock reserved' }],
+  })
+
+  // Commit both messages atomically
+  await transaction.commit()
+} catch (error) {
+  // Rollback on failure
+  await transaction.abort()
+  throw error
+}
+```
+
+## Outbound - Connecting to Real Kafka
+
+For production, connect to real Kafka clusters or Confluent Cloud:
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['broker1.kafka.example.com:9092', 'broker2.kafka.example.com:9092'],
+  ssl: true,
+  sasl: {
+    mechanism: 'plain',
+    username: env.KAFKA_USERNAME,
+    password: env.KAFKA_PASSWORD,
+  },
+  connectionTimeout: 3000,
+  requestTimeout: 30000,
+})
+```
+
+### Confluent Cloud
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['pkc-xxxxx.us-west-2.aws.confluent.cloud:9092'],
+  ssl: true,
+  sasl: {
+    mechanism: 'plain',
+    username: env.CONFLUENT_API_KEY,
+    password: env.CONFLUENT_API_SECRET,
+  },
+})
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Kafka } from '@dotdo/kafka'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const kafka = new Kafka({
+      clientId: 'edge-producer',
+      brokers: [env.KAFKA_BROKER],
+    })
+
+    const producer = kafka.producer()
+    await producer.connect()
+
+    const body = await request.json()
+
+    await producer.send({
+      topic: 'events',
+      messages: [{ value: JSON.stringify(body) }],
+    })
+
+    await producer.disconnect()
+
+    return new Response('Event published', { status: 200 })
+  },
+}
+```
+
+## API Reference
+
+### Kafka
+
+```typescript
+new Kafka(config: KafkaConfig)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `clientId` | `string` | - | Client identifier |
+| `brokers` | `string[]` | - | Broker addresses |
+| `ssl` | `boolean \| object` | `false` | SSL configuration |
+| `sasl` | `SASLOptions` | - | SASL authentication |
+| `connectionTimeout` | `number` | `1000` | Connection timeout (ms) |
+| `requestTimeout` | `number` | `30000` | Request timeout (ms) |
+| `logLevel` | `LogLevel` | `INFO` | Logging level |
+
+### Producer
+
+```typescript
+kafka.producer(config?: ProducerConfig): Producer
+```
+
+| Method | Description |
+|--------|-------------|
+| `connect()` | Connect to brokers |
+| `disconnect()` | Disconnect from brokers |
+| `send(record)` | Send messages to a topic |
+| `sendBatch(batch)` | Send to multiple topics |
+| `transaction()` | Begin a transaction |
+| `on(event, handler)` | Register event listener |
+
+### Consumer
+
+```typescript
+kafka.consumer(config: ConsumerConfig): Consumer
+```
+
+| Method | Description |
+|--------|-------------|
+| `connect()` | Connect to brokers |
+| `disconnect()` | Disconnect from brokers |
+| `subscribe(subscription)` | Subscribe to topics |
+| `run(config)` | Start consuming messages |
+| `stop()` | Stop consuming |
+| `seek(entry)` | Seek to offset |
+| `pause(topics)` | Pause partitions |
+| `resume(topics)` | Resume partitions |
+| `commitOffsets(offsets?)` | Commit offsets |
+| `describeGroup()` | Describe consumer group |
+| `on(event, handler)` | Register event listener |
+
+### Admin
+
+```typescript
+kafka.admin(config?: AdminConfig): Admin
+```
+
+| Method | Description |
+|--------|-------------|
+| `connect()` | Connect to brokers |
+| `disconnect()` | Disconnect from brokers |
+| `listTopics()` | List all topics |
+| `createTopics(options)` | Create topics |
+| `deleteTopics(options)` | Delete topics |
+| `fetchTopicMetadata(options?)` | Get topic metadata |
+| `fetchTopicOffsets(topic)` | Get partition offsets |
+| `listGroups()` | List consumer groups |
+| `describeGroups(groupIds)` | Describe groups |
+| `resetOffsets(options)` | Reset consumer offsets |
+| `setOffsets(options)` | Set consumer offsets |
+| `describeCluster()` | Get cluster info |
+
+## Error Handling
+
+```typescript
+import { Kafka, KafkaJSError, KafkaJSTopicNotFound } from '@dotdo/kafka'
+
+try {
+  await producer.send({
+    topic: 'nonexistent-topic',
+    messages: [{ value: 'test' }],
+  })
+} catch (error) {
+  if (error instanceof KafkaJSTopicNotFound) {
+    console.log('Topic not found:', error.topic)
+  } else if (error instanceof KafkaJSError) {
+    console.log('Kafka error:', error.message)
+    console.log('Retriable:', error.retriable)
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `KafkaJSError` | Base Kafka error |
+| `KafkaJSConnectionError` | Connection failed |
+| `KafkaJSProtocolError` | Protocol error |
+| `KafkaJSTopicNotFound` | Topic does not exist |
+| `KafkaJSOffsetOutOfRange` | Invalid offset |
+| `KafkaJSTimeout` | Request timeout |
+| `KafkaJSNonRetriableError` | Non-retriable error |
+| `KafkaJSNumberOfRetriesExceeded` | Retry limit exceeded |
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Kafka,
+  Producer,
+  Consumer,
+  Admin,
+  Transaction,
+
+  // Config types
+  KafkaConfig,
+  ProducerConfig,
+  ConsumerConfig,
+  AdminConfig,
+
+  // Message types
+  Message,
+  KafkaMessage,
+  ProducerRecord,
+  ProducerBatch,
+  RecordMetadata,
+
+  // Consumer types
+  ConsumerRunConfig,
+  EachMessagePayload,
+  EachBatchPayload,
+  Batch,
+  SeekEntry,
+  GroupDescription,
+
+  // Partition types
+  PartitionMetadata,
+  TopicPartition,
+  TopicPartitionOffset,
+
+  // Topic types
+  TopicMetadata,
+  ITopicConfig,
+  CreateTopicsOptions,
+  DeleteTopicsOptions,
+} from '@dotdo/kafka'
+```
+
+## Migration from KafkaJS
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall kafkajs
+
+# Install
+npm install @dotdo/kafka
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Kafka } from 'kafkajs'
+
+// After
+import { Kafka } from '@dotdo/kafka'
+
+// Code compatibility - no changes needed
+const kafka = new Kafka({ clientId: 'my-app', brokers: ['localhost:9092'] })
+```
+
+### Partitioners
+
+```typescript
+// Before (kafkajs)
+import { Partitioners } from 'kafkajs'
+
+const producer = kafka.producer({
+  createPartitioner: Partitioners.DefaultPartitioner,
+})
+
+// After (@dotdo/kafka)
+import { Partitioners } from '@dotdo/kafka'
+
+const producer = kafka.producer({
+  createPartitioner: Partitioners.DefaultPartitioner,
+})
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const kafka = new Kafka({ brokers: [...] })                |
+|  await producer.send({ topic: 'events', messages: [...] })  |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode        |     |     Local Mode          |
+|   (Real Kafka)           |     |     (Durable Objects)   |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> Kafka brokers       |     |  -> In-memory storage   |
+|  -> Confluent Cloud     |     |  -> No network calls    |
+|  -> Real partitions     |     |  -> SQLite persistence  |
+|  -> Full Kafka protocol |     |  -> DO coordination     |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero infrastructure**: No Kafka cluster needed
+- **Zero latency**: No network round-trips
+- **Edge-native**: Runs on Cloudflare Workers
+- **Testable**: Predictable, isolated tests
+- **Offline**: Works without internet
+
+## Common Patterns
+
+### Event Sourcing
+
+```typescript
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({ clientId: 'event-store', brokers: [] })
+
+// Producer: Append events
+const producer = kafka.producer({ idempotent: true })
+await producer.connect()
+
+async function appendEvent(aggregateId: string, event: object) {
+  await producer.send({
+    topic: 'events',
+    messages: [
+      {
+        key: aggregateId,
+        value: JSON.stringify({
+          ...event,
+          timestamp: Date.now(),
+          aggregateId,
+        }),
+      },
+    ],
+  })
+}
+
+// Consumer: Replay events
+const consumer = kafka.consumer({ groupId: 'projector' })
+await consumer.connect()
+await consumer.subscribe({ topics: ['events'], fromBeginning: true })
+
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    const event = JSON.parse(message.value!.toString())
+    await updateProjection(event)
+  },
+})
+```
+
+### CQRS with Separate Read/Write
+
+```typescript
+// Command handler (write side)
+async function handleCreateOrder(command: CreateOrderCommand) {
+  const order = createOrder(command)
+
+  await producer.send({
+    topic: 'orders',
+    messages: [{ key: order.id, value: JSON.stringify(order) }],
+  })
+
+  return order.id
+}
+
+// Query handler (read side)
+const consumer = kafka.consumer({ groupId: 'orders-read-model' })
+await consumer.subscribe({ topics: ['orders'] })
+
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    const order = JSON.parse(message.value!.toString())
+    await updateReadModel(order)
+  },
+})
+```
+
+### Fan-out Pattern
+
+```typescript
+// Single producer, multiple consumer groups
+const topics = ['user-events']
+
+// Analytics consumer
+const analyticsConsumer = kafka.consumer({ groupId: 'analytics' })
+await analyticsConsumer.subscribe({ topics })
+await analyticsConsumer.run({
+  eachMessage: async ({ message }) => {
+    await trackAnalytics(message)
+  },
+})
+
+// Notification consumer
+const notificationConsumer = kafka.consumer({ groupId: 'notifications' })
+await notificationConsumer.subscribe({ topics })
+await notificationConsumer.run({
+  eachMessage: async ({ message }) => {
+    await sendNotification(message)
+  },
+})
+
+// Audit consumer
+const auditConsumer = kafka.consumer({ groupId: 'audit-log' })
+await auditConsumer.subscribe({ topics })
+await auditConsumer.run({
+  eachMessage: async ({ message }) => {
+    await writeAuditLog(message)
+  },
+})
+```
+
+## API Coverage
+
+| Resource | Coverage | Notes |
+|----------|----------|-------|
+| Producer | Full | Including transactions |
+| Consumer | Full | Including batch processing |
+| Admin | Full | Topic and group management |
+| Consumer Groups | Full | Rebalancing, heartbeats |
+| Transactions | Full | Exactly-once semantics |
+| Partitioners | Full | Default, round-robin, murmur2 |
+| Compression | Partial | Types defined, not implemented |
+| SSL/SASL | Partial | Types defined, not implemented |
+
+## Related
+
+- [Pusher Integration](/docs/integrations/pusher) - Real-time messaging
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

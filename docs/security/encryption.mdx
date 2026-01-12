@@ -1,0 +1,373 @@
+---
+title: Encryption
+description: Data protection at rest, in transit, and end-to-end key management
+---
+
+# Encryption
+
+Every piece of data is encrypted. No exceptions.
+
+## Overview
+
+dotdo encrypts data at multiple layers - at rest in storage, in transit between services, and end-to-end for sensitive operations. You don't need to configure anything for basic protection. For advanced use cases, you have full control over keys and algorithms.
+
+## Encryption at Rest
+
+All data stored in Durable Objects, R2, and KV is encrypted automatically:
+
+```typescript
+// Data is encrypted before writing
+await $.storage.put('customer', {
+  name: 'Alice',
+  email: 'alice@example.com',
+  ssn: '123-45-6789', // Encrypted at rest
+})
+
+// Decrypted transparently on read
+const customer = await $.storage.get('customer')
+```
+
+### Storage Encryption Layers
+
+| Layer | Algorithm | Key Management |
+|-------|-----------|----------------|
+| **Durable Objects** | AES-256-GCM | Automatic, per-DO keys |
+| **R2 Storage** | AES-256 | Customer-managed or automatic |
+| **KV Store** | AES-256-GCM | Automatic rotation |
+| **D1 Database** | SQLite encryption | Per-database keys |
+
+### Field-Level Encryption
+
+For sensitive fields, add an extra encryption layer:
+
+```typescript
+import { encrypt, decrypt } from 'dotdo/crypto'
+
+// Encrypt specific fields before storage
+const encrypted = await encrypt(ssn, {
+  key: await $.vault.get('pii_encryption_key'),
+})
+
+await $.db.customers.create({
+  name: 'Alice',
+  email: 'alice@example.com',
+  ssn: encrypted, // Double encrypted
+})
+
+// Decrypt when needed
+const customer = await $.db.customers.get(id)
+const ssn = await decrypt(customer.ssn, {
+  key: await $.vault.get('pii_encryption_key'),
+})
+```
+
+### Searchable Encryption
+
+Encrypt data while still enabling search:
+
+```typescript
+import { searchableEncrypt } from 'dotdo/crypto'
+
+// Create searchable encrypted field
+const encryptedEmail = await searchableEncrypt(email, {
+  key: await $.vault.get('search_key'),
+  blindIndex: true, // Enables equality search
+})
+
+await $.db.customers.create({
+  email: encryptedEmail,
+})
+
+// Search works on encrypted data
+const customers = await $.db.customers.findMany({
+  where: { email: await searchableEncrypt(searchTerm) },
+})
+```
+
+## Encryption in Transit
+
+All network traffic uses TLS 1.3:
+
+```typescript
+// All external calls are encrypted
+const response = await fetch('https://api.stripe.com/charges', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${await $.vault.get('stripe_key')}` },
+  body: JSON.stringify(charge),
+})
+
+// Internal DO-to-DO calls also encrypted
+await $.Customer(customerId).notify()
+```
+
+### Certificate Pinning
+
+For high-security integrations:
+
+```typescript
+import { pinnedFetch } from 'dotdo/crypto'
+
+// Pin specific certificates
+const response = await pinnedFetch('https://bank-api.com/transfer', {
+  pins: [
+    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    'sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=',
+  ],
+  body: JSON.stringify(transfer),
+})
+```
+
+### mTLS for Service-to-Service
+
+Configure mutual TLS for backend services:
+
+```typescript
+import { mtlsClient } from 'dotdo/crypto'
+
+const client = mtlsClient({
+  cert: await $.vault.get('client_cert'),
+  key: await $.vault.get('client_key'),
+  ca: await $.vault.get('ca_cert'),
+})
+
+const response = await client.fetch('https://internal-api.corp/data')
+```
+
+## Key Management
+
+### Automatic Key Rotation
+
+Keys rotate automatically with zero downtime:
+
+```typescript
+// Configure rotation policy
+$.crypto.configure({
+  keyRotation: {
+    interval: '30d',
+    algorithm: 'AES-256-GCM',
+    overlap: '24h', // Old key valid during transition
+  },
+})
+```
+
+### Customer-Managed Keys (CMK)
+
+Bring your own keys for complete control:
+
+```typescript
+import { setMasterKey } from 'dotdo/crypto'
+
+// Use your own master key
+await setMasterKey({
+  key: await fetchFromYourHSM(),
+  keyId: 'my-master-key-2024',
+})
+
+// All encryption now uses your key hierarchy
+await $.storage.put('sensitive', data)
+```
+
+### Key Hierarchy
+
+dotdo uses a three-tier key hierarchy:
+
+```
+Master Key (HSM-protected)
+    |
+    +-- Data Encryption Key (DEK) per tenant
+            |
+            +-- Field Encryption Key (FEK) per sensitive field
+```
+
+```typescript
+// Inspect key hierarchy
+const keyInfo = await $.crypto.keyInfo()
+// {
+//   masterKeyId: 'mk-2024-01',
+//   dataKeyId: 'dek-tenant-abc',
+//   lastRotated: '2024-01-01T00:00:00Z',
+//   nextRotation: '2024-02-01T00:00:00Z'
+// }
+```
+
+### Hardware Security Modules
+
+For enterprise deployments:
+
+```typescript
+import { connectHSM } from 'dotdo/crypto'
+
+// Connect to your HSM
+await connectHSM({
+  provider: 'aws-cloudhsm', // or 'azure-keyvault', 'gcp-kms', 'thales'
+  clusterId: 'cluster-abc123',
+  credentials: await $.vault.get('hsm_credentials'),
+})
+
+// All key operations now use HSM
+const encrypted = await encrypt(data) // Key never leaves HSM
+```
+
+## End-to-End Encryption
+
+For data that even dotdo infrastructure shouldn't see:
+
+```typescript
+import { e2e } from 'dotdo/crypto'
+
+// Client-side encryption before sending
+const encrypted = await e2e.encrypt(sensitiveData, {
+  recipientPublicKey: customerPublicKey,
+})
+
+// Store encrypted blob - dotdo cannot decrypt
+await $.storage.put('e2e-data', encrypted)
+
+// Only recipient with private key can decrypt
+const decrypted = await e2e.decrypt(encrypted, {
+  privateKey: customerPrivateKey,
+})
+```
+
+### Key Exchange
+
+Establish secure channels between parties:
+
+```typescript
+import { keyExchange } from 'dotdo/crypto'
+
+// Generate ephemeral key pair
+const { publicKey, privateKey } = await keyExchange.generateKeyPair()
+
+// Share public key with counterparty
+await $.Customer(customerId).sendPublicKey(publicKey)
+
+// Derive shared secret
+const sharedSecret = await keyExchange.deriveSharedSecret({
+  ourPrivateKey: privateKey,
+  theirPublicKey: counterpartyPublicKey,
+})
+
+// Use shared secret for symmetric encryption
+const encrypted = await encrypt(message, { key: sharedSecret })
+```
+
+## Encryption Algorithms
+
+dotdo supports modern, audited algorithms:
+
+| Purpose | Algorithm | Notes |
+|---------|-----------|-------|
+| **Symmetric** | AES-256-GCM | Default for data encryption |
+| **Asymmetric** | X25519 | Key exchange |
+| **Signatures** | Ed25519 | Message signing |
+| **Hashing** | SHA-256, SHA-3 | Integrity verification |
+| **Password** | Argon2id | Password hashing |
+
+### Algorithm Selection
+
+```typescript
+import { encrypt } from 'dotdo/crypto'
+
+// Use specific algorithm
+const encrypted = await encrypt(data, {
+  algorithm: 'AES-256-GCM',
+  key: encryptionKey,
+})
+
+// ChaCha20-Poly1305 for performance
+const encrypted = await encrypt(data, {
+  algorithm: 'ChaCha20-Poly1305',
+  key: encryptionKey,
+})
+```
+
+## Encryption Events
+
+Monitor encryption operations:
+
+```typescript
+$.on.Crypto.keyRotated(async ($, { keyId, algorithm, timestamp }) => {
+  await $.audit.log('key.rotated', {
+    keyId,
+    algorithm,
+    timestamp,
+  })
+})
+
+$.on.Crypto.decryptionFailed(async ($, { keyId, reason, actor }) => {
+  await $.alert.security('Decryption failure', {
+    keyId,
+    reason,
+    actor,
+    severity: 'high',
+  })
+})
+```
+
+## Best Practices
+
+### Use the Right Level
+
+```typescript
+// Standard data: automatic encryption is enough
+await $.storage.put('preferences', userPrefs)
+
+// Sensitive data: add field-level encryption
+await $.storage.put('customer', {
+  name: customer.name,
+  ssn: await encrypt(customer.ssn),
+})
+
+// Highly sensitive: use end-to-end encryption
+await $.storage.put('medical', await e2e.encrypt(medicalRecords))
+```
+
+### Never Log Keys
+
+```typescript
+// Good
+const key = await $.vault.get('encryption_key')
+const encrypted = await encrypt(data, { key })
+
+// Bad - key appears in logs
+console.log(`Using key: ${key}`) // Never do this
+```
+
+### Verify Decryption
+
+```typescript
+import { decrypt, DecryptionError } from 'dotdo/crypto'
+
+try {
+  const data = await decrypt(encrypted, { key })
+} catch (error) {
+  if (error instanceof DecryptionError) {
+    // Key mismatch or data corruption
+    await $.alert.security('Decryption failed', {
+      error: error.message,
+    })
+  }
+  throw error
+}
+```
+
+### Rotate Keys Proactively
+
+Don't wait for a breach:
+
+```typescript
+// Schedule regular rotation
+$.every.month(async ($) => {
+  await $.crypto.rotateKeys({
+    types: ['data-encryption-key'],
+    notify: ['security-team'],
+  })
+})
+```
+
+## Related
+
+- [Vault](/docs/security/vault) - Secure key and secret storage
+- [Secrets Management](/docs/security/secrets) - Environment variables and rotation
+- [Compliance](/docs/security/compliance) - Regulatory requirements

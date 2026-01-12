@@ -1,0 +1,532 @@
+---
+title: Cohere
+description: Drop-in replacement for the Cohere SDK with edge compatibility, streaming support, and enterprise-ready AI features.
+---
+
+# Cohere
+
+Drop-in replacement for the official `cohere-ai` SDK. Your existing Cohere code works unchanged - just swap the import.
+
+```typescript
+// Before: Cohere
+import { CohereClient } from 'cohere-ai'
+
+// After: dotdo
+import { CohereClient } from '@dotdo/cohere'
+
+// Code stays the same
+const cohere = new CohereClient({ token: 'your-api-key' })
+const response = await cohere.generate({
+  prompt: 'Write a tagline for an ice cream shop',
+  model: 'command',
+  maxTokens: 50,
+})
+```
+
+## Why cohere.do?
+
+| Cohere SDK | cohere.do |
+|------------|-----------|
+| Node.js only | Edge-compatible (Workers, Deno, Bun) |
+| Heavy dependencies | Zero dependencies, lightweight |
+| No built-in retries | Automatic timeout handling |
+| Manual streaming | Native async iterator streaming |
+| Separate from agents | Integrated with named agents (Priya, Ralph, Tom) |
+
+**This is a reimplementation.** The SDK provides 100% API compatibility while adding edge runtime support and integration with dotdo's agent system.
+
+## Features
+
+### Implemented
+
+**Generate API**
+- `generate()` - Text generation with Command models
+- `generateStream()` - Streaming text generation
+- Temperature, top-k, top-p sampling
+- Stop sequences and frequency/presence penalties
+- Token likelihood scoring
+
+**Chat API (v2)**
+- `chat()` - Conversational AI with multi-turn context
+- `chatStream()` - Streaming chat responses
+- Conversation memory via `conversationId`
+- System prompts via `preamble`
+- Function calling with tools
+
+**Embed API**
+- `embed()` - Text embeddings for semantic search
+- Multiple input types: `search_document`, `search_query`, `classification`, `clustering`
+- Multiple embedding formats: `float`, `int8`, `uint8`, `binary`, `base64`
+- Configurable output dimensions (256, 512, 1024, 1536)
+
+**Rerank API**
+- `rerank()` - Document relevance reranking
+- Top-N filtering
+- Token limits per document
+
+**Classify API**
+- `classify()` - Few-shot text classification
+- Example-based training
+- Multi-label classification support
+- Fine-tuned model support
+
+### Not Yet Implemented
+
+- Summarize API
+- Tokenize/Detokenize APIs
+- Connectors API
+- Datasets API
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/cohere
+```
+
+### Text Generation
+
+```typescript
+import { CohereClient } from '@dotdo/cohere'
+
+const cohere = new CohereClient({ token: process.env.COHERE_API_KEY })
+
+const response = await cohere.generate({
+  prompt: 'Write a tagline for an ice cream shop',
+  model: 'command',
+  maxTokens: 50,
+  temperature: 0.7,
+})
+
+console.log(response.generations[0].text)
+// "Where every scoop is a sweet adventure!"
+```
+
+### Streaming Generation
+
+```typescript
+const stream = await cohere.generateStream({
+  prompt: 'Tell me a story about a robot',
+  model: 'command',
+  maxTokens: 200,
+})
+
+for await (const event of stream) {
+  if (!event.is_finished && event.text) {
+    process.stdout.write(event.text)
+  }
+}
+```
+
+### Chat Conversations
+
+```typescript
+const chat = await cohere.chat({
+  message: 'What is the capital of France?',
+  model: 'command',
+})
+
+console.log(chat.message.content[0].text)
+// "The capital of France is Paris."
+
+// Multi-turn conversation
+const followUp = await cohere.chat({
+  message: 'What is its population?',
+  model: 'command',
+  chatHistory: [
+    { role: 'USER', message: 'What is the capital of France?' },
+    { role: 'CHATBOT', message: 'The capital of France is Paris.' },
+  ],
+})
+```
+
+### Chat Streaming
+
+```typescript
+const stream = await cohere.chatStream({
+  message: 'Explain quantum computing',
+  model: 'command',
+})
+
+for await (const event of stream) {
+  if (event.type === 'content-delta' && event.delta?.message?.content?.text) {
+    process.stdout.write(event.delta.message.content.text)
+  }
+}
+```
+
+### Text Embeddings
+
+```typescript
+const embeddings = await cohere.embed({
+  texts: ['Hello world', 'Goodbye world'],
+  model: 'embed-english-v3.0',
+  inputType: 'search_document',
+})
+
+console.log(embeddings.embeddings.float)
+// [[0.123, -0.456, ...], [0.789, -0.012, ...]]
+
+// For search queries, use a different input type
+const queryEmbedding = await cohere.embed({
+  texts: ['What is machine learning?'],
+  model: 'embed-english-v3.0',
+  inputType: 'search_query',
+})
+```
+
+### Document Reranking
+
+```typescript
+const reranked = await cohere.rerank({
+  query: 'What is the capital of France?',
+  documents: [
+    'Paris is the capital and largest city of France.',
+    'London is the capital of England.',
+    'Berlin is the capital of Germany.',
+  ],
+  model: 'rerank-english-v2.0',
+  topN: 2,
+})
+
+console.log(reranked.results)
+// [{ index: 0, relevance_score: 0.95 }, { index: 2, relevance_score: 0.45 }]
+```
+
+### Text Classification
+
+```typescript
+const classified = await cohere.classify({
+  inputs: ['This product is amazing!', 'Terrible experience, would not recommend'],
+  examples: [
+    { text: 'I love this', label: 'positive' },
+    { text: 'Great product', label: 'positive' },
+    { text: 'I hate this', label: 'negative' },
+    { text: 'Worst ever', label: 'negative' },
+  ],
+})
+
+for (const classification of classified.classifications) {
+  console.log(`${classification.input}: ${classification.prediction} (${classification.confidence})`)
+}
+// "This product is amazing!: positive (0.95)"
+// "Terrible experience, would not recommend: negative (0.92)"
+```
+
+### Function Calling
+
+```typescript
+const response = await cohere.chat({
+  message: 'What is the weather in San Francisco?',
+  model: 'command',
+  tools: [{
+    type: 'function',
+    function: {
+      name: 'get_weather',
+      description: 'Get the current weather for a location',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: {
+            type: 'string',
+            description: 'City name',
+          },
+          unit: {
+            type: 'string',
+            enum: ['celsius', 'fahrenheit'],
+          },
+        },
+        required: ['location'],
+      },
+    },
+  }],
+})
+
+if (response.message.tool_calls) {
+  const toolCall = response.message.tool_calls[0]
+  console.log(toolCall.function.name)
+  // "get_weather"
+  console.log(JSON.parse(toolCall.function.arguments))
+  // { location: "San Francisco" }
+}
+```
+
+## Inbound - Using cohere.do
+
+Use `@dotdo/cohere` as a drop-in replacement for the official SDK. Your existing code works unchanged.
+
+```typescript
+// Works with any Cohere client code
+import { CohereClient } from '@dotdo/cohere'
+
+const cohere = new CohereClient({
+  token: process.env.COHERE_API_KEY,
+  timeout: 300000,  // Request timeout (ms)
+})
+```
+
+### Edge Runtime Compatibility
+
+Unlike the official SDK, `@dotdo/cohere` works in edge runtimes:
+
+```typescript
+// Cloudflare Workers
+export default {
+  async fetch(request: Request, env: Env) {
+    const cohere = new CohereClient({ token: env.COHERE_API_KEY })
+
+    const response = await cohere.generate({
+      prompt: 'Hello from the edge!',
+      model: 'command',
+    })
+
+    return Response.json(response)
+  },
+}
+```
+
+```typescript
+// Deno
+import { CohereClient } from '@dotdo/cohere'
+
+const cohere = new CohereClient({ token: Deno.env.get('COHERE_API_KEY') })
+```
+
+## Outbound - Connecting to Cohere
+
+By default, requests go to Cohere's API. You can also configure custom endpoints:
+
+```typescript
+// Default: Cohere API
+const cohere = new CohereClient({ token: 'your-key' })
+
+// Custom endpoint (self-hosted, proxy, etc.)
+const customCohere = new CohereClient({
+  token: 'your-key',
+  baseURL: 'https://your-proxy.example.com',
+})
+```
+
+## API Reference
+
+### CohereClient
+
+```typescript
+const cohere = new CohereClient({
+  // Required
+  token: 'your-api-key',
+
+  // Optional
+  baseURL: 'https://api.cohere.com',  // Default
+  timeout: 300000,  // 5 minutes (default)
+
+  // Custom fetch (for testing/mocking)
+  fetch: customFetch,
+})
+```
+
+### generate(params)
+
+Generate text from a prompt.
+
+```typescript
+interface GenerateRequest {
+  prompt: string              // The prompt to generate from
+  model?: string              // Model ID (default: command)
+  maxTokens?: number          // Maximum tokens to generate
+  temperature?: number        // Sampling temperature (0-5)
+  numGenerations?: number     // Number of generations (1-5)
+  k?: number                  // Top-k sampling
+  p?: number                  // Nucleus sampling probability
+  frequencyPenalty?: number   // Frequency penalty (0-1)
+  presencePenalty?: number    // Presence penalty (0-1)
+  stopSequences?: string[]    // Stop sequences
+  returnLikelihoods?: 'GENERATION' | 'ALL' | 'NONE'
+  truncate?: 'NONE' | 'START' | 'END'
+  seed?: number               // Random seed for deterministic output
+}
+```
+
+### chat(params)
+
+Send a chat message.
+
+```typescript
+interface ChatRequest {
+  message: string                // User message
+  model: string                  // Model ID
+  conversationId?: string        // For conversation memory
+  chatHistory?: ChatMessage[]    // Previous messages
+  preamble?: string              // System prompt
+  temperature?: number           // Sampling temperature
+  maxTokens?: number             // Maximum tokens
+  tools?: ChatTool[]             // Function calling tools
+  seed?: number                  // Random seed
+}
+```
+
+### embed(params)
+
+Generate embeddings for texts.
+
+```typescript
+interface EmbedRequest {
+  texts: string[]                                    // Texts to embed (up to 96)
+  model: string                                      // Model ID
+  inputType: 'search_document' | 'search_query' | 'classification' | 'clustering'
+  embeddingTypes?: ('float' | 'int8' | 'uint8' | 'binary' | 'base64')[]
+  truncate?: 'NONE' | 'START' | 'END'
+  outputDimension?: 256 | 512 | 1024 | 1536         // For v4+ models
+}
+```
+
+### rerank(params)
+
+Rerank documents by relevance to a query.
+
+```typescript
+interface RerankRequest {
+  query: string          // Search query
+  documents: string[]    // Documents to rank
+  model: string          // Model ID
+  topN?: number          // Number of results to return
+  maxTokensPerDoc?: number
+}
+```
+
+### classify(params)
+
+Classify texts with few-shot examples.
+
+```typescript
+interface ClassifyRequest {
+  inputs: string[]                    // Texts to classify (up to 96)
+  examples?: ClassifyExample[]        // Training examples
+  model?: string                      // Fine-tuned model ID
+  truncate?: 'NONE' | 'START' | 'END'
+}
+
+interface ClassifyExample {
+  text: string
+  label: string
+}
+```
+
+## Error Handling
+
+```typescript
+import { CohereClient, CohereError } from '@dotdo/cohere'
+
+try {
+  const response = await cohere.generate({
+    prompt: 'Hello',
+    model: 'command',
+  })
+} catch (error) {
+  if (error instanceof CohereError) {
+    console.error('Status:', error.statusCode)
+    console.error('Message:', error.message)
+    console.error('Body:', error.body)
+
+    // Handle specific errors
+    if (error.statusCode === 429) {
+      console.error('Rate limited - retry later')
+    } else if (error.statusCode === 401) {
+      console.error('Invalid API token')
+    }
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with Cohere-compatible types:
+
+```typescript
+import type {
+  // Config
+  CohereClientConfig,
+
+  // Generate
+  GenerateRequest,
+  GenerateResponse,
+  GenerateStreamEvent,
+  Generation,
+  TokenLikelihood,
+
+  // Chat
+  ChatRequest,
+  ChatResponse,
+  ChatStreamEvent,
+  ChatMessage,
+  ChatTool,
+  ChatToolCall,
+
+  // Embed
+  EmbedRequest,
+  EmbedResponse,
+  EmbedInputType,
+  EmbeddingType,
+
+  // Rerank
+  RerankRequest,
+  RerankResponse,
+  RerankResult,
+
+  // Classify
+  ClassifyRequest,
+  ClassifyResponse,
+  ClassifyExample,
+  Classification,
+} from '@dotdo/cohere'
+```
+
+## Migration from Official SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall cohere-ai
+
+# Install
+npm install @dotdo/cohere
+```
+
+### Import Change
+
+```typescript
+// Before
+import { CohereClient } from 'cohere-ai'
+
+// After
+import { CohereClient } from '@dotdo/cohere'
+```
+
+All method signatures and types are identical - no code changes required.
+
+## Agent Integration
+
+Integrate with dotdo's named agents for specialized AI personas:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+// Named agents can use Cohere models under the hood
+const spec = await priya`define the MVP for ${hypothesis}`
+let app = await ralph`build ${spec}`
+
+do {
+  app = await ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))
+
+await mark`announce the launch of ${app}`
+await sally`start selling ${app}`
+```
+
+## Related
+
+- [Anthropic](/docs/integrations/anthropic) - Claude API integration
+- [Named Agents](/docs/agents/named-agents) - Priya, Ralph, Tom, Mark, Sally, Quinn
+- [Agent SDK](/docs/agents) - Multi-provider agent system

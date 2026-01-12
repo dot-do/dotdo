@@ -1,0 +1,669 @@
+---
+title: Deployment Monitoring
+description: Health checks, metrics collection, and alerting for dotdo deployments on Cloudflare Workers
+---
+
+# Deployment Monitoring
+
+Effective monitoring catches issues before users do. This guide covers health checks, metrics collection, and alerting for dotdo deployments running on Cloudflare Workers.
+
+## Health Checks
+
+### Basic Health Endpoint
+
+```typescript
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  async fetch(request: Request) {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/health') {
+      return this.healthCheck()
+    }
+
+    return this.handleRequest(request)
+  }
+
+  async healthCheck(): Promise<Response> {
+    const health = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      version: this.env.VERSION || 'unknown',
+    }
+
+    return Response.json(health, {
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+  }
+}
+```
+
+### Deep Health Check
+
+```typescript
+async healthCheck(): Promise<Response> {
+  const checks: Record<string, HealthStatus> = {}
+
+  // Check Durable Object storage
+  checks.storage = await this.checkStorage()
+
+  // Check KV connectivity
+  checks.kv = await this.checkKV()
+
+  // Check external dependencies
+  checks.database = await this.checkDatabase()
+
+  // Aggregate status
+  const allHealthy = Object.values(checks).every(c => c.healthy)
+  const status = allHealthy ? 'healthy' : 'degraded'
+
+  return Response.json({
+    status,
+    timestamp: new Date().toISOString(),
+    version: this.env.VERSION,
+    checks,
+  }, {
+    status: allHealthy ? 200 : 503,
+    headers: { 'Cache-Control': 'no-cache' },
+  })
+}
+
+async checkStorage(): Promise<HealthStatus> {
+  try {
+    const start = Date.now()
+    await this.storage.get('health-check')
+    await this.storage.put('health-check', Date.now())
+    return {
+      healthy: true,
+      latency: Date.now() - start,
+    }
+  } catch (error) {
+    return {
+      healthy: false,
+      error: error.message,
+    }
+  }
+}
+
+async checkKV(): Promise<HealthStatus> {
+  try {
+    const start = Date.now()
+    await this.env.CACHE.get('health-check')
+    return {
+      healthy: true,
+      latency: Date.now() - start,
+    }
+  } catch (error) {
+    return {
+      healthy: false,
+      error: error.message,
+    }
+  }
+}
+
+async checkDatabase(): Promise<HealthStatus> {
+  try {
+    const start = Date.now()
+    await this.env.DB.prepare('SELECT 1').first()
+    return {
+      healthy: true,
+      latency: Date.now() - start,
+    }
+  } catch (error) {
+    return {
+      healthy: false,
+      error: error.message,
+    }
+  }
+}
+
+interface HealthStatus {
+  healthy: boolean
+  latency?: number
+  error?: string
+}
+```
+
+### Liveness vs Readiness
+
+```typescript
+// Liveness: Is the process alive?
+if (url.pathname === '/health/live') {
+  return Response.json({ alive: true })
+}
+
+// Readiness: Is the service ready to accept traffic?
+if (url.pathname === '/health/ready') {
+  const ready = await this.isReady()
+  return Response.json(
+    { ready },
+    { status: ready ? 200 : 503 }
+  )
+}
+
+async isReady(): Promise<boolean> {
+  // Check if initialization is complete
+  const initialized = await this.storage.get('initialized')
+  if (!initialized) return false
+
+  // Check if dependencies are available
+  try {
+    await this.env.DB.prepare('SELECT 1').first()
+    return true
+  } catch {
+    return false
+  }
+}
+```
+
+## Metrics Collection
+
+### Cloudflare Analytics Engine
+
+```typescript
+import { Startup } from 'dotdo'
+
+export class MyStartup extends Startup {
+  async fetch(request: Request) {
+    const start = Date.now()
+    let status = 200
+
+    try {
+      const response = await this.handleRequest(request)
+      status = response.status
+      return response
+    } catch (error) {
+      status = 500
+      throw error
+    } finally {
+      // Record metrics
+      this.env.ANALYTICS.writeDataPoint({
+        blobs: [
+          request.method,
+          new URL(request.url).pathname,
+          status.toString(),
+        ],
+        doubles: [Date.now() - start],
+        indexes: [request.headers.get('CF-Connecting-IP') || 'unknown'],
+      })
+    }
+  }
+}
+```
+
+### Custom Metrics
+
+```typescript
+interface Metrics {
+  requests: number
+  errors: number
+  latencySum: number
+  latencyCount: number
+}
+
+export class MyStartup extends Startup {
+  private metrics: Metrics = {
+    requests: 0,
+    errors: 0,
+    latencySum: 0,
+    latencyCount: 0,
+  }
+
+  recordRequest(latency: number, success: boolean) {
+    this.metrics.requests++
+    this.metrics.latencySum += latency
+    this.metrics.latencyCount++
+    if (!success) this.metrics.errors++
+  }
+
+  getMetrics() {
+    return {
+      requests: this.metrics.requests,
+      errors: this.metrics.errors,
+      errorRate: this.metrics.errors / this.metrics.requests,
+      avgLatency: this.metrics.latencySum / this.metrics.latencyCount,
+    }
+  }
+
+  // Expose metrics endpoint
+  async handleMetrics(): Promise<Response> {
+    return Response.json(this.getMetrics())
+  }
+}
+```
+
+### Prometheus Format
+
+```typescript
+async handlePrometheusMetrics(): Promise<Response> {
+  const metrics = this.getMetrics()
+
+  const prometheus = `
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+http_requests_total ${metrics.requests}
+
+# HELP http_errors_total Total HTTP errors
+# TYPE http_errors_total counter
+http_errors_total ${metrics.errors}
+
+# HELP http_request_duration_seconds Request duration in seconds
+# TYPE http_request_duration_seconds gauge
+http_request_duration_seconds ${metrics.avgLatency / 1000}
+
+# HELP http_error_rate Error rate
+# TYPE http_error_rate gauge
+http_error_rate ${metrics.errorRate}
+`.trim()
+
+  return new Response(prometheus, {
+    headers: { 'Content-Type': 'text/plain' },
+  })
+}
+```
+
+### Business Metrics
+
+```typescript
+export class MyStartup extends Startup {
+  async recordBusinessEvent(event: BusinessEvent) {
+    // Write to Analytics Engine
+    this.env.ANALYTICS.writeDataPoint({
+      blobs: [event.type, event.userId, event.metadata],
+      doubles: [event.value],
+      indexes: [event.type],
+    })
+
+    // Also store in DO for immediate queries
+    await this.things.BusinessEvent.create({
+      ...event,
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  // Track key business metrics
+  async trackSignup(userId: string) {
+    await this.recordBusinessEvent({
+      type: 'signup',
+      userId,
+      value: 1,
+    })
+  }
+
+  async trackPurchase(userId: string, amount: number) {
+    await this.recordBusinessEvent({
+      type: 'purchase',
+      userId,
+      value: amount,
+    })
+  }
+
+  async trackChurn(userId: string) {
+    await this.recordBusinessEvent({
+      type: 'churn',
+      userId,
+      value: -1,
+    })
+  }
+}
+```
+
+## Alerting
+
+### Webhook Alerts
+
+```typescript
+interface Alert {
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  message: string
+  timestamp: string
+}
+
+async function sendAlert(alert: Alert) {
+  // Slack
+  await fetch(process.env.SLACK_WEBHOOK!, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: `[${alert.severity.toUpperCase()}] ${alert.title}`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${alert.title}*\n${alert.message}`,
+          },
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `Severity: ${alert.severity} | Time: ${alert.timestamp}`,
+            },
+          ],
+        },
+      ],
+    }),
+  })
+
+  // PagerDuty (for critical alerts)
+  if (alert.severity === 'critical') {
+    await fetch('https://events.pagerduty.com/v2/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        routing_key: process.env.PAGERDUTY_ROUTING_KEY,
+        event_action: 'trigger',
+        payload: {
+          summary: alert.title,
+          severity: 'critical',
+          source: 'dotdo-monitoring',
+          custom_details: { message: alert.message },
+        },
+      }),
+    })
+  }
+}
+```
+
+### Error Rate Alerts
+
+```typescript
+export class MyStartup extends Startup {
+  private errorWindow: number[] = []
+  private readonly windowSize = 100
+  private readonly errorThreshold = 0.05
+
+  async handleRequest(request: Request): Promise<Response> {
+    try {
+      const response = await this.processRequest(request)
+      this.recordSuccess()
+      return response
+    } catch (error) {
+      this.recordError()
+      throw error
+    }
+  }
+
+  private recordSuccess() {
+    this.errorWindow.push(0)
+    this.checkAlertConditions()
+  }
+
+  private recordError() {
+    this.errorWindow.push(1)
+    this.checkAlertConditions()
+  }
+
+  private checkAlertConditions() {
+    // Keep window size bounded
+    while (this.errorWindow.length > this.windowSize) {
+      this.errorWindow.shift()
+    }
+
+    // Calculate error rate
+    const errorRate = this.errorWindow.reduce((a, b) => a + b, 0) / this.errorWindow.length
+
+    if (errorRate > this.errorThreshold) {
+      this.triggerAlert({
+        severity: 'critical',
+        title: 'High Error Rate',
+        message: `Error rate is ${(errorRate * 100).toFixed(1)}% (threshold: ${this.errorThreshold * 100}%)`,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  private lastAlertTime = 0
+  private async triggerAlert(alert: Alert) {
+    // Rate limit alerts (max 1 per minute)
+    const now = Date.now()
+    if (now - this.lastAlertTime < 60000) return
+    this.lastAlertTime = now
+
+    await sendAlert(alert)
+  }
+}
+```
+
+### Latency Alerts
+
+```typescript
+export class LatencyMonitor {
+  private latencies: number[] = []
+  private readonly p99Threshold = 1000 // 1 second
+
+  recordLatency(ms: number) {
+    this.latencies.push(ms)
+
+    // Keep last 1000 samples
+    if (this.latencies.length > 1000) {
+      this.latencies.shift()
+    }
+
+    this.checkLatency()
+  }
+
+  private checkLatency() {
+    if (this.latencies.length < 100) return
+
+    const sorted = [...this.latencies].sort((a, b) => a - b)
+    const p99Index = Math.floor(sorted.length * 0.99)
+    const p99 = sorted[p99Index]
+
+    if (p99 > this.p99Threshold) {
+      sendAlert({
+        severity: 'warning',
+        title: 'High Latency',
+        message: `P99 latency is ${p99}ms (threshold: ${this.p99Threshold}ms)`,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+}
+```
+
+## External Monitoring
+
+### Uptime Robot / Pingdom
+
+Configure external monitoring to hit your health endpoint:
+
+```
+URL: https://api.example.com/health
+Interval: 1 minute
+Alert contacts: team@example.com
+```
+
+### Datadog Integration
+
+```typescript
+async function sendToDatadog(metrics: Record<string, number>) {
+  const series = Object.entries(metrics).map(([name, value]) => ({
+    metric: `dotdo.${name}`,
+    points: [[Math.floor(Date.now() / 1000), value]],
+    type: 'gauge',
+    tags: [`env:${process.env.ENVIRONMENT}`],
+  }))
+
+  await fetch('https://api.datadoghq.com/api/v1/series', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'DD-API-KEY': process.env.DATADOG_API_KEY!,
+    },
+    body: JSON.stringify({ series }),
+  })
+}
+```
+
+### Grafana Cloud
+
+```typescript
+async function pushToGrafana(metrics: PrometheusMetrics) {
+  await fetch(process.env.GRAFANA_PUSH_URL!, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'Authorization': `Bearer ${process.env.GRAFANA_API_KEY}`,
+    },
+    body: metrics,
+  })
+}
+```
+
+## Scheduled Health Checks
+
+### Cron Trigger Monitoring
+
+```typescript
+export default {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // Run health checks every minute
+    const id = env.STARTUP.idFromName('main')
+    const stub = env.STARTUP.get(id)
+
+    const response = await stub.fetch('http://internal/health')
+    const health = await response.json()
+
+    if (health.status !== 'healthy') {
+      await sendAlert({
+        severity: 'critical',
+        title: 'Health Check Failed',
+        message: `Status: ${health.status}\nChecks: ${JSON.stringify(health.checks)}`,
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    // Log health status
+    console.log('Health check:', JSON.stringify(health))
+  },
+}
+```
+
+```toml
+# wrangler.toml
+[triggers]
+crons = ["* * * * *"]  # Every minute
+```
+
+### Multi-Region Health Checks
+
+```typescript
+async function checkAllRegions() {
+  const regions = [
+    'https://us.api.example.com/health',
+    'https://eu.api.example.com/health',
+    'https://asia.api.example.com/health',
+  ]
+
+  const results = await Promise.all(
+    regions.map(async (url) => {
+      try {
+        const start = Date.now()
+        const response = await fetch(url)
+        const data = await response.json()
+        return {
+          url,
+          status: response.status,
+          latency: Date.now() - start,
+          healthy: data.status === 'healthy',
+        }
+      } catch (error) {
+        return {
+          url,
+          status: 0,
+          latency: 0,
+          healthy: false,
+          error: error.message,
+        }
+      }
+    })
+  )
+
+  const unhealthy = results.filter(r => !r.healthy)
+  if (unhealthy.length > 0) {
+    await sendAlert({
+      severity: 'critical',
+      title: 'Regional Health Check Failed',
+      message: unhealthy.map(r => `${r.url}: ${r.error || 'unhealthy'}`).join('\n'),
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  return results
+}
+```
+
+## Dashboard Queries
+
+### Cloudflare Analytics SQL
+
+Query your Analytics Engine data:
+
+```sql
+-- Request volume by path
+SELECT
+  blob1 AS method,
+  blob2 AS path,
+  COUNT(*) AS requests,
+  AVG(double1) AS avg_latency_ms
+FROM analytics
+WHERE timestamp > NOW() - INTERVAL '1' HOUR
+GROUP BY blob1, blob2
+ORDER BY requests DESC
+LIMIT 20
+
+-- Error rate over time
+SELECT
+  toStartOfMinute(timestamp) AS minute,
+  countIf(blob3 >= '400') / COUNT(*) AS error_rate
+FROM analytics
+WHERE timestamp > NOW() - INTERVAL '1' HOUR
+GROUP BY minute
+ORDER BY minute
+
+-- P99 latency
+SELECT
+  quantile(0.99)(double1) AS p99_latency_ms
+FROM analytics
+WHERE timestamp > NOW() - INTERVAL '1' HOUR
+```
+
+## Best Practices
+
+### Monitoring Checklist
+
+1. **Health endpoints**: `/health`, `/health/live`, `/health/ready`
+2. **Metrics collection**: Request rate, error rate, latency
+3. **Business metrics**: Signups, purchases, key events
+4. **Alerting thresholds**: Set based on SLOs
+5. **External monitoring**: Third-party uptime checks
+6. **Log aggregation**: Centralized log collection
+
+### SLO Recommendations
+
+| Metric | Target | Alert Threshold |
+|--------|--------|-----------------|
+| Availability | 99.9% | < 99.5% |
+| P50 Latency | < 100ms | > 200ms |
+| P99 Latency | < 500ms | > 1000ms |
+| Error Rate | < 0.1% | > 1% |
+
+### Alert Fatigue Prevention
+
+- Use severity levels appropriately
+- Set reasonable thresholds
+- Implement alert deduplication
+- Create runbooks for each alert type
+- Review and tune alerts regularly
+
+## Related
+
+- [Cloudflare Deployment](/docs/deployment/cloudflare) - Base deployment configuration
+- [Preview Deployments](/docs/deployment/preview) - Monitor preview environments
+- [Rollbacks](/docs/deployment/rollback) - Respond to monitoring alerts
+- [Observability](/docs/observability) - Logging, metrics, and tracing

@@ -1,0 +1,961 @@
+---
+title: Segment
+description: Drop-in replacement for Segment Analytics SDK with edge compatibility and local testing support.
+---
+
+# Segment
+
+Drop-in replacement for the `@segment/analytics-node` SDK. Your existing Segment code works unchanged - just swap the import.
+
+```typescript
+// Before: Segment
+import { Analytics } from '@segment/analytics-node'
+
+// After: dotdo
+import { Analytics } from '@dotdo/segment'
+
+// Code stays the same
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+analytics.identify({
+  userId: 'user123',
+  traits: {
+    name: 'John Doe',
+    email: 'john@example.com',
+    plan: 'premium',
+  },
+})
+
+analytics.track({
+  userId: 'user123',
+  event: 'Order Completed',
+  properties: {
+    orderId: 'order_123',
+    total: 99.99,
+  },
+})
+```
+
+## Why segment.do?
+
+| Segment | @dotdo/segment |
+|---------|----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real API calls in tests | Local testing with InMemoryTransport |
+| Network latency to Segment servers | Zero latency in local mode |
+| Per-event pricing ($0.00025-0.0012/event) | No per-event fees |
+| MTU-based pricing | Predictable compute costs |
+| Vendor lock-in | Self-hosted option |
+
+**This is a proxy/compatibility layer.** It can either forward to real Segment APIs (production) or run entirely locally for testing and development. The API surface matches Segment's official SDK.
+
+## Features
+
+### Implemented (Core APIs)
+
+**Tracking Methods**
+- `identify()` - Identify users with traits
+- `track()` - Track custom events with properties
+- `page()` - Track page views (web)
+- `screen()` - Track screen views (mobile)
+- `group()` - Associate users with groups/companies
+- `alias()` - Merge user identities
+
+**Batch API**
+- `batch()` - Send multiple events in a single call
+- `flush()` - Manually flush queued events
+
+**Destinations**
+- Custom destination registration
+- Destination filtering with integrations
+- Built-in destinations (Console, Webhook, Buffer, Callback)
+- Destination middleware support
+
+**Middleware**
+- Source middleware for event enrichment/filtering
+- Destination middleware for per-destination transforms
+
+**Plugins**
+- Plugin system with lifecycle hooks
+- Before, enrichment, destination, and after plugin types
+
+**Primitives Integration**
+- KeyedRouter for user-to-partition routing
+- WindowManager for intelligent batching
+- TemporalStore for event replay/debugging
+
+### Not Yet Implemented
+
+- Replay API
+- Source Functions
+- Destination Functions
+- Personas/Profiles API
+- Protocols enforcement
+
+## Installation
+
+```bash
+npm install @dotdo/segment
+```
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Identify a user
+analytics.identify({
+  userId: 'user123',
+  traits: {
+    name: 'John Doe',
+    email: 'john@example.com',
+    plan: 'premium',
+    createdAt: new Date('2024-01-15'),
+  },
+})
+
+// Track an event
+analytics.track({
+  userId: 'user123',
+  event: 'Product Purchased',
+  properties: {
+    productId: 'prod_abc',
+    productName: 'Premium Widget',
+    price: 49.99,
+    currency: 'USD',
+  },
+})
+
+// Flush events before shutdown
+await analytics.flush()
+```
+
+### Page and Screen Tracking
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Page view (web)
+analytics.page({
+  userId: 'user123',
+  name: 'Home',
+  category: 'Marketing',
+  properties: {
+    url: 'https://example.com',
+    referrer: 'https://google.com',
+    title: 'Welcome to Example',
+  },
+})
+
+// Screen view (mobile)
+analytics.screen({
+  userId: 'user123',
+  name: 'Dashboard',
+  category: 'App',
+  properties: {
+    section: 'Overview',
+    version: '2.1.0',
+  },
+})
+```
+
+### Group and Alias
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Associate user with a company/organization
+analytics.group({
+  userId: 'user123',
+  groupId: 'company_456',
+  traits: {
+    name: 'Acme Inc',
+    industry: 'Technology',
+    employees: 250,
+    plan: 'enterprise',
+  },
+})
+
+// Alias user IDs (merge identities)
+analytics.alias({
+  userId: 'new-user-id',
+  previousId: 'anonymous-123',
+})
+```
+
+### Batch API
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Send multiple events in a single batch
+analytics.batch({
+  batch: [
+    { type: 'identify', userId: 'u1', traits: { name: 'Alice' } },
+    { type: 'track', userId: 'u1', event: 'Signup' },
+    { type: 'page', userId: 'u1', name: 'Welcome' },
+    { type: 'track', userId: 'u1', event: 'Onboarding Started' },
+  ],
+})
+
+await analytics.flush()
+```
+
+## Inbound Mode - Using segment.do Locally
+
+For testing and development, use `InMemoryTransport` - a complete in-memory implementation:
+
+```typescript
+import { Analytics, InMemoryTransport } from '@dotdo/segment'
+
+// Create transport for testing
+const transport = new InMemoryTransport()
+
+const analytics = new Analytics({
+  writeKey: 'test-key',
+  transport: () => transport,
+})
+
+// Use exactly like real Segment SDK
+analytics.identify({
+  userId: 'test-user',
+  traits: { email: 'test@example.com' },
+})
+
+analytics.track({
+  userId: 'test-user',
+  event: 'Test Event',
+  properties: { key: 'value' },
+})
+
+await analytics.flush()
+
+// Access recorded events for assertions
+const events = transport.getEvents()
+console.log('Recorded events:', events.length)
+
+// Check specific events
+const trackEvents = events.filter(e => e.type === 'track')
+console.log('Track events:', trackEvents)
+```
+
+### Using Buffer Destination
+
+```typescript
+import { Analytics, BufferDestination } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'test-key' })
+
+// Register a buffer destination for testing
+const buffer = new BufferDestination()
+analytics.register(buffer)
+
+// Track events
+analytics.track({
+  userId: 'user123',
+  event: 'Button Clicked',
+  properties: { buttonId: 'cta-signup' },
+})
+
+await analytics.flush()
+
+// Query buffered events
+const allEvents = buffer.getEvents()
+const trackEvents = buffer.getEventsByType('track')
+const userEvents = buffer.getEventsForUser('user123')
+
+console.log('Total events:', buffer.size)
+```
+
+### Source Middleware
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Enrich all events with common properties
+analytics.addSourceMiddleware((event) => {
+  return {
+    ...event,
+    properties: {
+      ...event.properties,
+      appVersion: '2.1.0',
+      environment: 'production',
+    },
+    context: {
+      ...event.context,
+      enrichedAt: new Date().toISOString(),
+    },
+  }
+})
+
+// Filter out internal events
+analytics.addSourceMiddleware((event) => {
+  if (event.event?.startsWith('_internal')) {
+    return null // Drop event
+  }
+  return event
+})
+
+// PII redaction
+analytics.addSourceMiddleware((event) => {
+  if (event.traits?.ssn) {
+    return {
+      ...event,
+      traits: {
+        ...event.traits,
+        ssn: '[REDACTED]',
+      },
+    }
+  }
+  return event
+})
+```
+
+## Outbound Mode - Connecting to Real Segment
+
+For production, the client connects to Segment's API:
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({
+  writeKey: env.SEGMENT_WRITE_KEY,
+  host: 'https://api.segment.io',    // Default
+  flushAt: 20,                        // Batch size (default: 20)
+  flushInterval: 10000,               // Flush interval in ms (default: 10s)
+})
+
+// All requests go to api.segment.io
+analytics.track({
+  userId: 'user123',
+  event: 'Purchase Completed',
+  properties: { amount: 99.99 },
+})
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Analytics } from '@dotdo/segment'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const analytics = new Analytics({
+      writeKey: env.SEGMENT_WRITE_KEY,
+    })
+
+    const userId = getUserId(request)
+
+    analytics.track({
+      userId,
+      event: 'API Request',
+      properties: {
+        path: new URL(request.url).pathname,
+        method: request.method,
+      },
+    })
+
+    // Important: flush before response
+    await analytics.flush()
+
+    return new Response('OK')
+  },
+}
+```
+
+### Custom Configuration
+
+```typescript
+const analytics = new Analytics({
+  writeKey: 'your-write-key',
+  host: 'https://api.segment.io',  // API host
+  path: '/v1/batch',               // API path
+  flushAt: 20,                     // Events per batch
+  flushInterval: 10000,            // Flush interval (ms)
+  maxRetries: 3,                   // Retry count
+  disable: false,                  // Disable tracking
+  integrations: {                  // Default integrations
+    All: true,
+    Amplitude: false,
+  },
+  errorHandler: (error) => {
+    console.error('Segment error:', error)
+  },
+})
+```
+
+## Destinations
+
+### Register Custom Destinations
+
+```typescript
+import { Analytics, BufferDestination, ConsoleDestination } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Console destination for debugging
+analytics.register(new ConsoleDestination({ prefix: '[Analytics]' }))
+
+// Buffer destination for testing
+const buffer = new BufferDestination({ maxSize: 1000 })
+analytics.register(buffer)
+
+// Custom callback destination
+analytics.register({
+  name: 'MyWarehouse',
+  track: async (event) => {
+    await sendToWarehouse(event)
+  },
+  identify: async (event) => {
+    await updateUserProfile(event)
+  },
+  page: async (event) => {
+    await logPageView(event)
+  },
+  screen: async (event) => {
+    await logScreenView(event)
+  },
+  group: async (event) => {
+    await updateGroupMembership(event)
+  },
+  alias: async (event) => {
+    await mergeUserIdentities(event)
+  },
+})
+```
+
+### Webhook Destination
+
+```typescript
+import { Analytics, WebhookDestination } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+// Forward events to a webhook
+analytics.register(new WebhookDestination({
+  name: 'DataWarehouse',
+  url: 'https://warehouse.example.com/events',
+  headers: {
+    'Authorization': 'Bearer token123',
+    'X-Source': 'segment-compat',
+  },
+  method: 'POST',
+}))
+```
+
+### Control Destination Routing
+
+```typescript
+// Send to all destinations (default)
+analytics.track({
+  userId: 'user123',
+  event: 'Order Completed',
+})
+
+// Disable all destinations except specific ones
+analytics.track({
+  userId: 'user123',
+  event: 'Sensitive Event',
+  integrations: {
+    All: false,
+    'MyWarehouse': true,  // Only send here
+  },
+})
+
+// Disable specific destinations
+analytics.track({
+  userId: 'user123',
+  event: 'Marketing Event',
+  integrations: {
+    'Amplitude': false,  // Don't send to Amplitude
+    'Mixpanel': false,   // Don't send to Mixpanel
+  },
+})
+```
+
+## Extended Client with Primitives
+
+For advanced use cases, use `AnalyticsClient` with primitives integration:
+
+```typescript
+import { AnalyticsClient } from '@dotdo/segment'
+
+const client = new AnalyticsClient({
+  writeKey: 'your-write-key',
+  partitionCount: 16,           // For user routing
+  enableEventStore: true,       // Enable temporal event storage
+  eventRetention: 86400000,     // 24 hours in ms
+})
+
+// Route users to partitions for distributed processing
+const partition = client.getPartition('user123')
+console.log('User partition:', partition)
+
+// Batch route multiple users
+const userBatches = client.routeUsers(['user1', 'user2', 'user3'])
+for (const [partition, users] of userBatches) {
+  console.log(`Partition ${partition}:`, users)
+}
+
+// Wait for client to be ready
+await client.ready()
+
+// Check if ready
+if (client.isReady()) {
+  // Safe to enqueue events
+}
+```
+
+## API Reference
+
+### Analytics Class
+
+| Method | Description |
+|--------|-------------|
+| `new Analytics(options)` | Create analytics instance |
+| `analytics.identify(message, callback?)` | Identify a user |
+| `analytics.track(message, callback?)` | Track an event |
+| `analytics.page(message, callback?)` | Track a page view |
+| `analytics.screen(message, callback?)` | Track a screen view |
+| `analytics.group(message, callback?)` | Associate user with group |
+| `analytics.alias(message, callback?)` | Alias user IDs |
+| `analytics.batch(message, callback?)` | Batch multiple events |
+| `analytics.flush()` | Flush queued events |
+| `analytics.close()` | Close and flush |
+| `analytics.register(destination)` | Register a destination |
+| `analytics.addSourceMiddleware(fn)` | Add source middleware |
+| `analytics.ready()` | Wait for ready state |
+
+### Message Types
+
+```typescript
+// Identify
+analytics.identify({
+  userId: string,
+  anonymousId?: string,
+  traits?: {
+    name?: string,
+    email?: string,
+    phone?: string,
+    address?: Address,
+    company?: Company,
+    createdAt?: string | Date,
+    // ... custom traits
+  },
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+
+// Track
+analytics.track({
+  userId: string,
+  anonymousId?: string,
+  event: string,           // Required
+  properties?: Properties,
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+
+// Page
+analytics.page({
+  userId: string,
+  anonymousId?: string,
+  name?: string,
+  category?: string,
+  properties?: Properties,
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+
+// Screen
+analytics.screen({
+  userId: string,
+  anonymousId?: string,
+  name?: string,
+  category?: string,
+  properties?: Properties,
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+
+// Group
+analytics.group({
+  userId: string,
+  anonymousId?: string,
+  groupId: string,        // Required
+  traits?: Traits,
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+
+// Alias
+analytics.alias({
+  userId: string,         // New ID
+  previousId: string,     // Old ID (required)
+  context?: Context,
+  integrations?: Integrations,
+  timestamp?: string | Date,
+})
+```
+
+### Context Object
+
+```typescript
+interface Context {
+  app?: {
+    name?: string
+    version?: string
+    build?: string
+  }
+  campaign?: {
+    name?: string
+    source?: string
+    medium?: string
+    term?: string
+    content?: string
+  }
+  device?: {
+    id?: string
+    manufacturer?: string
+    model?: string
+    type?: string
+  }
+  ip?: string
+  locale?: string
+  location?: {
+    city?: string
+    country?: string
+    latitude?: number
+    longitude?: number
+  }
+  os?: {
+    name?: string
+    version?: string
+  }
+  page?: {
+    path?: string
+    referrer?: string
+    search?: string
+    title?: string
+    url?: string
+  }
+  timezone?: string
+  userAgent?: string
+}
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Analytics,
+  AnalyticsOptions,
+  AnalyticsClient,
+  AnalyticsClientOptions,
+
+  // Message types
+  IdentifyMessage,
+  TrackMessage,
+  PageMessage,
+  ScreenMessage,
+  GroupMessage,
+  AliasMessage,
+  Message,
+  BatchMessage,
+
+  // Event types
+  EventType,
+  SegmentEvent,
+  BatchPayload,
+
+  // Context and traits
+  Context,
+  Traits,
+  Properties,
+  Address,
+  Company,
+  Integrations,
+
+  // Transport types
+  Transport,
+  TransportFactory,
+  TransportResult,
+
+  // Destination types
+  Destination,
+  DestinationMiddleware,
+
+  // Plugin types
+  Plugin,
+  PluginType,
+
+  // Middleware types
+  SourceMiddleware,
+
+  // Callback
+  Callback,
+} from '@dotdo/segment'
+```
+
+### Type Guards
+
+```typescript
+import {
+  isIdentifyEvent,
+  isTrackEvent,
+  isPageEvent,
+  isScreenEvent,
+  isGroupEvent,
+  isAliasEvent,
+} from '@dotdo/segment'
+
+const events = transport.getEvents()
+
+for (const event of events) {
+  if (isTrackEvent(event)) {
+    console.log('Track:', event.event, event.properties)
+  } else if (isIdentifyEvent(event)) {
+    console.log('Identify:', event.userId, event.traits)
+  }
+}
+```
+
+## Migration from Segment SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @segment/analytics-node
+
+# Install
+npm install @dotdo/segment
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Analytics } from '@segment/analytics-node'
+
+// After (identical usage)
+import { Analytics } from '@dotdo/segment'
+```
+
+### Code Compatibility
+
+Your existing Segment code should work unchanged:
+
+```typescript
+// This code works with both @segment/analytics-node and @dotdo/segment
+const analytics = new Analytics({ writeKey: 'your-write-key' })
+
+analytics.identify({
+  userId: 'user123',
+  traits: { name: 'John', email: 'john@example.com' },
+})
+
+analytics.track({
+  userId: 'user123',
+  event: 'Signup Completed',
+  properties: { plan: 'premium' },
+})
+
+await analytics.flush()
+```
+
+## Architecture
+
+```
+                    Your Application
+                           │
+            ┌──────────────┴──────────────┐
+            │                             │
+            ▼                             ▼
+┌─────────────────────────┐   ┌─────────────────────────┐
+│   Production Mode        │   │     Local Mode          │
+│   (FetchTransport)       │   │   (InMemoryTransport)   │
+├─────────────────────────┤   ├─────────────────────────┤
+│                         │   │                         │
+│  → api.segment.io       │   │  → In-memory storage    │
+│  → Real event delivery  │   │  → No network calls     │
+│  → Segment destinations │   │  → Event inspection     │
+│  → Full Segment API     │   │  → Testing utilities    │
+│                         │   │                         │
+└─────────────────────────┘   └─────────────────────────┘
+            │                             │
+            └──────────────┬──────────────┘
+                           │
+                           ▼
+            ┌─────────────────────────────┐
+            │   Custom Destinations       │
+            │                             │
+            │  ┌────────────────────────┐ │
+            │  │ Console │ Webhook     │ │
+            │  │ Buffer  │ Callback    │ │
+            │  │ Custom  │ ...         │ │
+            │  └────────────────────────┘ │
+            └─────────────────────────────┘
+```
+
+### Benefits
+
+- **Edge-native**: Runs in Cloudflare Workers, no Node.js required
+- **Zero latency testing**: No network round-trips in test mode
+- **Predictable pricing**: No per-event fees
+- **Self-hosted option**: Keep your data in your infrastructure
+- **Plugin system**: Extend with custom logic
+- **Primitives integration**: Advanced batching and routing
+
+## Common Patterns
+
+### SaaS User Tracking
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: env.SEGMENT_WRITE_KEY })
+
+// On user signup
+async function onSignup(user: User) {
+  analytics.identify({
+    userId: user.id,
+    traits: {
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+      plan: 'free',
+    },
+  })
+
+  analytics.track({
+    userId: user.id,
+    event: 'Signed Up',
+    properties: {
+      signupMethod: user.signupMethod,
+      referrer: user.referrer,
+    },
+  })
+}
+
+// On subscription change
+async function onSubscriptionChange(userId: string, plan: string) {
+  analytics.identify({
+    userId,
+    traits: { plan },
+  })
+
+  analytics.track({
+    userId,
+    event: 'Subscription Changed',
+    properties: { plan },
+  })
+}
+```
+
+### E-commerce Tracking
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: env.SEGMENT_WRITE_KEY })
+
+// Product viewed
+analytics.track({
+  userId: 'user123',
+  event: 'Product Viewed',
+  properties: {
+    productId: 'prod_abc',
+    name: 'Premium Widget',
+    category: 'Widgets',
+    price: 49.99,
+    currency: 'USD',
+  },
+})
+
+// Product added to cart
+analytics.track({
+  userId: 'user123',
+  event: 'Product Added',
+  properties: {
+    productId: 'prod_abc',
+    name: 'Premium Widget',
+    quantity: 2,
+    price: 49.99,
+  },
+})
+
+// Order completed
+analytics.track({
+  userId: 'user123',
+  event: 'Order Completed',
+  properties: {
+    orderId: 'order_123',
+    total: 99.98,
+    currency: 'USD',
+    products: [
+      { productId: 'prod_abc', name: 'Premium Widget', quantity: 2 },
+    ],
+  },
+})
+```
+
+### Anonymous to Known User
+
+```typescript
+import { Analytics } from '@dotdo/segment'
+
+const analytics = new Analytics({ writeKey: env.SEGMENT_WRITE_KEY })
+
+// Track anonymous user
+const anonymousId = generateUUID()
+
+analytics.track({
+  anonymousId,
+  event: 'Page Viewed',
+  properties: { page: 'landing' },
+})
+
+// On signup, merge identities
+function onSignup(userId: string) {
+  analytics.alias({
+    userId,
+    previousId: anonymousId,
+  })
+
+  analytics.identify({
+    userId,
+    traits: { ... },
+  })
+}
+```
+
+## Related
+
+- [Stripe](/docs/integrations/stripe) - Payment processing
+- [Algolia](/docs/integrations/algolia) - Search analytics
+- [SendGrid](/docs/integrations/sendgrid) - Email tracking
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

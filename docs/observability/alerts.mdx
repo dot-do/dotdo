@@ -1,0 +1,595 @@
+---
+title: Alerting
+description: Define alert rules, configure notification channels, and set up escalation policies for production incidents
+---
+
+# Alerting
+
+When your AI agents process millions of requests across 300+ edge locations, you need to know immediately when something breaks. dotdo provides a declarative alerting system that integrates with your existing on-call infrastructure.
+
+## Alert Rules
+
+Alert rules define conditions that trigger notifications. Each rule monitors a metric or log pattern and fires when thresholds are breached.
+
+### Basic Alert Definition
+
+```typescript
+export class MyStartup extends Startup {
+  observability = {
+    alerts: [
+      {
+        name: 'high-error-rate',
+        description: 'API error rate exceeds 5% for 5 minutes',
+        metric: 'api.requests',
+        condition: {
+          expression: 'rate(status=~"5.*") / rate(*)',
+          operator: '>',
+          threshold: 0.05,
+          window: '5m',
+          for: '2m'  // Must persist for 2 minutes before firing
+        },
+        severity: 'critical',
+        notify: ['pagerduty:critical', 'slack:#incidents']
+      }
+    ]
+  }
+}
+```
+
+### Condition Types
+
+#### Threshold Alerts
+
+Fire when a metric crosses a threshold:
+
+```typescript
+{
+  name: 'high-latency',
+  metric: 'api.requests.duration',
+  condition: {
+    percentile: 99,
+    operator: '>',
+    threshold: 2000,  // 2 seconds
+    window: '5m'
+  },
+  severity: 'warning'
+}
+```
+
+#### Rate Change Alerts
+
+Fire when a metric changes dramatically:
+
+```typescript
+{
+  name: 'traffic-spike',
+  metric: 'api.requests',
+  condition: {
+    rateChange: 3.0,  // 3x normal rate
+    baseline: '1h',    // Compared to last hour
+    window: '5m'
+  },
+  severity: 'info'
+}
+```
+
+#### Anomaly Detection
+
+Fire when metrics deviate from learned patterns:
+
+```typescript
+{
+  name: 'unusual-agent-behavior',
+  metric: 'agent.tokens',
+  condition: {
+    anomaly: true,
+    sensitivity: 'medium',  // low, medium, high
+    window: '15m'
+  },
+  severity: 'warning'
+}
+```
+
+#### Absence Alerts
+
+Fire when expected events don't occur:
+
+```typescript
+{
+  name: 'no-orders',
+  metric: 'orders.created',
+  condition: {
+    absent: true,
+    window: '30m'  // No orders for 30 minutes
+  },
+  severity: 'critical'
+}
+```
+
+### Composite Alerts
+
+Combine multiple conditions:
+
+```typescript
+{
+  name: 'payment-degradation',
+  conditions: [
+    {
+      metric: 'payments.failed',
+      rate: true,
+      threshold: 0.1  // 10% failure rate
+    },
+    {
+      metric: 'payments.duration',
+      percentile: 99,
+      threshold: 5000  // 5 second latency
+    }
+  ],
+  operator: 'OR',  // Fire if either condition is true
+  severity: 'critical'
+}
+```
+
+### Alert Labels and Annotations
+
+Add context to alerts:
+
+```typescript
+{
+  name: 'database-slow',
+  metric: 'db.query.duration',
+  condition: { percentile: 99, threshold: 1000 },
+  labels: {
+    team: 'platform',
+    component: 'database',
+    environment: '{{ $.env }}'
+  },
+  annotations: {
+    summary: 'Database queries are slow (p99 > 1s)',
+    description: 'The 99th percentile query latency is {{ $value }}ms',
+    runbook: 'https://docs.example.com/runbooks/db-slow',
+    dashboard: 'https://grafana.example.com/d/db-health'
+  }
+}
+```
+
+## Notification Channels
+
+Configure where alerts are sent.
+
+### Slack
+
+```typescript
+export class MyStartup extends Startup {
+  observability = {
+    alertChannels: {
+      slack: {
+        webhookUrl: process.env.SLACK_WEBHOOK_URL,
+        defaultChannel: '#alerts',
+        channels: {
+          critical: '#incidents',
+          warning: '#alerts',
+          info: '#notifications'
+        },
+        mentionUsers: {
+          critical: ['@oncall', '@platform-leads']
+        },
+        template: {
+          title: ':alert: {{ .AlertName }}',
+          text: '{{ .Description }}\nValue: {{ .Value }}\nThreshold: {{ .Threshold }}'
+        }
+      }
+    }
+  }
+}
+```
+
+### PagerDuty
+
+```typescript
+{
+  alertChannels: {
+    pagerduty: {
+      routingKey: process.env.PAGERDUTY_ROUTING_KEY,
+      serviceId: process.env.PAGERDUTY_SERVICE_ID,
+      severityMapping: {
+        critical: 'critical',
+        warning: 'warning',
+        info: 'info'
+      },
+      deduplicationKey: '{{ .AlertName }}-{{ .Labels.component }}'
+    }
+  }
+}
+```
+
+### Opsgenie
+
+```typescript
+{
+  alertChannels: {
+    opsgenie: {
+      apiKey: process.env.OPSGENIE_API_KEY,
+      team: 'platform-team',
+      priorityMapping: {
+        critical: 'P1',
+        warning: 'P3',
+        info: 'P5'
+      },
+      tags: ['dotdo', 'production']
+    }
+  }
+}
+```
+
+### Email
+
+```typescript
+{
+  alertChannels: {
+    email: {
+      smtp: {
+        host: 'smtp.sendgrid.net',
+        port: 587,
+        username: 'apikey',
+        password: process.env.SENDGRID_API_KEY
+      },
+      from: 'alerts@example.com',
+      recipients: {
+        critical: ['oncall@example.com', 'cto@example.com'],
+        warning: ['ops@example.com'],
+        info: ['team@example.com']
+      }
+    }
+  }
+}
+```
+
+### Webhooks
+
+```typescript
+{
+  alertChannels: {
+    webhook: {
+      endpoints: [
+        {
+          name: 'custom-handler',
+          url: 'https://api.example.com/alerts',
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer {{ env.WEBHOOK_TOKEN }}',
+            'Content-Type': 'application/json'
+          },
+          template: {
+            alert: '{{ .AlertName }}',
+            severity: '{{ .Severity }}',
+            value: '{{ .Value }}',
+            timestamp: '{{ .StartsAt }}'
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Microsoft Teams
+
+```typescript
+{
+  alertChannels: {
+    teams: {
+      webhookUrl: process.env.TEAMS_WEBHOOK_URL,
+      cardTemplate: {
+        title: '{{ .AlertName }}',
+        color: {
+          critical: 'FF0000',
+          warning: 'FFA500',
+          info: '0000FF'
+        }
+      }
+    }
+  }
+}
+```
+
+## Escalation Policies
+
+Define how alerts escalate when not acknowledged.
+
+### Time-Based Escalation
+
+```typescript
+export class MyStartup extends Startup {
+  observability = {
+    escalation: {
+      policies: [
+        {
+          name: 'critical-escalation',
+          match: { severity: 'critical' },
+          steps: [
+            {
+              delay: '0m',
+              notify: ['pagerduty:primary-oncall']
+            },
+            {
+              delay: '5m',
+              notify: ['pagerduty:secondary-oncall', 'slack:#incidents']
+            },
+            {
+              delay: '15m',
+              notify: ['pagerduty:engineering-manager', 'email:cto@example.com']
+            },
+            {
+              delay: '30m',
+              notify: ['phone:cto']
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+### Role-Based Escalation
+
+```typescript
+{
+  escalation: {
+    policies: [
+      {
+        name: 'payment-issues',
+        match: { labels: { component: 'payments' } },
+        steps: [
+          { delay: '0m', notify: ['pagerduty:payments-team'] },
+          { delay: '10m', notify: ['pagerduty:platform-team'] },
+          { delay: '20m', notify: ['pagerduty:engineering-lead'] }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Schedule-Aware Escalation
+
+```typescript
+{
+  escalation: {
+    schedules: {
+      'us-business-hours': {
+        timezone: 'America/Los_Angeles',
+        hours: { start: '09:00', end: '18:00' },
+        days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+      }
+    },
+    policies: [
+      {
+        name: 'business-hours',
+        match: { severity: 'warning' },
+        during: 'us-business-hours',
+        steps: [
+          { delay: '0m', notify: ['slack:#alerts'] },
+          { delay: '15m', notify: ['pagerduty:oncall'] }
+        ]
+      },
+      {
+        name: 'off-hours',
+        match: { severity: 'warning' },
+        outside: 'us-business-hours',
+        steps: [
+          { delay: '0m', notify: ['slack:#alerts'] }
+          // Don't page for warnings outside business hours
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Alert Management
+
+### Silencing Alerts
+
+Suppress alerts during maintenance:
+
+```typescript
+// Silence a specific alert
+await $.alerts.silence({
+  matchers: [{ name: 'high-error-rate' }],
+  duration: '2h',
+  createdBy: 'alice@example.com',
+  comment: 'Planned deployment in progress'
+})
+
+// Silence by label
+await $.alerts.silence({
+  matchers: [
+    { label: 'component', value: 'database' },
+    { label: 'environment', value: 'staging' }
+  ],
+  startsAt: '2024-01-15T10:00:00Z',
+  endsAt: '2024-01-15T14:00:00Z',
+  comment: 'Database migration window'
+})
+
+// List active silences
+const silences = await $.alerts.listSilences({ state: 'active' })
+
+// Remove a silence
+await $.alerts.expireSilence(silenceId)
+```
+
+### Acknowledging Alerts
+
+```typescript
+// Acknowledge an alert (stops escalation)
+await $.alerts.acknowledge(alertId, {
+  acknowledgedBy: 'bob@example.com',
+  comment: 'Investigating the issue'
+})
+
+// Resolve an alert
+await $.alerts.resolve(alertId, {
+  resolvedBy: 'bob@example.com',
+  comment: 'Fixed by restarting the service',
+  rootCause: 'Memory leak in payment processor'
+})
+```
+
+### Alert History
+
+```typescript
+// Query alert history
+const alerts = await $.alerts.history({
+  timeRange: { last: '7d' },
+  severity: 'critical',
+  state: 'resolved'
+})
+
+// Get alert statistics
+const stats = await $.alerts.stats({
+  timeRange: { last: '30d' },
+  groupBy: ['name', 'severity']
+})
+// {
+//   'high-error-rate': { critical: 3, mttr: '12m' },
+//   'slow-agents': { warning: 15, mttr: '45m' }
+// }
+```
+
+## Programmatic Alerts
+
+Create alerts dynamically:
+
+```typescript
+// Fire a custom alert
+await $.alerts.fire({
+  name: 'custom-business-alert',
+  severity: 'warning',
+  labels: {
+    customer: customerId,
+    issue: 'payment-declined-multiple-times'
+  },
+  annotations: {
+    summary: `Customer ${customerId} has had 5 declined payments`,
+    action: 'Review customer account and contact if needed'
+  }
+})
+
+// Auto-resolve when condition clears
+await $.alerts.resolve({
+  name: 'custom-business-alert',
+  labels: { customer: customerId }
+})
+```
+
+## Alert Testing
+
+Test your alert configuration:
+
+```typescript
+// Test an alert rule
+const result = await $.alerts.test({
+  name: 'high-error-rate',
+  simulatedValue: 0.08  // Simulate 8% error rate
+})
+// { wouldFire: true, channels: ['pagerduty:critical', 'slack:#incidents'] }
+
+// Send a test notification
+await $.alerts.testNotification({
+  channel: 'slack:#alerts',
+  message: 'Test alert from dotdo'
+})
+
+// Dry run all alerts
+const dryRun = await $.alerts.evaluate({ dryRun: true })
+// Returns which alerts would fire given current metrics
+```
+
+## Best Practices
+
+### Set SLO-Based Thresholds
+
+```typescript
+// Good: Based on your SLOs
+{
+  name: 'availability-slo-breach',
+  description: '99.9% availability SLO at risk',
+  condition: {
+    expression: '1 - (errors / total)',
+    operator: '<',
+    threshold: 0.999,
+    window: '5m'
+  }
+}
+
+// Bad: Arbitrary threshold
+{
+  name: 'some-errors',
+  condition: {
+    metric: 'errors',
+    threshold: 10  // Why 10?
+  }
+}
+```
+
+### Use Alert Tiers
+
+```typescript
+// Tier 1: Page immediately
+{ severity: 'critical', notify: ['pagerduty'] }  // Revenue impact, outage
+
+// Tier 2: Notify during business hours
+{ severity: 'warning', notify: ['slack:#alerts'] }  // Degradation
+
+// Tier 3: Log for review
+{ severity: 'info', notify: ['email:weekly-digest'] }  // Anomalies
+```
+
+### Avoid Alert Fatigue
+
+```typescript
+// Good: Actionable, specific
+{
+  name: 'payment-provider-down',
+  condition: {
+    metric: 'payments.stripe.errors',
+    rate: true,
+    threshold: 0.5,  // 50% failure rate
+    for: '5m'        // Sustained for 5 minutes
+  }
+}
+
+// Bad: Too sensitive, too broad
+{
+  name: 'any-error',
+  condition: {
+    metric: 'errors',
+    threshold: 1  // Every single error
+  }
+}
+```
+
+### Document Everything
+
+```typescript
+{
+  name: 'database-connection-exhausted',
+  annotations: {
+    summary: 'Database connection pool is exhausted',
+    description: 'All {{ .Labels.pool_size }} connections are in use',
+    runbook: 'https://docs.example.com/runbooks/db-connections',
+    dashboard: 'https://grafana.example.com/d/db-pool',
+    owner: 'platform-team'
+  }
+}
+```
+
+## Related
+
+- [Logging](/docs/observability/logging) - Structured logs for debugging alerts
+- [Metrics](/docs/observability/metrics) - Define metrics that power alerts
+- [Dashboards](/docs/observability/dashboards) - Visualize alert trends
+- [Debugging](/docs/observability/debugging) - Investigate alert causes

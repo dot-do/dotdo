@@ -1,0 +1,617 @@
+---
+title: Analytics
+description: Track events, measure user behavior, analyze conversion funnels, and understand product-market fit
+---
+
+# Analytics
+
+Metrics tell you what's happening to your system. Analytics tell you what your users are doing. dotdo provides first-class analytics for startups, with built-in funnel analysis and product-market fit measurement.
+
+## Event Tracking
+
+Track user actions and business events across your application.
+
+### Basic Events
+
+```typescript
+// Track a simple event
+$.analytics.track('button_clicked', {
+  buttonId: 'signup-cta',
+  page: '/pricing'
+})
+
+// Track with user context
+$.analytics.track('feature_used', {
+  feature: 'dark_mode',
+  userId: user.id,
+  plan: user.plan
+})
+
+// Track revenue events
+$.analytics.track('purchase_completed', {
+  orderId: order.id,
+  revenue: order.total,
+  currency: 'USD',
+  items: order.items.length
+})
+```
+
+### Automatic Context
+
+Every event includes automatic context:
+
+```typescript
+$.analytics.track('page_view')
+// Automatically includes:
+// {
+//   timestamp: '2024-01-15T14:32:01.847Z',
+//   sessionId: 'sess_abc123',
+//   userId: 'usr_xyz789',  // If authenticated
+//   doId: 'startup-main-001',
+//   colo: 'SFO',
+//   userAgent: '...',
+//   referrer: '...',
+//   path: '/dashboard'
+// }
+```
+
+### Event Properties
+
+Add structured properties to events:
+
+```typescript
+$.analytics.track('search_performed', {
+  query: searchQuery,
+  resultsCount: results.length,
+  filters: {
+    category: selectedCategory,
+    priceRange: [minPrice, maxPrice]
+  },
+  responseTime: Date.now() - startTime
+})
+```
+
+### Event Batching
+
+Events are batched for performance:
+
+```typescript
+// These are batched and sent together
+$.analytics.track('item_viewed', { itemId: '1' })
+$.analytics.track('item_viewed', { itemId: '2' })
+$.analytics.track('item_viewed', { itemId: '3' })
+// Sent as a single batch every 100ms or 100 events
+```
+
+Force immediate send for critical events:
+
+```typescript
+$.analytics.track('purchase_completed', { orderId }, { immediate: true })
+```
+
+## User Analytics
+
+Track user identity and properties across sessions.
+
+### User Identification
+
+```typescript
+// Identify a user
+$.analytics.identify(userId, {
+  email: user.email,
+  name: user.name,
+  plan: user.plan,
+  createdAt: user.createdAt,
+  company: user.company
+})
+
+// Update user properties
+$.analytics.identify(userId, {
+  plan: 'enterprise',  // User upgraded
+  lastLoginAt: new Date()
+})
+```
+
+### Anonymous Users
+
+Track users before they sign up:
+
+```typescript
+// Anonymous tracking (uses session ID)
+$.analytics.track('landing_page_viewed')
+
+// After signup, merge anonymous history
+$.analytics.alias(anonymousId, userId)
+// All previous anonymous events are now linked to the user
+```
+
+### User Groups
+
+Track company/team-level properties:
+
+```typescript
+$.analytics.group(companyId, {
+  name: company.name,
+  industry: company.industry,
+  size: company.employeeCount,
+  plan: company.plan,
+  mrr: company.monthlyRevenue
+})
+
+// Events now include group context
+$.analytics.track('feature_enabled', { feature: 'sso' })
+// Includes: { groupId: companyId, groupName: company.name, ... }
+```
+
+### User Segments
+
+Query users by behavior:
+
+```typescript
+// Find power users
+const powerUsers = await $.analytics.users({
+  where: {
+    'events.count': { gte: 100 },
+    'events.types': { includes: 'purchase_completed' },
+    timeRange: { last: '30d' }
+  }
+})
+
+// Find churning users
+const churningUsers = await $.analytics.users({
+  where: {
+    lastSeenAt: { lt: '7d ago' },
+    plan: { ne: 'free' }
+  }
+})
+```
+
+## Funnel Analysis
+
+Understand how users move through your product.
+
+### Defining Funnels
+
+```typescript
+// Define a conversion funnel
+const signupFunnel = $.analytics.funnel({
+  name: 'signup',
+  steps: [
+    { event: 'landing_page_viewed' },
+    { event: 'signup_started' },
+    { event: 'email_verified' },
+    { event: 'onboarding_completed' },
+    { event: 'first_action_taken' }
+  ],
+  window: '7d'  // Complete within 7 days
+})
+```
+
+### Analyzing Funnels
+
+```typescript
+// Get funnel metrics
+const results = await signupFunnel.analyze({
+  timeRange: { last: '30d' },
+  groupBy: 'acquisition_source'
+})
+
+// {
+//   overall: {
+//     entered: 10000,
+//     completed: 2500,
+//     conversionRate: 0.25,
+//     medianTime: '2.3 days'
+//   },
+//   steps: [
+//     { name: 'landing_page_viewed', count: 10000, dropoff: 0.30 },
+//     { name: 'signup_started', count: 7000, dropoff: 0.43 },
+//     { name: 'email_verified', count: 4000, dropoff: 0.25 },
+//     { name: 'onboarding_completed', count: 3000, dropoff: 0.17 },
+//     { name: 'first_action_taken', count: 2500, dropoff: 0 }
+//   ],
+//   byGroup: {
+//     'google': { conversionRate: 0.28 },
+//     'twitter': { conversionRate: 0.22 },
+//     'organic': { conversionRate: 0.31 }
+//   }
+// }
+```
+
+### Conditional Funnels
+
+```typescript
+// Funnel with conditions
+const purchaseFunnel = $.analytics.funnel({
+  name: 'purchase',
+  steps: [
+    { event: 'product_viewed' },
+    { event: 'added_to_cart', condition: { quantity: { gte: 1 } } },
+    { event: 'checkout_started' },
+    { event: 'payment_submitted' },
+    { event: 'order_confirmed' }
+  ],
+  filters: {
+    plan: 'pro',
+    country: ['US', 'CA', 'UK']
+  }
+})
+```
+
+### Funnel Comparison
+
+```typescript
+// Compare funnels across segments
+const comparison = await $.analytics.compareFunnels({
+  funnel: 'signup',
+  segments: [
+    { name: 'mobile', filter: { device: 'mobile' } },
+    { name: 'desktop', filter: { device: 'desktop' } }
+  ],
+  timeRange: { last: '30d' }
+})
+
+// {
+//   mobile: { conversionRate: 0.18, medianTime: '3.1 days' },
+//   desktop: { conversionRate: 0.32, medianTime: '1.8 days' }
+// }
+```
+
+### Funnel Alerts
+
+Alert on funnel performance:
+
+```typescript
+$.analytics.funnel({
+  name: 'checkout',
+  steps: [...],
+  alerts: [
+    {
+      condition: { conversionRate: { lt: 0.20 } },
+      window: '24h',
+      notify: ['slack:#product', 'email:product@example.com']
+    },
+    {
+      condition: { dropoff: { step: 'payment_submitted', gt: 0.50 } },
+      window: '1h',
+      severity: 'critical',
+      notify: ['pagerduty:payments-team']
+    }
+  ]
+})
+```
+
+## Retention Analysis
+
+Measure how well you retain users.
+
+### Cohort Retention
+
+```typescript
+const retention = await $.analytics.retention({
+  cohort: {
+    event: 'signup_completed',
+    timeRange: { last: '90d' }
+  },
+  returning: {
+    event: 'session_started'
+  },
+  intervals: ['1d', '7d', '14d', '30d', '60d', '90d'],
+  groupBy: 'acquisition_source'
+})
+
+// {
+//   overall: {
+//     '1d': 0.65,
+//     '7d': 0.42,
+//     '14d': 0.35,
+//     '30d': 0.28,
+//     '60d': 0.22,
+//     '90d': 0.18
+//   },
+//   byGroup: {
+//     'organic': { '30d': 0.35 },
+//     'paid': { '30d': 0.22 }
+//   }
+// }
+```
+
+### Feature Retention
+
+```typescript
+// Retention for specific features
+const featureRetention = await $.analytics.retention({
+  cohort: { event: 'feature_enabled', properties: { feature: 'ai_assistant' } },
+  returning: { event: 'feature_used', properties: { feature: 'ai_assistant' } },
+  intervals: ['1d', '7d', '30d']
+})
+```
+
+## HUNCH Metrics
+
+Measure product-market fit with Hair-on-fire, Usage, NPS, Churn, and Habits.
+
+### Hair on Fire (Urgency)
+
+```typescript
+// Track urgency signals
+$.hunch.urgency('support_ticket_escalated', { customerId, priority: 'critical' })
+$.hunch.urgency('feature_requested_again', { featureId, requestCount: 5 })
+$.hunch.urgency('competitor_mentioned', { competitor: 'acme', context: 'switching' })
+
+// Query urgency score
+const urgency = await $.hunch.query({
+  metric: 'urgency',
+  segment: 'enterprise',
+  timeRange: { last: '30d' }
+})
+// { score: 7.8, signals: 142, trend: 'increasing' }
+```
+
+### Usage Patterns
+
+```typescript
+// Track active usage
+$.hunch.active(userId)  // Mark user as active today
+
+// Query usage metrics
+const usage = await $.hunch.query({
+  metric: 'usage',
+  timeRange: { last: '30d' }
+})
+// {
+//   dau: 1247,
+//   wau: 4521,
+//   mau: 8934,
+//   dauMauRatio: 0.14,  // Stickiness
+//   growthRate: 0.08
+// }
+```
+
+### Net Promoter Score
+
+```typescript
+// Record NPS response
+$.hunch.nps(userId, score, {
+  segment: user.plan,
+  feedback: surveyResponse.comment
+})
+
+// Query NPS
+const nps = await $.hunch.query({
+  metric: 'nps',
+  timeRange: { last: '30d' },
+  groupBy: 'segment'
+})
+// {
+//   overall: { score: 42, promoters: 156, passives: 89, detractors: 34 },
+//   bySegment: {
+//     'enterprise': { score: 58 },
+//     'pro': { score: 45 },
+//     'free': { score: 28 }
+//   }
+// }
+```
+
+### Product-Market Fit Summary
+
+```typescript
+const pmf = await $.hunch.summary({
+  timeRange: { last: '30d' }
+})
+
+// {
+//   hairOnFire: { score: 7.8, trend: 'stable' },
+//   usage: { wau: 4521, growth: 0.08, stickiness: 0.14 },
+//   nps: { score: 42, trend: 'increasing' },
+//   churn: { rate: 0.032, trend: 'decreasing' },
+//   pmfScore: 0.68,  // Composite 0-1 score
+//   assessment: 'Approaching PMF - focus on reducing churn'
+// }
+```
+
+## Revenue Analytics
+
+Track revenue and business metrics.
+
+### Revenue Events
+
+```typescript
+$.analytics.revenue('subscription_started', {
+  customerId,
+  plan: 'pro',
+  mrr: 99,
+  currency: 'USD',
+  billingCycle: 'monthly'
+})
+
+$.analytics.revenue('subscription_upgraded', {
+  customerId,
+  fromPlan: 'pro',
+  toPlan: 'enterprise',
+  mrrChange: 400,  // +$400 MRR
+  currency: 'USD'
+})
+
+$.analytics.revenue('subscription_churned', {
+  customerId,
+  plan: 'pro',
+  mrrLost: 99,
+  reason: 'too_expensive',
+  feedback: 'Switching to competitor'
+})
+```
+
+### Revenue Queries
+
+```typescript
+const revenue = await $.analytics.revenue({
+  timeRange: { last: '30d' },
+  metrics: ['mrr', 'arr', 'newMrr', 'churnedMrr', 'netMrr']
+})
+
+// {
+//   mrr: 125000,
+//   arr: 1500000,
+//   newMrr: 15000,
+//   churnedMrr: 3200,
+//   expansionMrr: 8500,
+//   netMrr: 20300,
+//   growth: 0.16
+// }
+```
+
+### Cohort Revenue
+
+```typescript
+const cohortRevenue = await $.analytics.revenueByCohort({
+  cohort: 'signup_month',
+  timeRange: { last: '12m' }
+})
+
+// {
+//   '2024-01': { ltv: 450, customers: 120 },
+//   '2024-02': { ltv: 380, customers: 145 },
+//   ...
+// }
+```
+
+## Querying Analytics
+
+### SQL-like Queries
+
+```typescript
+const results = await $.analytics.query(`
+  SELECT
+    date_trunc('day', timestamp) as day,
+    count(*) as signups,
+    count(distinct user_id) as unique_users
+  FROM events
+  WHERE event = 'signup_completed'
+    AND timestamp > now() - interval '30 days'
+  GROUP BY day
+  ORDER BY day
+`)
+```
+
+### Aggregations
+
+```typescript
+const stats = await $.analytics.aggregate({
+  event: 'purchase_completed',
+  metrics: {
+    count: true,
+    sum: 'revenue',
+    avg: 'revenue',
+    percentile: { field: 'revenue', values: [50, 90, 99] }
+  },
+  groupBy: ['plan', 'country'],
+  timeRange: { last: '30d' }
+})
+```
+
+### Export
+
+```typescript
+// Export to data warehouse
+await $.analytics.export({
+  destination: 'bigquery',
+  dataset: 'analytics',
+  table: 'events',
+  timeRange: { last: '24h' }
+})
+
+// Export to S3/R2
+await $.analytics.export({
+  destination: 'r2',
+  bucket: 'analytics-export',
+  format: 'parquet',
+  partitionBy: ['date', 'event']
+})
+```
+
+## Configuration
+
+```typescript
+export class MyStartup extends Startup {
+  observability = {
+    analytics: {
+      // Event collection
+      enabled: true,
+      sampleRate: 1.0,  // 100% of events
+
+      // User identification
+      anonymousIdCookie: '_aid',
+      userIdField: 'userId',
+
+      // Batching
+      batchSize: 100,
+      flushInterval: 100,  // ms
+
+      // Privacy
+      anonymizeIp: true,
+      excludeProperties: ['password', 'creditCard'],
+
+      // Export
+      exporters: [
+        { type: 'bigquery', projectId: 'my-project' },
+        { type: 'amplitude', apiKey: process.env.AMPLITUDE_KEY }
+      ]
+    }
+  }
+}
+```
+
+## Best Practices
+
+### Event Naming
+
+```typescript
+// Good: Consistent, descriptive, past tense
+$.analytics.track('signup_completed')
+$.analytics.track('order_placed')
+$.analytics.track('feature_enabled')
+
+// Bad: Inconsistent, vague
+$.analytics.track('signup')
+$.analytics.track('click')
+$.analytics.track('action')
+```
+
+### Property Standards
+
+```typescript
+// Good: Consistent property names
+$.analytics.track('purchase_completed', {
+  orderId: order.id,         // camelCase
+  orderTotal: order.total,   // Consistent prefix
+  itemCount: items.length    // Clear meaning
+})
+
+// Bad: Inconsistent naming
+$.analytics.track('purchase_completed', {
+  order_id: order.id,        // Mixed case
+  total: order.total,        // Ambiguous
+  n: items.length            // Cryptic
+})
+```
+
+### Track Business Events
+
+```typescript
+// Good: Business-meaningful events
+$.analytics.track('subscription_started', { plan, mrr })
+$.analytics.track('feature_limit_reached', { feature, limit })
+$.analytics.track('support_ticket_created', { priority, category })
+
+// Avoid: Pure technical events
+$.analytics.track('api_called', { endpoint })
+$.analytics.track('cache_miss', { key })
+```
+
+## Related
+
+- [Metrics](/docs/observability/metrics) - System metrics and HUNCH metrics
+- [Logging](/docs/observability/logging) - Event debugging and audit trails
+- [Dashboards](/docs/observability/dashboards) - Visualize analytics
+- [Debugging](/docs/observability/debugging) - Investigate user issues

@@ -5,7 +5,10 @@
   "pages": [
     "index",
     "client",
+    "server",
     "pipelines",
+    "batching",
+    "streaming",
     "magic-map",
     "await-patterns",
     "proxy-chaining"

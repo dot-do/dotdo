@@ -2,5 +2,14 @@
   "title": "Storage",
   "description": "Tiered storage architecture - Hot, Warm, Cold",
   "root": true,
-  "pages": ["index", "hot-tier", "warm-tier", "cold-tier"]
+  "pages": [
+    "index",
+    "durable-objects",
+    "r2",
+    "kv",
+    "hot-tier",
+    "warm-tier",
+    "cold-tier",
+    "migrations"
+  ]
 }

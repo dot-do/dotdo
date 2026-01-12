@@ -1,0 +1,884 @@
+---
+title: HubSpot
+description: Drop-in replacement for the HubSpot SDK with edge compatibility and local testing support.
+---
+
+# HubSpot
+
+Drop-in replacement for the HubSpot JavaScript SDK. Your existing `@hubspot/api-client` code works unchanged - just swap the import.
+
+```typescript
+// Before: HubSpot
+import { Client } from '@hubspot/api-client'
+
+// After: dotdo
+import { Client } from '@dotdo/hubspot'
+
+// Code stays the same
+const hubspot = new Client({ accessToken: env.HUBSPOT_ACCESS_TOKEN })
+
+const contact = await hubspot.crm.contacts.basicApi.create({
+  properties: {
+    email: 'customer@example.com',
+    firstname: 'John',
+    lastname: 'Doe',
+  },
+})
+
+const deal = await hubspot.crm.deals.basicApi.create({
+  properties: {
+    dealname: 'Enterprise Contract',
+    amount: '50000',
+    dealstage: 'appointmentscheduled',
+    pipeline: 'default',
+  },
+})
+```
+
+## Why hubspot.do?
+
+| HubSpot SDK | @dotdo/hubspot |
+|-------------|----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real API calls in tests | Local testing with HubSpotCRM |
+| Network latency | Zero latency in local mode |
+| Rate limits on API | Unlimited requests locally |
+| Requires account for dev | Works offline |
+
+**This is a proxy/compatibility layer.** It can either forward to real HubSpot APIs (production) or run entirely locally for testing and development. The API surface matches HubSpot's official SDK.
+
+## Features
+
+### Implemented (CRM APIs)
+
+**Contacts**
+- `basicApi.create()`, `basicApi.getById()`, `basicApi.update()`, `basicApi.archive()`, `basicApi.getPage()`
+- `searchApi.doSearch()` - Full-text and filter-based search
+- `batchApi.create()`, `batchApi.read()`, `batchApi.update()`, `batchApi.archive()`
+
+**Companies**
+- Full CRUD operations via `basicApi`
+- Search with filters via `searchApi`
+- Batch operations via `batchApi`
+
+**Deals**
+- Full CRUD operations with pipeline stages
+- Deal stage management
+- Search and batch operations
+
+**Tickets**
+- Full CRUD operations
+- Pipeline and stage support
+- Search and batch operations
+
+**Line Items & Products**
+- Product catalog management
+- Line items on deals
+- Full CRUD operations
+
+**Quotes**
+- Quote creation and management
+- Status tracking
+- Associations with deals and contacts
+
+**Associations (v4 API)**
+- `associations.v4.basicApi.create()`, `getPage()`, `archive()`
+- `associations.v4.batchApi.create()`, `read()`, `archive()`
+- Contact-to-company, deal-to-contact, and custom associations
+
+**Engagements**
+- Notes, Emails, Calls, Meetings
+- Full CRUD via `crm.objects`
+
+**Properties API**
+- `properties.coreApi.getAll()`, `getByName()`, `create()`, `update()`, `archive()`
+- `properties.groupsApi` for property groups
+- Custom property definitions
+
+**Schemas API (Custom Objects)**
+- `schemas.coreApi.getAll()`, `getById()`, `create()`, `update()`, `archive()`
+- Define custom CRM objects
+
+**Owners API**
+- `crm.owners.getPage()`, `getById()`
+- HubSpot user management
+
+**Pipelines API**
+- `pipelines.pipelinesApi` for pipeline management
+- `pipelines.pipelineStagesApi` for stages
+
+**Workflows**
+- Workflow creation and management
+- Enrollment triggers (form submission, property change, list membership)
+- Actions (set property, send email, delay, branch, webhook)
+- Contact enrollment and unenrollment
+- Workflow analytics and stats
+
+### Not Yet Implemented
+
+- Marketing Emails API
+- Forms API
+- Landing Pages API
+- Blog API
+- Files API
+- OAuth helpers
+- Webhooks verification
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/hubspot
+```
+
+### Basic Usage
+
+```typescript
+import { Client } from '@dotdo/hubspot'
+
+const hubspot = new Client({ accessToken: env.HUBSPOT_ACCESS_TOKEN })
+
+// Create a contact
+const contact = await hubspot.crm.contacts.basicApi.create({
+  properties: {
+    email: 'lead@example.com',
+    firstname: 'Jane',
+    lastname: 'Smith',
+    phone: '+1-555-0123',
+    company: 'Acme Corp',
+    lifecyclestage: 'lead',
+  },
+})
+
+// Create a company
+const company = await hubspot.crm.companies.basicApi.create({
+  properties: {
+    name: 'Acme Corp',
+    domain: 'acme.com',
+    industry: 'Technology',
+    numberofemployees: '500',
+  },
+})
+
+// Associate contact to company
+await hubspot.crm.associations.v4.basicApi.create(
+  'contacts',
+  contact.id,
+  'companies',
+  company.id,
+  [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 1 }]
+)
+
+// Search for contacts
+const results = await hubspot.crm.contacts.searchApi.doSearch({
+  filterGroups: [{
+    filters: [{
+      propertyName: 'lifecyclestage',
+      operator: 'EQ',
+      value: 'lead',
+    }],
+  }],
+  sorts: [{ propertyName: 'createdate', direction: 'DESCENDING' }],
+  limit: 50,
+})
+
+console.log(`Found ${results.total} leads`)
+```
+
+## Inbound - Using hubspot.do Locally
+
+For testing and development, use `HubSpotCRM` - a complete in-memory HubSpot implementation backed by Durable Objects storage:
+
+```typescript
+import { HubSpotCRM } from '@dotdo/hubspot/crm'
+
+// Create local CRM instance with DO storage
+const crm = new HubSpotCRM(ctx.storage)
+
+// Create a contact (simplified API)
+const contact = await crm.createContact({
+  email: 'test@example.com',
+  firstName: 'John',
+  lastName: 'Doe',
+  lifecycleStage: 'lead',
+})
+
+// Create a company
+const company = await crm.createCompany({
+  name: 'Test Corp',
+  domain: 'test.com',
+  industry: 'Technology',
+})
+
+// Associate contact to company
+await crm.associateContactToCompany(contact.id, company.id)
+
+// Search contacts
+const results = await crm.searchContacts('john', {
+  filters: [
+    { field: 'lifecyclestage', operator: 'eq', value: 'lead' },
+  ],
+  sorts: [{ field: 'createdate', direction: 'desc' }],
+  limit: 20,
+})
+
+console.log(`Found ${results.total} contacts`)
+```
+
+### Local CRM Features
+
+```typescript
+const crm = new HubSpotCRM(ctx.storage)
+
+// Batch create contacts
+const batch = await crm.batchCreateContacts([
+  { email: 'user1@example.com', firstName: 'User', lastName: 'One' },
+  { email: 'user2@example.com', firstName: 'User', lastName: 'Two' },
+])
+
+// Merge duplicate contacts
+const merged = await crm.mergeContacts(primaryId, secondaryId)
+
+// Create deals with pipelines
+const deal = await crm.createDeal({
+  name: 'Enterprise Deal',
+  amount: 50000,
+  stage: 'appointmentscheduled',
+  pipeline: 'default',
+})
+
+// Move deal through stages
+await crm.moveDealToStage(deal.id, 'qualifiedtobuy')
+
+// Add notes to contacts
+await crm.createNote('contacts', contact.id, 'Had a great call today!')
+
+// Create tasks
+await crm.createTask('contacts', contact.id, {
+  subject: 'Follow up call',
+  dueDate: '2024-02-01',
+  priority: 'HIGH',
+})
+
+// Get activity timeline
+const engagements = await crm.getEngagements('contacts', contact.id)
+
+// Custom properties
+await crm.createProperty('contacts', {
+  name: 'custom_field',
+  type: 'string',
+  label: 'Custom Field',
+  groupName: 'contactinformation',
+})
+
+// Get stats
+const stats = await crm.getStats()
+console.log(stats) // { contacts: 150, companies: 45, deals: 23, ... }
+```
+
+### Workflow Automation (Local)
+
+```typescript
+import { HubSpotWorkflows } from '@dotdo/hubspot/workflows'
+
+const workflows = new HubSpotWorkflows({ accessToken: 'local-dev' })
+
+// Create a welcome email workflow
+const workflow = await workflows.createWorkflow({
+  name: 'Welcome Email Flow',
+  type: 'contact',
+  enrollmentTriggers: [
+    { type: 'formSubmission', formId: 'signup-form' },
+    { type: 'propertyChange', property: 'lifecyclestage', value: 'lead' },
+  ],
+  actions: [
+    { type: 'sendEmail', emailId: 'welcome-email-123' },
+    { type: 'delay', delayType: 'fixed', duration: 86400000 }, // 24 hours
+    { type: 'setProperty', property: 'hs_lead_status', value: 'contacted' },
+    {
+      type: 'branch',
+      branchType: 'if-then',
+      condition: {
+        property: 'email_opened',
+        operator: 'eq',
+        value: 'true',
+      },
+    },
+    { type: 'createTask', title: 'Follow up with engaged lead' },
+  ],
+})
+
+// Activate the workflow
+await workflows.activateWorkflow(workflow.id)
+
+// Manually enroll a contact
+await workflows.enrollContact(workflow.id, 'contact-123')
+
+// Get workflow stats
+const stats = await workflows.getWorkflowStats(workflow.id)
+console.log(`Conversion rate: ${stats.conversionRate}%`)
+```
+
+## Outbound - Connecting to Real HubSpot
+
+For production, the client connects to HubSpot's API:
+
+```typescript
+import { Client } from '@dotdo/hubspot'
+
+const hubspot = new Client({
+  accessToken: env.HUBSPOT_ACCESS_TOKEN,
+  basePath: 'https://api.hubapi.com', // Default
+})
+
+// All requests go to api.hubapi.com
+const contacts = await hubspot.crm.contacts.basicApi.getPage(100)
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { Client } from '@dotdo/hubspot'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const hubspot = new Client({ accessToken: env.HUBSPOT_ACCESS_TOKEN })
+
+    const url = new URL(request.url)
+
+    if (url.pathname === '/api/contacts' && request.method === 'POST') {
+      const body = await request.json()
+
+      const contact = await hubspot.crm.contacts.basicApi.create({
+        properties: {
+          email: body.email,
+          firstname: body.firstName,
+          lastname: body.lastName,
+        },
+      })
+
+      return Response.json(contact)
+    }
+
+    return new Response('Not Found', { status: 404 })
+  },
+}
+```
+
+### Custom Configuration
+
+```typescript
+const hubspot = new Client({
+  accessToken: 'pat-xxx',
+  basePath: 'https://api.hubapi.com',  // API base URL
+  defaultHeaders: {                      // Custom headers
+    'X-Custom-Header': 'value',
+  },
+  fetch: customFetch,                    // Custom fetch implementation
+})
+```
+
+## API Reference
+
+### Contacts
+
+```typescript
+// Create
+const contact = await hubspot.crm.contacts.basicApi.create({
+  properties: { email: 'user@example.com', firstname: 'John' },
+})
+
+// Get by ID
+const contact = await hubspot.crm.contacts.basicApi.getById(
+  'contact-id',
+  ['email', 'firstname', 'lastname'] // Optional: specific properties
+)
+
+// Update
+const updated = await hubspot.crm.contacts.basicApi.update('contact-id', {
+  properties: { lifecyclestage: 'customer' },
+})
+
+// Archive (soft delete)
+await hubspot.crm.contacts.basicApi.archive('contact-id')
+
+// Get page
+const page = await hubspot.crm.contacts.basicApi.getPage(
+  100,                    // limit
+  'cursor-token',         // after (pagination)
+  ['email', 'firstname']  // properties
+)
+
+// Search
+const results = await hubspot.crm.contacts.searchApi.doSearch({
+  filterGroups: [{
+    filters: [
+      { propertyName: 'email', operator: 'CONTAINS_TOKEN', value: '@example.com' },
+      { propertyName: 'lifecyclestage', operator: 'EQ', value: 'lead' },
+    ],
+  }],
+  sorts: [{ propertyName: 'createdate', direction: 'DESCENDING' }],
+  properties: ['email', 'firstname', 'lastname', 'company'],
+  limit: 50,
+  after: 'cursor',
+})
+
+// Batch create
+const batch = await hubspot.crm.contacts.batchApi.create({
+  inputs: [
+    { properties: { email: 'user1@example.com' } },
+    { properties: { email: 'user2@example.com' } },
+  ],
+})
+
+// Batch read
+const contacts = await hubspot.crm.contacts.batchApi.read({
+  inputs: [{ id: 'contact-1' }, { id: 'contact-2' }],
+  properties: ['email', 'firstname'],
+})
+```
+
+### Companies
+
+```typescript
+// Create
+const company = await hubspot.crm.companies.basicApi.create({
+  properties: {
+    name: 'Acme Inc',
+    domain: 'acme.com',
+    industry: 'Technology',
+    numberofemployees: '1000',
+    annualrevenue: '50000000',
+  },
+})
+
+// Search by domain
+const results = await hubspot.crm.companies.searchApi.doSearch({
+  filterGroups: [{
+    filters: [{ propertyName: 'domain', operator: 'EQ', value: 'acme.com' }],
+  }],
+})
+```
+
+### Deals
+
+```typescript
+// Create deal in pipeline
+const deal = await hubspot.crm.deals.basicApi.create({
+  properties: {
+    dealname: 'Enterprise Contract',
+    amount: '100000',
+    dealstage: 'appointmentscheduled',
+    pipeline: 'default',
+    closedate: '2024-06-30',
+    hubspot_owner_id: 'owner-id',
+  },
+})
+
+// Update deal stage
+await hubspot.crm.deals.basicApi.update(deal.id, {
+  properties: { dealstage: 'closedwon' },
+})
+
+// Search deals by stage
+const openDeals = await hubspot.crm.deals.searchApi.doSearch({
+  filterGroups: [{
+    filters: [
+      { propertyName: 'dealstage', operator: 'NEQ', value: 'closedwon' },
+      { propertyName: 'dealstage', operator: 'NEQ', value: 'closedlost' },
+    ],
+  }],
+  sorts: [{ propertyName: 'amount', direction: 'DESCENDING' }],
+})
+```
+
+### Associations
+
+```typescript
+// Create association (v4 API)
+await hubspot.crm.associations.v4.basicApi.create(
+  'contacts',           // fromObjectType
+  'contact-id',         // fromObjectId
+  'companies',          // toObjectType
+  'company-id',         // toObjectId
+  [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 1 }]
+)
+
+// Get associations
+const associations = await hubspot.crm.associations.v4.basicApi.getPage(
+  'contacts',
+  'contact-id',
+  'companies'
+)
+
+// Delete association
+await hubspot.crm.associations.v4.basicApi.archive(
+  'contacts',
+  'contact-id',
+  'companies',
+  'company-id'
+)
+
+// Batch create associations
+await hubspot.crm.associations.v4.batchApi.create('contacts', 'companies', {
+  inputs: [
+    {
+      from: { id: 'contact-1' },
+      to: { id: 'company-1' },
+      types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 1 }],
+    },
+  ],
+})
+```
+
+### Pipelines
+
+```typescript
+// Get all pipelines for deals
+const pipelines = await hubspot.crm.pipelines.pipelinesApi.getAll('deals')
+
+// Get specific pipeline
+const pipeline = await hubspot.crm.pipelines.pipelinesApi.getById(
+  'deals',
+  'pipeline-id'
+)
+
+// Create pipeline
+const newPipeline = await hubspot.crm.pipelines.pipelinesApi.create('deals', {
+  label: 'Enterprise Sales',
+  displayOrder: 1,
+  stages: [
+    { label: 'Discovery', displayOrder: 0 },
+    { label: 'Proposal', displayOrder: 1 },
+    { label: 'Negotiation', displayOrder: 2 },
+    { label: 'Closed Won', displayOrder: 3, metadata: { probability: '1.0' } },
+  ],
+})
+
+// Add stage to pipeline
+await hubspot.crm.pipelines.pipelineStagesApi.create('deals', 'pipeline-id', {
+  label: 'Legal Review',
+  displayOrder: 2.5,
+})
+```
+
+### Properties
+
+```typescript
+// Get all properties for contacts
+const properties = await hubspot.crm.properties.coreApi.getAll('contacts')
+
+// Create custom property
+await hubspot.crm.properties.coreApi.create('contacts', {
+  name: 'preferred_contact_method',
+  label: 'Preferred Contact Method',
+  type: 'enumeration',
+  fieldType: 'select',
+  groupName: 'contactinformation',
+  options: [
+    { label: 'Email', value: 'email' },
+    { label: 'Phone', value: 'phone' },
+    { label: 'SMS', value: 'sms' },
+  ],
+})
+
+// Create property group
+await hubspot.crm.properties.groupsApi.create('contacts', {
+  name: 'custom_data',
+  label: 'Custom Data',
+  displayOrder: 5,
+})
+```
+
+### Owners
+
+```typescript
+// Get all owners
+const owners = await hubspot.crm.owners.getPage()
+
+// Get owner by ID
+const owner = await hubspot.crm.owners.getById('owner-id')
+
+// Filter by email
+const owner = await hubspot.crm.owners.getPage('john@company.com')
+```
+
+## Search Operators
+
+| Operator | Description |
+|----------|-------------|
+| `EQ` | Equal to |
+| `NEQ` | Not equal to |
+| `LT` | Less than |
+| `LTE` | Less than or equal |
+| `GT` | Greater than |
+| `GTE` | Greater than or equal |
+| `BETWEEN` | Between two values |
+| `IN` | In list of values |
+| `NOT_IN` | Not in list |
+| `HAS_PROPERTY` | Property exists |
+| `NOT_HAS_PROPERTY` | Property doesn't exist |
+| `CONTAINS_TOKEN` | Contains text |
+| `NOT_CONTAINS_TOKEN` | Doesn't contain text |
+
+## Error Handling
+
+```typescript
+import { Client, HubSpotError } from '@dotdo/hubspot'
+
+try {
+  await hubspot.crm.contacts.basicApi.getById('nonexistent')
+} catch (error) {
+  if (error instanceof HubSpotError) {
+    console.log('Category:', error.category)       // 'OBJECT_NOT_FOUND'
+    console.log('Message:', error.message)         // 'Contact not found...'
+    console.log('Status:', error.statusCode)       // 404
+    console.log('Correlation ID:', error.correlationId)
+    console.log('Context:', error.context)
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Core types
+  Contact,
+  Company,
+  Deal,
+  Ticket,
+  LineItem,
+  Product,
+  Quote,
+  Owner,
+  CrmObject,
+
+  // Input types
+  ContactCreateInput,
+  CompanyCreateInput,
+  DealCreateInput,
+
+  // Property types
+  PropertyDefinition,
+  PropertyType,
+  PropertyFieldType,
+  PropertyGroup,
+
+  // Association types
+  AssociationSpec,
+  AssociationResult,
+
+  // Search types
+  SearchRequest,
+  SearchResult,
+  Filter,
+  FilterGroup,
+  FilterOperator,
+
+  // Batch types
+  BatchResult,
+  BatchReadInput,
+  BatchCreateInput,
+
+  // Pipeline types
+  Pipeline,
+  PipelineStage,
+
+  // Workflow types
+  Workflow,
+  WorkflowAction,
+  EnrollmentTrigger,
+
+  // Response types
+  CollectionResponse,
+  Paging,
+} from '@dotdo/hubspot'
+```
+
+## Migration from HubSpot SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @hubspot/api-client
+
+# Install
+npm install @dotdo/hubspot
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Client } from '@hubspot/api-client'
+const hubspot = new Client({ accessToken: 'xxx' })
+
+// After
+import { Client } from '@dotdo/hubspot'
+const hubspot = new Client({ accessToken: 'xxx' })
+```
+
+### Code Compatibility
+
+Your existing HubSpot code should work unchanged:
+
+```typescript
+// This code works with both @hubspot/api-client and @dotdo/hubspot
+const contact = await hubspot.crm.contacts.basicApi.create({
+  properties: { email: 'user@example.com', firstname: 'John' },
+})
+
+const results = await hubspot.crm.contacts.searchApi.doSearch({
+  filterGroups: [{
+    filters: [{ propertyName: 'email', operator: 'EQ', value: 'user@example.com' }],
+  }],
+})
+
+await hubspot.crm.associations.v4.basicApi.create(
+  'contacts',
+  contact.id,
+  'companies',
+  'company-id',
+  [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 1 }]
+)
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const hubspot = new Client({ accessToken }) // or HubSpotCRM|
+|  await hubspot.crm.contacts.basicApi.create(...)             |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode        |     |     Local Mode          |
+|   (Client)               |     |     (HubSpotCRM)        |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> api.hubapi.com      |     |  -> DO storage          |
+|  -> Real CRM data       |     |  -> No network calls    |
+|  -> Rate limited        |     |  -> Unlimited requests  |
+|  -> Requires token      |     |  -> Works offline       |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero latency**: No network round-trips
+- **No rate limits**: Unlimited API requests
+- **Predictable**: No external dependencies
+- **Testable**: Full control over data
+- **Offline**: Works without internet
+
+## Common Patterns
+
+### Lead Scoring Workflow
+
+```typescript
+import { HubSpotCRM } from '@dotdo/hubspot/crm'
+import { HubSpotWorkflows } from '@dotdo/hubspot/workflows'
+
+const crm = new HubSpotCRM(ctx.storage)
+const workflows = new HubSpotWorkflows({ accessToken: 'xxx' })
+
+// Create lead scoring property
+await crm.createProperty('contacts', {
+  name: 'lead_score',
+  type: 'number',
+  label: 'Lead Score',
+  groupName: 'contactinformation',
+})
+
+// Workflow to update score on engagement
+const scoringWorkflow = await workflows.createWorkflow({
+  name: 'Lead Scoring',
+  type: 'contact',
+  enrollmentTriggers: [
+    { type: 'event', eventName: 'email_opened' },
+    { type: 'pageView', urlPattern: '/pricing*' },
+  ],
+  actions: [
+    { type: 'incrementProperty', property: 'lead_score', amount: 10 },
+    {
+      type: 'branch',
+      branchType: 'if-then',
+      condition: { property: 'lead_score', operator: 'gte', value: 50 },
+    },
+    { type: 'setProperty', property: 'lifecyclestage', value: 'marketingqualifiedlead' },
+    { type: 'createTask', title: 'High-value lead - reach out!' },
+  ],
+})
+```
+
+### Contact Sync
+
+```typescript
+import { Client } from '@dotdo/hubspot'
+
+const hubspot = new Client({ accessToken: env.HUBSPOT_ACCESS_TOKEN })
+
+async function syncContacts(externalContacts: ExternalContact[]) {
+  // Batch create contacts
+  const result = await hubspot.crm.contacts.batchApi.create({
+    inputs: externalContacts.map((c) => ({
+      properties: {
+        email: c.email,
+        firstname: c.firstName,
+        lastname: c.lastName,
+        company: c.company,
+        hs_lead_source: 'API Import',
+      },
+    })),
+  })
+
+  console.log(`Created ${result.results.length} contacts`)
+  if (result.errors.length > 0) {
+    console.error(`Failed: ${result.errors.length}`)
+  }
+}
+```
+
+## API Coverage
+
+| Resource | Coverage | Notes |
+|----------|----------|-------|
+| Contacts | Full | All CRUD + search + batch |
+| Companies | Full | All CRUD + search + batch |
+| Deals | Full | Including pipeline stages |
+| Tickets | Full | Including pipeline stages |
+| Line Items | Full | Products on deals |
+| Products | Full | Product catalog |
+| Quotes | Full | Sales quotes |
+| Associations v4 | Full | All association types |
+| Owners | Full | User management |
+| Properties | Full | Custom properties |
+| Property Groups | Full | Property organization |
+| Schemas | Full | Custom objects |
+| Pipelines | Full | Pipeline management |
+| Pipeline Stages | Full | Stage management |
+| Engagements | Full | Notes, emails, calls, meetings |
+| Workflows | Full | Automation engine |
+| Marketing Emails | Not yet | |
+| Forms | Not yet | |
+| Lists | Not yet | |
+
+## Related
+
+- [Events Overview](/docs/events) - Event handling including CRM events
+- [SDK Events](/docs/sdk/events) - Event subscription patterns
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

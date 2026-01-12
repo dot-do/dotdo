@@ -1,0 +1,600 @@
+---
+title: Compliance
+description: GDPR, SOC 2, data residency, and comprehensive audit logging
+---
+
+# Compliance
+
+Meet regulatory requirements by default. dotdo is built with compliance in mind.
+
+## Overview
+
+When AI agents process customer data, compliance teams have questions. Where is data stored? Who accessed it? Can we prove deletion? dotdo provides the infrastructure to answer these questions with confidence.
+
+## GDPR Considerations
+
+### Data Subject Rights
+
+Implement GDPR rights with built-in primitives:
+
+```typescript
+// Right to access - export all user data
+$.on.GDPR.accessRequest(async ($, { userId }) => {
+  const data = await $.data.export(userId, {
+    include: ['customers', 'orders', 'preferences', 'audit_logs'],
+    format: 'json',
+  })
+
+  await $.email.send({
+    to: user.email,
+    subject: 'Your Data Export',
+    attachments: [{ name: 'data-export.json', content: data }],
+  })
+
+  await $.audit.log('gdpr.access_request', { userId, status: 'completed' })
+})
+```
+
+### Right to Erasure
+
+```typescript
+// Right to be forgotten
+$.on.GDPR.deletionRequest(async ($, { userId }) => {
+  // Verify identity first
+  const verified = await $.identity.verify(userId, {
+    method: 'email-confirmation',
+  })
+
+  if (!verified) {
+    return $.escalate.to('privacy-team', {
+      reason: 'Identity verification failed',
+      userId,
+    })
+  }
+
+  // Delete personal data
+  await $.data.delete(userId, {
+    tables: ['customers', 'orders', 'preferences'],
+    cascadeRelations: true,
+  })
+
+  // Anonymize data we must retain (e.g., financial records)
+  await $.data.anonymize(userId, {
+    tables: ['transactions', 'invoices'],
+    retain: ['amount', 'date', 'currency'], // Non-PII fields
+  })
+
+  await $.audit.log('gdpr.deletion_request', {
+    userId,
+    status: 'completed',
+    timestamp: new Date().toISOString(),
+  })
+})
+```
+
+### Data Portability
+
+```typescript
+// Right to data portability
+$.on.GDPR.portabilityRequest(async ($, { userId, format }) => {
+  const data = await $.data.export(userId, {
+    format: format || 'json', // JSON or CSV
+    machineReadable: true,
+  })
+
+  // Provide download link valid for 7 days
+  const downloadUrl = await $.storage.createSignedUrl(data, {
+    expiresIn: '7d',
+  })
+
+  await $.email.send({
+    to: user.email,
+    subject: 'Your Data Export is Ready',
+    body: `Download your data: ${downloadUrl}`,
+  })
+})
+```
+
+### Consent Management
+
+```typescript
+// Track and manage consent
+await $.consent.record({
+  userId,
+  purpose: 'marketing-emails',
+  granted: true,
+  timestamp: new Date().toISOString(),
+  source: 'signup-form',
+  version: 'privacy-policy-v2.1',
+})
+
+// Check consent before processing
+const hasConsent = await $.consent.check(userId, 'marketing-emails')
+
+if (!hasConsent) {
+  return // Don't process without consent
+}
+
+// Withdraw consent
+$.on.User.consentWithdrawn(async ($, { userId, purpose }) => {
+  await $.consent.revoke(userId, purpose)
+  await $.audit.log('consent.revoked', { userId, purpose })
+})
+```
+
+### Lawful Basis Tracking
+
+```typescript
+// Document lawful basis for processing
+await $.data.setProcessingBasis({
+  dataType: 'customer-email',
+  basis: 'contract', // consent, contract, legal-obligation, vital-interests, public-task, legitimate-interests
+  description: 'Required for order fulfillment',
+})
+
+await $.data.setProcessingBasis({
+  dataType: 'marketing-preferences',
+  basis: 'consent',
+  description: 'Email marketing opted in by user',
+})
+```
+
+## SOC 2 Compliance
+
+### Trust Service Criteria
+
+dotdo provides controls for all five SOC 2 categories:
+
+```typescript
+// Security - Access controls
+$.authorize({
+  'Customer.read': ['support', 'admin'],
+  'Customer.write': ['admin'],
+  'System.configure': ['admin'],
+})
+
+// Availability - Health monitoring
+$.on.System.healthCheck(async ($) => {
+  const status = await $.health.check([
+    'database',
+    'cache',
+    'external-apis',
+  ])
+
+  if (!status.healthy) {
+    await $.alert.ops('System health degraded', status)
+  }
+})
+
+// Processing Integrity - Data validation
+$.on.Order.created(async ($, order) => {
+  const valid = await $.validate(order, OrderSchema)
+  if (!valid) {
+    throw new ProcessingError('Invalid order data')
+  }
+})
+
+// Confidentiality - Encryption
+const encrypted = await $.crypto.encrypt(sensitiveData)
+await $.storage.put('confidential', encrypted)
+
+// Privacy - Data minimization
+const customer = await $.db.customers.get(id, {
+  select: ['name', 'email'], // Only fetch needed fields
+})
+```
+
+### Continuous Monitoring
+
+```typescript
+// Monitor for compliance violations
+$.on.Audit.event(async ($, event) => {
+  const violations = await $.compliance.check(event, {
+    frameworks: ['soc2', 'gdpr'],
+  })
+
+  if (violations.length > 0) {
+    await $.alert.compliance('Compliance violation detected', {
+      event,
+      violations,
+      severity: 'high',
+    })
+  }
+})
+```
+
+### Evidence Collection
+
+```typescript
+// Automatic evidence collection for audits
+await $.compliance.collectEvidence({
+  framework: 'soc2',
+  period: { start: '2024-01-01', end: '2024-03-31' },
+  controls: [
+    'access-control',
+    'change-management',
+    'incident-response',
+    'data-encryption',
+  ],
+})
+
+// Generate audit report
+const report = await $.compliance.generateReport({
+  framework: 'soc2',
+  type: 'type-2',
+  period: 'Q1-2024',
+})
+```
+
+## Data Residency
+
+### Region Configuration
+
+Control where data is stored and processed:
+
+```typescript
+// Configure data residency
+$.configure({
+  dataResidency: {
+    default: 'eu-west-1',
+    customers: {
+      eu: 'eu-west-1',
+      us: 'us-east-1',
+      apac: 'ap-southeast-1',
+    },
+  },
+})
+
+// Store data in correct region based on user
+await $.storage.put('customer-data', data, {
+  region: customer.region,
+})
+```
+
+### Per-User Residency
+
+```typescript
+// Respect user's data residency preference
+$.on.Customer.created(async ($, customer) => {
+  const region = determineRegion(customer.country)
+
+  await $.db.customers.create({
+    ...customer,
+    dataRegion: region,
+  })
+
+  await $.audit.log('customer.created', {
+    customerId: customer.id,
+    dataRegion: region,
+  })
+})
+
+function determineRegion(country: string): string {
+  const euCountries = ['DE', 'FR', 'IT', 'ES', 'NL', ...]
+  if (euCountries.includes(country)) return 'eu-west-1'
+  if (country === 'US') return 'us-east-1'
+  return 'ap-southeast-1'
+}
+```
+
+### Cross-Region Data Transfer
+
+```typescript
+// Document and control cross-border transfers
+await $.data.transfer({
+  from: 'eu-west-1',
+  to: 'us-east-1',
+  data: analyticsData,
+  mechanism: 'standard-contractual-clauses', // or 'adequacy-decision', 'binding-corporate-rules'
+  purpose: 'Analytics processing',
+})
+
+// Block unauthorized transfers
+$.on.Data.transferAttempt(async ($, { from, to, data }) => {
+  const allowed = await $.compliance.checkTransfer(from, to)
+
+  if (!allowed) {
+    throw new ComplianceError('Cross-border transfer not permitted')
+  }
+})
+```
+
+### Edge Processing
+
+Process data at the edge to avoid transfers:
+
+```typescript
+// Process sensitive data in-region
+export default {
+  async fetch(request, env, ctx) {
+    const region = request.cf?.country
+
+    // Route to regional handler
+    if (isEU(region)) {
+      return handleInRegion(request, 'eu')
+    }
+
+    return handleInRegion(request, 'us')
+  },
+}
+
+async function handleInRegion(request, region) {
+  // Data processed entirely within region
+  const result = await processLocally(request)
+  return new Response(result)
+}
+```
+
+## Audit Logging
+
+### Comprehensive Audit Trail
+
+Every action is logged with full context:
+
+```typescript
+// Automatic audit logging
+{
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "actor": {
+    "type": "human",
+    "id": "user_abc123",
+    "email": "alice@example.com",
+    "ip": "192.168.1.1",
+    "userAgent": "Mozilla/5.0..."
+  },
+  "action": "Customer.update",
+  "resource": {
+    "type": "customer",
+    "id": "cust_xyz789"
+  },
+  "changes": {
+    "before": { "email": "old@example.com" },
+    "after": { "email": "new@example.com" }
+  },
+  "result": "success",
+  "context": {
+    "environment": "production",
+    "region": "eu-west-1",
+    "requestId": "req_123456"
+  }
+}
+```
+
+### Custom Audit Events
+
+```typescript
+// Log business-specific events
+await $.audit.log('payment.processed', {
+  customerId: customer.id,
+  amount: payment.amount,
+  currency: payment.currency,
+  paymentMethod: 'card', // Never log card details
+})
+
+await $.audit.log('refund.approved', {
+  orderId: order.id,
+  amount: refund.amount,
+  approvedBy: $.user.id,
+  reason: refund.reason,
+})
+```
+
+### Audit Log Retention
+
+```typescript
+// Configure retention policies
+$.configure({
+  audit: {
+    retention: {
+      default: '7y', // 7 years for most logs
+      financial: '10y', // 10 years for financial
+      security: '5y',
+    },
+    immutable: true, // Cannot be deleted
+    encryption: 'AES-256-GCM',
+  },
+})
+```
+
+### Audit Log Search
+
+```typescript
+// Search audit logs
+const logs = await $.audit.search({
+  actor: 'user_abc123',
+  action: 'Customer.*',
+  startDate: '2024-01-01',
+  endDate: '2024-01-31',
+  limit: 100,
+})
+
+// Export for compliance review
+const export = await $.audit.export({
+  format: 'csv',
+  filters: {
+    action: ['Customer.delete', 'Refund.approve'],
+    period: 'last-90-days',
+  },
+})
+```
+
+### Tamper-Proof Logs
+
+```typescript
+// Audit logs are cryptographically secured
+{
+  "entry": { ... },
+  "hash": "sha256:abc123...",
+  "previousHash": "sha256:xyz789...",
+  "signature": "ed25519:...",
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
+
+// Verify log integrity
+const valid = await $.audit.verifyIntegrity({
+  startDate: '2024-01-01',
+  endDate: '2024-01-31',
+})
+
+if (!valid) {
+  await $.alert.security('Audit log tampering detected')
+}
+```
+
+## Compliance Frameworks
+
+### Framework Support
+
+```typescript
+// Check compliance across frameworks
+const status = await $.compliance.status({
+  frameworks: ['gdpr', 'soc2', 'hipaa', 'pci-dss'],
+})
+
+// {
+//   gdpr: { compliant: true, lastAudit: '2024-01-15' },
+//   soc2: { compliant: true, lastAudit: '2024-01-10' },
+//   hipaa: { compliant: false, issues: ['encryption-gap'] },
+//   pci_dss: { compliant: true, lastAudit: '2024-01-12' }
+// }
+```
+
+### HIPAA for Healthcare
+
+```typescript
+// Healthcare data handling
+$.configure({
+  hipaa: {
+    enabled: true,
+    phi: {
+      encryption: 'AES-256',
+      accessLogging: 'mandatory',
+      minimumNecessary: true,
+    },
+  },
+})
+
+// PHI access is always logged
+const patient = await $.db.patients.get(patientId)
+// Automatic audit: "PHI accessed by user_123 for patient_456"
+```
+
+### PCI-DSS for Payments
+
+```typescript
+// Payment data handling
+$.configure({
+  pci: {
+    enabled: true,
+    cardholderData: {
+      storage: 'tokenized', // Never store raw card numbers
+      transmission: 'encrypted',
+      display: 'masked',
+    },
+  },
+})
+
+// Tokenize card data
+const token = await $.pci.tokenize(cardNumber)
+await $.db.payments.create({
+  cardToken: token, // Token only, not raw number
+  amount: 1000,
+})
+```
+
+## Best Practices
+
+### Privacy by Design
+
+```typescript
+// Collect only what you need
+await $.db.customers.create({
+  email: customer.email,
+  name: customer.name,
+  // Don't collect: SSN, DOB, etc. unless required
+})
+
+// Pseudonymize when possible
+const analyticsData = {
+  visitorId: hash(userId), // Not real user ID
+  pageViews: 5,
+  country: 'US', // Region, not exact location
+}
+```
+
+### Regular Audits
+
+```typescript
+// Schedule compliance reviews
+$.every.quarter(async ($) => {
+  const report = await $.compliance.audit({
+    frameworks: ['gdpr', 'soc2'],
+    scope: ['access-controls', 'data-handling', 'encryption'],
+  })
+
+  await $.email.send({
+    to: 'compliance@company.com',
+    subject: 'Quarterly Compliance Report',
+    attachments: [report],
+  })
+})
+```
+
+### Incident Response
+
+```typescript
+// Define breach response procedures
+$.on.Security.breach(async ($, incident) => {
+  // 1. Contain the breach
+  await $.security.contain(incident)
+
+  // 2. Assess impact
+  const impact = await $.security.assessImpact(incident)
+
+  // 3. Notify required parties
+  if (impact.affectedUsers > 0) {
+    // GDPR requires notification within 72 hours
+    await $.compliance.scheduleNotification({
+      type: 'breach',
+      deadline: '72h',
+      authority: 'dpa',
+      affectedUsers: impact.affectedUsers,
+    })
+  }
+
+  // 4. Document everything
+  await $.audit.log('security.breach', {
+    incident,
+    impact,
+    containmentActions: incident.containment,
+  })
+})
+```
+
+### Data Classification
+
+```typescript
+// Classify data by sensitivity
+await $.data.classify({
+  'customer.email': 'pii',
+  'customer.name': 'pii',
+  'customer.ssn': 'sensitive-pii',
+  'order.total': 'business-confidential',
+  'product.name': 'public',
+})
+
+// Apply controls based on classification
+$.on.Data.access(async ($, { field, classification }) => {
+  if (classification === 'sensitive-pii') {
+    // Require additional authentication
+    await $.auth.requireMFA()
+  }
+})
+```
+
+## Related
+
+- [Encryption](/docs/security/encryption) - Data protection mechanisms
+- [Vault](/docs/security/vault) - Secure secret storage
+- [Authorization](/docs/security/authorization) - Access control
+- [Authentication](/docs/security/authentication) - Identity verification

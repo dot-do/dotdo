@@ -1,0 +1,563 @@
+---
+title: Request Batching
+description: Automatic and manual batching to minimize round trips and maximize throughput
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Request Batching
+
+Batching combines multiple RPC calls into a single network request. Automatic batching collects calls within a time window; manual batching gives you explicit control.
+
+```typescript
+// These three calls batch into ONE request
+const [alice, bob, charlie] = await Promise.all([
+  $.Customer('alice'),
+  $.Customer('bob'),
+  $.Customer('charlie'),
+])
+```
+
+One round trip. Three results.
+
+## Automatic Batching
+
+Enable automatic batching to collect calls within a time window:
+
+```typescript
+import { createRpcProxy, HTTPExecutor } from '@dotdo/rpc'
+
+const executor = new HTTPExecutor('https://api.example.com/rpc')
+
+const client = createRpcProxy(executor, {
+  batching: {
+    enabled: true,
+    windowMs: 10,    // Collect calls for 10ms
+    maxSize: 100,    // Max 100 calls per batch
+  },
+})
+
+// All calls within 10ms window batch together
+const userPromise = client.getUser('123')
+const ordersPromise = client.getOrders('123')
+const profilePromise = client.getProfile('123')
+
+// Single network request when any promise is awaited
+const [user, orders, profile] = await Promise.all([
+  userPromise,
+  ordersPromise,
+  profilePromise,
+])
+```
+
+### How Automatic Batching Works
+
+1. When a call is made, it's added to a pending queue
+2. A timer starts (or continues) for the batch window
+3. At window end (or max size), all pending calls execute as one request
+4. Results are distributed to their respective promises
+
+```typescript
+// Timeline visualization:
+// t=0ms:  client.getUser('1')     -> added to queue, timer starts
+// t=2ms:  client.getUser('2')     -> added to queue
+// t=5ms:  client.getOrders('1')   -> added to queue
+// t=10ms: timer fires             -> batch executes as single request
+// t=50ms: response received       -> all promises resolve
+```
+
+### Configuration Options
+
+```typescript
+interface BatchingConfig {
+  // Enable batching (default: false)
+  enabled: boolean
+
+  // Time window to collect calls (default: 10ms)
+  windowMs?: number
+
+  // Maximum calls per batch (default: 100)
+  maxSize?: number
+}
+```
+
+<Callout type="warn" title="Batching vs Pipelining">
+Batching groups independent calls. Pipelining chains dependent calls. Use both together for maximum efficiency:
+- **Batching**: Multiple `getUser()` calls in parallel
+- **Pipelining**: `getUser().getOrders()[0].details` in sequence
+</Callout>
+
+## Manual Batch Calls
+
+For explicit control, use the batch API directly:
+
+```typescript
+import { HTTPExecutor } from '@dotdo/rpc'
+import type { MethodCall } from '@dotdo/rpc'
+
+const executor = new HTTPExecutor('https://api.example.com/rpc')
+
+// Explicitly batch calls
+const calls: MethodCall[] = [
+  { id: '1', path: ['getUser'], args: ['alice'] },
+  { id: '2', path: ['getUser'], args: ['bob'] },
+  { id: '3', path: ['getOrders'], args: ['alice'] },
+]
+
+const results = await executor.executeBatch(calls)
+
+// Results in same order as calls
+const alice = results[0].result
+const bob = results[1].result
+const aliceOrders = results[2].result
+```
+
+### Batch Builder Pattern
+
+Create a fluent API for building batches:
+
+```typescript
+class BatchBuilder<T extends Record<string, unknown>> {
+  private executor: Executor
+  private calls: Array<{
+    key: string
+    call: MethodCall
+  }> = []
+  private idCounter = 0
+
+  constructor(executor: Executor) {
+    this.executor = executor
+  }
+
+  add<K extends string>(
+    key: K,
+    path: string[],
+    args?: unknown[]
+  ): BatchBuilder<T & Record<K, unknown>> {
+    this.calls.push({
+      key,
+      call: {
+        id: String(++this.idCounter),
+        path,
+        args,
+      },
+    })
+    return this as unknown as BatchBuilder<T & Record<K, unknown>>
+  }
+
+  async execute(): Promise<T> {
+    const results = await this.executor.executeBatch(
+      this.calls.map((c) => c.call)
+    )
+
+    const output: Record<string, unknown> = {}
+    for (let i = 0; i < this.calls.length; i++) {
+      const { key } = this.calls[i]
+      const result = results[i]
+      if (result.error) {
+        throw new Error(`Call ${key} failed: ${result.error.message}`)
+      }
+      output[key] = result.result
+    }
+
+    return output as T
+  }
+}
+
+// Usage
+const batch = new BatchBuilder(executor)
+  .add('user', ['getUser'], ['alice'])
+  .add('orders', ['getOrders'], ['alice'])
+  .add('preferences', ['getPreferences'], ['alice'])
+
+const { user, orders, preferences } = await batch.execute()
+```
+
+## Server-Side Batch Handling
+
+Handle batch requests efficiently on the server:
+
+```typescript
+import { Hono } from 'hono'
+import { InMemoryExecutor } from '@dotdo/rpc'
+import type { MethodCall, CallResult } from '@dotdo/rpc'
+
+const app = new Hono()
+const executor = new InMemoryExecutor(service)
+
+app.post('/rpc', async (c) => {
+  const isBatch = c.req.header('X-RPC-Batch') === 'true'
+
+  if (isBatch) {
+    // Handle batch request
+    const calls: MethodCall[] = await c.req.json()
+    const results = await executor.executeBatch(calls)
+    return c.json(results)
+  } else {
+    // Handle single request
+    const call: MethodCall = await c.req.json()
+    const result = await executor.execute(call)
+    return c.json(result)
+  }
+})
+```
+
+### Parallel Execution
+
+Execute batch calls in parallel for independent operations:
+
+```typescript
+class ParallelExecutor implements Executor {
+  private target: unknown
+
+  constructor(target: unknown) {
+    this.target = target
+  }
+
+  async execute(call: MethodCall): Promise<CallResult> {
+    try {
+      const method = this.resolveMethod(call.path)
+      const result = await method(...(call.args || []))
+      return { result }
+    } catch (error) {
+      return {
+        error: {
+          code: 'EXECUTION_ERROR',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
+  }
+
+  // Execute all calls in parallel
+  async executeBatch(calls: MethodCall[]): Promise<CallResult[]> {
+    return Promise.all(calls.map((call) => this.execute(call)))
+  }
+
+  private resolveMethod(path: string[]): Function {
+    let current: unknown = this.target
+    for (const segment of path.slice(0, -1)) {
+      current = (current as Record<string, unknown>)[segment]
+    }
+    return (current as Record<string, Function>)[path[path.length - 1]]
+  }
+}
+```
+
+### Ordered Execution
+
+For calls that must execute in order:
+
+```typescript
+class OrderedExecutor implements Executor {
+  private target: unknown
+
+  constructor(target: unknown) {
+    this.target = target
+  }
+
+  async execute(call: MethodCall): Promise<CallResult> {
+    // ... same as above
+  }
+
+  // Execute calls sequentially
+  async executeBatch(calls: MethodCall[]): Promise<CallResult[]> {
+    const results: CallResult[] = []
+    for (const call of calls) {
+      const result = await this.execute(call)
+      results.push(result)
+
+      // Stop on first error if needed
+      if (result.error) break
+    }
+    return results
+  }
+}
+```
+
+## Performance Optimization
+
+### Optimal Batch Sizes
+
+| Batch Size | Network Overhead | Latency | Memory |
+|------------|------------------|---------|--------|
+| 1 (no batching) | High | Low per call | Low |
+| 10-50 | Low | Medium | Low |
+| 50-100 | Very Low | Medium-High | Medium |
+| 100+ | Minimal | High | High |
+
+<Callout type="info" title="Recommended Settings">
+For most applications:
+- `windowMs: 10` - Short enough to feel instant
+- `maxSize: 50` - Good balance of efficiency and memory
+</Callout>
+
+### Measuring Batch Efficiency
+
+```typescript
+import { createRpcProxy } from '@dotdo/rpc'
+
+// Wrap executor with metrics
+class MetricsExecutor implements Executor {
+  private inner: Executor
+  private metrics = {
+    singleCalls: 0,
+    batchCalls: 0,
+    totalBatchedCalls: 0,
+    avgBatchSize: 0,
+  }
+
+  constructor(inner: Executor) {
+    this.inner = inner
+  }
+
+  async execute(call: MethodCall): Promise<CallResult> {
+    this.metrics.singleCalls++
+    return this.inner.execute(call)
+  }
+
+  async executeBatch(calls: MethodCall[]): Promise<CallResult[]> {
+    this.metrics.batchCalls++
+    this.metrics.totalBatchedCalls += calls.length
+    this.metrics.avgBatchSize =
+      this.metrics.totalBatchedCalls / this.metrics.batchCalls
+
+    return this.inner.executeBatch!(calls)
+  }
+
+  getMetrics() {
+    return {
+      ...this.metrics,
+      batchingRatio:
+        this.metrics.totalBatchedCalls /
+        (this.metrics.singleCalls + this.metrics.totalBatchedCalls),
+    }
+  }
+}
+
+// Usage
+const metricsExecutor = new MetricsExecutor(httpExecutor)
+const client = createRpcProxy(metricsExecutor, {
+  batching: { enabled: true },
+})
+
+// After some operations
+console.log(metricsExecutor.getMetrics())
+// { singleCalls: 5, batchCalls: 20, totalBatchedCalls: 180, avgBatchSize: 9, batchingRatio: 0.97 }
+```
+
+### Batching with Caching
+
+Combine batching with caching for maximum efficiency:
+
+```typescript
+class CachedBatchExecutor implements Executor {
+  private inner: Executor
+  private cache = new Map<string, { result: CallResult; expiry: number }>()
+  private ttlMs: number
+
+  constructor(inner: Executor, ttlMs: number = 5000) {
+    this.inner = inner
+    this.ttlMs = ttlMs
+  }
+
+  private getCacheKey(call: MethodCall): string {
+    return JSON.stringify({ path: call.path, args: call.args })
+  }
+
+  async execute(call: MethodCall): Promise<CallResult> {
+    const key = this.getCacheKey(call)
+    const cached = this.cache.get(key)
+
+    if (cached && cached.expiry > Date.now()) {
+      return cached.result
+    }
+
+    const result = await this.inner.execute(call)
+
+    if (!result.error) {
+      this.cache.set(key, {
+        result,
+        expiry: Date.now() + this.ttlMs,
+      })
+    }
+
+    return result
+  }
+
+  async executeBatch(calls: MethodCall[]): Promise<CallResult[]> {
+    const results: CallResult[] = new Array(calls.length)
+    const uncachedCalls: { index: number; call: MethodCall }[] = []
+
+    // Check cache first
+    for (let i = 0; i < calls.length; i++) {
+      const key = this.getCacheKey(calls[i])
+      const cached = this.cache.get(key)
+
+      if (cached && cached.expiry > Date.now()) {
+        results[i] = cached.result
+      } else {
+        uncachedCalls.push({ index: i, call: calls[i] })
+      }
+    }
+
+    // Fetch uncached in batch
+    if (uncachedCalls.length > 0) {
+      const batchResults = await this.inner.executeBatch!(
+        uncachedCalls.map((u) => u.call)
+      )
+
+      for (let i = 0; i < uncachedCalls.length; i++) {
+        const { index, call } = uncachedCalls[i]
+        const result = batchResults[i]
+
+        results[index] = result
+
+        if (!result.error) {
+          this.cache.set(this.getCacheKey(call), {
+            result,
+            expiry: Date.now() + this.ttlMs,
+          })
+        }
+      }
+    }
+
+    return results
+  }
+}
+```
+
+## Batching Patterns
+
+### DataLoader Pattern
+
+Collect requests across async boundaries:
+
+```typescript
+class DataLoader<K, V> {
+  private batch: Map<K, { resolve: (v: V) => void; reject: (e: Error) => void }[]> = new Map()
+  private scheduled = false
+  private loadFn: (keys: K[]) => Promise<V[]>
+
+  constructor(loadFn: (keys: K[]) => Promise<V[]>) {
+    this.loadFn = loadFn
+  }
+
+  async load(key: K): Promise<V> {
+    return new Promise((resolve, reject) => {
+      if (!this.batch.has(key)) {
+        this.batch.set(key, [])
+      }
+      this.batch.get(key)!.push({ resolve, reject })
+
+      if (!this.scheduled) {
+        this.scheduled = true
+        queueMicrotask(() => this.dispatch())
+      }
+    })
+  }
+
+  private async dispatch() {
+    const batch = this.batch
+    this.batch = new Map()
+    this.scheduled = false
+
+    const keys = Array.from(batch.keys())
+
+    try {
+      const values = await this.loadFn(keys)
+
+      for (let i = 0; i < keys.length; i++) {
+        const callbacks = batch.get(keys[i])!
+        for (const { resolve } of callbacks) {
+          resolve(values[i])
+        }
+      }
+    } catch (error) {
+      for (const callbacks of batch.values()) {
+        for (const { reject } of callbacks) {
+          reject(error as Error)
+        }
+      }
+    }
+  }
+}
+
+// Usage with RPC
+const userLoader = new DataLoader(async (ids: string[]) => {
+  const results = await executor.executeBatch(
+    ids.map((id) => ({ id, path: ['getUser'], args: [id] }))
+  )
+  return results.map((r) => r.result)
+})
+
+// These batch together across async boundaries
+async function getUsers() {
+  const [alice, bob] = await Promise.all([
+    userLoader.load('alice'),
+    userLoader.load('bob'),
+  ])
+  return { alice, bob }
+}
+```
+
+### Debounced Batching
+
+For high-frequency updates:
+
+```typescript
+class DebouncedBatcher<T> {
+  private pending: T[] = []
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private processFn: (items: T[]) => Promise<void>
+  private debounceMs: number
+
+  constructor(
+    processFn: (items: T[]) => Promise<void>,
+    debounceMs: number = 100
+  ) {
+    this.processFn = processFn
+    this.debounceMs = debounceMs
+  }
+
+  add(item: T) {
+    this.pending.push(item)
+
+    // Reset timer on each add
+    if (this.timer) clearTimeout(this.timer)
+
+    this.timer = setTimeout(() => this.flush(), this.debounceMs)
+  }
+
+  private async flush() {
+    const items = this.pending
+    this.pending = []
+    this.timer = null
+
+    if (items.length > 0) {
+      await this.processFn(items)
+    }
+  }
+}
+
+// Usage: batch analytics events
+const analyticsBatcher = new DebouncedBatcher(async (events) => {
+  await executor.execute({
+    id: crypto.randomUUID(),
+    path: ['analytics', 'trackBatch'],
+    args: [events],
+  })
+}, 500)
+
+// High-frequency calls debounce into batches
+function trackEvent(event: AnalyticsEvent) {
+  analyticsBatcher.add(event)
+}
+```
+
+## Related
+
+- [Client SDK](/docs/rpc/client) - Connect from any client
+- [RPC Server](/docs/rpc/server) - Set up RPC handlers
+- [Promise Pipelining](/docs/rpc/pipelines) - Chain dependent calls
+- [RPC Streaming](/docs/rpc/streaming) - Real-time data streaming
