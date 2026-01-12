@@ -947,6 +947,36 @@ export {
 } from './sms'
 
 // =============================================================================
+// WhatsApp Module
+// =============================================================================
+
+export {
+  TwilioWhatsApp,
+  TwilioWhatsAppError,
+  SessionExpiredError,
+  createWhatsAppClient,
+  type WhatsAppMessageStatus,
+  type WhatsAppMediaType,
+  type WhatsAppButton,
+  type WhatsAppListSection,
+  type WhatsAppListRow,
+  type WhatsAppLocation,
+  type WhatsAppContact,
+  type WhatsAppSession,
+  type WhatsAppSendRequest,
+  type WhatsAppTemplateSendRequest,
+  type WhatsAppMediaSendRequest,
+  type WhatsAppButtonsRequest,
+  type WhatsAppListRequest,
+  type WhatsAppLocationRequest,
+  type WhatsAppContactRequest,
+  type WhatsAppSendResponse,
+  type WhatsAppWebhookPayload,
+  type WhatsAppStatusPayload,
+  type TwilioWhatsAppConfig,
+} from './whatsapp'
+
+// =============================================================================
 // Default Export
 // =============================================================================
 

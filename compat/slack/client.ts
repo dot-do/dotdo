@@ -275,6 +275,129 @@ export interface ConversationsLeaveResponse extends SlackResponse {
   not_in_channel?: boolean
 }
 
+export interface ConversationsCreateArguments {
+  name: string
+  is_private?: boolean
+  team_id?: string
+}
+
+export interface ConversationsCreateResponse extends SlackResponse {
+  channel?: SlackChannel
+}
+
+export interface ConversationsArchiveArguments {
+  channel: string
+}
+
+export interface ConversationsArchiveResponse extends SlackResponse {}
+
+export interface ConversationsUnarchiveArguments {
+  channel: string
+}
+
+export interface ConversationsUnarchiveResponse extends SlackResponse {}
+
+export interface ConversationsInviteArguments {
+  channel: string
+  users: string
+  force?: boolean
+}
+
+export interface ConversationsInviteResponse extends SlackResponse {
+  channel?: SlackChannel
+}
+
+export interface ConversationsKickArguments {
+  channel: string
+  user: string
+}
+
+export interface ConversationsKickResponse extends SlackResponse {}
+
+export interface ConversationsMembersArguments {
+  channel: string
+  cursor?: string
+  limit?: number
+}
+
+export interface ConversationsMembersResponse extends SlackResponse {
+  members?: string[]
+}
+
+export interface ConversationsRenameArguments {
+  channel: string
+  name: string
+}
+
+export interface ConversationsRenameResponse extends SlackResponse {
+  channel?: SlackChannel
+}
+
+export interface ConversationsSetTopicArguments {
+  channel: string
+  topic: string
+}
+
+export interface ConversationsSetTopicResponse extends SlackResponse {
+  channel?: SlackChannel
+  topic?: string
+}
+
+export interface ConversationsSetPurposeArguments {
+  channel: string
+  purpose: string
+}
+
+export interface ConversationsSetPurposeResponse extends SlackResponse {
+  channel?: SlackChannel
+  purpose?: string
+}
+
+export interface ConversationsOpenArguments {
+  channel?: string
+  users?: string
+  prevent_creation?: boolean
+  return_im?: boolean
+}
+
+export interface ConversationsOpenResponse extends SlackResponse {
+  channel?: SlackChannel & { is_open?: boolean }
+  no_op?: boolean
+  already_open?: boolean
+}
+
+export interface ConversationsCloseArguments {
+  channel: string
+}
+
+export interface ConversationsCloseResponse extends SlackResponse {
+  no_op?: boolean
+  already_closed?: boolean
+}
+
+export interface ConversationsRepliesArguments {
+  channel: string
+  ts: string
+  cursor?: string
+  inclusive?: boolean
+  latest?: string
+  limit?: number
+  oldest?: string
+  include_all_metadata?: boolean
+}
+
+export interface ConversationsRepliesResponse extends SlackResponse {
+  messages?: SlackMessage[]
+  has_more?: boolean
+}
+
+export interface ConversationsMarkArguments {
+  channel: string
+  ts: string
+}
+
+export interface ConversationsMarkResponse extends SlackResponse {}
+
 // ============================================================================
 // USERS API TYPES
 // ============================================================================
@@ -570,7 +693,7 @@ class ChatMethods {
 class ConversationsMethods {
   constructor(private client: WebClient) {}
 
-  async list(args: ConversationsListArguments): Promise<ConversationsListResponse> {
+  async list(args: ConversationsListArguments = {}): Promise<ConversationsListResponse> {
     return this.client._apiCall('conversations.list', args, 'GET')
   }
 
@@ -588,6 +711,58 @@ class ConversationsMethods {
 
   async leave(args: ConversationsLeaveArguments): Promise<ConversationsLeaveResponse> {
     return this.client._apiCall('conversations.leave', args)
+  }
+
+  async create(args: ConversationsCreateArguments): Promise<ConversationsCreateResponse> {
+    return this.client._apiCall('conversations.create', args)
+  }
+
+  async archive(args: ConversationsArchiveArguments): Promise<ConversationsArchiveResponse> {
+    return this.client._apiCall('conversations.archive', args)
+  }
+
+  async unarchive(args: ConversationsUnarchiveArguments): Promise<ConversationsUnarchiveResponse> {
+    return this.client._apiCall('conversations.unarchive', args)
+  }
+
+  async invite(args: ConversationsInviteArguments): Promise<ConversationsInviteResponse> {
+    return this.client._apiCall('conversations.invite', args)
+  }
+
+  async kick(args: ConversationsKickArguments): Promise<ConversationsKickResponse> {
+    return this.client._apiCall('conversations.kick', args)
+  }
+
+  async members(args: ConversationsMembersArguments): Promise<ConversationsMembersResponse> {
+    return this.client._apiCall('conversations.members', args, 'GET')
+  }
+
+  async rename(args: ConversationsRenameArguments): Promise<ConversationsRenameResponse> {
+    return this.client._apiCall('conversations.rename', args)
+  }
+
+  async setTopic(args: ConversationsSetTopicArguments): Promise<ConversationsSetTopicResponse> {
+    return this.client._apiCall('conversations.setTopic', args)
+  }
+
+  async setPurpose(args: ConversationsSetPurposeArguments): Promise<ConversationsSetPurposeResponse> {
+    return this.client._apiCall('conversations.setPurpose', args)
+  }
+
+  async open(args: ConversationsOpenArguments): Promise<ConversationsOpenResponse> {
+    return this.client._apiCall('conversations.open', args)
+  }
+
+  async close(args: ConversationsCloseArguments): Promise<ConversationsCloseResponse> {
+    return this.client._apiCall('conversations.close', args)
+  }
+
+  async replies(args: ConversationsRepliesArguments): Promise<ConversationsRepliesResponse> {
+    return this.client._apiCall('conversations.replies', args, 'GET')
+  }
+
+  async mark(args: ConversationsMarkArguments): Promise<ConversationsMarkResponse> {
+    return this.client._apiCall('conversations.mark', args)
   }
 }
 
