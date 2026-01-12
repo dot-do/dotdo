@@ -1,0 +1,561 @@
+---
+title: Supabase Auth
+description: Drop-in replacement for Supabase Auth client with edge-optimized performance on Cloudflare Workers.
+---
+
+# Supabase Auth
+
+Supabase Auth compatibility layer that provides the familiar @supabase/supabase-js authentication API. Run Supabase Auth operations on Cloudflare Workers with edge-optimized performance.
+
+```typescript
+// Before: @supabase/supabase-js
+import { createClient } from '@supabase/supabase-js'
+
+// After: dotdo
+import { createClient } from '@dotdo/supabase-auth'
+
+// Code stays the same
+const supabase = createClient(
+  'https://your-project.supabase.co',
+  'your-anon-key'
+)
+
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password123',
+})
+```
+
+## Why @dotdo/supabase-auth?
+
+| @supabase/supabase-js | @dotdo/supabase-auth |
+|-----------------------|----------------------|
+| Browser/Node dependencies | Edge-compatible |
+| LocalStorage requirement | Stateless or custom storage |
+| Network latency | Optimized for Workers |
+
+## Features
+
+### Authentication Methods
+
+- Email/password sign up and sign in
+- Magic link (passwordless)
+- One-time password (OTP)
+- OAuth providers (Google, GitHub, etc.)
+- Phone authentication
+
+### Session Management
+
+- JWT session handling
+- Token refresh
+- Session persistence
+- Auth state change listeners
+
+### Security
+
+- Multi-factor authentication (MFA/TOTP)
+- Password reset
+- Email verification
+- User metadata management
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/supabase-auth
+```
+
+### Create Client
+
+```typescript
+import { createClient } from '@dotdo/supabase-auth'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+)
+```
+
+### Cloudflare Worker
+
+```typescript
+import { createClient } from '@dotdo/supabase-auth'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY)
+
+    const { data, error } = await supabase.auth.getUser(
+      request.headers.get('Authorization')?.replace('Bearer ', '')
+    )
+
+    if (error || !data.user) {
+      return new Response('Unauthorized', { status: 401 })
+    }
+
+    return Response.json({ user: data.user })
+  },
+}
+```
+
+## Sign Up
+
+### Email/Password
+
+```typescript
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com',
+  password: 'securepassword123',
+  options: {
+    data: {
+      first_name: 'John',
+      last_name: 'Doe',
+    },
+    emailRedirectTo: 'https://myapp.com/welcome',
+  },
+})
+
+if (error) {
+  console.error('Sign up error:', error.message)
+} else {
+  console.log('User created:', data.user)
+  // Note: User may need to confirm email before signing in
+}
+```
+
+### Phone
+
+```typescript
+const { data, error } = await supabase.auth.signUp({
+  phone: '+1234567890',
+  password: 'securepassword123',
+})
+
+// Verify with OTP
+const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+  phone: '+1234567890',
+  token: '123456',
+  type: 'sms',
+})
+```
+
+## Sign In
+
+### Email/Password
+
+```typescript
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password123',
+})
+
+if (error) {
+  console.error('Sign in error:', error.message)
+} else {
+  console.log('Signed in:', data.user)
+  console.log('Session:', data.session)
+}
+```
+
+### Magic Link
+
+```typescript
+const { data, error } = await supabase.auth.signInWithOtp({
+  email: 'user@example.com',
+  options: {
+    emailRedirectTo: 'https://myapp.com/auth/callback',
+  },
+})
+
+// User clicks link in email, then verify token
+const { data: verifyData } = await supabase.auth.verifyOtp({
+  email: 'user@example.com',
+  token: 'token-from-url',
+  type: 'magiclink',
+})
+```
+
+### Phone OTP
+
+```typescript
+// Send OTP
+const { error } = await supabase.auth.signInWithOtp({
+  phone: '+1234567890',
+})
+
+// Verify OTP
+const { data, error: verifyError } = await supabase.auth.verifyOtp({
+  phone: '+1234567890',
+  token: '123456',
+  type: 'sms',
+})
+```
+
+## OAuth Sign In
+
+```typescript
+// Get OAuth URL
+const { data, error } = await supabase.auth.signInWithOAuth({
+  provider: 'github',
+  options: {
+    redirectTo: 'https://myapp.com/auth/callback',
+    scopes: 'read:user user:email',
+  },
+})
+
+// Redirect user to data.url
+// After OAuth callback, exchange code for session
+const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
+```
+
+### Supported Providers
+
+- Apple
+- Azure
+- Bitbucket
+- Discord
+- Facebook
+- Figma
+- GitHub
+- GitLab
+- Google
+- LinkedIn
+- Notion
+- Slack
+- Spotify
+- Twitch
+- Twitter
+- WorkOS
+
+## Session Management
+
+### Get Current User
+
+```typescript
+const { data: { user } } = await supabase.auth.getUser()
+
+if (user) {
+  console.log('Current user:', user.email)
+  console.log('User metadata:', user.user_metadata)
+}
+```
+
+### Get Session
+
+```typescript
+const { data: { session } } = await supabase.auth.getSession()
+
+if (session) {
+  console.log('Access token:', session.access_token)
+  console.log('Refresh token:', session.refresh_token)
+  console.log('Expires at:', session.expires_at)
+}
+```
+
+### Refresh Session
+
+```typescript
+const { data, error } = await supabase.auth.refreshSession()
+
+if (data.session) {
+  console.log('New access token:', data.session.access_token)
+}
+```
+
+### Set Session
+
+```typescript
+const { data, error } = await supabase.auth.setSession({
+  access_token: 'jwt-access-token',
+  refresh_token: 'jwt-refresh-token',
+})
+```
+
+## Auth State Changes
+
+```typescript
+const { data: { subscription } } = supabase.auth.onAuthStateChange(
+  (event, session) => {
+    switch (event) {
+      case 'SIGNED_IN':
+        console.log('User signed in:', session?.user?.email)
+        break
+      case 'SIGNED_OUT':
+        console.log('User signed out')
+        break
+      case 'TOKEN_REFRESHED':
+        console.log('Token refreshed')
+        break
+      case 'USER_UPDATED':
+        console.log('User updated:', session?.user)
+        break
+      case 'PASSWORD_RECOVERY':
+        console.log('Password recovery initiated')
+        break
+    }
+  }
+)
+
+// Unsubscribe when done
+subscription.unsubscribe()
+```
+
+## User Management
+
+### Update User
+
+```typescript
+const { data, error } = await supabase.auth.updateUser({
+  email: 'newemail@example.com', // Requires email confirmation
+  password: 'newpassword123',
+  data: {
+    first_name: 'Jane',
+    avatar_url: 'https://example.com/avatar.jpg',
+  },
+})
+```
+
+### Reset Password
+
+```typescript
+// Send reset password email
+const { error } = await supabase.auth.resetPasswordForEmail(
+  'user@example.com',
+  {
+    redirectTo: 'https://myapp.com/reset-password',
+  }
+)
+
+// After user clicks link and enters new password
+const { data, error: updateError } = await supabase.auth.updateUser({
+  password: 'newpassword123',
+})
+```
+
+## Multi-Factor Authentication
+
+### Enroll TOTP
+
+```typescript
+// Enroll new TOTP factor
+const { data: factor, error } = await supabase.auth.mfa.enroll({
+  factorType: 'totp',
+  friendlyName: 'My Authenticator App',
+})
+
+if (factor) {
+  // Show QR code to user
+  console.log('QR Code URI:', factor.totp.qr_code)
+  console.log('Secret:', factor.totp.secret)
+  console.log('Factor ID:', factor.id)
+}
+```
+
+### Verify MFA
+
+```typescript
+// Create challenge
+const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+  factorId: 'factor-id-from-enroll',
+})
+
+// Verify with user's TOTP code
+const { data, error: verifyError } = await supabase.auth.mfa.verify({
+  factorId: 'factor-id',
+  challengeId: challenge.id,
+  code: '123456', // From authenticator app
+})
+```
+
+### List Factors
+
+```typescript
+const { data: { all, totp }, error } = await supabase.auth.mfa.listFactors()
+
+console.log('All factors:', all)
+console.log('TOTP factors:', totp)
+```
+
+### Unenroll Factor
+
+```typescript
+const { error } = await supabase.auth.mfa.unenroll({
+  factorId: 'factor-id',
+})
+```
+
+## Sign Out
+
+```typescript
+const { error } = await supabase.auth.signOut()
+
+// Sign out from all devices
+const { error: globalError } = await supabase.auth.signOut({
+  scope: 'global',
+})
+```
+
+## Custom Storage
+
+For edge environments without localStorage:
+
+```typescript
+import { createClient } from '@dotdo/supabase-auth'
+
+const supabase = createClient(url, key, {
+  auth: {
+    storage: {
+      getItem: async (key) => {
+        // Get from KV, cookies, etc.
+        return env.AUTH_KV.get(key)
+      },
+      setItem: async (key, value) => {
+        await env.AUTH_KV.put(key, value)
+      },
+      removeItem: async (key) => {
+        await env.AUTH_KV.delete(key)
+      },
+    },
+    autoRefreshToken: true,
+    persistSession: true,
+  },
+})
+```
+
+## Error Handling
+
+```typescript
+import { SupabaseAuthError } from '@dotdo/supabase-auth'
+
+try {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: 'user@example.com',
+    password: 'wrong-password',
+  })
+
+  if (error) {
+    // Handle known auth errors
+    switch (error.message) {
+      case 'Invalid login credentials':
+        console.log('Wrong email or password')
+        break
+      case 'Email not confirmed':
+        console.log('Please verify your email')
+        break
+      case 'User not found':
+        console.log('No account with this email')
+        break
+      default:
+        console.log('Auth error:', error.message)
+    }
+  }
+} catch (e) {
+  if (e instanceof SupabaseAuthError) {
+    console.error('Auth error:', e.message, e.status)
+  }
+}
+```
+
+## API Reference
+
+### createClient Function
+
+```typescript
+function createClient(
+  supabaseUrl: string,
+  supabaseKey: string,
+  options?: SupabaseClientOptions
+): SupabaseClient
+```
+
+### AuthClient Methods
+
+```typescript
+class AuthClient {
+  // Sign up
+  signUp(credentials: SignUpCredentials): Promise<AuthResponse>
+
+  // Sign in
+  signInWithPassword(credentials: SignInCredentials): Promise<AuthResponse>
+  signInWithOtp(credentials: OtpCredentials): Promise<AuthOtpResponse>
+  signInWithOAuth(credentials: OAuthCredentials): Promise<OAuthResponse>
+
+  // OTP verification
+  verifyOtp(params: VerifyOtpParams): Promise<AuthResponse>
+
+  // Session management
+  getUser(jwt?: string): Promise<UserResponse>
+  getSession(): Promise<SessionResponse>
+  setSession(session: Session): Promise<AuthResponse>
+  refreshSession(): Promise<AuthResponse>
+
+  // User management
+  updateUser(attributes: UserAttributes): Promise<UserResponse>
+  resetPasswordForEmail(email: string, options?: ResetOptions): Promise<void>
+
+  // MFA
+  mfa: {
+    enroll(params: EnrollParams): Promise<MFAEnrollResponse>
+    challenge(params: ChallengeParams): Promise<MFAChallengeResponse>
+    verify(params: VerifyParams): Promise<MFAVerifyResponse>
+    listFactors(): Promise<MFAListFactorsResponse>
+    unenroll(params: UnenrollParams): Promise<void>
+  }
+
+  // Auth state
+  onAuthStateChange(callback: AuthChangeCallback): { data: { subscription: Subscription } }
+
+  // Sign out
+  signOut(options?: SignOutOptions): Promise<void>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // User types
+  User,
+  Session,
+  UserIdentity,
+  UserAppMetadata,
+  UserMetadata,
+  Factor,
+
+  // Response types
+  AuthResponse,
+  AuthTokenResponse,
+  UserResponse,
+  SessionResponse,
+
+  // Credentials
+  SignUpWithPasswordCredentials,
+  SignInWithPasswordCredentials,
+  SignInWithOAuthCredentials,
+  SignInWithOtpCredentials,
+  VerifyOtpParams,
+
+  // MFA types
+  MFAEnrollResponse,
+  MFAChallengeResponse,
+  MFAVerifyResponse,
+  MFAListFactorsResponse,
+
+  // Auth state
+  AuthChangeEvent,
+  AuthStateChangeCallback,
+  Subscription,
+
+  // Error types
+  AuthError,
+  SupabaseAuthError,
+} from '@dotdo/supabase-auth'
+```
+
+## Related
+
+- [Supabase](/docs/integrations/supabase) - Full Supabase compatibility
+- [Authentication](/docs/security/authentication) - Authentication patterns
+- [Clerk](/docs/integrations/clerk) - Clerk integration
+- [Auth0](/docs/integrations/auth0) - Auth0 integration

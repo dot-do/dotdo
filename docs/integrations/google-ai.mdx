@@ -1,0 +1,470 @@
+---
+title: Google AI
+description: Drop-in replacement for @google/generative-ai with edge compatibility for Cloudflare Workers.
+---
+
+# Google AI
+
+Google Generative AI (Gemini) compatibility layer that works on Cloudflare Workers, Deno, Bun, and Node.js. Use the familiar @google/generative-ai API with your existing code.
+
+```typescript
+// Before: @google/generative-ai
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+// After: dotdo
+import { GoogleGenerativeAI } from '@dotdo/google-ai'
+
+// Code stays the same
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY)
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+const result = await model.generateContent('Write a story about a robot')
+console.log(result.response.text())
+```
+
+## Why @dotdo/google-ai?
+
+| @google/generative-ai | @dotdo/google-ai |
+|-----------------------|------------------|
+| Node.js dependencies | Edge-compatible |
+| Browser-only streaming | Works on Workers |
+| Single runtime target | Universal runtime support |
+
+## Features
+
+### Content Generation
+
+- Text generation with prompts
+- Multi-turn conversations (chat)
+- Streaming responses
+- System instructions
+
+### Advanced Features
+
+- Function calling (tools)
+- Embeddings generation
+- Safety settings
+- Token counting
+
+### Media Support
+
+- Image inputs (vision)
+- File attachments
+- Multi-modal prompts
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/google-ai
+```
+
+### Basic Generation
+
+```typescript
+import { GoogleGenerativeAI } from '@dotdo/google-ai'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY)
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+const result = await model.generateContent('Write a haiku about programming')
+console.log(result.response.text())
+```
+
+### Cloudflare Worker
+
+```typescript
+import { GoogleGenerativeAI } from '@dotdo/google-ai'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const genAI = new GoogleGenerativeAI(env.GOOGLE_AI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+    const { prompt } = await request.json()
+    const result = await model.generateContent(prompt)
+
+    return Response.json({
+      text: result.response.text(),
+    })
+  },
+}
+```
+
+## Chat Conversations
+
+```typescript
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+const chat = model.startChat({
+  history: [
+    { role: 'user', parts: [{ text: 'Hello' }] },
+    { role: 'model', parts: [{ text: 'Hi! How can I help you today?' }] },
+  ],
+})
+
+// Send a message
+const result = await chat.sendMessage('What is 2 + 2?')
+console.log(result.response.text()) // "2 + 2 equals 4"
+
+// Continue the conversation
+const followUp = await chat.sendMessage('Multiply that by 3')
+console.log(followUp.response.text()) // "4 multiplied by 3 equals 12"
+
+// Get full history
+const history = await chat.getHistory()
+```
+
+## Streaming
+
+```typescript
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+// Stream generation
+const streamResult = await model.generateContentStream('Tell me a long story')
+
+for await (const chunk of streamResult.stream) {
+  process.stdout.write(chunk.text())
+}
+
+// Get final response
+const finalResponse = await streamResult.response
+console.log('\n\nFinal:', finalResponse.text())
+```
+
+### Streaming Chat
+
+```typescript
+const chat = model.startChat()
+
+const streamResult = await chat.sendMessageStream('Explain quantum computing')
+
+for await (const chunk of streamResult.stream) {
+  process.stdout.write(chunk.text())
+}
+```
+
+## Vision (Image Input)
+
+```typescript
+const model = genAI.getGenerativeModel({ model: 'gemini-pro-vision' })
+
+// From base64
+const result = await model.generateContent([
+  'What is in this image?',
+  {
+    inlineData: {
+      mimeType: 'image/jpeg',
+      data: base64ImageData,
+    },
+  },
+])
+
+console.log(result.response.text())
+
+// From URL (converted to inline data)
+const imageResponse = await fetch('https://example.com/image.jpg')
+const imageData = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
+
+const result2 = await model.generateContent([
+  'Describe this image in detail',
+  {
+    inlineData: {
+      mimeType: 'image/jpeg',
+      data: imageData,
+    },
+  },
+])
+```
+
+## Function Calling
+
+```typescript
+const model = genAI.getGenerativeModel({
+  model: 'gemini-pro',
+  tools: [{
+    functionDeclarations: [{
+      name: 'getWeather',
+      description: 'Get the weather for a location',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: {
+            type: 'string',
+            description: 'The city name',
+          },
+          unit: {
+            type: 'string',
+            enum: ['celsius', 'fahrenheit'],
+            description: 'Temperature unit',
+          },
+        },
+        required: ['location'],
+      },
+    }, {
+      name: 'searchWeb',
+      description: 'Search the web for information',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The search query',
+          },
+        },
+        required: ['query'],
+      },
+    }],
+  }],
+})
+
+const chat = model.startChat()
+
+// Send message that may trigger function call
+const result = await chat.sendMessage("What's the weather in Tokyo?")
+const response = result.response
+
+// Check if there's a function call
+const functionCall = response.functionCalls()?.[0]
+
+if (functionCall) {
+  console.log('Function called:', functionCall.name)
+  console.log('Arguments:', functionCall.args)
+
+  // Execute the function
+  const weatherData = await getWeather(functionCall.args.location)
+
+  // Send function result back
+  const followUp = await chat.sendMessage([{
+    functionResponse: {
+      name: functionCall.name,
+      response: weatherData,
+    },
+  }])
+
+  console.log(followUp.response.text())
+}
+```
+
+## Embeddings
+
+```typescript
+const model = genAI.getGenerativeModel({ model: 'embedding-001' })
+
+// Single text embedding
+const result = await model.embedContent('Hello world')
+console.log(result.embedding.values) // [0.123, -0.456, ...]
+
+// Batch embeddings
+const batchResult = await model.batchEmbedContents({
+  requests: [
+    { content: { parts: [{ text: 'First text' }] } },
+    { content: { parts: [{ text: 'Second text' }] } },
+    { content: { parts: [{ text: 'Third text' }] } },
+  ],
+})
+
+for (const embedding of batchResult.embeddings) {
+  console.log(embedding.values.length) // Embedding dimensions
+}
+```
+
+## Safety Settings
+
+```typescript
+import { HarmCategory, HarmBlockThreshold } from '@dotdo/google-ai'
+
+const model = genAI.getGenerativeModel({
+  model: 'gemini-pro',
+  safetySettings: [
+    {
+      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+  ],
+})
+
+const result = await model.generateContent('...')
+
+// Check safety ratings
+for (const rating of result.response.candidates[0].safetyRatings) {
+  console.log(`${rating.category}: ${rating.probability}`)
+}
+```
+
+## Generation Config
+
+```typescript
+const model = genAI.getGenerativeModel({
+  model: 'gemini-pro',
+  generationConfig: {
+    temperature: 0.7,
+    topK: 40,
+    topP: 0.95,
+    maxOutputTokens: 1024,
+    stopSequences: ['END', '---'],
+  },
+})
+
+// Override per request
+const result = await model.generateContent({
+  contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+  generationConfig: {
+    temperature: 0.3, // More deterministic
+    maxOutputTokens: 256,
+  },
+})
+```
+
+## System Instructions
+
+```typescript
+const model = genAI.getGenerativeModel({
+  model: 'gemini-pro',
+  systemInstruction: `You are a helpful coding assistant.
+Always provide code examples in TypeScript.
+Be concise and direct in your responses.`,
+})
+
+const result = await model.generateContent('How do I sort an array?')
+```
+
+## Token Counting
+
+```typescript
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+// Count tokens in a prompt
+const countResult = await model.countTokens('Hello, how are you?')
+console.log('Token count:', countResult.totalTokens)
+
+// Count tokens in content parts
+const countResult2 = await model.countTokens([
+  { text: 'First part' },
+  { text: 'Second part' },
+])
+```
+
+## Error Handling
+
+```typescript
+import { GoogleGenerativeAI, GoogleGenerativeAIError } from '@dotdo/google-ai'
+
+try {
+  const result = await model.generateContent(prompt)
+  console.log(result.response.text())
+} catch (error) {
+  if (error instanceof GoogleGenerativeAIError) {
+    console.error('API Error:', error.message)
+    console.error('Status:', error.status)
+    console.error('Details:', error.errorDetails)
+  } else {
+    throw error
+  }
+}
+
+// Check for blocked content
+const result = await model.generateContent(prompt)
+const response = result.response
+
+if (response.promptFeedback?.blockReason) {
+  console.log('Prompt was blocked:', response.promptFeedback.blockReason)
+}
+
+for (const candidate of response.candidates) {
+  if (candidate.finishReason === 'SAFETY') {
+    console.log('Response filtered for safety')
+  }
+}
+```
+
+## API Reference
+
+### GoogleGenerativeAI Class
+
+```typescript
+class GoogleGenerativeAI {
+  constructor(apiKey: string, config?: GoogleGenerativeAIConfig)
+
+  getGenerativeModel(params: ModelParams): GenerativeModel
+}
+```
+
+### GenerativeModel Class
+
+```typescript
+class GenerativeModel {
+  generateContent(request: string | GenerateContentRequest): Promise<GenerateContentResult>
+  generateContentStream(request: string | GenerateContentRequest): Promise<GenerateContentStreamResult>
+  startChat(params?: StartChatParams): ChatSession
+  countTokens(request: string | CountTokensRequest): Promise<CountTokensResult>
+  embedContent(request: string | EmbedContentRequest): Promise<EmbedContentResult>
+  batchEmbedContents(request: BatchEmbedContentsRequest): Promise<BatchEmbedContentsResult>
+}
+```
+
+### ChatSession Class
+
+```typescript
+class ChatSession {
+  sendMessage(request: string | Part[]): Promise<GenerateContentResult>
+  sendMessageStream(request: string | Part[]): Promise<GenerateContentStreamResult>
+  getHistory(): Promise<Content[]>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Content types
+  Content,
+  Part,
+  TextPart,
+  InlineDataPart,
+  FunctionCallPart,
+  FunctionResponsePart,
+
+  // Configuration
+  GenerationConfig,
+  SafetySetting,
+  Tool,
+  FunctionDeclaration,
+  ModelParams,
+  StartChatParams,
+
+  // Response types
+  GenerateContentResult,
+  GenerateContentResponse,
+  Candidate,
+  UsageMetadata,
+  SafetyRating,
+
+  // Embedding types
+  ContentEmbedding,
+  EmbedContentResult,
+  BatchEmbedContentsResult,
+
+  // Error types
+  GoogleAIError,
+} from '@dotdo/google-ai'
+```
+
+## Related
+
+- [OpenAI](/docs/integrations/openai) - OpenAI API compatibility
+- [Anthropic](/docs/integrations/anthropic) - Anthropic API compatibility
+- [Agents](/docs/agents) - AI agent framework

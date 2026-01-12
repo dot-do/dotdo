@@ -1,0 +1,587 @@
+---
+title: Intercom
+description: Intercom-compatible customer messaging SDK for conversations, contacts, and help articles.
+---
+
+# Intercom
+
+Intercom-compatible SDK for customer messaging, contact management, and help center functionality. Build customer communication features that work with Intercom's API or run independently.
+
+```typescript
+import { Intercom } from '@dotdo/intercom'
+
+const client = new Intercom({ accessToken: 'your-token' })
+
+// Create a contact
+const contact = await client.contacts.create({
+  email: 'customer@example.com',
+  name: 'Jane Smith',
+  role: 'user',
+})
+
+// Start a conversation
+const conversation = await client.conversations.create({
+  from: { type: 'user', id: contact.id },
+  body: 'Hi, I need help with my order',
+})
+
+// Send a reply
+await client.conversations.reply({
+  id: conversation.id,
+  body: 'Sure! What is your order number?',
+  type: 'admin',
+  admin_id: 'admin_123',
+})
+```
+
+## Why @dotdo/intercom?
+
+| Intercom API | @dotdo/intercom |
+|--------------|-----------------|
+| External service calls | Can run locally |
+| Usage-based pricing | Unlimited operations |
+| Third-party dependency | Self-hosted option |
+| Limited customization | Full control |
+
+## Features
+
+### Contact Management
+
+- Create, update, delete contacts
+- Search and filter contacts
+- Custom attributes
+- Tags and segments
+
+### Conversations
+
+- Create conversations
+- Reply as admin or user
+- Assign to teammates
+- Close/snooze conversations
+- Conversation tags
+
+### Help Center
+
+- Articles and collections
+- Search functionality
+- Localization support
+
+### Events
+
+- Track user events
+- Event metadata
+- Event-based automation
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/intercom
+```
+
+### Initialize Client
+
+```typescript
+import { Intercom } from '@dotdo/intercom'
+
+const client = new Intercom({
+  accessToken: process.env.INTERCOM_ACCESS_TOKEN,
+})
+```
+
+## Contacts
+
+### Create Contact
+
+```typescript
+// Create a user
+const user = await client.contacts.create({
+  role: 'user',
+  email: 'user@example.com',
+  name: 'John Doe',
+  phone: '+1234567890',
+  custom_attributes: {
+    plan: 'premium',
+    signup_date: '2024-01-15',
+  },
+})
+
+// Create a lead
+const lead = await client.contacts.create({
+  role: 'lead',
+  email: 'lead@example.com',
+  name: 'Jane Smith',
+})
+```
+
+### Find Contact
+
+```typescript
+// By ID
+const contact = await client.contacts.find(contactId)
+
+// By email
+const contact = await client.contacts.search({
+  query: {
+    field: 'email',
+    operator: '=',
+    value: 'user@example.com',
+  },
+})
+```
+
+### Update Contact
+
+```typescript
+const updated = await client.contacts.update(contactId, {
+  name: 'John Smith',
+  custom_attributes: {
+    plan: 'enterprise',
+    last_login: new Date().toISOString(),
+  },
+})
+```
+
+### Search Contacts
+
+```typescript
+// Simple search
+const results = await client.contacts.search({
+  query: {
+    field: 'custom_attributes.plan',
+    operator: '=',
+    value: 'premium',
+  },
+})
+
+// Complex search with AND/OR
+const results = await client.contacts.search({
+  query: {
+    operator: 'AND',
+    value: [
+      { field: 'role', operator: '=', value: 'user' },
+      {
+        operator: 'OR',
+        value: [
+          { field: 'custom_attributes.plan', operator: '=', value: 'premium' },
+          { field: 'custom_attributes.plan', operator: '=', value: 'enterprise' },
+        ],
+      },
+    ],
+  },
+  sort: { field: 'created_at', order: 'desc' },
+  pagination: { per_page: 50 },
+})
+```
+
+### List All Contacts
+
+```typescript
+// Paginated listing
+let page = await client.contacts.list()
+
+while (page.data.length > 0) {
+  for (const contact of page.data) {
+    console.log(contact.email)
+  }
+
+  if (!page.pages.next) break
+  page = await client.contacts.list({ starting_after: page.pages.next })
+}
+```
+
+### Delete Contact
+
+```typescript
+await client.contacts.delete(contactId)
+
+// Archive instead of delete
+await client.contacts.archive(contactId)
+```
+
+## Conversations
+
+### Create Conversation
+
+```typescript
+// User-initiated conversation
+const conversation = await client.conversations.create({
+  from: {
+    type: 'user',
+    id: userId,
+  },
+  body: 'Hi, I have a question about billing',
+})
+
+// Admin-initiated conversation
+const conversation = await client.conversations.create({
+  from: {
+    type: 'admin',
+    id: adminId,
+  },
+  to: {
+    type: 'user',
+    id: userId,
+  },
+  body: 'Hi! How can I help you today?',
+})
+```
+
+### Reply to Conversation
+
+```typescript
+// Admin reply
+await client.conversations.reply({
+  id: conversationId,
+  type: 'admin',
+  admin_id: adminId,
+  body: 'Thanks for reaching out! Let me look into this.',
+})
+
+// User reply
+await client.conversations.reply({
+  id: conversationId,
+  type: 'user',
+  user_id: userId,
+  body: 'Sure, my order number is 12345',
+})
+
+// Reply with attachment
+await client.conversations.reply({
+  id: conversationId,
+  type: 'admin',
+  admin_id: adminId,
+  body: 'Here is the invoice you requested',
+  attachment_urls: ['https://example.com/invoice.pdf'],
+})
+```
+
+### Manage Conversation State
+
+```typescript
+// Assign to admin
+await client.conversations.assign({
+  id: conversationId,
+  admin_id: adminId,
+  assignee_id: newAssigneeId,
+})
+
+// Close conversation
+await client.conversations.close({
+  id: conversationId,
+  admin_id: adminId,
+})
+
+// Snooze conversation
+await client.conversations.snooze({
+  id: conversationId,
+  admin_id: adminId,
+  snoozed_until: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+})
+
+// Reopen conversation
+await client.conversations.open({
+  id: conversationId,
+  admin_id: adminId,
+})
+```
+
+### Search Conversations
+
+```typescript
+const results = await client.conversations.search({
+  query: {
+    operator: 'AND',
+    value: [
+      { field: 'open', operator: '=', value: true },
+      { field: 'admin_assignee_id', operator: '=', value: adminId },
+    ],
+  },
+  sort: { field: 'updated_at', order: 'desc' },
+})
+```
+
+### Add Tags
+
+```typescript
+await client.conversations.addTag({
+  id: conversationId,
+  admin_id: adminId,
+  tag_id: tagId,
+})
+
+await client.conversations.removeTag({
+  id: conversationId,
+  admin_id: adminId,
+  tag_id: tagId,
+})
+```
+
+## Companies
+
+### Create Company
+
+```typescript
+const company = await client.companies.create({
+  company_id: 'acme-corp',
+  name: 'Acme Corporation',
+  plan: 'enterprise',
+  monthly_spend: 5000,
+  custom_attributes: {
+    industry: 'technology',
+    employees: 500,
+  },
+})
+```
+
+### Associate Contact with Company
+
+```typescript
+await client.contacts.update(contactId, {
+  companies: [{ id: companyId }],
+})
+```
+
+### List Company Contacts
+
+```typescript
+const contacts = await client.companies.listContacts(companyId)
+```
+
+## Events
+
+Track user activity:
+
+```typescript
+// Track an event
+await client.events.create({
+  event_name: 'purchased',
+  user_id: userId,
+  created_at: Math.floor(Date.now() / 1000),
+  metadata: {
+    product_name: 'Pro Plan',
+    price: 99.99,
+    currency: 'USD',
+  },
+})
+
+// List events for a user
+const events = await client.events.list({ user_id: userId })
+```
+
+## Tags
+
+### Manage Tags
+
+```typescript
+// Create tag
+const tag = await client.tags.create({ name: 'VIP Customer' })
+
+// List tags
+const tags = await client.tags.list()
+
+// Tag a contact
+await client.tags.tag({
+  name: 'VIP Customer',
+  users: [{ id: userId }],
+})
+
+// Untag a contact
+await client.tags.untag({
+  name: 'VIP Customer',
+  users: [{ id: userId }],
+})
+```
+
+## Articles
+
+### Create Article
+
+```typescript
+const article = await client.articles.create({
+  title: 'Getting Started Guide',
+  body: '<h1>Welcome!</h1><p>Here is how to get started...</p>',
+  author_id: adminId,
+  state: 'published',
+  parent_id: collectionId, // Optional: place in collection
+})
+```
+
+### Search Articles
+
+```typescript
+const results = await client.articles.search({
+  phrase: 'billing',
+  state: 'published',
+})
+```
+
+### List Articles
+
+```typescript
+const articles = await client.articles.list()
+```
+
+## Admins
+
+### List Admins
+
+```typescript
+const admins = await client.admins.list()
+
+for (const admin of admins.admins) {
+  console.log(`${admin.name} (${admin.email})`)
+}
+```
+
+### Get Current Admin
+
+```typescript
+const me = await client.admins.me()
+console.log('Logged in as:', me.name)
+```
+
+## Webhooks
+
+Handle Intercom webhooks:
+
+```typescript
+import { verifyWebhook, parseWebhook } from '@dotdo/intercom'
+
+app.post('/webhooks/intercom', async (c) => {
+  const signature = c.req.header('X-Hub-Signature')
+  const body = await c.req.text()
+
+  // Verify webhook signature
+  if (!verifyWebhook(body, signature, process.env.INTERCOM_WEBHOOK_SECRET)) {
+    return c.text('Invalid signature', 401)
+  }
+
+  const event = parseWebhook(JSON.parse(body))
+
+  switch (event.topic) {
+    case 'conversation.user.created':
+      console.log('New conversation:', event.data.item.id)
+      break
+    case 'conversation.user.replied':
+      console.log('User replied:', event.data.item.id)
+      break
+    case 'user.created':
+      console.log('New user:', event.data.item.email)
+      break
+  }
+
+  return c.text('OK')
+})
+```
+
+## Error Handling
+
+```typescript
+import { IntercomError, RateLimitError, NotFoundError } from '@dotdo/intercom'
+
+try {
+  const contact = await client.contacts.find('invalid-id')
+} catch (error) {
+  if (error instanceof NotFoundError) {
+    console.log('Contact not found')
+  } else if (error instanceof RateLimitError) {
+    console.log('Rate limited, retry after:', error.retryAfter)
+  } else if (error instanceof IntercomError) {
+    console.log('API error:', error.message, error.code)
+  }
+}
+```
+
+## API Reference
+
+### Intercom Class
+
+```typescript
+class Intercom {
+  constructor(config: IntercomConfig)
+
+  contacts: ContactsAPI
+  conversations: ConversationsAPI
+  companies: CompaniesAPI
+  events: EventsAPI
+  tags: TagsAPI
+  articles: ArticlesAPI
+  admins: AdminsAPI
+}
+```
+
+### ContactsAPI
+
+```typescript
+interface ContactsAPI {
+  create(data: CreateContactData): Promise<Contact>
+  find(id: string): Promise<Contact>
+  update(id: string, data: UpdateContactData): Promise<Contact>
+  delete(id: string): Promise<void>
+  archive(id: string): Promise<Contact>
+  unarchive(id: string): Promise<Contact>
+  list(params?: ListParams): Promise<PaginatedContacts>
+  search(query: SearchQuery): Promise<SearchResult>
+}
+```
+
+### ConversationsAPI
+
+```typescript
+interface ConversationsAPI {
+  create(data: CreateConversationData): Promise<Conversation>
+  find(id: string): Promise<Conversation>
+  reply(data: ReplyData): Promise<Conversation>
+  assign(data: AssignData): Promise<Conversation>
+  close(data: CloseData): Promise<Conversation>
+  open(data: OpenData): Promise<Conversation>
+  snooze(data: SnoozeData): Promise<Conversation>
+  list(params?: ListParams): Promise<PaginatedConversations>
+  search(query: SearchQuery): Promise<SearchResult>
+  addTag(data: TagData): Promise<void>
+  removeTag(data: TagData): Promise<void>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Contact types
+  Contact,
+  CreateContactData,
+  UpdateContactData,
+  ContactRole,
+
+  // Conversation types
+  Conversation,
+  ConversationPart,
+  CreateConversationData,
+  ReplyData,
+
+  // Company types
+  Company,
+  CreateCompanyData,
+
+  // Event types
+  Event,
+  CreateEventData,
+
+  // Search types
+  SearchQuery,
+  SearchOperator,
+  SearchResult,
+
+  // Webhook types
+  WebhookEvent,
+  WebhookTopic,
+} from '@dotdo/intercom'
+```
+
+## Related
+
+- [Slack](/docs/integrations/slack) - Slack integration for messaging
+- [Zendesk](/docs/integrations/zendesk) - Customer support platform integration
+- [Events](/docs/events) - Event handling patterns

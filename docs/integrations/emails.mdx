@@ -1,0 +1,460 @@
+---
+title: Emails
+description: Email service with SendGrid and Resend API compatibility, multi-provider backend, and template rendering.
+---
+
+# Emails
+
+Transactional email service with drop-in compatibility for SendGrid and Resend APIs. Supports multiple providers, template rendering, and webhook handling.
+
+```typescript
+// Before: SendGrid
+import sgMail from '@sendgrid/mail'
+
+// After: dotdo
+import { SendGridClient } from '@dotdo/emails'
+
+// Code stays the same
+const client = new SendGridClient({ apiKey: 'SG.xxx' })
+
+await client.send({
+  personalizations: [{ to: [{ email: 'user@example.com' }] }],
+  from: { email: 'noreply@example.com' },
+  subject: 'Hello',
+  content: [{ type: 'text/html', value: '<p>Hello World</p>' }],
+})
+```
+
+## Why @dotdo/emails?
+
+| External Email Services | @dotdo/emails |
+|-------------------------|---------------|
+| Single provider lock-in | Multi-provider with failover |
+| Third-party dependencies | Edge-compatible |
+| Template storage elsewhere | Templates in your infrastructure |
+| Webhook setup complexity | Built-in webhook handling |
+
+## Features
+
+### Provider Compatibility
+
+- **SendGrid** - Full API compatibility
+- **Resend** - Full API compatibility
+- **MailChannels** - Native support
+
+### Core Features
+
+- Multi-provider routing with failover
+- Template storage and rendering
+- Webhook handling (delivered, bounced, opened, clicked)
+- Per-agent email addresses
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/emails
+```
+
+### SendGrid-Compatible API
+
+```typescript
+import { SendGridClient } from '@dotdo/emails'
+
+const client = new SendGridClient({ apiKey: 'SG.xxx' })
+
+await client.send({
+  personalizations: [{
+    to: [{ email: 'user@example.com', name: 'John Doe' }],
+    cc: [{ email: 'cc@example.com' }],
+    dynamic_template_data: {
+      name: 'John',
+      order_id: '12345',
+    },
+  }],
+  from: { email: 'noreply@example.com', name: 'My App' },
+  subject: 'Your Order Confirmation',
+  content: [
+    { type: 'text/plain', value: 'Thank you for your order!' },
+    { type: 'text/html', value: '<h1>Thank you for your order!</h1>' },
+  ],
+})
+```
+
+### Resend-Compatible API
+
+```typescript
+import { Resend } from '@dotdo/emails'
+
+const resend = new Resend('re_xxx')
+
+const { data, error } = await resend.emails.send({
+  from: 'noreply@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>Hello World</p>',
+  attachments: [{
+    filename: 'invoice.pdf',
+    content: base64Content,
+  }],
+  tags: [
+    { name: 'category', value: 'transactional' },
+  ],
+})
+
+if (error) {
+  console.error('Failed to send:', error.message)
+} else {
+  console.log('Email sent:', data.id)
+}
+```
+
+## Multi-Provider Routing
+
+Route emails through multiple providers with automatic failover:
+
+```typescript
+import { ProviderRouter } from '@dotdo/emails'
+
+const router = new ProviderRouter({
+  providers: [
+    { provider: 'mailchannels', enabled: true, priority: 1 },
+    { provider: 'resend', apiKey: 're_xxx', enabled: true, priority: 2 },
+    { provider: 'sendgrid', apiKey: 'SG.xxx', enabled: true, priority: 3 },
+  ],
+  defaultProvider: 'mailchannels',
+  retryOnFail: true,
+  maxRetries: 3,
+})
+
+// Automatically routes to highest priority available provider
+await router.send({
+  from: 'noreply@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>Hello World</p>',
+})
+
+// Route to specific provider
+await router.send(message, { provider: 'sendgrid' })
+```
+
+## Template Rendering
+
+Store and render email templates:
+
+```typescript
+import {
+  TemplateRenderer,
+  InMemoryTemplateStorage,
+  BUILT_IN_TEMPLATES,
+  initializeBuiltInTemplates,
+} from '@dotdo/emails'
+
+// Initialize storage with built-in templates
+const storage = new InMemoryTemplateStorage()
+await initializeBuiltInTemplates(storage)
+
+// Or use KV storage
+const kvStorage = new KVTemplateStorage(env.EMAIL_TEMPLATES)
+
+// Create renderer
+const renderer = new TemplateRenderer(storage)
+
+// Render a template
+const result = await renderer.render('welcome', {
+  name: 'John',
+  company_name: 'Acme Corp',
+  login_url: 'https://app.acme.com/login',
+})
+
+console.log(result.subject) // "Welcome to Acme Corp!"
+console.log(result.html)    // Rendered HTML
+console.log(result.text)    // Plain text version
+```
+
+### Custom Templates
+
+```typescript
+// Store a custom template
+await storage.set({
+  id: 'order-confirmation',
+  name: 'Order Confirmation',
+  subject: 'Order #{{order_id}} Confirmed',
+  html: `
+    <h1>Thank you, {{name}}!</h1>
+    <p>Your order #{{order_id}} has been confirmed.</p>
+    <table>
+      {{#each items}}
+        <tr>
+          <td>{{this.name}}</td>
+          <td>{{this.quantity}}</td>
+          <td>{{this.price}}</td>
+        </tr>
+      {{/each}}
+    </table>
+    <p>Total: {{total}}</p>
+  `,
+  text: `
+    Thank you, {{name}}!
+    Your order #{{order_id}} has been confirmed.
+    Total: {{total}}
+  `,
+  variables: ['name', 'order_id', 'items', 'total'],
+})
+
+// Render with data
+const email = await renderer.render('order-confirmation', {
+  name: 'John',
+  order_id: '12345',
+  items: [
+    { name: 'Widget', quantity: 2, price: '$10.00' },
+    { name: 'Gadget', quantity: 1, price: '$25.00' },
+  ],
+  total: '$45.00',
+})
+```
+
+## Webhooks
+
+Handle email events (delivered, bounced, opened, clicked):
+
+```typescript
+import {
+  WebhookDispatcher,
+  InMemoryWebhookStorage,
+  parseSendGridWebhook,
+  parseResendWebhook,
+} from '@dotdo/emails'
+
+// Set up webhook subscriptions
+const storage = new InMemoryWebhookStorage()
+await storage.setSubscription({
+  id: 'sub-1',
+  url: 'https://example.com/webhooks/email',
+  events: ['delivered', 'bounced', 'opened', 'clicked'],
+  enabled: true,
+  created_at: new Date(),
+})
+
+// Create dispatcher
+const dispatcher = new WebhookDispatcher({
+  storage,
+  retryOnFail: true,
+  maxRetries: 3,
+})
+
+// Dispatch events
+await dispatcher.dispatch({
+  id: 'event-1',
+  type: 'delivered',
+  email_id: 'msg-123',
+  recipient: 'user@example.com',
+  timestamp: new Date(),
+})
+```
+
+### Webhook Endpoint
+
+```typescript
+import { Hono } from 'hono'
+import { parseSendGridWebhook, parseResendWebhook } from '@dotdo/emails'
+
+const app = new Hono()
+
+// SendGrid webhook
+app.post('/webhooks/sendgrid', async (c) => {
+  const payload = await c.req.json()
+  const events = parseSendGridWebhook(payload)
+
+  for (const event of events) {
+    console.log(`Email ${event.email_id}: ${event.type}`)
+  }
+
+  return c.text('OK')
+})
+
+// Resend webhook
+app.post('/webhooks/resend', async (c) => {
+  const payload = await c.req.json()
+  const event = parseResendWebhook(payload)
+
+  console.log(`Email ${event.email_id}: ${event.type}`)
+  return c.text('OK')
+})
+```
+
+## Hono Integration
+
+Mount email APIs on your Hono application:
+
+```typescript
+import { Hono } from 'hono'
+import {
+  createSendGridRouter,
+  createResendRouter,
+  createWebhookRouter,
+  InMemoryWebhookStorage,
+} from '@dotdo/emails'
+
+const app = new Hono()
+
+// Mount SendGrid-compatible API at /v3/mail/send
+app.route('/', createSendGridRouter())
+
+// Mount Resend-compatible API at /emails
+app.route('/', createResendRouter())
+
+// Mount webhook management
+const webhookStorage = new InMemoryWebhookStorage()
+app.route('/', createWebhookRouter(webhookStorage))
+
+export default app
+```
+
+## Provider Configuration
+
+### MailChannels (Cloudflare)
+
+```typescript
+import { MailChannelsProvider } from '@dotdo/emails'
+
+const provider = new MailChannelsProvider({
+  dkim: {
+    domain: 'example.com',
+    selector: 'mailchannels',
+    privateKey: env.DKIM_PRIVATE_KEY,
+  },
+})
+
+await provider.send({
+  from: 'noreply@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>Hello World</p>',
+})
+```
+
+### Resend
+
+```typescript
+import { ResendProvider } from '@dotdo/emails'
+
+const provider = new ResendProvider({
+  apiKey: 're_xxx',
+})
+
+await provider.send({
+  from: 'noreply@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>Hello World</p>',
+})
+```
+
+### SendGrid
+
+```typescript
+import { SendGridProvider } from '@dotdo/emails'
+
+const provider = new SendGridProvider({
+  apiKey: 'SG.xxx',
+})
+
+await provider.send({
+  from: 'noreply@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>Hello World</p>',
+})
+```
+
+## API Reference
+
+### SendGridClient Class
+
+```typescript
+class SendGridClient {
+  constructor(config: SendGridClientConfig)
+
+  send(request: SendGridMailRequest): Promise<SendGridMailResponse>
+}
+```
+
+### Resend Class
+
+```typescript
+class Resend {
+  constructor(apiKey: string)
+
+  emails: {
+    send(params: ResendEmailRequest): Promise<{ data?: { id: string }, error?: ResendErrorResponse }>
+  }
+}
+```
+
+### ProviderRouter Class
+
+```typescript
+class ProviderRouter {
+  constructor(config: ProviderRouterConfig)
+
+  send(message: EmailMessage, options?: { provider?: string }): Promise<ProviderSendResult>
+}
+```
+
+### TemplateRenderer Class
+
+```typescript
+class TemplateRenderer {
+  constructor(storage: TemplateStorage)
+
+  render(templateId: string, data: Record<string, unknown>): Promise<{
+    subject: string
+    html: string
+    text: string
+  }>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Email types
+  EmailAddress,
+  EmailAttachment,
+  EmailMessage,
+  EmailStatus,
+  EmailProvider,
+  EmailTemplate,
+
+  // SendGrid types
+  SendGridMailRequest,
+  SendGridMailResponse,
+  SendGridPersonalization,
+  SendGridContent,
+
+  // Resend types
+  ResendEmailRequest,
+  ResendEmailResponse,
+  ResendAttachment,
+
+  // Webhook types
+  WebhookEvent,
+  WebhookEventType,
+  WebhookSubscription,
+
+  // Provider types
+  ProviderRouterConfig,
+  ProviderSendResult,
+} from '@dotdo/emails'
+```
+
+## Related
+
+- [SendGrid](/docs/integrations/sendgrid) - Dedicated SendGrid integration
+- [Resend](/docs/integrations/resend) - Dedicated Resend integration
+- [Postmark](/docs/integrations/postmark) - Postmark integration
+- [Alerting](/docs/observability/alerts) - Notification channels for alerts

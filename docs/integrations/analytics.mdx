@@ -1,0 +1,390 @@
+---
+title: Analytics
+description: Drop-in replacement for Mixpanel, Amplitude, and PostHog SDKs with edge-native performance.
+---
+
+# Analytics
+
+Unified analytics SDK with drop-in compatibility for Mixpanel, Amplitude, and PostHog. Your existing analytics code works unchanged - just swap the import.
+
+```typescript
+// Before: Mixpanel
+import mixpanel from 'mixpanel-browser'
+
+// After: dotdo
+import { Mixpanel } from '@dotdo/analytics'
+
+// Code stays the same
+const mixpanel = new Mixpanel({ token: 'your-token' })
+mixpanel.track('Button Clicked', { button_id: 'signup' })
+```
+
+## Why @dotdo/analytics?
+
+| Traditional SDKs | @dotdo/analytics |
+|------------------|------------------|
+| Browser-only APIs | Edge-compatible (Cloudflare Workers) |
+| Third-party data storage | Your data in Durable Objects |
+| Network latency to external APIs | Zero latency in local mode |
+| Multiple SDK integrations | Unified API for all providers |
+| Vendor lock-in | Switch providers without code changes |
+
+## Features
+
+### Implemented
+
+**Core APIs**
+- `track()` - Track events with properties
+- `identify()` - Identify users with traits
+- `alias()` - Create user aliases
+- `group()` - Associate users with groups
+- `flush()` - Flush queued events
+
+**User Profile Operations**
+- `$set` - Set user properties
+- `$set_once` - Set properties only if not already set
+- `$add` - Increment numeric properties
+- `$append` - Append to list properties
+- `$union` - Add unique values to lists
+- `$unset` - Remove properties
+
+**Platform-Specific APIs**
+- Mixpanel People API
+- Amplitude Identify/Revenue classes
+- PostHog feature flags
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/analytics
+```
+
+### Unified API
+
+```typescript
+import { Analytics } from '@dotdo/analytics'
+
+const analytics = new Analytics({ projectToken: 'your-token' })
+
+// Identify a user
+analytics.identify('user123', {
+  name: 'John Doe',
+  email: 'john@example.com',
+  plan: 'premium',
+})
+
+// Track an event
+analytics.track('Order Completed', {
+  orderId: 'order_123',
+  total: 99.99,
+  items: 3,
+})
+
+// Flush events
+await analytics.flush()
+```
+
+## Mixpanel Compatibility
+
+```typescript
+import { Mixpanel } from '@dotdo/analytics'
+
+const mixpanel = new Mixpanel({ token: 'your-token' })
+
+// Identify user
+mixpanel.identify('user123')
+
+// Track events
+mixpanel.track('Button Clicked', { button_id: 'signup' })
+
+// People API
+mixpanel.people.set({ plan: 'premium' })
+mixpanel.people.increment('login_count', 1)
+mixpanel.people.append('interests', 'analytics')
+
+// Super properties (applied to all events)
+mixpanel.register({ app_version: '2.0.0' })
+
+// Time events
+mixpanel.time_event('Checkout')
+// ... later ...
+mixpanel.track('Checkout') // Automatically includes $duration
+```
+
+## Amplitude Compatibility
+
+```typescript
+import { Amplitude, Identify, Revenue } from '@dotdo/analytics'
+
+const amplitude = new Amplitude({ apiKey: 'your-api-key' })
+
+// Set user ID
+amplitude.setUserId('user123')
+
+// Track events
+amplitude.track('Purchase', { product_id: 'prod_123' })
+
+// Identify API
+const identify = new Identify()
+identify.set('plan', 'premium')
+identify.setOnce('first_login', new Date().toISOString())
+identify.add('total_purchases', 1)
+amplitude.identify(identify)
+
+// Revenue API
+const revenue = new Revenue()
+revenue.setProductId('prod_123')
+revenue.setPrice(9.99)
+revenue.setQuantity(2)
+revenue.setRevenueType('subscription')
+amplitude.revenue(revenue)
+
+// User properties
+amplitude.setUserProperties({ tier: 'enterprise' })
+```
+
+## PostHog Compatibility
+
+```typescript
+import { PostHog } from '@dotdo/analytics'
+
+const posthog = new PostHog({ apiKey: 'phc_your_key' })
+
+// Identify user
+posthog.identify('user123', {
+  name: 'John Doe',
+  email: 'john@example.com',
+})
+
+// Capture events
+posthog.capture('Button Clicked', { button_id: 'signup' })
+
+// Feature flags
+if (posthog.isFeatureEnabled('new-checkout')) {
+  // Show new checkout experience
+}
+
+// Get feature flag value
+const variant = posthog.getFeatureFlag('checkout-experiment')
+
+// Group analytics
+posthog.group('company', 'company_123', {
+  name: 'Acme Corp',
+  plan: 'enterprise',
+})
+
+// Alias
+posthog.alias('new_user_id', 'anonymous_id')
+```
+
+## Super Properties
+
+Super properties are automatically included with every event:
+
+```typescript
+const analytics = new Analytics({ projectToken: 'token' })
+
+// Set super properties
+analytics.register({
+  app_version: '2.0.0',
+  platform: 'web',
+})
+
+// All subsequent events include these properties
+analytics.track('Page View') // Includes app_version and platform
+analytics.track('Button Click') // Includes app_version and platform
+
+// Unregister super properties
+analytics.unregister('platform')
+```
+
+## Edge Compatibility
+
+Works seamlessly in Cloudflare Workers:
+
+```typescript
+// worker.ts
+import { Analytics } from '@dotdo/analytics'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const analytics = new Analytics({
+      projectToken: env.ANALYTICS_TOKEN,
+    })
+
+    // Track server-side events
+    analytics.track('API Request', {
+      path: new URL(request.url).pathname,
+      method: request.method,
+    })
+
+    await analytics.flush()
+
+    return new Response('OK')
+  },
+}
+```
+
+## Local Testing
+
+Use the in-memory transport for testing:
+
+```typescript
+import { Analytics, InMemoryTransport } from '@dotdo/analytics'
+
+const transport = new InMemoryTransport()
+const analytics = new Analytics({
+  projectToken: 'test',
+  transport,
+})
+
+// Track events
+analytics.track('Test Event', { key: 'value' })
+await analytics.flush()
+
+// Inspect recorded events
+const events = transport.getEvents()
+console.log(events) // [{ event: 'Test Event', properties: { key: 'value' }, ... }]
+```
+
+## API Reference
+
+### Analytics Class
+
+```typescript
+class Analytics {
+  constructor(options: AnalyticsOptions)
+
+  // Core methods
+  track(event: string, properties?: Properties): void
+  identify(userId: string, traits?: UserTraits): void
+  alias(userId: string, previousId: string): void
+  group(groupId: string, traits?: GroupTraits): void
+
+  // Super properties
+  register(properties: Properties): void
+  unregister(property: string): void
+
+  // Lifecycle
+  flush(): Promise<void>
+  reset(): void
+}
+```
+
+### Mixpanel Class
+
+```typescript
+class Mixpanel {
+  constructor(options: MixpanelOptions)
+
+  // Core methods
+  track(event: string, properties?: Properties): void
+  identify(userId: string): void
+  alias(alias: string, original?: string): void
+
+  // Super properties
+  register(properties: Properties): void
+  register_once(properties: Properties): void
+  unregister(property: string): void
+
+  // Time tracking
+  time_event(event: string): void
+
+  // People API
+  people: {
+    set(properties: Properties): void
+    set_once(properties: Properties): void
+    increment(property: string, value: number): void
+    append(property: string, value: unknown): void
+    union(property: string, values: unknown[]): void
+    unset(property: string): void
+    delete_user(): void
+  }
+}
+```
+
+### Amplitude Class
+
+```typescript
+class Amplitude {
+  constructor(options: AmplitudeOptions)
+
+  // User management
+  setUserId(userId: string): void
+  setDeviceId(deviceId: string): void
+  setUserProperties(properties: Properties): void
+  clearUserProperties(): void
+
+  // Tracking
+  track(event: string, properties?: Properties): void
+  identify(identify: Identify): void
+  revenue(revenue: Revenue): void
+
+  // Group analytics
+  setGroup(groupType: string, groupValue: string): void
+
+  // Session management
+  setSessionId(sessionId: number): void
+  getSessionId(): number
+}
+```
+
+### PostHog Class
+
+```typescript
+class PostHog {
+  constructor(options: PostHogOptions)
+
+  // Core methods
+  capture(event: string, properties?: Properties): void
+  identify(userId: string, properties?: Properties): void
+  alias(alias: string, original: string): void
+
+  // Groups
+  group(groupType: string, groupKey: string, properties?: Properties): void
+
+  // Feature flags
+  isFeatureEnabled(key: string): boolean
+  getFeatureFlag(key: string): string | boolean | undefined
+  reloadFeatureFlags(): Promise<void>
+
+  // Lifecycle
+  reset(): void
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Core types
+  Properties,
+  UserTraits,
+  GroupTraits,
+  Context,
+
+  // Event types
+  AnalyticsEvent,
+  Revenue,
+  UserProfile,
+  GroupProfile,
+
+  // Options types
+  AnalyticsOptions,
+  MixpanelOptions,
+  AmplitudeOptions,
+  PostHogOptions,
+
+  // Transport types
+  Transport,
+  TransportResult,
+} from '@dotdo/analytics'
+```
+
+## Related
+
+- [Feature Flags](/docs/integrations/flags) - LaunchDarkly-compatible feature flags
+- [Events Overview](/docs/events) - Event handling patterns
+- [Compat SDKs](/docs/compat) - All API-compatible SDKs

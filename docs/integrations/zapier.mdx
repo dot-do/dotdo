@@ -1,0 +1,631 @@
+---
+title: Zapier
+description: Zapier Platform Core compatible automation SDK for building integrations that run on durable execution infrastructure.
+---
+
+# Zapier
+
+Zapier Platform Core compatibility layer for building automation integrations. Create triggers, actions, and searches that match the Zapier developer platform API, running on dotdo's durable execution infrastructure.
+
+```typescript
+import { App, createZObject } from '@dotdo/zapier'
+
+const app = new App({
+  version: '1.0.0',
+  platformVersion: '14.0.0',
+
+  triggers: {
+    new_contact: {
+      key: 'new_contact',
+      noun: 'Contact',
+      display: { label: 'New Contact', description: 'Triggers on new contact' },
+      operation: {
+        type: 'polling',
+        perform: async (z, bundle) => {
+          const response = await z.request('https://api.example.com/contacts')
+          return response.data
+        },
+      },
+    },
+  },
+
+  actions: {
+    create_contact: {
+      key: 'create_contact',
+      noun: 'Contact',
+      display: { label: 'Create Contact', description: 'Creates a new contact' },
+      operation: {
+        perform: async (z, bundle) => {
+          const response = await z.request({
+            method: 'POST',
+            url: 'https://api.example.com/contacts',
+            body: bundle.inputData,
+          })
+          return response.data
+        },
+      },
+    },
+  },
+
+  searches: {},
+})
+```
+
+## Why @dotdo/zapier?
+
+| Zapier Platform | @dotdo/zapier |
+|-----------------|---------------|
+| Deployed to Zapier | Runs in your infrastructure |
+| Zapier pricing | Unlimited operations |
+| Limited customization | Full control |
+| Third-party dependency | Self-hosted |
+
+## Features
+
+### Trigger Types
+
+- **Polling triggers** - Periodically check for new data
+- **Hook triggers** - Receive webhooks in real-time
+- **REST hooks** - Subscribe/unsubscribe webhooks
+
+### Action Types
+
+- **Create actions** - Create new records
+- **Update actions** - Update existing records
+- **Search actions** - Find records
+- **Search or create** - Find or create if not exists
+
+### Platform Features
+
+- Z object for HTTP requests
+- Bundle for input/auth data
+- Input fields with dynamic dropdowns
+- Authentication (OAuth2, API key, session)
+- Dehydration for lazy loading
+- Cursor pagination
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/zapier
+```
+
+### Create an App
+
+```typescript
+import { App, createZObject } from '@dotdo/zapier'
+
+const app = new App({
+  version: '1.0.0',
+  platformVersion: '14.0.0',
+
+  authentication: {
+    type: 'api_key',
+    fields: [
+      { key: 'api_key', label: 'API Key', required: true, type: 'password' },
+    ],
+    test: async (z, bundle) => {
+      const response = await z.request('https://api.example.com/me')
+      return response.data
+    },
+  },
+
+  triggers: { /* ... */ },
+  actions: { /* ... */ },
+  searches: { /* ... */ },
+})
+```
+
+## Triggers
+
+### Polling Trigger
+
+```typescript
+const newOrder = {
+  key: 'new_order',
+  noun: 'Order',
+  display: {
+    label: 'New Order',
+    description: 'Triggers when a new order is created',
+  },
+  operation: {
+    type: 'polling' as const,
+    perform: async (z, bundle) => {
+      const response = await z.request({
+        url: 'https://api.example.com/orders',
+        params: {
+          since: bundle.meta?.page === 0 ? undefined : await z.cursor.get(),
+        },
+      })
+
+      const orders = response.data
+      if (orders.length > 0) {
+        await z.cursor.set(orders[orders.length - 1].id)
+      }
+
+      return orders
+    },
+    canPaginate: true,
+    inputFields: [
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'string',
+        choices: ['pending', 'completed', 'cancelled'],
+        helpText: 'Filter orders by status',
+      },
+    ],
+    outputFields: [
+      { key: 'id', label: 'Order ID' },
+      { key: 'customer_email', label: 'Customer Email' },
+      { key: 'total', label: 'Total Amount' },
+    ],
+    sample: {
+      id: 'order_123',
+      customer_email: 'customer@example.com',
+      total: 99.99,
+    },
+  },
+}
+```
+
+### Hook Trigger
+
+```typescript
+const newPayment = {
+  key: 'new_payment',
+  noun: 'Payment',
+  display: {
+    label: 'New Payment',
+    description: 'Triggers when a payment is received',
+  },
+  operation: {
+    type: 'hook' as const,
+    performSubscribe: async (z, bundle) => {
+      const response = await z.request({
+        method: 'POST',
+        url: 'https://api.example.com/webhooks',
+        body: {
+          url: bundle.targetUrl,
+          event: 'payment.created',
+        },
+      })
+      return response.data
+    },
+    performUnsubscribe: async (z, bundle) => {
+      await z.request({
+        method: 'DELETE',
+        url: `https://api.example.com/webhooks/${bundle.subscribeData?.id}`,
+      })
+    },
+    perform: async (z, bundle) => {
+      // Parse webhook payload
+      return [bundle.cleanedRequest]
+    },
+    performList: async (z, bundle) => {
+      // Fallback for loading samples
+      const response = await z.request('https://api.example.com/payments?limit=5')
+      return response.data
+    },
+  },
+}
+```
+
+## Actions
+
+### Create Action
+
+```typescript
+const createContact = {
+  key: 'create_contact',
+  noun: 'Contact',
+  display: {
+    label: 'Create Contact',
+    description: 'Creates a new contact in your CRM',
+  },
+  operation: {
+    perform: async (z, bundle) => {
+      const response = await z.request({
+        method: 'POST',
+        url: 'https://api.example.com/contacts',
+        body: {
+          email: bundle.inputData.email,
+          first_name: bundle.inputData.first_name,
+          last_name: bundle.inputData.last_name,
+          company: bundle.inputData.company,
+        },
+      })
+      return response.data
+    },
+    inputFields: [
+      { key: 'email', label: 'Email', type: 'string', required: true },
+      { key: 'first_name', label: 'First Name', type: 'string' },
+      { key: 'last_name', label: 'Last Name', type: 'string' },
+      { key: 'company', label: 'Company', type: 'string' },
+      {
+        key: 'tags',
+        label: 'Tags',
+        type: 'string',
+        list: true,
+        helpText: 'Add tags to the contact',
+      },
+    ],
+    sample: {
+      id: 'contact_123',
+      email: 'john@example.com',
+      first_name: 'John',
+      last_name: 'Doe',
+    },
+  },
+}
+```
+
+### Dynamic Fields
+
+```typescript
+const createTask = {
+  key: 'create_task',
+  noun: 'Task',
+  display: { label: 'Create Task', description: 'Creates a task' },
+  operation: {
+    perform: async (z, bundle) => { /* ... */ },
+    inputFields: [
+      { key: 'title', label: 'Title', required: true },
+      // Dynamic dropdown
+      {
+        key: 'project_id',
+        label: 'Project',
+        required: true,
+        dynamic: 'list_projects.id.name', // trigger.outputField.labelField
+      },
+      // Dynamic fields based on selection
+      async (z, bundle) => {
+        if (bundle.inputData.project_id) {
+          const response = await z.request(
+            `https://api.example.com/projects/${bundle.inputData.project_id}/custom_fields`
+          )
+          return response.data.map(field => ({
+            key: `custom_${field.id}`,
+            label: field.name,
+            type: field.type,
+          }))
+        }
+        return []
+      },
+    ],
+  },
+}
+```
+
+## Searches
+
+### Basic Search
+
+```typescript
+const findContact = {
+  key: 'find_contact',
+  noun: 'Contact',
+  display: {
+    label: 'Find Contact',
+    description: 'Finds a contact by email',
+  },
+  operation: {
+    perform: async (z, bundle) => {
+      const response = await z.request({
+        url: 'https://api.example.com/contacts/search',
+        params: { email: bundle.inputData.email },
+      })
+      return response.data
+    },
+    inputFields: [
+      { key: 'email', label: 'Email', required: true },
+    ],
+    sample: {
+      id: 'contact_123',
+      email: 'john@example.com',
+    },
+  },
+  // Link to create action for "Search or Create"
+  searchOrCreateKey: 'create_contact',
+}
+```
+
+## Authentication
+
+### API Key
+
+```typescript
+const app = new App({
+  authentication: {
+    type: 'api_key',
+    fields: [
+      { key: 'api_key', label: 'API Key', required: true, type: 'password' },
+    ],
+    test: async (z, bundle) => {
+      const response = await z.request('https://api.example.com/me')
+      return response.data
+    },
+    connectionLabel: '{{name}} ({{email}})',
+  },
+  beforeRequest: [
+    (request, z, bundle) => {
+      request.headers = request.headers || {}
+      request.headers['Authorization'] = `Bearer ${bundle.authData.api_key}`
+      return request
+    },
+  ],
+})
+```
+
+### OAuth2
+
+```typescript
+const app = new App({
+  authentication: {
+    type: 'oauth2',
+    oauth2Config: {
+      authorizeUrl: 'https://example.com/oauth/authorize',
+      getAccessToken: async (z, bundle) => {
+        const response = await z.request({
+          method: 'POST',
+          url: 'https://example.com/oauth/token',
+          body: {
+            client_id: process.env.CLIENT_ID,
+            client_secret: process.env.CLIENT_SECRET,
+            grant_type: 'authorization_code',
+            code: bundle.inputData.code,
+            redirect_uri: bundle.inputData.redirect_uri,
+          },
+        })
+        return {
+          access_token: response.data.access_token,
+          refresh_token: response.data.refresh_token,
+        }
+      },
+      refreshAccessToken: async (z, bundle) => {
+        const response = await z.request({
+          method: 'POST',
+          url: 'https://example.com/oauth/token',
+          body: {
+            client_id: process.env.CLIENT_ID,
+            client_secret: process.env.CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: bundle.authData.refresh_token,
+          },
+        })
+        return {
+          access_token: response.data.access_token,
+        }
+      },
+      scope: 'read write',
+      autoRefresh: true,
+    },
+    test: async (z, bundle) => {
+      const response = await z.request('https://api.example.com/me')
+      return response.data
+    },
+  },
+})
+```
+
+### Session Auth
+
+```typescript
+const app = new App({
+  authentication: {
+    type: 'session',
+    fields: [
+      { key: 'username', label: 'Username', required: true },
+      { key: 'password', label: 'Password', required: true, type: 'password' },
+    ],
+    sessionConfig: {
+      perform: async (z, bundle) => {
+        const response = await z.request({
+          method: 'POST',
+          url: 'https://api.example.com/login',
+          body: {
+            username: bundle.authData.username,
+            password: bundle.authData.password,
+          },
+        })
+        return { sessionKey: response.data.session_token }
+      },
+    },
+    test: async (z, bundle) => {
+      const response = await z.request('https://api.example.com/me')
+      return response.data
+    },
+  },
+})
+```
+
+## Z Object
+
+The `z` object provides utilities for making requests and handling data:
+
+```typescript
+// HTTP requests
+const response = await z.request('https://api.example.com/data')
+const response = await z.request({
+  url: 'https://api.example.com/data',
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: { key: 'value' },
+  params: { page: '1' },
+})
+
+// Response handling
+response.status    // 200
+response.data      // Parsed JSON
+response.content   // Raw text
+response.headers   // Headers object
+response.throwForStatus() // Throw if not 2xx
+
+// JSON utilities
+z.JSON.parse(text)
+z.JSON.stringify(obj)
+
+// Console logging
+z.console.log('Debug message')
+z.console.time('operation')
+z.console.timeEnd('operation')
+
+// Error handling
+z.errors.Error('Something went wrong')
+z.errors.ExpiredAuthError('Token expired')
+z.errors.RefreshAuthError('Refresh failed')
+z.errors.HaltedError('Stop execution')
+z.errors.ThrottledError('Rate limited', 60000)
+
+// Dehydration (lazy loading)
+const fileUrl = z.dehydrate(downloadFile, { fileId: '123' })
+const file = z.dehydrateFile(downloadFile, { fileId: '123' })
+
+// File stashing
+const stashedUrl = await z.stashFile('https://example.com/file.pdf')
+
+// Cursor pagination
+const cursor = await z.cursor.get()
+await z.cursor.set('next_page_token')
+
+// Callback URL (for hooks)
+const callbackUrl = z.generateCallbackUrl()
+```
+
+## Bundle Object
+
+The bundle contains input data and context:
+
+```typescript
+interface Bundle {
+  inputData: Record<string, unknown>  // User inputs
+  authData: Record<string, unknown>   // Authentication data
+  meta?: {
+    isLoadingSample?: boolean
+    isFillingDynamicDropdown?: boolean
+    isTestingAuth?: boolean
+    isPopulatingDedupe?: boolean
+    limit?: number
+    page?: number
+    zap?: { id: string }
+  }
+  targetUrl?: string           // Webhook URL (for hooks)
+  subscribeData?: Record<string, unknown>  // Data from subscribe
+  cleanedRequest?: Record<string, unknown> // Parsed webhook payload
+  rawRequest?: {
+    method: string
+    headers: Record<string, string>
+    content: string
+    querystring: string
+  }
+}
+```
+
+## Executing the App
+
+```typescript
+const app = new App({ /* ... */ })
+
+// Execute a trigger
+const triggerResults = await app.executeTrigger('new_contact', {
+  inputData: { status: 'active' },
+  authData: { api_key: 'xxx' },
+})
+
+// Execute an action
+const actionResult = await app.executeAction('create_contact', {
+  inputData: { email: 'john@example.com', first_name: 'John' },
+  authData: { api_key: 'xxx' },
+})
+
+// Execute a search
+const searchResults = await app.executeSearch('find_contact', {
+  inputData: { email: 'john@example.com' },
+  authData: { api_key: 'xxx' },
+})
+
+// Validate app structure
+const validation = app.validate()
+if (!validation.valid) {
+  console.error('Validation errors:', validation.errors)
+}
+
+// Export to Zapier format
+const zapierFormat = app.toZapierFormat()
+```
+
+## API Reference
+
+### App Class
+
+```typescript
+class App {
+  constructor(config: AppConfig)
+
+  readonly version: string
+  readonly platformVersion: string
+  readonly authentication?: Authentication
+  readonly triggers: Record<string, TriggerConfig>
+  readonly actions: Record<string, ActionConfig>
+  readonly searches: Record<string, SearchConfig>
+
+  executeTrigger(key: string, bundle: Bundle): Promise<unknown[]>
+  executeAction(key: string, bundle: Bundle): Promise<unknown>
+  executeSearch(key: string, bundle: Bundle): Promise<unknown[]>
+  validate(): ValidationResult
+  toZapierFormat(): ZapierExportFormat
+}
+```
+
+### createZObject Function
+
+```typescript
+function createZObject(): ZObject
+```
+
+## Types
+
+```typescript
+import type {
+  // App types
+  AppConfig,
+  TriggerConfig,
+  ActionConfig,
+  SearchConfig,
+
+  // Operation types
+  PollingTriggerOperation,
+  HookTriggerOperation,
+  ActionOperation,
+  SearchOperation,
+
+  // Field types
+  InputField,
+  OutputField,
+  InputFieldType,
+
+  // Z object types
+  ZObject,
+  ZRequestOptions,
+  ZResponse,
+  ZErrors,
+  ZConsole,
+
+  // Bundle types
+  Bundle,
+  BundleMeta,
+
+  // Auth types
+  AuthenticationConfig,
+  OAuth2Config,
+  SessionConfig,
+} from '@dotdo/zapier'
+```
+
+## Related
+
+- [Automation](/docs/integrations/automation) - Workflow automation
+- [Inngest](/docs/integrations/inngest) - Inngest compatibility
+- [Workflows](/docs/workflows) - dotdo workflow DSL

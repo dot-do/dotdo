@@ -1,15 +1,15 @@
 # Documentation Status Summary
 
-Generated: 2026-01-12T15:28:36.778Z
+Generated: 2026-01-12T17:11:35.296Z
 
 ## Overview
 
 | Status | Count | Percentage |
 |--------|-------|------------|
 | RED | 0 | 0.0% |
-| GREEN | 185 | 100.0% |
+| GREEN | 198 | 100.0% |
 | REFACTOR | 0 | 0.0% |
-| **Total** | **185** | **100%** |
+| **Total** | **198** | **100%** |
 
 ## GREEN (Complete)
 
@@ -86,21 +86,30 @@ Generated: 2026-01-12T15:28:36.778Z
 - `docs/index.mdx`
 - `docs/integrations/ably.mdx`
 - `docs/integrations/algolia.mdx`
+- `docs/integrations/analytics.mdx`
 - `docs/integrations/anthropic.mdx`
 - `docs/integrations/auth0.mdx`
+- `docs/integrations/automation.mdx`
 - `docs/integrations/clerk.mdx`
 - `docs/integrations/clickhouse.mdx`
 - `docs/integrations/cohere.mdx`
+- `docs/integrations/couchdb.mdx`
+- `docs/integrations/cubejs.mdx`
 - `docs/integrations/discord.mdx`
 - `docs/integrations/duckdb.mdx`
 - `docs/integrations/dynamodb.mdx`
 - `docs/integrations/elasticsearch.mdx`
+- `docs/integrations/emails.mdx`
 - `docs/integrations/firebase.mdx`
+- `docs/integrations/flags.mdx`
+- `docs/integrations/flink.mdx`
 - `docs/integrations/gcs.mdx`
 - `docs/integrations/github.mdx`
+- `docs/integrations/google-ai.mdx`
 - `docs/integrations/hubspot.mdx`
 - `docs/integrations/index.mdx`
 - `docs/integrations/inngest.mdx`
+- `docs/integrations/intercom.mdx`
 - `docs/integrations/kafka.mdx`
 - `docs/integrations/linear.mdx`
 - `docs/integrations/mailgun.mdx`
@@ -122,6 +131,7 @@ Generated: 2026-01-12T15:28:36.778Z
 - `docs/integrations/slack.mdx`
 - `docs/integrations/sqs.mdx`
 - `docs/integrations/stripe.mdx`
+- `docs/integrations/supabase-auth.mdx`
 - `docs/integrations/supabase.mdx`
 - `docs/integrations/temporal.mdx`
 - `docs/integrations/trigger.mdx`
@@ -129,11 +139,14 @@ Generated: 2026-01-12T15:28:36.778Z
 - `docs/integrations/upstash.mdx`
 - `docs/integrations/vercel.mdx`
 - `docs/integrations/weaviate.mdx`
+- `docs/integrations/zapier.mdx`
 - `docs/integrations/zendesk.mdx`
 - `docs/mcp/index.mdx`
 - `docs/migration/from-express.mdx`
+- `docs/migration/from-firebase.mdx`
 - `docs/migration/from-nextjs.mdx`
 - `docs/migration/from-supabase.mdx`
+- `docs/migration/from-vercel.mdx`
 - `docs/migration/index.mdx`
 - `docs/observability/alerts.mdx`
 - `docs/observability/analytics.mdx`

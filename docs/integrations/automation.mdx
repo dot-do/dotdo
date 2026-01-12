@@ -1,0 +1,486 @@
+---
+title: Automation
+description: Zapier/n8n-compatible workflow automation engine running on durable execution infrastructure.
+---
+
+# Automation
+
+Workflow automation engine compatible with Zapier and n8n patterns. Build automated workflows with triggers, actions, and flow control nodes that run on dotdo's durable execution infrastructure.
+
+```typescript
+import { Workflow, WorkflowEngine, WebhookTrigger } from '@dotdo/automation'
+
+const engine = new WorkflowEngine()
+
+const workflow = new Workflow({
+  name: 'Order Processing',
+  nodes: [
+    { id: 'webhook', type: 'webhook', config: { path: '/webhook/order' } },
+    { id: 'validate', type: 'if', config: { conditions: [...] } },
+    { id: 'process', type: 'http', config: { url: 'https://api.example.com/orders' } },
+  ],
+  connections: [
+    { from: 'webhook', to: 'validate' },
+    { from: 'validate', to: 'process' },
+  ],
+})
+
+engine.register(workflow)
+engine.activate(workflow.id)
+```
+
+## Why @dotdo/automation?
+
+| External Automation Tools | @dotdo/automation |
+|---------------------------|-------------------|
+| Third-party execution | Runs in your infrastructure |
+| Usage-based pricing | Unlimited executions |
+| Limited customization | Full TypeScript control |
+| Data leaves your systems | Data stays in your control |
+| Vendor lock-in | Open workflow definitions |
+
+## Features
+
+### Triggers
+
+- **WebhookTrigger** - HTTP webhook triggers with authentication
+- **CronTrigger** - Scheduled triggers with cron expressions
+- **PollingTrigger** - Poll external APIs for changes
+
+### Actions
+
+- **HttpRequestAction** - Make HTTP requests
+- **CodeAction** - Execute custom TypeScript code
+- **SetAction** - Set or transform data
+- **FunctionAction** - Call custom functions
+
+### Flow Control
+
+- **IfNode** - Conditional branching
+- **SwitchNode** - Multi-way branching
+- **LoopNode** - Iterate over arrays
+- **MergeNode** - Merge multiple branches
+- **SplitNode** - Split data into parallel paths
+- **FilterNode** - Filter data
+- **WaitNode** - Wait for conditions or time
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/automation
+```
+
+### Basic Workflow
+
+```typescript
+import { Workflow, WorkflowEngine, WebhookTrigger } from '@dotdo/automation'
+
+// Create the engine
+const engine = new WorkflowEngine()
+
+// Define a workflow
+const workflow = new Workflow({
+  name: 'Order Processing',
+  nodes: [
+    {
+      id: 'webhook',
+      type: 'webhook',
+      config: {
+        path: '/webhook/order',
+        method: 'POST',
+        authentication: { type: 'header', name: 'X-API-Key', value: 'secret' },
+      },
+    },
+    {
+      id: 'validate',
+      type: 'if',
+      config: {
+        conditions: [
+          { field: 'amount', operator: 'greaterThan', value: 0 },
+        ],
+      },
+    },
+    {
+      id: 'process',
+      type: 'http',
+      config: {
+        method: 'POST',
+        url: 'https://api.example.com/orders',
+        body: '{{json $input}}',
+      },
+    },
+  ],
+  connections: [
+    { from: 'webhook', to: 'validate' },
+    { from: 'validate', to: 'process' },
+  ],
+})
+
+// Register and activate
+engine.register(workflow)
+engine.activate(workflow.id)
+```
+
+## Triggers
+
+### Webhook Trigger
+
+```typescript
+const webhookTrigger = new WebhookTrigger({
+  path: '/webhook/orders',
+  method: 'POST',
+  authentication: {
+    type: 'hmac',
+    secret: 'webhook_secret',
+    header: 'X-Signature',
+  },
+})
+
+webhookTrigger.on('trigger', (event) => {
+  console.log('Received:', event.data)
+})
+```
+
+### Cron Trigger
+
+```typescript
+const cronTrigger = new CronTrigger({
+  expression: '0 9 * * *', // Daily at 9 AM
+  timezone: 'America/New_York',
+})
+
+cronTrigger.on('trigger', async (event) => {
+  // Generate daily report
+})
+```
+
+### Polling Trigger
+
+```typescript
+const pollingTrigger = new PollingTrigger({
+  interval: 60000, // 1 minute
+  perform: async () => {
+    const response = await fetch('https://api.example.com/updates')
+    return response.json()
+  },
+  deduplication: {
+    key: 'id',
+    storage: new InMemoryStorage(),
+  },
+})
+```
+
+## Actions
+
+### HTTP Request Action
+
+```typescript
+const httpAction = new HttpRequestAction({
+  method: 'POST',
+  url: 'https://api.example.com/data',
+  headers: {
+    'Authorization': 'Bearer {{$env.API_KEY}}',
+    'Content-Type': 'application/json',
+  },
+  body: {
+    name: '{{$input.name}}',
+    email: '{{$input.email}}',
+  },
+  retry: {
+    maxAttempts: 3,
+    backoff: 'exponential',
+  },
+})
+```
+
+### Code Action
+
+```typescript
+const codeAction = new CodeAction({
+  code: `
+    const items = $input.items || []
+    const total = items.reduce((sum, item) => sum + item.price, 0)
+    return { ...input, total, itemCount: items.length }
+  `,
+})
+```
+
+### Set Action
+
+```typescript
+const setAction = new SetAction({
+  values: [
+    { name: 'fullName', value: '{{$input.firstName}} {{$input.lastName}}' },
+    { name: 'timestamp', value: '{{$now}}' },
+    { name: 'processed', value: true },
+  ],
+})
+```
+
+## Flow Control
+
+### Conditional Branching (If)
+
+```typescript
+const workflow = new Workflow({
+  name: 'Conditional Flow',
+  nodes: [
+    { id: 'trigger', type: 'webhook', config: { path: '/process' } },
+    {
+      id: 'check-amount',
+      type: 'if',
+      config: {
+        conditions: [
+          { field: 'amount', operator: 'greaterThan', value: 1000 },
+        ],
+      },
+    },
+    { id: 'high-value', type: 'http', config: { url: '/high-value-handler' } },
+    { id: 'normal', type: 'http', config: { url: '/normal-handler' } },
+  ],
+  connections: [
+    { from: 'trigger', to: 'check-amount' },
+    { from: 'check-amount', to: 'high-value', outputIndex: 0 }, // true branch
+    { from: 'check-amount', to: 'normal', outputIndex: 1 }, // false branch
+  ],
+})
+```
+
+### Switch Node
+
+```typescript
+{
+  id: 'route-by-type',
+  type: 'switch',
+  config: {
+    rules: [
+      {
+        output: 'email',
+        conditions: [{ field: 'channel', operator: 'equals', value: 'email' }],
+      },
+      {
+        output: 'sms',
+        conditions: [{ field: 'channel', operator: 'equals', value: 'sms' }],
+      },
+      {
+        output: 'push',
+        conditions: [{ field: 'channel', operator: 'equals', value: 'push' }],
+      },
+    ],
+    fallbackOutput: 'default',
+  },
+}
+```
+
+### Loop Node
+
+```typescript
+{
+  id: 'process-items',
+  type: 'loop',
+  config: {
+    items: '{{$input.items}}',
+    batchSize: 10,
+    parallel: true,
+  },
+}
+```
+
+### Merge Node
+
+```typescript
+{
+  id: 'merge-results',
+  type: 'merge',
+  config: {
+    mode: 'waitAll', // Wait for all inputs
+    // Other modes: 'append', 'passThrough', 'chooseBranch'
+  },
+}
+```
+
+## Workflow Engine
+
+### Engine Configuration
+
+```typescript
+const engine = new WorkflowEngine({
+  storage: new DurableObjectStorage(env.WORKFLOW_DO),
+  maxConcurrentExecutions: 100,
+  defaultTimeout: 30000,
+})
+```
+
+### Managing Workflows
+
+```typescript
+// Register a workflow
+engine.register(workflow)
+
+// Activate/deactivate
+engine.activate(workflow.id)
+engine.deactivate(workflow.id)
+
+// List workflows
+const workflows = engine.list()
+
+// Get workflow status
+const status = engine.getStatus(workflow.id)
+
+// Delete workflow
+engine.delete(workflow.id)
+```
+
+### Manual Execution
+
+```typescript
+const execution = await engine.execute(workflow.id, {
+  input: { orderId: 'order_123' },
+})
+
+console.log(execution.status) // 'completed' | 'failed' | 'running'
+console.log(execution.output)
+```
+
+## Scheduled Workflows
+
+```typescript
+const dailyReport = new Workflow({
+  name: 'Daily Report',
+  nodes: [
+    {
+      id: 'schedule',
+      type: 'cron',
+      config: {
+        expression: '0 9 * * *',
+        timezone: 'America/New_York',
+      },
+    },
+    {
+      id: 'fetch-data',
+      type: 'http',
+      config: {
+        method: 'GET',
+        url: 'https://api.example.com/report',
+      },
+    },
+    {
+      id: 'send-email',
+      type: 'http',
+      config: {
+        method: 'POST',
+        url: 'https://api.sendgrid.com/v3/mail/send',
+        authentication: { type: 'bearer', token: '{{$env.SENDGRID_API_KEY}}' },
+        body: {
+          to: 'team@example.com',
+          subject: 'Daily Report',
+          html: '{{$input.html}}',
+        },
+      },
+    },
+  ],
+  connections: [
+    { from: 'schedule', to: 'fetch-data' },
+    { from: 'fetch-data', to: 'send-email' },
+  ],
+})
+```
+
+## Expression Syntax
+
+The automation engine supports expressions using double curly braces:
+
+```typescript
+// Input data
+'{{$input.fieldName}}'
+'{{$input.nested.field}}'
+
+// Environment variables
+'{{$env.API_KEY}}'
+
+// Built-in variables
+'{{$now}}' // Current timestamp
+'{{$execution.id}}' // Execution ID
+'{{$workflow.name}}' // Workflow name
+
+// Functions
+'{{json $input}}' // JSON stringify
+'{{upper $input.name}}' // Uppercase
+'{{lower $input.email}}' // Lowercase
+```
+
+## API Reference
+
+### Workflow Class
+
+```typescript
+class Workflow {
+  constructor(definition: WorkflowDefinition)
+
+  readonly id: string
+  readonly name: string
+  readonly nodes: WorkflowNodeConfig[]
+  readonly connections: WorkflowConnection[]
+}
+```
+
+### WorkflowEngine Class
+
+```typescript
+class WorkflowEngine {
+  constructor(config?: WorkflowEngineConfig)
+
+  register(workflow: Workflow): void
+  activate(workflowId: string): void
+  deactivate(workflowId: string): void
+  delete(workflowId: string): void
+  list(): Workflow[]
+  getStatus(workflowId: string): WorkflowStatus
+  execute(workflowId: string, options?: ExecutionOptions): Promise<WorkflowExecution>
+}
+```
+
+## Types
+
+```typescript
+import type {
+  // Workflow types
+  WorkflowDefinition,
+  WorkflowNodeConfig,
+  WorkflowConnection,
+  WorkflowStatus,
+  ExecutionStatus,
+
+  // Trigger types
+  TriggerEvent,
+  TriggerConfig,
+  WebhookTriggerConfig,
+  CronTriggerConfig,
+  PollingTriggerConfig,
+
+  // Action types
+  ActionResult,
+  ActionContext,
+  HttpRequestConfig,
+  CodeActionConfig,
+  SetActionConfig,
+
+  // Flow control types
+  Condition,
+  ComparisonOperator,
+  IfNodeConfig,
+  SwitchNodeConfig,
+  LoopNodeConfig,
+  MergeNodeConfig,
+} from '@dotdo/automation'
+```
+
+## Related
+
+- [Workflows](/docs/workflows) - dotdo workflow DSL
+- [Zapier](/docs/integrations/zapier) - Zapier Platform compatibility
+- [Trigger.dev](/docs/integrations/trigger) - Background job compatibility
+- [Inngest](/docs/integrations/inngest) - Event-driven functions
+- [Events](/docs/events) - Event-driven patterns
