@@ -143,7 +143,9 @@ export interface WhatsAppContact {
 
 /** Session state for 24-hour window tracking */
 export interface WhatsAppSession {
-  /** User's WhatsApp number */
+  /** User's WhatsApp number (who sent the message) */
+  from: string
+  /** Alias for from - user's WhatsApp number */
   to: string
   /** Last message timestamp from user */
   lastUserMessage: Date
@@ -151,6 +153,8 @@ export interface WhatsAppSession {
   expiresAt: Date
   /** Whether session is currently active */
   isActive: boolean
+  /** Alias for isActive - whether session is open */
+  isOpen: boolean
 }
 
 /** WhatsApp send request parameters */
@@ -417,18 +421,20 @@ class SessionManager {
   /**
    * Record an incoming message (starts/extends session)
    */
-  recordIncoming(to: string): WhatsAppSession {
+  recordIncoming(from: string): WhatsAppSession {
     const now = new Date()
     const expiresAt = new Date(now.getTime() + this.expiryMs)
 
     const session: WhatsAppSession = {
-      to,
+      from,
+      to: from, // Alias for backwards compatibility
       lastUserMessage: now,
       expiresAt,
       isActive: true,
+      isOpen: true, // Alias for isActive
     }
 
-    this.sessions.set(this._normalizeNumber(to), session)
+    this.sessions.set(this._normalizeNumber(from), session)
     return session
   }
 
@@ -457,7 +463,9 @@ class SessionManager {
 
     // Update active status
     const now = new Date()
-    session.isActive = now <= session.expiresAt
+    const isActive = now <= session.expiresAt
+    session.isActive = isActive
+    session.isOpen = isActive
 
     return session
   }
@@ -522,6 +530,16 @@ const DEFAULT_SESSION_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours
 /**
  * TwilioWhatsApp - WhatsApp messaging client with full feature support
  */
+/** Status tracking entry */
+interface StatusEntry {
+  sid: string
+  status: WhatsAppMessageStatus
+  timestamp: Date
+}
+
+/** Status change event handler */
+type StatusChangeHandler = (entry: StatusEntry) => void
+
 export class TwilioWhatsApp {
   private accountSid: string
   private authToken: string
@@ -529,6 +547,8 @@ export class TwilioWhatsApp {
   private baseUrl: string
   private _fetch: typeof fetch
   private sessionManager: SessionManager | null
+  private statusHistory: Map<string, StatusEntry[]> = new Map()
+  private statusHandlers: StatusChangeHandler[] = []
 
   constructor(config: TwilioWhatsAppConfig & { accountSid: string; authToken: string }) {
     if (!config.accountSid) {
@@ -1148,6 +1168,311 @@ export class TwilioWhatsApp {
     return true
   }
 
+  /**
+   * Send an interactive message (buttons, lists, or CTA URLs)
+   *
+   * @param request - Interactive message request
+   * @returns The sent message
+   */
+  async sendInteractive(request: {
+    to: string
+    type: 'button' | 'list' | 'cta_url'
+    body: string
+    header?: { type: 'text' | 'image'; text?: string; mediaUrl?: string }
+    footer?: string
+    buttons?: Array<{ id: string; title: string }>
+    buttonText?: string
+    sections?: Array<{ title: string; rows: Array<{ id: string; title: string; description?: string }> }>
+    ctaUrl?: { displayText: string; url: string }
+    from?: string
+    statusCallback?: string
+  }): Promise<WhatsAppSendResponse> {
+    // Validate based on type
+    if (request.type === 'button') {
+      if (!request.buttons || request.buttons.length === 0) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'At least one button is required.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      if (request.buttons.length > 3) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'Interactive button messages support a maximum of 3 buttons.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      for (const button of request.buttons) {
+        if (button.title.length > 20) {
+          throw new TwilioWhatsAppError({
+            code: 21602,
+            message: 'Interactive button title exceeds 20 characters.',
+            more_info: 'https://www.twilio.com/docs/errors/21602',
+            status: 400,
+          })
+        }
+      }
+    } else if (request.type === 'list') {
+      if (!request.sections || request.sections.length === 0) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'At least one section is required for list messages.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      if (request.sections.length > 10) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'Interactive list messages support a maximum of 10 sections.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      for (const section of request.sections) {
+        if (section.rows.length > 10) {
+          throw new TwilioWhatsAppError({
+            code: 21602,
+            message: 'Interactive list messages support a maximum of 10 rows per section',
+            more_info: 'https://www.twilio.com/docs/errors/21602',
+            status: 400,
+          })
+        }
+        for (const row of section.rows) {
+          if (row.title.length > 24) {
+            throw new TwilioWhatsAppError({
+              code: 21602,
+              message: 'Interactive list row title exceeds 24 characters',
+              more_info: 'https://www.twilio.com/docs/errors/21602',
+              status: 400,
+            })
+          }
+          if (row.description && row.description.length > 72) {
+            throw new TwilioWhatsAppError({
+              code: 21602,
+              message: 'Interactive list row description exceeds 72 characters',
+              more_info: 'https://www.twilio.com/docs/errors/21602',
+              status: 400,
+            })
+          }
+        }
+      }
+      if (!request.buttonText) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'buttonText is required for list messages',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      if (request.buttonText.length > 20) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'Button text exceeds 20 characters.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+    } else if (request.type === 'cta_url') {
+      if (!request.ctaUrl?.displayText) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'displayText is required for CTA URL messages.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+      if (!request.ctaUrl?.url) {
+        throw new TwilioWhatsAppError({
+          code: 21602,
+          message: 'url is required for CTA URL messages.',
+          more_info: 'https://www.twilio.com/docs/errors/21602',
+          status: 400,
+        })
+      }
+    }
+
+    // Build the interactive message content
+    const to = this._ensureWhatsAppPrefix(request.to)
+    const from = request.from
+      ? this._ensureWhatsAppPrefix(request.from)
+      : this.config.from
+        ? this._ensureWhatsAppPrefix(this.config.from)
+        : undefined
+
+    if (!from && !this.config.messagingServiceSid) {
+      throw new TwilioWhatsAppError({
+        code: 21603,
+        message: "A 'From' number or 'MessagingServiceSid' is required.",
+        more_info: 'https://www.twilio.com/docs/errors/21603',
+        status: 400,
+      })
+    }
+
+    const apiParams: Record<string, unknown> = {
+      To: to,
+      From: from,
+      MessagingServiceSid: this.config.messagingServiceSid,
+      ContentSid: `interactive_${request.type}`,
+      Body: request.body,
+      StatusCallback: request.statusCallback,
+    }
+
+    Object.keys(apiParams).forEach((key) => {
+      if (apiParams[key] === undefined) delete apiParams[key]
+    })
+
+    const response = (await this._request(
+      'POST',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      apiParams
+    )) as Message
+
+    return this._messageToResponse(response)
+  }
+
+  /**
+   * Send a text message (alias for send)
+   *
+   * @param request - Send request with to and body
+   * @returns The sent message
+   */
+  async sendText(request: { to: string; body: string; from?: string; statusCallback?: string; requireSession?: boolean }): Promise<WhatsAppSendResponse> {
+    // If requireSession is true, check session
+    if (request.requireSession) {
+      const to = this._ensureWhatsAppPrefix(request.to)
+      // If no session manager exists, or session isn't active, throw
+      if (!this.sessionManager || !this.sessionManager.isSessionActive(to)) {
+        throw new Error('WhatsApp session window is closed. Use a template message to re-engage.')
+      }
+    }
+    return this.send(request)
+  }
+
+  /**
+   * Get a message by SID (alias for getStatus)
+   *
+   * @param sid - Message SID
+   * @returns The message
+   */
+  async getMessage(sid: string): Promise<WhatsAppSendResponse> {
+    return this.getStatus(sid)
+  }
+
+  /**
+   * List messages with optional filters
+   *
+   * @param filters - Optional filters (to, from, dateSent, pageSize)
+   * @returns Array of messages
+   */
+  async listMessages(filters?: {
+    to?: string
+    from?: string
+    dateSent?: Date
+    pageSize?: number
+  }): Promise<WhatsAppSendResponse[]> {
+    const params: Record<string, unknown> = {}
+
+    if (filters?.to) params.To = filters.to
+    if (filters?.from) params.From = filters.from
+    if (filters?.dateSent) params.DateSent = filters.dateSent.toISOString().split('T')[0]
+    if (filters?.pageSize) params.PageSize = filters.pageSize
+
+    const response = await this._request(
+      'GET',
+      `/${DEFAULT_API_VERSION}/Accounts/${this.accountSid}/Messages.json`,
+      params
+    ) as { messages: Message[] }
+
+    return response.messages.map(this._messageToResponse)
+  }
+
+  /**
+   * Delete a message (alias for delete)
+   *
+   * @param sid - Message SID
+   * @returns Success status
+   */
+  async deleteMessage(sid: string): Promise<boolean> {
+    return this.delete(sid)
+  }
+
+  // ===========================================================================
+  // Status Tracking
+  // ===========================================================================
+
+  /**
+   * Handle a status callback from Twilio
+   *
+   * @param callback - Status callback payload
+   * @returns Parsed status info
+   */
+  handleStatusCallback(callback: WhatsAppStatusPayload): {
+    sid: string
+    status: WhatsAppMessageStatus
+    errorCode?: string
+    errorMessage?: string
+    timestamp: Date
+  } {
+    const entry: StatusEntry = {
+      sid: callback.MessageSid,
+      status: callback.MessageStatus,
+      timestamp: new Date(),
+    }
+
+    // Add to history
+    const history = this.statusHistory.get(callback.MessageSid) || []
+    history.push(entry)
+    this.statusHistory.set(callback.MessageSid, history)
+
+    // Notify handlers
+    for (const handler of this.statusHandlers) {
+      handler(entry)
+    }
+
+    return {
+      sid: callback.MessageSid,
+      status: callback.MessageStatus,
+      errorCode: callback.ErrorCode,
+      errorMessage: callback.ErrorMessage,
+      timestamp: entry.timestamp,
+    }
+  }
+
+  /**
+   * Get current message status
+   *
+   * @param sid - Message SID
+   * @returns Current status or null if unknown
+   */
+  getMessageStatus(sid: string): WhatsAppMessageStatus | null {
+    const history = this.statusHistory.get(sid)
+    if (!history || history.length === 0) return null
+    return history[history.length - 1].status
+  }
+
+  /**
+   * Get message status history
+   *
+   * @param sid - Message SID
+   * @returns Array of status entries
+   */
+  getMessageStatusHistory(sid: string): StatusEntry[] {
+    return this.statusHistory.get(sid) || []
+  }
+
+  /**
+   * Register a status change handler
+   *
+   * @param handler - Handler function
+   */
+  onStatusChange(handler: StatusChangeHandler): void {
+    this.statusHandlers.push(handler)
+  }
+
   // ===========================================================================
   // Session Management
   // ===========================================================================
@@ -1160,9 +1485,43 @@ export class TwilioWhatsApp {
    */
   isSessionActive(to: string): boolean {
     if (!this.sessionManager) {
-      return true // If not tracking, assume always active
+      return false // No session manager means no sessions
     }
     return this.sessionManager.isSessionActive(to)
+  }
+
+  /**
+   * Check if a session is open (alias for isSessionActive)
+   *
+   * @param to - User's WhatsApp number
+   * @returns Whether session is open
+   */
+  isSessionOpen(to: string): boolean {
+    return this.isSessionActive(to)
+  }
+
+  /**
+   * Handle an incoming message webhook (creates/extends session)
+   *
+   * @param payload - Incoming webhook payload
+   * @returns Session info
+   */
+  handleIncoming(payload: WhatsAppWebhookPayload): WhatsAppSession {
+    if (!this.sessionManager) {
+      // Create a temporary session manager for tracking
+      this.sessionManager = new SessionManager(this.config.sessionExpiryMs ?? DEFAULT_SESSION_EXPIRY)
+    }
+
+    return this.sessionManager.recordIncoming(payload.From)
+  }
+
+  /**
+   * Clear all sessions
+   */
+  clearSessions(): void {
+    if (this.sessionManager) {
+      this.sessionManager.clear()
+    }
   }
 
   /**
@@ -1296,12 +1655,48 @@ export class TwilioWhatsApp {
         }
       }
 
+      // Handle status callback
+      this.handleStatusCallback(payload as unknown as WhatsAppStatusPayload)
       this.handleWebhook(payload as unknown as WhatsAppWebhookPayload)
 
-      return new Response(null, { status: 204 })
+      return c.json({ success: true }, 200)
     })
 
-    // Inbound message webhook
+    // Incoming message webhook
+    router.post('/incoming', async (c) => {
+      const contentType = c.req.header('Content-Type') || ''
+
+      let payload: Record<string, string>
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        const formData = await c.req.parseBody()
+        payload = Object.fromEntries(
+          Object.entries(formData).map(([k, v]) => [k, String(v)])
+        )
+      } else {
+        payload = await c.req.json()
+      }
+
+      // Verify signature if configured
+      const signature = c.req.header('X-Twilio-Signature')
+      if (signature && this.config.webhookSecret) {
+        const url = c.req.url
+        const isValid = await this.verifyWebhookSignature(signature, url, payload)
+        if (!isValid) {
+          return c.json({ error: 'Invalid signature' }, 403)
+        }
+      }
+
+      // Handle incoming message and create/extend session
+      this.handleIncoming(payload as unknown as WhatsAppWebhookPayload)
+      this.handleWebhook(payload as unknown as WhatsAppWebhookPayload)
+
+      // Return empty TwiML response
+      return c.text('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, {
+        'Content-Type': 'application/xml',
+      })
+    })
+
+    // Legacy /inbound route (alias for /incoming)
     router.post('/inbound', async (c) => {
       const contentType = c.req.header('Content-Type') || ''
 
@@ -1325,7 +1720,7 @@ export class TwilioWhatsApp {
         }
       }
 
-      const result = this.handleWebhook(payload as unknown as WhatsAppWebhookPayload)
+      this.handleWebhook(payload as unknown as WhatsAppWebhookPayload)
 
       // Return empty TwiML response
       return c.text('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, {
