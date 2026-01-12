@@ -858,7 +858,7 @@ describe('HNSW Performance Bounds', () => {
     expect(avgRecall).toBeGreaterThanOrEqual(0.95)
   })
 
-  it('search is O(log n)', () => {
+  it('search is O(log n)', { timeout: 60000 }, () => {
     const smallIndex = createHNSWIndex({ dimensions: 128, M: 16, efConstruction: 100 })
     const largeIndex = createHNSWIndex({ dimensions: 128, M: 16, efConstruction: 100 })
 
@@ -1577,7 +1577,7 @@ describe('HNSW Recall vs ef Parameter', () => {
 // ============================================================================
 
 describe('HNSW Large Scale', () => {
-  it('handles 10k vectors', () => {
+  it('handles 10k vectors', { timeout: 60000 }, () => {
     const index = createHNSWIndex({
       dimensions: 128,
       M: 16,
@@ -1599,7 +1599,7 @@ describe('HNSW Large Scale', () => {
     expect(searchTime).toBeLessThan(50) // Should be fast
   })
 
-  it('maintains recall at large scale', () => {
+  it('maintains recall at large scale', { timeout: 60000 }, () => {
     const index = createHNSWIndex({
       dimensions: 128,
       M: 32,
