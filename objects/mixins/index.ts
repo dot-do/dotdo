@@ -53,3 +53,32 @@ export {
   type PackageJson,
   type ResolvedPackage,
 } from './npm'
+
+// Primitives capability (TemporalStore, WindowManager, ExactlyOnceContext)
+export {
+  withPrimitives,
+  type PrimitivesCapability,
+  type WithPrimitivesContext,
+  type PrimitivesDO,
+  type DOPrimitiveFactory,
+  type DurationSpec,
+  type WindowType,
+  type WindowConfig,
+  // Re-export primitive types
+  type TemporalStore,
+  type TemporalStoreOptions,
+  type ExactlyOnceContextInterface,
+  type ExactlyOnceContextOptions,
+  type TypedColumnStore,
+  // Re-export utilities
+  hours,
+  minutes,
+  seconds,
+  milliseconds,
+  WindowManager,
+  EventTimeTrigger,
+  CountTrigger,
+  ProcessingTimeTrigger,
+  PurgingTrigger,
+  Trigger,
+} from '../primitives/with-primitives'
