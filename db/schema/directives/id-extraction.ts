@@ -54,7 +54,7 @@ function valueToString(value: unknown): string | undefined | null {
 function parseTransformExpression(pattern: string): [string, string] | null {
   const match = pattern.match(/^(\w+)\((.+)\)$/)
   if (match) {
-    return [match[1], match[2]]
+    return [match[1]!, match[2]!]
   }
   return null
 }

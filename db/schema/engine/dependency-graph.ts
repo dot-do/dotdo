@@ -65,16 +65,16 @@ export function buildDependencyGraph(schema: GenerationParsedSchema): EngineDepG
 
       if (isSoft || isOptionalField) {
         // Soft dependency (fuzzy search) or optional field
-        if (!nodes[typeName].softDependsOn.includes(target)) {
-          nodes[typeName].softDependsOn.push(target)
+        if (!nodes[typeName]!.softDependsOn.includes(target)) {
+          nodes[typeName]!.softDependsOn.push(target)
         }
       } else {
         // Hard dependency
-        if (!nodes[typeName].dependsOn.includes(target)) {
-          nodes[typeName].dependsOn.push(target)
+        if (!nodes[typeName]!.dependsOn.includes(target)) {
+          nodes[typeName]!.dependsOn.push(target)
         }
-        if (!nodes[target].dependedOnBy.includes(typeName)) {
-          nodes[target].dependedOnBy.push(typeName)
+        if (!nodes[target]!.dependedOnBy.includes(typeName)) {
+          nodes[target]!.dependedOnBy.push(typeName)
         }
       }
     }
@@ -226,7 +226,7 @@ export function getParallelGroups(graph: EngineDepGraph, rootType: string): stri
     if (nodeInfo) {
       for (const dep of nodeInfo.dependsOn) {
         if (relevantNodes.has(dep)) {
-          inDegree[node]++
+          inDegree[node]!++
         }
       }
     }
@@ -253,7 +253,7 @@ export function getParallelGroups(graph: EngineDepGraph, rootType: string): stri
       // Reduce in-degree of nodes that depend on this node
       for (const dependent of graph.nodes[node]?.dependedOnBy ?? []) {
         if (dependent in inDegree) {
-          inDegree[dependent]--
+          inDegree[dependent]!--
         }
       }
     }

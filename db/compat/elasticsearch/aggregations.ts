@@ -161,17 +161,17 @@ export class AggregationExecutor {
 
     // Filter aggregation
     if ('filter' in agg) {
-      return this.executeFilter(agg, documents)
+      return this.executeFilter(agg, documents) as AggregationResult
     }
 
     // Filters aggregation
     if ('filters' in agg) {
-      return this.executeFilters(agg, documents)
+      return this.executeFilters(agg, documents) as AggregationResult
     }
 
     // Nested aggregation
     if ('nested' in agg) {
-      return this.executeNested(agg, documents)
+      return this.executeNested(agg, documents) as AggregationResult
     }
 
     // Unknown aggregation type
@@ -445,7 +445,7 @@ export class AggregationExecutor {
   private executeFilter(
     agg: { filter: Query; aggs?: Record<string, Aggregation> },
     documents: IndexedDocument[]
-  ): { doc_count: number } & Record<string, unknown> {
+  ): AggregationResult {
     // Execute filter query
     const filterDocs = this.filterDocuments(documents, agg.filter)
 
@@ -458,13 +458,13 @@ export class AggregationExecutor {
       Object.assign(result, subResults)
     }
 
-    return result as { doc_count: number }
+    return result as unknown as AggregationResult
   }
 
   private executeFilters(
     agg: { filters: { filters: Record<string, Query> | Query[]; other_bucket?: boolean; other_bucket_key?: string }; aggs?: Record<string, Aggregation> },
     documents: IndexedDocument[]
-  ): { buckets: Record<string, { doc_count: number }> } & Record<string, unknown> {
+  ): AggregationResult {
     const { filters, other_bucket = false, other_bucket_key = '_other_' } = agg.filters
 
     const buckets: Record<string, Record<string, unknown>> = {}
@@ -517,13 +517,13 @@ export class AggregationExecutor {
 
     return {
       buckets: buckets as Record<string, { doc_count: number }>,
-    }
+    } as AggregationResult
   }
 
   private executeNested(
     agg: { nested: { path: string }; aggs?: Record<string, Aggregation> },
     documents: IndexedDocument[]
-  ): { doc_count: number } & Record<string, unknown> {
+  ): AggregationResult {
     const { path } = agg.nested
 
     // Flatten nested documents
@@ -552,7 +552,7 @@ export class AggregationExecutor {
       Object.assign(result, subResults)
     }
 
-    return result as { doc_count: number }
+    return result as unknown as AggregationResult
   }
 
   // ==========================================================================
@@ -754,9 +754,9 @@ export class AggregationExecutor {
       const weight = index - lower
 
       if (lower === upper) {
-        return values[lower]
+        return values[lower]!
       }
-      return values[lower] * (1 - weight) + values[upper] * weight
+      return values[lower]! * (1 - weight) + values[upper]! * weight
     }
 
     if (keyed) {
@@ -865,7 +865,7 @@ export class AggregationExecutor {
       // Try parsing as fixed interval
       const fixedMatch = interval.match(/^(\d+)(ms|s|m|h|d)$/)
       if (fixedMatch) {
-        const value = parseInt(fixedMatch[1])
+        const value = parseInt(fixedMatch[1]!)
         const unit = fixedMatch[2]
         switch (unit) {
           case 'ms': return value
@@ -878,7 +878,7 @@ export class AggregationExecutor {
       return 24 * 60 * 60 * 1000 // Default to 1 day
     }
 
-    const value = parseInt(match[1])
+    const value = parseInt(match[1]!)
     const unit = match[2]
 
     switch (unit) {
@@ -898,7 +898,7 @@ export class AggregationExecutor {
     // For now, implement basic filters inline
 
     if ('term' in query) {
-      const field = Object.keys(query.term)[0]
+      const field = Object.keys(query.term)[0]!
       const value = query.term[field]
       const targetValue = typeof value === 'object' && value !== null ? (value as { value: unknown }).value : value
 
@@ -934,7 +934,7 @@ export class AggregationExecutor {
     }
 
     if ('range' in query) {
-      const field = Object.keys(query.range)[0]
+      const field = Object.keys(query.range)[0]!
       const config = query.range[field] as { gt?: number; gte?: number; lt?: number; lte?: number }
 
       return documents.filter((doc) => {

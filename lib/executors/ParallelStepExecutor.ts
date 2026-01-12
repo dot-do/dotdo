@@ -122,8 +122,8 @@ function parseDuration(duration: string | number): number {
     throw new Error(`Invalid duration format: ${duration}`)
   }
 
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
+  const value = parseFloat(match[1]!)
+  const unit = match[2]!.toLowerCase()
 
   const multipliers: Record<string, number> = {
     ms: 1,

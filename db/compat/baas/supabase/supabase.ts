@@ -714,9 +714,9 @@ class PostgrestFilterBuilderImpl<T extends Row> implements PostgrestFilterBuilde
         return orParts.some((part) => {
           const [col, op, val] = part.split('.')
           return this.matchesFilter(row, {
-            column: col,
+            column: col!,
             operator: op as FilterOperator,
-            value: this.parseFilterValue(val),
+            value: this.parseFilterValue(val!),
           })
         })
       case 'filter':
@@ -806,7 +806,7 @@ class PostgrestFilterBuilderImpl<T extends Row> implements PostgrestFilterBuilde
     return rows.map((row) => {
       const selected: Row = {}
       for (const col of cols) {
-        if (col in (row as Row)) {
+        if (col && col in (row as Row)) {
           selected[col] = (row as Row)[col]
         }
       }

@@ -1039,7 +1039,7 @@ async function executeProviderSearch(
     }
   }
 
-  const account = await linkedAccounts.get(provider)
+  const account = await linkedAccounts.get(provider!)
   if (!account) {
     return {
       results: [],
@@ -1062,7 +1062,7 @@ async function executeProviderSearch(
   }
 
   // Check required scopes
-  if (!hasRequiredScopes(account.scopes, providerConfig.scopes)) {
+  if (!hasRequiredScopes(account.scopes, providerConfig!.scopes)) {
     return {
       results: [],
       total: 0,
@@ -1083,7 +1083,7 @@ async function executeProviderSearch(
     }
   }
 
-  const integration = await integrations.get(provider)
+  const integration = await integrations.get(provider!)
   if (!integration) {
     return {
       results: [],
@@ -1096,7 +1096,7 @@ async function executeProviderSearch(
 
   // Execute the provider search
   try {
-    const searchResult = await integration.search(resource, {
+    const searchResult = await integration.search(resource!, {
       accessToken: account.accessToken,
       q,
       limit,

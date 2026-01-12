@@ -627,6 +627,119 @@ export class ChatDO extends DO {
 }
 ```
 
+## Migration from @anthropic-ai/sdk
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @anthropic-ai/sdk
+
+# Install
+npm install @dotdo/anthropic
+```
+
+### Import Change
+
+```typescript
+// Before
+import Anthropic from '@anthropic-ai/sdk'
+
+// After
+import Anthropic from '@dotdo/anthropic'
+
+// All your existing code works unchanged
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+const message = await client.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+### Streaming Migration
+
+Streaming works identically:
+
+```typescript
+// Before: @anthropic-ai/sdk
+const stream = await client.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+  stream: true,
+})
+
+for await (const event of stream) {
+  // Handle events...
+}
+
+// After: @dotdo/anthropic
+// Identical API - no changes needed
+const stream = await client.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+  stream: true,
+})
+
+for await (const event of stream) {
+  // Same event types and structure
+}
+```
+
+### Tool Use Migration
+
+Tool definitions and tool use flow are identical:
+
+```typescript
+// Works with both @anthropic-ai/sdk and @dotdo/anthropic
+const message = await client.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  tools: [{
+    name: 'get_weather',
+    description: 'Get weather for a location',
+    input_schema: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' },
+      },
+      required: ['location'],
+    },
+  }],
+  messages: [{ role: 'user', content: 'What is the weather in NYC?' }],
+})
+
+// Same response structure
+if (message.stop_reason === 'tool_use') {
+  const toolUse = message.content.find(b => b.type === 'tool_use')
+  console.log(toolUse.name, toolUse.input)
+}
+```
+
+### Edge Runtime Benefits
+
+After migration, your code works in edge runtimes:
+
+```typescript
+// Cloudflare Workers - works with @dotdo/anthropic
+export default {
+  async fetch(request: Request, env: Env) {
+    const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+
+    const message = await client.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: 'Hello from the edge!' }],
+    })
+
+    return Response.json(message)
+  },
+}
+```
+
 ## Related
 
 - [OpenAI](/docs/integrations/openai) - OpenAI API compatibility

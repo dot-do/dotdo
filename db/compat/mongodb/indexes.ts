@@ -101,14 +101,14 @@ class FieldIndex {
     return this.docValues.size
   }
 
-  private normalizeKey(value: unknown): string {
+  protected normalizeKey(value: unknown): string {
     if (value === null) return 'null'
     if (value === undefined) return 'undefined'
     if (typeof value === 'object') return JSON.stringify(value)
     return String(value)
   }
 
-  private compareValues(a: unknown, b: unknown): number {
+  protected compareValues(a: unknown, b: unknown): number {
     if (a === null || a === undefined) {
       if (b === null || b === undefined) return 0
       return -1
@@ -135,7 +135,7 @@ class FieldIndex {
 class UniqueFieldIndex extends FieldIndex {
   private uniqueValues: Map<string, string> = new Map()
 
-  add(docId: string, value: unknown): void {
+  override add(docId: string, value: unknown): void {
     const key = this.normalizeKey(value)
 
     // Check for duplicate
@@ -148,7 +148,7 @@ class UniqueFieldIndex extends FieldIndex {
     super.add(docId, value)
   }
 
-  remove(docId: string): void {
+  override remove(docId: string): void {
     // Find and remove from unique values
     for (const [key, id] of this.uniqueValues) {
       if (id === docId) {
@@ -159,16 +159,9 @@ class UniqueFieldIndex extends FieldIndex {
     super.remove(docId)
   }
 
-  clear(): void {
+  override clear(): void {
     this.uniqueValues.clear()
     super.clear()
-  }
-
-  private normalizeKey(value: unknown): string {
-    if (value === null) return 'null'
-    if (value === undefined) return 'undefined'
-    if (typeof value === 'object') return JSON.stringify(value)
-    return String(value)
   }
 }
 
@@ -178,12 +171,12 @@ class UniqueFieldIndex extends FieldIndex {
 class TextIndex {
   private termDocs: Map<string, Set<string>> = new Map()
   private docTerms: Map<string, Map<string, number>> = new Map()
-  private scorer: BM25Scorer
+  private scorer: BM25Scorer | null = null
   private totalDocs = 0
   private avgDocLength = 0
 
   constructor() {
-    this.scorer = new BM25Scorer()
+    // Scorer will be lazily initialized when needed
   }
 
   add(docId: string, text: string): void {
@@ -223,6 +216,12 @@ class TextIndex {
     const queryTerms = this.tokenize(query)
     const scores = new Map<string, number>()
 
+    // Lazily initialize scorer with current stats
+    if (!this.scorer) {
+      const totalLength = this.totalDocs * this.avgDocLength
+      this.scorer = new BM25Scorer({ totalDocs: this.totalDocs, avgDocLength: this.avgDocLength, totalLength })
+    }
+
     for (const term of queryTerms) {
       const docs = this.termDocs.get(term)
       if (!docs) continue
@@ -235,12 +234,10 @@ class TextIndex {
         const tf = docTermFreqs.get(term) ?? 0
         const docLength = Array.from(docTermFreqs.values()).reduce((a, b) => a + b, 0)
 
-        const score = this.scorer.score({
-          totalDocs: this.totalDocs,
-          avgDocLength: this.avgDocLength,
+        const score = this.scorer.scoreTerm({
+          tf,
+          df,
           docLength,
-          termFrequency: tf,
-          documentFrequency: df,
         })
 
         scores.set(docId, (scores.get(docId) ?? 0) + score)
@@ -373,7 +370,7 @@ export class IndexManager<T extends Document = Document> {
     const keyEntries = Object.entries(keys)
 
     if (keyEntries.length === 1) {
-      const [field, type] = keyEntries[0]
+      const [field, type] = keyEntries[0]!
 
       if (type === 'text') {
         // Text index
@@ -455,7 +452,7 @@ export class IndexManager<T extends Document = Document> {
       const keyEntries = Object.entries(info.key)
 
       if (keyEntries.length === 1) {
-        const [field, type] = keyEntries[0]
+        const [field, type] = keyEntries[0]!
 
         if (type === 'text') {
           // Text index
@@ -535,12 +532,13 @@ export class IndexManager<T extends Document = Document> {
     const keyEntries = Object.entries(info.key)
     if (keyEntries.length !== 1) return null
 
-    const [field] = keyEntries
+    const firstEntry = keyEntries[0]!
+    const field = firstEntry[0]
 
     // Check if filter matches this index
     if (!(field in filter)) return null
 
-    const condition = filter[field as keyof typeof filter]
+    const condition = filter[field as keyof Filter<T>]
     const fieldIndex = this.fieldIndexes.get(indexName)
 
     if (!fieldIndex) return null

@@ -154,19 +154,19 @@ function parseField(field: string, min: number, max: number, fieldName: string):
     const stepMatch = part.match(/^(.+)\/(\d+)$/)
     if (stepMatch) {
       const [, rangePart, stepStr] = stepMatch
-      const step = parseInt(stepStr, 10)
+      const step = parseInt(stepStr!, 10)
 
       let rangeStart = min
       let rangeEnd = max
 
       if (rangePart !== '*') {
         // Parse range like 0-30
-        const rangeMatch = rangePart.match(/^(\d+)-(\d+)$/)
+        const rangeMatch = rangePart!.match(/^(\d+)-(\d+)$/)
         if (rangeMatch) {
-          rangeStart = parseInt(rangeMatch[1], 10)
-          rangeEnd = parseInt(rangeMatch[2], 10)
+          rangeStart = parseInt(rangeMatch[1]!, 10)
+          rangeEnd = parseInt(rangeMatch[2]!, 10)
         } else {
-          rangeStart = parseInt(rangePart, 10)
+          rangeStart = parseInt(rangePart!, 10)
           rangeEnd = max
         }
       }
@@ -180,8 +180,8 @@ function parseField(field: string, min: number, max: number, fieldName: string):
     // Check for range (e.g., 1-5)
     const rangeMatch = part.match(/^(\d+)-(\d+)$/)
     if (rangeMatch) {
-      const start = parseInt(rangeMatch[1], 10)
-      const end = parseInt(rangeMatch[2], 10)
+      const start = parseInt(rangeMatch[1]!, 10)
+      const end = parseInt(rangeMatch[2]!, 10)
 
       if (start > end) {
         throw new InvalidCronExpressionError(`Invalid range in ${fieldName}: ${part} (start > end)`)
@@ -252,13 +252,13 @@ export function parseCronExpression(expression: string): CronExpression {
   const offset = fields.length === 6 ? 1 : 0
 
   // Replace day/month name aliases
-  const monthField = replaceAliases(fields[offset + 3], MONTH_ALIASES)
-  const dowField = replaceAliases(fields[offset + 4], DAY_ALIASES)
+  const monthField = replaceAliases(fields[offset + 3]!, MONTH_ALIASES)
+  const dowField = replaceAliases(fields[offset + 4]!, DAY_ALIASES)
 
   return {
-    minute: parseField(fields[offset + 0], 0, 59, 'minute'),
-    hour: parseField(fields[offset + 1], 0, 23, 'hour'),
-    dayOfMonth: parseField(fields[offset + 2], 1, 31, 'dayOfMonth'),
+    minute: parseField(fields[offset + 0]!, 0, 59, 'minute'),
+    hour: parseField(fields[offset + 1]!, 0, 23, 'hour'),
+    dayOfMonth: parseField(fields[offset + 2]!, 1, 31, 'dayOfMonth'),
     month: parseField(monthField, 1, 12, 'month'),
     dayOfWeek: parseField(dowField, 0, 6, 'dayOfWeek'),
   }
@@ -289,7 +289,7 @@ function getNextValue(current: number, field: number[] | '*', max: number): { va
   }
 
   // Wrap around to first value
-  return { value: field[0], wrapped: true }
+  return { value: field[0]!, wrapped: true }
 }
 
 /**

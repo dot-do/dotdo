@@ -801,7 +801,7 @@ export class DLQ {
 
     const result: DLQMessage[] = []
     for (let i = startIndex; i < Math.min(startIndex + limit, this.messageOrder.length); i++) {
-      const id = this.messageOrder[i]
+      const id = this.messageOrder[i]!
       const msg = this.messages.get(id)
       if (msg) {
         result.push({
@@ -1311,7 +1311,7 @@ export class Client {
           // Extract status code from error message if present
           const statusMatch = lastError.message.match(/HTTP (\d+):/)
           if (statusMatch) {
-            lastStatus = parseInt(statusMatch[1], 10)
+            lastStatus = parseInt(statusMatch[1]!, 10)
 
             // Don't retry on 4xx errors (client errors)
             if (!isRetryableStatus(lastStatus)) {
@@ -1725,7 +1725,7 @@ export class Client {
       // For rejected promises, return a minimal response with error info
       return {
         messageId: `failed_${index}`,
-        url: messages[index].url,
+        url: messages[index]!.url,
         deduplicated: false,
         error: result.reason?.message || 'Unknown error',
       } as PublishResponse & { error?: string }

@@ -89,7 +89,7 @@ class TopKHeap {
    * Peek at the maximum score in the heap (root of max-heap)
    */
   peekMax(): number {
-    return this.heap.length > 0 ? this.heap[0].score : -Infinity
+    return this.heap.length > 0 ? this.heap[0]!.score : -Infinity
   }
 
   /**
@@ -101,7 +101,7 @@ class TopKHeap {
     if (this.heap.length < this.capacity) {
       this.heap.push(entry)
       this.heapifyUpMin(this.heap.length - 1)
-    } else if (entry.score > this.heap[0].score) {
+    } else if (entry.score > this.heap[0]!.score) {
       // Replace the minimum (worst result) with the new entry
       this.heap[0] = entry
       this.heapifyDownMin(0)
@@ -117,7 +117,7 @@ class TopKHeap {
     if (this.heap.length < this.capacity) {
       this.heap.push(entry)
       this.heapifyUpMax(this.heap.length - 1)
-    } else if (entry.score < this.heap[0].score) {
+    } else if (entry.score < this.heap[0]!.score) {
       // Replace the maximum (worst result) with the new entry
       this.heap[0] = entry
       this.heapifyDownMax(0)
@@ -137,7 +137,7 @@ class TopKHeap {
   private heapifyUpMin(index: number): void {
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2)
-      if (this.heap[parent].score <= this.heap[index].score) break
+      if (this.heap[parent]!.score <= this.heap[index]!.score) break
       this.swap(parent, index)
       index = parent
     }
@@ -150,10 +150,10 @@ class TopKHeap {
       const right = 2 * index + 2
       let smallest = index
 
-      if (left < length && this.heap[left].score < this.heap[smallest].score) {
+      if (left < length && this.heap[left]!.score < this.heap[smallest]!.score) {
         smallest = left
       }
-      if (right < length && this.heap[right].score < this.heap[smallest].score) {
+      if (right < length && this.heap[right]!.score < this.heap[smallest]!.score) {
         smallest = right
       }
 
@@ -166,7 +166,7 @@ class TopKHeap {
   private heapifyUpMax(index: number): void {
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2)
-      if (this.heap[parent].score >= this.heap[index].score) break
+      if (this.heap[parent]!.score >= this.heap[index]!.score) break
       this.swap(parent, index)
       index = parent
     }
@@ -179,10 +179,10 @@ class TopKHeap {
       const right = 2 * index + 2
       let largest = index
 
-      if (left < length && this.heap[left].score > this.heap[largest].score) {
+      if (left < length && this.heap[left]!.score > this.heap[largest]!.score) {
         largest = left
       }
-      if (right < length && this.heap[right].score > this.heap[largest].score) {
+      if (right < length && this.heap[right]!.score > this.heap[largest]!.score) {
         largest = right
       }
 
@@ -193,8 +193,8 @@ class TopKHeap {
   }
 
   private swap(i: number, j: number): void {
-    const temp = this.heap[i]
-    this.heap[i] = this.heap[j]
+    const temp = this.heap[i]!
+    this.heap[i] = this.heap[j]!
     this.heap[j] = temp
   }
 }
@@ -305,7 +305,7 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
     // Build ID lookup map
     this.idToIndex.clear()
     for (let i = 0; i < ids.length; i++) {
-      this.idToIndex.set(ids[i], i)
+      this.idToIndex.set(ids[i]!, i)
     }
   }
 
@@ -371,9 +371,9 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
         : this.l2Distance(query, vector)
 
       if (useMaximize) {
-        heap.pushForMaximize({ id: this.ids[i], score })
+        heap.pushForMaximize({ id: this.ids[i]!, score })
       } else {
-        heap.pushForMinimize({ id: this.ids[i], score })
+        heap.pushForMinimize({ id: this.ids[i]!, score })
       }
     }
 
@@ -407,7 +407,7 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
     let vectorsScanned = 0
 
     for (let i = 0; i < count; i++) {
-      const id = this.ids[i]
+      const id = this.ids[i]!
 
       // Apply filter if provided
       if (filter && !filter(id)) {
@@ -503,7 +503,7 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
       this.loadedAt = new Date().toISOString()
 
       for (let i = 0; i < ids.length; i++) {
-        this.idToIndex.set(ids[i], i)
+        this.idToIndex.set(ids[i]!, i)
       }
 
       return { inserted: ids.length, failed: [] }
@@ -520,11 +520,12 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
     const errors: Record<string, string> = {}
 
     for (let i = 0; i < ids.length; i++) {
-      if (this.idToIndex.has(ids[i])) {
-        failed.push(ids[i])
-        errors[ids[i]] = 'Vector already exists'
+      const id = ids[i]!
+      if (this.idToIndex.has(id)) {
+        failed.push(id)
+        errors[id] = 'Vector already exists'
       } else {
-        inserted.push(ids[i])
+        inserted.push(id)
       }
     }
 
@@ -536,15 +537,16 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
 
       let insertIndex = this.ids.length
       for (let i = 0; i < ids.length; i++) {
-        if (!this.idToIndex.has(ids[i])) {
+        const id = ids[i]!
+        if (!this.idToIndex.has(id)) {
           const srcStart = i * dimensions
           const dstStart = insertIndex * this.dimensions
           newVectors.set(
             vectors.subarray(srcStart, srcStart + dimensions),
             dstStart
           )
-          this.idToIndex.set(ids[i], insertIndex)
-          this.ids.push(ids[i])
+          this.idToIndex.set(id, insertIndex)
+          this.ids.push(id)
           insertIndex++
         }
       }
@@ -599,8 +601,8 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
           this.vectors.subarray(srcStart, srcStart + this.dimensions),
           dstStart
         )
-        newIds.push(this.ids[i])
-        this.idToIndex.set(this.ids[i], newIndex)
+        newIds.push(this.ids[i]!)
+        this.idToIndex.set(this.ids[i]!, newIndex)
         newIndex++
       }
     }
@@ -707,9 +709,9 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
     let normB = 0
 
     for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
+      dotProduct += a[i]! * b[i]!
+      normA += a[i]! * a[i]!
+      normB += b[i]! * b[i]!
     }
 
     const denominator = Math.sqrt(normA) * Math.sqrt(normB)
@@ -726,7 +728,7 @@ export class VectorShardDO extends DurableObject<CloudflareEnv> {
     let sum = 0
 
     for (let i = 0; i < a.length; i++) {
-      const diff = a[i] - b[i]
+      const diff = a[i]! - b[i]!
       sum += diff * diff
     }
 

@@ -652,6 +652,77 @@ import { native } from '@dotdo/postgres'
 const { Client, Pool } = native()
 ```
 
+## Migration from pg
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall pg @types/pg
+
+# Install
+npm install @dotdo/postgres
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Client, Pool } from 'pg'
+
+// After
+import { Client, Pool } from '@dotdo/postgres'
+
+// All your existing code works unchanged
+const client = new Client()
+await client.connect()
+const result = await client.query('SELECT $1::text as message', ['Hello'])
+console.log(result.rows[0].message)
+```
+
+### Configuration Compatibility
+
+Your existing connection configuration works unchanged:
+
+```typescript
+// Connection string (works with both)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+})
+
+// Object config (works with both)
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  user: 'postgres',
+  password: 'secret',
+})
+```
+
+### ORM Compatibility
+
+Works with popular ORMs and query builders:
+
+```typescript
+// Drizzle ORM - just change the import
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from '@dotdo/postgres'
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const db = drizzle(pool)
+
+// Kysely - same pattern
+import { Kysely, PostgresDialect } from 'kysely'
+import { Pool } from '@dotdo/postgres'
+
+const db = new Kysely({
+  dialect: new PostgresDialect({
+    pool: new Pool({ connectionString: process.env.DATABASE_URL }),
+  }),
+})
+```
+
 ## Related
 
 - [Databases Overview](/docs/compat/databases) - All database SDK implementations

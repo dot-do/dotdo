@@ -81,6 +81,9 @@ export default defineWorkspace([
   // Database schema tests
   createNodeWorkspace('schema', ['db/tests/**/*.test.ts', 'db/schema/tests/**/*.test.ts']),
 
+  // Primitives tests (event-emitter, fsx, bashx, etc.)
+  createNodeWorkspace('primitives', ['primitives/**/*.test.ts']),
+
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
 

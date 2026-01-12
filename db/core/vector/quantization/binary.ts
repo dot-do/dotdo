@@ -57,21 +57,21 @@ export function toBinary(
     // Compute mean
     let sum = 0
     for (let i = 0; i < dims; i++) {
-      sum += vector[i]
+      sum += vector[i]!
     }
     threshold = sum / dims
   } else if (options?.threshold === 'median') {
     // Compute median
     const sorted = Array.from(vector).sort((a, b) => a - b)
     const mid = Math.floor(dims / 2)
-    threshold = dims % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+    threshold = dims % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
   } else {
     threshold = options?.threshold ?? 0.0
   }
 
   // Convert to binary
   for (let i = 0; i < dims; i++) {
-    const val = vector[i]
+    const val = vector[i]!
     // NaN is treated as below threshold (0)
     result[i] = (Number.isNaN(val) ? 0 : val >= threshold) ? 1 : 0
   }
@@ -161,7 +161,7 @@ export function packBits(bits: Uint8Array): Uint8Array {
     if (bits[i] === 1) {
       const byteIndex = Math.floor(i / 8)
       const bitIndex = i % 8
-      packed[byteIndex] |= 1 << bitIndex
+      packed[byteIndex]! |= 1 << bitIndex
     }
   }
 
@@ -181,7 +181,7 @@ export function unpackBits(packed: Uint8Array, dimensions: number): Uint8Array {
   for (let i = 0; i < dimensions; i++) {
     const byteIndex = Math.floor(i / 8)
     const bitIndex = i % 8
-    bits[i] = (packed[byteIndex] >> bitIndex) & 1
+    bits[i] = (packed[byteIndex]! >> bitIndex) & 1
   }
 
   return bits
@@ -203,8 +203,8 @@ export function packedHammingDistance(a: Uint8Array, b: Uint8Array): number {
   let distance = 0
   for (let i = 0; i < a.length; i++) {
     // XOR to find differing bits, then popcount
-    const xor = a[i] ^ b[i]
-    distance += POPCOUNT_TABLE[xor]
+    const xor = a[i]! ^ b[i]!
+    distance += POPCOUNT_TABLE[xor]!
   }
 
   return distance

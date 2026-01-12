@@ -86,7 +86,7 @@ function parseTime(timeStr: string): { minute: string; hour: string } {
     throw new Error(`Invalid time format: ${timeStr}`)
   }
 
-  let hour = parseInt(match[1], 10)
+  let hour = parseInt(match[1]!, 10)
   const minute = match[2] ? parseInt(match[2], 10) : 0
   const meridiem = match[3]
 
@@ -135,7 +135,7 @@ function parseNaturalSchedule(schedule: string): string {
   // Match 'every N minutes'
   const everyMinutesMatch = lower.match(/every\s+(\d+)\s+minutes?/)
   if (everyMinutesMatch) {
-    const interval = parseInt(everyMinutesMatch[1], 10)
+    const interval = parseInt(everyMinutesMatch[1]!, 10)
     if (interval < 1 || interval > 59) {
       throw new Error(`Invalid minute interval: ${interval}`)
     }
@@ -155,30 +155,30 @@ function parseNaturalSchedule(schedule: string): string {
   // Match 'daily at TIME' or 'everyday at TIME'
   const dailyMatch = lower.match(/(?:daily|everyday)\s+at\s+(.+)/)
   if (dailyMatch) {
-    const time = parseTime(dailyMatch[1])
+    const time = parseTime(dailyMatch[1]!)
     return `${time.minute} ${time.hour} * * *`
   }
 
   // Match 'weekdays at TIME'
   const weekdaysMatch = lower.match(/weekdays?\s+at\s+(.+)/)
   if (weekdaysMatch) {
-    const time = parseTime(weekdaysMatch[1])
+    const time = parseTime(weekdaysMatch[1]!)
     return `${time.minute} ${time.hour} * * 1-5`
   }
 
   // Match 'weekends at TIME'
   const weekendsMatch = lower.match(/weekends?\s+at\s+(.+)/)
   if (weekendsMatch) {
-    const time = parseTime(weekendsMatch[1])
+    const time = parseTime(weekendsMatch[1]!)
     return `${time.minute} ${time.hour} * * 0,6`
   }
 
   // Match 'DAY at TIME'
   const dayTimeMatch = lower.match(/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+at\s+(.+)/)
   if (dayTimeMatch) {
-    const dayName = dayTimeMatch[1].charAt(0).toUpperCase() + dayTimeMatch[1].slice(1)
+    const dayName = dayTimeMatch[1]!.charAt(0).toUpperCase() + dayTimeMatch[1]!.slice(1)
     const dayNum = DAYS[dayName]
-    const time = parseTime(dayTimeMatch[2])
+    const time = parseTime(dayTimeMatch[2]!)
     return `${time.minute} ${time.hour} * * ${dayNum}`
   }
 
@@ -324,9 +324,9 @@ export function createScheduleBuilderProxy(config: ScheduleBuilderConfig): Sched
       const dayOfWeek = nextRun.getUTCDay()
 
       if (
-        matchesCronField(minute, minutePart) &&
-        matchesCronField(hour, hourPart) &&
-        matchesCronField(dayOfWeek, dayOfWeekPart)
+        matchesCronField(minute, minutePart!) &&
+        matchesCronField(hour, hourPart!) &&
+        matchesCronField(dayOfWeek, dayOfWeekPart!)
       ) {
         return nextRun
       }
@@ -352,7 +352,7 @@ export function createScheduleBuilderProxy(config: ScheduleBuilderConfig): Sched
     // Handle ranges like 1-5
     if (field.includes('-')) {
       const [start, end] = field.split('-').map(Number)
-      return value >= start && value <= end
+      return value >= start! && value <= end!
     }
 
     // Handle lists like 0,6

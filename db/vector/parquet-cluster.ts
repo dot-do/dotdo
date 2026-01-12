@@ -110,7 +110,7 @@ function serializeFloats(data: Float32Array): Uint8Array {
   const bytes = new Uint8Array(data.length * 4)
   const view = new DataView(bytes.buffer)
   for (let i = 0; i < data.length; i++) {
-    view.setFloat32(i * 4, data[i], true) // little-endian
+    view.setFloat32(i * 4, data[i]!, true) // little-endian
   }
   return bytes
 }
@@ -146,7 +146,7 @@ function generatePQCodes(embedding: Float32Array, subquantizers: number): Uint8A
     // Simple hash-based quantization (in production, use trained codebooks)
     let sum = 0
     for (let j = start; j < end; j++) {
-      sum += embedding[j] * (j + 1)
+      sum += embedding[j]! * (j + 1)
     }
     codes[i] = Math.abs(Math.floor(sum * 127 + 128)) % 256
   }
@@ -178,7 +178,7 @@ function readVarint(buffer: Uint8Array, offset: number): [number, number] {
   let pos = offset
 
   while (pos < buffer.length) {
-    const byte = buffer[pos]
+    const byte = buffer[pos]!
     value |= (byte & 0x7f) << shift
     pos++
     if ((byte & 0x80) === 0) break
@@ -283,7 +283,7 @@ export class ParquetClusterFile {
     const sortedVectors = [...vectors].sort((a, b) => a.id.localeCompare(b.id))
 
     // Calculate dimensions
-    const dimensions = sortedVectors.length > 0 ? sortedVectors[0].embedding.length : 0
+    const dimensions = sortedVectors.length > 0 ? sortedVectors[0]!.embedding.length : 0
 
     // Create row groups
     const rowGroups: RowGroup[] = []
@@ -738,8 +738,8 @@ export class ParquetClusterFile {
     let maxId: string | undefined
 
     if (header.rowGroups.length > 0) {
-      minId = header.rowGroups[0].minId
-      maxId = header.rowGroups[header.rowGroups.length - 1].maxId
+      minId = header.rowGroups[0]!.minId
+      maxId = header.rowGroups[header.rowGroups.length - 1]!.maxId
     }
 
     // Count nulls (read through vectors to count)
@@ -757,7 +757,7 @@ export class ParquetClusterFile {
         centroidSum = new Float32Array(vec.embedding.length)
       }
       for (let i = 0; i < vec.embedding.length; i++) {
-        centroidSum[i] += vec.embedding[i]
+        centroidSum[i]! += vec.embedding[i]!
       }
     }
 
@@ -768,18 +768,18 @@ export class ParquetClusterFile {
     if (centroidSum && result.vectors.length > 0) {
       centroid = new Float32Array(centroidSum.length)
       for (let i = 0; i < centroidSum.length; i++) {
-        centroid[i] = centroidSum[i] / result.vectors.length
+        centroid[i] = centroidSum[i]! / result.vectors.length
       }
 
       // Normalize centroid
       let norm = 0
       for (let i = 0; i < centroid.length; i++) {
-        norm += centroid[i] * centroid[i]
+        norm += centroid[i]! * centroid[i]!
       }
       norm = Math.sqrt(norm)
       if (norm > 0) {
         for (let i = 0; i < centroid.length; i++) {
-          centroid[i] /= norm
+          centroid[i]! /= norm
         }
       }
 
@@ -788,7 +788,7 @@ export class ParquetClusterFile {
       for (const vec of result.vectors) {
         let dist = 0
         for (let i = 0; i < vec.embedding.length; i++) {
-          const diff = vec.embedding[i] - centroid[i]
+          const diff = vec.embedding[i]! - centroid[i]!
           dist += diff * diff
         }
         dist = Math.sqrt(dist)

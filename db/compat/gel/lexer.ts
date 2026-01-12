@@ -101,11 +101,11 @@ class Lexer {
 
   private peek(offset: number = 0): string {
     const idx = this.pos + offset
-    return idx < this.source.length ? this.source[idx] : ''
+    return idx < this.source.length ? this.source[idx]! : ''
   }
 
   private advance(): string {
-    const ch = this.source[this.pos]
+    const ch = this.source[this.pos]!
     this.pos++
     if (ch === '\n') {
       this.line++

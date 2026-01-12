@@ -90,11 +90,11 @@ export function parseCSV(csv: string, options: CSVParseOptions = {}): Record<str
     return []
   }
 
-  const headers = parseCSVLine(lines[0], delimiter)
+  const headers = parseCSVLine(lines[0]!, delimiter)
   const result: Record<string, string>[] = []
 
   for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i], delimiter)
+    const values = parseCSVLine(lines[i]!, delimiter)
 
     // Validate column count in strict mode
     if (strict && values.length !== headers.length) {
@@ -104,7 +104,7 @@ export function parseCSV(csv: string, options: CSVParseOptions = {}): Record<str
     const row: Record<string, string> = {}
 
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = values[j] ?? ''
+      row[headers[j]!] = values[j] ?? ''
     }
 
     result.push(row)
@@ -184,13 +184,13 @@ export function parseXML(xml: string, options: XMLOptions = {}): Record<string, 
     if (!tagMatch) return result
 
     const tagName = tagMatch[1]
-    const attrsStr = tagMatch[2]
+    const attrsStr = tagMatch[2]!
 
     // Extract attributes
     const attrRegex = /(\w+)="([^"]*)"/g
     let attrMatch
     while ((attrMatch = attrRegex.exec(attrsStr)) !== null) {
-      result[`@${attrMatch[1]}`] = attrMatch[2]
+      result[`@${attrMatch[1]!}`] = attrMatch[2]!
     }
 
     // Find content between opening and closing tags
@@ -198,7 +198,7 @@ export function parseXML(xml: string, options: XMLOptions = {}): Record<string, 
     const contentMatch = xmlStr.match(contentRegex)
 
     if (contentMatch) {
-      const content = contentMatch[1].trim()
+      const content = contentMatch[1]!.trim()
 
       // Check if content has child elements
       const childRegex = /<(\w+)[^>]*>[\s\S]*?<\/\1>/g
@@ -216,11 +216,11 @@ export function parseXML(xml: string, options: XMLOptions = {}): Record<string, 
         for (const child of children) {
           const childTagMatch = child.match(/^<(\w+)/)
           if (childTagMatch) {
-            const childTag = childTagMatch[1]
+            const childTag = childTagMatch[1]!
             if (!childGroups[childTag]) {
               childGroups[childTag] = []
             }
-            childGroups[childTag].push(parseElement(child))
+            childGroups[childTag]!.push(parseElement(child))
           }
         }
 
@@ -243,7 +243,7 @@ export function parseXML(xml: string, options: XMLOptions = {}): Record<string, 
   // Navigate to item path and extract items
   if (itemPath) {
     const pathParts = itemPath.split('.')
-    let current: unknown = { [pathParts[0]]: parsed }
+    let current: unknown = { [pathParts[0]!]: parsed }
 
     for (const part of pathParts) {
       if (current && typeof current === 'object') {
@@ -290,7 +290,7 @@ export function parseYAML(yaml: string, options: YAMLOptions = {}): Record<strin
   let result: unknown
 
   // Check if it's a list at root level (starts with -)
-  if (lines[0].trim().startsWith('-')) {
+  if (lines[0]?.trim().startsWith('-')) {
     result = parseYAMLArray(lines, 0).value
   } else {
     result = parseYAMLObject(lines, 0).value
@@ -320,7 +320,7 @@ export function parseYAML(yaml: string, options: YAMLOptions = {}): Record<strin
 
 function getIndent(line: string): number {
   const match = line.match(/^(\s*)/)
-  return match ? match[1].length : 0
+  return match ? match[1]!.length : 0
 }
 
 function parseYAMLArray(lines: string[], startIndent: number): { value: unknown[]; endIndex: number } {
@@ -328,7 +328,7 @@ function parseYAMLArray(lines: string[], startIndent: number): { value: unknown[
   let i = 0
 
   while (i < lines.length) {
-    const line = lines[i]
+    const line = lines[i]!
     const trimmed = line.trim()
 
     if (!trimmed) {
@@ -348,13 +348,13 @@ function parseYAMLArray(lines: string[], startIndent: number): { value: unknown[
         // It's an object item starting on same line
         const obj: Record<string, unknown> = {}
         const [key, val] = value.split(':').map((s) => s.trim())
-        obj[key] = val || ''
+        obj[key!] = val || ''
 
         // Check for more properties at next indent level
         let j = i + 1
         const itemIndent = indent + 2
         while (j < lines.length) {
-          const nextLine = lines[j]
+          const nextLine = lines[j]!
           const nextTrimmed = nextLine.trim()
           if (!nextTrimmed) {
             j++
@@ -364,7 +364,7 @@ function parseYAMLArray(lines: string[], startIndent: number): { value: unknown[
           if (nextIndent < itemIndent) break
           if (nextIndent === itemIndent && nextTrimmed.includes(':')) {
             const [k, v] = nextTrimmed.split(':').map((s) => s.trim())
-            obj[k] = v || ''
+            obj[k!] = v || ''
           }
           j++
         }
@@ -382,7 +382,7 @@ function parseYAMLArray(lines: string[], startIndent: number): { value: unknown[
       const itemIndent = indent + 2
 
       while (j < lines.length) {
-        const nextLine = lines[j]
+        const nextLine = lines[j]!
         const nextTrimmed = nextLine.trim()
         if (!nextTrimmed) {
           j++
@@ -415,7 +415,7 @@ function parseYAMLObject(lines: string[], startIndent: number): { value: Record<
   let i = 0
 
   while (i < lines.length) {
-    const line = lines[i]
+    const line = lines[i]!
     const trimmed = line.trim()
 
     if (!trimmed) {

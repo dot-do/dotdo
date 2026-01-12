@@ -96,11 +96,11 @@ export class Product extends Entity {
     const index = config.variants.findIndex((v) => v.id === variantId)
     if (index === -1) return null
 
-    config.variants[index] = { ...config.variants[index], ...updates }
+    config.variants[index] = { ...config.variants[index]!, ...updates } as ProductVariant
     await this.ctx.storage.put('product_config', config)
     await this.emit('variant.updated', { variant: config.variants[index] })
 
-    return config.variants[index]
+    return config.variants[index] ?? null
   }
 
   /**

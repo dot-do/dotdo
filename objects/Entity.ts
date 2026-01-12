@@ -475,7 +475,7 @@ export class Entity extends DO {
     }
 
     if (url.pathname.startsWith('/record/')) {
-      const id = url.pathname.split('/')[2]
+      const id = url.pathname.split('/')[2]!
 
       if (request.method === 'GET') {
         const record = await this.get(id)
@@ -489,7 +489,7 @@ export class Entity extends DO {
 
       if (request.method === 'PUT') {
         const data = (await request.json()) as Record<string, unknown>
-        const record = await this.update(id, data)
+        const record = await this.update(id!, data)
         if (!record) {
           return new Response('Not Found', { status: 404 })
         }
@@ -499,7 +499,7 @@ export class Entity extends DO {
       }
 
       if (request.method === 'DELETE') {
-        const deleted = await this.delete(id)
+        const deleted = await this.delete(id!)
         if (!deleted) {
           return new Response('Not Found', { status: 404 })
         }

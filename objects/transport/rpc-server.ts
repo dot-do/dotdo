@@ -408,7 +408,7 @@ function parseCollectionRpcMethod(method: string): { noun: string; action: strin
   if (!match) return null
 
   const [, noun, action] = match
-  return { noun, action }
+  return { noun: noun!, action: action! }
 }
 
 /**
@@ -847,7 +847,7 @@ export class RPCServer {
     // Set up notification sender
     ctx.sendNotification = (method: string, params: unknown) => {
       try {
-        server.send(JSON.stringify({
+        server!.send(JSON.stringify({
           jsonrpc: '2.0',
           method,
           params,
@@ -862,20 +862,20 @@ export class RPCServer {
       }
     }
 
-    server.accept()
+    server!.accept()
 
     // Send connection acknowledgment
-    server.send(JSON.stringify({
+    server!.send(JSON.stringify({
       type: 'connected',
       sessionId: ctx.sessionId,
     }))
 
-    server.addEventListener('message', async (event) => {
+    server!.addEventListener('message', async (event) => {
       const rawData = event.data
 
       // Handle binary data
       if (rawData instanceof ArrayBuffer) {
-        server.send(JSON.stringify({
+        server!.send(JSON.stringify({
           type: 'binary_received',
           size: rawData.byteLength,
         }))
@@ -887,7 +887,7 @@ export class RPCServer {
       try {
         data = JSON.parse(rawData as string)
       } catch {
-        server.send(JSON.stringify({
+        server!.send(JSON.stringify({
           jsonrpc: '2.0',
           error: JSON_RPC_ERRORS.PARSE_ERROR,
           id: null,
@@ -905,7 +905,7 @@ export class RPCServer {
           }
         }
         if (responses.length > 0) {
-          server.send(JSON.stringify(responses))
+          server!.send(JSON.stringify(responses))
         }
         return
       }
@@ -914,7 +914,7 @@ export class RPCServer {
       if (this.isJSONRPCRequest(data)) {
         const response = await this.handleJSONRPCRequest(data, ctx)
         if (response) {
-          server.send(JSON.stringify(response))
+          server!.send(JSON.stringify(response))
         }
         return
       }
@@ -922,25 +922,25 @@ export class RPCServer {
       // Handle Cap'n Web request
       if (this.isCapnWebRequest(data)) {
         const response = await this.executeCapnWebRequest(data, ctx)
-        server.send(JSON.stringify(response))
+        server!.send(JSON.stringify(response))
         return
       }
 
       // Invalid request format
-      server.send(JSON.stringify({
+      server!.send(JSON.stringify({
         jsonrpc: '2.0',
         error: JSON_RPC_ERRORS.INVALID_REQUEST,
         id: null,
       } satisfies JSONRPCResponse))
     })
 
-    server.addEventListener('close', () => {
+    server!.addEventListener('close', () => {
       this.cleanupSession(ctx.sessionId)
     })
 
-    server.addEventListener('error', () => {
+    server!.addEventListener('error', () => {
       this.cleanupSession(ctx.sessionId)
-      server.close()
+      server!.close()
     })
 
     return new Response(null, {
@@ -1057,40 +1057,41 @@ export class RPCServer {
     let current: unknown = this.doInstance
 
     // If the first step is accessing '$', use the WorkflowContext directly
-    if (chain.length > 0 && chain[0].type === 'property' && (chain[0] as ChainPropertyStep).key === '$' && workflowContext) {
+    if (chain.length > 0 && chain[0]!.type === 'property' && (chain[0] as ChainPropertyStep).key === '$' && workflowContext) {
       current = workflowContext
       chain = chain.slice(1) // Skip the '$' step
     }
 
     for (let i = 0; i < chain.length; i++) {
-      const step = chain[i]
+      const step = chain[i]!
 
       switch (step.type) {
         case 'property': {
+          const propStep = step as ChainPropertyStep
           // Validate the step
-          if (typeof step.key !== 'string') {
+          if (typeof propStep.key !== 'string') {
             throw { code: 'INVALID_STEP', message: 'Property step requires a string key', status: 400 }
           }
 
           // Block access to private/internal properties
-          if (step.key.startsWith('_')) {
-            throw { code: 'BLOCKED_ACCESS', message: `Access to private property '${step.key}' is blocked`, status: 404 }
+          if (propStep.key.startsWith('_')) {
+            throw { code: 'BLOCKED_ACCESS', message: `Access to private property '${propStep.key}' is blocked`, status: 404 }
           }
 
           // Block access to internal DO methods on first step (from root)
-          if (i === 0 && this.blockedMethods.has(step.key)) {
-            throw { code: 'BLOCKED_ACCESS', message: `Access to '${step.key}' is blocked`, status: 404 }
+          if (i === 0 && this.blockedMethods.has(propStep.key)) {
+            throw { code: 'BLOCKED_ACCESS', message: `Access to '${propStep.key}' is blocked`, status: 404 }
           }
 
           if (current === null || current === undefined) {
-            throw { code: 'NOT_FOUND', message: `Cannot access property '${step.key}' of ${current}`, status: 404 }
+            throw { code: 'NOT_FOUND', message: `Cannot access property '${propStep.key}' of ${current}`, status: 404 }
           }
 
           // For objects with a Proxy get trap (like WorkflowContext), accessing the property triggers the proxy
-          const value = (current as Record<string, unknown>)[step.key]
+          const value = (current as Record<string, unknown>)[propStep.key]
 
-          if (value === undefined && !(step.key in (current as object))) {
-            throw { code: 'NOT_FOUND', message: `Property '${step.key}' not found`, status: 404 }
+          if (value === undefined && !(propStep.key in (current as object))) {
+            throw { code: 'NOT_FOUND', message: `Property '${propStep.key}' not found`, status: 404 }
           }
 
           current = value
@@ -1098,7 +1099,8 @@ export class RPCServer {
         }
 
         case 'call': {
-          const args = step.args ?? []
+          const callStep = step as ChainCallStep
+          const args = callStep.args ?? []
 
           // SDK Combined Format: { type: 'call', key: 'methodName', args: [...] }
           // This combines property access and method call in one step.
@@ -1171,7 +1173,8 @@ export class RPCServer {
         }
 
         case 'index': {
-          if (typeof step.index !== 'number') {
+          const indexStep = step as ChainIndexStep
+          if (typeof indexStep.index !== 'number') {
             throw { code: 'INVALID_STEP', message: 'Index step requires a numeric index', status: 400 }
           }
 
@@ -1179,15 +1182,15 @@ export class RPCServer {
             throw { code: 'NOT_INDEXABLE', message: 'Value is not an array, cannot use index access', status: 400 }
           }
 
-          if (step.index < 0 || step.index >= current.length) {
+          if (indexStep.index < 0 || indexStep.index >= current.length) {
             throw {
               code: 'INDEX_OUT_OF_BOUNDS',
-              message: `Index ${step.index} is out of bounds (array length: ${current.length})`,
+              message: `Index ${indexStep.index} is out of bounds (array length: ${current.length})`,
               status: 404
             }
           }
 
-          current = current[step.index]
+          current = current[indexStep.index]
           break
         }
 

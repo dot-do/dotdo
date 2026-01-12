@@ -111,7 +111,7 @@ function cleanupExpiredWorkflows(): void {
     // Evict oldest completed workflows until under limit
     const excessCount = workflows.size - WORKFLOW_MAX_REGISTRY_SIZE
     for (let i = 0; i < Math.min(excessCount, completedWorkflows.length); i++) {
-      removeWorkflow(completedWorkflows[i][0])
+      removeWorkflow(completedWorkflows[i]![0])
     }
   }
 }
@@ -321,11 +321,11 @@ export class WorkflowClient {
 
     // Validate key is a known search attribute (prevent prototype pollution)
     const validKeys = ['status', 'workflowType', 'runId', ...Object.keys(state.searchAttributes)]
-    if (!validKeys.includes(key)) {
+    if (!validKeys.includes(key!)) {
       return false
     }
 
-    const attrValue = state.searchAttributes[key]
+    const attrValue = state.searchAttributes[key!]
     return String(attrValue) === value
   }
 

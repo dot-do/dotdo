@@ -406,7 +406,7 @@ function analyze(ast: Program): SafetyAnalysis {
         // Last path is destination
         if (paths.length >= 2) {
           reads.push(...paths.slice(0, -1))
-          writes.push(paths[paths.length - 1])
+          writes.push(paths[paths.length - 1]!)
         }
       } else {
         writes.push(...paths)
@@ -601,7 +601,7 @@ function createBashCapability(
       stderr,
       exitCode,
       intent: {
-        commands: [command.split(' ')[0]],
+        commands: [command.split(' ')[0]!],
         reads: [],
         writes: [],
         deletes: [],
@@ -661,11 +661,11 @@ function createBashCapability(
 
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '-n' && args[i + 1]) {
-        lines = parseInt(args[i + 1], 10)
+        lines = parseInt(args[i + 1]!, 10)
         i++
-      } else if (/^-\d+$/.test(args[i])) {
-        lines = parseInt(args[i].slice(1), 10)
-      } else if (!args[i].startsWith('-')) {
+      } else if (/^-\d+$/.test(args[i]!)) {
+        lines = parseInt(args[i]!.slice(1), 10)
+      } else if (!args[i]!.startsWith('-')) {
         file = args[i]
       }
     }
@@ -691,11 +691,11 @@ function createBashCapability(
 
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '-n' && args[i + 1]) {
-        lines = parseInt(args[i + 1], 10)
+        lines = parseInt(args[i + 1]!, 10)
         i++
-      } else if (/^-\d+$/.test(args[i])) {
-        lines = parseInt(args[i].slice(1), 10)
-      } else if (!args[i].startsWith('-')) {
+      } else if (/^-\d+$/.test(args[i]!)) {
+        lines = parseInt(args[i]!.slice(1), 10)
+      } else if (!args[i]!.startsWith('-')) {
         file = args[i]
       }
     }
@@ -822,8 +822,8 @@ function createBashCapability(
     // Match echo "content" > /path or echo 'content' > /path
     const redirectMatch = command.match(/^echo\s+["'](.*)["']\s*>\s*(.+)$/)
     if (redirectMatch) {
-      const content = redirectMatch[1]
-      const filePath = redirectMatch[2].trim()
+      const content = redirectMatch[1]!
+      const filePath = redirectMatch[2]!.trim()
 
       try {
         await fsCapability.write(filePath, content)

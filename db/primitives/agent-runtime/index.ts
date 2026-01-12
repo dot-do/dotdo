@@ -67,16 +67,12 @@
 export type {
   // Provider types
   LLMProvider,
-  LLMProviderConfig,
-  LLMProviderOptions,
+  ProviderConfig,
   ProviderName,
   ModelConfig,
   // Message types
   Message,
-  TextContent,
-  ImageContent,
-  AudioContent,
-  MessageContent,
+  ContentPart,
   // Request/Response types
   CompletionRequest,
   CompletionResponse,
@@ -90,13 +86,10 @@ export type {
   RetryConfig,
   // Router types
   RouterConfig,
-  RouterStrategy,
-  ProviderRouteConfig,
+  RoutingStrategy,
   FallbackConfig,
-  FallbackTrigger,
   // Memory types
   MemoryConfig,
-  WindowStrategy,
   ConversationState,
   MemorySummary,
   // Agent types
@@ -110,7 +103,7 @@ export type {
   // Usage types
   TokenUsage,
   UsageStats,
-  ProviderStats,
+  ProviderUsageStats,
 } from './types'
 
 // =============================================================================
@@ -119,12 +112,10 @@ export type {
 
 export {
   createOpenAIProvider,
-  OPENAI_MODELS,
 } from './providers/openai'
 
 export {
   createAnthropicProvider,
-  ANTHROPIC_MODELS,
 } from './providers/anthropic'
 
 export {

@@ -126,7 +126,7 @@ export class MongoQueryParser {
 
     // Single predicate - return directly
     if (predicates.length === 1) {
-      return predicates[0]
+      return predicates[0]!
     }
 
     // Multiple predicates - implicit AND
@@ -241,7 +241,7 @@ export class MongoQueryParser {
           predicates.push({
             type: 'predicate',
             column: field,
-            op: MONGO_TO_AST_OP[op],
+            op: MONGO_TO_AST_OP[op]!,
             value: value instanceof Date ? value.getTime() : value,
           })
           break
@@ -353,7 +353,7 @@ export class MongoQueryParser {
     }
 
     if (predicates.length === 1) {
-      return predicates[0]
+      return predicates[0]!
     }
 
     // Multiple operators on same field - implicit AND
@@ -428,8 +428,8 @@ export class MongoQueryParser {
   }
 
   private parseStage(stage: AggregationPipelineStage, result: ParsedPipeline): void {
-    const stageName = Object.keys(stage)[0]
-    const stageValue = stage[stageName]
+    const stageName = Object.keys(stage)[0]!
+    const stageValue = stage[stageName!]
 
     switch (stageName) {
       case '$match':
@@ -510,10 +510,10 @@ export class MongoQueryParser {
 
       if (typeof aggExpr === 'object' && aggExpr !== null) {
         const aggObj = aggExpr as Record<string, unknown>
-        const aggOp = Object.keys(aggObj)[0]
-        const aggValue = aggObj[aggOp]
+        const aggOp = Object.keys(aggObj)[0]!
+        const aggValue = aggObj[aggOp!]
 
-        const fn = MONGO_AGG_TO_AST[aggOp]
+        const fn = MONGO_AGG_TO_AST[aggOp!]
         if (fn) {
           const agg: AggregationNode = {
             type: 'aggregation',
@@ -628,4 +628,4 @@ export class MongoQueryParser {
 // Exports
 // =============================================================================
 
-export type { MongoQuery, AggregationPipeline, ParsedPipeline }
+// Types already exported at definition - removed duplicate exports

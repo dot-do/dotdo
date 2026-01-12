@@ -184,7 +184,7 @@ export function pipe(
           total: functions.length,
         })
 
-        current = await functions[i](current, context)
+        current = await functions[i]!(current, context)
       } catch (error) {
         if (options.stopOnError) {
           throw new PipelineError(
@@ -232,15 +232,15 @@ export function createPipeline<TInput = unknown, TOutput = unknown>(
 
       try {
         context?.onProgress?.({
-          stage: stage.name,
+          stage: stage!.name,
           index: i,
           total: stages.length,
         })
 
-        current = await stage.fn(current, context)
+        current = await stage!.fn(current, context)
 
         stageResults.push({
-          name: stage.name,
+          name: stage!.name,
           index: i,
           success: true,
           duration: Date.now() - stageStart,
@@ -249,7 +249,7 @@ export function createPipeline<TInput = unknown, TOutput = unknown>(
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         stageResults.push({
-          name: stage.name,
+          name: stage!.name,
           index: i,
           success: false,
           duration: Date.now() - stageStart,
@@ -359,7 +359,7 @@ export function parallel(
     const executing: Set<Promise<void>> = new Set()
 
     for (let i = 0; i < functions.length; i++) {
-      const fn = functions[i]
+      const fn = functions[i]!
       const promise = Promise.resolve(fn(input, context))
         .then((result: unknown) => {
           results[i] = result
@@ -632,7 +632,7 @@ export function mapOver<TItem, TOutput>(
         const executing: Set<Promise<void>> = new Set()
 
         for (let i = 0; i < input.length; i++) {
-          const promise = Promise.resolve(fn(input[i], context))
+          const promise = Promise.resolve(fn(input[i]!, context))
             .then((result: TOutput) => {
               results[i] = result
             }) as unknown as Promise<void>

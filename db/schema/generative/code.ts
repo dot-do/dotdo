@@ -258,7 +258,7 @@ export class CodeGenerator {
     let code: string
 
     if (config.framework && CODE_TEMPLATES[config.framework]) {
-      code = CODE_TEMPLATES[config.framework](config, context)
+      code = CODE_TEMPLATES[config.framework]!(config, context)
     } else {
       code = LANGUAGE_TEMPLATES[config.language](config, context)
     }

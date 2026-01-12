@@ -169,7 +169,7 @@ export class SlackBlockKitChannel {
       throw new Error('No actions in payload')
     }
 
-    const actionId = actions[0].action_id
+    const actionId = actions[0]!.action_id
     // Parse action_id format: "action_requestId" (e.g., "approve_req-123")
     const { action, requestId } = parseActionId(actionId)
 

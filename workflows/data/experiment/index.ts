@@ -544,8 +544,8 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
         let controlRate = 0
 
         for (const variant of experiment.variants) {
-          const users = variantUsers[variant].size
-          const conversions = variantConversions[variant].size
+          const users = variantUsers[variant]!.size
+          const conversions = variantConversions[variant]!.size
           const rate = users > 0 ? conversions / users : 0
 
           variantResults[variant] = {
@@ -563,7 +563,7 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
         for (const variant of experiment.variants) {
           if (variant === controlVariant) continue
 
-          const result = variantResults[variant]
+          const result = variantResults[variant]!
 
           // Calculate lift
           if (controlRate > 0) {
@@ -577,8 +577,8 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
           }
 
           // Calculate p-value using chi-squared test
-          const controlUsers = variantResults[controlVariant].users
-          const controlConversions = variantResults[controlVariant].conversions
+          const controlUsers = variantResults[controlVariant!]!.users
+          const controlConversions = variantResults[controlVariant!]!.conversions
           const variantUsers = result.users
           const variantConversions = result.conversions
 
@@ -601,7 +601,7 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
         let bestPValue = 1
 
         for (const variant of experiment.variants) {
-          const result = variantResults[variant]
+          const result = variantResults[variant]!
           if (result.rate > bestRate) {
             bestRate = result.rate
             bestVariant = variant
@@ -621,7 +621,7 @@ function createExperimentNamespace(storage: ExperimentStorage, trackProxy: Track
           let controlSignificant = true
           for (const variant of experiment.variants) {
             if (variant === controlVariant) continue
-            const result = variantResults[variant]
+            const result = variantResults[variant]!
             if (result.pValue === undefined || result.pValue >= 0.05) {
               controlSignificant = false
               break
@@ -682,14 +682,14 @@ function assignVariant(
   // Select variant based on weights
   let cumulative = 0
   for (let i = 0; i < variants.length; i++) {
-    cumulative += weights[i]
+    cumulative += weights[i]!
     if (normalizedHash < cumulative) {
-      return variants[i]
+      return variants[i]!
     }
   }
 
   // Fallback to last variant (shouldn't happen with proper weights)
-  return variants[variants.length - 1]
+  return variants[variants.length - 1]!
 }
 
 /**

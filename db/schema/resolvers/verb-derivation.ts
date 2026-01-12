@@ -50,17 +50,17 @@ const FORWARD_TO_REVERSE: Record<string, string> = {
 export function deriveReverseVerb(verb: string): string {
   // Check bidirectional pairs first
   if (verb in BIDIRECTIONAL_PAIRS) {
-    return BIDIRECTIONAL_PAIRS[verb]
+    return BIDIRECTIONAL_PAIRS[verb]!
   }
 
   // Check known forward verbs
   if (verb in FORWARD_TO_REVERSE) {
-    return FORWARD_TO_REVERSE[verb]
+    return FORWARD_TO_REVERSE[verb]!
   }
 
   // Check if this is already a reversed verb (ends with 'By')
   if (verb in REVERSE_TO_FORWARD) {
-    return REVERSE_TO_FORWARD[verb]
+    return REVERSE_TO_FORWARD[verb]!
   }
 
   // Check if verb ends with 'By' - try to find its forward form

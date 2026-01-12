@@ -304,15 +304,15 @@ function isValidDate(dateStr: string): boolean {
 function getDeadlineDate(by: string): Date {
   if (/^\d{4}-Q([1-4])$/.test(by)) {
     const [year, quarter] = by.split('-Q')
-    const month = (parseInt(quarter) - 1) * 3 + 2 // End of quarter month (0-indexed)
-    const lastDay = new Date(parseInt(year), month + 1, 0).getDate()
-    return new Date(parseInt(year), month, lastDay)
+    const month = (parseInt(quarter!) - 1) * 3 + 2 // End of quarter month (0-indexed)
+    const lastDay = new Date(parseInt(year!), month + 1, 0).getDate()
+    return new Date(parseInt(year!), month, lastDay)
   }
   // Parse YYYY-MM-DD as local time, not UTC
   // new Date('2024-03-31') parses as UTC, so we need to parse components explicitly
   const match = by.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (match) {
-    return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]))
+    return new Date(parseInt(match[1]!), parseInt(match[2]!) - 1, parseInt(match[3]!))
   }
   return new Date(by)
 }
@@ -467,11 +467,11 @@ async function calculateProjection(
       sumXY = 0,
       sumX2 = 0
 
-    const firstDate = new Date(history[0].date).getTime()
+    const firstDate = new Date(history[0]!.date).getTime()
 
     for (let i = 0; i < n; i++) {
-      const x = (new Date(history[i].date).getTime() - firstDate) / (1000 * 60 * 60 * 24) // days
-      const y = history[i].value
+      const x = (new Date(history[i]!.date).getTime() - firstDate) / (1000 * 60 * 60 * 24) // days
+      const y = history[i]!.value
       sumX += x
       sumY += y
       sumXY += x * y
@@ -576,7 +576,7 @@ export function createGoalContext(): GoalContext {
         const achieved = isAchieved(current, target.value, target.direction)
         const remaining = achieved ? 0 : Math.max(0, target.value - (current ?? 0))
 
-        const { projectedValue, onTrack } = await calculateProjection(target, storage, daysLeft)
+        const { projectedValue, onTrack } = await calculateProjection(target, storage, daysLeft, goal.by)
 
         return {
           current,
@@ -684,7 +684,7 @@ export function createGoalContext(): GoalContext {
         }
 
         const progress = await createGoalInstance(goalName).progress()
-        const today = new Date().toISOString().split('T')[0]
+        const today = new Date().toISOString().split('T')[0]!
 
         const history = (await storage.goalHistory.get(goalName)) ?? []
         history.push({

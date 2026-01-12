@@ -520,7 +520,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
 
     for (const [, group] of thingsByKey) {
       // Get latest version (last in array based on insertion order)
-      const latest = group[group.length - 1]
+      const latest = group[group.length - 1]!
 
       // Only keep non-deleted things
       if (!latest.deleted) {
@@ -1347,7 +1347,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
             }
 
             if (state.checkpoints.length > 0) {
-              resolve(state.checkpoints[state.checkpoints.length - 1])
+              resolve(state.checkpoints[state.checkpoints.length - 1]!)
               return
             }
 
@@ -1373,7 +1373,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
       async getIntegrityHash(): Promise<string> {
         const state = await self.ctx.storage.get<ResumableCloneState>(`resumable:${cloneId}`)
         if (!state || state.checkpoints.length === 0) return ''
-        return state.checkpoints[state.checkpoints.length - 1].hash
+        return state.checkpoints[state.checkpoints.length - 1]!.hash
       },
 
       async getLockInfo(): Promise<CloneLockInfo | null> {
@@ -1686,7 +1686,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
     // Create branch record
     await this.db.insert(schema.branches).values({
       name,
-      thingId: currentBranchThings[0].id,
+      thingId: currentBranchThings[0]!.id,
       head,
       base: head,
       forkedFrom: this.currentBranch,
@@ -1816,16 +1816,16 @@ export class DO<E extends Env = Env> extends DOBase<E> {
     const toMerge: typeof things = []
 
     for (const [id, sourceVersions] of sourceById) {
-      const latestSource = sourceVersions[sourceVersions.length - 1]
+      const latestSource = sourceVersions[sourceVersions.length - 1]!
       const targetVersions = targetById.get(id) || []
 
       if (targetVersions.length === 0) {
         toMerge.push({
           ...latestSource,
           branch: targetBranchFilter,
-        })
+        } as (typeof things)[0])
       } else {
-        const latestTarget = targetVersions[targetVersions.length - 1]
+        const latestTarget = targetVersions[targetVersions.length - 1]!
 
         const sourceData = (latestSource.data || {}) as Record<string, unknown>
         const targetData = (latestTarget.data || {}) as Record<string, unknown>
@@ -1873,7 +1873,7 @@ export class DO<E extends Env = Env> extends DOBase<E> {
               ...latestTarget,
               data: mergedData,
               deleted: latestSource.deleted || latestTarget.deleted,
-            })
+            } as (typeof things)[0])
           }
         }
       }

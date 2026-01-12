@@ -138,7 +138,7 @@ export class HandlerChain {
     const index = this.handlers.findIndex((e) => e.handler.name === name)
 
     if (index >= 0) {
-      const removed = this.handlers.splice(index, 1)[0]
+      const removed = this.handlers.splice(index, 1)[0]!
       removed.handler.dispose?.()
       this.selectionCache.clear()
       this.log('debug', `Handler '${name}' removed`)

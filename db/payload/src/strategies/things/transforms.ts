@@ -212,8 +212,8 @@ function transformArrayToThing(value: unknown, field: PayloadField): unknown {
 
   // Check for simple array with single text field
   const subFields = field.fields
-  if (subFields && subFields.length === 1 && subFields[0].type === 'text') {
-    const fieldName = subFields[0].name
+  if (subFields && subFields.length === 1 && subFields[0]?.type === 'text') {
+    const fieldName = subFields[0]!.name
     return value.map((item) => {
       if (typeof item === 'object' && item !== null && fieldName in item) {
         return (item as Record<string, unknown>)[fieldName]
@@ -406,8 +406,8 @@ function transformArrayToPayload(value: unknown, field: PayloadField): unknown {
 
   // Check for simple array with single text field - expand back
   const subFields = field.fields
-  if (subFields && subFields.length === 1 && subFields[0].type === 'text') {
-    const fieldName = subFields[0].name
+  if (subFields && subFields.length === 1 && subFields[0]?.type === 'text') {
+    const fieldName = subFields[0]!.name
     // Check if already expanded
     if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
       return value
@@ -552,7 +552,7 @@ export function parseThingId(
     return null
   }
 
-  const collection = parts[0]
+  const collection = parts[0]!
   const id = parts.slice(1).join('/')
 
   return { collection, id }

@@ -70,7 +70,7 @@ function sha256(message: string): string {
 
     // Extend to 64 words
     for (let t = 16; t < 64; t++) {
-      W[t] = (gamma1(W[t - 2]) + W[t - 7] + gamma0(W[t - 15]) + W[t - 16]) >>> 0
+      W[t] = (gamma1(W[t - 2]!) + W[t - 7]! + gamma0(W[t - 15]!) + W[t - 16]!) >>> 0
     }
 
     // Initialize working variables
@@ -78,12 +78,12 @@ function sha256(message: string): string {
 
     // Main compression loop
     for (let t = 0; t < 64; t++) {
-      const T1 = (h + sigma1(e) + ch(e, f, g) + K[t] + W[t]) >>> 0
-      const T2 = (sigma0(a) + maj(a, b, c)) >>> 0
+      const T1 = (h! + sigma1(e!) + ch(e!, f!, g!) + K[t]! + W[t]!) >>> 0
+      const T2 = (sigma0(a!) + maj(a!, b!, c!)) >>> 0
       h = g
       g = f
       f = e
-      e = (d + T1) >>> 0
+      e = (d! + T1) >>> 0
       d = c
       c = b
       b = a
@@ -91,7 +91,7 @@ function sha256(message: string): string {
     }
 
     // Update hash values
-    H = [(H[0] + a) >>> 0, (H[1] + b) >>> 0, (H[2] + c) >>> 0, (H[3] + d) >>> 0, (H[4] + e) >>> 0, (H[5] + f) >>> 0, (H[6] + g) >>> 0, (H[7] + h) >>> 0]
+    H = [(H[0]! + a!) >>> 0, (H[1]! + b!) >>> 0, (H[2]! + c!) >>> 0, (H[3]! + d!) >>> 0, (H[4]! + e!) >>> 0, (H[5]! + f!) >>> 0, (H[6]! + g!) >>> 0, (H[7]! + h!) >>> 0]
   }
 
   // Convert to hex string

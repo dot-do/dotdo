@@ -133,18 +133,18 @@ class PipelineImpl<TInput, TOutput> implements Pipeline<TInput, TOutput> {
     let current: unknown[] = input
 
     for (let i = 0; i < this.stages.length; i++) {
-      const stage = this.stages[i]
+      const stage = this.stages[i]!
 
       try {
         // Run validation if defined
         if (stage.validate) {
           try {
-            stage.validate(current)
+            stage!.validate(current)
           } catch (e) {
             if (e instanceof StageValidationError) {
               // Attach stage name if not already set
               if (!e.stageName) {
-                throw new StageValidationError(e.message, stage.name)
+                throw new StageValidationError(e.message, stage!.name)
               }
               throw e
             }
@@ -153,7 +153,7 @@ class PipelineImpl<TInput, TOutput> implements Pipeline<TInput, TOutput> {
         }
 
         // Process the stage
-        current = stage.process(current)
+        current = stage!.process(current)
       } catch (e) {
         if (e instanceof StageValidationError) {
           throw e
@@ -162,8 +162,8 @@ class PipelineImpl<TInput, TOutput> implements Pipeline<TInput, TOutput> {
           throw e
         }
         throw new PipelineExecutionError(
-          `Stage '${stage.name}' failed: ${e instanceof Error ? e.message : String(e)}`,
-          stage.name,
+          `Stage '${stage!.name}' failed: ${e instanceof Error ? e.message : String(e)}`,
+          stage!.name,
           i,
           {
             inputSnapshot: current.slice(0, 10), // Keep first 10 for debugging
@@ -302,9 +302,15 @@ export class PipelineBuilder<TInput, TOutput = TInput> {
 // Re-exports
 // ============================================================================
 
-export { createMatchStage, MatchPredicate, MatchStage, CompoundPredicate, FieldPredicate } from './stages/match'
-export { createGroupStage, GroupSpec, GroupStage, Accumulator, AccumulatorType, GroupKey, GroupResult } from './stages/group'
-export { createProjectStage, ProjectSpec, ProjectStage, FieldProjection, ComputedField } from './stages/project'
-export { createSortStage, createLimitStage, createSkipStage, SortSpec, SortStage, LimitStage, SkipStage, SortDirection, NullPosition, SortOptions, LimitOptions } from './stages/sort-limit'
-export { createCubeStage, createRollupStage, createGroupingSetsStage, CubeStage, RollupStage, GroupingSetsStage, CubeSpec, RollupSpec, GroupingSetsSpec, grouping, groupingId } from './stages/cube-rollup'
-export { createStreamingPipeline, StreamingPipeline, StreamingPipelineOptions, WindowedAggregation, IncrementalResult, LateDataOutput, CheckpointState } from './streaming'
+export { createMatchStage } from './stages/match'
+export type { MatchPredicate, MatchStage, CompoundPredicate, FieldPredicate } from './stages/match'
+export { createGroupStage } from './stages/group'
+export type { GroupSpec, GroupStage, Accumulator, AccumulatorType, GroupKey, GroupResult } from './stages/group'
+export { createProjectStage } from './stages/project'
+export type { ProjectSpec, ProjectStage, FieldProjection, ComputedField } from './stages/project'
+export { createSortStage, createLimitStage, createSkipStage } from './stages/sort-limit'
+export type { SortSpec, SortStage, LimitStage, SkipStage, SortDirection, NullPosition, SortOptions, LimitOptions } from './stages/sort-limit'
+export { createCubeStage, createRollupStage, createGroupingSetsStage, grouping, groupingId } from './stages/cube-rollup'
+export type { CubeStage, RollupStage, GroupingSetsStage, CubeSpec, RollupSpec, GroupingSetsSpec } from './stages/cube-rollup'
+export { createStreamingPipeline } from './streaming'
+export type { StreamingPipeline, StreamingPipelineOptions, WindowedAggregation, IncrementalResult, LateDataOutput, CheckpointState } from './streaming'

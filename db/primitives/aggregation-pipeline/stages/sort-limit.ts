@@ -266,10 +266,10 @@ class MinHeap<T> {
     if (this.heap.length === 0) {
       return item
     }
-    if (this.comparator(item, this.heap[0]) < 0) {
+    if (this.comparator(item, this.heap[0]!) < 0) {
       return item
     }
-    const top = this.heap[0]
+    const top = this.heap[0]!
     this.heap[0] = item
     this.bubbleDown(0)
     return top
@@ -290,8 +290,8 @@ class MinHeap<T> {
   private bubbleUp(index: number): void {
     while (index > 0) {
       const parentIndex = Math.floor((index - 1) / 2)
-      if (this.comparator(this.heap[index], this.heap[parentIndex]) >= 0) break
-      ;[this.heap[index], this.heap[parentIndex]] = [this.heap[parentIndex], this.heap[index]]
+      if (this.comparator(this.heap[index]!, this.heap[parentIndex]!) >= 0) break
+      ;[this.heap[index], this.heap[parentIndex]] = [this.heap[parentIndex]!, this.heap[index]!]
       index = parentIndex
     }
   }
@@ -304,16 +304,16 @@ class MinHeap<T> {
       const rightChild = 2 * index + 2
       let smallest = index
 
-      if (leftChild < length && this.comparator(this.heap[leftChild], this.heap[smallest]) < 0) {
+      if (leftChild < length && this.comparator(this.heap[leftChild]!, this.heap[smallest]!) < 0) {
         smallest = leftChild
       }
-      if (rightChild < length && this.comparator(this.heap[rightChild], this.heap[smallest]) < 0) {
+      if (rightChild < length && this.comparator(this.heap[rightChild]!, this.heap[smallest]!) < 0) {
         smallest = rightChild
       }
 
       if (smallest === index) break
 
-      ;[this.heap[index], this.heap[smallest]] = [this.heap[smallest], this.heap[index]]
+      ;[this.heap[index], this.heap[smallest]] = [this.heap[smallest]!, this.heap[index]!]
       index = smallest
     }
   }

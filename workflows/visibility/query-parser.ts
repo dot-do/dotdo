@@ -57,8 +57,8 @@ function parseCondition(condition: string): QueryFilter | null {
   }
 
   const [, field, operatorRaw, valueRaw] = match
-  const operator = normalizeOperator(operatorRaw.trim())
-  const value = parseValue(valueRaw.trim())
+  const operator = normalizeOperator(operatorRaw!.trim())
+  const value = parseValue(valueRaw!.trim())
 
   if (!field || !operator || value === undefined) {
     return null
@@ -117,7 +117,7 @@ function parseValue(valueStr: string): SearchAttributeValue | SearchAttributeVal
   // Handle array values for IN operator: (value1, value2, value3)
   const arrayMatch = valueStr.match(/^\(([^)]+)\)$/)
   if (arrayMatch) {
-    return arrayMatch[1].split(',').map(v => parseValue(v.trim()) as SearchAttributeValue)
+    return arrayMatch[1]!.split(',').map(v => parseValue(v.trim()) as SearchAttributeValue)
   }
 
   // Handle numbers

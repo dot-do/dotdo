@@ -66,13 +66,13 @@ const results = await index.search('wireless headphones')
 - Recommend API
 - Personalization
 
-## Quick Start
-
-### Install
+## Installation
 
 ```bash
 npm install @dotdo/algolia
 ```
+
+## Quick Start
 
 ### Index Documents
 
@@ -427,6 +427,136 @@ import {
   InvalidFilterError,
 } from '@dotdo/algolia'
 ```
+
+## Error Handling
+
+```typescript
+import {
+  AlgoliaError,
+  ObjectNotFoundError,
+  IndexNotFoundError,
+  InvalidFilterError,
+  InvalidSettingsError,
+} from '@dotdo/algolia'
+
+try {
+  await index.getObject('nonexistent-id')
+} catch (error) {
+  if (error instanceof ObjectNotFoundError) {
+    console.error('Object not found:', error.objectID)
+  } else if (error instanceof IndexNotFoundError) {
+    console.error('Index not found:', error.indexName)
+  } else if (error instanceof InvalidFilterError) {
+    console.error('Invalid filter syntax:', error.filter)
+    console.error('Parse error:', error.parseError)
+  } else if (error instanceof AlgoliaError) {
+    console.error('Algolia error:', error.message)
+  }
+}
+```
+
+### Error Types
+
+| Error Type | Description |
+|------------|-------------|
+| `AlgoliaError` | Base error for all Algolia operations |
+| `ObjectNotFoundError` | Object with specified objectID not found |
+| `IndexNotFoundError` | Index does not exist |
+| `InvalidFilterError` | Filter syntax is invalid |
+| `InvalidSettingsError` | Settings configuration is invalid |
+
+### Search Errors
+
+```typescript
+try {
+  const results = await index.search('query', {
+    filters: 'invalid [ filter',
+  })
+} catch (error) {
+  if (error instanceof InvalidFilterError) {
+    // Show user-friendly error message
+    console.error('Please check your filter syntax')
+  }
+}
+```
+
+## Migration from algoliasearch
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall algoliasearch
+
+# Install
+npm install @dotdo/algolia
+```
+
+### Import Change
+
+```typescript
+// Before
+import algoliasearch from 'algoliasearch'
+
+// After
+import algoliasearch from '@dotdo/algolia'
+
+// Code stays the same
+const client = algoliasearch('APP_ID', 'API_KEY')
+const index = client.initIndex('products')
+```
+
+### API Compatibility
+
+Core search and indexing operations work identically:
+
+```typescript
+// These work unchanged with @dotdo/algolia
+await index.saveObject({ objectID: '1', name: 'Product' })
+await index.saveObjects([...])
+await index.search('query')
+await index.search('query', { filters: 'price > 10' })
+await index.getObject('1')
+await index.deleteObject('1')
+await index.setSettings({ searchableAttributes: ['name'] })
+await client.multipleQueries([...])
+```
+
+### Frontend Library Compatibility
+
+Works with Algolia's frontend libraries:
+
+```typescript
+// react-instantsearch
+import { InstantSearch, SearchBox, Hits } from 'react-instantsearch'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+function Search() {
+  return (
+    <InstantSearch searchClient={client} indexName="products">
+      <SearchBox />
+      <Hits />
+    </InstantSearch>
+  )
+}
+```
+
+### Key Differences
+
+After migration, note these differences:
+
+| Feature | algoliasearch | @dotdo/algolia |
+|---------|---------------|----------------|
+| Data location | Algolia Cloud | DO SQLite (local) |
+| Typo tolerance | Full | Basic (prefix only) |
+| Synonyms | Yes | Not yet |
+| Query Rules | Yes | Not yet |
+| Personalization | Yes | Not yet |
+| Analytics | Yes | Not yet |
+
+For production use cases requiring full Algolia features, you can use the real Algolia service. For development, testing, and basic search needs, @dotdo/algolia provides zero-latency local search.
 
 ## Limitations
 

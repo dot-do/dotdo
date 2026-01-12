@@ -17,8 +17,8 @@ export function parseDuration(duration: string): number {
     throw new Error(`Invalid duration format: ${duration}`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2].toLowerCase()
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!.toLowerCase()
 
   const multipliers: Record<string, number> = {
     second: 1000,
@@ -28,7 +28,7 @@ export function parseDuration(duration: string): number {
     week: 7 * 24 * 60 * 60 * 1000,
   }
 
-  return value * multipliers[unit]
+  return value * multipliers[unit]!
 }
 
 /**

@@ -264,15 +264,15 @@ export function parseClusterFile(buffer: ArrayBuffer): ClusterData {
     ids = []
 
     for (let i = 0; i < vectorCount; i++) {
-      const start = stringDataStart + stringOffsets[i]
-      const end = stringDataStart + stringOffsets[i + 1]
+      const start = stringDataStart + stringOffsets[i]!
+      const end = stringDataStart + stringOffsets[i + 1]!
       const stringBytes = uint8View.slice(start, end)
       ids.push(decoder.decode(stringBytes))
     }
 
     // Move offset past string data
-    offset = stringDataStart + stringOffsets[vectorCount]
-    idsSectionSize = offsetTableSize + stringOffsets[vectorCount]
+    offset = stringDataStart + stringOffsets[vectorCount]!
+    idsSectionSize = offsetTableSize + stringOffsets[vectorCount]!
   }
 
   // Parse PQ codes section
@@ -319,7 +319,7 @@ export function parseClusterFile(buffer: ArrayBuffer): ClusterData {
         }
       } catch {
         // Second try: use offset-based length
-        const metaDataLength = metaOffsets[vectorCount]
+        const metaDataLength = metaOffsets[vectorCount]!
         if (buffer.byteLength >= metaDataStart + metaDataLength) {
           const metaBytes = uint8View.slice(metaDataStart, metaDataStart + metaDataLength)
           const metaJson = decoder.decode(metaBytes)
@@ -330,8 +330,8 @@ export function parseClusterFile(buffer: ArrayBuffer): ClusterData {
             // Fallback: parse individual entries
             metadata = []
             for (let i = 0; i < vectorCount; i++) {
-              const start = metaOffsets[i]
-              const end = metaOffsets[i + 1]
+              const start = metaOffsets[i]!
+              const end = metaOffsets[i + 1]!
               if (start < end && end <= metaDataLength) {
                 try {
                   const entryBytes = metaBytes.slice(start, end)
@@ -369,7 +369,7 @@ export function parseClusterFile(buffer: ArrayBuffer): ClusterData {
 function calculateChecksum(data: Uint8Array): number {
   let checksum = 0
   for (let i = 0; i < data.length; i++) {
-    checksum ^= data[i]
+    checksum ^= data[i]!
     checksum = ((checksum << 1) | (checksum >>> 31)) >>> 0
   }
   return checksum
@@ -592,7 +592,7 @@ export function createClusterFile(options: CreateClusterFileOptions): ArrayBuffe
 
   // Write PQ codes section
   for (let i = 0; i < vectorCount; i++) {
-    uint8View.set(pqCodes[i], offset)
+    uint8View.set(pqCodes[i]!, offset)
     offset += M
   }
 
@@ -742,8 +742,8 @@ export class ClusterFile implements Iterable<ClusterEntry> {
       const ids: string[] = []
 
       for (let i = 0; i < vectorCount; i++) {
-        const start = stringDataStart + stringOffsets[i]
-        const end = stringDataStart + stringOffsets[i + 1]
+        const start = stringDataStart + stringOffsets[i]!
+        const end = stringDataStart + stringOffsets[i + 1]!
         const stringBytes = this.uint8View.slice(start, end)
         ids.push(decoder.decode(stringBytes))
       }
@@ -814,7 +814,7 @@ export class ClusterFile implements Iterable<ClusterEntry> {
     this._checkBounds(index)
 
     if (this._ids) {
-      return this._ids[index]
+      return this._ids[index]!
     }
 
     const { idType } = this._header
@@ -865,7 +865,7 @@ export class ClusterFile implements Iterable<ClusterEntry> {
     if (this._metadata !== null) {
       // _metadata is an array - check if index exists
       if (index < this._metadata.length) {
-        return this._metadata[index]
+        return this._metadata[index] ?? null
       }
       return null
     }

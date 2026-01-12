@@ -162,13 +162,13 @@ function setNestedValue(doc: Document, path: string, value: unknown): void {
   const parts = path.split('.')
   let current: Document = doc
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]
+    const part = parts[i]!
     if (current[part] === undefined || current[part] === null) {
       current[part] = {}
     }
     current = current[part] as Document
   }
-  current[parts[parts.length - 1]] = value
+  current[parts[parts.length - 1]!] = value
 }
 
 /**
@@ -178,11 +178,11 @@ function deleteNestedValue(doc: Document, path: string): void {
   const parts = path.split('.')
   let current: Document = doc
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]
+    const part = parts[i]!
     if (current[part] === undefined) return
     current = current[part] as Document
   }
-  delete current[parts[parts.length - 1]]
+  delete current[parts[parts.length - 1]!]
 }
 
 /**
@@ -677,7 +677,7 @@ function parseSortSpec(sort: Sort<Document>): [string, 1 | -1][] {
     return [[sort, 1]]
   }
   if (Array.isArray(sort)) {
-    return sort.map(([field, dir]) => [field, normalizeSortDirection(dir ?? 1)])
+    return sort.map(([field, dir]) => [field!, normalizeSortDirection(dir ?? 1)])
   }
   return Object.entries(sort).map(([field, dir]) => [field, normalizeSortDirection(dir ?? 1)])
 }
@@ -717,8 +717,8 @@ function evaluateExpression(expr: unknown, doc: Document): unknown {
     const ops = expr as Record<string, unknown>
     const keys = Object.keys(ops)
 
-    if (keys.length === 1 && keys[0].startsWith('$')) {
-      const op = keys[0]
+    if (keys.length === 1 && keys[0]!.startsWith('$')) {
+      const op = keys[0]!
       const args = ops[op]
 
       switch (op) {
@@ -804,7 +804,7 @@ function processAggregationStage(
         if (field === '_id') continue
 
         const acc = accumulator as Record<string, unknown>
-        const accOp = Object.keys(acc)[0]
+        const accOp = Object.keys(acc)[0]!
         const accField = acc[accOp]
 
         switch (accOp) {
@@ -834,14 +834,14 @@ function processAggregationStage(
           case '$first': {
             if (typeof accField === 'string' && accField.startsWith('$')) {
               const fieldPath = accField.slice(1)
-              result[field] = getNestedValue(groupDocs[0], fieldPath)
+              result[field] = getNestedValue(groupDocs[0]!, fieldPath)
             }
             break
           }
           case '$last': {
             if (typeof accField === 'string' && accField.startsWith('$')) {
               const fieldPath = accField.slice(1)
-              result[field] = getNestedValue(groupDocs[groupDocs.length - 1], fieldPath)
+              result[field] = getNestedValue(groupDocs[groupDocs.length - 1]!, fieldPath)
             }
             break
           }
@@ -1072,7 +1072,7 @@ class FindCursorImpl<T extends Document = Document> implements IFindCursor<T> {
     if (this._position >= results.length) {
       return null
     }
-    const doc = results[this._position++]
+    const doc = results[this._position++]!
     return this._transform ? (this._transform(doc) as WithId<T>) : doc
   }
 
@@ -1138,7 +1138,7 @@ class FindCursorImpl<T extends Document = Document> implements IFindCursor<T> {
         if (position >= results.length) {
           return { done: true, value: undefined }
         }
-        const doc = results[position++]
+        const doc = results[position++]!
         const value = transform ? (transform(doc) as WithId<T>) : doc
         return { done: false, value }
       }
@@ -1193,7 +1193,7 @@ class AggregationCursorImpl<T extends Document = Document> implements IAggregati
     if (this._position >= results.length) {
       return null
     }
-    return results[this._position++]
+    return results[this._position++] ?? null
   }
 
   async close(): Promise<void> {
@@ -1213,7 +1213,8 @@ class AggregationCursorImpl<T extends Document = Document> implements IAggregati
         if (position >= results.length) {
           return { done: true, value: undefined }
         }
-        return { done: false, value: results[position++] }
+        const value = results[position++]!
+        return { done: false, value }
       }
     }
   }
@@ -1241,7 +1242,7 @@ class ListCollectionsCursorImpl implements IListCollectionsCursor {
     if (this._position >= this.collections.length) {
       return null
     }
-    return this.collections[this._position++]
+    return this.collections[this._position++] ?? null
   }
 
   async close(): Promise<void> {
@@ -1257,7 +1258,8 @@ class ListCollectionsCursorImpl implements IListCollectionsCursor {
         if (position >= collections.length) {
           return { done: true, value: undefined }
         }
-        return { done: false, value: collections[position++] }
+        const value = collections[position++]!
+        return { done: false, value }
       }
     }
   }
@@ -1389,7 +1391,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
 
     for (let i = 0; i < docs.length; i++) {
       try {
-        const result = await this.insertOne(docs[i])
+        const result = await this.insertOne(docs[i]!)
         insertedIds[i] = result.insertedId
       } catch (e) {
         lastError = e as Error
@@ -1461,9 +1463,9 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
     // Check if update has positional operator
     const hasPositional = JSON.stringify(update).includes('.$')
     if (hasPositional) {
-      applyPositionalUpdate(storage[index], update as UpdateFilter<Document>, filter as Filter<Document>)
+      applyPositionalUpdate(storage[index]!, update as UpdateFilter<Document>, filter as Filter<Document>)
     } else {
-      applyUpdate(storage[index], update as UpdateFilter<Document>)
+      applyUpdate(storage[index]!, update as UpdateFilter<Document>)
     }
 
     return { acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }
@@ -1520,7 +1522,7 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
       return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0 }
     }
 
-    const _id = storage[index]._id
+    const _id = storage[index]!._id
     storage[index] = { ...replacement, _id } as Document
 
     return { acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }
@@ -1570,9 +1572,9 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
       return null
     }
 
-    const before = { ...storage[index] } as unknown as WithId<T>
-    applyUpdate(storage[index], update as UpdateFilter<Document>)
-    const after = storage[index] as unknown as WithId<T>
+    const before = { ...storage[index]! } as unknown as WithId<T>
+    applyUpdate(storage[index]!, update as UpdateFilter<Document>)
+    const after = storage[index]! as unknown as WithId<T>
 
     return options?.returnDocument === 'after' ? after : before
   }
@@ -1608,10 +1610,10 @@ class CollectionImpl<T extends Document = Document> implements ICollection<T> {
       return null
     }
 
-    const before = { ...storage[index] } as unknown as WithId<T>
-    const _id = storage[index]._id
+    const before = { ...storage[index]! } as unknown as WithId<T>
+    const _id = storage[index]!._id
     storage[index] = { ...replacement, _id } as Document
-    const after = storage[index] as unknown as WithId<T>
+    const after = storage[index]! as unknown as WithId<T>
 
     return options?.returnDocument === 'after' ? after : before
   }

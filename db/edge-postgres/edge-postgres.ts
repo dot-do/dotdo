@@ -261,14 +261,14 @@ interface QuantizationCalibration {
 function quantizeToInt8(vector: number[], calibration: QuantizationCalibration): Int8Array {
   const quantized = new Int8Array(vector.length)
   for (let i = 0; i < vector.length; i++) {
-    const min = calibration.mins[i]
-    const max = calibration.maxs[i]
+    const min = calibration.mins[i]!
+    const max = calibration.maxs[i]!
     const range = max - min
     if (range === 0) {
       quantized[i] = 0
     } else {
       // Map [min, max] to [-128, 127]
-      const normalized = (vector[i] - min) / range
+      const normalized = (vector[i]! - min) / range
       quantized[i] = Math.round(normalized * 255 - 128)
     }
   }
@@ -285,10 +285,10 @@ function quantizeToInt8(vector: number[], calibration: QuantizationCalibration):
 function dequantizeFromInt8(quantized: Int8Array, calibration: QuantizationCalibration): number[] {
   const vector: number[] = new Array(quantized.length)
   for (let i = 0; i < quantized.length; i++) {
-    const min = calibration.mins[i]
-    const max = calibration.maxs[i]
+    const min = calibration.mins[i]!
+    const max = calibration.maxs[i]!
     // Map [-128, 127] back to [min, max]
-    const normalized = (quantized[i] + 128) / 255
+    const normalized = (quantized[i]! + 128) / 255
     vector[i] = normalized * (max - min) + min
   }
   return vector
@@ -306,14 +306,14 @@ function computeQuantizationCalibration(vectors: number[][]): QuantizationCalibr
     throw new Error('Cannot compute calibration from empty vector set')
   }
 
-  const dimensions = vectors[0].length
+  const dimensions = vectors[0]!.length
   const mins = new Array(dimensions).fill(Infinity)
   const maxs = new Array(dimensions).fill(-Infinity)
 
   for (const vector of vectors) {
     for (let i = 0; i < dimensions; i++) {
-      if (vector[i] < mins[i]) mins[i] = vector[i]
-      if (vector[i] > maxs[i]) maxs[i] = vector[i]
+      if (vector[i]! < mins[i]!) mins[i] = vector[i]!
+      if (vector[i]! > maxs[i]!) maxs[i] = vector[i]!
     }
   }
 
@@ -392,7 +392,7 @@ function analyzeQueryForHybridSearch(sql: string): {
   let hasFilter = false
 
   if (whereMatch) {
-    const whereClause = whereMatch[1]
+    const whereClause = whereMatch[1]!
     // Check if there are non-vector conditions
     const conditions = whereClause.split(/\s+AND\s+/i)
     for (const cond of conditions) {

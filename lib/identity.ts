@@ -59,11 +59,11 @@ export function parseDoId(doId: string, registry?: TypeRegistry): ParsedDoId {
     const subPath = rest.length > 0 ? rest.join('/') : undefined
 
     // Validate type if registry provided
-    if (registry && !registry.has(type)) {
+    if (registry && !registry.has(type!)) {
       throw new Error(`Unknown type: ${type}`)
     }
 
-    return { namespace, type, id, subPath }
+    return { namespace, type: type!, id: id!, subPath }
   }
 
   // Simple format: Type/id or Type/id/SubType/subId
@@ -76,11 +76,11 @@ export function parseDoId(doId: string, registry?: TypeRegistry): ParsedDoId {
   const subPath = rest.length > 0 ? rest.join('/') : undefined
 
   // Validate type if registry provided
-  if (registry && !registry.has(type)) {
+  if (registry && !registry.has(type!)) {
     throw new Error(`Unknown type: ${type}`)
   }
 
-  return { type, id, subPath }
+  return { type: type!, id: id!, subPath }
 }
 
 /**

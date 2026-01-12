@@ -595,8 +595,8 @@ export class IcebergReader {
       return true
     }
 
-    const nsBounds = manifest.partitions[NS_PARTITION_INDEX]
-    const typeBounds = manifest.partitions[TYPE_PARTITION_INDEX]
+    const nsBounds = manifest.partitions[NS_PARTITION_INDEX]!
+    const typeBounds = manifest.partitions[TYPE_PARTITION_INDEX]!
 
     // Check namespace bounds
     if (!this.valueInBounds(partition.ns, nsBounds.lowerBound, nsBounds.upperBound)) {
@@ -610,7 +610,7 @@ export class IcebergReader {
 
     // Check visibility bounds if specified and partition has visibility summary
     if (partition.visibility && manifest.partitions.length > VISIBILITY_PARTITION_INDEX) {
-      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]
+      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]!
       if (
         !this.valueInBounds(
           partition.visibility,
@@ -624,7 +624,7 @@ export class IcebergReader {
 
     // When no visibility is specified, exclude unlisted manifests from general queries
     if (!partition.visibility && manifest.partitions.length > VISIBILITY_PARTITION_INDEX) {
-      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]
+      const visibilityBounds = manifest.partitions[VISIBILITY_PARTITION_INDEX]!
       if (visibilityBounds.lowerBound === 'unlisted' && visibilityBounds.upperBound === 'unlisted') {
         return false
       }

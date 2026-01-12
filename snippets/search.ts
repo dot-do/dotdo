@@ -202,15 +202,15 @@ export async function queryRange(
   const sortedRanges = [...blockRanges].sort((a, b) => a.blockIndex - b.blockIndex)
   let isContiguous = true
   for (let i = 1; i < sortedRanges.length; i++) {
-    if (sortedRanges[i].blockIndex !== sortedRanges[i - 1].blockIndex + 1) {
+    if (sortedRanges[i]!.blockIndex !== sortedRanges[i - 1]!.blockIndex + 1) {
       isContiguous = false
       break
     }
   }
 
   if (isContiguous && sortedRanges.length > 0) {
-    const firstBlock = sortedRanges[0]
-    const lastBlock = sortedRanges[sortedRanges.length - 1]
+    const firstBlock = sortedRanges[0]!
+    const lastBlock = sortedRanges[sortedRanges.length - 1]!
     const totalSize = sortedRanges.length * blockByteSize
 
     result.coalesced = {
@@ -224,7 +224,7 @@ export async function queryRange(
     result.rangeHeader = `bytes=${startByte}-${endByte}`
   } else if (sortedRanges.length > 0) {
     // Non-contiguous: use first matching block range for now
-    const firstBlock = sortedRanges[0]
+    const firstBlock = sortedRanges[0]!
     const endByte = firstBlock.byteOffset + firstBlock.byteSize - 1
     result.rangeHeader = `bytes=${firstBlock.byteOffset}-${endByte}`
   }
@@ -890,7 +890,7 @@ function evictBloomCacheIfNeeded(maxBytes: number, neededBytes: number): void {
     bloomFilterCache.delete(key)
     const urlMatch = key.match(/^(.+):\d+$/)
     if (urlMatch) {
-      puffinFileCache.delete(urlMatch[1])
+      puffinFileCache.delete(urlMatch[1]!)
     }
     bloomCacheTotalBytes -= entry.sizeBytes
   }
@@ -1211,8 +1211,8 @@ export function deserializeCentroids(
   if (options.filename && (!count || !dims)) {
     const match = options.filename.match(/centroids-(\d+)x(\d+)\.bin/)
     if (match) {
-      count = count ?? parseInt(match[1], 10)
-      dims = dims ?? parseInt(match[2], 10)
+      count = count ?? parseInt(match[1]!, 10)
+      dims = dims ?? parseInt(match[2]!, 10)
     }
   }
 
@@ -1244,7 +1244,7 @@ export function computeDistances(
   let queryNorm = 0
   if (metric === DistanceMetric.Cosine) {
     for (let i = 0; i < dims; i++) {
-      queryNorm += query[i] * query[i]
+      queryNorm += query[i]! * query[i]!
     }
     queryNorm = Math.sqrt(queryNorm)
   }
@@ -1256,8 +1256,8 @@ export function computeDistances(
     let sqDiff = 0
 
     for (let d = 0; d < dims; d++) {
-      const qv = query[d]
-      const cv = centroids[offset + d]
+      const qv = query[d]!
+      const cv = centroids[offset + d]!
       dot += qv * cv
 
       if (metric === DistanceMetric.Cosine) {
@@ -1306,7 +1306,7 @@ export function findTopKCentroids(
   // Build array of (index, distance) pairs
   const results: CentroidResult[] = []
   for (let i = 0; i < numCentroids; i++) {
-    results.push({ index: i, distance: distances[i] })
+    results.push({ index: i, distance: distances[i]! })
   }
 
   // Sort by distance (ascending)
@@ -1994,7 +1994,7 @@ export async function queryFullText(
     const terms = simpleTokenize(trimmedQuery)
     if (terms.length > 0) {
       if (terms.length === 1) {
-        docIds = reader.getPostings(terms[0])
+        docIds = reader.getPostings(terms[0]!)
       } else {
         docIds = reader.intersect(terms)
       }
@@ -2171,7 +2171,7 @@ export function parseSearchQuery(url: URL): SearchQuery {
         return { field: parts[0] ?? '', op: 'eq' as RangeOp, value: parts[1] ?? '' }
       }
       return {
-        field: parts[0],
+        field: parts[0]!,
         op: parts[1] as RangeOp,
         value: parts.slice(2).join(':'), // Rejoin remaining parts for values with colons
       }
@@ -2183,10 +2183,10 @@ export function parseSearchQuery(url: URL): SearchQuery {
   if (vectorParam) {
     const parts = vectorParam.split(':')
     if (parts.length >= 3) {
-      const field = parts[0]
-      const base64Data = parts[1]
-      const kMatch = parts[2].match(/k=(\d+)/)
-      const k = kMatch ? parseInt(kMatch[1], 10) : 10
+      const field = parts[0]!
+      const base64Data = parts[1]!
+      const kMatch = parts[2]!.match(/k=(\d+)/)
+      const k = kMatch ? parseInt(kMatch[1]!, 10) : 10
 
       // Decode base64 to Float32Array
       // First decode to a byte array, then create Float32Array
@@ -2195,7 +2195,7 @@ export function parseSearchQuery(url: URL): SearchQuery {
       const arrayBuffer = new ArrayBuffer(binaryString.length)
       const uint8View = new Uint8Array(arrayBuffer)
       for (let i = 0; i < binaryString.length; i++) {
-        uint8View[i] = binaryString[i]
+        uint8View[i] = binaryString[i]!
       }
       const floatArray = new Float32Array(arrayBuffer)
 

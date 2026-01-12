@@ -50,9 +50,8 @@ import type {
   ClusterHealthResponse,
   ClusterStatsResponse,
   InfoResponse,
-  NotFoundError,
-  ResponseError,
 } from './types'
+import { NotFoundError, ResponseError } from './types'
 
 // ============================================================================
 // CLIENT IMPLEMENTATION
@@ -314,8 +313,8 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
       const op = operations[i]
 
       // Check operation type
-      if ('index' in op) {
-        const action = op.index
+      if (op && 'index' in op) {
+        const action = (op as { index: { _index?: string; _id?: string } }).index
         const indexName = action._index || defaultIndex
         if (!indexName) {
           hasErrors = true
@@ -381,8 +380,8 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
             },
           })
         }
-      } else if ('create' in op) {
-        const action = op.create
+      } else if (op && 'create' in op) {
+        const action = (op as { create: { _index?: string; _id?: string } }).create
         const indexName = action._index || defaultIndex
         if (!indexName) {
           hasErrors = true
@@ -453,8 +452,8 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
             },
           })
         }
-      } else if ('update' in op) {
-        const action = op.update
+      } else if (op && 'update' in op) {
+        const action = (op as { update: { _index?: string; _id?: string } }).update
         const indexName = action._index || defaultIndex
         if (!indexName) {
           hasErrors = true
@@ -507,8 +506,8 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
             },
           })
         }
-      } else if ('delete' in op) {
-        const action = op.delete
+      } else if (op && 'delete' in op) {
+        const action = (op as { delete: { _index?: string; _id?: string } }).delete
         const indexName = action._index || defaultIndex
         if (!indexName || !action._id) {
           hasErrors = true
@@ -535,7 +534,7 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
               _index: result._index,
               _id: result._id,
               _version: result._version,
-              result: result.result,
+              result: result.result as 'deleted' | 'created' | 'updated' | 'noop',
               status: result.result === 'deleted' ? 200 : 404,
               _seq_no: result._seq_no,
               _primary_term: result._primary_term,
@@ -574,7 +573,7 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
     const indexNames = Array.isArray(request.index) ? request.index : [request.index]
 
     // For now, only support single index
-    const indexName = indexNames[0]
+    const indexName = indexNames[0]!
 
     const indexer = this.indexes.get(indexName)
     if (!indexer) {
@@ -651,7 +650,7 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
     // Create search executor with vector support if configured
     const searchOptions: SearchExecutorOptions = {}
     if (this.options.vector) {
-      searchOptions.vector = this.options.vector
+      searchOptions.vector = this.options.vector as SearchExecutorOptions['vector']
     } else if (mappings?.properties) {
       // Check for dense_vector field
       for (const [_, fieldMapping] of Object.entries(mappings.properties)) {
@@ -898,7 +897,7 @@ class ElasticsearchClientImpl implements ElasticsearchClient {
       const options: SearchExecutorOptions = {}
 
       if (this.options.vector) {
-        options.vector = this.options.vector
+        options.vector = this.options.vector as SearchExecutorOptions['vector']
       }
 
       executor = createSearchExecutor(indexer, options)

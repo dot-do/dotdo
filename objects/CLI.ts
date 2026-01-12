@@ -107,7 +107,7 @@ export class CLI extends Package {
     let command = ''
 
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i]
+      const arg = args[i]!
 
       if (arg.startsWith('--')) {
         const key = arg.slice(2)

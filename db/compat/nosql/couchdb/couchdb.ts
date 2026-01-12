@@ -431,7 +431,7 @@ function createMapFunction(mapStr: string): (doc: Document, emit: (key: unknown,
       const valueField = emitMatch[2]
       const numValue = emitMatch[3]
 
-      if (doc[keyField] !== undefined) {
+      if (keyField && doc[keyField] !== undefined) {
         if (valueField) {
           emit(doc[keyField], doc[valueField])
         } else if (numValue) {
@@ -559,7 +559,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
       }
 
       // Generate new revision
-      const revNum = parseInt(existing._rev.split('-')[0]) + 1
+      const revNum = parseInt(existing._rev!.split('-')[0]!) + 1
       const newRev = generateRev(revNum, JSON.stringify(docClone))
       docClone._rev = newRev
 
@@ -571,7 +571,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
 
       docClone._revisions = {
         start: revNum,
-        ids: [newRev.split('-')[1], ...(existing._revisions?.ids || [existing._rev.split('-')[1]])],
+        ids: [newRev.split('-')[1]!, ...(existing._revisions?.ids || [existing._rev!.split('-')[1]!])],
       }
     } else {
       // New document
@@ -583,7 +583,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
       docClone._rev = newRev
       docClone._revisions = {
         start: 1,
-        ids: [newRev.split('-')[1]],
+        ids: [newRev.split('-')[1]!],
       }
     }
 
@@ -677,7 +677,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
     }
 
     // Generate deletion revision
-    const revNum = parseInt(rev.split('-')[0]) + 1
+    const revNum = parseInt(rev!.split('-')[0]!) + 1
     const newRev = generateRev(revNum, `deleted:${docId}`)
 
     // Store in revision history
@@ -757,8 +757,8 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
               stored._id = generateUUID()
             }
             stored._revisions = {
-              start: parseInt(stored._rev.split('-')[0]),
-              ids: [stored._rev.split('-')[1]],
+              start: parseInt(stored._rev!.split('-')[0]!),
+              ids: [stored._rev!.split('-')[1]!],
             }
             db.seq++
             stored._seq = db.seq
@@ -928,8 +928,8 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
           if (typeof sortItem === 'string') {
             field = sortItem
           } else {
-            field = Object.keys(sortItem)[0]
-            direction = sortItem[field]
+            field = Object.keys(sortItem)[0]!
+            direction = sortItem[field]!
           }
 
           const aVal = getNestedValue(a, field)
@@ -1178,7 +1178,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
         }
 
         // Generate new rev
-        const revNum = rev ? parseInt(rev.split('-')[0]) + 1 : 1
+        const revNum = rev ? parseInt(rev.split('-')[0]!) + 1 : 1
         const newRev = generateRev(revNum, JSON.stringify(doc))
 
         if (rev) {
@@ -1193,7 +1193,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
         doc._rev = newRev
         doc._revisions = {
           start: revNum,
-          ids: [newRev.split('-')[1]],
+          ids: [newRev.split('-')[1]!],
         }
 
         db.seq++
@@ -1256,7 +1256,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
         }
 
         // Generate new rev
-        const revNum = parseInt(params.rev.split('-')[0]) + 1
+        const revNum = parseInt(params.rev!.split('-')[0]!) + 1
         const newRev = generateRev(revNum, JSON.stringify(doc))
 
         // Store old version
@@ -1269,7 +1269,7 @@ class DocumentScopeImpl<D extends Document = Document> implements DocumentScope<
         doc._rev = newRev
         doc._revisions = {
           start: revNum,
-          ids: [newRev.split('-')[1], ...(doc._revisions?.ids || [])],
+          ids: [newRev.split('-')[1]!, ...(doc._revisions?.ids || [])],
         }
 
         db.seq++

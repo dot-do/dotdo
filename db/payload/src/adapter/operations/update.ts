@@ -320,8 +320,8 @@ function transformArrayValue(value: unknown, field: PayloadField): unknown {
 
   // Check if this is a simple array with a single text field
   const subFields = field.fields
-  if (subFields && subFields.length === 1 && subFields[0].type === 'text') {
-    const fieldName = subFields[0].name
+  if (subFields && subFields.length === 1 && subFields[0]?.type === 'text') {
+    const fieldName = subFields[0]!.name
     return value.map((item) => {
       if (typeof item === 'object' && item !== null && fieldName in item) {
         return (item as Record<string, unknown>)[fieldName]

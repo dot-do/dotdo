@@ -1071,11 +1071,11 @@ class SDLParser {
       // Lookahead to distinguish 'index on (...)' from property named 'index'
       // Skip any comment tokens to find the next meaningful token
       let nextPos = this.pos + 1
-      while (nextPos < this.tokens.length && this.tokens[nextPos].type === TokenType.COMMENT) {
+      while (nextPos < this.tokens.length && this.tokens[nextPos]!.type === TokenType.COMMENT) {
         nextPos++
       }
       if (nextPos < this.tokens.length) {
-        const nextToken = this.tokens[nextPos]
+        const nextToken = this.tokens[nextPos]!
         // If next token is 'on', it's definitely an index definition
         if (nextToken.value.toLowerCase() === 'on') {
           typeDef.indexes.push(this.parseIndex())
@@ -1085,12 +1085,12 @@ class SDLParser {
         if (nextToken.type === TokenType.IDENTIFIER) {
           // Skip to find 'on' after the using clause
           let checkPos = nextPos + 1
-          while (checkPos < this.tokens.length && this.tokens[checkPos].type === TokenType.COMMENT) {
+          while (checkPos < this.tokens.length && this.tokens[checkPos]!.type === TokenType.COMMENT) {
             checkPos++
           }
           // Check for namespace (fts::index) or 'on'
           if (checkPos < this.tokens.length) {
-            const afterToken = this.tokens[checkPos]
+            const afterToken = this.tokens[checkPos]!
             if (afterToken.type === TokenType.NAMESPACE || afterToken.value.toLowerCase() === 'on') {
               typeDef.indexes.push(this.parseIndex())
               return
@@ -1652,8 +1652,8 @@ class SDLParser {
     const match = expression.match(/\.<(\w+)\[\s*IS\s+([^\]]+)\]/)
 
     if (match) {
-      const forwardLink = match[1]
-      const targetTypeStr = match[2].trim()
+      const forwardLink = match[1]!
+      const targetTypeStr = match[2]!.trim()
 
       // Check for union type: Post | Comment
       if (targetTypeStr.includes('|')) {
@@ -2177,14 +2177,14 @@ class SDLParser {
     if (this.pos >= this.tokens.length) {
       return { type: TokenType.EOF, value: '', position: 0, line: 0, column: 0 }
     }
-    return this.tokens[this.pos]
+    return this.tokens[this.pos]!
   }
 
   private advance(): Token {
     if (!this.isAtEnd()) {
-      return this.tokens[this.pos++]
+      return this.tokens[this.pos++]!
     }
-    return this.tokens[this.tokens.length - 1]
+    return this.tokens[this.tokens.length - 1]!
   }
 
   private check(type: TokenType): boolean {
@@ -2204,7 +2204,7 @@ class SDLParser {
   private peekIdentifier(value: string): boolean {
     const nextPos = this.pos + 1
     if (nextPos >= this.tokens.length) return false
-    const token = this.tokens[nextPos]
+    const token = this.tokens[nextPos]!
     return token.type === TokenType.IDENTIFIER && token.value.toLowerCase() === value.toLowerCase()
   }
 

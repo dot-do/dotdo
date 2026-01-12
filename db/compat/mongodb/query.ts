@@ -8,7 +8,7 @@
  */
 
 import { MongoQueryParser, type MongoQuery } from '../../primitives/query-engine'
-import { PredicateCompiler, type TCSPredicate, type CompiledPredicate } from '../../primitives/query-engine'
+import { PredicateCompiler, type TCSPredicate, type CompiledPredicate, type CompilationResult } from '../../primitives/query-engine'
 import type { Document, Filter, WithId, ObjectId } from './types'
 
 // ============================================================================
@@ -57,7 +57,7 @@ export class QueryExecutor<T extends Document = Document> {
 
     // Create the predicate function
     const predicate = (doc: WithId<T>): boolean => {
-      return this.evaluatePredicate(compiled, doc)
+      return this.evaluateCompilationResult(compiled, doc)
     }
 
     return { filter, predicate }
@@ -88,32 +88,45 @@ export class QueryExecutor<T extends Document = Document> {
   }
 
   /**
-   * Evaluate a compiled predicate against a document
+   * Evaluate a compilation result against a document
    */
-  private evaluatePredicate(compiled: CompiledPredicate, doc: WithId<T>): boolean {
-    // The compiled predicate contains the evaluation logic
-    // We need to match the document against the predicate branches
+  private evaluateCompilationResult(compiled: CompilationResult, doc: WithId<T>): boolean {
+    // Handle branches if present (OR scenarios)
+    if (compiled.branches && compiled.branches.length > 0) {
+      for (const branch of compiled.branches) {
+        // Each branch is a conjunction of predicates
+        const branchMatch = this.evaluatePredicates(branch.predicates, branch.logicalOp ?? 'AND', doc)
+        if (branchMatch) {
+          return true
+        }
+      }
+      return false
+    }
 
-    // For now, use a direct evaluation approach based on the filter
-    // This is a bridge implementation while we integrate fully with the TCS predicates
-    return this.evaluatePredicateDirect(compiled, doc)
+    // Handle direct predicates
+    return this.evaluatePredicates(compiled.predicates, compiled.logicalOp ?? 'AND', doc)
   }
 
   /**
-   * Direct predicate evaluation against document
+   * Evaluate an array of predicates against a document
    */
-  private evaluatePredicateDirect(compiled: CompiledPredicate, doc: WithId<T>): boolean {
-    // Extract the branches from the compiled predicate
-    for (const branch of compiled.branches) {
-      // Evaluate each branch - if any branch matches, the predicate passes
-      if (this.evaluateBranch(branch.predicate, doc)) {
-        return true
-      }
+  private evaluatePredicates(predicates: CompiledPredicate[], logicalOp: 'AND' | 'OR', doc: WithId<T>): boolean {
+    if (predicates.length === 0) {
+      return true
     }
 
-    // If we have branches and none matched, return false
-    // If we have no branches, treat as match all
-    return compiled.branches.length === 0
+    if (logicalOp === 'AND') {
+      return predicates.every((p) => this.evaluatePredicate(p, doc))
+    } else {
+      return predicates.some((p) => this.evaluatePredicate(p, doc))
+    }
+  }
+
+  /**
+   * Evaluate a single compiled predicate against a document
+   */
+  private evaluatePredicate(compiled: CompiledPredicate, doc: WithId<T>): boolean {
+    return this.evaluateBranch(compiled.tcsPredicate, doc)
   }
 
   /**
@@ -300,7 +313,7 @@ export function evaluateFilterDirect<T extends Document = Document>(
     }
 
     // Operator-based comparison
-    if (!evaluateOperators(value, condition)) {
+    if (!evaluateOperators(value, condition as Record<string, unknown>)) {
       return false
     }
   }

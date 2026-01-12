@@ -138,7 +138,7 @@ export function unregisterHandler(eventKey: string, handler: Function): boolean 
   const [removed] = registrations.splice(index, 1)
 
   // Clean up context index
-  if (removed.context) {
+  if (removed?.context) {
     const contextEvents = contextIndex.get(removed.context)
     if (contextEvents) {
       // Only remove from index if no more handlers for this event/context combo
@@ -306,14 +306,14 @@ function parseNaturalSchedule(schedule: string): string {
 
   let dayNum = '*'
   if (dayMatch) {
-    const dayName = dayMatch[1].charAt(0).toUpperCase() + dayMatch[1].slice(1)
-    dayNum = DAYS[dayName] || DAYS[dayMatch[1]] || '*'
+    const dayName = dayMatch[1]!.charAt(0).toUpperCase() + dayMatch[1]!.slice(1)
+    dayNum = DAYS[dayName] || DAYS[dayMatch[1]!] || '*'
   }
 
   let hour = '0'
   let minute = '0'
   if (timeMatch) {
-    hour = timeMatch[1]
+    hour = timeMatch[1]!
     minute = timeMatch[2] || '0'
     if (timeMatch[3]?.toLowerCase() === 'pm' && parseInt(hour) < 12) {
       hour = String(parseInt(hour) + 12)

@@ -161,7 +161,7 @@ export async function registerObject(
     .values(data)
     .returning()
 
-  return results[0]
+  return results[0]!
 }
 
 /**

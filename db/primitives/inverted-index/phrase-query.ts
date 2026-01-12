@@ -246,7 +246,7 @@ export class PhraseQuery {
 
     if (this.terms.length === 1) {
       // Single term - just return all docs containing it
-      const docIds = this.terms[0].postings.getPostings().map((p) => p.docId)
+      const docIds = this.terms[0]!.postings.getPostings().map((p) => p.docId)
       return { docIds }
     }
 
@@ -278,7 +278,7 @@ export class PhraseQuery {
 
     if (this.terms.length === 1) {
       // Single term - return all positions
-      return this.terms[0].postings.getPostings().map((p) => ({
+      return this.terms[0]!.postings.getPostings().map((p) => ({
         docId: p.docId,
         matchPositions: p.positions,
         minDistance: 1,
@@ -317,10 +317,10 @@ export class PhraseQuery {
     // Start with smallest posting list for efficiency
     const sortedTerms = this.terms.slice().sort((a, b) => a.postings.cardinality - b.postings.cardinality)
 
-    let commonDocs = new Set(sortedTerms[0].postings.getPostings().map((p) => p.docId))
+    let commonDocs = new Set(sortedTerms[0]!.postings.getPostings().map((p) => p.docId))
 
     for (let i = 1; i < sortedTerms.length && commonDocs.size > 0; i++) {
-      const otherDocs = new Set(sortedTerms[i].postings.getPostings().map((p) => p.docId))
+      const otherDocs = new Set(sortedTerms[i]!.postings.getPostings().map((p) => p.docId))
       commonDocs = new Set([...commonDocs].filter((d) => otherDocs.has(d)))
     }
 
@@ -342,7 +342,7 @@ export class PhraseQuery {
     let minDistance = Infinity
 
     // Get positions for first term
-    const firstPositions = this.terms[0].postings.getPositions(docId)
+    const firstPositions = this.terms[0]!.postings.getPositions(docId)
     if (firstPositions.length === 0) {
       return { matchPositions: [], minDistance: this.terms.length }
     }
@@ -354,7 +354,7 @@ export class PhraseQuery {
       let totalDistance = 0
 
       for (let i = 1; i < this.terms.length; i++) {
-        const termPositions = this.terms[i].postings.getPositions(docId)
+        const termPositions = this.terms[i]!.postings.getPositions(docId)
         const expectedPos = currentPosition + 1 // Next term should be at current + 1
 
         // Find the best matching position for this term

@@ -697,12 +697,795 @@ module.exports = {
 
 This lets you migrate gradually - API first, then frontend when ready.
 
+## App Router Patterns
+
+Next.js 13+ App Router patterns have direct equivalents in dotdo.
+
+### Layout Components
+
+```typescript
+// Next.js - app/layout.tsx
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>
+        <Header />
+        <main>{children}</main>
+        <Footer />
+      </body>
+    </html>
+  )
+}
+
+// app/dashboard/layout.tsx
+export default function DashboardLayout({ children }) {
+  return (
+    <div className="dashboard">
+      <Sidebar />
+      <div className="content">{children}</div>
+    </div>
+  )
+}
+```
+
+```typescript
+// dotdo - TanStack Router layouts
+// src/routes/__root.tsx
+import { createRootRoute, Outlet } from '@tanstack/react-router'
+
+export const Route = createRootRoute({
+  component: () => (
+    <html lang="en">
+      <body>
+        <Header />
+        <main><Outlet /></main>
+        <Footer />
+      </body>
+    </html>
+  )
+})
+
+// src/routes/dashboard.tsx
+export const Route = createFileRoute('/dashboard')({
+  component: () => (
+    <div className="dashboard">
+      <Sidebar />
+      <div className="content"><Outlet /></div>
+    </div>
+  )
+})
+```
+
+### Loading States
+
+```typescript
+// Next.js - app/dashboard/loading.tsx
+export default function Loading() {
+  return <div className="spinner">Loading...</div>
+}
+
+// app/dashboard/page.tsx
+export default async function Dashboard() {
+  const data = await fetchDashboardData()
+  return <DashboardContent data={data} />
+}
+```
+
+```typescript
+// dotdo - TanStack Router pending states
+export const Route = createFileRoute('/dashboard')({
+  loader: async () => {
+    return await fetchDashboardData()
+  },
+  pendingComponent: () => <div className="spinner">Loading...</div>,
+  component: Dashboard
+})
+
+function Dashboard() {
+  const data = Route.useLoaderData()
+  return <DashboardContent data={data} />
+}
+```
+
+### Error Handling
+
+```typescript
+// Next.js - app/dashboard/error.tsx
+'use client'
+
+export default function Error({ error, reset }) {
+  return (
+    <div>
+      <h2>Something went wrong!</h2>
+      <button onClick={() => reset()}>Try again</button>
+    </div>
+  )
+}
+```
+
+```typescript
+// dotdo - TanStack Router error handling
+export const Route = createFileRoute('/dashboard')({
+  loader: async () => fetchDashboardData(),
+  errorComponent: ({ error, reset }) => (
+    <div>
+      <h2>Something went wrong!</h2>
+      <button onClick={() => reset()}>Try again</button>
+    </div>
+  ),
+  component: Dashboard
+})
+```
+
+### Not Found
+
+```typescript
+// Next.js - app/not-found.tsx
+export default function NotFound() {
+  return (
+    <div>
+      <h2>Page not found</h2>
+      <Link href="/">Go home</Link>
+    </div>
+  )
+}
+```
+
+```typescript
+// dotdo - TanStack Router 404
+// src/routes/__root.tsx
+export const Route = createRootRoute({
+  component: RootComponent,
+  notFoundComponent: () => (
+    <div>
+      <h2>Page not found</h2>
+      <Link to="/">Go home</Link>
+    </div>
+  )
+})
+```
+
+## Static Site Generation (SSG) and ISR
+
+### Static Generation
+
+```typescript
+// Next.js - Static generation
+// app/blog/[slug]/page.tsx
+export async function generateStaticParams() {
+  const posts = await getPosts()
+  return posts.map((post) => ({ slug: post.slug }))
+}
+
+export default async function Post({ params }) {
+  const post = await getPost(params.slug)
+  return <article>{post.content}</article>
+}
+```
+
+```typescript
+// dotdo - Pre-rendering with static exports
+// Pre-build posts at deploy time
+// scripts/prebuild.ts
+import { getPosts, getPost } from '../lib/posts'
+
+export async function prebuild() {
+  const posts = await getPosts()
+
+  for (const post of posts) {
+    const content = await getPost(post.slug)
+    // Write to static assets or cache in KV
+    await KV.put(`post:${post.slug}`, JSON.stringify(content))
+  }
+}
+
+// src/routes/blog/[slug].tsx
+export const Route = createFileRoute('/blog/$slug')({
+  loader: async ({ params }) => {
+    // Try cache first (like ISR)
+    const cached = await c.env.KV.get(`post:${params.slug}`)
+    if (cached) return JSON.parse(cached)
+
+    // Fall back to fresh fetch
+    return await getPost(params.slug)
+  },
+  component: Post
+})
+```
+
+### Incremental Static Regeneration
+
+```typescript
+// Next.js - ISR
+export async function generateStaticParams() {
+  return [{ slug: 'hello-world' }]
+}
+
+// Revalidate every 60 seconds
+export const revalidate = 60
+
+export default async function Post({ params }) {
+  const post = await getPost(params.slug)
+  return <article>{post.content}</article>
+}
+```
+
+```typescript
+// dotdo - Cache with TTL (similar to ISR)
+export const Route = createFileRoute('/blog/$slug')({
+  loader: async ({ params, context }) => {
+    const cacheKey = `post:${params.slug}`
+
+    // Check cache with TTL
+    const cached = await context.env.KV.get(cacheKey, {
+      type: 'json',
+      cacheTtl: 60 // Cache for 60 seconds
+    })
+
+    if (cached) return cached
+
+    // Fetch fresh data
+    const post = await getPost(params.slug)
+
+    // Store in cache
+    await context.env.KV.put(cacheKey, JSON.stringify(post), {
+      expirationTtl: 60
+    })
+
+    return post
+  }
+})
+
+// Or use Cache API for fine-grained control
+const cache = caches.default
+
+app.get('/blog/:slug', async (c) => {
+  const cacheKey = new Request(c.req.url)
+
+  // Try cache
+  const cached = await cache.match(cacheKey)
+  if (cached) return cached
+
+  // Fresh fetch
+  const post = await getPost(c.req.param('slug'))
+  const response = c.json(post)
+
+  // Cache for 60 seconds
+  response.headers.set('Cache-Control', 'public, max-age=60')
+  await cache.put(cacheKey, response.clone())
+
+  return response
+})
+```
+
+## Image Optimization
+
+### Next.js Image Component
+
+```typescript
+// Next.js
+import Image from 'next/image'
+
+export default function Avatar() {
+  return (
+    <Image
+      src="/avatar.png"
+      alt="User avatar"
+      width={64}
+      height={64}
+      placeholder="blur"
+      blurDataURL="data:image/..."
+    />
+  )
+}
+```
+
+```typescript
+// dotdo - Cloudflare Images or manual optimization
+// Option 1: Cloudflare Images
+export function Avatar() {
+  return (
+    <img
+      src="https://imagedelivery.net/account/avatar/width=64,height=64"
+      alt="User avatar"
+      width={64}
+      height={64}
+      loading="lazy"
+    />
+  )
+}
+
+// Option 2: R2 with Image Resizing
+export function Avatar({ src }: { src: string }) {
+  // Cloudflare Image Resizing via URL
+  const optimizedSrc = `/cdn-cgi/image/width=64,height=64,fit=cover/${src}`
+
+  return (
+    <img
+      src={optimizedSrc}
+      alt="User avatar"
+      width={64}
+      height={64}
+      loading="lazy"
+    />
+  )
+}
+
+// Option 3: Custom image component with blur placeholder
+export function OptimizedImage({ src, width, height, alt }) {
+  const [loaded, setLoaded] = useState(false)
+
+  return (
+    <div className="relative" style={{ width, height }}>
+      {!loaded && (
+        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+      )}
+      <img
+        src={`/cdn-cgi/image/width=${width},height=${height}/${src}`}
+        alt={alt}
+        width={width}
+        height={height}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        className={loaded ? 'opacity-100' : 'opacity-0'}
+      />
+    </div>
+  )
+}
+```
+
+## Authentication Patterns
+
+### NextAuth.js to dotdo Auth
+
+```typescript
+// Next.js - NextAuth.js
+// app/api/auth/[...nextauth]/route.ts
+import NextAuth from 'next-auth'
+import GoogleProvider from 'next-auth/providers/google'
+
+export const authOptions = {
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_ID!,
+      clientSecret: process.env.GOOGLE_SECRET!,
+    }),
+  ],
+  callbacks: {
+    session: ({ session, token }) => ({
+      ...session,
+      user: { ...session.user, id: token.sub }
+    })
+  }
+}
+
+const handler = NextAuth(authOptions)
+export { handler as GET, handler as POST }
+
+// Usage in page
+import { getServerSession } from 'next-auth'
+
+export default async function Page() {
+  const session = await getServerSession(authOptions)
+
+  if (!session) {
+    redirect('/login')
+  }
+
+  return <div>Welcome, {session.user.name}</div>
+}
+```
+
+```typescript
+// dotdo - Using Clerk or Auth0
+// lib/auth.ts
+import { createClerkClient, verifyToken } from '@dotdo/clerk'
+
+export const clerk = createClerkClient({
+  secretKey: env.CLERK_SECRET_KEY
+})
+
+// Middleware
+export const authMiddleware = async (c, next) => {
+  const token = c.req.header('Authorization')?.split(' ')[1]
+    || c.req.cookie('__session')
+
+  if (!token) {
+    return c.redirect('/sign-in')
+  }
+
+  try {
+    const session = await verifyToken(token, {
+      secretKey: c.env.CLERK_SECRET_KEY
+    })
+    c.set('user', session)
+    await next()
+  } catch {
+    return c.redirect('/sign-in')
+  }
+}
+
+// Route protection
+app.use('/dashboard/*', authMiddleware)
+
+// In TanStack Router
+export const Route = createFileRoute('/dashboard')({
+  beforeLoad: async ({ context }) => {
+    const session = await context.getSession()
+    if (!session) {
+      throw redirect({ to: '/sign-in' })
+    }
+    return { user: session.user }
+  },
+  component: Dashboard
+})
+
+function Dashboard() {
+  const { user } = Route.useRouteContext()
+  return <div>Welcome, {user.name}</div>
+}
+```
+
+### Session Management
+
+```typescript
+// Next.js - Session in middleware
+// middleware.ts
+import { getToken } from 'next-auth/jwt'
+
+export async function middleware(request: NextRequest) {
+  const token = await getToken({ req: request })
+
+  if (!token && request.nextUrl.pathname.startsWith('/protected')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+}
+```
+
+```typescript
+// dotdo - Session middleware
+// src/middleware/session.ts
+import { verify } from 'hono/jwt'
+
+export const sessionMiddleware = async (c, next) => {
+  const token = c.req.cookie('session')
+    || c.req.header('Authorization')?.replace('Bearer ', '')
+
+  if (token) {
+    try {
+      const payload = await verify(token, c.env.JWT_SECRET)
+      c.set('session', payload)
+    } catch {
+      // Invalid token - clear cookie
+      c.header('Set-Cookie', 'session=; HttpOnly; Secure; SameSite=Strict; Max-Age=0')
+    }
+  }
+
+  await next()
+}
+
+// Protected routes middleware
+export const requireAuth = async (c, next) => {
+  const session = c.get('session')
+
+  if (!session) {
+    return c.redirect('/login')
+  }
+
+  await next()
+}
+
+// Apply
+app.use('*', sessionMiddleware)
+app.use('/protected/*', requireAuth)
+```
+
+## Middleware (Edge Runtime)
+
+Next.js middleware runs on the edge. All dotdo code runs on the edge.
+
+### Request/Response Modification
+
+```typescript
+// Next.js - middleware.ts
+import { NextResponse } from 'next/server'
+
+export function middleware(request: NextRequest) {
+  // Add custom header
+  const response = NextResponse.next()
+  response.headers.set('x-custom-header', 'my-value')
+
+  // Geo-based routing
+  const country = request.geo?.country || 'US'
+  if (country === 'DE') {
+    return NextResponse.redirect(new URL('/de', request.url))
+  }
+
+  // A/B testing
+  const bucket = request.cookies.get('ab-bucket')?.value
+    || (Math.random() < 0.5 ? 'a' : 'b')
+
+  if (!request.cookies.get('ab-bucket')) {
+    response.cookies.set('ab-bucket', bucket)
+  }
+
+  return response
+}
+```
+
+```typescript
+// dotdo - Hono middleware
+app.use('*', async (c, next) => {
+  await next()
+
+  // Add custom header
+  c.header('x-custom-header', 'my-value')
+})
+
+// Geo-based routing
+app.use('*', async (c, next) => {
+  const country = c.req.header('CF-IPCountry') || 'US'
+
+  if (country === 'DE' && !c.req.path.startsWith('/de')) {
+    return c.redirect('/de' + c.req.path)
+  }
+
+  await next()
+})
+
+// A/B testing
+app.use('*', async (c, next) => {
+  let bucket = c.req.cookie('ab-bucket')
+
+  if (!bucket) {
+    bucket = Math.random() < 0.5 ? 'a' : 'b'
+    c.header('Set-Cookie', `ab-bucket=${bucket}; Path=/; HttpOnly; Secure`)
+  }
+
+  c.set('abBucket', bucket)
+  await next()
+})
+```
+
+### URL Rewriting
+
+```typescript
+// Next.js - Rewrite rules
+export function middleware(request: NextRequest) {
+  // Rewrite /old-path to /new-path
+  if (request.nextUrl.pathname === '/old-path') {
+    return NextResponse.rewrite(new URL('/new-path', request.url))
+  }
+
+  // API versioning
+  if (request.nextUrl.pathname.startsWith('/api/v1')) {
+    const newPath = request.nextUrl.pathname.replace('/api/v1', '/api')
+    return NextResponse.rewrite(new URL(newPath, request.url))
+  }
+}
+```
+
+```typescript
+// dotdo - URL rewriting
+// Redirect old paths
+app.get('/old-path', (c) => c.redirect('/new-path', 301))
+
+// API versioning with route aliasing
+const v1Router = new Hono()
+v1Router.route('/', apiRouter) // Same handlers
+
+app.route('/api', apiRouter)
+app.route('/api/v1', v1Router)
+
+// Or use middleware for transparent rewrites
+app.use('/api/v1/*', async (c, next) => {
+  // Rewrite URL internally
+  const newPath = c.req.path.replace('/api/v1', '/api')
+  c.req.raw = new Request(
+    new URL(newPath, c.req.url),
+    c.req.raw
+  )
+  await next()
+})
+```
+
+## Route Handlers vs API Routes
+
+### Route Handler Patterns
+
+```typescript
+// Next.js - app/api/users/route.ts
+import { NextResponse } from 'next/server'
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const page = searchParams.get('page') || '1'
+
+  const users = await getUsers({ page: parseInt(page) })
+  return NextResponse.json(users)
+}
+
+export async function POST(request: Request) {
+  const body = await request.json()
+
+  // Validate
+  if (!body.email) {
+    return NextResponse.json(
+      { error: 'Email required' },
+      { status: 400 }
+    )
+  }
+
+  const user = await createUser(body)
+  return NextResponse.json(user, { status: 201 })
+}
+```
+
+```typescript
+// dotdo - Hono routes (cleaner syntax)
+const users = new Hono()
+
+users.get('/', async (c) => {
+  const page = parseInt(c.req.query('page') || '1')
+  const users = await $.things.list('User', { page })
+  return c.json(users)
+})
+
+users.post('/', async (c) => {
+  const body = await c.req.json()
+
+  // Validate with Zod
+  const schema = z.object({ email: z.string().email() })
+  const result = schema.safeParse(body)
+
+  if (!result.success) {
+    return c.json({ error: result.error.flatten() }, 400)
+  }
+
+  const user = await $.things.create('User', result.data)
+  return c.json(user, 201)
+})
+
+export default users
+```
+
+## Streaming and Suspense
+
+```typescript
+// Next.js - Streaming with Suspense
+// app/dashboard/page.tsx
+import { Suspense } from 'react'
+
+async function SlowComponent() {
+  const data = await fetchSlowData() // Takes 3 seconds
+  return <div>{data}</div>
+}
+
+export default function Dashboard() {
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      <Suspense fallback={<Skeleton />}>
+        <SlowComponent />
+      </Suspense>
+    </div>
+  )
+}
+```
+
+```typescript
+// dotdo - TanStack Router with deferred data
+export const Route = createFileRoute('/dashboard')({
+  loader: async () => {
+    // Start slow fetch but don't await
+    const slowDataPromise = fetchSlowData()
+
+    // Return immediately with fast data
+    const fastData = await fetchFastData()
+
+    return {
+      fastData,
+      slowData: slowDataPromise // Deferred
+    }
+  },
+  component: Dashboard
+})
+
+function Dashboard() {
+  const { fastData, slowData } = Route.useLoaderData()
+
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      <FastSection data={fastData} />
+
+      <Suspense fallback={<Skeleton />}>
+        <Await resolve={slowData}>
+          {(data) => <SlowSection data={data} />}
+        </Await>
+      </Suspense>
+    </div>
+  )
+}
+```
+
+## Common Migration Gotchas
+
+### useSearchParams vs c.req.query
+
+```typescript
+// Next.js Client Component
+'use client'
+import { useSearchParams } from 'next/navigation'
+
+export default function Search() {
+  const searchParams = useSearchParams()
+  const query = searchParams.get('q')
+  // ...
+}
+
+// dotdo - Server-side
+app.get('/search', (c) => {
+  const query = c.req.query('q')
+  // ...
+})
+
+// Client-side with TanStack Router
+function Search() {
+  const { q } = Route.useSearch()
+  // ...
+}
+```
+
+### usePathname vs Route Context
+
+```typescript
+// Next.js
+'use client'
+import { usePathname } from 'next/navigation'
+
+export default function Nav() {
+  const pathname = usePathname()
+  const isActive = pathname === '/dashboard'
+}
+
+// dotdo - TanStack Router
+import { useLocation } from '@tanstack/react-router'
+
+function Nav() {
+  const { pathname } = useLocation()
+  const isActive = pathname === '/dashboard'
+}
+```
+
+### next/headers vs Hono Context
+
+```typescript
+// Next.js
+import { headers, cookies } from 'next/headers'
+
+export async function GET() {
+  const headersList = headers()
+  const cookieStore = cookies()
+
+  const token = headersList.get('authorization')
+  const session = cookieStore.get('session')
+}
+
+// dotdo
+app.get('/api/example', (c) => {
+  const token = c.req.header('authorization')
+  const session = c.req.cookie('session')
+})
+```
+
 ## Next Steps
 
 - [Workflow Context ($)](/docs/sdk/workflow-context) - Event handling and scheduling
 - [Things Store](/docs/sdk/things) - Data persistence patterns
 - [Named Agents](/docs/agents/named-agents) - Add AI to your app
 - [Deployment](/docs/deployment) - Production configuration
+- [Testing Guide](/docs/guides/testing) - Testing patterns for dotdo
 
 ---
 

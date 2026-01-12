@@ -277,7 +277,7 @@ function createRng(seed: number = 12345): () => number {
 function l2DistanceSquared(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return sum
@@ -314,7 +314,7 @@ export async function trainKMeans(
     throw new Error(`Insufficient vectors: have ${vectors.length}, need at least ${k} for ${k} clusters`)
   }
 
-  const dimensions = vectors[0].length
+  const dimensions = vectors[0]!.length
   const rng = createRng(seed)
 
   // K-means++ initialization
@@ -322,7 +322,7 @@ export async function trainKMeans(
 
   // Pick first centroid uniformly at random
   const firstIdx = Math.floor(rng() * vectors.length)
-  centroids.push(new Float32Array(vectors[firstIdx]))
+  centroids.push(new Float32Array(vectors[firstIdx]!))
 
   // Pick remaining centroids with probability proportional to D^2
   for (let c = 1; c < k; c++) {
@@ -333,7 +333,7 @@ export async function trainKMeans(
     for (let i = 0; i < vectors.length; i++) {
       let minDist = Infinity
       for (const centroid of centroids) {
-        const dist = l2DistanceSquared(vectors[i], centroid)
+        const dist = l2DistanceSquared(vectors[i]!, centroid)
         if (dist < minDist) minDist = dist
       }
       distances[i] = minDist
@@ -344,14 +344,14 @@ export async function trainKMeans(
     let r = rng() * totalDist
     let selectedIdx = 0
     for (let i = 0; i < vectors.length; i++) {
-      r -= distances[i]
+      r -= distances[i]!
       if (r <= 0) {
         selectedIdx = i
         break
       }
     }
 
-    centroids.push(new Float32Array(vectors[selectedIdx]))
+    centroids.push(new Float32Array(vectors[selectedIdx]!))
   }
 
   // Lloyd's algorithm iterations
@@ -366,7 +366,7 @@ export async function trainKMeans(
     let minDist = Infinity
     let minIdx = 0
     for (let c = 0; c < k; c++) {
-      const dist = l2DistanceSquared(vectors[i], centroids[c])
+      const dist = l2DistanceSquared(vectors[i]!, centroids[c]!)
       if (dist < minDist) {
         minDist = dist
         minIdx = c
@@ -385,7 +385,7 @@ export async function trainKMeans(
       let minDist = Infinity
       let minIdx = 0
       for (let c = 0; c < k; c++) {
-        const dist = l2DistanceSquared(vectors[i], centroids[c])
+        const dist = l2DistanceSquared(vectors[i]!, centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -403,24 +403,24 @@ export async function trainKMeans(
     }
 
     for (let i = 0; i < vectors.length; i++) {
-      const c = assignments[i]
-      counts[c]++
+      const c = assignments[i]!
+      counts[c]!++
       for (let d = 0; d < dimensions; d++) {
-        newCentroids[c][d] += vectors[i][d]
+        newCentroids[c]![d]! += vectors[i]![d]!
       }
     }
 
     // Handle empty clusters by relocating to farthest point
     let emptyClusters = 0
     for (let c = 0; c < k; c++) {
-      if (counts[c] === 0) {
+      if (counts[c]! === 0) {
         emptyClusters++
         if (relocateEmptyClusters) {
           // Find vector farthest from its assigned centroid
           let maxDist = -1
           let maxIdx = 0
           for (let i = 0; i < vectors.length; i++) {
-            const dist = l2DistanceSquared(vectors[i], centroids[assignments[i]])
+            const dist = l2DistanceSquared(vectors[i]!, centroids[assignments[i]!]!)
             if (dist > maxDist) {
               maxDist = dist
               maxIdx = i
@@ -428,14 +428,14 @@ export async function trainKMeans(
           }
           // Relocate centroid to this vector
           for (let d = 0; d < dimensions; d++) {
-            newCentroids[c][d] = vectors[maxIdx][d]
+            newCentroids[c]![d] = vectors[maxIdx]![d]!
           }
-          counts[c] = 1
+          counts[c]! = 1
         }
       } else {
         // Average
         for (let d = 0; d < dimensions; d++) {
-          newCentroids[c][d] /= counts[c]
+          newCentroids[c]![d]! /= counts[c]!
         }
       }
     }
@@ -443,13 +443,13 @@ export async function trainKMeans(
     // Check convergence
     let maxShift = 0
     for (let c = 0; c < k; c++) {
-      const shift = l2Distance(centroids[c], newCentroids[c])
+      const shift = l2Distance(centroids[c]!, newCentroids[c]!)
       if (shift > maxShift) maxShift = shift
     }
 
     // Copy new centroids
     for (let c = 0; c < k; c++) {
-      centroids[c].set(newCentroids[c])
+      centroids[c]!.set(newCentroids[c]!)
     }
 
     finalInertia = inertia
@@ -463,11 +463,11 @@ export async function trainKMeans(
   // Final empty cluster count
   const finalCounts = new Int32Array(k)
   for (let i = 0; i < vectors.length; i++) {
-    finalCounts[assignments[i]]++
+    finalCounts[assignments[i]!]!++
   }
   let emptyClusters = 0
   for (let c = 0; c < k; c++) {
-    if (finalCounts[c] === 0) emptyClusters++
+    if (finalCounts[c]! === 0) emptyClusters++
   }
 
   if (returnStats) {
@@ -507,7 +507,7 @@ export async function trainPQ(
     throw new Error('No residuals provided for PQ training')
   }
 
-  const dimensions = residuals[0].length
+  const dimensions = residuals[0]!.length
 
   if (dimensions % M !== 0) {
     throw new Error(`Dimension ${dimensions} is not divisible by M=${M}`)
@@ -541,7 +541,7 @@ export async function trainPQ(
     // Pack centroids into a flat array
     const codebook = new Float32Array(Ksub * subvectorDim)
     for (let i = 0; i < result.length; i++) {
-      codebook.set(result[i], i * subvectorDim)
+      codebook.set(result[i]!, i * subvectorDim)
     }
     // Pad with zeros if we got fewer than Ksub centroids
     // (zeros are already the default)
@@ -591,7 +591,7 @@ function encodeToPQ(vector: Float32Array, codebooks: PQCodebooks): Uint8Array {
       let dist = 0
       const codebookOffset = k * subvectorDim
       for (let d = 0; d < subvectorDim; d++) {
-        const diff = vector[start + d] - centroids[m][codebookOffset + d]
+        const diff = vector[start + d]! - centroids[m]![codebookOffset + d]!
         dist += diff * diff
       }
       if (dist < minDist) {
@@ -615,11 +615,11 @@ function decodeFromPQ(codes: Uint8Array, codebooks: PQCodebooks): Float32Array {
   const vector = new Float32Array(dimensions)
 
   for (let m = 0; m < M; m++) {
-    const k = codes[m]
+    const k = codes[m]!
     const start = m * subvectorDim
     const codebookOffset = k * subvectorDim
     for (let d = 0; d < subvectorDim; d++) {
-      vector[start + d] = centroids[m][codebookOffset + d]
+      vector[start + d] = centroids[m]![codebookOffset + d]!
     }
   }
 
@@ -693,7 +693,7 @@ export class IndexBuilder {
       let minIdx = 0
 
       for (let c = 0; c < this.centroids.length; c++) {
-        const dist = l2Distance(vectors[i], this.centroids[c])
+        const dist = l2Distance(vectors[i]!, this.centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -701,7 +701,7 @@ export class IndexBuilder {
       }
 
       assignments.push({
-        id: ids[i],
+        id: ids[i]!,
         clusterId: minIdx,
         distance: minDist,
       })
@@ -725,7 +725,7 @@ export class IndexBuilder {
       let minIdx = 0
 
       for (let c = 0; c < this.centroids.length; c++) {
-        const dist = l2Distance(vectors[i], this.centroids[c])
+        const dist = l2Distance(vectors[i]!, this.centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -733,15 +733,15 @@ export class IndexBuilder {
       }
 
       assignments.push({
-        id: ids[i],
+        id: ids[i]!,
         clusterId: minIdx,
         distance: minDist,
       })
 
       // Compute residual
-      const residual = new Float32Array(vectors[i].length)
-      for (let d = 0; d < vectors[i].length; d++) {
-        residual[d] = vectors[i][d] - this.centroids[minIdx][d]
+      const residual = new Float32Array(vectors[i]!.length)
+      for (let d = 0; d < vectors[i]!.length; d++) {
+        residual[d] = vectors[i]![d]! - this.centroids[minIdx]![d]!
       }
       residuals.push(residual)
     }
@@ -778,7 +778,7 @@ export class IndexBuilder {
       let minDist = Infinity
       let minIdx = 0
       for (let c = 0; c < this.centroids.length; c++) {
-        const dist = l2DistanceSquared(vector, this.centroids[c])
+        const dist = l2DistanceSquared(vector, this.centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -787,7 +787,7 @@ export class IndexBuilder {
 
       const residual = new Float32Array(vector.length)
       for (let d = 0; d < vector.length; d++) {
-        residual[d] = vector[d] - this.centroids[minIdx][d]
+        residual[d] = vector[d]! - this.centroids[minIdx]![d]!
       }
       residuals.push(residual)
     }
@@ -818,7 +818,7 @@ export class IndexBuilder {
       let minDist = Infinity
       let minIdx = 0
       for (let c = 0; c < this.centroids.length; c++) {
-        const dist = l2DistanceSquared(vectors[i], this.centroids[c])
+        const dist = l2DistanceSquared(vectors[i]!, this.centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -826,16 +826,16 @@ export class IndexBuilder {
       }
 
       // Compute residual
-      const residual = new Float32Array(vectors[i].length)
-      for (let d = 0; d < vectors[i].length; d++) {
-        residual[d] = vectors[i][d] - this.centroids[minIdx][d]
+      const residual = new Float32Array(vectors[i]!.length)
+      for (let d = 0; d < vectors[i]!.length; d++) {
+        residual[d] = vectors[i]![d]! - this.centroids[minIdx]![d]!
       }
 
       // Encode residual to PQ codes
       const pqCodes = encodeToPQ(residual, this.codebooks)
 
       encoded.push({
-        id: ids[i],
+        id: ids[i]!,
         clusterId: minIdx,
         pqCodes,
       })
@@ -970,7 +970,7 @@ async function writeCodebooksFile(
   const dataArray = new Float32Array(buffer, headerSize)
   let offset = 0
   for (let m = 0; m < M; m++) {
-    dataArray.set(centroids[m], offset)
+    dataArray.set(centroids[m]!, offset)
     offset += Ksub * subvectorDim
   }
 
@@ -1150,7 +1150,7 @@ export async function appendToIndex(options: AppendToIndexOptions): Promise<void
     const entries: EncodedVector[] = []
     for (let i = 0; i < cluster.vectorCount; i++) {
       entries.push({
-        id: cluster.ids[i],
+        id: cluster.ids[i]!,
         clusterId: cluster.clusterId,
         pqCodes: new Uint8Array(cluster.pqCodes.buffer, cluster.pqCodes.byteOffset + i * M, M),
       })
@@ -1165,7 +1165,7 @@ export async function appendToIndex(options: AppendToIndexOptions): Promise<void
       let minDist = Infinity
       let minIdx = 0
       for (let c = 0; c < centroids.length; c++) {
-        const dist = l2DistanceSquared(vector, centroids[c])
+        const dist = l2DistanceSquared(vector, centroids[c]!)
         if (dist < minDist) {
           minDist = dist
           minIdx = c
@@ -1175,7 +1175,7 @@ export async function appendToIndex(options: AppendToIndexOptions): Promise<void
       // Compute residual
       const residual = new Float32Array(dimensions)
       for (let d = 0; d < dimensions; d++) {
-        residual[d] = vector[d] - centroids[minIdx][d]
+        residual[d] = vector[d]! - centroids[minIdx]![d]!
       }
 
       // Encode to PQ codes

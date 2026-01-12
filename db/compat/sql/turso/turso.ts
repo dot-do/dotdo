@@ -131,7 +131,7 @@ function createRow(values: StorageValue[], columns: string[]): Row {
 
   // Set values by column name
   for (let i = 0; i < columns.length; i++) {
-    row[columns[i]] = values[i] as Value
+    row[columns[i]!] = values[i] as Value
   }
 
   return row
@@ -162,7 +162,7 @@ export function createResultSet(
         rows: this.rows.map((row) => {
           const obj: Record<string, Value> = {}
           for (let i = 0; i < this.columns.length; i++) {
-            obj[this.columns[i]] = row[i]
+            obj[this.columns[i]!] = row[i]!
           }
           return obj
         }),
@@ -192,7 +192,7 @@ function transformToResultSet(result: ExecutionResult): ResultSet {
         rows: this.rows.map((row) => {
           const obj: Record<string, Value> = {}
           for (let i = 0; i < this.columns.length; i++) {
-            obj[this.columns[i]] = row[i]
+            obj[this.columns[i]!] = row[i]!
           }
           return obj
         }),
@@ -259,7 +259,7 @@ class TursoClient implements Client {
     try {
       for (let i = 0; i < stmts.length; i++) {
         try {
-          const { sql, args } = parseStatement(stmts[i])
+          const { sql, args } = parseStatement(stmts[i]!)
           const result = this.engine.execute(sql, args as SQLValue[])
           results.push(transformToResultSet(result))
         } catch (e) {

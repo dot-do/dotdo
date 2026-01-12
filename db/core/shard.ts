@@ -90,8 +90,8 @@ function getOrBuildRing(count: number, virtualNodes: number): CachedRing {
   const shards = new Uint8Array(totalNodes)
 
   for (let i = 0; i < totalNodes; i++) {
-    hashes[i] = nodes[i].hash
-    shards[i] = nodes[i].shard
+    hashes[i] = nodes[i]!.hash
+    shards[i] = nodes[i]!.shard
   }
 
   cached = { hashes, shards }
@@ -110,7 +110,7 @@ function binarySearchGe(hashes: Uint32Array, target: number): number {
 
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
-    if (hashes[mid] < target) {
+    if (hashes[mid]! < target) {
       lo = mid + 1
     } else {
       hi = mid
@@ -145,10 +145,10 @@ export function consistentHash(
 
   // Wrap around if keyHash is greater than all nodes
   if (idx >= ring.hashes.length) {
-    return ring.shards[0]
+    return ring.shards[0]!
   }
 
-  return ring.shards[idx]
+  return ring.shards[idx]!
 }
 
 /**
@@ -290,7 +290,7 @@ export function extractShardKey(
     // Extract column list
     const columnsMatch = sql.match(/\(([^)]+)\)\s*VALUES/i)
     if (columnsMatch) {
-      const columns = columnsMatch[1].split(',').map((c) => c.trim().toLowerCase())
+      const columns = columnsMatch[1]!.split(',').map((c) => c.trim().toLowerCase())
       const keyIndex = columns.indexOf(shardKey.toLowerCase())
 
       if (keyIndex >= 0) {
@@ -303,7 +303,7 @@ export function extractShardKey(
           let inString = false
           let stringChar = ''
 
-          for (const char of valuesMatch[1]) {
+          for (const char of valuesMatch[1]!) {
             if (!inString && (char === "'" || char === '"')) {
               inString = true
               stringChar = char

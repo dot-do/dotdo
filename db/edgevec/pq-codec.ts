@@ -294,7 +294,7 @@ export class PQCodec {
         const centroidOffset = k * this.subvectorDim
 
         for (let d = 0; d < this.subvectorDim; d++) {
-          const diff = vector[subvectorStart + d] - this.centroids[m][centroidOffset + d]
+          const diff = vector[subvectorStart + d]! - this.centroids[m]![centroidOffset + d]!
           dist += diff * diff
         }
 
@@ -320,7 +320,7 @@ export class PQCodec {
     const codes = new Uint8Array(vectors.length * this.M)
 
     for (let i = 0; i < vectors.length; i++) {
-      const vectorCodes = this.encode(vectors[i])
+      const vectorCodes = this.encode(vectors[i]!)
       codes.set(vectorCodes, i * this.M)
     }
 
@@ -341,12 +341,12 @@ export class PQCodec {
     const reconstructed = new Float32Array(this.dimensions)
 
     for (let m = 0; m < this.M; m++) {
-      const centroidIdx = codes[m]
+      const centroidIdx = codes[m]!
       const centroidOffset = centroidIdx * this.subvectorDim
       const outputOffset = m * this.subvectorDim
 
       for (let d = 0; d < this.subvectorDim; d++) {
-        reconstructed[outputOffset + d] = this.centroids[m][centroidOffset + d]
+        reconstructed[outputOffset + d] = this.centroids[m]![centroidOffset + d]!
       }
     }
 
@@ -368,12 +368,12 @@ export class PQCodec {
       const vectorOffset = i * this.dimensions
 
       for (let m = 0; m < this.M; m++) {
-        const centroidIdx = codes[codeOffset + m]
+        const centroidIdx = codes[codeOffset + m]!
         const centroidOffset = centroidIdx * this.subvectorDim
         const outputOffset = vectorOffset + m * this.subvectorDim
 
         for (let d = 0; d < this.subvectorDim; d++) {
-          vectors[outputOffset + d] = this.centroids[m][centroidOffset + d]
+          vectors[outputOffset + d] = this.centroids[m]![centroidOffset + d]!
         }
       }
     }
@@ -409,7 +409,7 @@ export class PQCodec {
           const centroidOffset = k * this.subvectorDim
 
           for (let d = 0; d < this.subvectorDim; d++) {
-            ip += query[queryOffset + d] * this.centroids[m][centroidOffset + d]
+            ip += query[queryOffset + d]! * this.centroids[m]![centroidOffset + d]!
           }
 
           // For IP, higher is better, so we store -ip to keep lower=better convention
@@ -434,7 +434,7 @@ export class PQCodec {
           const centroidOffset = k * this.subvectorDim
 
           for (let d = 0; d < this.subvectorDim; d++) {
-            const diff = query[queryOffset + d] - this.centroids[m][centroidOffset + d]
+            const diff = query[queryOffset + d]! - this.centroids[m]![centroidOffset + d]!
             dist += diff * diff
           }
 
@@ -461,7 +461,7 @@ export class PQCodec {
     let score = 0
 
     for (let m = 0; m < this.M; m++) {
-      score += tables[m * this.Ksub + codes[m]]
+      score += tables[m * this.Ksub + codes[m]!]!
     }
 
     return score
@@ -498,7 +498,7 @@ export class PQCodec {
       const codeOffset = i * this.M
 
       for (let m = 0; m < this.M; m++) {
-        score += tables[m * this.Ksub + codes[codeOffset + m]]
+        score += tables[m * this.Ksub + codes[codeOffset + m]!]!
       }
 
       scores[i] = score
@@ -537,7 +537,7 @@ export class PQCodec {
     if (k >= count) {
       // Return all results sorted
       for (let i = 0; i < count; i++) {
-        results.push({ index: i, score: scores[i] })
+        results.push({ index: i, score: scores[i]! })
       }
       results.sort((a, b) => a.score - b.score)
       return results
@@ -549,7 +549,7 @@ export class PQCodec {
     const heap: TopKResult[] = []
 
     for (let i = 0; i < count; i++) {
-      const score = scores[i]
+      const score = scores[i]!
 
       if (heap.length < k) {
         // Heap not full, just add
@@ -558,16 +558,16 @@ export class PQCodec {
         let j = heap.length - 1
         while (j > 0) {
           const parent = Math.floor((j - 1) / 2)
-          if (heap[parent].score < heap[j].score) {
-            const tmp = heap[parent]
-            heap[parent] = heap[j]
+          if (heap[parent]!.score < heap[j]!.score) {
+            const tmp = heap[parent]!
+            heap[parent] = heap[j]!
             heap[j] = tmp
             j = parent
           } else {
             break
           }
         }
-      } else if (score < heap[0].score) {
+      } else if (score < heap[0]!.score) {
         // Better than worst in heap, replace root
         heap[0] = { index: i, score }
 
@@ -578,16 +578,16 @@ export class PQCodec {
           const right = 2 * j + 2
           let largest = j
 
-          if (left < heap.length && heap[left].score > heap[largest].score) {
+          if (left < heap.length && heap[left]!.score > heap[largest]!.score) {
             largest = left
           }
-          if (right < heap.length && heap[right].score > heap[largest].score) {
+          if (right < heap.length && heap[right]!.score > heap[largest]!.score) {
             largest = right
           }
 
           if (largest !== j) {
-            const tmp = heap[j]
-            heap[j] = heap[largest]
+            const tmp = heap[j]!
+            heap[j] = heap[largest]!
             heap[largest] = tmp
             j = largest
           } else {
@@ -623,7 +623,7 @@ export class PQCodec {
 
       let mse = 0
       for (let i = 0; i < vector.length; i++) {
-        const diff = vector[i] - reconstructed[i]
+        const diff = vector[i]! - reconstructed[i]!
         mse += diff * diff
       }
       mse /= vector.length

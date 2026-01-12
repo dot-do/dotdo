@@ -151,15 +151,15 @@ export class BooleanQuery {
       // Sort by cardinality for efficiency (smallest first)
       const sortedMust = mustClauses.slice().sort((a, b) => a.postings.cardinality - b.postings.cardinality)
 
-      result = sortedMust[0].postings
+      result = sortedMust[0]!.postings
       for (let i = 1; i < sortedMust.length; i++) {
-        result = result.and(sortedMust[i].postings)
+        result = result.and(sortedMust[i]!.postings)
       }
     } else {
       // Only SHOULD clauses - combine with OR
-      result = shouldClauses[0].postings
+      result = shouldClauses[0]!.postings
       for (let i = 1; i < shouldClauses.length; i++) {
-        result = result.or(shouldClauses[i].postings)
+        result = result.or(shouldClauses[i]!.postings)
       }
     }
 
@@ -260,13 +260,13 @@ function parseExpression(
   let pos = 0
 
   // Handle opening parenthesis - subexpression
-  if (tokens[0].type === 'LPAREN') {
+  if (tokens[0]!.type === 'LPAREN') {
     // Find matching closing paren
     let depth = 1
     let closePos = 1
     while (closePos < tokens.length && depth > 0) {
-      if (tokens[closePos].type === 'LPAREN') depth++
-      if (tokens[closePos].type === 'RPAREN') depth--
+      if (tokens[closePos]!.type === 'LPAREN') depth++
+      if (tokens[closePos]!.type === 'RPAREN') depth--
       closePos++
     }
     if (depth !== 0) {
@@ -279,8 +279,8 @@ function parseExpression(
     parseExpression(subTokens, postings, subQuery)
     result = subQuery.execute()
     pos = closePos
-  } else if (tokens[0].type === 'TERM') {
-    const term = tokens[0].value
+  } else if (tokens[0]!.type === 'TERM') {
+    const term = (tokens[0] as { type: 'TERM'; value: string })!.value
     const list = postings.get(term)
     if (!list) {
       result = new PostingList() // Empty for unknown term
@@ -289,23 +289,23 @@ function parseExpression(
     }
     pos = 1
   } else {
-    throw new Error(`Unexpected token: ${tokens[0].type}`)
+    throw new Error(`Unexpected token: ${tokens[0]!.type}`)
   }
 
   // Look for operator
   while (pos < tokens.length) {
-    const opToken = tokens[pos]
+    const opToken = tokens[pos]!
 
-    if (opToken.type === 'RPAREN') {
+    if (opToken!.type === 'RPAREN') {
       break
     }
 
-    if (opToken.type === 'AND') {
+    if (opToken!.type === 'AND') {
       pos++
 
       // Check for NOT
       let isNot = false
-      if (pos < tokens.length && tokens[pos].type === 'NOT') {
+      if (pos < tokens.length && tokens[pos]!.type === 'NOT') {
         isNot = true
         pos++
       }
@@ -319,16 +319,16 @@ function parseExpression(
       } else {
         result = result.and(nextList)
       }
-    } else if (opToken.type === 'OR') {
+    } else if (opToken!.type === 'OR') {
       pos++
 
       const { postingList: nextList, consumed } = parseExpression(tokens.slice(pos), postings, query, BooleanOperator.SHOULD)
       pos += consumed
 
       result = result.or(nextList)
-    } else if (opToken.type === 'TERM') {
+    } else if (opToken!.type === 'TERM') {
       // Implicit AND
-      const term = opToken.value
+      const term = (opToken as { type: 'TERM'; value: string })!.value
       const list = postings.get(term) || new PostingList()
       result = result.and(list)
       pos++
@@ -341,7 +341,7 @@ function parseExpression(
   if (parentOperator === undefined) {
     // This is the root - we need to handle differently
     // The result is already computed, just add a dummy clause with the result
-    query._clauses = []
+    ;(query as unknown as { _clauses: unknown[] })._clauses = []
     query.must('_result', result)
   }
 

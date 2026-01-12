@@ -666,6 +666,94 @@ await collection.updateOne(
 )
 ```
 
+## Migration from mongodb
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall mongodb
+
+# Install
+npm install @dotdo/mongodb
+```
+
+### Import Change
+
+```typescript
+// Before: MongoDB driver
+import { MongoClient, ObjectId } from 'mongodb'
+
+// After: dotdo (local mode)
+import { DocumentStore, ObjectId } from '@dotdo/mongodb'
+
+// Or for production MongoDB connection
+import { MongoClient, ObjectId } from '@dotdo/mongodb/client'
+```
+
+### Code Migration
+
+For local/testing mode (no external MongoDB needed):
+
+```typescript
+// Before
+const client = new MongoClient('mongodb://localhost:27017')
+await client.connect()
+const db = client.db('myapp')
+const users = db.collection('users')
+
+// After (local mode)
+const store = new DocumentStore()
+const db = store.db('myapp')
+const users = db.collection('users')
+
+// All MongoDB operations work the same
+await users.insertOne({ name: 'Alice', age: 30 })
+const user = await users.findOne({ name: 'Alice' })
+```
+
+For production (connecting to real MongoDB):
+
+```typescript
+// Before
+import { MongoClient } from 'mongodb'
+const client = new MongoClient(process.env.MONGODB_URI)
+
+// After
+import { MongoClient } from '@dotdo/mongodb/client'
+const client = new MongoClient(process.env.MONGODB_URI)
+
+// Identical API - no code changes needed
+await client.connect()
+const db = client.db('production')
+```
+
+### Testing Strategy
+
+Use `DocumentStore` for tests, `MongoClient` for production:
+
+```typescript
+import { DocumentStore } from '@dotdo/mongodb'
+import { MongoClient } from '@dotdo/mongodb/client'
+
+function getDb(env: 'test' | 'production') {
+  if (env === 'test') {
+    // No external dependencies needed
+    const store = new DocumentStore()
+    return store.db('testdb')
+  } else {
+    // Connect to real MongoDB
+    const client = new MongoClient(process.env.MONGODB_URI!)
+    return client.db('production')
+  }
+}
+
+// Same API for both
+const db = getDb(process.env.NODE_ENV === 'test' ? 'test' : 'production')
+const users = db.collection('users')
+await users.find({ status: 'active' }).toArray()
+```
+
 ## Related
 
 - [Postgres Integration](/docs/integrations/postgres) - SQL database support

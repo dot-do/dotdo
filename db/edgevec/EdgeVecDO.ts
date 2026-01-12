@@ -608,9 +608,9 @@ export class EdgeVecDO {
     let normB = 0
 
     for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
+      dotProduct += a[i]! * b[i]!
+      normA += a[i]! * a[i]!
+      normB += b[i]! * b[i]!
     }
 
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
@@ -683,7 +683,7 @@ export class EdgeVecDO {
         if (objects.length === 0) {
           throw new EdgeVecBackupError('No backups found')
         }
-        manifestKey = objects.sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())[0].key
+        manifestKey = objects.sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())[0]!.key
       }
 
       const manifestObj = await this.env.EDGEVEC_R2.get(manifestKey)
@@ -821,7 +821,7 @@ export class EdgeVecDO {
       // Generate R2 path
       const now = new Date()
       const dateStr = now.toISOString().split('T')[0]
-      const parquetKey = generateParquetPath(namespace, dateStr, Date.now())
+      const parquetKey = generateParquetPath(namespace, dateStr!, Date.now())
 
       // Upload to R2
       await this.env.EDGEVEC_R2.put(parquetKey, result.buffer, {

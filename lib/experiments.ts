@@ -107,5 +107,5 @@ export function resolveBranch(userId: string, thingId: string): string {
   const branchHash = hash(`${userId}:${experiment.id}:branch`)
   const branchIndex = branchHash % experiment.branches.length
 
-  return experiment.branches[branchIndex]
+  return experiment.branches[branchIndex]!
 }

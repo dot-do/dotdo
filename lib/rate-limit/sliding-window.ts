@@ -91,8 +91,8 @@ export function parseWindow(window: string): number {
     throw new Error(`Invalid window format: ${window}. Expected format: '1m', '1h', '1d'`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   if (value === 0) {
     throw new Error(`Invalid window value: ${window}. Window must be greater than 0`)

@@ -425,7 +425,7 @@ export function createEvaliteStorage(options: EvaliteStorageOptions): Storage {
     const events = eventQueue.splice(0, eventQueue.length)
 
     if (events.length === 1) {
-      await sendEvent(events[0])
+      await sendEvent(events[0]!)
     } else if (events.length > 1) {
       // Send as array or wrapped in events object
       await sendEvent(events)

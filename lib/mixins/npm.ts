@@ -100,9 +100,9 @@ function parseSemVer(version: string): SemVerParts | null {
   if (!match) return null
 
   return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
+    major: parseInt(match[1]!, 10),
+    minor: parseInt(match[2]!, 10),
+    patch: parseInt(match[3]!, 10),
     prerelease: match[4]?.split('.'),
   }
 }
@@ -580,7 +580,7 @@ function createTarHeader(name: string, size: number, mode: number = 0o644): Uint
   // Calculate checksum
   let checksum = 0
   for (let i = 0; i < 512; i++) {
-    checksum += header[i]
+    checksum += header[i]!
   }
   const checksumStr = checksum.toString(8).padStart(6, '0') + '\0 '
   header.set(encoder.encode(checksumStr), 148)

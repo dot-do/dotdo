@@ -110,7 +110,7 @@ function transformToTiDBResult<T>(
     const rows = result.rows.map((row) => {
       const obj: Record<string, unknown> = {}
       for (let i = 0; i < result.columns.length; i++) {
-        obj[result.columns[i]] = row[i]
+        obj[result.columns[i]!] = row[i]
       }
       return obj as T extends unknown[] ? T[number] : T
     })

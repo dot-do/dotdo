@@ -619,7 +619,7 @@ export class TieredStorage {
     const batchSize = this.config.flushBatchSize
 
     for (const [key, tableEntries] of Object.entries(groupedEntries)) {
-      const [table, dateStr] = key.split(':')
+      const [table, dateStr] = key.split(':') as [string, string]
       const date = new Date(dateStr)
 
       // Generate partitioned path
@@ -889,7 +889,7 @@ export class TieredStorage {
       const tableEntries = entries.filter((e) => e.table === table)
 
       // Get date from first entry
-      const date = new Date(tableEntries[0].timestamp)
+      const date = new Date(tableEntries[0]!.timestamp)
       const year = date.getUTCFullYear()
       const month = date.getUTCMonth() + 1
       const day = date.getUTCDate()
@@ -1090,7 +1090,7 @@ export class TieredStorage {
     // Extract table name from FROM clause
     const fromMatch = sql.match(/FROM\s+(\w+)/i)
     if (fromMatch) {
-      table = fromMatch[1]
+      table = fromMatch[1]!
     }
 
     // Check for SELECT *
@@ -1099,13 +1099,13 @@ export class TieredStorage {
     // Extract WHERE conditions (simplified)
     const whereMatch = sql.match(/WHERE\s+(.+?)(?:ORDER|LIMIT|GROUP|$)/i)
     if (whereMatch) {
-      const whereClause = whereMatch[1]
+      const whereClause = whereMatch[1]!
 
       // Handle simple equality: column = $N
       const eqMatches = whereClause.matchAll(/(\w+)\s*=\s*\$(\d+)/g)
       for (const match of eqMatches) {
-        const column = match[1]
-        const paramIndex = parseInt(match[2]) - 1
+        const column = match[1]!
+        const paramIndex = parseInt(match[2]!) - 1
         if (paramIndex < params.length) {
           conditions.set(column, params[paramIndex])
         }
@@ -1114,8 +1114,8 @@ export class TieredStorage {
       // Handle >= comparisons: column >= $N
       const geMatches = whereClause.matchAll(/(\w+)\s*>=\s*\$(\d+)/g)
       for (const match of geMatches) {
-        const column = match[1]
-        const paramIndex = parseInt(match[2]) - 1
+        const column = match[1]!
+        const paramIndex = parseInt(match[2]!) - 1
         if (paramIndex < params.length) {
           conditions.set(`${column}_gte`, params[paramIndex])
         }
@@ -1124,24 +1124,24 @@ export class TieredStorage {
       // Handle >= comparisons with string literals: column >= 'value'
       const geLiteralMatches = whereClause.matchAll(/(\w+)\s*>=\s*'([^']+)'/g)
       for (const match of geLiteralMatches) {
-        const column = match[1]
-        const value = match[2]
+        const column = match[1]!
+        const value = match[2]!
         conditions.set(`${column}_gte`, value)
       }
 
       // Handle < comparisons with string literals: column < 'value'
       const ltLiteralMatches = whereClause.matchAll(/(\w+)\s*<\s*'([^']+)'/g)
       for (const match of ltLiteralMatches) {
-        const column = match[1]
-        const value = match[2]
+        const column = match[1]!
+        const value = match[2]!
         conditions.set(`${column}_lt`, value)
       }
 
       // Handle > comparisons: column > $N or column > value
       const gtParamMatches = whereClause.matchAll(/(\w+)\s*>\s*\$(\d+)(?!\d)/g)
       for (const match of gtParamMatches) {
-        const column = match[1]
-        const paramIndex = parseInt(match[2]) - 1
+        const column = match[1]!
+        const paramIndex = parseInt(match[2]!) - 1
         if (paramIndex < params.length) {
           conditions.set(`${column}_gt`, params[paramIndex])
         }
@@ -1150,8 +1150,8 @@ export class TieredStorage {
       // Handle > comparisons with numeric literals: column > 100
       const gtNumericMatches = whereClause.matchAll(/(\w+)\s*>\s*(\d+(?:\.\d+)?)/g)
       for (const match of gtNumericMatches) {
-        const column = match[1]
-        const value = parseFloat(match[2])
+        const column = match[1]!
+        const value = parseFloat(match[2]!)
         conditions.set(`${column}_gt`, value)
       }
     }
@@ -1421,7 +1421,7 @@ export class TieredStorage {
     }
 
     if (sumMatch) {
-      const column = sumMatch[1]
+      const column = sumMatch[1]!
       result.total = rows.reduce((sum, row) => {
         const value = row[column]
         return sum + (typeof value === 'number' ? value : 0)
@@ -1559,7 +1559,7 @@ export class TieredStorage {
 
     // Write Parquet files for old entries
     for (const [key, tableEntries] of Object.entries(groupedEntries)) {
-      const [table, dateStr] = key.split(':')
+      const [table, dateStr] = key.split(':') as [string, string]
       const date = new Date(dateStr)
 
       const year = date.getUTCFullYear()

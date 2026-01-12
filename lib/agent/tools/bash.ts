@@ -274,9 +274,9 @@ async function executeCommand(
   const tier = determineExecutionTier(command)
 
   // If we have a bash executor, use it
-  if (context.bash) {
+  if (context.bash && 'exec' in context.bash) {
     try {
-      const result = await context.bash.exec(command, {
+      const result = await (context.bash as { exec: (cmd: string, opts: { timeout?: number; cwd?: string }) => Promise<{ stdout: string; stderr: string; exitCode: number }> }).exec(command, {
         timeout: options.timeout,
         cwd: options.cwd || context.cwd,
       })

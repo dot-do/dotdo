@@ -540,7 +540,7 @@ export class VectorizeClient {
     const embedding = (embeddingResponse as { data: number[][] }).data[0]
 
     // Perform vector query
-    const queryResult = await this.query(embedding, {
+    const queryResult = await this.query(embedding!, {
       topK: options.topK,
       namespace: options.namespace,
       returnValues: options.returnValues,
@@ -550,7 +550,7 @@ export class VectorizeClient {
 
     return {
       ...queryResult,
-      queryEmbedding: embedding,
+      queryEmbedding: embedding!,
     }
   }
 

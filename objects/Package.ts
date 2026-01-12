@@ -183,7 +183,7 @@ export class Package extends Entity {
     }
 
     if (url.pathname.startsWith('/version/')) {
-      const version = url.pathname.split('/')[2]
+      const version = url.pathname.split('/')[2]!
       const record = await this.getVersion(version)
       if (!record) {
         return new Response('Not Found', { status: 404 })

@@ -306,7 +306,7 @@ export class WALManager {
 
     if (rows.length === 0) return null
 
-    const row = rows[0]
+    const row = rows[0]!
     return {
       lsn: row.lsn,
       operation: row.operation,
@@ -532,7 +532,7 @@ export class WALManager {
     )
     const rows = result.toArray() as { state: TransactionState }[]
 
-    return rows.length > 0 ? rows[0].state : null
+    return rows.length > 0 ? rows[0]!.state : null
   }
 
   /**
@@ -546,7 +546,7 @@ export class WALManager {
       'SELECT lsn FROM wal WHERE transaction_id = ? ORDER BY lsn',
       transactionId
     )
-    return result.toArray().map((row: { lsn: number }) => row.lsn)
+    return (result.toArray() as { lsn: number }[]).map((row) => row.lsn)
   }
 
   // ==========================================================================
@@ -588,7 +588,7 @@ export class WALManager {
       throw new Error(`Savepoint not found: ${name}`)
     }
 
-    const savepoint = tx.savepoints[savepointIndex]
+    const savepoint = tx.savepoints[savepointIndex]!
 
     // Delete entries after savepoint
     const lsnsToDelete = tx.operations.slice(savepoint.operationIndex)
@@ -744,7 +744,7 @@ export class WALManager {
       entriesRecovered,
       transactionsRecovered,
       transactionsRolledBack,
-      lastLsn: rows.length > 0 ? rows[rows.length - 1].lsn : 0,
+      lastLsn: rows.length > 0 ? rows[rows.length - 1]!.lsn : 0,
       complete: errors.length === 0,
       errors,
       durationMs: Date.now() - startTime,
@@ -781,7 +781,7 @@ export class WALManager {
     // Corrupt payload
     const corruptPayload = new Uint8Array(entry.payload)
     if (corruptPayload.length > 0) {
-      corruptPayload[0] = (corruptPayload[0] + 1) % 256
+      corruptPayload[0] = (corruptPayload[0]! + 1) % 256
     }
 
     this.storage.sql.exec(

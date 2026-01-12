@@ -154,10 +154,10 @@ export function murmurHash3_32(key: Uint8Array, seed: number = 0): number {
   for (let i = 0; i < nblocks; i++) {
     const offset = i * 4
     let k =
-      (key[offset] & 0xff) |
-      ((key[offset + 1] & 0xff) << 8) |
-      ((key[offset + 2] & 0xff) << 16) |
-      ((key[offset + 3] & 0xff) << 24)
+      (key[offset]! & 0xff) |
+      ((key[offset + 1]! & 0xff) << 8) |
+      ((key[offset + 2]! & 0xff) << 16) |
+      ((key[offset + 3]! & 0xff) << 24)
 
     k = Math.imul(k, c1)
     k = (k << r1) | (k >>> (32 - r1))
@@ -173,10 +173,10 @@ export function murmurHash3_32(key: Uint8Array, seed: number = 0): number {
   let k1 = 0
   const tail = len & 3
 
-  if (tail >= 3) k1 ^= (key[tailOffset + 2] & 0xff) << 16
-  if (tail >= 2) k1 ^= (key[tailOffset + 1] & 0xff) << 8
+  if (tail >= 3) k1 ^= (key[tailOffset + 2]! & 0xff) << 16
+  if (tail >= 2) k1 ^= (key[tailOffset + 1]! & 0xff) << 8
   if (tail >= 1) {
-    k1 ^= key[tailOffset] & 0xff
+    k1 ^= key[tailOffset]! & 0xff
     k1 = Math.imul(k1, c1)
     k1 = (k1 << r1) | (k1 >>> (32 - r1))
     k1 = Math.imul(k1, c2)
@@ -288,7 +288,7 @@ export class BloomFilter {
     const bits = bytes.slice(5)
 
     // Use internal construction bypassing size calculation
-    return BloomFilter._fromRaw(numHashFunctions, numBits, bits)
+    return BloomFilter._fromRaw(numHashFunctions!, numBits, bits)
   }
 
   /**
@@ -321,7 +321,7 @@ export class BloomFilter {
       const bitIndex = combinedHash % this.numBits
       const byteIndex = Math.floor(bitIndex / 8)
       const bitOffset = bitIndex % 8
-      this.bits[byteIndex] |= 1 << bitOffset
+      this.bits[byteIndex]! |= 1 << bitOffset
     }
   }
 
@@ -346,7 +346,7 @@ export class BloomFilter {
       const byteIndex = Math.floor(bitIndex / 8)
       const bitOffset = bitIndex % 8
 
-      if ((this.bits[byteIndex] & (1 << bitOffset)) === 0) {
+      if ((this.bits[byteIndex]! & (1 << bitOffset)) === 0) {
         return false
       }
     }
@@ -450,7 +450,7 @@ export class NgramBloomFilter {
     const padStrings = bytes[1] === 1
     const bloom = BloomFilter.deserialize(bytes.slice(2))
 
-    return NgramBloomFilter._fromRaw(ngramSize, padStrings, bloom)
+    return NgramBloomFilter._fromRaw(ngramSize!, padStrings, bloom)
   }
 
   /**

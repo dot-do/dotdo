@@ -276,7 +276,7 @@ export class UniqHLLAggregator implements Aggregator<unknown, number, HyperLogLo
     const remainingBits = (hash << state.state.precision) >>> 0
     const leadingZeros = this.countLeadingZeros(remainingBits, 32 - state.state.precision) + 1
 
-    if (leadingZeros > state.state.registers[registerIdx]) {
+    if (leadingZeros > state.state.registers[registerIdx]!) {
       state.state.registers[registerIdx] = leadingZeros
     }
     state.count++
@@ -288,7 +288,7 @@ export class UniqHLLAggregator implements Aggregator<unknown, number, HyperLogLo
   ): AggregatorState<HyperLogLogState> {
     const merged = new Uint8Array(state1.state.registers.length)
     for (let i = 0; i < merged.length; i++) {
-      merged[i] = Math.max(state1.state.registers[i], state2.state.registers[i])
+      merged[i] = Math.max(state1.state.registers[i]!, state2.state.registers[i]!)
     }
     return {
       type: 'uniqHLL',
@@ -303,7 +303,7 @@ export class UniqHLLAggregator implements Aggregator<unknown, number, HyperLogLo
 
     let sum = 0
     for (let i = 0; i < numRegisters; i++) {
-      sum += Math.pow(2, -state.state.registers[i])
+      sum += Math.pow(2, -state.state.registers[i]!)
     }
 
     let estimate = (alpha * numRegisters * numRegisters) / sum
@@ -412,7 +412,7 @@ export class QuantileAggregator implements Aggregator<number, number | null, TDi
       .sort((a, b) => a - b)
 
     const idx = Math.floor(this.level * (sorted.length - 1))
-    return sorted[idx]
+    return sorted[idx] ?? null
   }
 }
 
@@ -461,7 +461,7 @@ export class QuantilesAggregator implements Aggregator<number, (number | null)[]
     const sorted = [...state.state].sort((a, b) => a - b)
     return this.levels.map(level => {
       const idx = Math.floor(level * (sorted.length - 1))
-      return sorted[idx]
+      return sorted[idx] ?? null
     })
   }
 }

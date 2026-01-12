@@ -266,31 +266,31 @@ export function parseDotdoRequestHeader(header: string): CorrelationContext {
   const [correlationId, requestId, timestampStr, sequenceStr, spanId, parentSpanId] = parts
 
   // Validate correlationId
-  if (!isValidId(correlationId)) {
+  if (!isValidId(correlationId!)) {
     throw new Error(`Invalid correlationId: must be alphanumeric with dashes/underscores, got "${correlationId}"`)
   }
 
   // Validate requestId
-  if (!isValidId(requestId)) {
+  if (!isValidId(requestId!)) {
     throw new Error(`Invalid requestId: must be alphanumeric with dashes/underscores, got "${requestId}"`)
   }
 
   // Parse and validate timestamp
-  const timestamp = parseInt(timestampStr, 10)
+  const timestamp = parseInt(timestampStr!, 10)
   if (isNaN(timestamp) || !isValidTimestamp(timestamp)) {
     throw new Error(`Invalid timestamp: must be a valid Unix timestamp in milliseconds, got "${timestampStr}"`)
   }
 
   // Parse and validate sequence
-  const sequence = parseInt(sequenceStr, 10)
+  const sequence = parseInt(sequenceStr!, 10)
   if (isNaN(sequence) || !isValidSequence(sequence)) {
     throw new Error(`Invalid sequence: must be a positive integer >= 1, got "${sequenceStr}"`)
   }
 
   // Build context
   const ctx: CorrelationContext = {
-    correlationId,
-    requestId,
+    correlationId: correlationId!,
+    requestId: requestId!,
     timestamp,
     sequence,
   }

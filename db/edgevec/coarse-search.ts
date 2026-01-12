@@ -250,7 +250,7 @@ export async function loadCentroidIndex(options: {
     const float16Data = new Uint16Array(buffer, headerSize, numCentroids * dimensions)
     centroids = new Float32Array(float16Data.length)
     for (let i = 0; i < float16Data.length; i++) {
-      centroids[i] = float16ToFloat32(float16Data[i])
+      centroids[i] = float16ToFloat32(float16Data[i]!)
     }
   }
 
@@ -417,7 +417,7 @@ export function findNearestClusters(
   // Pre-compute query norm
   let queryNorm = 0
   for (let i = 0; i < dimensions; i++) {
-    queryNorm += query[i] * query[i]
+    queryNorm += query[i]! * query[i]!
   }
   queryNorm = Math.sqrt(queryNorm)
 
@@ -432,8 +432,8 @@ export function findNearestClusters(
     let centroidNorm = 0
 
     for (let d = 0; d < dimensions; d++) {
-      dot += query[d] * centroids[offset + d]
-      centroidNorm += centroids[offset + d] * centroids[offset + d]
+      dot += query[d]! * centroids[offset + d]!
+      centroidNorm += centroids[offset + d]! * centroids[offset + d]!
     }
     centroidNorm = Math.sqrt(centroidNorm)
 
@@ -465,7 +465,7 @@ export function computeADCTables(query: Float32Array, codebook: Codebook): Float
       const centroidOffset = k * subvectorDim
 
       for (let d = 0; d < subvectorDim; d++) {
-        const diff = query[queryOffset + d] - centroids[m][centroidOffset + d]
+        const diff = query[queryOffset + d]! - centroids[m]![centroidOffset + d]!
         dist += diff * diff
       }
 
@@ -507,11 +507,11 @@ export function scoreClusterCandidates(options: {
     const codeOffset = v * M
 
     for (let m = 0; m < M; m++) {
-      const code = pqCodes[codeOffset + m]
-      score += tables[m][code]
+      const code = pqCodes[codeOffset + m]!
+      score += tables[m]![code]!
     }
 
-    const id = typeof vectorIds[v] === 'bigint' ? vectorIds[v].toString() : vectorIds[v] as string
+    const id = typeof vectorIds[v] === 'bigint' ? vectorIds[v]!.toString() : vectorIds[v] as string
 
     if (heap.length < effectiveK) {
       // Heap not full, add directly
@@ -520,16 +520,16 @@ export function scoreClusterCandidates(options: {
       let i = heap.length - 1
       while (i > 0) {
         const parent = Math.floor((i - 1) / 2)
-        if (heap[parent].score < heap[i].score) {
-          const tmp = heap[parent]
-          heap[parent] = heap[i]
+        if (heap[parent]!.score < heap[i]!.score) {
+          const tmp = heap[parent]!
+          heap[parent] = heap[i]!
           heap[i] = tmp
           i = parent
         } else {
           break
         }
       }
-    } else if (score < heap[0].score) {
+    } else if (score < heap[0]!.score) {
       // Better than worst in heap, replace
       heap[0] = { id, score }
       // Sift down
@@ -539,16 +539,16 @@ export function scoreClusterCandidates(options: {
         const right = 2 * i + 2
         let largest = i
 
-        if (left < heap.length && heap[left].score > heap[largest].score) {
+        if (left < heap.length && heap[left]!.score > heap[largest]!.score) {
           largest = left
         }
-        if (right < heap.length && heap[right].score > heap[largest].score) {
+        if (right < heap.length && heap[right]!.score > heap[largest]!.score) {
           largest = right
         }
 
         if (largest !== i) {
-          const tmp = heap[i]
-          heap[i] = heap[largest]
+          const tmp = heap[i]!
+          heap[i] = heap[largest]!
           heap[largest] = tmp
           i = largest
         } else {

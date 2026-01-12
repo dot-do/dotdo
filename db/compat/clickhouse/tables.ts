@@ -15,8 +15,8 @@ import {
   createCubeStage,
   createRollupStage,
   createGroupingSetsStage,
-  type GroupedRow,
 } from '../../primitives/aggregation-pipeline'
+import type { GroupedRow } from '../../primitives/aggregation-pipeline/stages/cube-rollup'
 
 // ============================================================================
 // Types
@@ -802,7 +802,7 @@ export class MergeTreeTable<T extends Record<string, unknown>> {
       // Build group key object
       const groupResult = {} as R
       for (let i = 0; i < groupColumns.length; i++) {
-        ;(groupResult as Record<string, unknown>)[groupColumns[i]] = keyValues[i]
+        ;(groupResult as Record<string, unknown>)[groupColumns[i]!] = keyValues[i]
       }
 
       // Compute aggregations for this group

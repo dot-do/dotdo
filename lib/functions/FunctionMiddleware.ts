@@ -240,10 +240,10 @@ export function createMetricsCollector(): {
         if (!byFunction[entry.functionId]) {
           byFunction[entry.functionId] = { count: 0, totalDuration: 0, succeeded: 0 }
         }
-        byFunction[entry.functionId].count++
-        byFunction[entry.functionId].totalDuration += entry.duration
+        byFunction[entry.functionId]!.count++
+        byFunction[entry.functionId]!.totalDuration += entry.duration
         if (entry.success) {
-          byFunction[entry.functionId].succeeded++
+          byFunction[entry.functionId]!.succeeded++
         }
       }
 
@@ -701,7 +701,7 @@ export function composeMiddleware(...middlewares: ExecutionMiddleware[]): Execut
         return finalNext()
       }
 
-      const middleware = middlewares[i]
+      const middleware = middlewares[i]!
       return middleware(ctx, () => dispatch(i + 1))
     }
 

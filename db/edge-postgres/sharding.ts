@@ -368,7 +368,7 @@ export class ShardRouter {
 
     while (left < right) {
       const mid = (left + right) >>> 1
-      if (this.ring[mid].hash < keyHash) {
+      if (this.ring[mid]!.hash < keyHash) {
         left = mid + 1
       } else {
         right = mid
@@ -377,7 +377,7 @@ export class ShardRouter {
 
     // Wrap around if we're past the end
     const nodeIndex = left >= this.ring.length ? 0 : left
-    return this.ring[nodeIndex].shardId
+    return this.ring[nodeIndex]!.shardId
   }
 
   /**
@@ -544,7 +544,7 @@ function extractFromInsert(
     return { keys: null, requiresFanOut: true }
   }
 
-  const columns = columnsMatch[1].split(',').map((c) => c.trim().toLowerCase())
+  const columns = columnsMatch[1]!.split(',').map((c) => c.trim().toLowerCase())
 
   // For compound keys, collect all key values
   const keyValues: string[] = []
@@ -595,7 +595,7 @@ function extractFromWhere(
     const equalMatch = sql.match(equalPattern)
 
     if (equalMatch) {
-      const paramIndex = parseInt(equalMatch[1], 10) - 1
+      const paramIndex = parseInt(equalMatch[1]!, 10) - 1
       const keyValue = params[paramIndex]
       if (keyValue === null || keyValue === undefined) {
         hasNullKey = true
@@ -611,7 +611,7 @@ function extractFromWhere(
 
     if (inMatch) {
       foundInClause = true
-      const paramRefs = inMatch[1].match(/\$(\d+)/g) || []
+      const paramRefs = inMatch[1]!.match(/\$(\d+)/g) || []
 
       for (const ref of paramRefs) {
         const paramIndex = parseInt(ref.replace('$', ''), 10) - 1
@@ -697,7 +697,7 @@ function extractOrderBy(sql: string): { column: string; direction: 'ASC' | 'DESC
   const orderByMatch = sql.match(/ORDER\s+BY\s+(\w+)\s*(ASC|DESC)?/i)
   if (orderByMatch) {
     return {
-      column: orderByMatch[1],
+      column: orderByMatch[1]!,
       direction: (orderByMatch[2]?.toUpperCase() || 'ASC') as 'ASC' | 'DESC',
     }
   }
@@ -710,7 +710,7 @@ function extractOrderBy(sql: string): { column: string; direction: 'ASC' | 'DESC
 function extractLimit(sql: string): number | null {
   const limitMatch = sql.match(/LIMIT\s+(\d+)/i)
   if (limitMatch) {
-    return parseInt(limitMatch[1], 10)
+    return parseInt(limitMatch[1]!, 10)
   }
   return null
 }
@@ -799,7 +799,7 @@ export class ShardedPostgres {
     }
 
     if (keys.length === 1) {
-      const compoundKey = keys[0]
+      const compoundKey = keys[0]!
       const shardId = this.router.getShardForKey(compoundKey)
       return {
         key: compoundKey,
@@ -1017,7 +1017,7 @@ export class ShardedPostgres {
       const pattern = new RegExp(`${shardKey}\\s*=\\s*\\$(\\d+)`, 'i')
       const match = sql.match(pattern)
       if (match) {
-        return parseInt(match[1], 10) - 1
+        return parseInt(match[1]!, 10) - 1
       }
     }
     return -1
@@ -1032,7 +1032,7 @@ export class ShardedPostgres {
     // Check INSERT columns
     const columnsMatch = sql.match(/INSERT\s+INTO\s+\w+\s*\(([^)]+)\)/i)
     if (columnsMatch) {
-      const columns = columnsMatch[1].split(',').map((c) => c.trim().toLowerCase())
+      const columns = columnsMatch[1]!.split(',').map((c) => c.trim().toLowerCase())
       for (const shardKey of this.shardKeyColumns) {
         const keyIndex = columns.indexOf(shardKey.toLowerCase())
         if (keyIndex !== -1) {
@@ -1046,7 +1046,7 @@ export class ShardedPostgres {
       const pattern = new RegExp(`${shardKey}\\s*=\\s*\\$(\\d+)`, 'i')
       const match = sql.match(pattern)
       if (match) {
-        indices.push(parseInt(match[1], 10) - 1)
+        indices.push(parseInt(match[1]!, 10) - 1)
       }
     }
 
@@ -1068,7 +1068,7 @@ export class ShardedPostgres {
     }
 
     if (keys.length === 1) {
-      const compoundKey = keys[0]
+      const compoundKey = keys[0]!
       const shardId = this.router.getShardForKey(compoundKey)
       return {
         key: compoundKey,
@@ -1186,7 +1186,7 @@ export class ShardedPostgres {
       const groupByMatch = sql.match(/GROUP\s+BY\s+(\w+)/i)
       if (!groupByMatch) return rows
 
-      const groupKey = groupByMatch[1].toLowerCase()
+      const groupKey = groupByMatch[1]!.toLowerCase()
       const groups = new Map<unknown, T[]>()
 
       for (const row of rows) {
@@ -1360,15 +1360,15 @@ export class ShardedPostgres {
         }
 
         // All keys route to same shard, proceed
-        shardKey = shardKey[0]
+        shardKey = shardKey[0]!
       } else if (shardKey.length === 1) {
-        shardKey = shardKey[0]
+        shardKey = shardKey[0]!
       } else {
         throw new Error('Shard key is required for transaction')
       }
     }
 
-    const shardId = this.router.getShardForKey(shardKey)
+    const shardId = this.router.getShardForKey(shardKey as string)
     const namespace = this.getNamespace()
     const doId = namespace.idFromName(`shard-${shardId}`)
     const stub = namespace.get(doId)

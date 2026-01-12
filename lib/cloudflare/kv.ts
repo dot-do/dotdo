@@ -425,7 +425,7 @@ export class KVStore {
 
     const record: Record<string, T | null> = {}
     keys.forEach((key, index) => {
-      record[key] = results[index]
+      record[key] = results[index] ?? null
     })
 
     return record

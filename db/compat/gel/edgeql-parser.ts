@@ -288,12 +288,12 @@ class Parser {
   }
 
   private current(): Token {
-    return this.tokens[this.pos]
+    return this.tokens[this.pos]!
   }
 
   private peek(offset = 0): Token {
     const index = this.pos + offset
-    return index < this.tokens.length ? this.tokens[index] : this.tokens[this.tokens.length - 1]
+    return index < this.tokens.length ? this.tokens[index]! : this.tokens[this.tokens.length - 1]!
   }
 
   private advance(): Token {
@@ -1447,7 +1447,7 @@ class Parser {
           this.expect(TokenType.RBRACKET)
 
           if (expr.type === 'PathExpression' && expr.path.length > 0) {
-            expr.path[expr.path.length - 1].typeFilter = typeName
+            expr.path[expr.path.length - 1]!.typeFilter = typeName
           }
         } else if (this.check(TokenType.NUMBER, TokenType.MINUS)) {
           // Array index
@@ -1463,13 +1463,13 @@ class Parser {
             this.expect(TokenType.RBRACKET)
 
             if (expr.type === 'PathExpression' && expr.path.length > 0) {
-              expr.path[expr.path.length - 1].slice = { start: indexExpr, end: endExpr }
+              expr.path[expr.path.length - 1]!.slice = { start: indexExpr, end: endExpr }
             }
           } else {
             this.expect(TokenType.RBRACKET)
 
             if (expr.type === 'PathExpression' && expr.path.length > 0) {
-              expr.path[expr.path.length - 1].index = indexExpr
+              expr.path[expr.path.length - 1]!.index = indexExpr
             }
           }
         } else if (this.check(TokenType.COLON)) {
@@ -1479,7 +1479,7 @@ class Parser {
           this.expect(TokenType.RBRACKET)
 
           if (expr.type === 'PathExpression' && expr.path.length > 0) {
-            expr.path[expr.path.length - 1].slice = { end: endExpr }
+            expr.path[expr.path.length - 1]!.slice = { end: endExpr }
           }
         } else {
           // General expression index

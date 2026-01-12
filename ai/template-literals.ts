@@ -207,7 +207,7 @@ function parseJSON<T>(text: string): T {
 
   // Try extracting from markdown code blocks
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (codeBlockMatch) {
+  if (codeBlockMatch?.[1]) {
     try {
       return JSON.parse(codeBlockMatch[1].trim())
     } catch {
@@ -217,7 +217,7 @@ function parseJSON<T>(text: string): T {
 
   // Try extracting JSON object/array from text
   const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
-  if (jsonMatch) {
+  if (jsonMatch?.[1]) {
     try {
       return JSON.parse(jsonMatch[1])
     } catch {
@@ -591,7 +591,7 @@ function findOption<T extends string | number>(response: string, options: readon
   }
 
   // Default to first option if no match found
-  return options[0]
+  return options[0] as T
 }
 
 /**

@@ -119,26 +119,26 @@ function parseIndexName(name: string): { table: string; path: string; typeId?: n
   const typeMatch = name.match(/^idx_(\w+)_type(\d+)_data_(.+)$/)
   if (typeMatch) {
     return {
-      table: typeMatch[1],
-      typeId: parseInt(typeMatch[2], 10),
-      path: typeMatch[3].replace(/_/g, '.'),
+      table: typeMatch[1]!,
+      typeId: parseInt(typeMatch[2]!, 10),
+      path: typeMatch[3]!.replace(/_/g, '.'),
     }
   }
 
   const verbMatch = name.match(/^idx_(\w+)_verb_(\w+)_data_(.+)$/)
   if (verbMatch) {
     return {
-      table: verbMatch[1],
+      table: verbMatch[1]!,
       verbFilter: verbMatch[2],
-      path: verbMatch[3].replace(/_/g, '.'),
+      path: verbMatch[3]!.replace(/_/g, '.'),
     }
   }
 
   const simpleMatch = name.match(/^idx_(\w+)_data_(.+)$/)
   if (simpleMatch) {
     return {
-      table: simpleMatch[1],
-      path: simpleMatch[2].replace(/_/g, '.'),
+      table: simpleMatch[1]!,
+      path: simpleMatch[2]!.replace(/_/g, '.'),
     }
   }
 

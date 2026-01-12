@@ -168,7 +168,7 @@ function assignVariant(
   }
 
   // Fallback to last variant (should not happen with proper weights)
-  return variants[variants.length - 1]
+  return variants[variants.length - 1] ?? null
 }
 
 /**

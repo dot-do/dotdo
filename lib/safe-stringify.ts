@@ -147,7 +147,7 @@ export function safeParse<T = unknown>(json: string): T | null {
 /**
  * Result type for safeJsonParse with logging
  */
-export interface JsonParseResult<T> {
+export type JsonParseResult<T> = {
   ok: true
   value: T
 } | {

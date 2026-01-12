@@ -295,8 +295,8 @@ export class GenerationEngine {
           const targetEntity = generatedEntities[field.target]
           relationships.push({
             id: `rel-${crypto.randomUUID().split('-')[0]}`,
-            from: mainEntity.$id,
-            to: targetEntity.$id,
+            from: mainEntity!.$id,
+            to: targetEntity!.$id,
             verb: fieldName,
             data: { operator: field.operator },
             createdAt: new Date(),
@@ -407,7 +407,7 @@ export class GenerationEngine {
         } catch {
           // JSON parsing failed, use raw text for single-field types
           if (Object.keys(fieldsToGenerate).length === 1) {
-            const fieldName = Object.keys(fieldsToGenerate)[0]
+            const fieldName = Object.keys(fieldsToGenerate)[0]!
             entity[fieldName] = response.text
           } else {
             // Fall back to default generation for all fields
@@ -1284,8 +1284,8 @@ export class GenerationEngine {
     const searchResults = await this.semanticSearch(target, searchQuery)
     const threshold = this.options.fuzzyThreshold ?? 0.8
 
-    if (searchResults.length > 0 && searchResults[0].similarity >= threshold) {
-      const found = searchResults[0].entity
+    if (searchResults.length > 0 && searchResults[0]!.similarity >= threshold) {
+      const found = searchResults[0]!.entity
       this.cache.set(cacheKey, { entity: found, timestamp: Date.now() })
 
       const rel = await this.createRelationship(parent.$id, field.name, found.$id)
@@ -1847,15 +1847,15 @@ export class GenerationEngine {
   decodeId(id: string): { TYPE: string; THING: number } {
     // Remove any prefix
     const parts = id.split('_')
-    const sqid = parts[parts.length - 1]
+    const sqid = parts[parts.length - 1]!
 
     // Also handle namespace prefix
-    const cleanSqid = sqid.includes(':') ? sqid.split(':')[1] : sqid
+    const cleanSqid = sqid!.includes(':') ? sqid!.split(':')[1]! : sqid!
 
     try {
-      const decoded = sqids.decode(cleanSqid)
+      const decoded = sqids.decode(cleanSqid!)
       return {
-        TYPE: parts.length > 1 ? parts[0] : 'unknown',
+        TYPE: parts.length > 1 ? parts[0]! : 'unknown',
         THING: decoded[1] ?? 0,
       }
     } catch {

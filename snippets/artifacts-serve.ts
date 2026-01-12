@@ -331,7 +331,7 @@ function parseJwtPayload(token: string): Record<string, unknown> | null {
     const parts = token.split('.')
     if (parts.length !== 3) return null
 
-    const payload = parts[1]
+    const payload = parts[1]!
     // Base64url to base64 conversion
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
     const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
@@ -550,7 +550,7 @@ function isResponseStale(response: Response): boolean {
   const maxAgeMatch = cacheControl.match(/max-age=(\d+)/)
   if (!maxAgeMatch) return false
 
-  const maxAge = parseInt(maxAgeMatch[1])
+  const maxAge = parseInt(maxAgeMatch[1]!)
   const age = getResponseAge(response)
 
   return age > maxAge
@@ -948,7 +948,7 @@ async function handleServeIntegration(
     const sortedEntries = Array.from(inFlightRequests.entries())
       .sort((a, b) => a[1].createdAt - b[1].createdAt)
     for (let i = 0; i < entriesToRemove && i < sortedEntries.length; i++) {
-      inFlightRequests.delete(sortedEntries[i][0])
+      inFlightRequests.delete(sortedEntries[i]![0])
     }
   }
 
@@ -1107,7 +1107,7 @@ async function handleServeIntegrationInner(
         return {
           status: cachedResponse.status,
           body: cachedBody,
-          contentType: contentType.split(';')[0].trim(),
+          contentType: contentType.split(';')[0]!.trim(),
           headers,
         }
       }
@@ -1305,7 +1305,7 @@ async function handleServeIntegrationInner(
   return {
     status: 200,
     body,
-    contentType: contentType.split(';')[0].trim(),
+    contentType: contentType.split(';')[0]!.trim(),
     headers,
   }
 }

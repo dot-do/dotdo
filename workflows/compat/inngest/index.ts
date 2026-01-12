@@ -400,8 +400,8 @@ function evaluateExpression(expression: string, context: { event: InngestEvent; 
   // Format: "event.data.field == async.data.field"
   const equalMatch = expression.match(/^(.+?)\s*==\s*(.+)$/)
   if (equalMatch) {
-    const leftPath = equalMatch[1].trim()
-    const rightPath = equalMatch[2].trim()
+    const leftPath = equalMatch[1]!.trim()
+    const rightPath = equalMatch[2]!.trim()
 
     const leftValue = getValueByPath(context, leftPath)
     const rightValue = getValueByPath(context, rightPath)
@@ -465,7 +465,7 @@ class ThrottleManager {
       this.queues.set(key, queue)
 
       // Schedule retry when oldest entry expires
-      const oldestTs = bucket[0]
+      const oldestTs = bucket[0]!
       const waitTime = periodMs - (now - oldestTs) + 1
 
       this.scheduleQueueProcess(key, waitTime)
@@ -478,7 +478,7 @@ class ThrottleManager {
       // If there are still items in queue, schedule again
       const queue = this.queues.get(key)
       if (queue && queue.length > 0) {
-        const item = queue[0]
+        const item = queue[0]!
         // Calculate remaining time properly based on when item was added
         const elapsed = Date.now() - item.addedAt
         const remaining = Math.max(0, item.periodMs - elapsed)
@@ -491,7 +491,7 @@ class ThrottleManager {
     const queue = this.queues.get(key)
     if (!queue || queue.length === 0) return
 
-    const item = queue[0]
+    const item = queue[0]!
     const { count, periodMs } = item
     const now = Date.now()
     let bucket = this.buckets.get(key) || []
@@ -502,7 +502,7 @@ class ThrottleManager {
       bucket.push(now)
       this.buckets.set(key, bucket)
       this.queues.set(key, queue)
-      item.resolve()
+      item!.resolve()
     }
   }
 }
@@ -876,7 +876,7 @@ export class Inngest {
 
     // Build context with all events
     let ctx: FunctionContext<unknown> = {
-      event: events[0], // First event is the primary
+      event: events[0]!, // First event is the primary
       events: events,
       step: this.createStepTools(runId, fn),
       runId,
@@ -889,7 +889,7 @@ export class Inngest {
       runId,
       functionId: fn.id,
       status: 'running',
-      event: events[0],
+      event: events[0]!,
       startedAt: Date.now(),
     }
     this.activeRuns.set(runId, run)

@@ -113,7 +113,7 @@ export function resolveValuePart(
   // Handle PostgreSQL-style parameters ($1, $2, ...)
   const pgParamMatch = trimmed.match(/^\$(\d+)$/)
   if (pgParamMatch) {
-    const index = parseInt(pgParamMatch[1], 10) - 1
+    const index = parseInt(pgParamMatch[1]!, 10) - 1
     return normalizeValue(params[index], dialect)
   }
 
@@ -304,7 +304,7 @@ export function parseTableName(match: RegExpMatchArray): string {
   // Returns the first non-undefined capture group
   for (let i = 1; i < match.length; i++) {
     if (match[i]) {
-      return match[i].toLowerCase()
+      return match[i]!.toLowerCase()
     }
   }
   throw new SQLParseError('Could not parse table name')
@@ -323,12 +323,12 @@ export function parseColumnList(columnsPart: string): string[] {
     // Handle alias.column
     if (col.includes('.')) {
       const parts = col.split('.')
-      return parts[parts.length - 1].replace(/["'`]/g, '').toLowerCase()
+      return parts[parts.length - 1]!.replace(/["'`]/g, '').toLowerCase()
     }
     // Handle column AS alias - take the alias
     const asMatch = col.match(/(.+?)\s+AS\s+["'`]?(\w+)["'`]?/i)
     if (asMatch) {
-      return asMatch[2].toLowerCase()
+      return asMatch[2]!.toLowerCase()
     }
     return col.replace(/["'`]/g, '').toLowerCase()
   })
@@ -341,7 +341,7 @@ export function extractColumnName(expr: string): string {
   const trimmed = expr.trim()
   if (trimmed.includes('.')) {
     const parts = trimmed.split('.')
-    return parts[parts.length - 1].replace(/["'`]/g, '').toLowerCase()
+    return parts[parts.length - 1]!.replace(/["'`]/g, '').toLowerCase()
   }
   return trimmed.replace(/["'`]/g, '').toLowerCase()
 }
@@ -400,7 +400,7 @@ export function parseCondition(
   const isNullMatch = condition.match(/(?:[\w.]+\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))\s+IS\s+NULL/i)
   if (isNullMatch) {
     return {
-      column: extractColumnName(isNullMatch[1] || isNullMatch[2] || isNullMatch[3]),
+      column: extractColumnName((isNullMatch[1] || isNullMatch[2] || isNullMatch[3])!),
       operator: 'IS NULL',
     }
   }
@@ -409,7 +409,7 @@ export function parseCondition(
   const isNotNullMatch = condition.match(/(?:[\w.]+\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))\s+IS\s+NOT\s+NULL/i)
   if (isNotNullMatch) {
     return {
-      column: extractColumnName(isNotNullMatch[1] || isNotNullMatch[2] || isNotNullMatch[3]),
+      column: extractColumnName((isNotNullMatch[1] || isNotNullMatch[2] || isNotNullMatch[3])!),
       operator: 'IS NOT NULL',
     }
   }
@@ -417,9 +417,9 @@ export function parseCondition(
   // Handle ILIKE (PostgreSQL case-insensitive)
   const ilikeMatch = condition.match(/(?:[\w.]+\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))\s+ILIKE\s+(.+)/i)
   if (ilikeMatch) {
-    const value = resolveValuePart(ilikeMatch[4], params, paramIndex, dialect)
+    const value = resolveValuePart(ilikeMatch[4]!, params, paramIndex, dialect)
     return {
-      column: extractColumnName(ilikeMatch[1] || ilikeMatch[2] || ilikeMatch[3]),
+      column: extractColumnName((ilikeMatch[1] || ilikeMatch[2] || ilikeMatch[3])!),
       operator: 'ILIKE',
       value,
     }
@@ -428,9 +428,9 @@ export function parseCondition(
   // Handle LIKE
   const likeMatch = condition.match(/(?:[\w.]+\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))\s+LIKE\s+(.+)/i)
   if (likeMatch) {
-    const value = resolveValuePart(likeMatch[4], params, paramIndex, dialect)
+    const value = resolveValuePart(likeMatch[4]!, params, paramIndex, dialect)
     return {
-      column: extractColumnName(likeMatch[1] || likeMatch[2] || likeMatch[3]),
+      column: extractColumnName((likeMatch[1] || likeMatch[2] || likeMatch[3])!),
       operator: 'LIKE',
       value,
     }
@@ -439,12 +439,12 @@ export function parseCondition(
   // Handle IN clause
   const inMatch = condition.match(/(?:[\w.]+\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))\s+IN\s*\(([^)]+)\)/i)
   if (inMatch) {
-    const valuesPart = inMatch[4]
+    const valuesPart = inMatch[4]!
     const values = valuesPart.split(',').map((v) =>
       resolveValuePart(v.trim(), params, paramIndex, dialect)
     )
     return {
-      column: extractColumnName(inMatch[1] || inMatch[2] || inMatch[3]),
+      column: extractColumnName((inMatch[1] || inMatch[2] || inMatch[3])!),
       operator: 'IN',
       values,
     }
@@ -456,9 +456,9 @@ export function parseCondition(
   )
   if (compMatch) {
     const operator = compMatch[4] as ConditionOperator
-    const value = resolveValuePart(compMatch[5], params, paramIndex, dialect)
+    const value = resolveValuePart(compMatch[5]!, params, paramIndex, dialect)
     return {
-      column: extractColumnName(compMatch[1] || compMatch[2] || compMatch[3]),
+      column: extractColumnName((compMatch[1] || compMatch[2] || compMatch[3])!),
       operator: operator === '<>' ? '!=' : operator,
       value,
     }
@@ -580,15 +580,15 @@ export function parseSetClause(
   for (const part of parts) {
     const match = part.match(/(?:"([^"]+)"|`([^`]+)`|(\w+))\s*=\s*(.+)/i)
     if (match) {
-      const column = (match[1] || match[2] || match[3]).toLowerCase()
-      const valuePart = match[4].trim()
+      const column = (match[1] || match[2] || match[3])!.toLowerCase()
+      const valuePart = match[4]!.trim()
 
       // Check for expression like "col = col + ?" or "col = col - 50"
       const exprMatch = valuePart.match(/^(\w+)\s*([+\-*/])\s*(.+)$/i)
       if (exprMatch) {
-        const sourceColumn = exprMatch[1].toLowerCase()
+        const sourceColumn = exprMatch[1]!.toLowerCase()
         const operator = exprMatch[2] as '+' | '-' | '*' | '/'
-        const operandPart = exprMatch[3].trim()
+        const operandPart = exprMatch[3]!.trim()
 
         // Get operand value
         let operand: number
@@ -597,7 +597,7 @@ export function parseSetClause(
         } else {
           const pgMatch = operandPart.match(/^\$(\d+)$/)
           if (pgMatch) {
-            operand = normalizeValue(params[parseInt(pgMatch[1], 10) - 1], dialect) as number
+            operand = normalizeValue(params[parseInt(pgMatch[1]!, 10) - 1], dialect) as number
           } else {
             operand = parseFloat(operandPart)
           }

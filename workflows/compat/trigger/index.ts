@@ -241,8 +241,8 @@ function parseDuration(duration: string | number | Date): number {
   const match = duration.match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min|h|hr|hour|d|day|w|week)s?$/i)
   if (!match) throw new Error(`Invalid duration format: ${duration}`)
 
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
+  const value = parseFloat(match[1]!)
+  const unit = match[2]!.toLowerCase()
 
   const multipliers: Record<string, number> = {
     ms: 1,
@@ -657,7 +657,7 @@ export const retry = {
         randomize: true,
       },
     }
-    return presets[name] ?? presets.default
+    return presets[name] ?? presets.default!
   },
 
   /**

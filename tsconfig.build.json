@@ -1,0 +1,81 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Output configuration
+    "outDir": "dist",
+    // Note: declaration generation disabled due to mixin pattern issues
+    // in objects/transport/auth-layer.ts and rpc-server.ts
+    // TODO: Fix mixin patterns to enable declaration emit (dotdo-xxxx)
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true,
+    "noEmit": false,
+
+    // Library output settings
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // Remove most path aliases for published package, keep stubs for missing deps
+    "paths": {
+      "fsx.do": ["./types/stubs/fsx.do.d.ts"],
+      "@dotdo/client": ["./types/stubs/dotdo-client.d.ts"]
+    },
+
+    // Ensure clean output
+    "removeComments": false,
+    "emitDeclarationOnly": false,
+
+    // Relax strictness for declaration emit (mixin patterns)
+    "stripInternal": true,
+
+    // Skip checking declarations from dependencies
+    "skipLibCheck": true
+  },
+  "include": [
+    // All DO entry points
+    "do/**/*.ts",
+    // Core objects
+    "objects/**/*.ts",
+    // Types and utilities
+    "types/**/*.ts",
+    "snippets/**/*.ts",
+    "streams/**/*.ts",
+    // Library
+    "lib/**/*.ts",
+    // Workflows and SDK
+    "workflows/**/*.ts",
+    "sdk/**/*.ts",
+    "metrics/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "app",
+    "examples",
+    "packages",
+    "primitives",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/tests/**",
+    "**/spikes/**",
+    // Exclude files with known build issues (to be fixed in separate PRs)
+    "cli/**/*",
+    "auth/**/*",
+    "api/**/*",
+    // Missing dependencies
+    "do/payments/**/*",
+    "objects/mixins/**/*",
+    // Files depending on separate packages (fsx.do, @dotdo/client, bashx)
+    "lib/mixins/**/*",
+    "lib/agent/**/*",
+    "sdk/**/*",
+    // Entry points that import fs mixin (requires fsx.do)
+    "do/index.ts",
+    "do/full.ts",
+    "do/fs.ts",
+    "do/bash.ts",
+    "do/git.ts",
+    "objects/presets/primitives.ts"
+  ]
+}

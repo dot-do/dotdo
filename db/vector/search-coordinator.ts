@@ -550,8 +550,8 @@ export class VectorSearchCoordinator {
     const sum = latencies.reduce((a, b) => a + b, 0)
 
     return {
-      min: latencies[0],
-      max: latencies[latencies.length - 1],
+      min: latencies[0]!,
+      max: latencies[latencies.length - 1]!,
       avg: sum / latencies.length,
       p50: this.percentile(latencies, 50),
       p95: this.percentile(latencies, 95),
@@ -565,7 +565,7 @@ export class VectorSearchCoordinator {
   private percentile(sortedValues: number[], p: number): number {
     if (sortedValues.length === 0) return 0
     const index = Math.ceil((p / 100) * sortedValues.length) - 1
-    return sortedValues[Math.max(0, Math.min(index, sortedValues.length - 1))]
+    return sortedValues[Math.max(0, Math.min(index, sortedValues.length - 1))]!
   }
 
   /**

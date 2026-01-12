@@ -348,7 +348,7 @@ export class SchemaBuilder {
     }
 
     // Single text field = simple array, stored as JSON
-    if (field.fields.length === 1 && field.fields[0].type === 'text') {
+    if (field.fields.length === 1 && field.fields[0]?.type === 'text') {
       return false
     }
 
@@ -380,19 +380,19 @@ export class SchemaBuilder {
       const indexes: Record<string, any> = {}
 
       // Primary key index
-      indexes.pk = primaryKey({ columns: [table.id] })
+      indexes.pk = primaryKey({ columns: [table.id!] })
 
       // Add indexes for indexed fields
       for (const field of collection.fields) {
         if (field.index && table[field.name]) {
           indexes[`${tableName}_${field.name}_idx`] = index(`${tableName}_${field.name}_idx`).on(
-            table[field.name]
+            table[field.name]!
           )
         }
         if (field.unique && table[field.name]) {
           indexes[`${tableName}_${field.name}_uniq`] = uniqueIndex(
             `${tableName}_${field.name}_uniq`
-          ).on(table[field.name])
+          ).on(table[field.name]!)
         }
       }
 
@@ -488,8 +488,8 @@ export class SchemaBuilder {
     columns.relatedId = text('related_id').notNull()
 
     return sqliteTable(tableName, columns, (table) => ({
-      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId),
-      relatedIdx: index(`${tableName}_related_idx`).on(table.relatedId),
+      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId!),
+      relatedIdx: index(`${tableName}_related_idx`).on(table.relatedId!),
     }))
   }
 
@@ -547,8 +547,8 @@ export class SchemaBuilder {
     }
 
     return sqliteTable(tableName, columns, (table) => ({
-      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId),
-      orderIdx: index(`${tableName}_order_idx`).on(table.parentId, table.order),
+      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId!),
+      orderIdx: index(`${tableName}_order_idx`).on(table.parentId!, table.order!),
     }))
   }
 
@@ -574,8 +574,8 @@ export class SchemaBuilder {
     }
 
     return sqliteTable(tableName, columns, (table) => ({
-      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId),
-      versionIdx: index(`${tableName}_version_idx`).on(table.parentId, table.versionNumber),
+      parentIdx: index(`${tableName}_parent_idx`).on(table.parentId!),
+      versionIdx: index(`${tableName}_version_idx`).on(table.parentId!, table.versionNumber!),
     }))
   }
 

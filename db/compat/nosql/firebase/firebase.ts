@@ -214,10 +214,10 @@ class InMemoryFirestore {
               const parts = key.split('.')
               let obj = updated as any
               for (let i = 0; i < parts.length - 1; i++) {
-                if (!(parts[i] in obj)) break
-                obj = obj[parts[i]]
+                if (!(parts[i]! in obj)) break
+                obj = obj[parts[i]!]
               }
-              delete obj[parts[parts.length - 1]]
+              delete obj[parts[parts.length - 1]!]
             } else {
               delete updated[key]
             }
@@ -272,10 +272,10 @@ class InMemoryFirestore {
     const parts = path.split('.')
     let current = obj
     for (let i = 0; i < parts.length - 1; i++) {
-      if (!(parts[i] in current)) current[parts[i]] = {}
-      current = current[parts[i]]
+      if (!(parts[i]! in current)) current[parts[i]!] = {}
+      current = current[parts[i]!]
     }
-    current[parts[parts.length - 1]] = value
+    current[parts[parts.length - 1]!] = value
   }
 
   deleteDocument(path: string): void {
@@ -1474,7 +1474,7 @@ export class Bytes implements BytesType {
   toBase64(): string {
     let binary = ''
     for (let i = 0; i < this._bytes.length; i++) {
-      binary += String.fromCharCode(this._bytes[i])
+      binary += String.fromCharCode(this._bytes[i]!)
     }
     return btoa(binary)
   }
@@ -1641,7 +1641,7 @@ class InMemoryRealtimeDB {
         if (storedPath !== '/') {
           const parts = storedPath.split('/').filter(Boolean)
           if (parts.length > 0) {
-            const childKey = parts[0]
+            const childKey = parts[0]!
             if (parts.length === 1) {
               result[childKey] = value
             } else if (!(childKey in result)) {
@@ -1655,10 +1655,10 @@ class InMemoryRealtimeDB {
         const relativePath = storedPath.slice(prefix.length)
         const parts = relativePath.split('/').filter(Boolean)
         if (parts.length === 1) {
-          result[parts[0]] = value
-        } else if (parts.length > 1 && !(parts[0] in result)) {
+          result[parts[0]!] = value
+        } else if (parts.length > 1 && !(parts[0]! in result)) {
           // Recursively get the child
-          result[parts[0]] = this.get(normalizedPath + '/' + parts[0])
+          result[parts[0]!] = this.get(normalizedPath + '/' + parts[0]!)
         }
       }
     }
@@ -1692,7 +1692,7 @@ class InMemoryRealtimeDB {
           ? '/' + parts.slice(0, -1).join('/')
           : normalizedPath + '/' + parts.slice(0, -1).join('/')
         const normalizedTargetPath = this.normalizePath(targetPath)
-        const fieldKey = parts[parts.length - 1]
+        const fieldKey = parts[parts.length - 1]!
 
         // Get existing data at the target path
         const targetExisting = this.get(normalizedTargetPath) as Record<string, unknown> | undefined

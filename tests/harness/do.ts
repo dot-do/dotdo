@@ -325,7 +325,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       const updateMatch = query.match(/UPDATE\s+["`]?(\w+)["`]?\s+SET/i)
 
       if (selectMatch) {
-        const tableName = selectMatch[1]
+        const tableName = selectMatch[1]!
         const tableData = sqlData.get(tableName) || []
         return createMockCursor<T>(tableData as T[])
       }
@@ -336,7 +336,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
       }
 
       if (deleteMatch) {
-        const tableName = deleteMatch[1]
+        const tableName = deleteMatch[1]!
         const tableData = sqlData.get(tableName) || []
 
         // Parse WHERE clause for targeted deletes
@@ -353,7 +353,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
         for (const pattern of wherePatterns) {
           const match = query.match(pattern)
           if (match) {
-            whereField = match[1]
+            whereField = match[1] ?? null
             break
           }
         }
@@ -366,16 +366,16 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
             const rec = record as Record<string, unknown>
             return rec[whereField!] !== whereValue
           })
-          sqlData.set(tableName, filteredData)
+          sqlData.set(tableName!, filteredData)
         } else {
           // No WHERE clause - clear entire table
-          sqlData.set(tableName, [])
+          sqlData.set(tableName!, [])
         }
         return createMockCursor<T>([])
       }
 
       if (updateMatch) {
-        const tableName = updateMatch[1]
+        const tableName = updateMatch[1]!
         const tableData = sqlData.get(tableName) || []
         // Parse SET clause and WHERE clause for basic update support
         // Example: UPDATE things SET "deleted" = ?, "data" = ? WHERE "things"."id" = ?
@@ -383,7 +383,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
         const whereMatch = query.match(/WHERE\s+["`]?\w+["`]?\.["`]?(\w+)["`]?\s*=\s*\?/i)
 
         if (setMatch && whereMatch && params.length > 0) {
-          const whereField = whereMatch[1]
+          const whereField = whereMatch[1]!
           const whereValue = params[params.length - 1] // Last param is typically the WHERE value
 
           // Find and update the matching record
@@ -392,7 +392,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
             if (rec[whereField] === whereValue) {
               // Parse SET fields from the query
               // Match patterns like "deleted" = ? or `data` = ?
-              const setFields = setMatch[1].match(/["`]?(\w+)["`]?\s*=\s*\?/g) || []
+              const setFields = setMatch[1]!.match(/["`]?(\w+)["`]?\s*=\s*\?/g) || []
               const updatedRecord = { ...rec }
               setFields.forEach((field: string, idx: number) => {
                 const fieldName = field.match(/["`]?(\w+)["`]?\s*=\s*\?/)?.[1]
@@ -413,7 +413,7 @@ export function createMockSqlStorage(sqlData: Map<string, unknown[]>): MockSqlSt
             }
             return rec
           })
-          sqlData.set(tableName, updatedData)
+          sqlData.set(tableName!, updatedData)
         }
         return createMockCursor<T>([])
       }

@@ -392,8 +392,8 @@ obsRoutes.get('/trace/:requestId', async (c) => {
   let duration: number | undefined
 
   if (events.length > 0) {
-    startedAt = events[0].timestamp
-    endedAt = events[events.length - 1].timestamp
+    startedAt = events[0]!.timestamp
+    endedAt = events[events.length - 1]!.timestamp
     duration = endedAt - startedAt
   }
 

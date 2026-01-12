@@ -350,7 +350,7 @@ export class FunctionRegistry {
     let intersection = new Set(sets[0])
     for (let i = 1; i < sets.length; i++) {
       intersection = new Set(
-        Array.from(intersection).filter((name) => sets[i].has(name))
+        Array.from(intersection).filter((name) => sets[i]!.has(name))
       )
     }
 

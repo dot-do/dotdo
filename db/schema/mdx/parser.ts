@@ -95,7 +95,7 @@ function parseFrontmatter(content: string): {
     return { frontmatter: {}, body: content }
   }
 
-  const yamlContent = match[1]
+  const yamlContent = match[1]!
   const body = content.slice(match[0].length).trim()
 
   // Simple YAML parsing (key: value pairs)
@@ -149,14 +149,14 @@ function parseTable(lines: string[]): {
   const rows: string[][] = []
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
+    const line = lines[i]!.trim()
     const match = line.match(TABLE_ROW_REGEX)
     if (!match) continue
 
     // Skip separator rows
     if (TABLE_SEPARATOR_REGEX.test(line)) continue
 
-    const cells = match[1].split('|').map((cell) => cell.trim())
+    const cells = match[1]!.split('|').map((cell) => cell.trim())
 
     if (headers.length === 0) {
       headers.push(...cells)
@@ -174,7 +174,7 @@ function parseTable(lines: string[]): {
 function extractType(cell: string): string {
   const codeMatch = cell.match(CODE_BLOCK_REGEX)
   if (codeMatch) {
-    return codeMatch[1]
+    return codeMatch[1]!
   }
   return cell.trim()
 }
@@ -239,7 +239,7 @@ function parseStates(lines: string[]): string[] {
     const bulletMatch = line.match(BULLET_ITEM_REGEX)
     if (!bulletMatch) continue
 
-    const content = bulletMatch[1].trim()
+    const content = bulletMatch[1]!.trim()
 
     // Check for arrow notation
     if (STATE_ARROW_REGEX.test(content)) {
@@ -264,7 +264,7 @@ function parseEvents(lines: string[]): string[] {
     const bulletMatch = line.match(BULLET_ITEM_REGEX)
     if (!bulletMatch) continue
 
-    let content = bulletMatch[1].trim()
+    let content = bulletMatch[1]!.trim()
 
     // Remove description after " - "
     const dashIndex = content.indexOf(' - ')
@@ -304,7 +304,7 @@ function splitIntoEntitySections(body: string): EntitySection[] {
         sections.push(currentSection)
       }
       currentSection = {
-        name: h2Match[1].trim(),
+        name: h2Match[1]!.trim(),
         lines: [],
       }
     } else if (currentSection) {
@@ -333,7 +333,7 @@ function parseEntitySection(section: EntitySection): MdxEntity {
   // Look for description (paragraph before table or subsections)
   const descriptionLines: string[] = []
   while (i < lines.length) {
-    const line = lines[i].trim()
+    const line = lines[i]!.trim()
 
     // Stop at table, H3 heading, or empty line after description
     if (
@@ -359,7 +359,7 @@ function parseEntitySection(section: EntitySection): MdxEntity {
   let subsectionLines: string[] = []
 
   for (; i < lines.length; i++) {
-    const line = lines[i]
+    const line = lines[i]!
     const h3Match = line.match(H3_HEADING_REGEX)
 
     if (h3Match) {
@@ -370,13 +370,13 @@ function parseEntitySection(section: EntitySection): MdxEntity {
         entity.events = parseEvents(subsectionLines)
       }
 
-      currentSubsection = h3Match[1].trim()
+      currentSubsection = h3Match[1]!.trim()
       subsectionLines = []
     } else if (line.trim().startsWith('|') && !currentSubsection) {
       // Table for fields (not in a subsection)
       const tableLines: string[] = []
-      while (i < lines.length && lines[i].trim().startsWith('|')) {
-        tableLines.push(lines[i])
+      while (i < lines.length && lines[i]!.trim().startsWith('|')) {
+        tableLines.push(lines[i]!)
         i++
       }
       i-- // Back up one since the loop will increment

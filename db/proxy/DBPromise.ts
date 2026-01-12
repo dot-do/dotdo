@@ -214,7 +214,7 @@ export class DBPromise<T extends ThingEntity = ThingEntity> implements IDBPromis
     const wrapped = promise as DBPromise<T> & { nextCursor: Promise<string | null> }
     wrapped.nextCursor = promise.then((results) => {
       if (results.length > options.limit) {
-        return results[options.limit].$id
+        return results[options.limit]!.$id
       }
       return null
     })

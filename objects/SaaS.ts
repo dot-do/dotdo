@@ -296,7 +296,7 @@ export class SaaS extends App {
     }
 
     if (url.pathname.startsWith('/saas/subscription/')) {
-      const subscriptionId = url.pathname.split('/')[3]
+      const subscriptionId = url.pathname.split('/')[3]!
       const subscription = await this.getSubscription(subscriptionId)
       if (!subscription) {
         return new Response('Not Found', { status: 404 })

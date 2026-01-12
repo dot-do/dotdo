@@ -45,25 +45,25 @@ export function parseSize(size: string): number {
     throw new Error(`Invalid size format: ${size}. Expected format: 1GB, 500MB, etc.`)
   }
 
-  const value = parseFloat(match[1])
-  const unit = match[2] as keyof typeof SIZE_UNITS
-  return value * SIZE_UNITS[unit]
+  const value = parseFloat(match[1]!)
+  const unit = match[2]! as keyof typeof SIZE_UNITS
+  return value * SIZE_UNITS[unit]!
 }
 
 /**
  * Format bytes to a human-readable size string
  */
 export function formatSize(bytes: number): string {
-  if (bytes >= SIZE_UNITS.TB) {
-    return `${(bytes / SIZE_UNITS.TB).toFixed(bytes % SIZE_UNITS.TB === 0 ? 0 : 1)}TB`
+  if (bytes >= SIZE_UNITS.TB!) {
+    return `${(bytes / SIZE_UNITS.TB!).toFixed(bytes % SIZE_UNITS.TB! === 0 ? 0 : 1)}TB`
   }
-  if (bytes >= SIZE_UNITS.GB) {
-    return `${(bytes / SIZE_UNITS.GB).toFixed(bytes % SIZE_UNITS.GB === 0 ? 0 : 1)}GB`
+  if (bytes >= SIZE_UNITS.GB!) {
+    return `${(bytes / SIZE_UNITS.GB!).toFixed(bytes % SIZE_UNITS.GB! === 0 ? 0 : 1)}GB`
   }
-  if (bytes >= SIZE_UNITS.MB) {
-    return `${(bytes / SIZE_UNITS.MB).toFixed(bytes % SIZE_UNITS.MB === 0 ? 0 : 0)}MB`
+  if (bytes >= SIZE_UNITS.MB!) {
+    return `${(bytes / SIZE_UNITS.MB!).toFixed(bytes % SIZE_UNITS.MB! === 0 ? 0 : 0)}MB`
   }
-  return `${(bytes / SIZE_UNITS.KB).toFixed(bytes % SIZE_UNITS.KB === 0 ? 0 : 1)}KB`
+  return `${(bytes / SIZE_UNITS.KB!).toFixed(bytes % SIZE_UNITS.KB! === 0 ? 0 : 1)}KB`
 }
 
 // ============================================================================
@@ -86,25 +86,25 @@ export function parseDuration(duration: string): number {
     throw new Error(`Invalid duration format: ${duration}. Expected format: 30d, 24h, 60m, etc.`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2] as keyof typeof DURATION_UNITS
-  return value * DURATION_UNITS[unit]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]! as keyof typeof DURATION_UNITS
+  return value * DURATION_UNITS[unit]!
 }
 
 /**
  * Format milliseconds to a human-readable duration string
  */
 export function formatDuration(ms: number): string {
-  if (ms >= DURATION_UNITS.D && ms % DURATION_UNITS.D === 0) {
-    return `${ms / DURATION_UNITS.D}d`
+  if (ms >= DURATION_UNITS.D! && ms % DURATION_UNITS.D! === 0) {
+    return `${ms / DURATION_UNITS.D!}d`
   }
-  if (ms >= DURATION_UNITS.H && ms % DURATION_UNITS.H === 0) {
-    return `${ms / DURATION_UNITS.H}h`
+  if (ms >= DURATION_UNITS.H! && ms % DURATION_UNITS.H! === 0) {
+    return `${ms / DURATION_UNITS.H!}h`
   }
-  if (ms >= DURATION_UNITS.M && ms % DURATION_UNITS.M === 0) {
-    return `${ms / DURATION_UNITS.M}m`
+  if (ms >= DURATION_UNITS.M! && ms % DURATION_UNITS.M! === 0) {
+    return `${ms / DURATION_UNITS.M!}m`
   }
-  return `${ms / DURATION_UNITS.S}s`
+  return `${ms / DURATION_UNITS.S!}s`
 }
 
 // ============================================================================

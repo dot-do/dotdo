@@ -493,7 +493,7 @@ function parseDuration(duration: string): number {
   const match = duration.match(/^(\d+)(ms|s|m|h|d)?$/)
   if (!match) return 0
 
-  const value = parseInt(match[1], 10)
+  const value = parseInt(match[1]!, 10)
   const unit = match[2] || 'ms'
 
   switch (unit) {

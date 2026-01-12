@@ -552,8 +552,8 @@ function parsePatterns(patternStr: string, parameters: Record<string, unknown>):
   let pathVariable: string | undefined
   const pathAssignMatch = patternStr.match(/^(\w+)\s*=\s*(.+)$/)
   if (pathAssignMatch) {
-    pathVariable = pathAssignMatch[1].trim()
-    patternStr = pathAssignMatch[2].trim()
+    pathVariable = pathAssignMatch[1]!.trim()
+    patternStr = pathAssignMatch[2]!.trim()
   }
 
   // Split by comma for multiple patterns (but not commas inside braces)
@@ -739,7 +739,7 @@ function parseRelationshipChainPattern(
   relMatches.sort((a, b) => a.index - b.index)
 
   // First node is the main pattern
-  const firstNode = nodeMatches[0]
+  const firstNode = nodeMatches[0]!
   const pattern: Pattern = {
     variable: firstNode.variable,
     labels: firstNode.labels,
@@ -857,7 +857,7 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const isNullMatch = condStr.match(/^(.+?)\s+IS\s+(NOT\s+)?NULL$/i)
   if (isNullMatch) {
     return {
-      left: isNullMatch[1].trim(),
+      left: isNullMatch[1]!.trim(),
       operator: 'IS',
       right: null,
       isNull: true,
@@ -869,9 +869,9 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const inMatch = condStr.match(/^(.+?)\s+IN\s+(.+)$/i)
   if (inMatch) {
     return {
-      left: inMatch[1].trim(),
+      left: inMatch[1]!.trim(),
       operator: 'IN',
-      right: parseValue(inMatch[2].trim(), parameters),
+      right: parseValue(inMatch[2]!.trim(), parameters),
     }
   }
 
@@ -879,9 +879,9 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const containsMatch = condStr.match(/^(.+?)\s+CONTAINS\s+(.+)$/i)
   if (containsMatch) {
     return {
-      left: containsMatch[1].trim(),
+      left: containsMatch[1]!.trim(),
       operator: 'CONTAINS',
-      right: parseValue(containsMatch[2].trim(), parameters),
+      right: parseValue(containsMatch[2]!.trim(), parameters),
     }
   }
 
@@ -889,9 +889,9 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const startsMatch = condStr.match(/^(.+?)\s+STARTS\s+WITH\s+(.+)$/i)
   if (startsMatch) {
     return {
-      left: startsMatch[1].trim(),
+      left: startsMatch[1]!.trim(),
       operator: 'STARTS WITH',
-      right: parseValue(startsMatch[2].trim(), parameters),
+      right: parseValue(startsMatch[2]!.trim(), parameters),
     }
   }
 
@@ -899,9 +899,9 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const endsMatch = condStr.match(/^(.+?)\s+ENDS\s+WITH\s+(.+)$/i)
   if (endsMatch) {
     return {
-      left: endsMatch[1].trim(),
+      left: endsMatch[1]!.trim(),
       operator: 'ENDS WITH',
-      right: parseValue(endsMatch[2].trim(), parameters),
+      right: parseValue(endsMatch[2]!.trim(), parameters),
     }
   }
 
@@ -909,9 +909,9 @@ function parseCondition(condStr: string, parameters: Record<string, unknown>): C
   const compMatch = condStr.match(/^(.+?)\s*(>=|<=|<>|!=|=|>|<)\s*(.+)$/)
   if (compMatch) {
     return {
-      left: compMatch[1].trim(),
-      operator: compMatch[2],
-      right: parseValue(compMatch[3].trim(), parameters),
+      left: compMatch[1]!.trim(),
+      operator: compMatch[2]!,
+      right: parseValue(compMatch[3]!.trim(), parameters),
     }
   }
 
@@ -926,18 +926,18 @@ function parseSet(setStr: string, parameters: Record<string, unknown>): SetClaus
     const match = part.match(/^(\w+)\.(\w+)\s*=\s*(.+)$/)
     if (match) {
       clauses.push({
-        target: match[1],
-        property: match[2],
-        value: parseValue(match[3].trim(), parameters),
+        target: match[1]!,
+        property: match[2]!,
+        value: parseValue(match[3]!.trim(), parameters),
       })
     } else {
       // SET n = $props or SET n += $props
       const propsMatch = part.match(/^(\w+)\s*\+?=\s*(.+)$/)
       if (propsMatch) {
-        const value = parseValue(propsMatch[2].trim(), parameters)
+        const value = parseValue(propsMatch[2]!.trim(), parameters)
         if (typeof value === 'object' && value !== null) {
           clauses.push({
-            target: propsMatch[1],
+            target: propsMatch[1]!,
             properties: value as Record<string, unknown>,
             value: null,
           })
@@ -957,8 +957,8 @@ function parseRemove(removeStr: string): RemoveClause[] {
     const match = part.trim().match(/^(\w+)\.(\w+)$/)
     if (match) {
       clauses.push({
-        target: match[1],
-        property: match[2],
+        target: match[1]!,
+        property: match[2]!,
       })
     }
   }
@@ -984,7 +984,7 @@ function parseReturn(returnStr: string): ReturnClause {
 
   for (const part of parts) {
     const aliasMatch = part.match(/^(.+?)\s+AS\s+(\w+)$/i)
-    const expression = aliasMatch ? aliasMatch[1].trim() : part.trim()
+    const expression = aliasMatch ? aliasMatch[1]!.trim() : part.trim()
     const alias = aliasMatch ? aliasMatch[2] : undefined
 
     // Check for aggregation
@@ -993,7 +993,7 @@ function parseReturn(returnStr: string): ReturnClause {
     items.push({
       expression,
       alias,
-      aggregate: aggMatch ? aggMatch[1].toLowerCase() : undefined,
+      aggregate: aggMatch ? aggMatch[1]!.toLowerCase() : undefined,
     })
   }
 
@@ -1029,9 +1029,9 @@ function parseOrderBy(orderStr: string): OrderByClause {
     const ascMatch = part.match(/^(.+?)\s+ASC$/i)
 
     if (descMatch) {
-      items.push({ expression: descMatch[1].trim(), direction: 'DESC' })
+      items.push({ expression: descMatch[1]!.trim(), direction: 'DESC' })
     } else if (ascMatch) {
-      items.push({ expression: ascMatch[1].trim(), direction: 'ASC' })
+      items.push({ expression: ascMatch[1]!.trim(), direction: 'ASC' })
     } else {
       items.push({ expression: part.trim(), direction: 'ASC' })
     }
@@ -1381,14 +1381,14 @@ function executeMatch(
         if (item.aggregate) {
           const values: unknown[] = []
           for (const bindings of matchedBindings) {
-            const innerExpr = item.expression.match(/\((.+)\)/)?.[1] || ''
+            const innerExpr = item.expression.match(/\((.+)\)/)?.[1] ?? ''
             if (innerExpr === '*' || innerExpr.trim() === 'r') {
               values.push(1)
             } else {
               values.push(evaluateExpression(innerExpr, bindings, parameters))
             }
           }
-          aggregateResult.set(key, computeAggregate(item.aggregate, values))
+          aggregateResult.set(key, computeAggregate(item.aggregate!, values))
         }
       }
       if (aggregateResult.size > 0) {
@@ -1512,7 +1512,7 @@ function matchRelationshipChain(
     return [{ pathNodes: [...pathNodes], pathRels: [...pathRels], bindings: [] }]
   }
 
-  const relPattern = relationships[relIndex]
+  const relPattern = relationships[relIndex]!
   const results: PathResult[] = []
 
   // Handle variable length paths
@@ -1557,7 +1557,7 @@ function matchRelationshipChain(
         const bindings: Array<{ variable: string; value: StoredNode | StoredRelationship }> = []
 
         if (relPattern.variable && rels.length === 1) {
-          bindings.push({ variable: relPattern.variable, value: rels[0] })
+          bindings.push({ variable: relPattern.variable, value: rels[0]! })
         }
         if (relPattern.targetVariable) {
           bindings.push({ variable: relPattern.targetVariable, value: endNode })
@@ -1861,14 +1861,14 @@ class RecordImpl<T = Record<string, unknown>> implements IRecord<T> {
 
   forEach(visitor: (value: unknown, key: string, record: IRecord<T>) => void): void {
     for (let i = 0; i < this._keys.length; i++) {
-      visitor(this._values[i], this._keys[i], this)
+      visitor(this._values[i], this._keys[i]!, this)
     }
   }
 
   toObject(): T {
     const obj: Record<string, unknown> = {}
     for (let i = 0; i < this._keys.length; i++) {
-      obj[this._keys[i]] = this._values[i]
+      obj[this._keys[i]!] = this._values[i]
     }
     return obj as T
   }
@@ -2031,7 +2031,7 @@ class TransactionImpl implements ITransaction {
     const ctx = executeQuery(parsed, params, this._storage)
 
     // Extract keys from results
-    const keys = ctx.results.length > 0 ? Array.from(ctx.results[0].keys()) : []
+    const keys = ctx.results.length > 0 ? Array.from(ctx.results[0]!.keys()) : []
 
     return new ResultImpl<T>(ctx.results, keys, ctx.counters, this._serverInfo) as IResult<T>
   }
@@ -2107,7 +2107,7 @@ class SessionImpl implements ISession {
     const ctx = executeQuery(parsed, params, this._storage)
 
     // Extract keys from results
-    const keys = ctx.results.length > 0 ? Array.from(ctx.results[0].keys()) : []
+    const keys = ctx.results.length > 0 ? Array.from(ctx.results[0]!.keys()) : []
 
     return new ResultImpl<T>(ctx.results, keys, ctx.counters, this._serverInfo) as IResult<T>
   }

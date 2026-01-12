@@ -458,10 +458,10 @@ export class ConvexClient implements IConvexClient {
     }
 
     // Get the table (creates empty one if doesn't exist)
-    const table = getTable(this.tables, tableName)
+    const table = getTable(this.tables, tableName!)
 
     // Execute based on operation type
-    return this.executeGenericQuery(table, func, args)
+    return this.executeGenericQuery(table, func!, args)
   }
 
   /**
@@ -587,10 +587,10 @@ export class ConvexClient implements IConvexClient {
     }
 
     // Get or create the table
-    const table = getTable(this.tables, tableName)
+    const table = getTable(this.tables, tableName!)
 
     // Execute based on operation type
-    return this.executeGenericMutation(table, func, args)
+    return this.executeGenericMutation(table, func!, args)
   }
 
   /**
@@ -637,7 +637,7 @@ export class ConvexClient implements IConvexClient {
         // If no ID, update first document (legacy behavior for users:update)
         const docs = Array.from(table.values())
         if (docs.length > 0) {
-          const doc = docs[0]
+          const doc = docs[0]!
           for (const [key, value] of Object.entries(args)) {
             if (key !== 'id' && value !== undefined) {
               doc[key] = value
@@ -738,12 +738,12 @@ export class ConvexClient implements IConvexClient {
 
     // OpenAI mock actions
     if (module === 'openai') {
-      return this.handleOpenAIAction(func, args)
+      return this.handleOpenAIAction(func!, args)
     }
 
     // Search mock actions
     if (module === 'search') {
-      return this.handleSearchAction(func, args)
+      return this.handleSearchAction(func!, args)
     }
 
     // Default: return null for unknown actions

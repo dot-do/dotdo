@@ -206,8 +206,8 @@ function parseDuration(duration: string | number): number {
     throw new Error(`Invalid duration format: ${duration}`)
   }
 
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
+  const value = parseFloat(match[1]!)
+  const unit = match[2]!.toLowerCase()
 
   const multipliers: Record<string, number> = {
     ms: 1,
@@ -591,7 +591,7 @@ export class WorkflowRuntime {
     for (const [key, stepState] of stepStates) {
       const indexMatch = key.match(/workflow:step:(\d+)/)
       if (indexMatch) {
-        const index = parseInt(indexMatch[1], 10)
+        const index = parseInt(indexMatch[1]!, 10)
         this._stepResults[index] = {
           name: stepState.name,
           status: stepState.status,
@@ -613,8 +613,8 @@ export class WorkflowRuntime {
       // Key format: workflow:parallel:{stepIndex}:{stepName}
       const match = key.match(/workflow:parallel:(\d+):(.+)/)
       if (match) {
-        const stepIndex = parseInt(match[1], 10)
-        const parallelStepName = match[2]
+        const stepIndex = parseInt(match[1]!, 10)
+        const parallelStepName = match[2]!
 
         // Ensure step result exists
         if (!this._stepResults[stepIndex]) {
@@ -626,12 +626,12 @@ export class WorkflowRuntime {
         }
 
         // Ensure parallelResults exists
-        if (!this._stepResults[stepIndex].parallelResults) {
-          this._stepResults[stepIndex].parallelResults = {}
+        if (!this._stepResults[stepIndex]!.parallelResults) {
+          this._stepResults[stepIndex]!.parallelResults = {}
         }
 
         // Add the parallel step result
-        this._stepResults[stepIndex].parallelResults![parallelStepName] = {
+        this._stepResults[stepIndex]!.parallelResults![parallelStepName] = {
           name: parallelState.name,
           status: parallelState.status as 'pending' | 'running' | 'completed' | 'failed',
           output: parallelState.output,
@@ -640,8 +640,8 @@ export class WorkflowRuntime {
           completedAt: parallelState.completedAt ? new Date(parallelState.completedAt) : undefined,
         }
         if (parallelState.error) {
-          this._stepResults[stepIndex].parallelResults![parallelStepName].error = new Error(parallelState.error.message)
-          this._stepResults[stepIndex].parallelResults![parallelStepName].error!.name = parallelState.error.name
+          this._stepResults[stepIndex]!.parallelResults![parallelStepName]!.error = new Error(parallelState.error.message)
+          this._stepResults[stepIndex]!.parallelResults![parallelStepName]!.error!.name = parallelState.error.name
         }
       }
     }
@@ -655,7 +655,7 @@ export class WorkflowRuntime {
 
   private async executeSteps(): Promise<void> {
     while (this._currentStepIndex < this._steps.length && this._state === 'running') {
-      const step = this._steps[this._currentStepIndex]
+      const step = this._steps[this._currentStepIndex]!
       const stepResult = await this.executeStep(step, this._currentStepIndex)
 
       this._stepResults[this._currentStepIndex] = stepResult

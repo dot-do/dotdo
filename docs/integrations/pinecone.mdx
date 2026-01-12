@@ -3,6 +3,12 @@ title: Pinecone
 description: Drop-in replacement for the Pinecone SDK with edge-compatible HNSW vector search backed by Durable Objects
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
+<Callout type="info">
+  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
+</Callout>
+
 # Pinecone
 
 Drop-in replacement for the official Pinecone JavaScript SDK. Your existing `@pinecone-database/pinecone` code works unchanged - just swap the import.
@@ -689,6 +695,95 @@ What's different from Pinecone Cloud:
 - **Max vectors**: Depends on dimension (1536D ~ 150k vectors per DO)
 - **Horizontal scaling**: Shard across multiple DOs for larger datasets
 - **Query latency**: Sub-millisecond for typical workloads
+
+## Error Handling
+
+```typescript
+import { Pinecone, PineconeError, PineconeConnectionError, PineconeNotFoundError } from '@dotdo/pinecone'
+
+const pinecone = new Pinecone()
+
+try {
+  const index = pinecone.index('products')
+  const results = await index.query({
+    vector: queryEmbedding,
+    topK: 10,
+  })
+} catch (error) {
+  if (error instanceof PineconeNotFoundError) {
+    console.error('Index or vector not found:', error.message)
+  } else if (error instanceof PineconeConnectionError) {
+    console.error('Connection failed:', error.message)
+  } else if (error instanceof PineconeError) {
+    console.error('Pinecone error:', error.message)
+    console.error('Status:', error.status)
+  }
+}
+
+// Handle specific operation errors
+try {
+  await index.upsert([
+    { id: 'vec-1', values: [0.1, 0.2] } // Wrong dimension
+  ])
+} catch (error) {
+  if (error instanceof PineconeError && error.status === 400) {
+    console.error('Bad request - check vector dimensions')
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `PineconeError` | Base error class for all Pinecone errors |
+| `PineconeConnectionError` | Connection or network failures |
+| `PineconeNotFoundError` | Index or vector not found (404) |
+| `PineconeConflictError` | Resource already exists (409) |
+| `PineconeRateLimitError` | Too many requests (429) |
+
+## Migration from Pinecone SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @pinecone-database/pinecone
+
+# Install
+npm install @dotdo/pinecone
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Pinecone } from '@pinecone-database/pinecone'
+
+// After
+import { Pinecone } from '@dotdo/pinecone'
+```
+
+### Code Compatibility
+
+Your existing Pinecone code works unchanged:
+
+```typescript
+// This code works with both @pinecone-database/pinecone and @dotdo/pinecone
+const pinecone = new Pinecone()
+const index = pinecone.index('products')
+
+await index.upsert([
+  { id: 'vec-1', values: embedding, metadata: { category: 'tech' } }
+])
+
+const results = await index.query({
+  vector: queryEmbedding,
+  topK: 10,
+  filter: { category: { $eq: 'tech' } },
+  includeMetadata: true,
+})
+```
 
 ## Related
 

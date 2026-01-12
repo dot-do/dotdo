@@ -138,8 +138,8 @@ function negotiateContentType(
   const types = acceptHeader.split(',').map((part) => {
     const [type, ...params] = part.trim().split(';')
     const qParam = params.find((p) => p.trim().startsWith('q='))
-    const q = qParam ? parseFloat(qParam.split('=')[1]) : 1
-    return { type: type.trim(), q }
+    const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
+    return { type: type!.trim(), q }
   }).sort((a, b) => b.q - a.q)
 
   // Find first matching supported type
@@ -307,10 +307,10 @@ function parsePath(path: string): { type: string; id?: string; operation?: strin
 
   // Check for special operations
   if (second === '_batch') {
-    return { type, operation: 'batch' }
+    return { type: type!, operation: 'batch' }
   }
 
-  return { type, id: second }
+  return { type: type!, id: second }
 }
 
 /**
@@ -510,7 +510,7 @@ async function fetchResource(ctx: HandlerContext): Promise<unknown | null> {
 
   try {
     const query = (db as { query: Record<string, { findFirst: (opts: unknown) => Promise<unknown | null> }> }).query
-    return await query[type].findFirst({ where: { id } })
+    return await query[type]!.findFirst({ where: { id } })
   } catch {
     return null
   }
@@ -547,7 +547,7 @@ async function handleList(ctx: HandlerContext): Promise<Response> {
   try {
     // Query database
     const query = (db as { query: Record<string, { findMany: (opts: unknown) => Promise<unknown[]> }> }).query
-    const items = await query[type].findMany({ limit, offset })
+    const items = await query[type]!.findMany({ limit, offset })
 
     const response = {
       items,
@@ -572,7 +572,7 @@ async function handleGet(ctx: HandlerContext): Promise<Response> {
   try {
     // Query database
     const query = (db as { query: Record<string, { findFirst: (opts: unknown) => Promise<unknown | null> }> }).query
-    const resource = await query[type].findFirst({ where: { id } })
+    const resource = await query[type]!.findFirst({ where: { id } })
 
     if (!resource) {
       return c.json({ error: 'Resource not found' }, 404)
@@ -669,7 +669,7 @@ async function handleUpdate(ctx: HandlerContext, isPartial: boolean): Promise<Re
   try {
     // Check if resource exists
     const query = (db as { query: Record<string, { findFirst: (opts: unknown) => Promise<unknown | null> }> }).query
-    const existing = await query[type].findFirst({ where: { id } }) as Record<string, unknown> | null
+    const existing = await query[type]!.findFirst({ where: { id } }) as Record<string, unknown> | null
 
     if (!existing) {
       return c.json({ error: 'Resource not found' }, 404)
@@ -727,7 +727,7 @@ async function handleDelete(ctx: HandlerContext): Promise<Response> {
   try {
     // Check if resource exists
     const query = (db as { query: Record<string, { findFirst: (opts: unknown) => Promise<unknown | null> }> }).query
-    const existing = await query[type].findFirst({ where: { id } })
+    const existing = await query[type]!.findFirst({ where: { id } })
 
     if (!existing) {
       return c.json({ error: 'Resource not found' }, 404)
@@ -793,7 +793,7 @@ async function handleBatch(ctx: HandlerContext): Promise<Response> {
     // Load resources in parallel
     const results = await Promise.all(
       body.ids.map(async (id) => {
-        const resource = await query[type].findFirst({ where: { id } })
+        const resource = await query[type]!.findFirst({ where: { id } })
         return { id, resource }
       })
     )

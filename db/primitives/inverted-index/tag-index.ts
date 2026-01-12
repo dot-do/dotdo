@@ -142,7 +142,7 @@ export class TagIndex {
     }
 
     // Start with first tag's matches
-    const [firstKey, firstValue] = entries[0]
+    const [firstKey, firstValue] = entries[0]!
     const keyIndex = this.tagIndex.get(firstKey)
     if (!keyIndex) return []
 
@@ -153,7 +153,7 @@ export class TagIndex {
 
     // Intersect with remaining tags
     for (let i = 1; i < entries.length && result.size > 0; i++) {
-      const [key, value] = entries[i]
+      const [key, value] = entries[i]!
       const ki = this.tagIndex.get(key)
       if (!ki) return []
 

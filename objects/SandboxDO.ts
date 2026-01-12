@@ -797,7 +797,7 @@ export class SandboxDO extends DO<SandboxEnv> {
     const [client, server] = Object.values(pair)
 
     // Accept the server socket
-    server.accept()
+    server!.accept()
 
     // Generate terminal session ID
     const terminalSessionId = crypto.randomUUID()
@@ -810,7 +810,7 @@ export class SandboxDO extends DO<SandboxEnv> {
     // Create terminal session
     const session: TerminalSession = {
       sessionId: terminalSessionId,
-      clients: new Set([server]),
+      clients: new Set<WebSocket>([server!]),
       outputBuffer: new RingBuffer(64 * 1024), // 64KB buffer
       cols: Math.max(1, cols),
       rows: Math.max(1, rows),
@@ -818,7 +818,7 @@ export class SandboxDO extends DO<SandboxEnv> {
     this.terminalSessions.set(terminalSessionId, session)
 
     // Send connected message
-    server.send(JSON.stringify({
+    server!.send(JSON.stringify({
       type: 'connected',
       sessionId: terminalSessionId,
     }))
@@ -826,19 +826,19 @@ export class SandboxDO extends DO<SandboxEnv> {
     // Send buffered output for reconnection (if any)
     const bufferedOutput = session.outputBuffer.getAll()
     if (bufferedOutput) {
-      server.send(JSON.stringify({
+      server!.send(JSON.stringify({
         type: 'output',
         data: bufferedOutput,
       }))
     }
 
     // Handle incoming messages
-    server.addEventListener('message', async (event) => {
+    server!.addEventListener('message', async (event) => {
       try {
         const msg = JSON.parse(event.data as string) as TerminalMessage
-        await this.handleTerminalMessage(session, server, msg)
+        await this.handleTerminalMessage(session, server!, msg)
       } catch (e) {
-        server.send(JSON.stringify({
+        server!.send(JSON.stringify({
           type: 'error',
           data: `\x1b[31mError: ${(e as Error).message}\x1b[0m`,
         }))
@@ -846,14 +846,14 @@ export class SandboxDO extends DO<SandboxEnv> {
     })
 
     // Handle close
-    server.addEventListener('close', () => {
-      session.clients.delete(server)
+    server!.addEventListener('close', () => {
+      session.clients.delete(server!)
       // Don't destroy session on disconnect - keep for reconnection
     })
 
     // Handle error
-    server.addEventListener('error', () => {
-      session.clients.delete(server)
+    server!.addEventListener('error', () => {
+      session.clients.delete(server!)
     })
 
     // Return WebSocket upgrade response (Cloudflare Workers specific)

@@ -66,8 +66,8 @@ function parseDuration(durationStr: string): Duration {
     throw new Error(`Invalid duration format: ${durationStr}`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   switch (unit) {
     case 's':
@@ -194,7 +194,7 @@ export class ContinuousQuery {
     if (elements.length === 0) return
 
     // Get representative point for tags
-    const representative = elements[0]
+    const representative = elements[0]!
     const tags = extractGroupTags(representative, this.config.groupBy)
 
     // Aggregate each field
@@ -250,10 +250,10 @@ export class ContinuousQuery {
         return Math.max(...values)
 
       case 'first':
-        return values[0]
+        return values[0]!
 
       case 'last':
-        return values[values.length - 1]
+        return values[values.length - 1]!
 
       default:
         throw new Error(`Unknown aggregation function: ${fn}`)

@@ -152,7 +152,7 @@ function getVersionType(namespace: string, collection: string): string {
  */
 function parseVersionNumber(thingId: string): number | null {
   const match = thingId.match(/:v(\d+)$/)
-  return match ? parseInt(match[1], 10) : null
+  return match?.[1] ? parseInt(match[1], 10) : null
 }
 
 /**

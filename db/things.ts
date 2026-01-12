@@ -341,7 +341,7 @@ export async function softDeleteThing(
     .values(newVersion)
     .returning()
 
-  return results[0]
+  return results[0]!
 }
 
 /**
@@ -378,7 +378,7 @@ export async function undeleteThing(
     .values(newVersion)
     .returning()
 
-  return results[0]
+  return results[0]!
 }
 
 /**
@@ -402,7 +402,7 @@ export async function countVersions(
     .limit(10000) // Safety limit
 
   // The mock db returns count in a special format
-  if (results.length === 1 && 'count' in results[0]) {
+  if (results.length === 1 && 'count' in results[0]!) {
     return (results[0] as unknown as { count: number }).count
   }
 

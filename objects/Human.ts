@@ -107,7 +107,7 @@ export class Human extends Worker {
       // For now, just emit an event
       await this.emit('escalation.scheduled', {
         requestId: request.id,
-        firstCheck: policy.rules[0].afterMinutes,
+        firstCheck: policy.rules[0]!.afterMinutes,
       })
     }
   }
@@ -220,7 +220,7 @@ export class Human extends Worker {
 
     // Return placeholder - real decision comes asynchronously
     return {
-      selectedOption: options[0],
+      selectedOption: options[0]!,
       reasoning: 'Awaiting human decision',
     }
   }

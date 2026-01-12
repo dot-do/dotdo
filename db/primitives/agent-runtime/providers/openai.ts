@@ -292,7 +292,7 @@ export class OpenAIProvider extends BaseProvider {
       }
     }
 
-    const choice = response.choices[0]
+    const choice = response.choices[0]!
     const message = choice.message
 
     const toolCalls: ToolCall[] | undefined = message.tool_calls?.map((tc) => ({
@@ -306,7 +306,7 @@ export class OpenAIProvider extends BaseProvider {
       model: response.model,
       content: message.content ?? undefined,
       toolCalls,
-      finishReason: this.mapFinishReason(choice.finish_reason),
+      finishReason: this.mapFinishReason(choice!.finish_reason),
       usage: {
         promptTokens: response.usage.prompt_tokens,
         completionTokens: response.usage.completion_tokens,

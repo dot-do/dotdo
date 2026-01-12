@@ -699,8 +699,9 @@ export function extractPathParams(
   const params: Record<string, string> = {}
   for (let i = 0; i < paramNames.length; i++) {
     const value = match[i + 1]
+    const paramName = paramNames[i]!
     if (value !== undefined && value !== '') {
-      params[paramNames[i]] = decodeURIComponent(value)
+      params[paramName] = decodeURIComponent(value)
     }
   }
 
@@ -715,7 +716,7 @@ export function parseQueryParams(url: URL): Record<string, string | string[]> {
 
   url.searchParams.forEach((value, key) => {
     if (key in params) {
-      const existing = params[key]
+      const existing = params[key]!
       if (Array.isArray(existing)) {
         existing.push(value)
       } else {
@@ -742,11 +743,11 @@ export function parseAcceptHeader(header: string): Array<{ type: string; quality
       for (const param of params) {
         const [key, value] = param.trim().split('=')
         if (key === 'q') {
-          quality = parseFloat(value) || 1.0
+          quality = parseFloat(value!) || 1.0
         }
       }
 
-      return { type: type.trim(), quality }
+      return { type: type!.trim(), quality }
     })
     .sort((a, b) => b.quality - a.quality)
 }

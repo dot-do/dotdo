@@ -322,7 +322,7 @@ export function createMeasureContext(): MeasureContext {
         }
 
         const avg = metric.count > 0 ? metric.sum / metric.count : null
-        const last = metric.values.length > 0 ? metric.values[metric.values.length - 1] : null
+        const last = metric.values.length > 0 ? metric.values[metric.values.length - 1] ?? null : null
 
         return {
           count: metric.count,

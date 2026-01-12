@@ -546,8 +546,8 @@ class SchemaEvolutionImpl implements SchemaEvolution {
     }
 
     // All same type
-    const first = nonNullTypes[0]
-    if (nonNullTypes.every((t) => fieldTypesEqual(t, first))) {
+    const first = nonNullTypes[0]!
+    if (nonNullTypes.every((t) => fieldTypesEqual(t, first!))) {
       return first
     }
 
@@ -809,8 +809,8 @@ class SchemaEvolutionImpl implements SchemaEvolution {
     if (!effectivePolicy) {
       return {
         versionsRemoved: 0,
-        oldestVersion: this.history.length > 0 ? this.history[0].version : null,
-        newestVersion: this.history.length > 0 ? this.history[this.history.length - 1].version : null,
+        oldestVersion: this.history.length > 0 ? this.history[0]!.version : null,
+        newestVersion: this.history.length > 0 ? this.history[this.history.length - 1]!.version : null,
       }
     }
 
@@ -836,8 +836,8 @@ class SchemaEvolutionImpl implements SchemaEvolution {
 
     return {
       versionsRemoved,
-      oldestVersion: filteredHistory.length > 0 ? filteredHistory[0].version : null,
-      newestVersion: filteredHistory.length > 0 ? filteredHistory[filteredHistory.length - 1].version : null,
+      oldestVersion: filteredHistory.length > 0 ? filteredHistory[0]!.version : null,
+      newestVersion: filteredHistory.length > 0 ? filteredHistory[filteredHistory.length - 1]!.version : null,
     }
   }
 

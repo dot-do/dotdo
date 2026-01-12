@@ -22,7 +22,7 @@
  */
 
 // Re-export types
-export {
+export type {
   WorkflowStatus,
   WorkflowMetadata,
   WorkflowQuery,

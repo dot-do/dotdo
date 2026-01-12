@@ -643,12 +643,13 @@ export function parseRouteParams(
   const params: Record<string, string | undefined> = {}
   for (let i = 0; i < paramNames.length; i++) {
     const value = match[i + 1]
+    const paramName = paramNames[i]!
     if (value !== undefined && value !== '') {
       // URL decode the parameter
-      params[paramNames[i]] = decodeURIComponent(value)
+      params[paramName] = decodeURIComponent(value)
     } else {
       // For optional params, explicitly set undefined
-      params[paramNames[i]] = undefined
+      params[paramName] = undefined
     }
   }
 
@@ -689,7 +690,7 @@ export function serializeResponse(
 
   // For binary data, prefer the produces content type if specified
   if (data instanceof ArrayBuffer && options?.produces && options.produces.length > 0) {
-    contentType = options.produces[0]
+    contentType = options.produces[0]!
     return new Response(data, {
       status: options?.status || 200,
       headers: { 'Content-Type': contentType },
@@ -703,10 +704,10 @@ export function serializeResponse(
     for (const param of params) {
       const [key, value] = param.trim().split('=')
       if (key === 'q') {
-        quality = parseFloat(value)
+        quality = parseFloat(value!)
       }
     }
-    return { type: type.trim(), quality }
+    return { type: type!.trim(), quality }
   }).sort((a, b) => b.quality - a.quality)
 
   // Find best matching content type
@@ -1414,7 +1415,7 @@ export function createRestRouter(
 
     async function executeMiddleware(index: number): Promise<Response> {
       if (index < middlewareChain.length) {
-        const mw = middlewareChain[index]
+        const mw = middlewareChain[index]!
         return mw(currentRequest, () => executeMiddleware(index + 1))
       }
       return handleRequest(currentRequest)
@@ -1509,7 +1510,7 @@ export function createRestRouter(
     // Check Accept header for content negotiation
     const accept = request.headers.get('Accept') || '*/*'
     if (matchedRoute.produces && matchedRoute.produces.length > 0) {
-      const acceptTypes = accept.split(',').map((t) => t.split(';')[0].trim())
+      const acceptTypes = accept.split(',').map((t) => t.split(';')[0]!.trim())
       const hasMatch = acceptTypes.some(
         (t) => t === '*/*' || matchedRoute!.produces!.includes(t as ContentType)
       )
@@ -1530,7 +1531,7 @@ export function createRestRouter(
     if (['POST', 'PUT', 'PATCH'].includes(method)) {
       const contentType = request.headers.get('Content-Type') || ''
       if (matchedRoute.consumes && matchedRoute.consumes.length > 0) {
-        const baseContentType = contentType.split(';')[0].trim()
+        const baseContentType = contentType.split(';')[0]!.trim()
         const isSupported = matchedRoute.consumes.some((c) => {
           if (c === 'multipart/form-data' && baseContentType.includes('multipart/form-data')) {
             return true

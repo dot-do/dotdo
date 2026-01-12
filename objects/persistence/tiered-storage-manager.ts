@@ -331,7 +331,7 @@ export class TieredStorageManager {
     const hotRows = hotResult.toArray() as Array<{ data: string; access_count: number }>
 
     if (hotRows.length > 0) {
-      const accessCount = hotRows[0].access_count + 1
+      const accessCount = hotRows[0]!.access_count + 1
       this.storage.sql.exec(
         'UPDATE hot_tier SET access_count = ?, last_access_at = ? WHERE key = ?',
         accessCount,
@@ -339,7 +339,7 @@ export class TieredStorageManager {
         key
       )
       this.accessStats.hotHits++
-      return JSON.parse(hotRows[0].data)
+      return JSON.parse(hotRows[0]!.data)
     }
 
     // Check warm tier

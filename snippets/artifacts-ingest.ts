@@ -741,7 +741,7 @@ export async function uploadChunksParallel(
   async function processNext(): Promise<void> {
     while (nextIndex < chunks.length) {
       const currentIndex = nextIndex++
-      const result = await uploadChunk(chunks[currentIndex], currentIndex, endpoint, mode)
+      const result = await uploadChunk(chunks[currentIndex]!, currentIndex, endpoint, mode)
       results[currentIndex] = result
     }
   }

@@ -136,13 +136,13 @@ class LLMRouterImpl implements LLMRouter {
     let attemptIndex = 0
 
     for (let attempt = 0; attempt < maxAttempts && attemptIndex < providers.length; attempt++) {
-      const currentProvider = providers[attemptIndex]
+      const currentProvider = providers[attemptIndex]!
       try {
         response = await currentProvider.complete(request)
         const latencyMs = Math.round(performance.now() - startTime)
 
         // Update statistics
-        this.updateStats(currentProvider.name, request.model, response, latencyMs)
+        this.updateStats(currentProvider!.name, request.model, response, latencyMs)
 
         return response
       } catch (error) {
@@ -264,7 +264,7 @@ class LLMRouterImpl implements LLMRouter {
 
   private selectByLatency(providers: LLMProvider[]): LLMProvider {
     // Select provider with lowest average latency
-    let bestProvider = providers[0]
+    let bestProvider = providers[0]!
     let bestLatency = Infinity
 
     for (const provider of providers) {
@@ -284,7 +284,7 @@ class LLMRouterImpl implements LLMRouter {
   private selectByCost(providers: LLMProvider[], model: string): LLMProvider {
     // Select provider with lowest cost for the model
     // For now, just use the first one (could be enhanced with cost lookup)
-    return providers[0]
+    return providers[0]!
   }
 
   private shouldFallback(error: Error): boolean {

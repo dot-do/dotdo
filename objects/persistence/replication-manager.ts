@@ -99,21 +99,21 @@ export class ReplicationManager {
     this.ns = ns
 
     this.config = {
-      mode: options?.config?.mode ?? 'async',
+      mode: (options?.config?.mode ?? 'async') as ReplicationMode,
       maxLag: options?.config?.maxLag ?? DEFAULT_MAX_LAG,
       syncIntervalMs: options?.config?.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS,
       maxRetries: options?.config?.maxRetries ?? DEFAULT_MAX_RETRIES,
       retryDelayMs: options?.config?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
       syncTimeoutMs: options?.config?.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS,
       compress: options?.config?.compress ?? true,
-      locationHint: options?.config?.locationHint,
+      locationHint: options?.config?.locationHint ?? '',
     }
 
     this.state = {
       role: 'standalone',
       status: 'initializing',
       lag: 0,
-      mode: this.config.mode,
+      mode: this.config.mode!,
       maxLag: this.config.maxLag,
       syncIntervalMs: this.config.syncIntervalMs,
       establishedAt: Date.now(),

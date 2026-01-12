@@ -156,8 +156,8 @@ function parseDuration(duration: string): number {
     throw new Error(`Invalid duration format: ${duration}`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   switch (unit) {
     case 'ms': return value
@@ -206,14 +206,14 @@ function computePercentile(values: number[], p: number): number {
   const index = (p / 100) * (sorted.length - 1)
   const lower = Math.floor(index)
   const upper = Math.ceil(index)
-  if (lower === upper) return sorted[lower]
+  if (lower === upper) return sorted[lower]!
   const fraction = index - lower
-  return sorted[lower] * (1 - fraction) + sorted[upper] * fraction
+  return sorted[lower]! * (1 - fraction) + sorted[upper]! * fraction
 }
 
 function linearRegression(points: Array<{ x: number; y: number }>): { slope: number; intercept: number } {
   if (points.length === 0) return { slope: 0, intercept: 0 }
-  if (points.length === 1) return { slope: 0, intercept: points[0].y }
+  if (points.length === 1) return { slope: 0, intercept: points[0]!.y }
 
   const n = points.length
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
@@ -485,8 +485,8 @@ class MetricStore {
     // Determine direction: look at actual value change over time
     // For consistent trend data, check first vs last value
     const sortedPoints = [...dataPoints].sort((a, b) => a.timestamp - b.timestamp)
-    const firstValue = sortedPoints[0].value
-    const lastValue = sortedPoints[sortedPoints.length - 1].value
+    const firstValue = sortedPoints[0]!.value
+    const lastValue = sortedPoints[sortedPoints.length - 1]!.value
     const valueChange = lastValue - firstValue
     const avgValue = dataPoints.reduce((s, dp) => s + dp.value, 0) / dataPoints.length
 
@@ -498,10 +498,10 @@ class MetricStore {
     let allIncreasing = true
     let allDecreasing = true
     for (let i = 1; i < sortedPoints.length; i++) {
-      if (sortedPoints[i].value <= sortedPoints[i - 1].value) {
+      if (sortedPoints[i]!.value <= sortedPoints[i - 1]!.value) {
         allIncreasing = false
       }
-      if (sortedPoints[i].value >= sortedPoints[i - 1].value) {
+      if (sortedPoints[i]!.value >= sortedPoints[i - 1]!.value) {
         allDecreasing = false
       }
     }
@@ -649,7 +649,7 @@ class MetricStore {
         case 'min': return Math.min(...values)
         case 'max': return Math.max(...values)
         case 'count': return values.length
-        case 'current': return values[values.length - 1]
+        case 'current': return values[values.length - 1] ?? 0
       }
     }
 

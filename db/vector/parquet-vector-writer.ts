@@ -275,7 +275,7 @@ function shuffleFloatBytes(data: Uint8Array): Uint8Array {
   // Shuffle the complete float32 values
   for (let bytePos = 0; bytePos < 4; bytePos++) {
     for (let floatIdx = 0; floatIdx < numFloats; floatIdx++) {
-      shuffled[bytePos * numFloats + floatIdx] = data[floatIdx * 4 + bytePos]
+      shuffled[bytePos * numFloats + floatIdx] = data[floatIdx * 4 + bytePos]!
     }
   }
 
@@ -283,7 +283,7 @@ function shuffleFloatBytes(data: Uint8Array): Uint8Array {
   const remainder = data.length % 4
   if (remainder > 0) {
     for (let i = 0; i < remainder; i++) {
-      shuffled[numFloats * 4 + i] = data[numFloats * 4 + i]
+      shuffled[numFloats * 4 + i] = data[numFloats * 4 + i]!
     }
   }
 
@@ -300,7 +300,7 @@ function unshuffleFloatBytes(data: Uint8Array): Uint8Array {
   // Unshuffle the complete float32 values
   for (let bytePos = 0; bytePos < 4; bytePos++) {
     for (let floatIdx = 0; floatIdx < numFloats; floatIdx++) {
-      unshuffled[floatIdx * 4 + bytePos] = data[bytePos * numFloats + floatIdx]
+      unshuffled[floatIdx * 4 + bytePos] = data[bytePos * numFloats + floatIdx]!
     }
   }
 
@@ -308,7 +308,7 @@ function unshuffleFloatBytes(data: Uint8Array): Uint8Array {
   const remainder = data.length % 4
   if (remainder > 0) {
     for (let i = 0; i < remainder; i++) {
-      unshuffled[numFloats * 4 + i] = data[numFloats * 4 + i]
+      unshuffled[numFloats * 4 + i] = data[numFloats * 4 + i]!
     }
   }
 
@@ -323,9 +323,9 @@ function unshuffleFloatBytes(data: Uint8Array): Uint8Array {
 function deltaEncode(data: Uint8Array): Uint8Array {
   if (data.length === 0) return data
   const result = new Uint8Array(data.length)
-  result[0] = data[0]
+  result[0] = data[0]!
   for (let i = 1; i < data.length; i++) {
-    result[i] = (data[i] - data[i - 1]) & 0xff
+    result[i] = (data[i]! - data[i - 1]!) & 0xff
   }
   return result
 }
@@ -336,9 +336,9 @@ function deltaEncode(data: Uint8Array): Uint8Array {
 function deltaDecode(data: Uint8Array): Uint8Array {
   if (data.length === 0) return data
   const result = new Uint8Array(data.length)
-  result[0] = data[0]
+  result[0] = data[0]!
   for (let i = 1; i < data.length; i++) {
-    result[i] = (result[i - 1] + data[i]) & 0xff
+    result[i] = (result[i - 1]! + data[i]!) & 0xff
   }
   return result
 }
@@ -351,7 +351,7 @@ function deltaDecode(data: Uint8Array): Uint8Array {
 function quantizeToFloat16(floats: Float32Array): Uint16Array {
   const result = new Uint16Array(floats.length)
   for (let i = 0; i < floats.length; i++) {
-    result[i] = float32ToFloat16(floats[i])
+    result[i] = float32ToFloat16(floats[i]!)
   }
   return result
 }
@@ -362,7 +362,7 @@ function quantizeToFloat16(floats: Float32Array): Uint16Array {
 function dequantizeFromFloat16(data: Uint16Array): Float32Array {
   const result = new Float32Array(data.length)
   for (let i = 0; i < data.length; i++) {
-    result[i] = float16ToFloat32(data[i])
+    result[i] = float16ToFloat32(data[i]!)
   }
   return result
 }
@@ -374,7 +374,7 @@ function float32ToFloat16(val: number): number {
   const floatView = new Float32Array(1)
   const int32View = new Int32Array(floatView.buffer)
   floatView[0] = val
-  const f = int32View[0]
+  const f = int32View[0]!
 
   const sign = (f >> 31) & 0x0001
   const exp = (f >> 23) & 0x00ff
@@ -438,7 +438,7 @@ function float16ToFloat32(h: number): number {
   const floatView = new Float32Array(1)
   const int32View = new Int32Array(floatView.buffer)
   int32View[0] = f
-  return floatView[0]
+  return floatView[0]!
 }
 
 /**
@@ -467,8 +467,8 @@ function compressData(data: Uint8Array, codec: string): Uint8Array {
     result[0] = 0x10 // UNCOMPRESSED marker
     new DataView(result.buffer).setUint32(1, data.length, true)
     for (let i = 0; i < data.length; i++) {
-      result[5 + i * 2] = data[i]
-      result[5 + i * 2 + 1] = data[i] ^ 0xff // Store inverted as redundancy
+      result[5 + i * 2] = data[i]!
+      result[5 + i * 2 + 1] = data[i]! ^ 0xff // Store inverted as redundancy
     }
     return result
   }
@@ -504,7 +504,7 @@ function compressData(data: Uint8Array, codec: string): Uint8Array {
   }
 
   // Find best compression
-  let best = results[0]
+  let best = results[0]!
   for (const r of results) {
     if (r.data.length < best.data.length) {
       best = r
@@ -544,8 +544,8 @@ function lz77Compress(data: Uint8Array): Uint8Array {
 
     if (i + MIN_MATCH <= data.length) {
       // Compute 4-byte hash with mixing to reduce collisions
-      const h1 = data[i] + (data[i + 1] << 8)
-      const h2 = data[i + 2] + (data[i + 3] << 8)
+      const h1 = data[i]! + (data[i + 1]! << 8)
+      const h2 = data[i + 2]! + (data[i + 3]! << 8)
       const hash = ((h1 * 31) + h2) >>> 0
 
       const positions = hashTable.get(hash)
@@ -554,7 +554,7 @@ function lz77Compress(data: Uint8Array): Uint8Array {
         // Search recent positions (limit search depth for speed)
         const searchDepth = Math.min(positions.length, 8)
         for (let p = positions.length - 1; p >= positions.length - searchDepth; p--) {
-          const prevPos = positions[p]
+          const prevPos = positions[p]!
           const distance = i - prevPos
           if (distance > WINDOW_SIZE) continue
 
@@ -601,7 +601,7 @@ function lz77Compress(data: Uint8Array): Uint8Array {
       buffer[bufIdx++] = (matchOffset >> 8) & 0xff
       i += matchLength
     } else {
-      const byte = data[i]
+      const byte = data[i]!
       if (byte === 0xfe) {
         buffer[bufIdx++] = 0xff
         buffer[bufIdx++] = 0xfe
@@ -629,7 +629,7 @@ function decompressData(data: Uint8Array, codec: string): Uint8Array {
       const originalLength = new DataView(data.buffer, data.byteOffset + 1, 4).getUint32(0, true)
       const result = new Uint8Array(originalLength)
       for (let i = 0; i < originalLength; i++) {
-        result[i] = data[5 + i * 2]
+        result[i] = data[5 + i * 2]!
       }
       return result
     }
@@ -640,7 +640,7 @@ function decompressData(data: Uint8Array, codec: string): Uint8Array {
     return data
   }
 
-  const flag = data[0]
+  const flag = data[0]!
   const originalLength = new DataView(data.buffer, data.byteOffset + 1, 4).getUint32(0, true)
 
   if (flag === 0x00) {
@@ -652,7 +652,7 @@ function decompressData(data: Uint8Array, codec: string): Uint8Array {
     // UNCOMPRESSED marker - shouldn't reach here in normal flow
     const result = new Uint8Array(originalLength)
     for (let i = 0; i < originalLength; i++) {
-      result[i] = data[5 + i * 2]
+      result[i] = data[5 + i * 2]!
     }
     return result
   }
@@ -684,19 +684,19 @@ function lz77Decompress(data: Uint8Array, originalLength: number): Uint8Array {
   let i = 0
 
   while (i < data.length && resultIdx < originalLength) {
-    const byte = data[i]
+    const byte = data[i]!
 
     if (byte === 0xfe && i + 3 < data.length) {
-      const length = data[i + 1]
-      const offset = data[i + 2] | (data[i + 3] << 8)
+      const length = data[i + 1]!
+      const offset = data[i + 2]! | (data[i + 3]! << 8)
       const srcPos = resultIdx - offset
 
       for (let j = 0; j < length && resultIdx < originalLength; j++) {
-        result[resultIdx++] = result[srcPos + j]
+        result[resultIdx++] = result[srcPos + j]!
       }
       i += 4
     } else if (byte === 0xff && i + 1 < data.length) {
-      result[resultIdx++] = data[i + 1]
+      result[resultIdx++] = data[i + 1]!
       i += 2
     } else {
       result[resultIdx++] = byte
@@ -731,7 +731,7 @@ function readVarint(buffer: Uint8Array, offset: number): [number, number] {
   let pos = offset
 
   while (pos < buffer.length) {
-    const byte = buffer[pos]
+    const byte = buffer[pos]!
     value |= (byte & 0x7f) << shift
     pos++
     if ((byte & 0x80) === 0) break
@@ -782,7 +782,7 @@ function readFloat32Array(buffer: Uint8Array, offset: number): [Float32Array, nu
   const floatBytes = new Uint8Array(byteLength)
 
   for (let i = 0; i < byteLength; i++) {
-    floatBytes[i] = buffer[offset1 + i]
+    floatBytes[i] = buffer[offset1 + i]!
   }
 
   const floats = new Float32Array(floatBytes.buffer)
@@ -1165,7 +1165,7 @@ export class ParquetVectorWriter {
         continue
       }
 
-      const rowGroup = header.rowGroups[rgIdx]
+      const rowGroup = header.rowGroups[rgIdx]!
       let offset = rowGroup.offset
 
       // Read compressed length

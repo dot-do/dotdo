@@ -147,7 +147,7 @@ export class CompactModule implements LifecycleModule {
 
     for (const [key, group] of thingsByKey) {
       // Check if this key should be preserved
-      const thingId = key.split(':')[0]
+      const thingId = key.split(':')[0]!
       if (preserveKeys.includes(thingId)) {
         // Keep all versions for preserved keys
         latestThings.push(...group)
@@ -155,7 +155,7 @@ export class CompactModule implements LifecycleModule {
       }
 
       // Get latest version (last in array based on insertion order)
-      const latest = group[group.length - 1]
+      const latest = group[group.length - 1]!
 
       // Only keep non-deleted things
       if (!latest.deleted) {

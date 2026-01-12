@@ -508,7 +508,7 @@ export class IndexCache {
     )
 
     return results.map((result, i) => ({
-      r2Path: items[i].r2Path,
+      r2Path: items[i]!.r2Path,
       success: result.status === 'fulfilled',
       error: result.status === 'rejected' ? String(result.reason) : undefined,
     }))

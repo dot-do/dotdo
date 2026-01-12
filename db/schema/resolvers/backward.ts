@@ -434,10 +434,10 @@ export function parseBackwardReference(input: string): ParsedBackwardReference {
   if (workingInput.includes('|<-') || workingInput.includes('|<~')) {
     const operations = parseMixedOperators(workingInput)
     return {
-      operator: operations[0].operator as '<-' | '<~',
-      targetType: operations[0].type,
+      operator: operations[0]!.operator as '<-' | '<~',
+      targetType: operations[0]!.type,
       direction: 'backward',
-      matchMode: operations[0].operator === '<-' ? 'exact' : 'fuzzy',
+      matchMode: operations[0]!.operator === '<-' ? 'exact' : 'fuzzy',
       relationshipDirection: { from: 'target', to: 'this' },
       mixedOperators: true,
       operations,
@@ -449,8 +449,8 @@ export function parseBackwardReference(input: string): ParsedBackwardReference {
   let prompt: string | undefined
   const promptMatch = workingInput.match(/^(.+?)\s+(<[-~>])/)
   if (promptMatch) {
-    prompt = promptMatch[1].trim()
-    workingInput = workingInput.slice(promptMatch[1].length).trim()
+    prompt = promptMatch[1]!.trim()
+    workingInput = workingInput.slice(promptMatch[1]!.length).trim()
   }
 
   // Parse operator
@@ -481,7 +481,7 @@ export function parseBackwardReference(input: string): ParsedBackwardReference {
   const thresholdPattern = /(\w+)\(([0-9.]+)\)/g
   let thresholdMatch
   while ((thresholdMatch = thresholdPattern.exec(workingInput)) !== null) {
-    thresholds[thresholdMatch[1]] = parseFloat(thresholdMatch[2])
+    thresholds[thresholdMatch[1]!] = parseFloat(thresholdMatch[2]!)
   }
   const hasThresholds = Object.keys(thresholds).length > 0
 
@@ -489,8 +489,8 @@ export function parseBackwardReference(input: string): ParsedBackwardReference {
   let threshold: number | undefined
   const singleThresholdMatch = workingInput.match(/^(\w+)\(([0-9.]+)\)$/)
   if (singleThresholdMatch && !workingInput.includes('|')) {
-    threshold = parseFloat(singleThresholdMatch[2])
-    workingInput = singleThresholdMatch[1]
+    threshold = parseFloat(singleThresholdMatch[2]!)
+    workingInput = singleThresholdMatch[1]!
   }
 
   // Parse union types: `A|B|C` or `A(0.8)|B(0.7)`
@@ -501,13 +501,13 @@ export function parseBackwardReference(input: string): ParsedBackwardReference {
     // Remove thresholds for type extraction
     const cleanInput = workingInput.replace(/\([0-9.]+\)/g, '')
     unionTypes = cleanInput.split('|').map((t) => t.trim())
-    targetType = unionTypes[0]
+    targetType = unionTypes[0]!
   } else {
     // Parse backref field: `Type.field`
     const backrefMatch = workingInput.match(/^(\w+)\.(\w+)$/)
     if (backrefMatch) {
-      targetType = backrefMatch[1]
-      const backrefField = backrefMatch[2]
+      targetType = backrefMatch[1]!
+      const backrefField = backrefMatch[2]!
       return {
         operator,
         targetType,

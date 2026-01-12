@@ -681,7 +681,7 @@ export class ShardModule implements LifecycleModule {
       if (targetCount > currentCount) {
         // Scale up
         for (let i = 0; i < currentCount; i++) {
-          newEndpoints.push(registry.endpoints[i])
+          newEndpoints.push(registry.endpoints[i]!)
         }
 
         for (let i = currentCount; i < targetCount; i++) {
@@ -717,11 +717,11 @@ export class ShardModule implements LifecycleModule {
       } else {
         // Scale down
         for (let i = 0; i < targetCount; i++) {
-          newEndpoints.push(registry.endpoints[i])
+          newEndpoints.push(registry.endpoints[i]!)
         }
 
         for (let i = targetCount; i < currentCount; i++) {
-          const removedShard = registry.endpoints[i]
+          const removedShard = registry.endpoints[i]!
           const stub = (this.ctx.env.DO as DONamespace).get(
             (this.ctx.env.DO as DONamespace).idFromName(removedShard.ns)
           )
@@ -750,7 +750,7 @@ export class ShardModule implements LifecycleModule {
 
               for (const thing of state.things) {
                 const targetShardIndex = Math.abs(this._hashString(thing.id)) % targetCount
-                const targetShard = newEndpoints[targetShardIndex]
+                const targetShard = newEndpoints[targetShardIndex]!
                 const targetStub = (this.ctx.env.DO as DONamespace).get(
                   (this.ctx.env.DO as DONamespace).idFromName(targetShard.ns)
                 )
@@ -771,7 +771,7 @@ export class ShardModule implements LifecycleModule {
 
               for (const rel of state.relationships) {
                 const targetShardIndex = Math.abs(this._hashString(rel.from)) % targetCount
-                const targetShard = newEndpoints[targetShardIndex]
+                const targetShard = newEndpoints[targetShardIndex]!
                 const targetStub = (this.ctx.env.DO as DONamespace).get(
                   (this.ctx.env.DO as DONamespace).idFromName(targetShard.ns)
                 )

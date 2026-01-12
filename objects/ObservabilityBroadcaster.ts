@@ -81,7 +81,7 @@ export class ObservabilityBroadcaster extends DurableObject {
     if (doName) tags.push(`doName:${doName}`)
 
     // Accept WebSocket with hibernation API
-    this.ctx.acceptWebSocket(server, tags)
+    this.ctx.acceptWebSocket(server!, tags)
 
     // Store filter in WebSocket attachment
     const attachment: WebSocketAttachment = { filter }

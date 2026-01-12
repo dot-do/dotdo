@@ -1133,7 +1133,7 @@ function createWebSocketHandler(_path: string) {
     // Helper to send messages to client
     const sendToClient = (message: unknown) => {
       try {
-        server.send(JSON.stringify(message))
+        server!.send(JSON.stringify(message))
       } catch {
         // Ignore send errors on closed socket
       }
@@ -1160,7 +1160,7 @@ function createWebSocketHandler(_path: string) {
     }
     ctx.rootObject = createRootObject(ctx)
 
-    server.accept()
+    server!.accept()
 
     // Track if we've received any message or sent the ack
     let receivedMessage = false
@@ -1172,7 +1172,7 @@ function createWebSocketHandler(_path: string) {
     const ackTimeout = setTimeout(() => {
       if (!receivedMessage && !sentAck) {
         sentAck = true
-        server.send(
+        server!.send(
           JSON.stringify({
             type: 'connected',
             sessionId,
@@ -1181,7 +1181,7 @@ function createWebSocketHandler(_path: string) {
       }
     }, 500) // 500ms delay - give tests time to send first message
 
-    server.addEventListener('message', async (event) => {
+    server!.addEventListener('message', async (event) => {
       receivedMessage = true
       // Cancel pending ack if we receive a message
       clearTimeout(ackTimeout)
@@ -1189,7 +1189,7 @@ function createWebSocketHandler(_path: string) {
 
       // Handle binary data
       if (rawData instanceof ArrayBuffer) {
-        server.send(
+        server!.send(
           JSON.stringify({
             type: 'binary_received',
             size: rawData.byteLength,
@@ -1202,7 +1202,7 @@ function createWebSocketHandler(_path: string) {
       const MAX_MESSAGE_SIZE = 1024 * 1024 // 1MB
       const messageStr = rawData as string
       if (messageStr.length > MAX_MESSAGE_SIZE) {
-        server.send(
+        server!.send(
           JSON.stringify({
             jsonrpc: '2.0',
             error: { code: -32600, message: 'Message too large' },
@@ -1218,7 +1218,7 @@ function createWebSocketHandler(_path: string) {
         data = JSON.parse(messageStr)
       } catch {
         // Parse error
-        server.send(
+        server!.send(
           JSON.stringify({
             jsonrpc: '2.0',
             error: { code: -32700, message: 'Parse error' },
@@ -1230,7 +1230,7 @@ function createWebSocketHandler(_path: string) {
 
       // Check for empty batch (array with length 0)
       if (Array.isArray(data) && data.length === 0) {
-        server.send(
+        server!.send(
           JSON.stringify({
             jsonrpc: '2.0',
             error: { code: -32600, message: 'Invalid Request' },
@@ -1258,7 +1258,7 @@ function createWebSocketHandler(_path: string) {
           }
         }
         if (responses.length > 0) {
-          server.send(JSON.stringify(responses))
+          server!.send(JSON.stringify(responses))
         }
         return
       }
@@ -1269,14 +1269,14 @@ function createWebSocketHandler(_path: string) {
         if (data.method?.startsWith('obs.')) {
           const response = await handleObsMethod(data, obsManager, env, sendToClient)
           if (response) {
-            server.send(JSON.stringify({ ...response, id: data.id ?? null }))
+            server!.send(JSON.stringify({ ...response, id: data.id ?? null }))
           }
           return
         }
 
         const response = await handleJSONRPCRequest(data, ctx)
         if (response) {
-          server.send(JSON.stringify(response))
+          server!.send(JSON.stringify(response))
         }
         return
       }
@@ -1284,12 +1284,12 @@ function createWebSocketHandler(_path: string) {
       // Handle Capnweb request
       if (isCapnwebRequest(data)) {
         const response = await executeRequest(data, ctx)
-        server.send(JSON.stringify(response))
+        server!.send(JSON.stringify(response))
         return
       }
 
       // Invalid request format
-      server.send(
+      server!.send(
         JSON.stringify({
           jsonrpc: '2.0',
           error: { code: -32600, message: 'Invalid Request' },
@@ -1298,15 +1298,15 @@ function createWebSocketHandler(_path: string) {
       )
     })
 
-    server.addEventListener('close', () => {
+    server!.addEventListener('close', () => {
       // Clean up resources
       promiseStore.clear()
       subscriptions.clear()
       obsManager.clear()
     })
 
-    server.addEventListener('error', () => {
-      server.close()
+    server!.addEventListener('error', () => {
+      server!.close()
     })
 
     return new Response(null, {

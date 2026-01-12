@@ -186,7 +186,7 @@ function createRow(values: StorageValue[], columns: string[]): TursoRow {
 
   // Set values by column name
   for (let i = 0; i < columns.length; i++) {
-    row[columns[i]] = values[i] as TursoValue
+    row[columns[i]!] = values[i] as TursoValue
   }
 
   return row
@@ -211,7 +211,7 @@ function createResultSet(result: ExecutionResult): TursoResultSet {
         rows: this.rows.map((row) => {
           const obj: Record<string, TursoValue> = {}
           for (let i = 0; i < this.columns.length; i++) {
-            obj[this.columns[i]] = row[i]
+            obj[this.columns[i]!] = row[i]!
           }
           return obj
         }),
@@ -261,7 +261,7 @@ export class TursoDialect {
     try {
       for (let i = 0; i < stmts.length; i++) {
         try {
-          results.push(this.execute(stmts[i]))
+          results.push(this.execute(stmts[i]!))
         } catch (error) {
           this.engine.rollbackTransaction()
           const tursoError = mapToTursoError(error)

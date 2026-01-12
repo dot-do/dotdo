@@ -388,7 +388,7 @@ export class ParquetBuilder {
     // Flatten embeddings into a single typed array for FixedSizeList
     const flatEmbeddings = new Float32Array(this.rowCount * this.dimension)
     for (let i = 0; i < this.rowCount; i++) {
-      flatEmbeddings.set(this.buffers.embedding[i], i * this.dimension)
+      flatEmbeddings.set(this.buffers.embedding[i]!, i * this.dimension)
     }
 
     // Build table from arrays

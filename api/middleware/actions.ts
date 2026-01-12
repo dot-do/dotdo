@@ -693,7 +693,7 @@ export function actions(config?: ActionsConfig): MiddlewareHandler {
       }
 
       // Check if action exists
-      const actionConfig = actionsMap[actionName]
+      const actionConfig = actionsMap[actionName!]
       if (!actionConfig) {
         return c.json({ error: `Action '${actionName}' not found` }, 404)
       }
@@ -728,7 +728,7 @@ export function actions(config?: ActionsConfig): MiddlewareHandler {
 
         const executeAction = async (): Promise<unknown> => {
           return executionEngine.execute({
-            actionName,
+            actionName: actionName!,
             actionConfig,
             input,
             honoContext: c,

@@ -477,7 +477,7 @@ export class GelClient implements GelTransaction {
       throw new CardinalityViolationError('Expected exactly one result, got multiple')
     }
 
-    return results[0]
+    return results[0]!
   }
 
   /**
@@ -570,14 +570,14 @@ export class GelClient implements GelTransaction {
       if (hasExclusive && providedValues[prop.name]) {
         const constraintKey = `${targetName}.${prop.name}`
         const existingValues = this.insertedValues.get(constraintKey) ?? new Set()
-        const newValue = providedValues[prop.name]
+        const newValue = providedValues[prop.name]!
 
         if (existingValues.has(newValue)) {
-          throw new QueryError(`Constraint violation: UNIQUE constraint failed for ${prop.name}`)
+          throw new QueryError(`Constraint violation: UNIQUE constraint failed for ${prop.name!}`)
         }
 
         // Track the new value
-        existingValues.add(newValue)
+        existingValues.add(newValue!)
         this.insertedValues.set(constraintKey, existingValues)
       }
     }
@@ -629,8 +629,8 @@ export class GelClient implements GelTransaction {
     let match
 
     while ((match = paramPattern.exec(edgeql)) !== null) {
-      const typeSpec = match[1]
-      const paramName = match[2]
+      const typeSpec = match[1]!
+      const paramName = match[2]!
 
       // Check if parameter starts with 'optional'
       const isOptional = typeSpec.startsWith('optional ')
@@ -645,7 +645,7 @@ export class GelClient implements GelTransaction {
 
       // Validate type if value is provided
       if (value !== undefined && value !== null) {
-        this.validateParamType(paramName, value, expectedType)
+        this.validateParamType(paramName!, value, expectedType)
       }
     }
   }

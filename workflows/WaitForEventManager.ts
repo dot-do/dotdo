@@ -111,8 +111,8 @@ function parseDuration(duration: string | number): number {
     throw new Error(`Invalid duration format: ${duration}`)
   }
 
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
+  const value = parseFloat(match[1]!)
+  const unit = match[2]!.toLowerCase()
 
   const multipliers: Record<string, number> = {
     ms: 1,
@@ -276,7 +276,7 @@ export class WaitForEventManager {
       // Store wait metadata for later access (since storage is deleted on resolve)
       const waitMetadata = new Map<string, { eventName: string; createdAt: number }>()
       for (let i = 0; i < waitIds.length; i++) {
-        waitMetadata.set(waitIds[i], { eventName: eventNames[i], createdAt: Date.now() })
+        waitMetadata.set(waitIds[i]!, { eventName: eventNames[i]!, createdAt: Date.now() })
       }
 
       // Store resolvers for each wait

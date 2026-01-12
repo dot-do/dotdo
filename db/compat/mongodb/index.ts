@@ -172,7 +172,7 @@ class DbImpl implements IDb {
     if (!this._collections.has(name)) {
       this._collections.set(name, new Collection(this.databaseName, name))
     }
-    return this._collections.get(name) as Collection<T>
+    return this._collections.get(name)! as unknown as Collection<T>
   }
 
   async createCollection<T extends Document = Document>(name: string): Promise<Collection<T>> {

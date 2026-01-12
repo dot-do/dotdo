@@ -144,7 +144,7 @@ function parseDuration(duration: string | number): { isTimestamp: boolean; value
     throw new Error(`Invalid duration: ${duration}`)
   }
 
-  const value = parseInt(match[1], 10)
+  const value = parseInt(match[1]!, 10)
   const unit = match[2] || 's'
 
   let ms: number
@@ -783,7 +783,7 @@ function createFunnelQuery(
           for (const event of events) {
             // Find which step this event matches
             for (let stepIdx = 0; stepIdx < steps.length; stepIdx++) {
-              const step = steps[stepIdx]
+              const step = steps[stepIdx]!
 
               if (event.type !== step.eventType) continue
               if (step.filter && !matchesFilter(event, step.filter)) continue
@@ -791,13 +791,13 @@ function createFunnelQuery(
               // Check if this is the next expected step
               if (stepIdx === 0) {
                 // First step - always valid
-                usersInStep[0].add(userId)
-                stepTimes[0].set(userId, event.timestamp)
+                usersInStep[0]!.add(userId)
+                stepTimes[0]!.set(userId, event.timestamp)
                 lastStepTime = event.timestamp
                 lastStepIdx = 0
               } else if (stepIdx === lastStepIdx + 1) {
                 // Next step in sequence
-                const prevTime = stepTimes[stepIdx - 1].get(userId)
+                const prevTime = stepTimes[stepIdx - 1]!.get(userId)
                 if (prevTime === undefined) continue
 
                 // Check time window
@@ -806,8 +806,8 @@ function createFunnelQuery(
                 // For strict mode, ensure this step happens after the previous
                 if (isStrict && event.timestamp <= lastStepTime) continue
 
-                usersInStep[stepIdx].add(userId)
-                stepTimes[stepIdx].set(userId, event.timestamp)
+                usersInStep[stepIdx]!.add(userId)
+                stepTimes[stepIdx]!.set(userId, event.timestamp)
                 lastStepTime = event.timestamp
                 lastStepIdx = stepIdx
               }
@@ -818,16 +818,16 @@ function createFunnelQuery(
 
         // Build results
         for (let i = 0; i < steps.length; i++) {
-          const count = usersInStep[i].size
-          const prevCount = i === 0 ? count : usersInStep[i - 1].size
+          const count = usersInStep[i]!.size
+          const prevCount = i === 0 ? count : usersInStep[i - 1]!.size
 
           // Calculate average time from previous step
           let avgTimeFromPrevious: number | undefined
           if (i > 0) {
             const times: number[] = []
-            for (const userId of usersInStep[i]) {
-              const currTime = stepTimes[i].get(userId)
-              const prevTime = stepTimes[i - 1].get(userId)
+            for (const userId of usersInStep[i]!) {
+              const currTime = stepTimes[i]!.get(userId)
+              const prevTime = stepTimes[i - 1]!.get(userId)
               if (currTime !== undefined && prevTime !== undefined) {
                 times.push(currTime - prevTime)
               }
@@ -856,7 +856,7 @@ function createFunnelQuery(
       const getEventsForFunnel = (): TrackedEvent[] => {
         let events = storage.events
         if (whereFilter) {
-          events = events.filter((e) => matchesFilter(e, whereFilter))
+          events = events.filter((e) => matchesFilter(e, whereFilter!))
         }
         return events
       }
@@ -1078,7 +1078,7 @@ function createTrackProxy(storage: EventStorage): any {
             const baseTime = Date.now()
 
             for (let i = 0; i < events.length; i++) {
-              const { event: eventType, data, options } = events[i]
+              const { event: eventType, data, options } = events[i]!
 
               const trackedEvent: TrackedEvent = {
                 id: generateId(),
@@ -1125,7 +1125,7 @@ function createTrackProxy(storage: EventStorage): any {
 
             if (denominator.includes(':')) {
               const [type, path] = denominator.split(':')
-              denomEventType = type
+              denomEventType = type!
               denomFilter = { path }
             }
 

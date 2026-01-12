@@ -322,15 +322,15 @@ function manifestMatchesFilter(entry: ManifestListEntry, filterKeys: string[], f
       continue
     }
 
-    const summary = entry.partitions[partitionIndex]
+    const summary = entry.partitions[partitionIndex]!
 
     // No bounds for this field - cannot prune
-    if (!summary.lowerBound && !summary.upperBound) {
+    if (!summary!.lowerBound && !summary!.upperBound) {
       continue
     }
 
     // Check if filter value falls within bounds
-    if (!isValueWithinBounds(filterValue, summary.lowerBound, summary.upperBound)) {
+    if (!isValueWithinBounds(filterValue, summary!.lowerBound, summary!.upperBound)) {
       return false
     }
   }

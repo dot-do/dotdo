@@ -93,7 +93,7 @@ function convertPgAST(pgParseResult: PgParseResult): AST | AST[] {
   }
 
   if (stmts.length === 1) {
-    const stmt = extractStatement(stmts[0])
+    const stmt = extractStatement(stmts[0]!)
     return convertStatement(stmt)
   }
 
@@ -112,28 +112,28 @@ function convertStatement(stmt: PgNode | null): AST {
   }
 
   // Determine statement type from the object key
-  const stmtType = Object.keys(stmt)[0]
-  const stmtData = stmt[stmtType]
+  const stmtType = Object.keys(stmt)[0]!
+  const stmtData = (stmt as Record<string, unknown>)[stmtType]
 
   switch (stmtType) {
     case 'SelectStmt':
-      return convertSelectStmt(stmtData)
+      return convertSelectStmt(stmtData as PgNode)
     case 'InsertStmt':
-      return convertInsertStmt(stmtData)
+      return convertInsertStmt(stmtData as PgNode)
     case 'UpdateStmt':
-      return convertUpdateStmt(stmtData)
+      return convertUpdateStmt(stmtData as PgNode)
     case 'DeleteStmt':
-      return convertDeleteStmt(stmtData)
+      return convertDeleteStmt(stmtData as PgNode)
     case 'CreateStmt':
-      return convertCreateStmt(stmtData)
+      return convertCreateStmt(stmtData as PgNode)
     case 'TransactionStmt':
-      return convertTransactionStmt(stmtData)
+      return convertTransactionStmt(stmtData as PgNode)
     case 'VariableSetStmt':
-      return { type: 'set', ...stmtData }
+      return { type: 'set', ...(stmtData as object) }
     case 'ExplainStmt':
-      return { type: 'explain', ...stmtData }
+      return { type: 'explain', ...(stmtData as object) }
     default:
-      return { type: stmtType.replace('Stmt', '').toLowerCase(), ...stmtData }
+      return { type: stmtType.replace('Stmt', '').toLowerCase(), ...(stmtData as object) }
   }
 }
 
@@ -432,61 +432,63 @@ function convertExpr(expr: PgNode): Expression | ColumnRef | LiteralValue {
     return { type: 'null', value: null }
   }
 
-  const exprType = Object.keys(expr)[0]
-  const exprData = expr[exprType]
+  const exprType = Object.keys(expr)[0]!
+  const exprData = (expr as Record<string, unknown>)[exprType]
+
+  const data = exprData as PgNode
 
   switch (exprType) {
     case 'ColumnRef':
-      return convertColumnRef(exprData)
+      return convertColumnRef(data)
 
     case 'A_Const':
-      return convertAConst(exprData)
+      return convertAConst(data)
 
     case 'A_Expr':
-      return convertAExpr(exprData)
+      return convertAExpr(data)
 
     case 'BoolExpr':
-      return convertBoolExpr(exprData)
+      return convertBoolExpr(data)
 
     case 'NullTest':
       return {
         type: 'unary_expr',
-        operator: exprData.nulltesttype === 0 ? 'IS NULL' : 'IS NOT NULL',
-        args: [convertExpr(exprData.arg)],
+        operator: data.nulltesttype === 0 ? 'IS NULL' : 'IS NOT NULL',
+        args: [convertExpr(data.arg)],
       }
 
     case 'FuncCall':
       return {
         type: 'function',
-        operator: exprData.funcname?.map((n: PgNode) => n.String?.str).join('.') || 'unknown',
-        args: exprData.args?.map(convertExpr) || [],
+        operator: data.funcname?.map((n: PgNode) => n.String?.str).join('.') || 'unknown',
+        args: data.args?.map(convertExpr) || [],
       }
 
     case 'TypeCast':
       return {
         type: 'cast',
-        args: [convertExpr(exprData.arg)],
-        operator: convertTypeName(exprData.typeName),
+        args: [convertExpr(data.arg)],
+        operator: convertTypeName(data.typeName),
       }
 
     case 'SubLink':
       return {
         type: 'subquery',
-        operator: mapSubLinkType(exprData.subLinkType),
-        args: exprData.subselect ? [convertStatement(exprData.subselect)] : [],
+        operator: mapSubLinkType(data.subLinkType),
+        args: data.subselect ? [convertStatement(data.subselect)] : [],
       }
 
     case 'CaseExpr':
       return {
         type: 'case',
         args: [
-          ...(exprData.args?.map(convertExpr) || []),
-          exprData.defresult ? convertExpr(exprData.defresult) : undefined,
+          ...(data.args?.map(convertExpr) || []),
+          data.defresult ? convertExpr(data.defresult) : undefined,
         ].filter(Boolean),
       }
 
     case 'ParamRef':
-      return { type: 'param', value: exprData.number || 0 }
+      return { type: 'param', value: data.number || 0 }
 
     case 'A_Star':
       return { type: 'column_ref', column: '*' }
@@ -494,18 +496,18 @@ function convertExpr(expr: PgNode): Expression | ColumnRef | LiteralValue {
     case 'A_ArrayExpr':
       return {
         type: 'array',
-        args: exprData.elements?.map(convertExpr) || [],
+        args: data.elements?.map(convertExpr) || [],
       }
 
     case 'CoalesceExpr':
       return {
         type: 'function',
         operator: 'COALESCE',
-        args: exprData.args?.map(convertExpr) || [],
+        args: data.args?.map(convertExpr) || [],
       }
 
     default:
-      return { type: exprType.toLowerCase(), ...exprData }
+      return { type: exprType!.toLowerCase(), ...(data as object) }
   }
 }
 
@@ -833,12 +835,12 @@ export class PgsqlParserAdapter implements SQLParser {
       let location: { line: number; column: number; offset?: number } | undefined
 
       if (locationMatch) {
-        const offset = parseInt(locationMatch[1], 10)
+        const offset = parseInt(locationMatch[1]!, 10)
         const beforeError = sql.substring(0, offset)
         const lines = beforeError.split('\n')
         location = {
           line: lines.length,
-          column: lines[lines.length - 1].length + 1,
+          column: lines[lines.length - 1]!.length + 1,
           offset,
         }
       }

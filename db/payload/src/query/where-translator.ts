@@ -465,7 +465,7 @@ export function translateWhere(
   }
 
   // Combine all conditions with AND
-  const finalSql = conditions.length === 1 ? conditions[0] : and(...conditions)!
+  const finalSql = conditions.length === 1 ? conditions[0]! : and(...conditions)!
 
   return {
     sql: finalSql,

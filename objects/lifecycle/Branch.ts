@@ -82,7 +82,7 @@ export class BranchModule implements LifecycleModule {
     // Create branch record
     await this.ctx.db.insert(schema.branches).values({
       name,
-      thingId: currentBranchThings[0].id,
+      thingId: currentBranchThings[0]!.id,
       head,
       base: head,
       forkedFrom: this._currentBranch,
@@ -236,7 +236,7 @@ export class BranchModule implements LifecycleModule {
     const toMerge: typeof things = []
 
     for (const [id, sourceVersions] of sourceById) {
-      const latestSource = sourceVersions[sourceVersions.length - 1]
+      const latestSource = sourceVersions[sourceVersions.length - 1]!
       const targetVersions = targetById.get(id) || []
 
       if (targetVersions.length === 0) {
@@ -244,10 +244,10 @@ export class BranchModule implements LifecycleModule {
         toMerge.push({
           ...latestSource,
           branch: targetBranchFilter,
-        })
+        } as (typeof things)[0])
       } else {
         // Thing exists on both - check for conflicts
-        const latestTarget = targetVersions[targetVersions.length - 1]
+        const latestTarget = targetVersions[targetVersions.length - 1]!
 
         // Compare changes
         const sourceData = (latestSource.data || {}) as Record<string, unknown>
@@ -301,12 +301,12 @@ export class BranchModule implements LifecycleModule {
               ...latestTarget,
               data: mergedData,
               deleted: latestSource.deleted || latestTarget.deleted,
-            })
+            } as (typeof things)[0])
           } else if (Object.keys(mergedData).length > 0 || sourceChanges.size > 0) {
             toMerge.push({
               ...latestTarget,
               data: mergedData,
-            })
+            } as (typeof things)[0])
           }
         }
       }

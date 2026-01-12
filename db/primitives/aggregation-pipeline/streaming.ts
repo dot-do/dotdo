@@ -30,7 +30,8 @@ import { createProjectStage, ProjectSpec } from './stages/project'
 import type { Accumulator } from './stages/group'
 
 // Re-export for convenience
-export { WindowManager, Window, EventTimeTrigger, CountTrigger, ProcessingTimeTrigger, PurgingTrigger, Trigger, TriggerResult, minutes, seconds, hours }
+export { WindowManager, EventTimeTrigger, CountTrigger, ProcessingTimeTrigger, PurgingTrigger, minutes, seconds, hours }
+export type { Window, Trigger, TriggerResult }
 
 // ============================================================================
 // Types

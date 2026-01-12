@@ -288,7 +288,7 @@ export class QueryPlanner {
     }
 
     if (node.op === 'NOT') {
-      return 1 - this.estimateSelectivity(node.children[0], table)
+      return 1 - this.estimateSelectivity(node.children[0]!, table)
     }
 
     return 0.5
@@ -681,7 +681,7 @@ export class QueryPlanner {
       const gb = ast as unknown as { groupBy: GroupByNode }
       return gb.groupBy?.columns.length === 0 &&
         gb.groupBy?.aggregations.length === 1 &&
-        gb.groupBy?.aggregations[0].aggregation.function === 'count'
+        gb.groupBy?.aggregations[0]!.aggregation.function === 'count'
     }
     return false
   }
@@ -695,4 +695,4 @@ export class QueryPlanner {
 // Exports
 // =============================================================================
 
-export type { TableStatistics, IndexInfo, CostModel, QueryPlan, PlanNode }
+// Types already exported at definition - removed duplicate exports

@@ -552,7 +552,7 @@ export class NodeSQLParserAdapter implements SQLParser {
       // Try to extract location from error message
       const locationMatch = errorMessage.match(/line (\d+), column (\d+)/i)
       const location = locationMatch
-        ? { line: parseInt(locationMatch[1], 10), column: parseInt(locationMatch[2], 10) }
+        ? { line: parseInt(locationMatch[1]!, 10), column: parseInt(locationMatch[2]!, 10) }
         : undefined
 
       throw new SQLParseError(errorMessage, {

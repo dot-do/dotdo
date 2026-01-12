@@ -66,14 +66,14 @@ export class DODispatcher {
     const [doClass, doId] = pathParts
 
     // Validate the type is registered
-    if (!this.registry.has(doClass)) {
+    if (!this.registry.has(doClass!)) {
       throw new Error(`Unknown type: ${doClass}`)
     }
 
     return {
       namespace,
-      doClass,
-      doId,
+      doClass: doClass!,
+      doId: doId!,
     }
   }
 

@@ -161,7 +161,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     // Build log entry
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
-      level: levelNames[logLevel],
+      level: levelNames[logLevel]!,
       message,
     }
 

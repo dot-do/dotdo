@@ -468,7 +468,7 @@ export function createDAG(options: DAGOptions): DAG {
   }
   const cycles = resolver.detectCycles(tempDag)
   if (cycles) {
-    throw new Error(`Cycle detected in DAG: ${cycles[0].join(' -> ')}`)
+    throw new Error(`Cycle detected in DAG: ${cycles[0]!.join(' -> ')}`)
   }
 
   const dag: DAG = {
@@ -565,7 +565,7 @@ export function createRetryPolicy(config: RetryPolicy): RetryPolicyInstance {
       }
 
       case 'custom':
-        return backoff.delays[attempt - 1] ?? backoff.delays[backoff.delays.length - 1]
+        return backoff.delays![attempt - 1] ?? backoff.delays![backoff.delays!.length - 1] ?? 0
 
       default:
         return 0
@@ -843,7 +843,7 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
             if (task.dynamic) {
               // Get the upstream result to expand from (first dependency's output)
               const upstreamOutput = task.dependencies.length > 0
-                ? upstreamResults[task.dependencies[0]]
+                ? upstreamResults[task.dependencies[0]!]
                 : result.output
 
               let expandedTasks = task.dynamic.expand(upstreamOutput)
@@ -1150,16 +1150,16 @@ export function parseCronExpression(expression: string): ParsedCron {
 
     // Range pattern: n-m
     if (part.includes('-')) {
-      const [startStr, endStr] = part.split('-')
-      let start = parseInt(startStr, 10)
-      let end = parseInt(endStr, 10)
+      const [startStr, endStr] = part.split('-') as [string, string]
+      let start = parseInt(startStr!, 10)
+      let end = parseInt(endStr!, 10)
 
       // Handle day names
-      if (isNaN(start) && DAY_NAMES[startStr.toUpperCase()] !== undefined) {
-        start = DAY_NAMES[startStr.toUpperCase()]
+      if (isNaN(start) && DAY_NAMES[startStr!.toUpperCase()] !== undefined) {
+        start = DAY_NAMES[startStr!.toUpperCase()]!
       }
-      if (isNaN(end) && DAY_NAMES[endStr.toUpperCase()] !== undefined) {
-        end = DAY_NAMES[endStr.toUpperCase()]
+      if (isNaN(end) && DAY_NAMES[endStr!.toUpperCase()] !== undefined) {
+        end = DAY_NAMES[endStr!.toUpperCase()]!
       }
 
       if (isNaN(start) || isNaN(end) || start < min || end > max) {
@@ -1171,7 +1171,7 @@ export function parseCronExpression(expression: string): ParsedCron {
     // Single value
     let value = parseInt(part, 10)
     if (isNaN(value) && DAY_NAMES[part.toUpperCase()] !== undefined) {
-      value = DAY_NAMES[part.toUpperCase()]
+      value = DAY_NAMES[part.toUpperCase()]!
     }
     if (isNaN(value) || value < min || value > max) {
       throw new Error(`Invalid value: ${part} (must be ${min}-${max})`)
@@ -1180,11 +1180,11 @@ export function parseCronExpression(expression: string): ParsedCron {
   }
 
   return {
-    minute: parsePart(parts[0], 0, 59),
-    hour: parsePart(parts[1], 0, 23),
-    dayOfMonth: parsePart(parts[2], 1, 31),
-    month: parsePart(parts[3], 1, 12),
-    dayOfWeek: parsePart(parts[4], 0, 6),
+    minute: parsePart(parts[0]!, 0, 59),
+    hour: parsePart(parts[1]!, 0, 23),
+    dayOfMonth: parsePart(parts[2]!, 1, 31),
+    month: parsePart(parts[3]!, 1, 12),
+    dayOfWeek: parsePart(parts[4]!, 0, 6),
   }
 }
 

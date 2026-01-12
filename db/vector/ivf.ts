@@ -247,9 +247,9 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let normA = 0
   let normB = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    normA += a[i]! * a[i]!
+    normB += b[i]! * b[i]!
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB)
   return denom > 0 ? dot / denom : 0
@@ -261,7 +261,7 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 function l2Distance(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return Math.sqrt(sum)
@@ -289,14 +289,14 @@ function computeDistance(
 function normalizeVector(v: Float32Array): Float32Array {
   let norm = 0
   for (let i = 0; i < v.length; i++) {
-    norm += v[i] * v[i]
+    norm += v[i]! * v[i]!
   }
   norm = Math.sqrt(norm)
   if (norm === 0) return v
 
   const result = new Float32Array(v.length)
   for (let i = 0; i < v.length; i++) {
-    result[i] = v[i] / norm
+    result[i] = v[i]! / norm
   }
   return result
 }
@@ -378,7 +378,7 @@ export class IVFIndex {
       const centroidId = this.findNearestCentroid(vector)
       this.assignments.set(id, centroidId)
       this.invertedLists.get(centroidId)!.push(id)
-      this.centroids[centroidId].count++
+      this.centroids[centroidId]!.count++
     }
   }
 
@@ -394,7 +394,7 @@ export class IVFIndex {
       const idx = list.indexOf(id)
       if (idx >= 0) {
         list.splice(idx, 1)
-        this.centroids[centroidId].count--
+        this.centroids[centroidId]!.count--
       }
       this.assignments.delete(id)
     }
@@ -415,7 +415,7 @@ export class IVFIndex {
       const idx = list.indexOf(id)
       if (idx >= 0) {
         list.splice(idx, 1)
-        this.centroids[oldCentroidId].count--
+        this.centroids[oldCentroidId]!.count--
       }
     }
 
@@ -427,7 +427,7 @@ export class IVFIndex {
       const newCentroidId = this.findNearestCentroid(vector)
       this.assignments.set(id, newCentroidId)
       this.invertedLists.get(newCentroidId)!.push(id)
-      this.centroids[newCentroidId].count++
+      this.centroids[newCentroidId]!.count++
     }
   }
 
@@ -534,12 +534,12 @@ export class IVFIndex {
     const shuffled = [...vectorIds]
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = rng.nextInt(i + 1)
-      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      ;[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!]
     }
 
     this.centroids = []
     for (let i = 0; i < this.config.nlist; i++) {
-      const vec = this.vectors.get(shuffled[i])!
+      const vec = this.vectors.get(shuffled[i]!)!
       this.centroids.push({
         id: i,
         vector: normalizeVector(new Float32Array(vec)),
@@ -557,7 +557,7 @@ export class IVFIndex {
 
     // Pick first centroid randomly
     const firstIdx = rng.nextInt(vectorIds.length)
-    const firstVec = this.vectors.get(vectorIds[firstIdx])!
+    const firstVec = this.vectors.get(vectorIds[firstIdx]!)!
     this.centroids.push({
       id: 0,
       vector: normalizeVector(new Float32Array(firstVec)),
@@ -587,14 +587,14 @@ export class IVFIndex {
       let chosenIdx = 0
 
       for (let i = 0; i < distances.length; i++) {
-        cumulative += distances[i]
+        cumulative += distances[i]!
         if (cumulative >= threshold) {
           chosenIdx = i
           break
         }
       }
 
-      const chosenVec = this.vectors.get(vectorIds[chosenIdx])!
+      const chosenVec = this.vectors.get(vectorIds[chosenIdx]!)!
       this.centroids.push({
         id: k,
         vector: normalizeVector(new Float32Array(chosenVec)),
@@ -608,7 +608,7 @@ export class IVFIndex {
     this.assignments.clear()
     for (let i = 0; i < this.config.nlist; i++) {
       this.invertedLists.set(i, [])
-      this.centroids[i].count = 0
+      this.centroids[i]!.count = 0
     }
 
     // Assign each vector to nearest centroid
@@ -616,7 +616,7 @@ export class IVFIndex {
       const centroidId = this.findNearestCentroid(vec)
       this.assignments.set(id, centroidId)
       this.invertedLists.get(centroidId)!.push(id)
-      this.centroids[centroidId].count++
+      this.centroids[centroidId]!.count++
     }
   }
 
@@ -630,16 +630,16 @@ export class IVFIndex {
       for (const id of list) {
         const vec = this.vectors.get(id)!
         for (let d = 0; d < this.config.dimensions; d++) {
-          mean[d] += vec[d]
+          mean[d]! += vec[d]!
         }
       }
 
       for (let d = 0; d < this.config.dimensions; d++) {
-        mean[d] /= list.length
+        mean[d]! /= list.length
       }
 
       // Normalize for cosine metric
-      this.centroids[i].vector = normalizeVector(mean)
+      this.centroids[i]!.vector = normalizeVector(mean)
     }
   }
 
@@ -648,22 +648,22 @@ export class IVFIndex {
     let maxCount = 0
     let maxClusterId = 0
     for (let i = 0; i < this.config.nlist; i++) {
-      if (this.centroids[i].count > maxCount) {
-        maxCount = this.centroids[i].count
+      if (this.centroids[i]!.count > maxCount) {
+        maxCount = this.centroids[i]!.count
         maxClusterId = i
       }
     }
 
     // Relocate empty clusters to points from the largest cluster
     for (let i = 0; i < this.config.nlist; i++) {
-      if (this.centroids[i].count === 0 && maxCount > 1) {
+      if (this.centroids[i]!.count === 0 && maxCount > 1) {
         const largestList = this.invertedLists.get(maxClusterId)!
         const randIdx = rng.nextInt(largestList.length)
-        const vecId = largestList[randIdx]
+        const vecId = largestList[randIdx]!
         const vec = this.vectors.get(vecId)!
 
         // Move this vector to the empty cluster
-        this.centroids[i].vector = normalizeVector(new Float32Array(vec))
+        this.centroids[i]!.vector = normalizeVector(new Float32Array(vec))
       }
     }
   }
@@ -673,14 +673,14 @@ export class IVFIndex {
     for (const [id, vec] of this.vectors) {
       const centroidId = this.assignments.get(id)
       if (centroidId !== undefined) {
-        const centroid = this.centroids[centroidId]
+        const centroid = this.centroids[centroidId]!
         totalError += computeDistance(vec, centroid.vector, this.config.metric)
       } else {
         // Not assigned yet - use distance to nearest centroid
         const nearestId = this.findNearestCentroid(vec)
         totalError += computeDistance(
           vec,
-          this.centroids[nearestId].vector,
+          this.centroids[nearestId]!.vector,
           this.config.metric
         )
       }
@@ -735,7 +735,7 @@ export class IVFIndex {
 
     const centroidId = this.assignments.get(id)!
     const vec = this.vectors.get(id)!
-    const centroid = this.centroids[centroidId]
+    const centroid = this.centroids[centroidId]!
     const distance = computeDistance(vec, centroid.vector, this.config.metric)
 
     return { centroidId, distance }
@@ -899,8 +899,8 @@ export class IVFIndex {
     const n = sorted.length
 
     const avgLatencyMs = sorted.reduce((a, b) => a + b, 0) / n
-    const p50LatencyMs = sorted[Math.floor(n * 0.5)]
-    const p99LatencyMs = sorted[Math.floor(n * 0.99)]
+    const p50LatencyMs = sorted[Math.floor(n * 0.5)]!
+    const p99LatencyMs = sorted[Math.floor(n * 0.99)]!
 
     return {
       searchCount: n,

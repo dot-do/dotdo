@@ -548,13 +548,96 @@ import type {
 
 // Error class
 import { Auth0APIError } from '@dotdo/auth0'
+```
+
+## Error Handling
+
+```typescript
+import { Auth0APIError, Auth0ValidationError, Auth0AuthenticationError } from '@dotdo/auth0'
 
 try {
-  await management.users.get({ id: 'invalid' })
+  await management.users.get({ id: 'invalid-user-id' })
 } catch (error) {
   if (error instanceof Auth0APIError) {
-    console.error(`${error.statusCode}: ${error.message}`)
-    // 404: User not found: invalid
+    console.error('Status:', error.statusCode)      // 404
+    console.error('Message:', error.message)        // 'User not found: invalid-user-id'
+    console.error('Error Code:', error.errorCode)   // 'inexistent_user'
+  }
+}
+```
+
+### Error Types
+
+| Error Type | Description |
+|------------|-------------|
+| `Auth0APIError` | Base error for all API errors |
+| `Auth0ValidationError` | Invalid request parameters |
+| `Auth0AuthenticationError` | Authentication/authorization failures |
+| `Auth0RateLimitError` | Rate limit exceeded |
+
+### Common Error Codes
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `inexistent_user` | 404 | User not found |
+| `inexistent_connection` | 404 | Connection not found |
+| `invalid_body` | 400 | Invalid request body |
+| `invalid_query_string` | 400 | Invalid query parameters |
+| `password_strength_error` | 400 | Password too weak |
+| `user_exists` | 409 | User with email already exists |
+| `invalid_token` | 401 | Token is invalid or expired |
+| `insufficient_scope` | 403 | Token lacks required scopes |
+
+### Authentication Errors
+
+```typescript
+import { AuthenticationClient } from '@dotdo/auth0'
+
+const auth = new AuthenticationClient({
+  domain: 'your-tenant.auth0.do',
+  jwtSecret: 'your-jwt-secret',
+})
+
+try {
+  await auth.oauth.token({
+    grant_type: 'password',
+    client_id: 'your-client-id',
+    username: 'user@example.com',
+    password: 'wrong-password',
+  })
+} catch (error) {
+  if (error instanceof Auth0AuthenticationError) {
+    switch (error.errorCode) {
+      case 'invalid_grant':
+        console.error('Invalid username or password')
+        break
+      case 'mfa_required':
+        console.error('MFA token:', error.mfaToken)
+        // Prompt user for MFA code
+        break
+      case 'too_many_attempts':
+        console.error('Account locked due to too many failed attempts')
+        break
+    }
+  }
+}
+```
+
+### Rate Limiting
+
+```typescript
+import { Auth0RateLimitError } from '@dotdo/auth0'
+
+try {
+  // Bulk operations
+  for (const user of users) {
+    await management.users.create(user)
+  }
+} catch (error) {
+  if (error instanceof Auth0RateLimitError) {
+    console.error('Rate limited, retry after:', error.retryAfter, 'seconds')
+    // Wait and retry
+    await new Promise(r => setTimeout(r, error.retryAfter * 1000))
   }
 }
 ```

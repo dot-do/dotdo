@@ -134,11 +134,11 @@ function parseReferenceString(input: string): {
     const match = input.match(pattern)
     if (match) {
       const [, promptPart, , targetPart, optionalPart] = match
-      const prompt = promptPart.trim() || undefined
+      const prompt = promptPart!.trim() || undefined
 
       // Parse target - check for union types (User|Org)
-      const targets = targetPart.split('|').filter(Boolean)
-      const target = targets.length === 1 ? targets[0] : targets
+      const targets = targetPart!.split('|').filter(Boolean)
+      const target: string | string[] = targets.length === 1 ? targets[0]! : targets
 
       return {
         operator,

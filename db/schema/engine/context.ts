@@ -340,7 +340,7 @@ export class GenerationContext {
     if (match) {
       const [, field, value] = match
       const parent = this.getParent()
-      return parent?.[field] === value
+      return parent?.[field!] === value
     }
     return false
   }

@@ -615,9 +615,9 @@ analyticsRouter.post('/v1/query', async (c) => {
 
       // Extract column metadata from first row
       const columns = data.length > 0
-        ? Object.keys(data[0]).map((name) => ({
+        ? Object.keys(data[0]!).map((name) => ({
             name,
-            type: typeof data[0][name],
+            type: typeof data[0]![name],
           }))
         : []
 

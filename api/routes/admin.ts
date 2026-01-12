@@ -61,8 +61,8 @@ function parseRangeShorthand(range: string): TimeRange | null {
   const match = range.match(/^(\d+)(h|d)$/)
   if (!match) return null
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   const now = new Date()
   const start = new Date(now)
@@ -198,7 +198,7 @@ function parsePagination(
  */
 function parseSort(sortParam?: string, validValues: string[] = ['cost', 'requests', 'latency']): { sort: string; error: string | null } {
   if (!sortParam) {
-    return { sort: validValues[0], error: null }
+    return { sort: validValues[0]!, error: null }
   }
 
   if (!validValues.includes(sortParam)) {

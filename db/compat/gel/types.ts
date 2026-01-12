@@ -411,7 +411,7 @@ function parseSecondsToMicroseconds(secondsStr: string): bigint {
   if (secondsStr.includes('.')) {
     const [intPart, fracPart] = secondsStr.split('.')
     const intSeconds = BigInt(intPart || '0')
-    const paddedFrac = fracPart.padEnd(6, '0').slice(0, 6)
+    const paddedFrac = fracPart!.padEnd(6, '0').slice(0, 6)
     return intSeconds * MICROSECONDS_PER_SECOND + BigInt(paddedFrac)
   }
   return BigInt(secondsStr) * MICROSECONDS_PER_SECOND
@@ -563,9 +563,9 @@ export function deserializeLocalDate(value: string): LocalDate {
   }
 
   return {
-    year: parseInt(match[1], 10),
-    month: parseInt(match[2], 10),
-    day: parseInt(match[3], 10)
+    year: parseInt(match[1]!, 10),
+    month: parseInt(match[2]!, 10),
+    day: parseInt(match[3]!, 10)
   }
 }
 
@@ -611,9 +611,9 @@ export function deserializeLocalTime(value: string): LocalTime {
   const microseconds = match[4] ? parseInt(match[4].padEnd(6, '0'), 10) : 0
 
   return {
-    hour: parseInt(match[1], 10),
-    minute: parseInt(match[2], 10),
-    second: parseInt(match[3], 10),
+    hour: parseInt(match[1]!, 10),
+    minute: parseInt(match[2]!, 10),
+    second: parseInt(match[3]!, 10),
     nanosecond: microseconds * 1000 // Convert microseconds to nanoseconds
   }
 }
@@ -653,12 +653,12 @@ export function deserializeLocalDateTime(value: string): LocalDateTime {
   const microseconds = match[7] ? parseInt(match[7].padEnd(6, '0'), 10) : 0
 
   return {
-    year: parseInt(match[1], 10),
-    month: parseInt(match[2], 10),
-    day: parseInt(match[3], 10),
-    hour: parseInt(match[4], 10),
-    minute: parseInt(match[5], 10),
-    second: parseInt(match[6], 10),
+    year: parseInt(match[1]!, 10),
+    month: parseInt(match[2]!, 10),
+    day: parseInt(match[3]!, 10),
+    hour: parseInt(match[4]!, 10),
+    minute: parseInt(match[5]!, 10),
+    second: parseInt(match[6]!, 10),
     nanosecond: microseconds * 1000
   }
 }
@@ -761,7 +761,7 @@ export function serializeTuple(
       `Tuple length mismatch: expected ${serializers.length}, got ${value.length}`
     )
   }
-  const serialized = value.map((item, i) => applySerializer(item, serializers[i]))
+  const serialized = value.map((item, i) => applySerializer(item, serializers[i]!))
   return JSON.stringify(serialized)
 }
 
@@ -770,7 +770,7 @@ export function deserializeTuple(
   deserializers: TupleDeserializers
 ): unknown[] {
   const parsed = JSON.parse(value) as unknown[]
-  return parsed.map((item, i) => applyDeserializer(item, deserializers[i]))
+  return parsed.map((item, i) => applyDeserializer(item, deserializers[i]!))
 }
 
 // =============================================================================
@@ -884,7 +884,7 @@ export function deserializeCardinality<T>(
       if (values.length > 1) {
         throw new CardinalityError(`One cardinality requires exactly one value, got ${values.length}`)
       }
-      return values[0]
+      return values[0]!
 
     case 'AtMostOne':
       if (values.length === 0) {
@@ -893,7 +893,7 @@ export function deserializeCardinality<T>(
       if (values.length > 1) {
         throw new CardinalityError(`AtMostOne cardinality allows at most one value, got ${values.length}`)
       }
-      return values[0]
+      return values[0]!
 
     case 'AtLeastOne':
       if (values.length === 0) {

@@ -120,7 +120,7 @@ export class SQLWhereParser {
     this.tokens = this.tokenize(sql)
     this.pos = 0
 
-    if (this.tokens.length === 0 || this.tokens[0].type === 'EOF') {
+    if (this.tokens.length === 0 || this.tokens[0]!.type === 'EOF') {
       return { type: 'predicate', column: '_', op: '=', value: { $always: true } } as PredicateNode
     }
 
@@ -211,7 +211,7 @@ export class SQLWhereParser {
 
     while (pos < input.length) {
       // Skip whitespace
-      while (pos < input.length && /\s/.test(input[pos])) {
+      while (pos < input.length && /\s/.test(input[pos]!)) {
         pos++
       }
 
@@ -346,13 +346,13 @@ export class SQLWhereParser {
       }
 
       // Numbers (including negative and scientific)
-      if (/\d/.test(char) || (char === '-' && /\d/.test(input[pos + 1] || '')) || (char === '.' && /\d/.test(input[pos + 1] || ''))) {
+      if (/\d/.test(char!) || (char === '-' && /\d/.test(input[pos + 1] || '')) || (char === '.' && /\d/.test(input[pos + 1] || ''))) {
         let numStr = ''
         if (char === '-') {
           numStr = '-'
           pos++
         }
-        while (pos < input.length && /[\d.eE+-]/.test(input[pos])) {
+        while (pos < input.length && /[\d.eE+-]/.test(input[pos]!)) {
           numStr += input[pos]
           pos++
         }
@@ -361,9 +361,9 @@ export class SQLWhereParser {
       }
 
       // Identifiers and keywords
-      if (/[a-zA-Z_]/.test(char)) {
+      if (/[a-zA-Z_]/.test(char!)) {
         let ident = ''
-        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
+        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos]!)) {
           ident += input[pos]
           pos++
         }
@@ -372,14 +372,14 @@ export class SQLWhereParser {
         while (pos < input.length && input[pos] === '.') {
           ident += '.'
           pos++
-          while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
+          while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos]!)) {
             ident += input[pos]
             pos++
           }
         }
 
         const upper = ident.toUpperCase()
-        if (KEYWORDS.has(upper.split('.')[0])) {
+        if (KEYWORDS.has(upper.split('.')[0]!)) {
           tokens.push({ type: 'KEYWORD', value: upper, position: start })
         } else {
           tokens.push({ type: 'IDENTIFIER', value: ident, position: start })
@@ -1071,4 +1071,4 @@ export class SQLWhereParser {
 // Exports
 // =============================================================================
 
-export type { ParsedSelect, Token }
+// Types already exported at definition - removed duplicate exports

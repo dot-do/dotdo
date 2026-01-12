@@ -1029,12 +1029,12 @@ export class RelationshipsStore {
       .where(eq(schema.relationships.id, id))
 
     return {
-      id: existing[0].id,
-      verb: existing[0].verb,
-      from: existing[0].from,
-      to: existing[0].to,
-      data: existing[0].data as Record<string, unknown> | null,
-      createdAt: existing[0].createdAt,
+      id: existing[0]!.id,
+      verb: existing[0]!.verb,
+      from: existing[0]!.from,
+      to: existing[0]!.to,
+      data: existing[0]!.data as Record<string, unknown> | null,
+      createdAt: existing[0]!.createdAt,
     }
   }
 
@@ -1218,7 +1218,7 @@ export class ActionsStore {
 
     if (results.length === 0) return null
 
-    const r = results[0]
+    const r = results[0]!
     return {
       id: r.id,
       verb: r.verb,
@@ -1418,7 +1418,7 @@ export class EventsStore {
 
     if (results.length === 0) return null
 
-    const r = results[0]
+    const r = results[0]!
     return {
       id: r.id,
       verb: r.verb,
@@ -1711,7 +1711,7 @@ export class ObjectsStore {
 
     if (results.length === 0) return null
 
-    const r = results[0]
+    const r = results[0]!
     // Extract colo from cached data if available (stored there since not in schema)
     const cached = r.cached as Record<string, unknown> | null
     return {

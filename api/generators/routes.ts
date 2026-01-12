@@ -246,12 +246,12 @@ export function generatePath(
 
     // If first param is 'id' or ends with 'Id', use path parameter
     if (
-      firstParam.name === 'id' ||
-      firstParam.name.endsWith('Id') ||
-      firstParam.name === 'key' ||
-      firstParam.name === 'slug'
+      firstParam!.name === 'id' ||
+      firstParam!.name.endsWith('Id') ||
+      firstParam!.name === 'key' ||
+      firstParam!.name === 'slug'
     ) {
-      return `${basePath}/:${firstParam.name}`
+      return `${basePath}/:${firstParam!.name}`
     }
   }
 
@@ -366,7 +366,7 @@ export function generateOpenAPIOperation(
   let requestBody: OpenAPIRequestBody | undefined
 
   if (signature && signature.parameters.length > 0) {
-    const firstParam = signature.parameters[0]
+    const firstParam = signature.parameters[0]!
     const isPathParam =
       firstParam.name === 'id' ||
       firstParam.name.endsWith('Id') ||
@@ -374,7 +374,7 @@ export function generateOpenAPIOperation(
       firstParam.name === 'slug'
 
     for (let i = 0; i < signature.parameters.length; i++) {
-      const param = signature.parameters[i]
+      const param = signature.parameters[i]!
 
       if (i === 0 && isPathParam) {
         // First param as path parameter
@@ -592,7 +592,7 @@ export function createRouteHandler(
       if (paramKeys.length === 0) {
         result = await method.call(instance)
       } else if (paramKeys.length === 1) {
-        result = await method.call(instance, validatedData[paramKeys[0]])
+        result = await method.call(instance, validatedData[paramKeys[0]!])
       } else {
         // Pass all params as individual arguments
         result = await method.call(instance, ...Object.values(validatedData))

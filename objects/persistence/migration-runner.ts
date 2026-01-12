@@ -222,14 +222,14 @@ export class MigrationRunner {
        FROM ${MIGRATIONS_TABLE} ORDER BY version`
     )
 
-    return result.toArray().map((row: {
+    return (result.toArray() as {
       version: number
       name: string
       checksum: string
       applied_at: number
       duration_ms: number
       reversible: number
-    }) => ({
+    }[]).map((row) => ({
       version: row.version,
       name: row.name,
       checksum: row.checksum,
@@ -493,8 +493,8 @@ export class MigrationRunner {
     const gaps: number[] = []
 
     for (let i = 0; i < versions.length - 1; i++) {
-      const current = versions[i]
-      const next = versions[i + 1]
+      const current = versions[i]!
+      const next = versions[i + 1]!
 
       for (let v = current + 1; v < next; v++) {
         gaps.push(v)
@@ -547,7 +547,7 @@ export class MigrationRunner {
       `SELECT locked_at FROM ${LOCK_TABLE} WHERE id = 1`
     )
     const rows = result.toArray() as { locked_at: number | null }[]
-    return rows.length > 0 && rows[0].locked_at !== null
+    return rows.length > 0 && rows[0]!.locked_at !== null
   }
 
   /**

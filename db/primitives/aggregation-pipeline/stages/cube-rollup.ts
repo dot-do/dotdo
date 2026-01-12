@@ -113,7 +113,7 @@ function powerSet<T>(arr: T[]): T[][] {
   for (const item of arr) {
     const len = result.length
     for (let i = 0; i < len; i++) {
-      result.push([...result[i], item])
+      result.push([...result[i]!, item])
     }
   }
 
@@ -163,7 +163,7 @@ function calculateGroupingId(allDimensions: string[], activeDimensions: string[]
   const activeSet = new Set(activeDimensions)
 
   for (let i = 0; i < allDimensions.length; i++) {
-    if (!activeSet.has(allDimensions[i])) {
+    if (!activeSet.has(allDimensions[i]!)) {
       id |= 1 << (allDimensions.length - 1 - i)
     }
   }
@@ -496,7 +496,7 @@ function calculateGroupingIdForDimensions(
   const activeSet = new Set(activeDimensions)
 
   for (let i = 0; i < orderedDimensions.length; i++) {
-    if (!activeSet.has(orderedDimensions[i])) {
+    if (!activeSet.has(orderedDimensions[i]!)) {
       id |= 1 << (orderedDimensions.length - 1 - i)
     }
   }
@@ -552,7 +552,7 @@ function aggregateForGrouping<T>(
       // Initialize accumulator states for regular accumulators only
       const states = new Map<string, AccumulatorState>()
       for (const field of regularAccumulators) {
-        const accDef = measures[field]
+        const accDef = measures[field]!
         states.set(field, initAccumulator(accDef))
       }
 

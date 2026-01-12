@@ -143,7 +143,7 @@ export class TestMetricsCollector implements MetricsCollector {
    */
   getLatestGauge(name: string): number | undefined {
     const gauges = this.getByName(name).filter((m) => m.type === 'gauge')
-    return gauges.length > 0 ? gauges[gauges.length - 1].value : undefined
+    return gauges.length > 0 ? gauges[gauges.length - 1]!.value : undefined
   }
 
   /**

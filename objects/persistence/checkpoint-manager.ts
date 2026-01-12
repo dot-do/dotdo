@@ -652,7 +652,7 @@ export class CheckpointManager {
     snapshots.sort((a, b) => b.createdAt - a.createdAt)
 
     for (let i = 0; i < snapshots.length; i++) {
-      const snapshot = snapshots[i]
+      const snapshot = snapshots[i]!
       const isExpired = now - snapshot.createdAt > this.config.snapshotRetentionMs
       const isBeyondLimit = i >= this.config.maxSnapshots
 

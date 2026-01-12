@@ -1425,7 +1425,7 @@ export class IntegrationsDO {
       // GET /providers/:slug
       const providerMatch = path.match(/^\/providers\/([^/]+)$/)
       if (method === 'GET' && providerMatch) {
-        const slug = providerMatch[1]
+        const slug = providerMatch[1]!
         const provider = await this.getProvider(slug)
 
         if (!provider) {
@@ -1444,7 +1444,7 @@ export class IntegrationsDO {
 
       // PUT /providers/:slug
       if (method === 'PUT' && providerMatch) {
-        const slug = providerMatch[1]
+        const slug = providerMatch[1]!
         const body = (await request.json()) as Partial<Provider>
         const provider = await this.updateProvider(slug, body)
 
@@ -1457,7 +1457,7 @@ export class IntegrationsDO {
 
       // DELETE /providers/:slug
       if (method === 'DELETE' && providerMatch) {
-        const slug = providerMatch[1]
+        const slug = providerMatch[1]!
         const deleted = await this.deleteProvider(slug)
 
         if (!deleted) {
@@ -1470,7 +1470,7 @@ export class IntegrationsDO {
       // POST /providers/:slug/verify-webhook
       const webhookMatch = path.match(/^\/providers\/([^/]+)\/verify-webhook$/)
       if (method === 'POST' && webhookMatch) {
-        const slug = webhookMatch[1]
+        const slug = webhookMatch[1]!
         const body = (await request.json()) as { payload: string; signature: string }
         const valid = await this.verifyWebhookSignature(slug, body.payload, body.signature)
         return Response.json({ valid })
@@ -1487,7 +1487,7 @@ export class IntegrationsDO {
 
       // GET /account-types/:slug
       if (method === 'GET' && accountTypeMatch) {
-        const slug = accountTypeMatch[1]
+        const slug = accountTypeMatch[1]!
         const accountType = await this.getAccountType(slug)
 
         if (!accountType) {
@@ -1511,7 +1511,7 @@ export class IntegrationsDO {
 
       // PUT /account-types/:slug
       if (method === 'PUT' && accountTypeMatch) {
-        const slug = accountTypeMatch[1]
+        const slug = accountTypeMatch[1]!
         const body = (await request.json()) as Partial<AccountType>
         const accountType = await this.updateAccountType(slug, body)
 
@@ -1524,7 +1524,7 @@ export class IntegrationsDO {
 
       // DELETE /account-types/:slug
       if (method === 'DELETE' && accountTypeMatch) {
-        const slug = accountTypeMatch[1]
+        const slug = accountTypeMatch[1]!
         try {
           const deleted = await this.deleteAccountType(slug)
 
@@ -1543,7 +1543,7 @@ export class IntegrationsDO {
       // GET /providers/:slug/actions - list all actions for a provider
       const actionsListMatch = path.match(/^\/providers\/([^/]+)\/actions$/)
       if (method === 'GET' && actionsListMatch) {
-        const slug = actionsListMatch[1]
+        const slug = actionsListMatch[1]!
         const actions = await this.getActions(slug)
         return Response.json(actions)
       }
@@ -1551,8 +1551,8 @@ export class IntegrationsDO {
       // GET /providers/:slug/actions/:action - get single action
       const actionMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)$/)
       if (method === 'GET' && actionMatch) {
-        const slug = actionMatch[1]
-        const actionName = actionMatch[2]
+        const slug = actionMatch[1]!
+        const actionName = actionMatch[2]!
         const action = await this.getAction(slug, actionName)
 
         if (!action) {
@@ -1565,8 +1565,8 @@ export class IntegrationsDO {
       // POST /providers/:slug/actions/:action/validate - validate action input
       const validateMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)\/validate$/)
       if (method === 'POST' && validateMatch) {
-        const slug = validateMatch[1]
-        const actionName = validateMatch[2]
+        const slug = validateMatch[1]!
+        const actionName = validateMatch[2]!
         const body = (await request.json()) as Record<string, unknown>
         const validation = await this.validateActionInput(slug, actionName, body)
         return Response.json(validation)
@@ -1575,12 +1575,12 @@ export class IntegrationsDO {
       // POST /providers/:slug/actions/:action/execute - execute action via SDK
       const executeMatch = path.match(/^\/providers\/([^/]+)\/actions\/([^/]+)\/execute$/)
       if (method === 'POST' && executeMatch) {
-        const slug = executeMatch[1]
-        const actionName = executeMatch[2]
+        const slug = executeMatch[1]!
+        const actionName = executeMatch[2]!
         const body = (await request.json()) as { linkedAccountId: string; params: Record<string, unknown> }
 
         const sdk = await this.createSDK(slug, body.linkedAccountId)
-        const actionFn = sdk[actionName] as (params: Record<string, unknown>) => Promise<unknown>
+        const actionFn = sdk[actionName!] as (params: Record<string, unknown>) => Promise<unknown>
 
         if (!actionFn) {
           return new Response('Action not found', { status: 404 })

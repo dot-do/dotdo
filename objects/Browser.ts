@@ -849,10 +849,10 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
 
-    server.accept()
-    this.screencastClients.add(server)
+    server!.accept()
+    this.screencastClients.add(server!)
 
-    server.addEventListener('message', async (event) => {
+    server!.addEventListener('message', async (event) => {
       try {
         const msg = JSON.parse(event.data as string)
         if (msg.action === 'start') {
@@ -861,12 +861,12 @@ export class Browser<E extends BrowserEnv = BrowserEnv> extends DO<E> {
           await this.stopScreencast()
         }
       } catch (e) {
-        server.send(JSON.stringify({ type: 'error', message: (e as Error).message }))
+        server!.send(JSON.stringify({ type: 'error', message: (e as Error).message }))
       }
     })
 
-    server.addEventListener('close', () => {
-      this.screencastClients.delete(server)
+    server!.addEventListener('close', () => {
+      this.screencastClients.delete(server!)
       // Stop screencast if no more clients
       if (this.screencastClients.size === 0) {
         this.stopScreencast().catch(() => {})

@@ -292,7 +292,7 @@ export async function getIndexStats(
     throw new Error(`Vector index '${name}' not found`)
   }
 
-  const indexRow = indexResult.rows[0]
+  const indexRow = indexResult.rows[0]!
 
   // Parse index options from the SQL
   const sql = indexRow.sql || ''
@@ -315,9 +315,9 @@ export async function getIndexStats(
 
   // Parse parameters with defaults
   const metric = (metricMatch?.[1] ?? 'l2sq') as DistanceMetric
-  const M = mMatch ? parseInt(mMatch[1], 10) : 16
-  const efConstruction = efConstructionMatch ? parseInt(efConstructionMatch[1], 10) : 200
-  const efSearch = efSearchMatch ? parseInt(efSearchMatch[1], 10) : 64
+  const M = mMatch ? parseInt(mMatch[1]!, 10) : 16
+  const efConstruction = efConstructionMatch ? parseInt(efConstructionMatch[1]!, 10) : 200
+  const efSearch = efSearchMatch ? parseInt(efSearchMatch[1]!, 10) : 64
 
   // Estimate memory
   const memoryEstimate = estimateMemory({ vectorCount, dimensions, M })

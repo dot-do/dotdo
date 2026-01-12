@@ -328,7 +328,7 @@ class StreamImpl<T> implements Stream<T> {
   }
 
   filter(predicate: (item: T) => boolean | Promise<boolean>): Stream<T> {
-    const newStream = new StreamImpl<T>(this.source, this.ctx, this as unknown as StreamImpl<unknown>)
+    const newStream = new StreamImpl<T>(this.source, this.ctx, this as StreamImpl<unknown>)
     newStream.pipeline.push(async (item) => {
       const result = await predicate(item as T)
       if (!result) return Symbol.for('skip')
@@ -339,12 +339,12 @@ class StreamImpl<T> implements Stream<T> {
       const op = newStream.processItem(item as unknown)
       newStream.pendingOperations.push(op)
     })
-    this.ctx.registerStream(newStream)
+    this.ctx.registerStream(newStream as StreamImpl<unknown>)
     return newStream
   }
 
   map<U>(fn: (item: T) => U | Promise<U>): Stream<U> {
-    const newStream = new StreamImpl<U>(this.source, this.ctx, this as unknown as StreamImpl<unknown>)
+    const newStream = new StreamImpl<U>(this.source, this.ctx, this as StreamImpl<unknown>)
     newStream.pipeline.push(async (item) => {
       return await fn(item as T)
     })
@@ -353,12 +353,12 @@ class StreamImpl<T> implements Stream<T> {
       const op = newStream.processItem(item as unknown)
       newStream.pendingOperations.push(op)
     })
-    this.ctx.registerStream(newStream)
+    this.ctx.registerStream(newStream as StreamImpl<unknown>)
     return newStream
   }
 
   flatMap<U>(fn: (item: T) => U[] | Promise<U[]>): Stream<U> {
-    const newStream = new StreamImpl<U>(this.source, this.ctx, this as unknown as StreamImpl<unknown>)
+    const newStream = new StreamImpl<U>(this.source, this.ctx, this as StreamImpl<unknown>)
     newStream.pipeline.push(async (item) => {
       const result = await fn(item as T)
       return { __flatMap: result }
@@ -368,21 +368,21 @@ class StreamImpl<T> implements Stream<T> {
       const op = newStream.processItem(item as unknown)
       newStream.pendingOperations.push(op)
     })
-    this.ctx.registerStream(newStream)
+    this.ctx.registerStream(newStream as StreamImpl<unknown>)
     return newStream
   }
 
   enrich<U>(fn: (item: T, ctx: StreamContext) => U | Promise<U>): Stream<U> {
-    const newStream = new StreamImpl<U>(this.source, this.ctx, this as unknown as StreamImpl<unknown>)
+    const newStream = new StreamImpl<U>(this.source, this.ctx, this as StreamImpl<unknown>)
     newStream.pipeline.push(async (item) => {
-      return await fn(item as T, this.ctx)
+      return await fn(item as T, this.ctx as unknown as StreamContext)
     })
     // Subscribe to parent to receive items, tracking async operations
     this.subscribe((item) => {
       const op = newStream.processItem(item as unknown)
       newStream.pendingOperations.push(op)
     })
-    this.ctx.registerStream(newStream)
+    this.ctx.registerStream(newStream as StreamImpl<unknown>)
     return newStream
   }
 
@@ -691,11 +691,11 @@ class KeyedStreamImpl<T, K extends string> implements KeyedStream<T, K> {
   }
 
   join<U>(other: KeyedStream<U, K>): JoinBuilder<T, U, K> {
-    return new JoinBuilderImpl<T, U, K>(this, other, 'inner', this.ctx)
+    return new JoinBuilderImpl<T, U, K>(this, other, 'inner', this.ctx) as JoinBuilder<T, U, K>
   }
 
   leftJoin<U>(other: KeyedStream<U, K>): LeftJoinBuilder<T, U, K> {
-    return new JoinBuilderImpl<T, U, K>(this, other, 'left', this.ctx)
+    return new JoinBuilderImpl<T, U, K>(this, other, 'left', this.ctx) as unknown as LeftJoinBuilder<T, U, K>
   }
 
   coGroup<U>(other: KeyedStream<U, K>): CoGroupBuilder<T, U, K> {
@@ -803,7 +803,7 @@ class WindowedStreamImpl<T, K extends string> implements WindowedStream<T, K> {
       const [key] = windowKey.split('|')
       const windowInfo = this.computeWindowInfo(state.lastTimestamp)
       for (const handler of this.windowCloseHandlers) {
-        handler(key, state.elements, windowInfo)
+        handler(key!, state.elements, windowInfo)
       }
     }
     this.windowState.clear()
@@ -905,14 +905,14 @@ class WindowedStreamImpl<T, K extends string> implements WindowedStream<T, K> {
 
       if (this.window.type === 'tumbling') {
         const size = this.window.size!
-        const windowStart = parseInt(windowId)
+        const windowStart = parseInt(windowId!)
         const windowEnd = windowStart + size
         windowInfo = { start: windowStart, end: windowEnd }
         shouldClose = currentTime >= windowEnd
       } else if (this.window.type === 'sliding') {
         const size = this.window.size!
         const slide = this.window.slide!
-        const windowStart = parseInt(windowId)
+        const windowStart = parseInt(windowId!)
         const windowEnd = windowStart + size
         windowInfo = { start: windowStart, end: windowEnd }
         shouldClose = currentTime >= windowEnd
@@ -924,14 +924,14 @@ class WindowedStreamImpl<T, K extends string> implements WindowedStream<T, K> {
       }
 
       if (shouldClose) {
-        windowsToClose.push({ key, windowKey, state })
+        windowsToClose.push({ key: key!, windowKey, state })
       }
     }
 
     for (const { key, windowKey, state } of windowsToClose) {
       const windowInfo = this.computeWindowInfo(state.lastTimestamp)
       for (const handler of this.windowCloseHandlers) {
-        handler(key, state.elements, windowInfo)
+        handler(key!, state.elements, windowInfo)
       }
       this.windowState.delete(windowKey)
     }
@@ -1034,7 +1034,7 @@ class AggregatedStreamImpl<T, K extends string> implements AggregatedStream<T, K
   }
 }
 
-class JoinBuilderImpl<L, R, K extends string> implements JoinBuilder<L, R, K>, LeftJoinBuilder<L, R, K> {
+class JoinBuilderImpl<L, R, K extends string> {
   type = 'joined-stream' as const
   window?: number
 
@@ -1055,7 +1055,7 @@ class JoinBuilderImpl<L, R, K extends string> implements JoinBuilder<L, R, K>, L
     this.ctx = ctx
   }
 
-  within(duration: Duration): JoinBuilder<L, R, K> & LeftJoinBuilder<L, R, K> {
+  within(duration: Duration): this {
     this.window = toMillis(duration)
     return this
   }
@@ -1114,7 +1114,7 @@ class CoGroupBuilderImpl<L, R, K extends string> implements CoGroupBuilder<L, R,
 // Stream Context Implementation
 // ============================================================================
 
-class StreamContextImpl implements StreamContext {
+class StreamContextImpl {
   _storage = {
     customers: new Map<string, unknown>(),
   } as { customers: Map<string, unknown>; [key: string]: Map<string, unknown> }
@@ -1456,7 +1456,7 @@ class StreamContextImpl implements StreamContext {
       const viewStore = this.viewData.get(viewName)!
       return {
         get: async (key: string) => viewStore.get(key),
-        set: async (key: string, value: unknown) => viewStore.set(key, value),
+        set: async (key: string, value: unknown) => { viewStore.set(key, value) },
       }
     },
   })
@@ -1477,14 +1477,14 @@ class StreamContextImpl implements StreamContext {
 
           if (windowedStream.window.type === 'tumbling') {
             const size = windowedStream.window.size!
-            const windowStart = parseInt(windowId)
+            const windowStart = parseInt(windowId!)
             const windowEnd = windowStart + size
             windowInfo = { start: windowStart, end: windowEnd }
             shouldClose = currentTime >= windowEnd
           } else if (windowedStream.window.type === 'sliding') {
             const size = windowedStream.window.size!
             const slide = windowedStream.window.slide!
-            const windowStart = parseInt(windowId)
+            const windowStart = parseInt(windowId!)
             const windowEnd = windowStart + size
             windowInfo = { start: windowStart, end: windowEnd }
             shouldClose = currentTime >= windowEnd
@@ -1498,7 +1498,7 @@ class StreamContextImpl implements StreamContext {
             let result: unknown
 
             if (aggregateSpec) {
-              result = this.computeAggregation(aggregateSpec, state.elements, key)
+              result = this.computeAggregation(aggregateSpec, state.elements, key!)
             } else if (reduceSpec) {
               result = state.elements.reduce(
                 (acc, item) => reduceSpec.reducer(acc, item),
@@ -1509,14 +1509,14 @@ class StreamContextImpl implements StreamContext {
             // Emit to aggregated streams
             for (const aggStream of this.aggregatedStreams) {
               if (aggStream.getWindowedStream() === windowedStream) {
-                aggStream.emitResult(result, key, windowInfo)
+                aggStream.emitResult(result, key!, windowInfo)
 
                 // Handle sinks
                 if (aggStream.sink?.type === 'measure') {
                   const handlers = this.measureHandlers.get(aggStream.sink.metric!) ?? []
                   const value = typeof result === 'object' ? (result as Record<string, number>).revenue ?? (result as Record<string, number>).count ?? 0 : 0
                   for (const handler of handlers) {
-                    handler(value, { region: key })
+                    handler(value, { region: key! })
                   }
                 }
 
@@ -1525,7 +1525,7 @@ class StreamContextImpl implements StreamContext {
                   if (!this.viewData.has(viewName)) {
                     this.viewData.set(viewName, new Map())
                   }
-                  this.viewData.get(viewName)!.set(key, result)
+                  this.viewData.get(viewName)!.set(key!, result)
                 }
               }
             }
@@ -1602,14 +1602,14 @@ class StreamContextImpl implements StreamContext {
           break
         case 'sum':
           result[name] = elements.reduce(
-            (sum, el) => sum + ((el as Record<string, number>)[aggSpec.field!] ?? 0),
+            (sum: number, el) => sum + ((el as Record<string, number>)[aggSpec.field!] ?? 0),
             0
           )
           break
         case 'avg':
           result[name] =
             elements.length > 0
-              ? elements.reduce((sum, el) => sum + ((el as Record<string, number>)[aggSpec.field!] ?? 0), 0) /
+              ? elements.reduce((sum: number, el) => sum + ((el as Record<string, number>)[aggSpec.field!] ?? 0), 0) /
                 elements.length
               : 0
           break
@@ -1650,5 +1650,5 @@ class StreamContextImpl implements StreamContext {
 
 export function createStreamContext(): StreamContext {
   const ctx = new StreamContextImpl()
-  return ctx
+  return ctx as unknown as StreamContext
 }

@@ -62,9 +62,9 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   let normB = 0
 
   for (let i = 0; i < a.length; i++) {
-    dotProd += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    dotProd += a[i]! * b[i]!
+    normA += a[i]! * a[i]!
+    normB += b[i]! * b[i]!
   }
 
   const denominator = Math.sqrt(normA) * Math.sqrt(normB)
@@ -79,7 +79,7 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 export function euclideanDistance(a: number[], b: number[]): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return Math.sqrt(sum)
@@ -91,7 +91,7 @@ export function euclideanDistance(a: number[], b: number[]): number {
 export function dotProduct(a: number[], b: number[]): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    sum += a[i] * b[i]
+    sum += a[i]! * b[i]!
   }
   return sum
 }

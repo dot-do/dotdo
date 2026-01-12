@@ -51,7 +51,7 @@ export interface SeedOptions {
 export function detectFormat(url: string | null, contentType?: string | null, content?: string | null): SeedFormat {
   // Try content-type header first
   if (contentType) {
-    const type = contentType.split(';')[0].trim().toLowerCase()
+    const type = contentType.split(';')[0]!.trim().toLowerCase()
     if (type === 'text/csv' || type === 'application/csv') return 'csv'
     if (type === 'text/tab-separated-values') return 'tsv'
     if (type === 'application/json' || type === 'text/json') return 'json'
@@ -62,8 +62,8 @@ export function detectFormat(url: string | null, contentType?: string | null, co
   // Try URL extension
   if (url) {
     // Remove query string and fragment
-    const cleanUrl = url.split('?')[0].split('#')[0]
-    const ext = cleanUrl.split('.').pop()?.toLowerCase()
+    const cleanUrl = url.split('?')[0]!.split('#')[0]
+    const ext = cleanUrl?.split('.').pop()?.toLowerCase()
 
     if (ext === 'csv') return 'csv'
     if (ext === 'tsv') return 'tsv'
@@ -90,8 +90,8 @@ export function detectFormat(url: string | null, contentType?: string | null, co
     if (trimmed.includes(',') && trimmed.includes('\n')) {
       const lines = trimmed.split('\n')
       if (lines.length >= 2) {
-        const firstLineCommas = (lines[0].match(/,/g) || []).length
-        const secondLineCommas = (lines[1].match(/,/g) || []).length
+        const firstLineCommas = (lines[0]!.match(/,/g) || []).length
+        const secondLineCommas = (lines[1]!.match(/,/g) || []).length
         if (firstLineCommas > 0 && firstLineCommas === secondLineCommas) {
           return 'csv'
         }
@@ -186,7 +186,7 @@ function parseLinkHeader(header: string): Record<string, string> {
   for (const part of parts) {
     const match = part.match(/<([^>]+)>;\s*rel="([^"]+)"/)
     if (match) {
-      links[match[2]] = match[1]
+      links[match[2]!] = match[1]!
     }
   }
 

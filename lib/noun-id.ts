@@ -65,13 +65,13 @@ function parseModifier(
   // Check for version: @v followed by digits
   const versionMatch = modifier.match(/^v(\d+)$/)
   if (versionMatch) {
-    return { version: parseInt(versionMatch[1], 10) }
+    return { version: parseInt(versionMatch[1]!, 10) }
   }
 
   // Check for relative version: @~N
   const relativeMatch = modifier.match(/^~(\d+)$/)
   if (relativeMatch) {
-    return { relativeVersion: parseInt(relativeMatch[1], 10) }
+    return { relativeVersion: parseInt(relativeMatch[1]!, 10) }
   }
 
   // Check for ISO 8601 timestamp with time: YYYY-MM-DDTHH:MM:SS...
@@ -79,15 +79,15 @@ function parseModifier(
     /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2}))$/
   )
   if (isoTimestampMatch) {
-    return { timestamp: new Date(isoTimestampMatch[1]) }
+    return { timestamp: new Date(isoTimestampMatch[1]!) }
   }
 
   // Check for date-only timestamp: YYYY-MM-DD
   const dateMatch = modifier.match(/^(\d{4}-\d{2}-\d{2})$/)
   if (dateMatch) {
     // Parse as local date at midnight for correct getDate()/getMonth()/getFullYear() behavior
-    const [year, month, day] = dateMatch[1].split('-').map(Number)
-    return { timestamp: new Date(year, month - 1, day) }
+    const [year, month, day] = dateMatch[1]!.split('-').map(Number)
+    return { timestamp: new Date(year!, month! - 1, day!) }
   }
 
   // Otherwise it's a branch name - validate it
@@ -222,8 +222,8 @@ export function parseNounId(input: string): NounIdRef {
 
   // Parse segments into nested NounIdRef
   function parseSegments(segs: string[], mod?: string): NounIdRef {
-    const noun = segs[0]
-    const id = segs[1]
+    const noun = segs[0]!
+    const id = segs[1]!
 
     // Validate noun is PascalCase
     if (!isPascalCase(noun)) {

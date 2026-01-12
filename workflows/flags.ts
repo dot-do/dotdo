@@ -227,7 +227,7 @@ function assignBranch(flagId: string, stickinessValue: string, branches: Branch[
   }
 
   // Fallback to last branch (should not happen with proper weights)
-  return branches[branches.length - 1]
+  return branches[branches.length - 1] ?? null
 }
 
 /**

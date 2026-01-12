@@ -714,8 +714,8 @@ export class WorkersAI {
     const embedding = response.data[0]
 
     return {
-      embedding,
-      dimension: embedding.length,
+      embedding: embedding!,
+      dimension: embedding!.length,
       model,
     }
   }

@@ -59,7 +59,7 @@ function parseFieldValue(value: string): Partial<LegacyParsedField> {
   const operatorMatch = value.match(OPERATOR_PATTERN)
   if (operatorMatch) {
     const [, promptPart, operator, reference, optional] = operatorMatch
-    const prompt = promptPart.trim()
+    const prompt = promptPart!.trim()
     return {
       type: 'reference',
       operator: operator as CascadeOperator,
@@ -119,10 +119,10 @@ function parseField(name: string, value: unknown): LegacyParsedField {
           if (typeof constraints === 'object' && constraints !== null) {
             const constraintsObj = constraints as Record<string, unknown>
             if (constraintsObj.minItems !== undefined) {
-              (field as Record<string, unknown>).minItems = constraintsObj.minItems
+              (field as unknown as Record<string, unknown>).minItems = constraintsObj.minItems
             }
             if (constraintsObj.maxItems !== undefined) {
-              (field as Record<string, unknown>).maxItems = constraintsObj.maxItems
+              (field as unknown as Record<string, unknown>).maxItems = constraintsObj.maxItems
             }
           }
         }

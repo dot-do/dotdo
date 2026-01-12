@@ -1,14 +1,14 @@
 ---
 title: Named Agents
-description: Meet Priya, Ralph, Tom, Mark, Sally, and Quinn - your AI team with real identity
+description: Meet Priya, Ralph, Tom, Mark, Sally, Quinn, and Rae - your AI team with real identity
 ---
 
 # Named Agents
 
-Six agents. Real identity. Full audit trail.
+Seven agents. Real identity. Full audit trail.
 
 ```typescript
-import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+import { priya, ralph, tom, mark, sally, quinn, rae } from 'agents.do'
 ```
 
 Each agent has a GitHub account, email address, and consistent avatar across all platforms. When they act, their identity is preserved.
@@ -275,3 +275,49 @@ if (await tom.approve(pullRequest)) {
 Rule of thumb:
 - **Fire and forget:** Announcements, notifications, background tasks
 - **Await:** Anything you need before the next step
+
+---
+
+## Rae
+
+**Frontend Engineer** | `rae@agents.do` | `@rae-do`
+
+React, design systems, UI/UX. Rae builds beautiful, responsive frontends. They think in components and design tokens.
+
+```typescript
+// Build UI components
+const component = await rae`build a ${componentType} component`
+
+// Create pages
+await rae`create the landing page for ${product}`
+
+// Design systems
+await rae`set up the design system with ${theme}`
+
+// Responsive layouts
+await rae`make ${page} responsive`
+```
+
+**How they design:**
+
+- Components first, pages second
+- Accessible by default (WCAG 2.1)
+- Mobile-first responsive design
+- Design token driven theming
+- Tailwind + React patterns
+
+**Stack:**
+
+- React / Next.js
+- Tailwind CSS
+- Radix UI primitives
+- Framer Motion
+- TypeScript throughout
+
+```typescript
+// Full frontend flow
+const design = await rae`design the dashboard for ${product}`
+const components = await rae`build components for ${design}`
+const pages = await rae`assemble pages from ${components}`
+await rae`add animations and polish to ${pages}`
+```

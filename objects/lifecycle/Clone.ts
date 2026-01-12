@@ -991,7 +991,7 @@ export class CloneModule implements LifecycleModule {
         foundCheckpoint = checkpoint
         const parts = key.split(':')
         if (parts.length >= 2) {
-          originalToken = parts[1]
+          originalToken = parts[1] ?? null
         }
         break
       }
@@ -1588,7 +1588,7 @@ export class CloneModule implements LifecycleModule {
             }
 
             if (state.checkpoints.length > 0) {
-              resolve(state.checkpoints[state.checkpoints.length - 1])
+              resolve(state.checkpoints[state.checkpoints.length - 1]!)
               return
             }
 
@@ -1612,7 +1612,7 @@ export class CloneModule implements LifecycleModule {
       async getIntegrityHash(): Promise<string> {
         const state = await self.getResumableState(cloneId)
         if (!state || state.checkpoints.length === 0) return ''
-        return state.checkpoints[state.checkpoints.length - 1].hash
+        return state.checkpoints[state.checkpoints.length - 1]!.hash
       },
 
       async getLockInfo(): Promise<CloneLockInfo | null> {

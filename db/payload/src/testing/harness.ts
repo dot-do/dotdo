@@ -296,7 +296,7 @@ function createRelationshipsStore(): RelationshipsStore {
     removeAll(from, verb?) {
       let removed = 0
       for (let i = store.length - 1; i >= 0; i--) {
-        if (store[i].from === from && (!verb || store[i].verb === verb)) {
+        if (store[i]!.from === from && (!verb || store[i]!.verb === verb)) {
           store.splice(i, 1)
           removed++
         }

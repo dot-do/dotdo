@@ -409,7 +409,7 @@ class OrTrigger<T = unknown> extends Trigger<T> {
 
   onElement(ctx: TriggerContext<T>): TriggerResult {
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onElement(ctx)
+      const result = this.triggers[i]!.onElement(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         this.firedTriggers.add(i)
         return result
@@ -420,7 +420,7 @@ class OrTrigger<T = unknown> extends Trigger<T> {
 
   onWatermark(ctx: TriggerContext<T>): TriggerResult {
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onWatermark(ctx)
+      const result = this.triggers[i]!.onWatermark(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         this.firedTriggers.add(i)
         return result
@@ -431,7 +431,7 @@ class OrTrigger<T = unknown> extends Trigger<T> {
 
   onProcessingTime(ctx: TriggerContext<T>): TriggerResult {
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onProcessingTime(ctx)
+      const result = this.triggers[i]!.onProcessingTime(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         this.firedTriggers.add(i)
         return result
@@ -476,7 +476,7 @@ class AndTrigger<T = unknown> extends Trigger<T> {
     const satisfied = this.satisfiedTriggers.get(windowKey)!
 
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onElement(ctx)
+      const result = this.triggers[i]!.onElement(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         satisfied.add(i)
       }
@@ -493,7 +493,7 @@ class AndTrigger<T = unknown> extends Trigger<T> {
     const satisfied = this.satisfiedTriggers.get(windowKey)!
 
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onWatermark(ctx)
+      const result = this.triggers[i]!.onWatermark(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         satisfied.add(i)
       }
@@ -510,7 +510,7 @@ class AndTrigger<T = unknown> extends Trigger<T> {
     const satisfied = this.satisfiedTriggers.get(windowKey)!
 
     for (let i = 0; i < this.triggers.length; i++) {
-      const result = this.triggers[i].onProcessingTime(ctx)
+      const result = this.triggers[i]!.onProcessingTime(ctx)
       if (result === TriggerResult.FIRE || result === TriggerResult.FIRE_AND_PURGE) {
         satisfied.add(i)
       }

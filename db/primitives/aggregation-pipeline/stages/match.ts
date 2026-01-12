@@ -373,7 +373,7 @@ function toColumnStorePredicate<T>(predicate: MatchPredicate<T>): Predicate {
       const opKeys = Object.keys(ops).filter((k) => k.startsWith('$'))
 
       if (opKeys.length > 0) {
-        const op = opKeys[0]
+        const op = opKeys[0]!
         const value = ops[op]
 
         const opMap: Record<string, ComparisonOp> = {
@@ -389,7 +389,7 @@ function toColumnStorePredicate<T>(predicate: MatchPredicate<T>): Predicate {
 
         return {
           column: field,
-          op: opMap[op] || '=',
+          op: opMap[op!] || '=',
           value,
         }
       }

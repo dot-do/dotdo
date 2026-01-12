@@ -829,10 +829,10 @@ export class PrimitiveStorage {
       sets.push(stored ? (stored.data as Set<string>) : new Set<string>())
     }
 
-    const result = new Set([...sets[0]])
+    const result = new Set([...sets[0]!])
     for (let i = 1; i < sets.length; i++) {
       for (const member of result) {
-        if (!sets[i].has(member)) {
+        if (!sets[i]!.has(member)) {
           result.delete(member)
         }
       }
@@ -865,12 +865,12 @@ export class PrimitiveStorage {
   async sdiff(keys: string[]): Promise<string[]> {
     if (keys.length === 0) return []
 
-    const firstStored = await this.getStored(keys[0])
+    const firstStored = await this.getStored(keys[0]!)
     if (firstStored) this.checkType(firstStored, 'set')
     const result = new Set(firstStored ? [...(firstStored.data as Set<string>)] : [])
 
     for (let i = 1; i < keys.length; i++) {
-      const stored = await this.getStored(keys[i])
+      const stored = await this.getStored(keys[i]!)
       if (stored) {
         this.checkType(stored, 'set')
         for (const member of stored.data as Set<string>) {
@@ -895,7 +895,7 @@ export class PrimitiveStorage {
 
     const members = [...set]
     if (count === undefined) {
-      return members[Math.floor(Math.random() * members.length)]
+      return members[Math.floor(Math.random() * members.length)]!
     }
 
     const result: string[] = []
@@ -904,7 +904,7 @@ export class PrimitiveStorage {
 
     if (allowDuplicates) {
       for (let i = 0; i < absCount; i++) {
-        result.push(members[Math.floor(Math.random() * members.length)])
+        result.push(members[Math.floor(Math.random() * members.length)]!)
       }
     } else {
       const shuffled = [...members].sort(() => Math.random() - 0.5)
@@ -928,7 +928,7 @@ export class PrimitiveStorage {
     const members = [...set]
     if (count === undefined) {
       const idx = Math.floor(Math.random() * members.length)
-      const member = members[idx]
+      const member = members[idx]!
       set.delete(member)
       await this.setStored(key, 'set', set)
       return member
@@ -937,8 +937,8 @@ export class PrimitiveStorage {
     const result: string[] = []
     const shuffled = [...members].sort(() => Math.random() - 0.5)
     for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-      result.push(shuffled[i])
-      set.delete(shuffled[i])
+      result.push(shuffled[i]!)
+      set.delete(shuffled[i]!)
     }
 
     await this.setStored(key, 'set', set)
@@ -994,7 +994,7 @@ export class PrimitiveStorage {
         }
       } else {
         if (!options?.NX) {
-          const existing = zset[existingIdx]
+          const existing = zset[existingIdx]!
           let shouldUpdate = true
 
           if (options?.GT && entry.score <= existing.score) shouldUpdate = false
@@ -1013,7 +1013,7 @@ export class PrimitiveStorage {
     await this.setStored(key, 'zset', zset)
 
     if (options?.INCR && entries.length === 1) {
-      const entry = zset.find((e) => e.member === entries[0].member)
+      const entry = zset.find((e) => e.member === entries[0]!.member)
       return entry ? String(entry.score) : ''
     }
 
@@ -1164,8 +1164,8 @@ export class PrimitiveStorage {
       newScore = increment
       zset.push({ member, score: newScore })
     } else {
-      newScore = zset[existingIdx].score + increment
-      zset[existingIdx].score = newScore
+      newScore = zset[existingIdx]!.score + increment
+      zset[existingIdx]!.score = newScore
     }
 
     zset.sort((a, b) => a.score - b.score || a.member.localeCompare(b.member))

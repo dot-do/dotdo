@@ -129,12 +129,12 @@ export function registerDomain<T extends HandlerMap>(domain: DomainObject<T>): v
 export function resolveHandler(path: string[]): Handler | undefined {
   const [domainName, handlerName] = path
 
-  const domain = domainRegistry.get(domainName)
+  const domain = domainRegistry.get(domainName!)
   if (!domain) {
     return undefined
   }
 
-  const handler = domain.handlers[handlerName]
+  const handler = domain.handlers[handlerName!]
   if (!handler) {
     return undefined
   }

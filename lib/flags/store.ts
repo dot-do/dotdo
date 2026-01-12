@@ -208,7 +208,7 @@ export class FlagStore {
       })
       .returning()
 
-    return rowToFlag(result[0])
+    return rowToFlag(result[0]!)
   }
 
   /**
@@ -224,7 +224,7 @@ export class FlagStore {
       return null
     }
 
-    return rowToFlag(result[0])
+    return rowToFlag(result[0]!)
   }
 
   /**

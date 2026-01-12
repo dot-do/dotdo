@@ -92,8 +92,8 @@ function parseDurationToMs(durationStr: string): number | null {
     throw new Error(`Invalid duration format: ${durationStr}`)
   }
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   const ms: Record<string, number> = {
     s: 1000,
@@ -104,7 +104,7 @@ function parseDurationToMs(durationStr: string): number | null {
     y: 365 * 24 * 60 * 60 * 1000,
   }
 
-  return value * ms[unit]
+  return value * ms[unit]!
 }
 
 /**

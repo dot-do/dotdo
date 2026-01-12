@@ -67,7 +67,7 @@ function parseTarget(target: string): {
   const primaryTarget = types[0]
 
   const result: ReturnType<typeof parseTarget> = {
-    target: primaryTarget,
+    target: primaryTarget!,
   }
 
   if (types.length > 1) {
@@ -117,7 +117,7 @@ export function parseReferenceOperator(field: string): ParsedReference | null {
   const mode: OperatorMode = operator.includes('~') ? 'fuzzy' : 'exact'
 
   // Parse the target
-  const targetInfo = parseTarget(rawTarget)
+  const targetInfo = parseTarget(rawTarget!)
 
   // Build result
   const result: ParsedReference = {

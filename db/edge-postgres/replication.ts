@@ -435,7 +435,7 @@ export class ReplicatedPostgres {
 
     // First city becomes primary
     if (!this.primaryCity) {
-      this.primaryCity = citiesToSetup[0]
+      this.primaryCity = citiesToSetup[0]!
       await this.ctx.storage.put(STORAGE_KEYS.PRIMARY_CITY, this.primaryCity)
     }
 
@@ -758,7 +758,7 @@ export class ReplicatedPostgres {
     const chars: string[] = []
     let v = value
     while (v > 0n) {
-      chars.unshift(ReplicatedPostgres.BASE62[Number(v % 62n)])
+      chars.unshift(ReplicatedPostgres.BASE62[Number(v % 62n)]!)
       v = v / 62n
     }
     return chars.join('')

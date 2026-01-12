@@ -803,7 +803,7 @@ export class SagaExecutor<TParams extends WorkflowParams = WorkflowParams> {
         }
 
         for (let i = completedSteps.length - 1; i >= 0; i--) {
-          const { step: completedStep, result } = completedSteps[i]
+          const { step: completedStep, result } = completedSteps[i]!
           if (completedStep.compensate) {
             await completedStep.compensate(ctx, result, compensationCtx)
           }
@@ -876,7 +876,7 @@ export class SagaBuilder<TParams extends WorkflowParams = WorkflowParams> {
   savepoint(): this {
     this._savepoints.push(this._steps.length - 1)
     if (this._steps.length > 0) {
-      this._steps[this._steps.length - 1].isSavepoint = true
+      this._steps[this._steps.length - 1]!.isSavepoint = true
     }
     return this
   }

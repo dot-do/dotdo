@@ -73,10 +73,10 @@ export function parseDuration(d: Duration): ParsedDuration {
     throw new Error(`Invalid duration format: ${d}. Use formats like '7d', '24h', '30m', '1000ms'`)
   }
 
-  const value = parseFloat(match[1])
-  const unit = match[2].toLowerCase()
+  const value = parseFloat(match[1]!)
+  const unit = match[2]!.toLowerCase()
 
-  return { milliseconds: value * UNIT_MULTIPLIERS[unit] }
+  return { milliseconds: value * UNIT_MULTIPLIERS[unit]! }
 }
 
 /**
@@ -114,20 +114,20 @@ export function formatDuration(ms: number): string {
   }
 
   // Try to express in the largest whole unit
-  if (ms >= UNIT_MULTIPLIERS.w && ms % UNIT_MULTIPLIERS.w === 0) {
-    return `${ms / UNIT_MULTIPLIERS.w}w`
+  if (ms >= UNIT_MULTIPLIERS.w! && ms % UNIT_MULTIPLIERS.w! === 0) {
+    return `${ms / UNIT_MULTIPLIERS.w!}w`
   }
-  if (ms >= UNIT_MULTIPLIERS.d && ms % UNIT_MULTIPLIERS.d === 0) {
-    return `${ms / UNIT_MULTIPLIERS.d}d`
+  if (ms >= UNIT_MULTIPLIERS.d! && ms % UNIT_MULTIPLIERS.d! === 0) {
+    return `${ms / UNIT_MULTIPLIERS.d!}d`
   }
-  if (ms >= UNIT_MULTIPLIERS.h && ms % UNIT_MULTIPLIERS.h === 0) {
-    return `${ms / UNIT_MULTIPLIERS.h}h`
+  if (ms >= UNIT_MULTIPLIERS.h! && ms % UNIT_MULTIPLIERS.h! === 0) {
+    return `${ms / UNIT_MULTIPLIERS.h!}h`
   }
-  if (ms >= UNIT_MULTIPLIERS.m && ms % UNIT_MULTIPLIERS.m === 0) {
-    return `${ms / UNIT_MULTIPLIERS.m}m`
+  if (ms >= UNIT_MULTIPLIERS.m! && ms % UNIT_MULTIPLIERS.m! === 0) {
+    return `${ms / UNIT_MULTIPLIERS.m!}m`
   }
-  if (ms >= UNIT_MULTIPLIERS.s && ms % UNIT_MULTIPLIERS.s === 0) {
-    return `${ms / UNIT_MULTIPLIERS.s}s`
+  if (ms >= UNIT_MULTIPLIERS.s! && ms % UNIT_MULTIPLIERS.s! === 0) {
+    return `${ms / UNIT_MULTIPLIERS.s!}s`
   }
 
   return `${ms}ms`
@@ -153,7 +153,7 @@ class DurationImpl implements DurationObject {
  * @example hours(2).toMillis() // 7200000
  */
 export function hours(n: number): DurationObject {
-  return new DurationImpl(n * UNIT_MULTIPLIERS.h)
+  return new DurationImpl(n * UNIT_MULTIPLIERS.h!)
 }
 
 /**
@@ -161,7 +161,7 @@ export function hours(n: number): DurationObject {
  * @example minutes(30).toMillis() // 1800000
  */
 export function minutes(n: number): DurationObject {
-  return new DurationImpl(n * UNIT_MULTIPLIERS.m)
+  return new DurationImpl(n * UNIT_MULTIPLIERS.m!)
 }
 
 /**
@@ -169,7 +169,7 @@ export function minutes(n: number): DurationObject {
  * @example seconds(10).toMillis() // 10000
  */
 export function seconds(n: number): DurationObject {
-  return new DurationImpl(n * UNIT_MULTIPLIERS.s)
+  return new DurationImpl(n * UNIT_MULTIPLIERS.s!)
 }
 
 /**
@@ -185,7 +185,7 @@ export function milliseconds(n: number): DurationObject {
  * @example days(7).toMillis() // 604800000
  */
 export function days(n: number): DurationObject {
-  return new DurationImpl(n * UNIT_MULTIPLIERS.d)
+  return new DurationImpl(n * UNIT_MULTIPLIERS.d!)
 }
 
 /**
@@ -193,7 +193,7 @@ export function days(n: number): DurationObject {
  * @example weeks(2).toMillis() // 1209600000
  */
 export function weeks(n: number): DurationObject {
-  return new DurationImpl(n * UNIT_MULTIPLIERS.w)
+  return new DurationImpl(n * UNIT_MULTIPLIERS.w!)
 }
 
 /**

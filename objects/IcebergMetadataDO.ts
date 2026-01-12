@@ -451,7 +451,7 @@ export class IcebergMetadataDO extends DurableObject<IcebergMetadataDOEnv> {
     try {
       // GET /metadata/:tableId - Get table metadata
       if (request.method === 'GET' && path.match(/^\/metadata\/[^/]+$/)) {
-        const tableId = path.split('/')[2]
+        const tableId = path.split('/')[2]!
         const forceRefresh = url.searchParams.get('refresh') === 'true'
         const metadata = await this.getTableMetadata(tableId, { forceRefresh })
         return Response.json(metadata)
@@ -459,7 +459,7 @@ export class IcebergMetadataDO extends DurableObject<IcebergMetadataDOEnv> {
 
       // POST /plan/:tableId - Get partition plan
       if (request.method === 'POST' && path.match(/^\/plan\/[^/]+$/)) {
-        const tableId = path.split('/')[2]
+        const tableId = path.split('/')[2]!
         const body = (await request.json()) as { filters?: Filter[] }
         const plan = await this.getPartitionPlan(tableId, body.filters ?? [])
         return Response.json(plan)
@@ -467,7 +467,7 @@ export class IcebergMetadataDO extends DurableObject<IcebergMetadataDOEnv> {
 
       // DELETE /cache/:tableId - Invalidate cache
       if (request.method === 'DELETE' && path.match(/^\/cache\/[^/]+$/)) {
-        const tableId = path.split('/')[2]
+        const tableId = path.split('/')[2]!
         const result = await this.invalidateCache(tableId)
         return Response.json(result)
       }
@@ -527,7 +527,7 @@ export class IcebergMetadataDO extends DurableObject<IcebergMetadataDOEnv> {
       throw new Error(`No metadata found for table: ${tableId}`)
     }
 
-    return metadataFiles[0].key
+    return metadataFiles[0]!.key
   }
 
   /**
@@ -947,7 +947,7 @@ export class IcebergMetadataDO extends DurableObject<IcebergMetadataDOEnv> {
    */
   private extractVersion(path: string): number {
     const match = path.match(/v(\d+)\.metadata\.json$/)
-    return match ? parseInt(match[1], 10) : 0
+    return match ? parseInt(match[1]!, 10) : 0
   }
 
   /**

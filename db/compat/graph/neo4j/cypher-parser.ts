@@ -202,7 +202,7 @@ export class CypherParser {
         const all = this.matchKeyword('ALL')
         const nextQuery = this.parseClause()
         if (nextQuery && queries.length > 0) {
-          queries[queries.length - 1].union = { all, query: nextQuery }
+          queries[queries.length - 1]!.union = { all, query: nextQuery }
         }
       }
     }
@@ -219,7 +219,7 @@ export class CypherParser {
     this.tokens = this.tokenize(cypher)
     this.pos = 0
 
-    if (this.tokens.length === 0 || this.tokens[0].type === 'EOF') {
+    if (this.tokens.length === 0 || this.tokens[0]!.type === 'EOF') {
       return undefined
     }
 
@@ -236,7 +236,7 @@ export class CypherParser {
 
     while (pos < input.length) {
       // Skip whitespace
-      while (pos < input.length && /\s/.test(input[pos])) {
+      while (pos < input.length && /\s/.test(input[pos]!)) {
         pos++
       }
 
@@ -247,14 +247,14 @@ export class CypherParser {
 
       // Skip single-line comments
       if (char === '/' && input[pos + 1] === '/') {
-        while (pos < input.length && input[pos] !== '\n') pos++
+        while (pos < input.length && input[pos]! !== '\n') pos++
         continue
       }
 
       // Skip multi-line comments
       if (char === '/' && input[pos + 1] === '*') {
         pos += 2
-        while (pos < input.length - 1 && !(input[pos] === '*' && input[pos + 1] === '/')) pos++
+        while (pos < input.length - 1 && !(input[pos]! === '*' && input[pos + 1] === '/')) pos++
         pos += 2
         continue
       }
@@ -301,7 +301,7 @@ export class CypherParser {
       }
 
       // Single-char operators
-      if (CYPHER_OPS.has(char)) {
+      if (char && CYPHER_OPS.has(char)) {
         tokens.push({ type: 'OPERATOR', value: char, position: start })
         pos++
         continue
@@ -375,8 +375,8 @@ export class CypherParser {
       if (char === '$') {
         pos++
         let name = ''
-        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
-          name += input[pos]
+        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos]!)) {
+          name += input[pos]!
           pos++
         }
         tokens.push({ type: 'PARAMETER', value: name, position: start })
@@ -433,14 +433,14 @@ export class CypherParser {
       }
 
       // Numbers
-      if (/\d/.test(char) || (char === '-' && /\d/.test(input[pos + 1] || ''))) {
+      if (char && (/\d/.test(char) || (char === '-' && /\d/.test(input[pos + 1] ?? '')))) {
         let numStr = ''
         if (char === '-') {
           numStr = '-'
           pos++
         }
-        while (pos < input.length && /[\d.eE+-]/.test(input[pos])) {
-          numStr += input[pos]
+        while (pos < input.length && /[\d.eE+-]/.test(input[pos]!)) {
+          numStr += input[pos]!
           pos++
         }
         tokens.push({ type: 'NUMBER', value: numStr, position: start })
@@ -448,10 +448,10 @@ export class CypherParser {
       }
 
       // Identifiers and keywords
-      if (/[a-zA-Z_]/.test(char)) {
+      if (char && /[a-zA-Z_]/.test(char)) {
         let ident = ''
-        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
-          ident += input[pos]
+        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos]!)) {
+          ident += input[pos]!
           pos++
         }
 
@@ -1137,7 +1137,7 @@ export class CypherParser {
       const properties = this.parseProperties()
       const parts = variable.split('.')
       return {
-        variable: parts[0],
+        variable: parts[0]!,
         properties,
         operator: op,
         value: null,
@@ -1149,7 +1149,7 @@ export class CypherParser {
 
     if (parts.length > 1) {
       return {
-        variable: parts[0],
+        variable: parts[0]!,
         property: parts.slice(1).join('.'),
         value,
         operator: op,
@@ -1181,19 +1181,19 @@ export class CypherParser {
     if (this.match('COLON')) {
       const label = this.current().type === 'IDENTIFIER' ? this.advance().value : ''
       return {
-        variable: parts[0],
+        variable: parts[0]!,
         label,
       }
     }
 
     if (parts.length > 1) {
       return {
-        variable: parts[0],
+        variable: parts[0]!,
         property: parts.slice(1).join('.'),
       }
     }
 
-    return { variable: parts[0] }
+    return { variable: parts[0]! }
   }
 
   private parseIdentifierList(): string[] {

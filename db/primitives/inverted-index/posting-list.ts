@@ -43,13 +43,13 @@ export function decodeVarint(bytes: Uint8Array, offset: number): [number, number
   let bytesRead = 0
 
   while (offset + bytesRead < bytes.length) {
-    const byte = bytes[offset + bytesRead]
+    const byte = bytes[offset + bytesRead]!
     bytesRead++
 
-    value |= (byte & 0x7f) << shift
+    value |= (byte! & 0x7f) << shift
     shift += 7
 
-    if ((byte & 0x80) === 0) {
+    if ((byte! & 0x80) === 0) {
       return [value, bytesRead]
     }
 
@@ -160,7 +160,7 @@ class ArrayContainer {
 
     view.setUint16(0, sorted.length, true)
     for (let i = 0; i < sorted.length; i++) {
-      view.setUint16(2 + i * 2, sorted[i], true)
+      view.setUint16(2 + i * 2, sorted[i]!, true)
     }
 
     return result
@@ -195,8 +195,8 @@ class BitmapContainer {
     const bitIndex = value & 31
     const mask = 1 << bitIndex
 
-    if ((this.bitmap[wordIndex] & mask) === 0) {
-      this.bitmap[wordIndex] |= mask
+    if ((this.bitmap[wordIndex]! & mask) === 0) {
+      this.bitmap[wordIndex]! |= mask
       this.count++
     }
   }
@@ -204,13 +204,13 @@ class BitmapContainer {
   contains(value: number): boolean {
     const wordIndex = value >>> 5
     const bitIndex = value & 31
-    return (this.bitmap[wordIndex] & (1 << bitIndex)) !== 0
+    return (this.bitmap[wordIndex]! & (1 << bitIndex)) !== 0
   }
 
   toArray(): number[] {
     const result: number[] = []
     for (let wordIndex = 0; wordIndex < 2048; wordIndex++) {
-      let word = this.bitmap[wordIndex]
+      const word = this.bitmap[wordIndex]!
       if (word !== 0) {
         for (let bitIndex = 0; bitIndex < 32; bitIndex++) {
           if ((word & (1 << bitIndex)) !== 0) {
@@ -242,7 +242,7 @@ class BitmapContainer {
 
     const result = new BitmapContainer()
     for (let i = 0; i < 2048; i++) {
-      result.bitmap[i] = this.bitmap[i] & other.bitmap[i]
+      result.bitmap[i] = this.bitmap[i]! & other.bitmap[i]!
     }
     result.count = result.toArray().length
     return result
@@ -257,7 +257,7 @@ class BitmapContainer {
       }
     } else {
       for (let i = 0; i < 2048; i++) {
-        result.bitmap[i] |= other.bitmap[i]
+        result.bitmap[i]! |= other.bitmap[i]!
       }
       result.count = result.toArray().length
     }
@@ -273,14 +273,14 @@ class BitmapContainer {
         const wordIndex = value >>> 5
         const bitIndex = value & 31
         const mask = 1 << bitIndex
-        if ((result.bitmap[wordIndex] & mask) !== 0) {
-          result.bitmap[wordIndex] &= ~mask
+        if ((result.bitmap[wordIndex]! & mask) !== 0) {
+          result.bitmap[wordIndex]! &= ~mask
           result.count--
         }
       }
     } else {
       for (let i = 0; i < 2048; i++) {
-        result.bitmap[i] &= ~other.bitmap[i]
+        result.bitmap[i]! &= ~other.bitmap[i]!
       }
       result.count = result.toArray().length
     }
@@ -316,8 +316,8 @@ class BitmapContainer {
       const view = new DataView(result.buffer)
       view.setUint32(1, runs.length, true)
       for (let i = 0; i < runs.length; i++) {
-        view.setUint16(5 + i * 4, runs[i][0], true)
-        view.setUint16(7 + i * 4, runs[i][1], true)
+        view.setUint16(5 + i * 4, runs[i]![0], true)
+        view.setUint16(7 + i * 4, runs[i]![1], true)
       }
       return result
     }

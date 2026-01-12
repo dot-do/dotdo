@@ -1,0 +1,380 @@
+/**
+ * Batch Insert Optimization
+ *
+ * Optimized batch insertion for HNSW indices with:
+ * - Chunked processing
+ * - Parallel insertion
+ * - Progress reporting
+ * - Memory management
+ * - Error handling modes
+ *
+ * @module db/edgevec/batch-insert
+ */
+
+import type { HNSWIndex } from './hnsw'
+import type { FilteredHNSWIndex } from './filtered-search'
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+/**
+ * Vector to insert
+ */
+export interface VectorInput {
+  /** Unique ID */
+  id: string
+  /** Vector values */
+  vector: Float32Array | number[]
+  /** Optional metadata */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Batch insert options
+ */
+export interface BatchInsertOptions {
+  /** Number of vectors per chunk (default: 100) */
+  chunkSize?: number
+  /** Number of parallel insert operations (default: 1) */
+  concurrency?: number
+  /** Max memory to use in MB (default: unlimited) */
+  maxMemoryMB?: number
+  /** Skip errors and continue (default: true) */
+  skipOnError?: boolean
+  /** Stop on first error (default: false) */
+  failFast?: boolean
+  /** Rollback all inserts on error (default: false) */
+  transactional?: boolean
+  /** Progress callback */
+  onProgress?: (progress: number) => void
+}
+
+/**
+ * Result of batch insert
+ */
+export interface BatchInsertResult {
+  /** Number of successfully inserted vectors */
+  inserted: number
+  /** Number of failed insertions */
+  failed: number
+  /** Number of chunks processed */
+  chunks: number
+  /** Time taken in milliseconds */
+  durationMs: number
+  /** Error details by ID */
+  errors?: Record<string, string>
+}
+
+// ============================================================================
+// BATCH INSERTER IMPLEMENTATION
+// ============================================================================
+
+export class BatchInserter {
+  private index: HNSWIndex | FilteredHNSWIndex
+  private options: Required<Omit<BatchInsertOptions, 'onProgress'>> & { onProgress?: (progress: number) => void }
+
+  constructor(index: HNSWIndex | FilteredHNSWIndex, options: BatchInsertOptions = {}) {
+    this.index = index
+    this.options = {
+      chunkSize: options.chunkSize ?? 100,
+      concurrency: options.concurrency ?? 1,
+      maxMemoryMB: options.maxMemoryMB ?? Infinity,
+      skipOnError: options.skipOnError ?? true,
+      failFast: options.failFast ?? false,
+      transactional: options.transactional ?? false,
+      onProgress: options.onProgress,
+    }
+  }
+
+  /**
+   * Insert a batch of vectors
+   */
+  async insertBatch(vectors: VectorInput[]): Promise<BatchInsertResult> {
+    const startTime = performance.now()
+    let inserted = 0
+    let failed = 0
+    let chunks = 0
+    const errors: Record<string, string> = {}
+    const insertedIds: string[] = []
+
+    // Validate all vectors first if transactional
+    if (this.options.transactional) {
+      const validationErrors = this.validateVectors(vectors)
+      if (Object.keys(validationErrors).length > 0) {
+        throw new Error(`Validation failed: ${JSON.stringify(validationErrors)}`)
+      }
+    }
+
+    // Split into chunks
+    const chunkedVectors = this.chunkArray(vectors, this.options.chunkSize)
+    const totalChunks = chunkedVectors.length
+
+    try {
+      if (this.options.concurrency > 1) {
+        // Parallel processing
+        const results = await this.processParallel(chunkedVectors, totalChunks)
+        for (const result of results) {
+          inserted += result.inserted
+          failed += result.failed
+          chunks += result.chunks
+          if (result.errors) {
+            Object.assign(errors, result.errors)
+          }
+          insertedIds.push(...result.insertedIds)
+        }
+      } else {
+        // Sequential processing
+        for (let i = 0; i < chunkedVectors.length; i++) {
+          const chunk = chunkedVectors[i]!
+          const result = await this.processChunk(chunk, insertedIds)
+
+          inserted += result.inserted
+          failed += result.failed
+          chunks++
+          if (result.errors) {
+            Object.assign(errors, result.errors)
+          }
+          insertedIds.push(...result.insertedIds)
+
+          // Report progress
+          if (this.options.onProgress) {
+            this.options.onProgress((i + 1) / totalChunks)
+          }
+
+          // Check fail fast
+          if (this.options.failFast && failed > 0) {
+            throw new Error(`Batch insert failed at chunk ${i + 1}: ${JSON.stringify(errors)}`)
+          }
+        }
+      }
+    } catch (error) {
+      // Rollback if transactional
+      if (this.options.transactional) {
+        for (const id of insertedIds) {
+          try {
+            this.index.delete(id)
+          } catch {
+            // Ignore rollback errors
+          }
+        }
+      }
+      throw error
+    }
+
+    return {
+      inserted,
+      failed,
+      chunks,
+      durationMs: performance.now() - startTime,
+      errors: Object.keys(errors).length > 0 ? errors : undefined,
+    }
+  }
+
+  /**
+   * Insert from an iterator (for streaming large batches)
+   */
+  async insertFromIterator(
+    iterator: Iterable<VectorInput> | AsyncIterable<VectorInput>
+  ): Promise<BatchInsertResult> {
+    const startTime = performance.now()
+    let inserted = 0
+    let failed = 0
+    let chunks = 0
+    const errors: Record<string, string> = {}
+    const insertedIds: string[] = []
+
+    let buffer: VectorInput[] = []
+
+    const flush = async () => {
+      if (buffer.length === 0) return
+
+      const result = await this.processChunk(buffer, insertedIds)
+      inserted += result.inserted
+      failed += result.failed
+      chunks++
+      if (result.errors) {
+        Object.assign(errors, result.errors)
+      }
+      insertedIds.push(...result.insertedIds)
+      buffer = []
+    }
+
+    // Process iterator
+    for await (const vector of iterator as AsyncIterable<VectorInput>) {
+      buffer.push(vector)
+      if (buffer.length >= this.options.chunkSize) {
+        await flush()
+      }
+    }
+
+    // Flush remaining
+    await flush()
+
+    return {
+      inserted,
+      failed,
+      chunks,
+      durationMs: performance.now() - startTime,
+      errors: Object.keys(errors).length > 0 ? errors : undefined,
+    }
+  }
+
+  // ============================================================================
+  // PRIVATE HELPERS
+  // ============================================================================
+
+  private validateVectors(vectors: VectorInput[]): Record<string, string> {
+    const errors: Record<string, string> = {}
+    const dimensions = this.index.dimensions()
+
+    for (const v of vectors) {
+      // Validate ID
+      if (!v.id || typeof v.id !== 'string') {
+        errors[v.id || 'unknown'] = 'Invalid or missing ID'
+        continue
+      }
+
+      // Validate vector
+      const vecLength = v.vector instanceof Float32Array ? v.vector.length : v.vector.length
+      if (vecLength !== dimensions) {
+        errors[v.id] = `dimension mismatch: expected ${dimensions}, got ${vecLength}`
+      }
+    }
+
+    return errors
+  }
+
+  private async processChunk(
+    chunk: VectorInput[],
+    insertedIds: string[]
+  ): Promise<{
+    inserted: number
+    failed: number
+    errors?: Record<string, string>
+    insertedIds: string[]
+  }> {
+    let inserted = 0
+    let failed = 0
+    const errors: Record<string, string> = {}
+    const newInsertedIds: string[] = []
+    const dimensions = this.index.dimensions()
+
+    for (const v of chunk) {
+      try {
+        // Validate
+        if (!v.id || typeof v.id !== 'string') {
+          throw new Error('Invalid or missing ID')
+        }
+
+        const vecLength = v.vector instanceof Float32Array ? v.vector.length : v.vector.length
+        if (vecLength !== dimensions) {
+          throw new Error(`dimension mismatch: expected ${dimensions}, got ${vecLength}`)
+        }
+
+        // Convert to Float32Array if needed
+        const vector = v.vector instanceof Float32Array
+          ? v.vector
+          : new Float32Array(v.vector)
+
+        // Insert
+        if ('getMetadata' in this.index && v.metadata) {
+          // Filtered index with metadata
+          ;(this.index as FilteredHNSWIndex).insert(v.id, vector, v.metadata)
+        } else {
+          this.index.insert(v.id, vector)
+        }
+
+        inserted++
+        newInsertedIds.push(v.id)
+      } catch (error) {
+        failed++
+        errors[v.id] = (error as Error).message
+
+        if (this.options.failFast) {
+          throw error
+        }
+      }
+    }
+
+    return {
+      inserted,
+      failed,
+      errors: Object.keys(errors).length > 0 ? errors : undefined,
+      insertedIds: newInsertedIds,
+    }
+  }
+
+  private async processParallel(
+    chunks: VectorInput[][],
+    totalChunks: number
+  ): Promise<Array<{
+    inserted: number
+    failed: number
+    chunks: number
+    errors?: Record<string, string>
+    insertedIds: string[]
+  }>> {
+    const results: Array<{
+      inserted: number
+      failed: number
+      chunks: number
+      errors?: Record<string, string>
+      insertedIds: string[]
+    }> = []
+
+    // Create a semaphore for concurrency control
+    let running = 0
+    let completed = 0
+    const queue = [...chunks]
+    const insertedIds: string[] = []
+
+    return new Promise((resolve, reject) => {
+      const processNext = async () => {
+        while (running < this.options.concurrency && queue.length > 0) {
+          const chunk = queue.shift()!
+          running++
+
+          try {
+            const result = await this.processChunk(chunk, insertedIds)
+            results.push({
+              ...result,
+              chunks: 1,
+            })
+            insertedIds.push(...result.insertedIds)
+          } catch (error) {
+            if (this.options.failFast) {
+              reject(error)
+              return
+            }
+          } finally {
+            running--
+            completed++
+
+            // Report progress
+            if (this.options.onProgress) {
+              this.options.onProgress(completed / totalChunks)
+            }
+
+            // Check if done
+            if (completed === chunks.length) {
+              resolve(results)
+            } else {
+              processNext()
+            }
+          }
+        }
+      }
+
+      processNext()
+    })
+  }
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size))
+    }
+    return chunks
+  }
+}

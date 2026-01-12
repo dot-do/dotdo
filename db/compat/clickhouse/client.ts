@@ -118,7 +118,7 @@ function parseCreateTable(sql: string): ParsedCreateTable {
     throw new Error('Invalid CREATE TABLE: missing columns definition')
   }
 
-  const columnsStr = columnsMatch[1]
+  const columnsStr = columnsMatch[1]!
   const columns: ColumnDef[] = []
 
   // Parse each column definition
@@ -127,7 +127,7 @@ function parseCreateTable(sql: string): ParsedCreateTable {
     const parts = colDef.split(/\s+/)
     if (parts.length >= 2) {
       columns.push({
-        name: parts[0],
+        name: parts[0]!,
         type: parts.slice(1).join(' '),
       })
     }
@@ -142,7 +142,7 @@ function parseCreateTable(sql: string): ParsedCreateTable {
   let orderBy: string[] = []
   if (orderByMatch) {
     const orderByStr = orderByMatch[1] || orderByMatch[2]
-    orderBy = orderByStr.split(',').map(s => s.trim())
+    orderBy = orderByStr!.split(',').map(s => s.trim())
   }
 
   // Extract PARTITION BY
@@ -154,7 +154,7 @@ function parseCreateTable(sql: string): ParsedCreateTable {
   let primaryKey: string[] | undefined
   if (primaryKeyMatch) {
     const pkStr = primaryKeyMatch[1] || primaryKeyMatch[2]
-    primaryKey = pkStr.split(',').map(s => s.trim())
+    primaryKey = pkStr!.split(',').map(s => s.trim())
   }
 
   // Extract TTL
@@ -162,7 +162,7 @@ function parseCreateTable(sql: string): ParsedCreateTable {
   const ttl = ttlMatch?.[1]?.trim()
 
   return {
-    name,
+    name: name!,
     columns,
     engine,
     orderBy,
@@ -189,7 +189,7 @@ function parseInsert(sql: string): ParsedInsert {
   let columns: string[] | undefined
   const colsMatch = normalized.match(/INSERT\s+INTO\s+\w+\s*\(([^)]+)\)\s+VALUES/i)
   if (colsMatch) {
-    columns = colsMatch[1].split(',').map(s => s.trim())
+    columns = colsMatch[1]!.split(',').map(s => s.trim())
   }
 
   // Extract VALUES
@@ -198,13 +198,13 @@ function parseInsert(sql: string): ParsedInsert {
     throw new Error('Invalid INSERT: missing VALUES')
   }
 
-  const valuesStr = valuesMatch[1]
+  const valuesStr = valuesMatch[1]!
   const values: unknown[][] = []
 
   // Parse each row of values
   const rowMatches = valuesStr.matchAll(/\(([^)]+)\)/g)
   for (const match of rowMatches) {
-    const rowStr = match[1]
+    const rowStr = match[1]!
     const rowValues: unknown[] = []
 
     // Parse individual values - handle strings and non-strings separately
@@ -216,7 +216,7 @@ function parseInsert(sql: string): ParsedInsert {
       }
       if (i >= rowStr.length) break
 
-      const char = rowStr[i]
+      const char = rowStr[i]!
 
       if (char === "'" || char === '"') {
         // String literal
@@ -257,7 +257,7 @@ function parseInsert(sql: string): ParsedInsert {
     values.push(rowValues)
   }
 
-  return { table, columns, values }
+  return { table: table!, columns, values }
 }
 
 /**
@@ -286,10 +286,10 @@ function parseValue(str: string): unknown {
 function convertWhereToFilter(where: unknown): Record<string, unknown> | undefined {
   if (!where) return undefined
 
-  const whereNode = where as { type: string; column?: string; op?: string; value?: unknown; op?: string; children?: unknown[] }
+  const whereNode = where as { type: string; column?: string; operator?: string; value?: unknown; children?: unknown[]; op?: string }
 
   if (whereNode.type === 'predicate') {
-    const { column, op, value } = whereNode
+    const { column, operator: op, value } = whereNode
     if (!column) return undefined
 
     switch (op) {
@@ -469,7 +469,7 @@ export class ClickHouseClient {
           }
         }
 
-        row[colName] = value
+        row[colName!] = value
       }
 
       rows.push(row)
@@ -497,10 +497,10 @@ export class ClickHouseClient {
       const withMatch = sql.match(/WITH\s+([\s\S]+?)\s+SELECT/i)
       if (withMatch) {
         // Extract CTE definition
-        const cteMatch = withMatch[1].match(/(\w+)\s+AS\s*\(([\s\S]+)\)/i)
+        const cteMatch = withMatch[1]!.match(/(\w+)\s+AS\s*\(([\s\S]+)\)/i)
         if (cteMatch) {
-          const cteName = cteMatch[1]
-          const cteQuery = cteMatch[2]
+          const cteName = cteMatch[1]!
+          const cteQuery = cteMatch[2]!
 
           // Execute CTE query
           const cteResult = this.executeSelect<Record<string, unknown>>(cteQuery, startTime)
@@ -609,7 +609,7 @@ export class ClickHouseClient {
     if (!projection?.columns) return false
 
     for (const col of projection.columns) {
-      const source = typeof col === 'string' ? col : col.source
+      const source = typeof col === 'string' ? col : (col as { source?: string }).source ?? ''
       if (/^(COUNT|SUM|AVG|MIN|MAX|UNIQ)/i.test(source)) {
         return true
       }
@@ -630,34 +630,34 @@ export class ClickHouseClient {
     const aliasMap: Record<string, string> = {} // spec key -> alias
 
     for (const col of projection) {
-      const source = typeof col === 'string' ? col : col.source
-      const alias = typeof col === 'string' ? col : (col.alias || col.source)
+      const source = typeof col === 'string' ? col : (col as { source: string }).source
+      const alias = typeof col === 'string' ? col : ((col as { alias?: string; source: string }).alias || (col as { source: string }).source)
 
       // Parse aggregate function
-      const aggMatch = source.match(/^(COUNT|SUM|AVG|MIN|MAX|UNIQ)\s*\(\s*(\*|\w+)\s*\)/i)
+      const aggMatch = (source as string).match(/^(COUNT|SUM|AVG|MIN|MAX|UNIQ)\s*\(\s*(\*|\w+)\s*\)/i)
       if (aggMatch) {
-        const fn = aggMatch[1].toLowerCase()
+        const fn = aggMatch[1]!.toLowerCase()
         const arg = aggMatch[2]
 
         // Store in standard spec format
         if (fn === 'count') {
           aggregations.count = arg === '*' ? '*' : arg
-          aliasMap.count = alias
+          aliasMap.count = alias as string
         } else if (fn === 'sum') {
           aggregations.sum = arg
-          aliasMap.sum = alias
+          aliasMap.sum = alias as string
         } else if (fn === 'avg') {
           aggregations.avg = arg
-          aliasMap.avg = alias
+          aliasMap.avg = alias as string
         } else if (fn === 'min') {
           aggregations.min = arg
-          aliasMap.min = alias
+          aliasMap.min = alias as string
         } else if (fn === 'max') {
           aggregations.max = arg
-          aliasMap.max = alias
+          aliasMap.max = alias as string
         } else if (fn === 'uniq') {
           aggregations.uniq = arg
-          aliasMap.uniq = alias
+          aliasMap.uniq = alias as string
         }
       }
     }
@@ -747,10 +747,10 @@ export class ClickHouseClient {
       const rowObj = row as Record<string, unknown>
 
       for (const col of projection.columns) {
-        const source = typeof col === 'string' ? col : col.source
-        const alias = typeof col === 'string' ? col : (col.alias || col.source)
+        const source = typeof col === 'string' ? col : (col as { source: string }).source
+        const alias = typeof col === 'string' ? col : ((col as { alias?: string; source: string }).alias || (col as { source: string }).source)
 
-        projected[alias] = rowObj[source]
+        projected[alias as string] = rowObj[source as string]
       }
 
       return projected
@@ -766,7 +766,7 @@ export class ClickHouseClient {
       throw new Error('Invalid DROP TABLE syntax')
     }
 
-    const tableName = match[1]
+    const tableName = match[1]!
     const existed = this.tables.delete(tableName)
 
     if (!existed && !sql.toUpperCase().includes('IF EXISTS')) {
@@ -785,7 +785,7 @@ export class ClickHouseClient {
       throw new Error('Invalid TRUNCATE syntax')
     }
 
-    const tableName = match[1]
+    const tableName = match[1]!
     const table = this.tables.get(tableName)
 
     if (!table) {

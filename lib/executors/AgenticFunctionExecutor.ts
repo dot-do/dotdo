@@ -342,7 +342,7 @@ export class AgenticFunctionExecutor {
 
     // Filter tools to only those requested
     const availableTools: ToolDefinition[] = requestedTools.map(
-      (name) => this.tools[name]
+      (name) => this.tools[name]!
     )
 
     // Build initial messages
@@ -601,7 +601,7 @@ export class AgenticFunctionExecutor {
               arguments: modifiedCall.arguments,
             })
 
-            const tool = this.tools[modifiedCall.name]
+            const tool = this.tools[modifiedCall.name]!
 
             // Check authorization
             if (tool.requiresAuthorization) {
@@ -879,7 +879,7 @@ export class AgenticFunctionExecutor {
     const executing: Set<Promise<void>> = new Set()
 
     for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i]
+      const task = tasks[i]!
       const p = task().then((result) => {
         results[i] = result
         executing.delete(p as unknown as Promise<void>)

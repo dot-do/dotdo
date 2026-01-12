@@ -157,7 +157,7 @@ function evaluateExpression(expr: unknown, doc: unknown): unknown {
       typeof v === 'string' && v.startsWith('$')
         ? (getFieldValue(doc, v) as number) || 0
         : (v as number)
-    )
+    ) as [number, number]
     return a - b
   }
 
@@ -167,7 +167,7 @@ function evaluateExpression(expr: unknown, doc: unknown): unknown {
       typeof v === 'string' && v.startsWith('$')
         ? (getFieldValue(doc, v) as number) || 0
         : (v as number)
-    )
+    ) as [number, number]
     return b !== 0 ? a / b : 0
   }
 
@@ -218,7 +218,7 @@ function evaluateCondition(condition: unknown, doc: unknown): boolean {
       typeof v === 'string' && v.startsWith('$')
         ? (getFieldValue(doc, v) as number) || 0
         : (v as number)
-    )
+    ) as [number, number]
     return a > b
   }
 
@@ -228,7 +228,7 @@ function evaluateCondition(condition: unknown, doc: unknown): boolean {
       typeof v === 'string' && v.startsWith('$')
         ? (getFieldValue(doc, v) as number) || 0
         : (v as number)
-    )
+    ) as [number, number]
     return a < b
   }
 
@@ -238,7 +238,7 @@ function evaluateCondition(condition: unknown, doc: unknown): boolean {
       typeof v === 'string' && v.startsWith('$')
         ? getFieldValue(doc, v)
         : v
-    )
+    ) as [unknown, unknown]
     return a === b
   }
 
@@ -248,7 +248,7 @@ function evaluateCondition(condition: unknown, doc: unknown): boolean {
       typeof v === 'string' && v.startsWith('$')
         ? (getFieldValue(doc, v) as number) || 0
         : (v as number)
-    )
+    ) as [number, number]
     return a >= b
   }
 

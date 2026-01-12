@@ -118,7 +118,7 @@ class BloomFilterImpl implements BloomFilter {
       const bitIndex = combinedHash % this.numBits
       const byteIndex = Math.floor(bitIndex / 8)
       const bitOffset = bitIndex % 8
-      this.bits[byteIndex] |= 1 << bitOffset
+      this.bits[byteIndex]! |= 1 << bitOffset
     }
   }
 
@@ -133,7 +133,7 @@ class BloomFilterImpl implements BloomFilter {
       const byteIndex = Math.floor(bitIndex / 8)
       const bitOffset = bitIndex % 8
 
-      if ((this.bits[byteIndex] & (1 << bitOffset)) === 0) {
+      if ((this.bits[byteIndex]! & (1 << bitOffset)) === 0) {
         return false
       }
     }
@@ -202,7 +202,7 @@ class HyperLogLog {
     const leadingZeros = this.countLeadingZeros(remainingBits, 32 - registerBits) + 1
 
     // Update register with max
-    if (leadingZeros > this.registers[registerIndex]) {
+    if (leadingZeros > this.registers[registerIndex]!) {
       this.registers[registerIndex] = leadingZeros
     }
   }
@@ -211,7 +211,7 @@ class HyperLogLog {
     // Calculate raw estimate using harmonic mean
     let sum = 0
     for (let i = 0; i < this.numRegisters; i++) {
-      sum += Math.pow(2, -this.registers[i])
+      sum += Math.pow(2, -this.registers[i]!)
     }
 
     const rawEstimate = (this.alpha * this.numRegisters * this.numRegisters) / sum
@@ -313,7 +313,7 @@ class BitReader {
 
   readBit(): boolean {
     if (this.bytePos >= this.data.length) return false
-    const bit = (this.data[this.bytePos] >> (7 - this.bitPos)) & 1
+    const bit = (this.data[this.bytePos]! >> (7 - this.bitPos)) & 1
     this.bitPos++
     if (this.bitPos === 8) {
       this.bytePos++
@@ -365,7 +365,7 @@ class GorillaCodec {
 
     // Write all values as bits for bit-level packing
     // First value: full 64 bits
-    const firstBits = this.float64ToBits(values[0])
+    const firstBits = this.float64ToBits(values[0]!)
     writer.writeBits(firstBits, 64)
 
     let prevBits = firstBits
@@ -374,7 +374,7 @@ class GorillaCodec {
 
     // Encode subsequent values using XOR with Gorilla algorithm
     for (let i = 1; i < values.length; i++) {
-      const currentBits = this.float64ToBits(values[i])
+      const currentBits = this.float64ToBits(values[i]!)
       const xor = prevBits ^ currentBits
 
       if (xor === 0n) {
@@ -588,21 +588,21 @@ class DeltaCodec {
       const output = new Uint8Array(headerSize)
       const view = new DataView(output.buffer)
       view.setUint32(0, 1, true)
-      view.setBigInt64(4, BigInt(Math.round(values[0])), true)
+      view.setBigInt64(4, BigInt(Math.round(values[0]!)), true)
       return output
     }
 
     // Calculate first delta
-    let prevValue = BigInt(Math.round(values[0]))
-    let prevDelta = BigInt(Math.round(values[1])) - prevValue
+    let prevValue = BigInt(Math.round(values[0]!))
+    let prevDelta = BigInt(Math.round(values[1]!)) - prevValue
 
     // Write first delta using variable-bit encoding
     this.writeDelta(writer, prevDelta)
 
     // Encode delta-of-deltas
     for (let i = 2; i < values.length; i++) {
-      const currentValue = BigInt(Math.round(values[i]))
-      const delta = currentValue - BigInt(Math.round(values[i - 1]))
+      const currentValue = BigInt(Math.round(values[i]!))
+      const delta = currentValue - BigInt(Math.round(values[i - 1]!))
       const dod = delta - prevDelta
 
       this.writeDeltaOfDelta(writer, dod)
@@ -616,7 +616,7 @@ class DeltaCodec {
     const output = new Uint8Array(headerSize + dodBytes.length)
     const view = new DataView(output.buffer)
     view.setUint32(0, values.length, true)
-    view.setBigInt64(4, BigInt(Math.round(values[0])), true)
+    view.setBigInt64(4, BigInt(Math.round(values[0]!)), true)
     output.set(dodBytes, headerSize)
 
     return output
@@ -662,7 +662,7 @@ class DeltaCodec {
     for (let i = 2; i < length; i++) {
       const dod = this.readDeltaOfDelta(reader)
       const delta = prevDelta + dod
-      values.push(values[values.length - 1] + Number(delta))
+      values.push(values[values.length - 1]! + Number(delta))
       prevDelta = delta
     }
 
@@ -789,19 +789,19 @@ class RLECodec {
     }
 
     const runs: Array<{ value: number; count: number }> = []
-    let currentValue = values[0]
+    let currentValue = values[0]!
     let currentCount = 1
 
     for (let i = 1; i < values.length; i++) {
       if (values[i] === currentValue) {
         currentCount++
       } else {
-        runs.push({ value: currentValue, count: currentCount })
-        currentValue = values[i]
+        runs.push({ value: currentValue!, count: currentCount })
+        currentValue = values[i]!
         currentCount = 1
       }
     }
-    runs.push({ value: currentValue, count: currentCount })
+    runs.push({ value: currentValue!, count: currentCount })
 
     // Encode: [length 4B][numRuns 4B][run1Value 8B][run1Count 4B]...
     const output = new Uint8Array(4 + 4 + runs.length * 12)
@@ -901,7 +901,7 @@ class ZstdCodec {
     const rawBytes = new Uint8Array(values.length * 8)
     const view = new DataView(rawBytes.buffer)
     for (let i = 0; i < values.length; i++) {
-      view.setFloat64(i * 8, values[i], true)
+      view.setFloat64(i * 8, values[i]!, true)
     }
 
     // Simple compression: store raw with header
@@ -986,7 +986,7 @@ class ZstdCodec {
       if (runLength >= 4) {
         // Encode run: [0x80 | length, value]
         output.push(0x80 | runLength)
-        output.push(data[i])
+        output.push(data[i]!)
         i += runLength
       } else {
         // Find literal run
@@ -1013,7 +1013,7 @@ class ZstdCodec {
         if (literalLength > 0) {
           output.push(literalLength)
           for (let j = 0; j < literalLength; j++) {
-            output.push(data[literalStart + j])
+            output.push(data[literalStart + j]!)
           }
         }
       }
@@ -1028,20 +1028,20 @@ class ZstdCodec {
     let inPos = 0
 
     while (inPos < data.length && outPos < expectedLength) {
-      const header = data[inPos++]
+      const header = data[inPos++]!
 
-      if (header & 0x80) {
+      if (header! & 0x80) {
         // Run
-        const length = header & 0x7f
-        const value = data[inPos++]
+        const length = header! & 0x7f
+        const value = data[inPos++]!
         for (let i = 0; i < length && outPos < expectedLength; i++) {
-          output[outPos++] = value
+          output[outPos++] = value!
         }
       } else {
         // Literals
-        const length = header
-        for (let i = 0; i < length && inPos < data.length && outPos < expectedLength; i++) {
-          output[outPos++] = data[inPos++]
+        const length = header!
+        for (let i = 0; i < length! && inPos < data.length && outPos < expectedLength; i++) {
+          output[outPos++] = data[inPos++]!
         }
       }
     }
@@ -1056,26 +1056,26 @@ class ZstdCodec {
 
 function arrayMin(values: number[]): number {
   if (values.length === 0) return Infinity
-  let min = values[0]
+  let min = values[0]!
   for (let i = 1; i < values.length; i++) {
-    if (values[i] < min) min = values[i]
+    if (values[i]! < min!) min = values[i]!
   }
-  return min
+  return min!
 }
 
 function arrayMax(values: number[]): number {
   if (values.length === 0) return -Infinity
-  let max = values[0]
+  let max = values[0]!
   for (let i = 1; i < values.length; i++) {
-    if (values[i] > max) max = values[i]
+    if (values[i]! > max!) max = values[i]!
   }
-  return max
+  return max!
 }
 
 function arraySum(values: number[]): number {
   let sum = 0
   for (let i = 0; i < values.length; i++) {
-    sum += values[i]
+    sum += values[i]!
   }
   return sum
 }

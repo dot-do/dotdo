@@ -122,7 +122,7 @@ export function parseCorrelationHeader(header: string): ParsedCorrelationHeader 
   const [sessionId, requestId, timestampStr] = parts
 
   // Parse timestamp
-  const timestamp = parseInt(timestampStr, 10)
+  const timestamp = parseInt(timestampStr!, 10)
 
   // Validate timestamp is a valid positive integer
   if (isNaN(timestamp) || timestamp <= 0 || timestampStr !== String(timestamp)) {
@@ -130,8 +130,8 @@ export function parseCorrelationHeader(header: string): ParsedCorrelationHeader 
   }
 
   return {
-    sessionId,
-    requestId,
+    sessionId: sessionId!,
+    requestId: requestId!,
     timestamp,
   }
 }

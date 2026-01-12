@@ -129,14 +129,14 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
 
   let current = obj
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]
+    const part = parts[i]!
     if (!(part in current)) {
       current[part] = {}
     }
     current = current[part] as Record<string, unknown>
   }
 
-  current[parts[parts.length - 1]] = value
+  current[parts[parts.length - 1]!] = value
 }
 
 /**

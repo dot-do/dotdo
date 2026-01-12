@@ -252,7 +252,7 @@ function parseParameter(paramStr: string): ParameterInfo {
   // Handle rest parameters (...rest: type[])
   const restMatch = paramStr.match(/^\.\.\.(\w+)/)
   if (restMatch) {
-    return { name: restMatch[1], optional: true }
+    return { name: restMatch[1]!, optional: true }
   }
 
   // Handle destructuring: { a, b }: Type or [a, b]: Type
@@ -270,7 +270,7 @@ function parseParameter(paramStr: string): ParameterInfo {
   const nameMatch = paramStr.match(/^(\w+)(\?)?(?:\s*[=:]|$)/)
   if (nameMatch) {
     const isOptional = nameMatch[2] === '?' || paramStr.includes('=')
-    return { name: nameMatch[1], optional: isOptional }
+    return { name: nameMatch[1]!, optional: isOptional }
   }
 
   return { name: 'arg', optional: false }
@@ -442,7 +442,7 @@ export function getMethodSignature(DOClass: Function, methodName: string): Metho
   // Parameters at or after fn.length are considered optional
   const requiredParamCount = fn.length
   for (let i = requiredParamCount; i < parameters.length; i++) {
-    parameters[i].optional = true
+    parameters[i]!.optional = true
   }
 
   // Heuristic: Common optional parameter naming patterns

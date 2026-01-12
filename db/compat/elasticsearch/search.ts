@@ -270,7 +270,7 @@ export class SearchExecutor {
   }
 
   private executeMatch(match: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(match)[0]
+    const field = Object.keys(match)[0]!
     const config = match[field]
 
     let queryText: string
@@ -407,7 +407,7 @@ export class SearchExecutor {
   }
 
   private executeMatchPhrase(matchPhrase: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(matchPhrase)[0]
+    const field = Object.keys(matchPhrase)[0]!
     const config = matchPhrase[field]
 
     let queryText: string
@@ -422,11 +422,11 @@ export class SearchExecutor {
 
     // For phrase queries, all tokens must appear and ideally in sequence
     // Simplified: just require all tokens match (like AND operator)
-    return this.executeMatch({ [field]: { query: queryText, operator: 'and' } })
+    return this.executeMatch({ [field!]: { query: queryText, operator: 'and' } })
   }
 
   private executeTerm(term: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(term)[0]
+    const field = Object.keys(term)[0]!
     const config = term[field]
 
     let value: string | number | boolean
@@ -472,7 +472,7 @@ export class SearchExecutor {
   }
 
   private executeTerms(terms: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(terms)[0]
+    const field = Object.keys(terms)[0]!
     const values = terms[field] as (string | number | boolean)[]
 
     const results: ScoredDoc[] = []
@@ -492,7 +492,7 @@ export class SearchExecutor {
   }
 
   private executeRange(range: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(range)[0]
+    const field = Object.keys(range)[0]!
     const config = range[field] as {
       gt?: number | string
       gte?: number | string
@@ -559,7 +559,7 @@ export class SearchExecutor {
   }
 
   private executePrefix(prefix: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(prefix)[0]
+    const field = Object.keys(prefix)[0]!
     const config = prefix[field]
 
     let prefixValue: string
@@ -604,7 +604,7 @@ export class SearchExecutor {
   }
 
   private executeWildcard(wildcard: Record<string, unknown>): ScoredDoc[] {
-    const field = Object.keys(wildcard)[0]
+    const field = Object.keys(wildcard)[0]!
     const config = wildcard[field]
 
     let pattern: string
@@ -673,10 +673,10 @@ export class SearchExecutor {
     if (mustResults.length > 0 || filterResults.length > 0) {
       // Find intersection of all must clauses
       const allMustResults = [...mustResults, ...filterResults]
-      candidates = new Set(allMustResults[0]?.map((d) => d.docId) || [])
+      candidates = new Set(allMustResults[0]!.map((d) => d.docId))
 
       for (let i = 1; i < allMustResults.length; i++) {
-        const clauseDocIds = new Set(allMustResults[i].map((d) => d.docId))
+        const clauseDocIds = new Set(allMustResults[i]!.map((d) => d.docId))
         candidates = new Set([...candidates].filter((id) => clauseDocIds.has(id)))
       }
     } else if (shouldResults.length > 0) {
@@ -854,7 +854,7 @@ export class SearchExecutor {
     const rrfScores = new Map<string, { score: number; numericId: number }>()
 
     for (let i = 0; i < bm25Ranked.length; i++) {
-      const doc = bm25Ranked[i]
+      const doc = bm25Ranked[i]!
       const rrfScore = 1 / (k + i + 1)
       const existing = rrfScores.get(doc.docId)
       if (existing) {
@@ -865,7 +865,7 @@ export class SearchExecutor {
     }
 
     for (let i = 0; i < vectorRanked.length; i++) {
-      const doc = vectorRanked[i]
+      const doc = vectorRanked[i]!
       const rrfScore = 1 / (k + i + 1)
       const existing = rrfScores.get(doc.docId)
       if (existing) {
@@ -918,11 +918,11 @@ export class SearchExecutor {
         } else if ('_score' in sortItem) {
           field = '_score'
           const scoreConfig = sortItem._score
-          order = typeof scoreConfig === 'string' ? scoreConfig : scoreConfig.order || 'desc'
+          order = typeof scoreConfig === 'string' ? scoreConfig : scoreConfig?.order || 'desc'
         } else {
-          field = Object.keys(sortItem)[0]
-          const fieldConfig = sortItem[field]
-          order = typeof fieldConfig === 'string' ? fieldConfig : fieldConfig.order || 'asc'
+          field = Object.keys(sortItem)[0]!
+          const fieldConfig = sortItem[field!]
+          order = typeof fieldConfig === 'string' ? fieldConfig : fieldConfig?.order || 'asc'
         }
 
         let aValue: unknown
@@ -1045,17 +1045,17 @@ export class SearchExecutor {
       const value = this.indexer.getFieldValue(source, field)
       if (typeof value !== 'string') continue
 
-      const fieldPreTags = fieldConfig.pre_tags || preTags
-      const fieldPostTags = fieldConfig.post_tags || postTags
-      const fragmentSize = fieldConfig.fragment_size || 150
-      const numFragments = fieldConfig.number_of_fragments || 5
+      const fieldPreTags = fieldConfig?.pre_tags || preTags
+      const fieldPostTags = fieldConfig?.post_tags || postTags
+      const fragmentSize = fieldConfig?.fragment_size || 150
+      const numFragments = fieldConfig?.number_of_fragments || 5
 
       // Find and highlight matching terms
       const fragments = this.highlightField(
         value,
         queryTerms,
-        fieldPreTags[0],
-        fieldPostTags[0],
+        fieldPreTags[0]!,
+        fieldPostTags[0]!,
         fragmentSize,
         numFragments
       )
@@ -1072,10 +1072,10 @@ export class SearchExecutor {
     const terms: string[] = []
 
     if ('match' in query) {
-      const field = Object.keys(query.match)[0]
+      const field = Object.keys(query.match)[0]!
       const config = query.match[field]
       const text = typeof config === 'string' ? config : (config as { query: string }).query
-      terms.push(...this.indexer.tokenizeField(field, text))
+      terms.push(...this.indexer.tokenizeField(field!, text))
     } else if ('multi_match' in query) {
       terms.push(...this.indexer.tokenizeField('', query.multi_match.query))
     } else if ('bool' in query) {

@@ -937,14 +937,14 @@ export class BindingRegistry {
   ): Promise<T> {
     // Extract capability prefix from method name
     const [prefix] = method.split('.')
-    const binding = this.bindings.get(prefix)
+    const binding = this.bindings.get(prefix!)
 
     if (binding?.isAvailable()) {
       return binding.call(method, params, options) as Promise<T>
     }
 
     // Try fallback
-    const fallback = this.fallbacks.get(prefix)
+    const fallback = this.fallbacks.get(prefix!)
     if (fallback) {
       return fallback(method, params) as Promise<T>
     }

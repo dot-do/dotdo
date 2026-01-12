@@ -102,8 +102,8 @@ function decode(id: string): Record<string, number> {
   const result: Record<string, number> = {}
 
   for (let i = 0; i < numbers.length; i += 2) {
-    const tag = numbers[i]
-    const value = numbers[i + 1]
+    const tag = numbers[i]!
+    const value = numbers[i + 1]!
     const tagName = tagNames[tag]
 
     if (tagName) {

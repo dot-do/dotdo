@@ -157,9 +157,9 @@ function cosineDistance(a: Float32Array, b: Float32Array): number {
   let normA = 0
   let normB = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    normA += a[i]! * a[i]!
+    normB += b[i]! * b[i]!
   }
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
@@ -170,7 +170,7 @@ function cosineDistance(a: Float32Array, b: Float32Array): number {
 function l2Distance(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return Math.sqrt(sum)
@@ -182,7 +182,7 @@ function l2Distance(a: Float32Array, b: Float32Array): number {
 function dotDistance(a: Float32Array, b: Float32Array): number {
   let dot = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
+    dot += a[i]! * b[i]!
   }
   return dot
 }
@@ -230,10 +230,10 @@ class MinHeap {
   private bubbleUp(index: number): void {
     while (index > 0) {
       const parentIndex = Math.floor((index - 1) / 2)
-      if (this.heap[parentIndex].distance <= this.heap[index].distance) break
+      if (this.heap[parentIndex]!.distance <= this.heap[index]!.distance) break
       ;[this.heap[parentIndex], this.heap[index]] = [
-        this.heap[index],
-        this.heap[parentIndex],
+        this.heap[index]!,
+        this.heap[parentIndex]!,
       ]
       index = parentIndex
     }
@@ -248,21 +248,21 @@ class MinHeap {
 
       if (
         leftChild < length &&
-        this.heap[leftChild].distance < this.heap[smallest].distance
+        this.heap[leftChild]!.distance < this.heap[smallest]!.distance
       ) {
         smallest = leftChild
       }
       if (
         rightChild < length &&
-        this.heap[rightChild].distance < this.heap[smallest].distance
+        this.heap[rightChild]!.distance < this.heap[smallest]!.distance
       ) {
         smallest = rightChild
       }
 
       if (smallest === index) break
       ;[this.heap[smallest], this.heap[index]] = [
-        this.heap[index],
-        this.heap[smallest],
+        this.heap[index]!,
+        this.heap[smallest]!,
       ]
       index = smallest
     }
@@ -303,10 +303,10 @@ class MaxHeap {
   private bubbleUp(index: number): void {
     while (index > 0) {
       const parentIndex = Math.floor((index - 1) / 2)
-      if (this.heap[parentIndex].distance >= this.heap[index].distance) break
+      if (this.heap[parentIndex]!.distance >= this.heap[index]!.distance) break
       ;[this.heap[parentIndex], this.heap[index]] = [
-        this.heap[index],
-        this.heap[parentIndex],
+        this.heap[index]!,
+        this.heap[parentIndex]!,
       ]
       index = parentIndex
     }
@@ -321,21 +321,21 @@ class MaxHeap {
 
       if (
         leftChild < length &&
-        this.heap[leftChild].distance > this.heap[largest].distance
+        this.heap[leftChild]!.distance > this.heap[largest]!.distance
       ) {
         largest = leftChild
       }
       if (
         rightChild < length &&
-        this.heap[rightChild].distance > this.heap[largest].distance
+        this.heap[rightChild]!.distance > this.heap[largest]!.distance
       ) {
         largest = rightChild
       }
 
       if (largest === index) break
       ;[this.heap[largest], this.heap[index]] = [
-        this.heap[index],
-        this.heap[largest],
+        this.heap[index]!,
+        this.heap[largest]!,
       ]
       index = largest
     }
@@ -469,18 +469,18 @@ export class HNSWIndexImpl implements HNSWIndex {
         if (!neighborNode.neighbors[lc]) {
           neighborNode.neighbors[lc] = []
         }
-        neighborNode.neighbors[lc].push(id)
+        neighborNode.neighbors[lc]!.push(id)
 
         // Prune if over limit
         const maxConn = lc === 0 ? this._config.maxM0 : this._config.maxM
-        if (neighborNode.neighbors[lc].length > maxConn) {
+        if (neighborNode.neighbors[lc]!.length > maxConn) {
           this.pruneConnections(neighborNode, lc, maxConn)
         }
       }
 
       // Update entry point for next level
       if (neighbors.length > 0) {
-        currentNode = this.nodes.get(neighbors[0].id)!
+        currentNode = this.nodes.get(neighbors[0]!.id)!
       }
     }
 
@@ -548,7 +548,7 @@ export class HNSWIndexImpl implements HNSWIndex {
     for (const otherNode of this.nodes.values()) {
       for (let level = 0; level <= otherNode.level; level++) {
         if (otherNode.neighbors[level]) {
-          otherNode.neighbors[level] = otherNode.neighbors[level].filter(
+          otherNode.neighbors[level] = otherNode.neighbors[level]!.filter(
             (n) => n !== id
           )
         }
@@ -640,14 +640,14 @@ export class HNSWIndexImpl implements HNSWIndex {
 
     for (const node of this.nodes.values()) {
       for (let level = 0; level <= node.level; level++) {
-        layerDistribution[level]++
-        connectionSums[level] += node.neighbors[level]?.length ?? 0
-        connectionCounts[level]++
+        layerDistribution[level]!++
+        connectionSums[level]! += node.neighbors[level]?.length ?? 0
+        connectionCounts[level]!++
       }
     }
 
     const avgConnections = layerDistribution.map((count, level) =>
-      count > 0 ? connectionSums[level] / count : 0
+      count > 0 ? connectionSums[level]! / count : 0
     )
 
     // Estimate memory usage
@@ -678,7 +678,7 @@ export class HNSWIndexImpl implements HNSWIndex {
     const json = this.toJSON()
     const jsonString = JSON.stringify(json)
     const encoder = new TextEncoder()
-    return encoder.encode(jsonString).buffer
+    return encoder.encode(jsonString).buffer as ArrayBuffer
   }
 
   static deserialize(buffer: ArrayBuffer): HNSWIndexImpl {
@@ -860,7 +860,7 @@ export class HNSWIndexImpl implements HNSWIndex {
     const nodeVec = this.vectors.get(node.id)
     if (!nodeVec) return
 
-    const neighbors = node.neighbors[level]
+    const neighbors = node.neighbors[level]!
 
     // Calculate distances to all neighbors (filter out any that may have been deleted)
     const scored: HeapItem[] = []

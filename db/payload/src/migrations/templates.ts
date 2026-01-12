@@ -91,14 +91,14 @@ export function parseTimestampFromName(name: string): number {
   const match = name.match(/^(\d{8}_\d{6})/)
   if (!match) return 0
 
-  const ts = match[1]
+  const ts = match[1]!
   // Convert YYYYMMDD_HHMMSS to epoch-ish number for sorting
-  const year = parseInt(ts.slice(0, 4), 10)
-  const month = parseInt(ts.slice(4, 6), 10)
-  const day = parseInt(ts.slice(6, 8), 10)
-  const hour = parseInt(ts.slice(9, 11), 10)
-  const minute = parseInt(ts.slice(11, 13), 10)
-  const second = parseInt(ts.slice(13, 15), 10)
+  const year = parseInt(ts!.slice(0, 4), 10)
+  const month = parseInt(ts!.slice(4, 6), 10)
+  const day = parseInt(ts!.slice(6, 8), 10)
+  const hour = parseInt(ts!.slice(9, 11), 10)
+  const minute = parseInt(ts!.slice(11, 13), 10)
+  const second = parseInt(ts!.slice(13, 15), 10)
 
   return new Date(year, month - 1, day, hour, minute, second).getTime()
 }

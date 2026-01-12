@@ -244,9 +244,9 @@ function computeCosineSimilarity(a: Float32Array, b: Float32Array): number {
   let normA = 0
   let normB = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    normA += a[i]! * a[i]!
+    normB += b[i]! * b[i]!
   }
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
@@ -257,7 +257,7 @@ function computeCosineSimilarity(a: Float32Array, b: Float32Array): number {
 function computeL2Distance(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return Math.sqrt(sum)
@@ -269,7 +269,7 @@ function computeL2Distance(a: Float32Array, b: Float32Array): number {
 function computeDotProduct(a: Float32Array, b: Float32Array): number {
   let dot = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
+    dot += a[i]! * b[i]!
   }
   return dot
 }
@@ -293,7 +293,7 @@ async function runWithConcurrencyLimit<T>(
         activeCount++
         maxConcurrent = Math.max(maxConcurrent, activeCount)
 
-        tasks[taskIndex]()
+        tasks[taskIndex]!()
           .then((result) => {
             results[taskIndex] = result
           })
@@ -450,7 +450,7 @@ export class RerankFetcher {
       if (embedding) {
         const vec = new Float32Array(dimensions)
         for (let i = 0; i < Math.min(embedding.length, dimensions); i++) {
-          vec[i] = embedding[i]
+          vec[i] = embedding[i]!
         }
         vectors.set(id, vec)
         found.push(id)

@@ -151,7 +151,7 @@ async function tableExists(db: DuckDBInstance, table: string): Promise<boolean> 
   const result = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name = '${escapeSQL(table)}'`
   )
-  return result.rows[0].cnt > 0
+  return result.rows[0]!.cnt > 0
 }
 
 /**
@@ -180,7 +180,7 @@ async function ftsIndexExists(db: DuckDBInstance, table: string): Promise<boolea
     const result = await db.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name = '${escapeSQL(indexTableName)}'`
     )
-    return result.rows[0].cnt > 0
+    return result.rows[0]!.cnt > 0
   } catch {
     return false
   }
@@ -292,7 +292,7 @@ export async function createFTSIndex(
   const countResult = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM ${config.table}`
   )
-  const documentCount = Number(countResult.rows[0].cnt)
+  const documentCount = Number(countResult.rows[0]!.cnt)
 
   const createTimeMs = performance.now() - startTime
   const indexName = config.indexName ?? generateIndexName(config.table, columns)
@@ -463,7 +463,7 @@ export async function search<T = Record<string, unknown>>(
       ${minScore > 0 ? `AND fts.score >= ${minScore}` : ''}
     `
     const countResult = await db.query<{ cnt: number }>(countSQL)
-    const totalCount = Number(countResult.rows[0].cnt)
+    const totalCount = Number(countResult.rows[0]!.cnt)
 
     // Transform results
     const results: FTSSearchResult<T>[] = result.rows.map((row) => {
@@ -476,7 +476,7 @@ export async function search<T = Record<string, unknown>>(
     })
 
     const queryTimeMs = performance.now() - startTime
-    const maxScore = results.length > 0 ? results[0].score : 0
+    const maxScore = results.length > 0 ? results[0]!.score : 0
 
     return {
       results,
@@ -560,7 +560,7 @@ export async function rebuildIndex(
     const countResult = await db.query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM ${table}`
     )
-    const documentCount = Number(countResult.rows[0].cnt)
+    const documentCount = Number(countResult.rows[0]!.cnt)
 
     const rebuildTimeMs = performance.now() - startTime
 

@@ -481,7 +481,7 @@ export class Service extends DO {
     }
 
     if (url.pathname.startsWith('/request/')) {
-      const requestId = url.pathname.split('/')[2]
+      const requestId = url.pathname.split('/')[2]!
       const req = await this.getRequest(requestId)
       if (!req) {
         return new Response('Not Found', { status: 404 })

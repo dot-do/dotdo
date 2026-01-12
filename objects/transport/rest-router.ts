@@ -139,7 +139,7 @@ function extractNamespace(ns: string): string {
     const hostname = url.hostname
     const parts = hostname.split('.')
     if (parts.length >= 2) {
-      return parts[0]  // Return first part as namespace
+      return parts[0]!  // Return first part as namespace
     }
     return hostname
   } catch {
@@ -484,21 +484,21 @@ export function parseRestRoute(pathname: string): { type: string; id?: string } 
   }
 
   // Exclude system routes
-  const firstSegment = segments[0].toLowerCase()
+  const firstSegment = segments[0]!.toLowerCase()
   if (SYSTEM_ROUTES.has(firstSegment)) {
     return null
   }
 
   if (segments.length === 1) {
     // /customers → Customer
-    const type = singularize(segments[0])
+    const type = singularize(segments[0]!)
     return { type }
   }
 
   if (segments.length === 2) {
     // /customers/cust-1 → Customer, cust-1
-    const type = singularize(segments[0])
-    const id = segments[1]
+    const type = singularize(segments[0]!)
+    const id = segments[1]!
     return { type, id }
   }
 

@@ -64,7 +64,7 @@ function initializeCentroidsKMeansPlusPlus(
   seed?: number
 ): Float32Array[] {
   const n = data.length
-  const dim = data[0].length
+  const dim = data[0]!.length
   const centroids: Float32Array[] = []
 
   // Simple seeded random (for reproducibility)
@@ -76,7 +76,7 @@ function initializeCentroidsKMeansPlusPlus(
 
   // Pick first centroid randomly
   const firstIdx = Math.floor(random() * n)
-  centroids.push(new Float32Array(data[firstIdx]))
+  centroids.push(new Float32Array(data[firstIdx]!))
 
   // Pick remaining centroids with probability proportional to squared distance
   const minDistances = new Float32Array(n).fill(Infinity)
@@ -85,25 +85,25 @@ function initializeCentroidsKMeansPlusPlus(
     // Update minimum distances to nearest centroid
     let totalDist = 0
     for (let i = 0; i < n; i++) {
-      const dist = squaredL2Distance(data[i], centroids[c - 1])
-      if (dist < minDistances[i]) {
+      const dist = squaredL2Distance(data[i]!, centroids[c - 1]!)
+      if (dist < minDistances[i]!) {
         minDistances[i] = dist
       }
-      totalDist += minDistances[i]
+      totalDist += minDistances[i]!
     }
 
     // Sample next centroid with probability proportional to distance^2
     let target = random() * totalDist
     let nextIdx = 0
     for (let i = 0; i < n; i++) {
-      target -= minDistances[i]
+      target -= minDistances[i]!
       if (target <= 0) {
         nextIdx = i
         break
       }
     }
 
-    centroids.push(new Float32Array(data[nextIdx]))
+    centroids.push(new Float32Array(data[nextIdx]!))
   }
 
   return centroids
@@ -115,7 +115,7 @@ function initializeCentroidsKMeansPlusPlus(
 function squaredL2Distance(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
+    const diff = a[i]! - b[i]!
     sum += diff * diff
   }
   return sum
@@ -129,7 +129,7 @@ function findNearestCentroid(vector: Float32Array, centroids: Float32Array[]): n
   let minIdx = 0
 
   for (let i = 0; i < centroids.length; i++) {
-    const dist = squaredL2Distance(vector, centroids[i])
+    const dist = squaredL2Distance(vector, centroids[i]!)
     if (dist < minDist) {
       minDist = dist
       minIdx = i
@@ -150,14 +150,14 @@ function kMeans(
   seed?: number
 ): Float32Array[] {
   const n = data.length
-  const dim = data[0].length
+  const dim = data[0]!.length
 
   // Handle case where we have fewer data points than centroids
   if (n <= k) {
     // Just use all data points as centroids, padding with random if needed
     const centroids: Float32Array[] = []
     for (let i = 0; i < k; i++) {
-      centroids.push(new Float32Array(data[i % n]))
+      centroids.push(new Float32Array(data[i % n]!))
     }
     return centroids
   }
@@ -172,35 +172,35 @@ function kMeans(
     // Assignment step: assign each point to nearest centroid
     counts.fill(0)
     for (let i = 0; i < n; i++) {
-      assignments[i] = findNearestCentroid(data[i], centroids)
-      counts[assignments[i]]++
+      assignments[i] = findNearestCentroid(data[i]!, centroids)
+      counts[assignments[i]!]!++
     }
 
     // Update step: recompute centroids
     const newCentroids: Float32Array[] = Array.from({ length: k }, () => new Float32Array(dim))
 
     for (let i = 0; i < n; i++) {
-      const c = assignments[i]
+      const c = assignments[i]!
       for (let d = 0; d < dim; d++) {
-        newCentroids[c][d] += data[i][d]
+        newCentroids[c]![d]! += data[i]![d]!
       }
     }
 
     // Average and handle empty clusters
     let maxDelta = 0
     for (let c = 0; c < k; c++) {
-      if (counts[c] > 0) {
+      if (counts[c]! > 0) {
         for (let d = 0; d < dim; d++) {
-          newCentroids[c][d] /= counts[c]
+          newCentroids[c]![d]! /= counts[c]!
         }
       } else {
         // Reinitialize empty cluster with a random point
         const randomIdx = Math.floor(Math.random() * n)
-        newCentroids[c].set(data[randomIdx])
+        newCentroids[c]!.set(data[randomIdx]!)
       }
 
       // Compute change
-      const delta = squaredL2Distance(centroids[c], newCentroids[c])
+      const delta = squaredL2Distance(centroids[c]!, newCentroids[c]!)
       if (delta > maxDelta) {
         maxDelta = delta
       }
@@ -238,7 +238,7 @@ export async function trainPQCodebook(
     throw new Error('Cannot train codebook with empty vectors')
   }
 
-  const dimensions = vectors[0].length
+  const dimensions = vectors[0]!.length
 
   // Validate dimensions are divisible by M
   if (dimensions % M !== 0) {
@@ -264,9 +264,9 @@ export async function trainPQCodebook(
     for (let m = 0; m < M; m++) {
       const subvector = new Float32Array(subvectorDimension)
       for (let d = 0; d < subvectorDimension; d++) {
-        subvector[d] = vector[m * subvectorDimension + d]
+        subvector[d] = vector[m * subvectorDimension + d]!
       }
-      subvectorSets[m].push(subvector)
+      subvectorSets[m]!.push(subvector)
     }
   }
 
@@ -274,7 +274,7 @@ export async function trainPQCodebook(
   const centroids: Float32Array[] = []
 
   for (let m = 0; m < M; m++) {
-    const subvectorData = subvectorSets[m]
+    const subvectorData = subvectorSets[m]!
     const clusterCentroids = kMeans(
       subvectorData,
       K,
@@ -286,7 +286,7 @@ export async function trainPQCodebook(
     // Pack centroids into a single Float32Array
     const packedCentroids = new Float32Array(K * subvectorDimension)
     for (let k = 0; k < K; k++) {
-      packedCentroids.set(clusterCentroids[k], k * subvectorDimension)
+      packedCentroids.set(clusterCentroids[k]!, k * subvectorDimension)
     }
 
     centroids.push(packedCentroids)
@@ -335,7 +335,7 @@ export function encodePQ(vector: Float32Array, codebook: PQCodebook): Uint8Array
       let dist = 0
       const centroidOffset = k * subDim
       for (let d = 0; d < subDim; d++) {
-        const diff = subvector[d] - codebook.centroids[m][centroidOffset + d]
+        const diff = subvector[d]! - codebook.centroids[m]![centroidOffset + d]!
         dist += diff * diff
       }
 
@@ -364,11 +364,11 @@ export function decodePQ(codes: Uint8Array, codebook: PQCodebook): Float32Array 
   const reconstructed = new Float32Array(dimensions)
 
   for (let m = 0; m < M; m++) {
-    const centroidIdx = codes[m]
+    const centroidIdx = codes[m]!
     const centroidOffset = centroidIdx * subDim
 
     for (let d = 0; d < subDim; d++) {
-      reconstructed[m * subDim + d] = codebook.centroids[m][centroidOffset + d]
+      reconstructed[m * subDim + d] = codebook.centroids[m]![centroidOffset + d]!
     }
   }
 
@@ -400,11 +400,11 @@ export function asymmetricDistance(
 
   for (let m = 0; m < M; m++) {
     const querySubvector = query.subarray(m * subDim, (m + 1) * subDim)
-    const centroidIdx = codes[m]
+    const centroidIdx = codes[m]!
     const centroidOffset = centroidIdx * subDim
 
     for (let d = 0; d < subDim; d++) {
-      const diff = querySubvector[d] - codebook.centroids[m][centroidOffset + d]
+      const diff = querySubvector[d]! - codebook.centroids[m]![centroidOffset + d]!
       totalDist += diff * diff
     }
   }
@@ -432,11 +432,11 @@ export function symmetricDistance(
   let totalDist = 0
 
   for (let m = 0; m < M; m++) {
-    const centroid1Offset = codes1[m] * subDim
-    const centroid2Offset = codes2[m] * subDim
+    const centroid1Offset = codes1[m]! * subDim
+    const centroid2Offset = codes2[m]! * subDim
 
     for (let d = 0; d < subDim; d++) {
-      const diff = codebook.centroids[m][centroid1Offset + d] - codebook.centroids[m][centroid2Offset + d]
+      const diff = codebook.centroids[m]![centroid1Offset + d]! - codebook.centroids[m]![centroid2Offset + d]!
       totalDist += diff * diff
     }
   }
@@ -495,7 +495,7 @@ export function serializeCodebook(codebook: PQCodebook): ArrayBuffer {
   let offset = 0
 
   for (let m = 0; m < M; m++) {
-    float32View.set(codebook.centroids[m], offset)
+    float32View.set(codebook.centroids[m]!, offset)
     offset += K * subDim
   }
 
@@ -578,7 +578,7 @@ export class ProductQuantization {
     for (let m = 0; m < M; m++) {
       const subvector = new Float32Array(subDim)
       for (let d = 0; d < subDim; d++) {
-        subvector[d] = vector[m * subDim + d]
+        subvector[d] = vector[m * subDim + d]!
       }
       subvectors.push(subvector)
     }
@@ -629,7 +629,7 @@ export class ProductQuantization {
         let dist = 0
         const centroidOffset = k * subDim
         for (let d = 0; d < subDim; d++) {
-          const diff = querySubvector[d] - this.codebook.centroids[m][centroidOffset + d]
+          const diff = querySubvector[d]! - this.codebook.centroids[m]![centroidOffset + d]!
           dist += diff * diff
         }
         distances[k] = dist
@@ -649,7 +649,7 @@ export class ProductQuantization {
     let totalDist = 0
 
     for (let m = 0; m < M; m++) {
-      totalDist += table[m][codes[m]]
+      totalDist += table[m]![codes[m]!]!
     }
 
     return Math.sqrt(totalDist)

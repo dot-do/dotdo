@@ -112,8 +112,8 @@ export class Workflow extends DO {
     if (!config) return
 
     while (instance.currentStep < instance.steps.length) {
-      const step = instance.steps[instance.currentStep]
-      const stepDef = config.steps[instance.currentStep]
+      const step = instance.steps[instance.currentStep]!
+      const stepDef = config.steps[instance.currentStep]!
 
       step.status = 'running'
       step.startedAt = new Date()
@@ -253,7 +253,7 @@ export class Workflow extends DO {
     }
 
     if (url.pathname.startsWith('/instance/')) {
-      const instanceId = url.pathname.split('/')[2]
+      const instanceId = url.pathname.split('/')[2]!
       const instance = await this.getInstance(instanceId)
       return new Response(JSON.stringify(instance), {
         headers: { 'Content-Type': 'application/json' },

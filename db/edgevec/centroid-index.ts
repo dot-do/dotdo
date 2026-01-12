@@ -173,7 +173,7 @@ function float32ToFloat16(value: number): number {
   const floatView = new Float32Array(1)
   const int32View = new Int32Array(floatView.buffer)
   floatView[0] = value
-  const x = int32View[0]
+  const x = int32View[0]!
 
   const sign = (x >> 16) & 0x8000
   let exp = ((x >> 23) & 0xff) - 127 + 15
@@ -208,30 +208,30 @@ function cosineDistanceOpt(
 
   for (; i < limit; i += 8) {
     dot +=
-      query[i] * centroid[i] +
-      query[i + 1] * centroid[i + 1] +
-      query[i + 2] * centroid[i + 2] +
-      query[i + 3] * centroid[i + 3] +
-      query[i + 4] * centroid[i + 4] +
-      query[i + 5] * centroid[i + 5] +
-      query[i + 6] * centroid[i + 6] +
-      query[i + 7] * centroid[i + 7]
+      query[i]! * centroid[i]! +
+      query[i + 1]! * centroid[i + 1]! +
+      query[i + 2]! * centroid[i + 2]! +
+      query[i + 3]! * centroid[i + 3]! +
+      query[i + 4]! * centroid[i + 4]! +
+      query[i + 5]! * centroid[i + 5]! +
+      query[i + 6]! * centroid[i + 6]! +
+      query[i + 7]! * centroid[i + 7]!
 
     normB +=
-      centroid[i] * centroid[i] +
-      centroid[i + 1] * centroid[i + 1] +
-      centroid[i + 2] * centroid[i + 2] +
-      centroid[i + 3] * centroid[i + 3] +
-      centroid[i + 4] * centroid[i + 4] +
-      centroid[i + 5] * centroid[i + 5] +
-      centroid[i + 6] * centroid[i + 6] +
-      centroid[i + 7] * centroid[i + 7]
+      centroid[i]! * centroid[i]! +
+      centroid[i + 1]! * centroid[i + 1]! +
+      centroid[i + 2]! * centroid[i + 2]! +
+      centroid[i + 3]! * centroid[i + 3]! +
+      centroid[i + 4]! * centroid[i + 4]! +
+      centroid[i + 5]! * centroid[i + 5]! +
+      centroid[i + 6]! * centroid[i + 6]! +
+      centroid[i + 7]! * centroid[i + 7]!
   }
 
   // Handle remaining elements
   for (; i < len; i++) {
-    dot += query[i] * centroid[i]
-    normB += centroid[i] * centroid[i]
+    dot += query[i]! * centroid[i]!
+    normB += centroid[i]! * centroid[i]!
   }
 
   const denom = queryNorm * Math.sqrt(normB)
@@ -251,21 +251,21 @@ function l2DistanceSquaredOpt(query: Float32Array, centroid: Float32Array): numb
   let i = 0
 
   for (; i < limit; i += 8) {
-    const d0 = query[i] - centroid[i]
-    const d1 = query[i + 1] - centroid[i + 1]
-    const d2 = query[i + 2] - centroid[i + 2]
-    const d3 = query[i + 3] - centroid[i + 3]
-    const d4 = query[i + 4] - centroid[i + 4]
-    const d5 = query[i + 5] - centroid[i + 5]
-    const d6 = query[i + 6] - centroid[i + 6]
-    const d7 = query[i + 7] - centroid[i + 7]
+    const d0 = query[i]! - centroid[i]!
+    const d1 = query[i + 1]! - centroid[i + 1]!
+    const d2 = query[i + 2]! - centroid[i + 2]!
+    const d3 = query[i + 3]! - centroid[i + 3]!
+    const d4 = query[i + 4]! - centroid[i + 4]!
+    const d5 = query[i + 5]! - centroid[i + 5]!
+    const d6 = query[i + 6]! - centroid[i + 6]!
+    const d7 = query[i + 7]! - centroid[i + 7]!
 
     sum += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7
   }
 
   // Handle remaining elements
   for (; i < len; i++) {
-    const d = query[i] - centroid[i]
+    const d = query[i]! - centroid[i]!
     sum += d * d
   }
 
@@ -278,7 +278,7 @@ function l2DistanceSquaredOpt(query: Float32Array, centroid: Float32Array): numb
 function calculateNorm(vec: Float32Array): number {
   let sum = 0
   for (let i = 0; i < vec.length; i++) {
-    sum += vec[i] * vec[i]
+    sum += vec[i]! * vec[i]!
   }
   return Math.sqrt(sum)
 }
@@ -298,7 +298,7 @@ function partialSortTopK(
     // Full sort needed - create indexed array
     const indexed: ClusterMatch[] = new Array(numCentroids)
     for (let i = 0; i < numCentroids; i++) {
-      indexed[i] = { clusterId: i, distance: distances[i] }
+      indexed[i] = { clusterId: i, distance: distances[i]! }
     }
     indexed.sort((a, b) => a.distance - b.distance)
     return indexed
@@ -308,7 +308,7 @@ function partialSortTopK(
 
   // Process all distances
   for (let i = 0; i < numCentroids; i++) {
-    const dist = distances[i]
+    const dist = distances[i]!
 
     if (heapSize < k) {
       // Heap not full - add and sift up
@@ -318,18 +318,18 @@ function partialSortTopK(
       let idx = heapSize
       while (idx > 0) {
         const parent = (idx - 1) >> 1
-        if (heapDist[parent] >= heapDist[idx]) break
+        if (heapDist[parent]! >= heapDist[idx]!) break
         // Swap
-        const td = heapDist[idx]
-        heapDist[idx] = heapDist[parent]
+        const td = heapDist[idx]!
+        heapDist[idx] = heapDist[parent]!
         heapDist[parent] = td
-        const ti = heapIdx[idx]
-        heapIdx[idx] = heapIdx[parent]
+        const ti = heapIdx[idx]!
+        heapIdx[idx] = heapIdx[parent]!
         heapIdx[parent] = ti
         idx = parent
       }
       heapSize++
-    } else if (dist < heapDist[0]) {
+    } else if (dist < heapDist[0]!) {
       // Replace max and sift down
       heapDist[0] = dist
       heapIdx[0] = i
@@ -339,19 +339,19 @@ function partialSortTopK(
         let largest = idx
         const left = (idx << 1) + 1
         const right = (idx << 1) + 2
-        if (left < heapSize && heapDist[left] > heapDist[largest]) {
+        if (left < heapSize && heapDist[left]! > heapDist[largest]!) {
           largest = left
         }
-        if (right < heapSize && heapDist[right] > heapDist[largest]) {
+        if (right < heapSize && heapDist[right]! > heapDist[largest]!) {
           largest = right
         }
         if (largest === idx) break
         // Swap
-        const td = heapDist[idx]
-        heapDist[idx] = heapDist[largest]
+        const td = heapDist[idx]!
+        heapDist[idx] = heapDist[largest]!
         heapDist[largest] = td
-        const ti = heapIdx[idx]
-        heapIdx[idx] = heapIdx[largest]
+        const ti = heapIdx[idx]!
+        heapIdx[idx] = heapIdx[largest]!
         heapIdx[largest] = ti
         idx = largest
       }
@@ -362,29 +362,29 @@ function partialSortTopK(
   const result: ClusterMatch[] = new Array(heapSize)
   const origSize = heapSize
   for (let i = origSize - 1; i >= 0; i--) {
-    result[i] = { clusterId: heapIdx[0], distance: heapDist[0] }
+    result[i] = { clusterId: heapIdx[0]!, distance: heapDist[0]! }
     heapSize--
     if (heapSize > 0) {
-      heapDist[0] = heapDist[heapSize]
-      heapIdx[0] = heapIdx[heapSize]
+      heapDist[0] = heapDist[heapSize]!
+      heapIdx[0] = heapIdx[heapSize]!
       // Sift down
       let idx = 0
       while (true) {
         let largest = idx
         const left = (idx << 1) + 1
         const right = (idx << 1) + 2
-        if (left < heapSize && heapDist[left] > heapDist[largest]) {
+        if (left < heapSize && heapDist[left]! > heapDist[largest]!) {
           largest = left
         }
-        if (right < heapSize && heapDist[right] > heapDist[largest]) {
+        if (right < heapSize && heapDist[right]! > heapDist[largest]!) {
           largest = right
         }
         if (largest === idx) break
-        const td = heapDist[idx]
-        heapDist[idx] = heapDist[largest]
+        const td = heapDist[idx]!
+        heapDist[idx] = heapDist[largest]!
         heapDist[largest] = td
-        const ti = heapIdx[idx]
-        heapIdx[idx] = heapIdx[largest]
+        const ti = heapIdx[idx]!
+        heapIdx[idx] = heapIdx[largest]!
         heapIdx[largest] = ti
         idx = largest
       }
@@ -399,10 +399,10 @@ function partialSortTopK(
  */
 function validateVector(query: Float32Array): void {
   for (let i = 0; i < query.length; i++) {
-    if (Number.isNaN(query[i])) {
+    if (Number.isNaN(query[i]!)) {
       throw new Error('Invalid vector: contains NaN values')
     }
-    if (!Number.isFinite(query[i])) {
+    if (!Number.isFinite(query[i]!)) {
       throw new Error('Invalid vector: contains Infinity values')
     }
   }
@@ -500,7 +500,7 @@ export function serializeCentroidFile(index: CentroidIndex): ArrayBuffer {
     let offset = 0
     for (const centroid of centroids) {
       for (let i = 0; i < dimensions; i++) {
-        const float16 = float32ToFloat16(centroid[i])
+        const float16 = float32ToFloat16(centroid[i]!)
         dataView.setUint16(offset, float16, true)
         offset += 2
       }
@@ -629,7 +629,7 @@ export class CentroidIndex {
       let sum = 0
       const offset = c * header.dimensions
       for (let d = 0; d < header.dimensions; d++) {
-        const val = this._centroidsFlat[offset + d]
+        const val = this._centroidsFlat[offset + d]!
         sum += val * val
       }
       const norm = Math.sqrt(sum)
@@ -770,7 +770,7 @@ export class CentroidIndex {
       // Pre-compute query norm inverse (avoids division in hot loop)
       let qNormSq = 0
       for (let i = 0; i < dims; i++) {
-        qNormSq += query[i] * query[i]
+        qNormSq += query[i]! * query[i]!
       }
       const queryNormInv = qNormSq > 0 ? 1 / Math.sqrt(qNormSq) : 0
 
@@ -783,24 +783,24 @@ export class CentroidIndex {
         // Process 16 elements at a time with 4 accumulators
         for (; d < dimsLimit16; d += 16) {
           const o = offset + d
-          dot0 += query[d] * centroidsFlat[o] + query[d + 1] * centroidsFlat[o + 1] +
-                  query[d + 2] * centroidsFlat[o + 2] + query[d + 3] * centroidsFlat[o + 3]
-          dot1 += query[d + 4] * centroidsFlat[o + 4] + query[d + 5] * centroidsFlat[o + 5] +
-                  query[d + 6] * centroidsFlat[o + 6] + query[d + 7] * centroidsFlat[o + 7]
-          dot2 += query[d + 8] * centroidsFlat[o + 8] + query[d + 9] * centroidsFlat[o + 9] +
-                  query[d + 10] * centroidsFlat[o + 10] + query[d + 11] * centroidsFlat[o + 11]
-          dot3 += query[d + 12] * centroidsFlat[o + 12] + query[d + 13] * centroidsFlat[o + 13] +
-                  query[d + 14] * centroidsFlat[o + 14] + query[d + 15] * centroidsFlat[o + 15]
+          dot0 += query[d]! * centroidsFlat[o]! + query[d + 1]! * centroidsFlat[o + 1]! +
+                  query[d + 2]! * centroidsFlat[o + 2]! + query[d + 3]! * centroidsFlat[o + 3]!
+          dot1 += query[d + 4]! * centroidsFlat[o + 4]! + query[d + 5]! * centroidsFlat[o + 5]! +
+                  query[d + 6]! * centroidsFlat[o + 6]! + query[d + 7]! * centroidsFlat[o + 7]!
+          dot2 += query[d + 8]! * centroidsFlat[o + 8]! + query[d + 9]! * centroidsFlat[o + 9]! +
+                  query[d + 10]! * centroidsFlat[o + 10]! + query[d + 11]! * centroidsFlat[o + 11]!
+          dot3 += query[d + 12]! * centroidsFlat[o + 12]! + query[d + 13]! * centroidsFlat[o + 13]! +
+                  query[d + 14]! * centroidsFlat[o + 14]! + query[d + 15]! * centroidsFlat[o + 15]!
         }
 
         // Handle remaining elements (for non-16-divisible dims)
         for (; d < dims; d++) {
-          dot0 += query[d] * centroidsFlat[offset + d]
+          dot0 += query[d]! * centroidsFlat[offset + d]!
         }
 
         // Use precomputed inverse norms - multiplication instead of division
         const dot = dot0 + dot1 + dot2 + dot3
-        const normProduct = queryNormInv * centroidNormInvs[i]
+        const normProduct = queryNormInv * centroidNormInvs[i]!
         distances[i] = normProduct === 0 ? 1 : 1 - dot * normProduct
       }
     } else {
@@ -813,14 +813,14 @@ export class CentroidIndex {
         // Process 16 elements at a time with 4 accumulators
         for (; d < dimsLimit16; d += 16) {
           const o = offset + d
-          const d0 = query[d] - centroidsFlat[o], d1 = query[d + 1] - centroidsFlat[o + 1]
-          const d2 = query[d + 2] - centroidsFlat[o + 2], d3 = query[d + 3] - centroidsFlat[o + 3]
-          const d4 = query[d + 4] - centroidsFlat[o + 4], d5 = query[d + 5] - centroidsFlat[o + 5]
-          const d6 = query[d + 6] - centroidsFlat[o + 6], d7 = query[d + 7] - centroidsFlat[o + 7]
-          const d8 = query[d + 8] - centroidsFlat[o + 8], d9 = query[d + 9] - centroidsFlat[o + 9]
-          const d10 = query[d + 10] - centroidsFlat[o + 10], d11 = query[d + 11] - centroidsFlat[o + 11]
-          const d12 = query[d + 12] - centroidsFlat[o + 12], d13 = query[d + 13] - centroidsFlat[o + 13]
-          const d14 = query[d + 14] - centroidsFlat[o + 14], d15 = query[d + 15] - centroidsFlat[o + 15]
+          const d0 = query[d]! - centroidsFlat[o]!, d1 = query[d + 1]! - centroidsFlat[o + 1]!
+          const d2 = query[d + 2]! - centroidsFlat[o + 2]!, d3 = query[d + 3]! - centroidsFlat[o + 3]!
+          const d4 = query[d + 4]! - centroidsFlat[o + 4]!, d5 = query[d + 5]! - centroidsFlat[o + 5]!
+          const d6 = query[d + 6]! - centroidsFlat[o + 6]!, d7 = query[d + 7]! - centroidsFlat[o + 7]!
+          const d8 = query[d + 8]! - centroidsFlat[o + 8]!, d9 = query[d + 9]! - centroidsFlat[o + 9]!
+          const d10 = query[d + 10]! - centroidsFlat[o + 10]!, d11 = query[d + 11]! - centroidsFlat[o + 11]!
+          const d12 = query[d + 12]! - centroidsFlat[o + 12]!, d13 = query[d + 13]! - centroidsFlat[o + 13]!
+          const d14 = query[d + 14]! - centroidsFlat[o + 14]!, d15 = query[d + 15]! - centroidsFlat[o + 15]!
 
           sum0 += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3
           sum1 += d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7
@@ -830,7 +830,7 @@ export class CentroidIndex {
 
         // Handle remaining elements (for non-16-divisible dims)
         for (; d < dims; d++) {
-          const diff = query[d] - centroidsFlat[offset + d]
+          const diff = query[d]! - centroidsFlat[offset + d]!
           sum0 += diff * diff
         }
 

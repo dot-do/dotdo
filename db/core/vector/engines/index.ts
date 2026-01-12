@@ -432,7 +432,7 @@ export class IcebergEngine extends BaseVectorEngine {
 
         // Parse cluster filter
         const clusterMatch = sql.match(/cluster\s*=\s*'([^']+)'/)
-        const cluster = clusterMatch?.[1]
+        const cluster = clusterMatch ? clusterMatch[1] : undefined
 
         for (const [id, stored] of vectors) {
           if (cluster && stored.cluster !== cluster) continue
@@ -503,7 +503,7 @@ export class IcebergEngine extends BaseVectorEngine {
     // Simple LSH: hash based on signs of random projections
     let hash = 0
     for (let i = 0; i < Math.min(32, vector.length); i++) {
-      if (vector[i] > 0) {
+      if (vector[i]! > 0) {
         hash |= 1 << i
       }
     }

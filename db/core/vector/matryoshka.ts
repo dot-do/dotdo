@@ -61,7 +61,7 @@ const STANDARD_DIMENSIONS = [64, 128, 256, 384, 512, 768, 1024, 1536, 3072]
 function l2Norm(v: Float32Array): number {
   let sum = 0
   for (let i = 0; i < v.length; i++) {
-    sum += v[i] * v[i]
+    sum += v[i]! * v[i]!
   }
   return Math.sqrt(sum)
 }
@@ -76,7 +76,7 @@ function normalizeVector(v: Float32Array): Float32Array {
   }
   const normalized = new Float32Array(v.length)
   for (let i = 0; i < v.length; i++) {
-    normalized[i] = v[i] / norm
+    normalized[i] = v[i]! / norm
   }
   return normalized
 }
@@ -89,9 +89,9 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let normA = 0
   let normB = 0
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    normA += a[i]! * a[i]!
+    normB += b[i]! * b[i]!
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB)
   if (denom === 0) return 0
@@ -133,7 +133,7 @@ export function truncateEmbedding(
   // Create truncated view (first N dimensions)
   const truncated = new Float32Array(targetDimension)
   for (let i = 0; i < targetDimension; i++) {
-    truncated[i] = embedding[i]
+    truncated[i] = embedding[i]!
   }
 
   // Optionally normalize
@@ -262,35 +262,35 @@ export function truncateAndQuantize(
     // Binary quantization: 1 bit per dimension
     // Sign bit: positive = 1, negative/zero = 0
     for (let i = 0; i < targetDimension; i++) {
-      if (truncated[i] > 0) {
+      if (truncated[i]! > 0) {
         const byteIndex = Math.floor(i / 8)
         const bitIndex = i % 8
-        output[byteIndex] |= 1 << bitIndex
+        output[byteIndex]! |= 1 << bitIndex
       }
     }
   } else if (quantizationBits === 2) {
     // 2-bit quantization: 4 levels
     for (let i = 0; i < targetDimension; i++) {
       // Map value to 0-3 range
-      const normalized = Math.max(-1, Math.min(1, truncated[i]))
+      const normalized = Math.max(-1, Math.min(1, truncated[i]!))
       const level = Math.floor((normalized + 1) * 1.999) // 0, 1, 2, or 3
       const byteIndex = Math.floor((i * 2) / 8)
       const bitOffset = (i * 2) % 8
-      output[byteIndex] |= level << bitOffset
+      output[byteIndex]! |= level << bitOffset
     }
   } else if (quantizationBits === 4) {
     // 4-bit quantization: 16 levels
     for (let i = 0; i < targetDimension; i++) {
-      const normalized = Math.max(-1, Math.min(1, truncated[i]))
+      const normalized = Math.max(-1, Math.min(1, truncated[i]!))
       const level = Math.floor((normalized + 1) * 7.999) // 0-15
       const byteIndex = Math.floor((i * 4) / 8)
       const bitOffset = (i * 4) % 8
-      output[byteIndex] |= level << bitOffset
+      output[byteIndex]! |= level << bitOffset
     }
   } else if (quantizationBits === 8) {
     // 8-bit quantization: 256 levels (int8-like)
     for (let i = 0; i < targetDimension; i++) {
-      const normalized = Math.max(-1, Math.min(1, truncated[i]))
+      const normalized = Math.max(-1, Math.min(1, truncated[i]!))
       const level = Math.floor((normalized + 1) * 127.999) // 0-255
       output[i] = level
     }

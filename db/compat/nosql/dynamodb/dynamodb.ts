@@ -154,10 +154,10 @@ function attributeValueToString(av: AttributeValue): string {
 function extractKey(item: Item, keySchema: KeySchemaElement[]): Key {
   const key: Key = {}
   for (const ks of keySchema) {
-    if (item[ks.AttributeName] === undefined) {
+    if (item[ks.AttributeName!] === undefined) {
       throw new ValidationException(`Missing key attribute: ${ks.AttributeName}`)
     }
-    key[ks.AttributeName] = item[ks.AttributeName]
+    key[ks.AttributeName!] = item[ks.AttributeName!]!
   }
   return key
 }
@@ -194,13 +194,13 @@ function attributeValuesEqual(a: AttributeValue, b: AttributeValue): boolean {
   }
   if (a.L !== undefined && b.L !== undefined) {
     if (a.L.length !== b.L.length) return false
-    return a.L.every((v, i) => attributeValuesEqual(v, b.L![i]))
+    return a.L.every((v, i) => attributeValuesEqual(v, b.L![i]!))
   }
   if (a.M !== undefined && b.M !== undefined) {
     const keysA = Object.keys(a.M)
     const keysB = Object.keys(b.M)
     if (keysA.length !== keysB.length) return false
-    return keysA.every((k) => b.M![k] && attributeValuesEqual(a.M![k], b.M![k]))
+    return keysA.every((k) => b.M![k] && attributeValuesEqual(a.M![k]!, b.M![k]!))
   }
   return false
 }
@@ -210,13 +210,13 @@ function attributeValuesEqual(a: AttributeValue, b: AttributeValue): boolean {
  */
 function getNestedValue(item: Item, path: string): AttributeValue | undefined {
   const parts = path.split('.')
-  let current: AttributeValue | undefined = item[parts[0]]
+  let current: AttributeValue | undefined = item[parts[0]!]
 
   for (let i = 1; i < parts.length && current; i++) {
     if (current.M) {
-      current = current.M[parts[i]]
-    } else if (current.L && /^\d+$/.test(parts[i])) {
-      current = current.L[parseInt(parts[i], 10)]
+      current = current.M[parts[i]!]
+    } else if (current.L && /^\d+$/.test(parts[i]!)) {
+      current = current.L[parseInt(parts[i]!, 10)]
     } else {
       return undefined
     }
@@ -233,14 +233,14 @@ function setNestedValue(item: Item, path: string, value: AttributeValue): void {
   let current: Item | Record<string, AttributeValue> = item
 
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]
+    const part = parts[i]!
     if (!current[part] || !current[part].M) {
       current[part] = { M: {} }
     }
     current = current[part].M!
   }
 
-  current[parts[parts.length - 1]] = value
+  current[parts[parts.length - 1]!] = value
 }
 
 /**
@@ -251,14 +251,14 @@ function removeNestedValue(item: Item, path: string): void {
   let current: Item | Record<string, AttributeValue> = item
 
   for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]
+    const part = parts[i]!
     if (!current[part] || !current[part].M) {
       return
     }
     current = current[part].M!
   }
 
-  delete current[parts[parts.length - 1]]
+  delete current[parts[parts.length - 1]!]
 }
 
 // ============================================================================
@@ -295,7 +295,7 @@ function parseKeyCondition(
   if (simpleMatch) {
     const [, pk, pkValue] = simpleMatch
     return {
-      partitionKey: pk,
+      partitionKey: pk!,
       partitionValue: values?.[`:${pkValue}`]!,
     }
   }
@@ -307,9 +307,9 @@ function parseKeyCondition(
   if (beginsWithMatch) {
     const [, pk, pkValue, sk, prefixValue] = beginsWithMatch
     return {
-      partitionKey: pk,
+      partitionKey: pk!,
       partitionValue: values?.[`:${pkValue}`]!,
-      sortKey: sk,
+      sortKey: sk!,
       sortOp: 'BEGINS_WITH',
       sortValue: values?.[`:${prefixValue}`],
     }
@@ -322,9 +322,9 @@ function parseKeyCondition(
   if (betweenMatch) {
     const [, pk, pkValue, sk, startValue, endValue] = betweenMatch
     return {
-      partitionKey: pk,
+      partitionKey: pk!,
       partitionValue: values?.[`:${pkValue}`]!,
-      sortKey: sk,
+      sortKey: sk!,
       sortOp: 'BETWEEN',
       sortValue: values?.[`:${startValue}`],
       sortValue2: values?.[`:${endValue}`],
@@ -338,10 +338,10 @@ function parseKeyCondition(
   if (compoundMatch) {
     const [, pk, pkValue, sk, op, skValue] = compoundMatch
     return {
-      partitionKey: pk,
+      partitionKey: pk!,
       partitionValue: values?.[`:${pkValue}`]!,
-      sortKey: sk,
-      sortOp: op,
+      sortKey: sk!,
+      sortOp: op!,
       sortValue: values?.[`:${skValue}`],
     }
   }
@@ -376,25 +376,25 @@ function evaluateFilter(
   // Handle NOT
   const notMatch = resolved.match(/^NOT\s+(.+)$/i)
   if (notMatch) {
-    return !evaluateFilter(item, notMatch[1], names, values)
+    return !evaluateFilter(item, notMatch[1]!, names, values)
   }
 
   // Handle attribute_exists
   const existsMatch = resolved.match(/^attribute_exists\s*\(\s*(\w+)\s*\)$/i)
   if (existsMatch) {
-    return item[existsMatch[1]] !== undefined
+    return item[existsMatch[1]!] !== undefined
   }
 
   // Handle attribute_not_exists
   const notExistsMatch = resolved.match(/^attribute_not_exists\s*\(\s*(\w+)\s*\)$/i)
   if (notExistsMatch) {
-    return item[notExistsMatch[1]] === undefined
+    return item[notExistsMatch[1]!] === undefined
   }
 
   // Handle begins_with
   const beginsWithMatch = resolved.match(/^begins_with\s*\(\s*(\w+)\s*,\s*:(\w+)\s*\)$/i)
   if (beginsWithMatch) {
-    const attrValue = item[beginsWithMatch[1]]
+    const attrValue = item[beginsWithMatch[1]!]
     const prefixValue = values?.[`:${beginsWithMatch[2]}`]
     if (attrValue?.S !== undefined && prefixValue?.S !== undefined) {
       return attrValue.S.startsWith(prefixValue.S)
@@ -405,7 +405,7 @@ function evaluateFilter(
   // Handle contains
   const containsMatch = resolved.match(/^contains\s*\(\s*(\w+)\s*,\s*:(\w+)\s*\)$/i)
   if (containsMatch) {
-    const attrValue = item[containsMatch[1]]
+    const attrValue = item[containsMatch[1]!]
     const searchValue = values?.[`:${containsMatch[2]}`]
     if (attrValue?.S && searchValue?.S) {
       return attrValue.S.includes(searchValue.S)
@@ -422,8 +422,8 @@ function evaluateFilter(
   // Handle size
   const sizeMatch = resolved.match(/^size\s*\(\s*(\w+)\s*\)\s*(=|<>|<|>|<=|>=)\s*:(\w+)$/i)
   if (sizeMatch) {
-    const attrValue = item[sizeMatch[1]]
-    const op = sizeMatch[2]
+    const attrValue = item[sizeMatch[1]!]
+    const op = sizeMatch[2]!
     const compareValue = values?.[`:${sizeMatch[3]}`]
     let size = 0
     if (attrValue?.S) size = attrValue.S.length
@@ -441,8 +441,8 @@ function evaluateFilter(
   // Handle IN
   const inMatch = resolved.match(/^(\w+)\s+IN\s*\(([^)]+)\)$/i)
   if (inMatch) {
-    const attrValue = item[inMatch[1]]
-    const valueList = inMatch[2].split(',').map((v) => v.trim())
+    const attrValue = item[inMatch[1]!]
+    const valueList = inMatch[2]!.split(',').map((v) => v.trim())
     for (const v of valueList) {
       const val = values?.[v]
       if (val && attrValue && attributeValuesEqual(attrValue, val)) {
@@ -455,7 +455,7 @@ function evaluateFilter(
   // Handle BETWEEN
   const betweenMatch = resolved.match(/^(\w+)\s+BETWEEN\s+:(\w+)\s+AND\s+:(\w+)$/i)
   if (betweenMatch) {
-    const attrValue = item[betweenMatch[1]]
+    const attrValue = item[betweenMatch[1]!]
     const lowValue = values?.[`:${betweenMatch[2]}`]
     const highValue = values?.[`:${betweenMatch[3]}`]
     if (attrValue && lowValue && highValue) {
@@ -469,8 +469,8 @@ function evaluateFilter(
   // Handle comparison operators
   const comparisonMatch = resolved.match(/^(\w+)\s*(=|<>|<|>|<=|>=)\s*:(\w+)$/)
   if (comparisonMatch) {
-    const attrValue = item[comparisonMatch[1]]
-    const op = comparisonMatch[2]
+    const attrValue = item[comparisonMatch[1]!]
+    const op = comparisonMatch[2]!
     const compareValue = values?.[`:${comparisonMatch[3]}`]
 
     if (!attrValue || !compareValue) {
@@ -592,7 +592,7 @@ function evaluateListAppendArg(
   // Check for if_not_exists(attr, :value)
   const ifNotExistsMatch = trimmed.match(/^if_not_exists\s*\(\s*([\w.]+)\s*,\s*:(\w+)\s*\)$/i)
   if (ifNotExistsMatch) {
-    const attrPath = ifNotExistsMatch[1]
+    const attrPath = ifNotExistsMatch[1]!
     const defaultValue = values?.[`:${ifNotExistsMatch[2]}`]
     if (defaultValue) {
       return evaluateIfNotExists(item, attrPath, defaultValue)
@@ -624,14 +624,14 @@ function applyUpdateExpression(
   // Handle SET
   const setMatch = resolved.match(/SET\s+(.+?)(?=\s*(?:REMOVE|ADD|DELETE|$))/i)
   if (setMatch) {
-    const assignments = splitSetAssignments(setMatch[1])
+    const assignments = splitSetAssignments(setMatch[1]!)
     for (const assignment of assignments) {
       // Simple assignment: attr = :value
       const simpleMatch = assignment.match(/^([\w.]+)\s*=\s*:(\w+)$/)
       if (simpleMatch) {
         const value = values?.[`:${simpleMatch[2]}`]
         if (value) {
-          setNestedValue(result, simpleMatch[1], value)
+          setNestedValue(result, simpleMatch[1]!, value)
         }
         continue
       }
@@ -641,11 +641,11 @@ function applyUpdateExpression(
         /^([\w.]+)\s*=\s*if_not_exists\s*\(\s*([\w.]+)\s*,\s*:(\w+)\s*\)$/i
       )
       if (ifNotExistsMatch) {
-        const existingValue = getNestedValue(result, ifNotExistsMatch[2])
+        const existingValue = getNestedValue(result, ifNotExistsMatch[2]!)
         if (!existingValue) {
           const value = values?.[`:${ifNotExistsMatch[3]}`]
           if (value) {
-            setNestedValue(result, ifNotExistsMatch[1], value)
+            setNestedValue(result, ifNotExistsMatch[1]!, value)
           }
         }
         continue
@@ -657,9 +657,9 @@ function applyUpdateExpression(
         /^([\w.]+)\s*=\s*list_append\s*\(\s*(if_not_exists\s*\([^)]+\)|[\w.:]+)\s*,\s*(if_not_exists\s*\([^)]+\)|[\w.:]+)\s*\)$/i
       )
       if (listAppendWithIfNotExistsMatch) {
-        const targetPath = listAppendWithIfNotExistsMatch[1]
-        const firstArg = listAppendWithIfNotExistsMatch[2]
-        const secondArg = listAppendWithIfNotExistsMatch[3]
+        const targetPath = listAppendWithIfNotExistsMatch[1]!
+        const firstArg = listAppendWithIfNotExistsMatch[2]!
+        const secondArg = listAppendWithIfNotExistsMatch[3]!
 
         const first = evaluateListAppendArg(firstArg, result, values)
         const second = evaluateListAppendArg(secondArg, result, values)
@@ -675,10 +675,10 @@ function applyUpdateExpression(
         /^([\w.]+)\s*=\s*if_not_exists\s*\(\s*([\w.]+)\s*,\s*:(\w+)\s*\)\s*([+-])\s*:(\w+)$/i
       )
       if (ifNotExistsArithmeticMatch) {
-        const targetPath = ifNotExistsArithmeticMatch[1]
-        const checkPath = ifNotExistsArithmeticMatch[2]
+        const targetPath = ifNotExistsArithmeticMatch[1]!
+        const checkPath = ifNotExistsArithmeticMatch[2]!
         const defaultValueKey = `:${ifNotExistsArithmeticMatch[3]}`
-        const operator = ifNotExistsArithmeticMatch[4]
+        const operator = ifNotExistsArithmeticMatch[4]!
         const operandKey = `:${ifNotExistsArithmeticMatch[5]}`
 
         const existingValue = getNestedValue(result, checkPath)
@@ -700,12 +700,12 @@ function applyUpdateExpression(
         /^([\w.]+)\s*=\s*([\w.]+)\s*([+-])\s*:(\w+)$/
       )
       if (arithmeticMatch) {
-        const currentValue = getNestedValue(result, arithmeticMatch[2])
+        const currentValue = getNestedValue(result, arithmeticMatch[2]!)
         const deltaValue = values?.[`:${arithmeticMatch[4]}`]
         const current = currentValue?.N ? Number(currentValue.N) : 0
         const delta = deltaValue?.N ? Number(deltaValue.N) : 0
         const newValue = arithmeticMatch[3] === '+' ? current + delta : current - delta
-        setNestedValue(result, arithmeticMatch[1], { N: String(newValue) })
+        setNestedValue(result, arithmeticMatch[1]!, { N: String(newValue) })
         continue
       }
     }
@@ -714,17 +714,17 @@ function applyUpdateExpression(
   // Handle REMOVE
   const removeMatch = resolved.match(/REMOVE\s+(.+?)(?=\s*(?:SET|ADD|DELETE|$))/i)
   if (removeMatch) {
-    const paths = removeMatch[1].split(',').map((p) => p.trim())
+    const paths = removeMatch[1]!.split(',').map((p) => p.trim())
     for (const path of paths) {
       // Handle list index removal: attr[0]
       const indexMatch = path.match(/^([\w.]+)\[(\d+)\]$/)
       if (indexMatch) {
-        const listValue = getNestedValue(result, indexMatch[1])
+        const listValue = getNestedValue(result, indexMatch[1]!)
         if (listValue?.L) {
-          const idx = parseInt(indexMatch[2], 10)
+          const idx = parseInt(indexMatch[2]!, 10)
           const newList = [...listValue.L]
           newList.splice(idx, 1)
-          setNestedValue(result, indexMatch[1], { L: newList })
+          setNestedValue(result, indexMatch[1]!, { L: newList })
         }
         continue
       }
@@ -736,28 +736,28 @@ function applyUpdateExpression(
   // Handle ADD
   const addMatch = resolved.match(/ADD\s+(.+?)(?=\s*(?:SET|REMOVE|DELETE|$))/i)
   if (addMatch) {
-    const additions = addMatch[1].split(',').map((a) => a.trim())
+    const additions = addMatch[1]!.split(',').map((a) => a.trim())
     for (const addition of additions) {
       const match = addition.match(/^([\w.]+)\s+:(\w+)$/)
       if (match) {
-        const currentValue = getNestedValue(result, match[1])
+        const currentValue = getNestedValue(result, match[1]!)
         const addValue = values?.[`:${match[2]}`]
 
         if (addValue?.N) {
           // Numeric add
           const current = currentValue?.N ? Number(currentValue.N) : 0
           const add = Number(addValue.N)
-          setNestedValue(result, match[1], { N: String(current + add) })
+          setNestedValue(result, match[1]!, { N: String(current + add) })
         } else if (addValue?.SS) {
           // String set add
           const current = currentValue?.SS ?? []
           const newSet = new Set([...current, ...addValue.SS])
-          setNestedValue(result, match[1], { SS: Array.from(newSet) })
+          setNestedValue(result, match[1]!, { SS: Array.from(newSet) })
         } else if (addValue?.NS) {
           // Number set add
           const current = currentValue?.NS ?? []
           const newSet = new Set([...current, ...addValue.NS])
-          setNestedValue(result, match[1], { NS: Array.from(newSet) })
+          setNestedValue(result, match[1]!, { NS: Array.from(newSet) })
         }
       }
     }
@@ -766,21 +766,21 @@ function applyUpdateExpression(
   // Handle DELETE
   const deleteMatch = resolved.match(/DELETE\s+(.+?)(?=\s*(?:SET|REMOVE|ADD|$))/i)
   if (deleteMatch) {
-    const deletions = deleteMatch[1].split(',').map((d) => d.trim())
+    const deletions = deleteMatch[1]!.split(',').map((d) => d.trim())
     for (const deletion of deletions) {
       const match = deletion.match(/^([\w.]+)\s+:(\w+)$/)
       if (match) {
-        const currentValue = getNestedValue(result, match[1])
+        const currentValue = getNestedValue(result, match[1]!)
         const deleteValue = values?.[`:${match[2]}`]
 
         if (currentValue?.SS && deleteValue?.SS) {
           const deleteSet = new Set(deleteValue.SS)
           const newSet = currentValue.SS.filter((v) => !deleteSet.has(v))
-          setNestedValue(result, match[1], { SS: newSet })
+          setNestedValue(result, match[1]!, { SS: newSet })
         } else if (currentValue?.NS && deleteValue?.NS) {
           const deleteSet = new Set(deleteValue.NS)
           const newSet = currentValue.NS.filter((v) => !deleteSet.has(v))
-          setNestedValue(result, match[1], { NS: newSet })
+          setNestedValue(result, match[1]!, { NS: newSet })
         }
       }
     }
@@ -1249,7 +1249,7 @@ async function handleQuery(input: QueryCommandInput): Promise<QueryCommandOutput
   if (input.Limit && items.length > input.Limit) {
     items = items.slice(0, input.Limit)
     // Set LastEvaluatedKey to the last item's key (before filtering)
-    const lastItem = items[items.length - 1]
+    const lastItem = items[items.length - 1]!
     lastEvaluatedKey = extractKey(lastItem, keySchema)
   }
 
@@ -1365,7 +1365,7 @@ async function handleScan(input: ScanCommandInput): Promise<ScanCommandOutput> {
   if (input.Limit && items.length > input.Limit) {
     items = items.slice(0, input.Limit)
     // Set LastEvaluatedKey to the last item's key (before filtering)
-    const lastItem = items[items.length - 1]
+    const lastItem = items[items.length - 1]!
     lastEvaluatedKey = extractKey(lastItem, keySchema)
   }
 

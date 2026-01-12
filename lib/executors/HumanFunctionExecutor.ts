@@ -303,7 +303,7 @@ export class HumanFunctionExecutor {
         error: new HumanCancelledError('Task cancelled before execution'),
         taskId,
         duration: 0,
-        channel: Array.isArray(task.channel) ? task.channel[0] : task.channel,
+        channel: Array.isArray(task.channel) ? task.channel[0]! : task.channel,
         metrics,
       }
     }
@@ -356,7 +356,7 @@ export class HumanFunctionExecutor {
           : new HumanChannelError(err.message),
         taskId,
         duration,
-        channel: Array.isArray(task.channel) ? task.channel[0] : task.channel,
+        channel: Array.isArray(task.channel) ? task.channel[0]! : task.channel,
         metrics,
       }
     }
@@ -739,7 +739,7 @@ export class HumanFunctionExecutor {
 
     // Race for first response
     const responsePromises = channels.map(async (channelName) => {
-      const channel = this.channels[channelName]
+      const channel = this.channels[channelName]!
       const response = await channel.waitForResponse({ timeout: task.timeout })
       return { channelName, response }
     })
@@ -1223,14 +1223,14 @@ export class HumanFunctionExecutor {
   }
 
   private buildContext(taskId: string, task: TaskDefinition): HumanContext {
-    const channelName = Array.isArray(task.channel) ? task.channel[0] : task.channel
+    const channelName = Array.isArray(task.channel) ? task.channel[0]! : task.channel
     const channel = this.channels[channelName]
 
     return {
       taskId,
       invocationId: `inv-${Date.now()}`,
       task,
-      channel,
+      channel: channel!,
       state: {
         get: async <T>(key: string) => (await this.state.storage.get(key)) as T | null,
         set: async <T>(key: string, value: T) => {

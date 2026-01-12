@@ -373,7 +373,7 @@ export function pathToSQL(
     return '*'
   }
 
-  const column = quoteIdentifier(path[path.length - 1])
+  const column = quoteIdentifier(path[path.length - 1]!)
 
   if (context?.table) {
     return `${quoteIdentifier(context.table)}.${column}`
@@ -491,11 +491,11 @@ function pathExprToSQL(expr: PathExpression | any, ctx: TranslateContext): strin
     if (typeof segments[0] === 'string') {
       const parts = segments as string[]
       if (parts.length === 1) {
-        return quoteIdentifier(parts[0])
+        return quoteIdentifier(parts[0]!)
       }
       // For nested paths like ['author', 'name'], need to handle with joins
       // For now, just return the column reference
-      return quoteIdentifier(parts[parts.length - 1])
+      return quoteIdentifier(parts[parts.length - 1]!)
     }
 
     // Handle PathSegment objects
@@ -509,11 +509,11 @@ function pathExprToSQL(expr: PathExpression | any, ctx: TranslateContext): strin
     }
 
     if (names.length === 1) {
-      return quoteIdentifier(names[0])
+      return quoteIdentifier(names[0]!)
     }
 
     // For nested paths, return the final column
-    return quoteIdentifier(names[names.length - 1])
+    return quoteIdentifier(names[names.length - 1]!)
   }
 
   return '*'

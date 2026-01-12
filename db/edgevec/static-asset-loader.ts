@@ -43,7 +43,7 @@ export function float16ToFloat32(float16Array: Uint16Array): Float32Array {
   const result = new Float32Array(float16Array.length)
 
   for (let i = 0; i < float16Array.length; i++) {
-    const h = float16Array[i]
+    const h = float16Array[i]!
 
     // Extract sign, exponent, and mantissa
     const sign = (h >>> 15) & 0x1

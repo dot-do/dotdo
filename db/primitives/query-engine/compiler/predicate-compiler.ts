@@ -313,12 +313,12 @@ export class PredicateCompiler {
       // NOT with single child
       if (node.children.length === 1) {
         // Handle double negation
-        const child = node.children[0]
-        if (child.type === 'logical' && child.op === 'NOT') {
+        const child = node.children[0]!
+        if (child!.type === 'logical' && (child as { op?: string })!.op === 'NOT') {
           // NOT(NOT(x)) = x
-          return this.compileNode(child.children[0], options, negated)
+          return this.compileNode((child as { children: QueryNode[] })!.children[0]!, options, negated)
         }
-        return this.compileNode(child, options, !negated)
+        return this.compileNode(child!, options, !negated)
       }
     }
 
@@ -408,7 +408,7 @@ export class PredicateCompiler {
         if (value.startsWith('now')) {
           const match = value.match(/^now([+-])(\d+)([dhmsy])$/)
           if (match) {
-            const [, sign, amount, unit] = match
+            const [, sign, amount, unit] = match as [string, string, string, string]
             const multipliers: Record<string, number> = {
               's': 1000,
               'm': 60 * 1000,
@@ -416,7 +416,7 @@ export class PredicateCompiler {
               'd': 24 * 60 * 60 * 1000,
               'y': 365 * 24 * 60 * 60 * 1000,
             }
-            const delta = parseInt(amount) * multipliers[unit]
+            const delta = parseInt(amount!) * multipliers[unit!]!
             return sign === '-' ? Date.now() - delta : Date.now() + delta
           }
         }

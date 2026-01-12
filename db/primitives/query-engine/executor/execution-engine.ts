@@ -128,7 +128,7 @@ export class ExecutionEngine {
       stats.rowsReturned = result.rowCount
 
       // Cache the result
-      this.resultCache.set(cacheKey, result)
+      this.resultCache.set(cacheKey, result as ExecutionResult)
 
       return { ...result, stats }
     } catch (error) {
@@ -302,8 +302,8 @@ export class ExecutionEngine {
     }
 
     // Return last filter result
-    const lastPred = plan.predicates[plan.predicates.length - 1]
-    const result = columnStore.filter(lastPred.tcsPredicate)
+    const lastPred = plan.predicates[plan.predicates.length - 1]!
+    const result = columnStore.filter(lastPred!.tcsPredicate)
     return result || { columns: new Map(), rowCount: 0 }
   }
 
@@ -358,7 +358,7 @@ export class ExecutionEngine {
     }
 
     // Default OR behavior - return first matching predicate result
-    const result = columnStore.filter(predicates[0].tcsPredicate)
+    const result = columnStore.filter(predicates[0]!.tcsPredicate)
     return result || { columns: new Map(), rowCount: 0 }
   }
 
@@ -395,7 +395,7 @@ export class ExecutionEngine {
           const rightData = result.columns.get(right) as number[]
 
           if (leftData && rightData) {
-            const computed = leftData.map((v, i) => v * rightData[i])
+            const computed = leftData.map((v, i) => v * rightData[i]!)
             finalColumns.set((col as any).alias, computed)
           }
         } else if (expr.operator === 'divide') {
@@ -405,8 +405,8 @@ export class ExecutionEngine {
 
           if (leftData && rightData) {
             const computed = leftData.map((v, i) => {
-              if (rightData[i] === 0) return null // Division by zero
-              return v / rightData[i]
+              if (rightData[i]! === 0) return null // Division by zero
+              return v / rightData[i]!
             })
             finalColumns.set((col as any).alias, computed)
           }
@@ -596,14 +596,14 @@ export class ExecutionEngine {
     const failFast = (plan as any).failFast !== false
 
     for (let i = 0; i < children.length; i++) {
-      const child = children[i]
+      const child = children[i]!
       try {
         // Simulate partition failure for partition2 (index 1) when failFast is false
-        if (!failFast && child.source === 'partition2') {
-          throw new Error(`Failed to read partition: ${child.source}`)
+        if (!failFast && child!.source === 'partition2') {
+          throw new Error(`Failed to read partition: ${child!.source}`)
         }
 
-        const result = await this.executePlan(child, ctx, stats)
+        const result = await this.executePlan(child!, ctx, stats)
         totalRows += result.rowCount
 
         for (const [name, data] of result.columns) {
@@ -613,7 +613,7 @@ export class ExecutionEngine {
       } catch (error) {
         if (failFast) throw error
         stats.partialFailures = stats.partialFailures || []
-        stats.partialFailures.push(child.source || 'unknown')
+        stats.partialFailures.push(child!.source || 'unknown')
       }
     }
 
@@ -637,4 +637,5 @@ export class ExecutionEngine {
 // Exports
 // =============================================================================
 
-export type { ColumnBatch, BloomFilter, MinMaxStats, TypedColumnStore }
+// Re-export types from typed-column-store (only if not already exported)
+// export type { ColumnBatch, BloomFilter, MinMaxStats, TypedColumnStore }

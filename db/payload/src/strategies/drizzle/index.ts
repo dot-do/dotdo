@@ -914,7 +914,7 @@ export class DrizzleStorageStrategy implements StorageStrategy {
     if (!field.fields || field.fields.length === 0) {
       return false
     }
-    if (field.fields.length === 1 && field.fields[0].type === 'text') {
+    if (field.fields.length === 1 && field.fields[0]?.type === 'text') {
       return false
     }
     return true

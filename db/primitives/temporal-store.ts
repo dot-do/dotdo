@@ -171,16 +171,16 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
       }
 
       // Get the latest version
-      const latest = versions[versions.length - 1]
+      const latest = versions[versions.length - 1]!
 
       // Check TTL expiration
-      if (this.enableTTL && latest.expiresAt !== undefined) {
-        if (Date.now() >= latest.expiresAt) {
+      if (this.enableTTL && latest!.expiresAt !== undefined) {
+        if (Date.now() >= latest!.expiresAt) {
           return null
         }
       }
 
-      return latest.value
+      return latest!.value
     } finally {
       this.metrics.recordLatency(MetricNames.TEMPORAL_STORE_GET_LATENCY, performance.now() - start)
     }
@@ -197,8 +197,8 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
       // Find the most recent version at or before the given timestamp
       // Versions are sorted by timestamp, so we search from the end
       for (let i = versions.length - 1; i >= 0; i--) {
-        if (versions[i].timestamp <= timestamp) {
-          return versions[i].value
+        if (versions[i]!.timestamp <= timestamp) {
+          return versions[i]!.value
         }
       }
 
@@ -226,7 +226,7 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
     return {
       async next(): Promise<IteratorResult<T>> {
         while (index < matchingKeys.length) {
-          const key = matchingKeys[index++]
+          const key = matchingKeys[index++]!
           const versions = self.entries.get(key)
           if (!versions || versions.length === 0) {
             continue
@@ -236,25 +236,25 @@ class InMemoryTemporalStore<T> implements TemporalStore<T> {
           let latestInRange: VersionedEntry<T> | null = null
 
           for (let i = versions.length - 1; i >= 0; i--) {
-            const v = versions[i]
+            const v = versions[i]!
 
             // Check time range
-            if (start !== undefined && v.timestamp < start) {
+            if (start !== undefined && v!.timestamp < start) {
               continue
             }
-            if (end !== undefined && v.timestamp > end) {
+            if (end !== undefined && v!.timestamp > end) {
               continue
             }
 
             // Check TTL expiration for current queries (no time range)
-            if (self.enableTTL && v.expiresAt !== undefined && start === undefined && end === undefined) {
-              if (now >= v.expiresAt) {
+            if (self.enableTTL && v!.expiresAt !== undefined && start === undefined && end === undefined) {
+              if (now >= v!.expiresAt) {
                 continue
               }
             }
 
             // Take the first match from the end (latest)
-            latestInRange = v
+            latestInRange = v!
             break
           }
 

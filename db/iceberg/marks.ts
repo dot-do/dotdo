@@ -356,7 +356,7 @@ export class MarkFileWriter {
       const firstColumn = this.columnStats.values().next().value
       if (!firstColumn) break
 
-      const granule = firstColumn.granules[i]
+      const granule = firstColumn.granules[i]!
 
       // Byte offset (8 bytes)
       view.setBigUint64(offset, granule.byteOffset, true)
@@ -546,7 +546,7 @@ export class MarkFileReader {
     const index = this.binarySearchGranule(granules, columnId, value, column.type)
     if (index < 0) return null
 
-    const granule = granules[index]
+    const granule = granules[index]!
     return {
       granuleIndex: index,
       byteOffset: granule.byteOffset,
@@ -578,7 +578,7 @@ export class MarkFileReader {
     const results: GranuleSearchResult[] = []
 
     for (let i = 0; i < granules.length; i++) {
-      const granule = granules[i]
+      const granule = granules[i]!
       const granuleMin = granule.minValues.get(columnId)
       const granuleMax = granule.maxValues.get(columnId)
 
@@ -619,7 +619,7 @@ export class MarkFileReader {
 
     for (const idx of granuleIndices) {
       if (idx < 0 || idx >= granules.length) continue
-      const g = granules[idx]
+      const g = granules[idx]!
       if (g.byteOffset < minOffset) minOffset = g.byteOffset
       const end = g.byteOffset + BigInt(g.byteSize)
       if (end > maxEnd) maxEnd = end
@@ -842,7 +842,7 @@ export class MarkFileReader {
 
     while (left <= right) {
       const mid = Math.floor((left + right) / 2)
-      const granule = granules[mid]
+      const granule = granules[mid]!
 
       const minVal = granule.minValues.get(columnId)
       const maxVal = granule.maxValues.get(columnId)

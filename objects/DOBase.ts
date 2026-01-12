@@ -1272,7 +1272,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       throw new Error(`Noun '${noun}' not found in nouns table. Register it first with registerNoun().`)
     }
 
-    const fk = results[0].rowid
+    const fk = results[0]!.rowid
     this._typeCache.set(noun, fk)
 
     return fk
@@ -1304,7 +1304,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       .where(eq(schema.nouns.noun, noun))
 
     if (existing.length > 0) {
-      const fk = existing[0].rowid
+      const fk = existing[0]!.rowid
       this._typeCache.set(noun, fk)
       return fk
     }
@@ -1329,7 +1329,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       throw new Error(`Failed to register noun '${noun}'`)
     }
 
-    const fk = inserted[0].rowid
+    const fk = inserted[0]!.rowid
     this._typeCache.set(noun, fk)
 
     return fk
@@ -2354,10 +2354,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     const [client, server] = Object.values(pair)
 
     // Accept the server side
-    server.accept()
+    server!.accept()
 
     // Register with sync engine
-    this.syncEngine.accept(server)
+    this.syncEngine.accept(server!)
 
     // Return the client side to the caller
     return new Response(null, {
@@ -2576,7 +2576,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
         console.warn('JWT_SECRET not configured - skipping signature verification')
       }
 
-      const payload = JSON.parse(atob(parts[1])) as {
+      const payload = JSON.parse(atob(parts[1]!)) as {
         sub?: string
         email?: string
         name?: string
@@ -2863,7 +2863,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       )
 
       // Base64url decode the signature
-      const signatureBytes = this.base64UrlDecode(signature)
+      const signatureBytes = this.base64UrlDecode(signature!)
 
       return await crypto.subtle.verify(
         'HMAC',

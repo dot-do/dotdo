@@ -182,10 +182,10 @@ export function decodeVarint(bytes: Uint8Array, offset: number): [number, number
     const byte = bytes[offset + bytesRead]
     bytesRead++
 
-    value |= (byte & 0x7f) << shift
+    value |= (byte! & 0x7f) << shift
     shift += 7
 
-    if ((byte & 0x80) === 0) {
+    if ((byte! & 0x80) === 0) {
       return [value, bytesRead]
     }
 
@@ -619,7 +619,7 @@ export class InvertedIndexReader {
     let offset = 0
 
     for (let i = 0; i < termCount; i++) {
-      const termLength = bytes[offset++]
+      const termLength = bytes[offset++]!
 
       if (termLength === 0 && i < termCount - 1) {
         throw new Error('Unexpected end of term index')
@@ -666,11 +666,11 @@ export class InvertedIndexReader {
 
     while (left <= right) {
       const mid = (left + right) >>> 1
-      const midTerm = termIndex[mid].term
+      const midTerm = termIndex[mid]!.term
 
       // Use simple lexicographic comparison (matches default sort order)
       if (term === midTerm) {
-        return termIndex[mid]
+        return termIndex[mid] ?? null
       } else if (term < midTerm) {
         right = mid - 1
       } else {
@@ -801,7 +801,7 @@ export class InvertedIndexReader {
     }
     return {
       start: HEADER_SIZE,
-      end: this.termIndex[0].offset,
+      end: this.termIndex[0]!.offset,
     }
   }
 
@@ -822,7 +822,7 @@ export class InvertedIndexReader {
 
     while (left <= right) {
       const mid = (left + right) >>> 1
-      const midTerm = this.termIndex[mid].term
+      const midTerm = this.termIndex[mid]!.term
 
       if (midTerm >= prefix) {
         startIdx = mid
@@ -834,7 +834,7 @@ export class InvertedIndexReader {
 
     // Collect matching terms
     for (let i = startIdx; i < this.termIndex.length && results.length < limit; i++) {
-      const entry = this.termIndex[i]
+      const entry = this.termIndex[i]!
       if (!entry.term.startsWith(prefix)) {
         break
       }
@@ -865,10 +865,10 @@ export class InvertedIndexReader {
 
     // Start with smallest list for efficiency
     const sorted = postingLists.slice().sort((a, b) => a.length - b.length)
-    let result = sorted[0]
+    let result = sorted[0]!
 
     for (let i = 1; i < sorted.length && result.length > 0; i++) {
-      result = intersectSorted(result, sorted[i])
+      result = intersectSorted(result, sorted[i]!)
     }
 
     return result
@@ -892,13 +892,13 @@ export class InvertedIndexReader {
     }
 
     if (postingLists.length === 1) {
-      return postingLists[0]
+      return postingLists[0]!
     }
 
     // Merge all lists
-    let result = postingLists[0]
+    let result = postingLists[0]!
     for (let i = 1; i < postingLists.length; i++) {
-      result = unionSorted(result, postingLists[i])
+      result = unionSorted(result, postingLists[i]!)
     }
 
     return result
@@ -922,11 +922,11 @@ function intersectSorted(a: number[], b: number[]): number[] {
   let j = 0
 
   while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      result.push(a[i])
+    if (a[i]! === b[j]!) {
+      result.push(a[i]!)
       i++
       j++
-    } else if (a[i] < b[j]) {
+    } else if (a[i]! < b[j]!) {
       i++
     } else {
       j++
@@ -949,25 +949,25 @@ function unionSorted(a: number[], b: number[]): number[] {
   let j = 0
 
   while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      result.push(a[i])
+    if (a[i]! === b[j]!) {
+      result.push(a[i]!)
       i++
       j++
-    } else if (a[i] < b[j]) {
-      result.push(a[i])
+    } else if (a[i]! < b[j]!) {
+      result.push(a[i]!)
       i++
     } else {
-      result.push(b[j])
+      result.push(b[j]!)
       j++
     }
   }
 
   // Add remaining elements
   while (i < a.length) {
-    result.push(a[i++])
+    result.push(a[i++]!)
   }
   while (j < b.length) {
-    result.push(b[j++])
+    result.push(b[j++]!)
   }
 
   return result

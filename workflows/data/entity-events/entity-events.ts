@@ -155,7 +155,7 @@ export interface EntityEventContext {
  */
 export interface EntityEventProxy {
   /** Access an entity by type and id */
-  [entityType: string]: (id: string) => EntityOperations
+  [entityType: string]: ((id: string) => EntityOperations) | EntityEventProxy['aggregate'] | EntityEventProxy['projection'] | EntityEventProxy['on'] | EntityEventProxy['do']
 
   /** Define an aggregate */
   aggregate: <TState = Record<string, unknown>>(
@@ -517,7 +517,7 @@ export function createEntityEventContext(
       ): Promise<EntityEvent[]> {
         const results: EntityEvent[] = []
         for (const event of eventsToAppend) {
-          const result = await this.append(event.type, event.data)
+          const result = await this.append(event.type, event.data as Record<string, unknown>)
           results.push(result)
         }
         return results
@@ -761,9 +761,9 @@ export function createEntityEventContext(
             // Commit transaction
             for (const { key, event } of transactionEvents) {
               const [, entityType, entityId] = key.split(':')
-              const events = getStoredEvents(entityType, entityId)
+              const events = getStoredEvents(entityType!, entityId!)
               events.push(event)
-              saveStoredEvents(entityType, entityId, events)
+              saveStoredEvents(entityType!, entityId!, events)
               globalEventLog.push(event)
             }
             return result

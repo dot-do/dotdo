@@ -176,7 +176,7 @@ export class PostgresDialect {
       name,
       tableID: 0,
       columnID: i,
-      dataTypeID: this.inferTypeOID(result.columnTypes[i]),
+      dataTypeID: this.inferTypeOID(result.columnTypes[i]!),
       dataTypeSize: -1,
       dataTypeModifier: -1,
       format: 'text',
@@ -185,7 +185,7 @@ export class PostgresDialect {
     const rows = result.rows.map((row) => {
       const obj: Record<string, unknown> = {}
       for (let i = 0; i < result.columns.length; i++) {
-        obj[result.columns[i]] = row[i]
+        obj[result.columns[i]!] = row[i]
       }
       return obj as T
     })

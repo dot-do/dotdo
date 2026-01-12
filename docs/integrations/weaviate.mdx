@@ -3,6 +3,12 @@ title: Weaviate
 description: Drop-in replacement for the Weaviate TypeScript client with edge compatibility and semantic search backed by EdgeVec.
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout'
+
+<Callout type="info">
+  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
+</Callout>
+
 # Weaviate
 
 Drop-in replacement for the official Weaviate TypeScript client. Your existing `weaviate-ts-client` code works unchanged - just swap the import.
@@ -774,6 +780,105 @@ async function answerFromDocs(question: string, source?: string) {
 | Multi-tenancy | Not yet | |
 | Generative | Not yet | |
 | Reranking | Not yet | |
+
+## Error Handling
+
+```typescript
+import weaviate, { WeaviateError, WeaviateConnectionError, WeaviateNotFoundError } from '@dotdo/weaviate'
+
+const client = weaviate.client({ host: 'localhost:8080' })
+
+try {
+  const results = await client.graphql.get()
+    .withClassName('NonExistentClass')
+    .withFields('name')
+    .do()
+} catch (error) {
+  if (error instanceof WeaviateNotFoundError) {
+    console.error('Class or object not found:', error.message)
+  } else if (error instanceof WeaviateConnectionError) {
+    console.error('Connection failed:', error.message)
+  } else if (error instanceof WeaviateError) {
+    console.error('Weaviate error:', error.message)
+    console.error('Status:', error.statusCode)
+  }
+}
+
+// Handle schema errors
+try {
+  await client.schema.classCreator().withClass({
+    class: 'ExistingClass', // Already exists
+    properties: [{ name: 'title', dataType: ['text'] }],
+  }).do()
+} catch (error) {
+  if (error instanceof WeaviateError && error.statusCode === 422) {
+    console.error('Schema validation error - class may already exist')
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `WeaviateError` | Base error class for all Weaviate errors |
+| `WeaviateConnectionError` | Connection or network failures |
+| `WeaviateNotFoundError` | Class or object not found (404) |
+| `WeaviateValidationError` | Schema or query validation error (422) |
+| `WeaviateAuthError` | Authentication or authorization failure (401/403) |
+
+## Migration from Weaviate SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall weaviate-ts-client
+
+# Install
+npm install @dotdo/weaviate
+```
+
+### Import Change
+
+```typescript
+// Before
+import weaviate from 'weaviate-ts-client'
+
+// After
+import weaviate from '@dotdo/weaviate'
+```
+
+### Code Compatibility
+
+Your existing Weaviate code works unchanged:
+
+```typescript
+// This code works with both weaviate-ts-client and @dotdo/weaviate
+const client = weaviate.client({ host: 'localhost:8080' })
+
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'none',
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+  ],
+}).do()
+
+await client.data.creator()
+  .withClassName('Article')
+  .withProperties({ title: 'My Article', content: 'Content here' })
+  .withVector([0.1, 0.2, 0.3])
+  .do()
+
+const results = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content _additional { distance }')
+  .withNearVector({ vector: queryEmbedding })
+  .withLimit(10)
+  .do()
+```
 
 ## Related
 

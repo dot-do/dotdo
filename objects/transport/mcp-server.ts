@@ -703,15 +703,16 @@ async function handleMcpMethod(
       }
 
       const [, , resourceName, resourceId] = uriMatch
+      const safeResourceName = resourceName!
 
       // Check if resource is defined in $mcp.resources
       const configResources = DOClass.$mcp?.resources || []
-      if (!configResources.includes(resourceName)) {
+      if (!configResources.includes(safeResourceName)) {
         return {
           response: jsonRpcError(
             req.id!,
             JSON_RPC_ERRORS.INVALID_PARAMS,
-            `Resource not found: ${resourceName}`
+            `Resource not found: ${safeResourceName}`
           ),
           session: currentSession,
         }
@@ -719,7 +720,7 @@ async function handleMcpMethod(
 
       // Try to get the resource data from the DO instance
       // First, check for a getter method like getItems(), getUsers(), etc.
-      const getterName = `get${resourceName.charAt(0).toUpperCase()}${resourceName.slice(1)}`
+      const getterName = `get${safeResourceName.charAt(0).toUpperCase()}${safeResourceName.slice(1)}`
       const getter = instance[getterName]
 
       let data: unknown
@@ -736,7 +737,7 @@ async function handleMcpMethod(
                 response: jsonRpcError(
                   req.id!,
                   JSON_RPC_ERRORS.INVALID_PARAMS,
-                  `Resource item not found: ${resourceName}/${resourceId}`
+                  `Resource item not found: ${safeResourceName}/${resourceId}`
                 ),
                 session: currentSession,
               }
@@ -749,7 +750,7 @@ async function handleMcpMethod(
         }
       } else {
         // Try direct property access
-        const prop = instance[resourceName]
+        const prop = instance[safeResourceName]
         if (prop !== undefined) {
           data = prop
         } else {
@@ -757,7 +758,7 @@ async function handleMcpMethod(
             response: jsonRpcError(
               req.id!,
               JSON_RPC_ERRORS.INVALID_PARAMS,
-              `Resource accessor not found: ${resourceName}`
+              `Resource accessor not found: ${safeResourceName}`
             ),
             session: currentSession,
           }

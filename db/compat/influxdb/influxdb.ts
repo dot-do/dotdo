@@ -41,7 +41,7 @@ export function parseLineProtocol(line: string): ParsedLine {
 
   const tags: Record<string, string> = {}
   for (let i = 1; i < tagParts.length; i++) {
-    const [k, v] = tagParts[i].split('=')
+    const [k, v] = tagParts[i]!.split('=')
     if (k && v !== undefined) tags[k] = v
   }
 
@@ -95,31 +95,31 @@ export function parseFluxQuery(query: string): FluxQuery {
   const result: FluxQuery = { bucket: '' }
   const bucketMatch = query.match(/from\s*\(\s*bucket\s*:\s*"([^"]+)"\s*\)/)
   if (!bucketMatch) throw new QueryError('Invalid Flux query: missing from(bucket:)')
-  result.bucket = bucketMatch[1]
+  result.bucket = bucketMatch[1]!
 
   const rangeMatch = query.match(/range\s*\(\s*start\s*:\s*([^,)]+?)(?:\s*,\s*stop\s*:\s*([^)]+?(?:\(\))?))?\s*\)/)
   if (rangeMatch) {
-    result.range = { start: parseFluxTime(rangeMatch[1]), stop: rangeMatch[2] ? parseFluxTime(rangeMatch[2]) : undefined }
+    result.range = { start: parseFluxTime(rangeMatch[1]!), stop: rangeMatch[2] ? parseFluxTime(rangeMatch[2]) : undefined }
   }
 
   const filters: FluxQuery['filters'] = []
   for (const m of query.matchAll(/filter\s*\(\s*fn\s*:\s*\([^)]*\)\s*=>\s*r(?:\.(\w+)|\["([^"]+)"\])\s*(==|!=|>|<|>=|<=)\s*"?([^")\s]+)"?\s*\)/g)) {
-    let val: string | number | boolean = m[4]
+    let val: string | number | boolean = m[4]!
     if (val === 'true') val = true
     else if (val === 'false') val = false
     else if (!isNaN(Number(val))) val = Number(val)
-    filters.push({ column: m[1] || m[2], operator: m[3] as any, value: val })
+    filters.push({ column: (m[1] || m[2])!, operator: m[3] as any, value: val })
   }
   if (filters.length) result.filters = filters
 
   const windowMatch = query.match(/aggregateWindow\s*\(\s*every\s*:\s*([^,)]+)/)
-  if (windowMatch) result.window = { every: windowMatch[1].trim() }
+  if (windowMatch) result.window = { every: windowMatch[1]!.trim() }
 
   const aggMatch = query.match(/\|\>\s*(mean|sum|count|min|max|first|last|median|stddev)\s*\(\s*\)/)
   if (aggMatch) result.aggregations = [{ fn: aggMatch[1] as any }]
 
   const limitMatch = query.match(/limit\s*\(\s*n\s*:\s*(\d+)\s*\)/)
-  if (limitMatch) result.limit = parseInt(limitMatch[1], 10)
+  if (limitMatch) result.limit = parseInt(limitMatch[1]!, 10)
 
   return result
 }
@@ -137,13 +137,13 @@ export function resolveRelativeTime(expr: string | number, ref: number = Date.no
   const m = expr.match(/^-(\d+)(s|m|h|d|w)$/)
   if (!m) { const d = new Date(expr); if (!isNaN(d.getTime())) return d.getTime(); throw new QueryError(`Invalid time: ${expr}`) }
   const mult: Record<string, number> = { s: 1000, m: 60000, h: 3600000, d: 86400000, w: 604800000 }
-  return ref - parseInt(m[1], 10) * mult[m[2]]
+  return ref - parseInt(m[1]!, 10) * mult[m[2]!]!
 }
 
 function parseDuration(expr: string): Duration {
   const m = expr.match(/^(\d+)(s|m|h)$/)
   if (!m) throw new QueryError(`Invalid duration: ${expr}`)
-  const v = parseInt(m[1], 10)
+  const v = parseInt(m[1]!, 10)
   return m[2] === 's' ? seconds(v) : m[2] === 'm' ? minutes(v) : hours(v)
 }
 
@@ -228,14 +228,14 @@ export class InfluxDB {
     const aggPts: Point[] = []
     for (const [wk, wps] of windows) {
       if (!wps.length) continue
-      const ws = parseInt(wk.split('-')[0], 10)
+      const ws = parseInt(wk.split('-')[0]!, 10)
       const fnames = new Set<string>(); wps.forEach(p => Object.keys(p.fields).forEach(k => fnames.add(k)))
       const agg: Record<string, number> = {}
       for (const fn of fnames) {
         const vals = wps.map(p => p.fields[fn]).filter((v): v is number => typeof v === 'number')
-        if (vals.length) agg[fn] = this.compute(vals, q.aggregations![0].fn)
+        if (vals.length) agg[fn] = this.compute(vals, q.aggregations![0]!.fn)
       }
-      aggPts.push({ measurement: wps[0].measurement, tags: wps[0].tags, fields: agg, timestamp: ws })
+      aggPts.push({ measurement: wps[0]!.measurement, tags: wps[0]!.tags, fields: agg, timestamp: ws })
     }
     return this.toResult(aggPts)
   }
@@ -246,9 +246,9 @@ export class InfluxDB {
     const agg: Record<string, number> = {}
     for (const fn of fnames) {
       const vals = points.map(p => p.fields[fn]).filter((v): v is number => typeof v === 'number')
-      if (vals.length) agg[fn] = this.compute(vals, q.aggregations[0].fn)
+      if (vals.length) agg[fn] = this.compute(vals, q.aggregations[0]!.fn)
     }
-    return this.toResult([{ measurement: points[0].measurement, tags: points[0].tags, fields: agg, timestamp: points[0].timestamp }])
+    return this.toResult([{ measurement: points[0]!.measurement, tags: points[0]!.tags, fields: agg, timestamp: points[0]!.timestamp }])
   }
 
   private compute(vals: number[], fn: string): number {
@@ -258,11 +258,11 @@ export class InfluxDB {
       case 'count': return vals.length
       case 'min': return Math.min(...vals)
       case 'max': return Math.max(...vals)
-      case 'first': return vals[0]
-      case 'last': return vals[vals.length - 1]
-      case 'median': { const s = [...vals].sort((a, b) => a - b), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+      case 'first': return vals[0]!
+      case 'last': return vals[vals.length - 1]!
+      case 'median': { const s = [...vals].sort((a, b) => a - b), m = Math.floor(s.length / 2); return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2 }
       case 'stddev': { const avg = vals.reduce((a, b) => a + b, 0) / vals.length; return Math.sqrt(vals.map(v => (v - avg) ** 2).reduce((a, b) => a + b, 0) / vals.length) }
-      default: return vals[0]
+      default: return vals[0]!
     }
   }
 

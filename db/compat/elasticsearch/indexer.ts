@@ -349,7 +349,13 @@ export class ElasticsearchIndexer {
     const merged = { ...existing._source, ...doc }
 
     // Re-index with merged document
-    return this.index(id, merged)
+    const indexResult = this.index(id, merged)
+    return {
+      result: indexResult.result === 'created' ? 'updated' : indexResult.result,
+      _seq_no: indexResult._seq_no,
+      _primary_term: indexResult._primary_term,
+      _version: indexResult._version,
+    } as { result: 'updated' | 'noop'; _seq_no: number; _primary_term: number; _version: number }
   }
 
   // ==========================================================================
@@ -540,7 +546,7 @@ export class ElasticsearchIndexer {
     const tokens = analyzer(term)
 
     if (tokens.length === 0) return null
-    return fieldIndex.postings.get(tokens[0]) || null
+    return fieldIndex.postings.get(tokens[0]!) || null
   }
 
   /**
@@ -555,7 +561,7 @@ export class ElasticsearchIndexer {
     const tokens = analyzer(term)
 
     if (tokens.length === 0) return 0
-    const entry = fieldIndex.dictionary.get(tokens[0])
+    const entry = fieldIndex.dictionary.get(tokens[0]!)
     return entry?.df || 0
   }
 

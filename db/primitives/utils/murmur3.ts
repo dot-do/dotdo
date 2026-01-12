@@ -30,10 +30,10 @@ export function murmurHash3_32(key: Uint8Array, seed: number = 0): number {
   for (let i = 0; i < nblocks; i++) {
     const offset = i * 4
     let k =
-      (key[offset] & 0xff) |
-      ((key[offset + 1] & 0xff) << 8) |
-      ((key[offset + 2] & 0xff) << 16) |
-      ((key[offset + 3] & 0xff) << 24)
+      (key[offset]! & 0xff) |
+      ((key[offset + 1]! & 0xff) << 8) |
+      ((key[offset + 2]! & 0xff) << 16) |
+      ((key[offset + 3]! & 0xff) << 24)
 
     k = Math.imul(k, c1)
     k = (k << r1) | (k >>> (32 - r1))
@@ -49,10 +49,10 @@ export function murmurHash3_32(key: Uint8Array, seed: number = 0): number {
   let k1 = 0
   const tail = len & 3
 
-  if (tail >= 3) k1 ^= (key[tailOffset + 2] & 0xff) << 16
-  if (tail >= 2) k1 ^= (key[tailOffset + 1] & 0xff) << 8
+  if (tail >= 3) k1 ^= (key[tailOffset + 2]! & 0xff) << 16
+  if (tail >= 2) k1 ^= (key[tailOffset + 1]! & 0xff) << 8
   if (tail >= 1) {
-    k1 ^= key[tailOffset] & 0xff
+    k1 ^= key[tailOffset]! & 0xff
     k1 = Math.imul(k1, c1)
     k1 = (k1 << r1) | (k1 >>> (32 - r1))
     k1 = Math.imul(k1, c2)
@@ -105,21 +105,17 @@ export function murmurHash3(str: string, seed: number): number {
     i += 4
   }
 
-  // Handle remaining bytes
+  // Handle remaining bytes - intentional fallthrough for murmur3 algorithm
   let k1 = 0
-  switch (len & 3) {
-    case 3:
-      k1 ^= (str.charCodeAt(i + 2) & 0xff) << 16
-    // fallthrough
-    case 2:
-      k1 ^= (str.charCodeAt(i + 1) & 0xff) << 8
-    // fallthrough
-    case 1:
-      k1 ^= str.charCodeAt(i) & 0xff
-      k1 = Math.imul(k1, c1)
-      k1 = (k1 << 15) | (k1 >>> 17)
-      k1 = Math.imul(k1, c2)
-      h1 ^= k1
+  const tail = len & 3
+  if (tail >= 3) k1 ^= (str.charCodeAt(i + 2) & 0xff) << 16
+  if (tail >= 2) k1 ^= (str.charCodeAt(i + 1) & 0xff) << 8
+  if (tail >= 1) {
+    k1 ^= str.charCodeAt(i) & 0xff
+    k1 = Math.imul(k1, c1)
+    k1 = (k1 << 15) | (k1 >>> 17)
+    k1 = Math.imul(k1, c2)
+    h1 ^= k1
   }
 
   // Finalization

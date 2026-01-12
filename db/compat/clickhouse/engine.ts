@@ -66,7 +66,7 @@ export interface ExplainResult {
 /**
  * Aggregate query options
  */
-export interface AggregateQueryOptions<T> {
+export interface AggregateQueryOptions<T extends Record<string, unknown>> {
   table: MergeTreeTable<T>
   aggregations: AggregateSpec
   where?: unknown
@@ -91,7 +91,7 @@ export interface AggregateQueryResult extends Record<string, unknown> {
 /**
  * Explain query options
  */
-export interface ExplainQueryOptions<T> {
+export interface ExplainQueryOptions<T extends Record<string, unknown>> {
   table: MergeTreeTable<T>
   where?: unknown
   columns?: string[]
@@ -234,7 +234,7 @@ export class QueryPlanner {
     if (!where || typeof where !== 'object') return false
 
     const whereObj = where as Record<string, unknown>
-    const firstOrderByCol = orderBy[0]
+    const firstOrderByCol = orderBy[0]!
 
     // Index is useful if WHERE includes prefix of ORDER BY
     return firstOrderByCol in whereObj
@@ -265,7 +265,7 @@ export class QueryPlanner {
   private isSortedBy(tableOrder: string[], required: OrderByClause[]): boolean {
     for (let i = 0; i < required.length; i++) {
       if (i >= tableOrder.length) return false
-      if (tableOrder[i] !== required[i].column) return false
+      if (tableOrder[i] !== required[i]!.column) return false
       // Note: direction matters in real implementation
     }
     return true
@@ -386,7 +386,7 @@ export class ClickHouseEngine {
 
       // Add group key values
       for (let i = 0; i < groupBy.length; i++) {
-        groupResult[groupBy[i]] = keyValues[i]
+        groupResult[groupBy[i]!] = keyValues[i]
       }
 
       // Compute aggregations
@@ -570,7 +570,7 @@ export class ClickHouseEngine {
     const arr = new Float64Array(values)
     let sum = 0
     for (let i = 0; i < arr.length; i++) {
-      sum += arr[i]
+      sum += arr[i]!
     }
     return sum
   }
@@ -595,12 +595,12 @@ export class ClickHouseEngine {
     if (values.length === 0) return null
 
     const arr = new Float64Array(values)
-    let min = arr[0]
-    let max = arr[0]
+    let min = arr[0]!
+    let max = arr[0]!
 
     for (let i = 1; i < arr.length; i++) {
-      if (arr[i] < min) min = arr[i]
-      if (arr[i] > max) max = arr[i]
+      if (arr[i]! < min) min = arr[i]!
+      if (arr[i]! > max) max = arr[i]!
     }
 
     return { min, max }
@@ -617,8 +617,8 @@ export class ClickHouseEngine {
     let count = 0
 
     for (let i = 0; i < arr.length; i++) {
-      if (!Number.isNaN(arr[i])) {
-        sum += arr[i]
+      if (!Number.isNaN(arr[i]!)) {
+        sum += arr[i]!
         count++
       }
     }
@@ -638,9 +638,9 @@ export class ClickHouseEngine {
     let count = 0
 
     for (let i = 0; i < arr.length; i++) {
-      if (!Number.isNaN(arr[i])) {
-        sum += arr[i]
-        sumSq += arr[i] * arr[i]
+      if (!Number.isNaN(arr[i]!)) {
+        sum += arr[i]!
+        sumSq += arr[i]! * arr[i]!
         count++
       }
     }

@@ -290,8 +290,8 @@ export function isInRange(value: Uint8Array, lowerBound: Uint8Array | null, uppe
 export function compareBinary(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 {
   const minLen = Math.min(a.length, b.length)
   for (let i = 0; i < minLen; i++) {
-    if (a[i] < b[i]) return -1
-    if (a[i] > b[i]) return 1
+    if (a[i]! < b[i]!) return -1
+    if (a[i]! > b[i]!) return 1
   }
   // If all bytes are equal up to minLen, shorter array is "less"
   if (a.length < b.length) return -1
@@ -465,15 +465,15 @@ export function findFileForId(entries: ManifestEntry[], idFieldId: number, targe
 
   // If only one candidate, return it
   if (candidates.length === 1) {
-    return candidates[0]
+    return candidates[0] ?? null
   }
 
   // Prefer files with narrower ranges - more likely to contain the target
-  let best = candidates[0]
+  let best = candidates[0]!
   let bestRangeSize = computeStringRangeSize(best.lowerBound as string | null, best.upperBound as string | null)
 
   for (let i = 1; i < candidates.length; i++) {
-    const candidate = candidates[i]
+    const candidate = candidates[i]!
     const rangeSize = computeStringRangeSize(candidate.lowerBound as string | null, candidate.upperBound as string | null)
     if (rangeSize < bestRangeSize) {
       best = candidate
@@ -481,7 +481,7 @@ export function findFileForId(entries: ManifestEntry[], idFieldId: number, targe
     }
   }
 
-  return best
+  return best ?? null
 }
 
 /**

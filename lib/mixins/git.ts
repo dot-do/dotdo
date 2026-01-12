@@ -33,27 +33,46 @@ import type { WorkflowContext } from '../../types/WorkflowContext'
 import type { DO, Env } from '../../objects/DO'
 import type { FsCapability, WithFsContext } from './fs'
 
-// Import types from gitx for better type safety and consistency
-import type {
-  ObjectType as GitxObjectType,
-  TreeEntry as GitxTreeEntry,
-  CommitObject as GitxCommitObject,
-  Author as GitxAuthor,
-} from 'gitx'
-
 // ============================================================================
-// RE-EXPORTS FROM GITX
+// GITX COMPATIBLE TYPES
 // ============================================================================
+// These types are compatible with gitx.do package but defined locally
+// to avoid import errors when gitx is not installed.
 
 /**
- * Re-export gitx types for consumers who need the full git object types.
- * These provide more detailed type information for advanced git operations.
+ * Git object type
  */
-export type {
-  GitxObjectType,
-  GitxTreeEntry,
-  GitxCommitObject,
-  GitxAuthor,
+export type GitxObjectType = 'blob' | 'tree' | 'commit' | 'tag'
+
+/**
+ * Git tree entry
+ */
+export interface GitxTreeEntry {
+  mode: string
+  name: string
+  sha: string
+  type: GitxObjectType
+}
+
+/**
+ * Git author information
+ */
+export interface GitxAuthor {
+  name: string
+  email: string
+  timestamp: number
+  timezoneOffset: number
+}
+
+/**
+ * Git commit object
+ */
+export interface GitxCommitObject {
+  tree: string
+  parent?: string | string[]
+  author: GitxAuthor
+  committer: GitxAuthor
+  message: string
 }
 
 // ============================================================================
@@ -979,7 +998,7 @@ export class GitModule {
         const treeMatch = commitContent.match(/^tree ([a-f0-9]{40})/m)
 
         if (treeMatch) {
-          const treeSha = treeMatch[1]
+          const treeSha = treeMatch[1]!
           // Recursively sync tree contents
           const treeResult = await this.syncTree(treeSha, this.path ?? '')
           objectsFetched += treeResult.objects

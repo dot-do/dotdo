@@ -208,7 +208,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid CREATE TABLE syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
 
     if (this.tables.has(tableName)) {
       if (ifNotExists) {
@@ -217,7 +217,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new TableExistsError(tableName)
     }
 
-    const columnDefs = splitColumnDefs(match[4])
+    const columnDefs = splitColumnDefs(match[4]!)
 
     const columns: string[] = []
     const columnTypes: string[] = []
@@ -232,13 +232,13 @@ export class InMemorySQLEngine implements SQLEngine {
       if (/^(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT|INDEX|KEY)/i.test(trimmed)) {
         const pkMatch = trimmed.match(/PRIMARY\s+KEY\s*\(([^)]+)\)/i)
         if (pkMatch) {
-          primaryKey = pkMatch[1].split(',')[0].trim().replace(/["'`]/g, '').toLowerCase()
+          primaryKey = pkMatch[1]!.split(',')[0]!.trim().replace(/["'`]/g, '').toLowerCase()
         }
         continue
       }
 
       const parts = trimmed.split(/\s+/)
-      const colName = parts[0].replace(/["'`]/g, '').toLowerCase()
+      const colName = parts[0]!.replace(/["'`]/g, '').toLowerCase()
       const colType = parts[1]?.toUpperCase() ?? 'TEXT'
 
       columns.push(colName)
@@ -296,7 +296,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid DROP TABLE syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
 
     if (!this.tables.has(tableName)) {
       if (ifExists) {
@@ -320,7 +320,7 @@ export class InMemorySQLEngine implements SQLEngine {
     // Handle ON DUPLICATE KEY UPDATE (MySQL upsert)
     const onDuplicateMatch = sql.match(/(.+?)\s+ON\s+DUPLICATE\s+KEY\s+UPDATE\s+(.+)$/i)
     if (onDuplicateMatch && this.dialect.supportsOnDuplicateKey) {
-      return this.executeUpsert(onDuplicateMatch[1], params)
+      return this.executeUpsert(onDuplicateMatch[1]!, params)
     }
 
     // Parse INSERT INTO table [(cols)] VALUES (...), (...), ... [RETURNING ...]
@@ -331,14 +331,14 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid INSERT syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
     const schema = this.getTableOrThrow(tableName)
 
     const specifiedCols = match[4]
       ? match[4].split(',').map((c) => c.trim().replace(/["'`]/g, '').toLowerCase())
       : schema.columns
 
-    const valuesPart = match[5]
+    const valuesPart = match[5]!
     const returningCols = match[6]
       ? match[6].split(',').map((c) => c.trim().replace(/["'`]/g, '').toLowerCase())
       : null
@@ -354,7 +354,7 @@ export class InMemorySQLEngine implements SQLEngine {
       // Build row values map
       const values = new Map<string, StorageValue>()
       for (let i = 0; i < specifiedCols.length; i++) {
-        values.set(specifiedCols[i], insertValues[i] ?? null)
+        values.set(specifiedCols[i]!, insertValues[i] ?? null)
       }
 
       // Handle auto-increment
@@ -432,7 +432,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid INSERT syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
     const schema = this.getTableOrThrow(tableName)
 
     const specifiedCols = match[4]
@@ -441,14 +441,14 @@ export class InMemorySQLEngine implements SQLEngine {
 
     const valuesPart = match[5]
     const paramIndex = { current: 0 }
-    const insertValues = splitValues(valuesPart).map((v) =>
+    const insertValues = splitValues(valuesPart!).map((v) =>
       resolveValuePart(v, params, paramIndex, this.dialect)
     )
 
     // Build row values map
     const values = new Map<string, StorageValue>()
     for (let i = 0; i < specifiedCols.length; i++) {
-      values.set(specifiedCols[i], insertValues[i] ?? null)
+      values.set(specifiedCols[i]!, insertValues[i] ?? null)
     }
 
     const tableData = this.data.get(tableName) ?? []
@@ -462,7 +462,7 @@ export class InMemorySQLEngine implements SQLEngine {
 
       if (existingRowIndex >= 0) {
         // Update existing row
-        const existingRow = tableData[existingRowIndex]
+        const existingRow = tableData[existingRowIndex]!
         values.forEach((val, col) => {
           existingRow.values.set(col, val)
         })
@@ -525,8 +525,8 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid SELECT syntax')
     }
 
-    const columnsPart = fromMatch[1]
-    const mainTable = (fromMatch[2] || fromMatch[3] || fromMatch[4]).toLowerCase()
+    const columnsPart = fromMatch[1]!
+    const mainTable = (fromMatch[2] || fromMatch[3] || fromMatch[4])!.toLowerCase()
 
     // Extract rest of query after table name
     const sqlKeywords = 'WHERE|ORDER|LIMIT|OFFSET|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|ON|GROUP|HAVING|UNION'
@@ -542,33 +542,33 @@ export class InMemorySQLEngine implements SQLEngine {
     let tableData = [...(this.data.get(mainTable) ?? [])]
 
     // Parse selected columns
-    const selectedColumns = columnsPart.trim() === '*'
+    const selectedColumns = columnsPart!.trim() === '*'
       ? [...schema.columns]
-      : parseColumnList(columnsPart)
+      : parseColumnList(columnsPart!)
 
     // Apply WHERE filter
     const whereMatch = restOfQuery.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|\s+OFFSET|\s+GROUP\s+BY|\s*$)/i)
     if (whereMatch) {
-      tableData = this.applyWhere(tableData, whereMatch[1], params)
+      tableData = this.applyWhere(tableData, whereMatch[1]!, params)
     }
 
     // Apply ORDER BY
     const orderMatch = restOfQuery.match(/ORDER\s+BY\s+(.+?)(?:\s+LIMIT|\s+OFFSET|\s*$)/i)
     if (orderMatch) {
-      tableData = this.applyOrderBy(tableData, orderMatch[1])
+      tableData = this.applyOrderBy(tableData, orderMatch[1]!)
     }
 
     // Apply OFFSET first
     const offsetMatch = restOfQuery.match(/OFFSET\s+(\d+)/i)
     if (offsetMatch) {
-      const offset = parseInt(offsetMatch[1], 10)
+      const offset = parseInt(offsetMatch[1]!, 10)
       tableData = tableData.slice(offset)
     }
 
     // Apply LIMIT
     const limitMatch = restOfQuery.match(/LIMIT\s+(\d+)/i)
     if (limitMatch) {
-      tableData = tableData.slice(0, parseInt(limitMatch[1], 10))
+      tableData = tableData.slice(0, parseInt(limitMatch[1]!, 10))
     }
 
     // Build result rows
@@ -599,15 +599,15 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid SELECT syntax')
     }
 
-    const expr = match[1].trim()
+    const expr = match[1]!.trim()
 
     // Handle SELECT 1 as num
     const asMatch = expr.match(/(\d+)\s+as\s+(\w+)/i)
     if (asMatch) {
       return {
-        columns: [asMatch[2]],
+        columns: [asMatch[2]!],
         columnTypes: ['INTEGER'],
-        rows: [[parseInt(asMatch[1], 10)]],
+        rows: [[parseInt(asMatch[1]!, 10)]],
         affectedRows: 0,
         lastInsertRowid: 0,
         changedRows: 0,
@@ -667,7 +667,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid UPDATE syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
     const setPart = match[4]
     const wherePart = match[5]
     const returningCols = match[6]
@@ -678,7 +678,7 @@ export class InMemorySQLEngine implements SQLEngine {
     const tableData = this.data.get(tableName) ?? []
 
     // Parse SET clause - returns assignments and count of params consumed
-    const { assignments: setAssignments, paramsConsumed } = parseSetClause(setPart, params, this.dialect)
+    const { assignments: setAssignments, paramsConsumed } = parseSetClause(setPart!, params, this.dialect)
 
     // Apply WHERE filter
     // For indexed params ($1, $2), pass full params array - the parser handles $N directly
@@ -688,7 +688,7 @@ export class InMemorySQLEngine implements SQLEngine {
       const whereParams = this.dialect.parameterStyle === 'positional'
         ? params.slice(paramsConsumed)
         : params
-      toUpdate = this.applyWhere(toUpdate, wherePart, whereParams)
+      toUpdate = this.applyWhere(toUpdate, wherePart!, whereParams)
     }
 
     // Apply updates
@@ -757,7 +757,7 @@ export class InMemorySQLEngine implements SQLEngine {
       throw new SQLParseError('Invalid DELETE syntax')
     }
 
-    const tableName = (match[1] || match[2] || match[3]).toLowerCase()
+    const tableName = (match[1] || match[2] || match[3])!.toLowerCase()
     const wherePart = match[4]
     const returningCols = match[5]
       ? match[5].split(',').map((c) => c.trim().replace(/["'`]/g, '').toLowerCase())
@@ -769,7 +769,7 @@ export class InMemorySQLEngine implements SQLEngine {
     // Find rows to delete
     let toDelete = [...tableData]
     if (wherePart) {
-      toDelete = this.applyWhere(toDelete, wherePart, params)
+      toDelete = this.applyWhere(toDelete, wherePart!, params)
     }
 
     // Build RETURNING rows before delete
@@ -1078,7 +1078,7 @@ class InMemorySQLEngineWithParser implements SQLEngine {
       const validation = this.parser.validate(sql, dialect)
 
       if (!validation.valid && validation.issues.length > 0) {
-        const firstIssue = validation.issues[0]
+        const firstIssue = validation.issues[0]!
         throw new SQLParseError(firstIssue.message || 'SQL validation failed')
       }
     }

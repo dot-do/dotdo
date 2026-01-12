@@ -542,14 +542,14 @@ export function parsePath(path: string): PathComponents | null {
   const [tenant, type, id, ...rest] = parts
 
   const result: PathComponents = {
-    tenant,
-    type,
-    id,
+    tenant: tenant!,
+    type: type!,
+    id: id!,
   }
 
   if (rest.length > 0) {
     // Check if the next part looks like a timestamp (ISO format)
-    const isTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(rest[0])
+    const isTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(rest[0]!)
 
     if (isTimestamp) {
       result.timestamp = rest[0]

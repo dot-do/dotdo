@@ -352,7 +352,7 @@ export class QueryBuilder {
    */
   private getColumn(fieldName: string): SQLiteColumn | undefined {
     // Handle dot notation for nested fields
-    const topLevelField = fieldName.split('.')[0]
+    const topLevelField = fieldName.split('.')[0]!
 
     // Check if column exists on table
     const column = (this.table as any)[topLevelField]

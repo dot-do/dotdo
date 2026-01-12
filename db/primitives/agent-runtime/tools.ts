@@ -89,7 +89,7 @@ export function validateToolInput<T = unknown>(
   if (isZodSchema(schema)) {
     return validateZodSchema(schema, input)
   }
-  return validateJsonSchema(schema as ToolSchema, input)
+  return validateJsonSchema(schema as ToolSchema, input) as ValidationResult<T>
 }
 
 function validateZodSchema<T>(schema: z.ZodType<T>, input: unknown): ValidationResult<T> {

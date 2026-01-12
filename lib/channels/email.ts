@@ -274,7 +274,7 @@ export class EmailChannel {
 
     return {
       action,
-      requestId,
+      requestId: requestId!,
       userId: email,
     }
   }

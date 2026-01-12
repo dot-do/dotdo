@@ -463,9 +463,9 @@ export class StateMachine {
       }
 
       for (let i = this.middlewares.length - 1; i >= 0; i--) {
-        const middleware = this.middlewares[i]
-        if (middleware.after) {
-          await middleware.after(entity, result)
+        const middleware = this.middlewares[i]!
+        if (middleware!.after) {
+          await middleware!.after(entity, result)
         }
       }
 

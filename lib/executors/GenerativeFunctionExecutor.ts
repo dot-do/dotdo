@@ -1052,7 +1052,7 @@ export class GenerativeFunctionExecutor {
     const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
     if (codeBlockMatch) {
       try {
-        return JSON.parse(codeBlockMatch[1].trim())
+        return JSON.parse(codeBlockMatch[1]!.trim())
       } catch {
         // Continue
       }
@@ -1062,7 +1062,7 @@ export class GenerativeFunctionExecutor {
     const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
     if (jsonMatch) {
       try {
-        return JSON.parse(jsonMatch[1])
+        return JSON.parse(jsonMatch[1]!)
       } catch {
         // Continue
       }
@@ -1076,7 +1076,7 @@ export class GenerativeFunctionExecutor {
         // Extract JSON again
         const cleanedMatch = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
         if (cleanedMatch) {
-          return JSON.parse(cleanedMatch[1])
+          return JSON.parse(cleanedMatch[1]!)
         }
       } catch {
         // Continue

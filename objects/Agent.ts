@@ -209,7 +209,7 @@ export class Agent extends Worker {
   protected async makeDecision(question: string, options: Option[], context?: Context): Promise<Decision> {
     // Override with AI-powered decision making
     return {
-      selectedOption: options[0],
+      selectedOption: options[0]!,
       reasoning: 'Selected first option (stub implementation)',
     }
   }

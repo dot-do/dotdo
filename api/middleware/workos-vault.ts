@@ -237,8 +237,8 @@ function getUserFromSession(
   }
 
   // Generic session - extract user from token if possible
-  if (sessionToken.includes('session')) {
-    return { id: sessionToken.replace('_session', '_identity'), type: 'user' }
+  if (sessionToken!.includes('session')) {
+    return { id: sessionToken!.replace('_session', '_identity'), type: 'user' }
   }
 
   return null

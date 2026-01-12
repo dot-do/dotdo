@@ -541,14 +541,14 @@ class IcebergDataSourceImpl implements IcebergDataSource {
     const icebergPattern = /iceberg\.(\w+)\.(\w+)/gi
     let match
     while ((match = icebergPattern.exec(sql)) !== null) {
-      refs.push({ namespace: match[1], tableName: match[2] })
+      refs.push({ namespace: match[1]!, tableName: match[2]! })
     }
 
     // Match FROM/JOIN namespace.table pattern (if no iceberg prefix)
     if (refs.length === 0) {
       const fromPattern = /(?:FROM|JOIN)\s+(\w+)\.(\w+)/gi
       while ((match = fromPattern.exec(sql)) !== null) {
-        refs.push({ namespace: match[1], tableName: match[2] })
+        refs.push({ namespace: match[1]!, tableName: match[2]! })
       }
     }
 

@@ -290,7 +290,7 @@ export class TimeSeriesStorage {
       const fields: Record<string, number | string | boolean> = {}
 
       for (const [fieldName, values] of fieldValues) {
-        const val = values[i]
+        const val = values[i]!
         if (!isNaN(val)) {
           fields[fieldName] = val
         }
@@ -300,7 +300,7 @@ export class TimeSeriesStorage {
         measurement: data.measurement,
         tags: { ...data.tags },
         fields,
-        timestamp: timestamps[i],
+        timestamp: timestamps[i]!,
       })
     }
 

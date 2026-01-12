@@ -121,7 +121,7 @@ export function createPlacementOptions(config: ReplicaConfig): PlacementOptions 
 
   // Set location hint from first region
   if (config.regions && config.regions.length > 0) {
-    const firstRegion = config.regions[0]
+    const firstRegion = config.regions[0]!
     options.locationHint = REGION_TO_LOCATION_HINT[firstRegion]
   }
 
@@ -226,7 +226,7 @@ export class ReplicaManager {
 
     // Set location hint from first region
     if (this._config.regions && this._config.regions.length > 0) {
-      const hint = REGION_TO_LOCATION_HINT[this._config.regions[0]]
+      const hint = REGION_TO_LOCATION_HINT[this._config.regions[0]!]
       if (hint) {
         options.locationHint = hint
       }
@@ -293,11 +293,11 @@ export class ReplicaManager {
         // Prefer a secondary replica if available
         if (this._config.cities && this._config.cities.length > 1) {
           // Use second city as secondary
-          return this.getStubInCity(name, this._config.cities[1])
+          return this.getStubInCity(name, this._config.cities[1]!)
         }
         if (this._config.regions && this._config.regions.length > 1) {
           // Use second region as secondary
-          return this.getStubInRegion(name, this._config.regions[1])
+          return this.getStubInRegion(name, this._config.regions[1]!)
         }
         // Fall back to primary
         return this.getPrimaryStub(name)

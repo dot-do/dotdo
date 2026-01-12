@@ -404,7 +404,7 @@ export class MiniflareSandbox {
       const validation = await this.validate(script)
       if (!validation.valid) {
         const endTime = performance.now()
-        const error = new SandboxExecutionError(validation.errors[0])
+        const error = new SandboxExecutionError(validation.errors[0]!)
         error.name = 'SyntaxError'
         return {
           success: false,
@@ -553,7 +553,7 @@ export class MiniflareSandbox {
     const memoryPattern = /new Array\(([\d_]+)\)\.fill/
     const memoryMatch = script.match(memoryPattern)
     if (memoryMatch) {
-      const arraySize = parseInt(memoryMatch[1].replace(/_/g, ''), 10)
+      const arraySize = parseInt(memoryMatch[1]!.replace(/_/g, ''), 10)
       // If trying to allocate a huge array (> 10M elements), simulate memory limit
       if (arraySize > 10_000_000 && this.config.memoryLimit < 50 * 1024 * 1024) {
         return {
@@ -570,7 +570,7 @@ export class MiniflareSandbox {
     const cpuPattern = /for\s*\([^)]*;\s*[^;]*<\s*(\d+(?:_\d+)*)\s*;/
     const cpuMatch = script.match(cpuPattern)
     if (cpuMatch) {
-      const iterations = parseInt(cpuMatch[1].replace(/_/g, ''), 10)
+      const iterations = parseInt(cpuMatch[1]!.replace(/_/g, ''), 10)
       // If trying to run > 100M iterations with low CPU limit, simulate CPU limit
       if (iterations > 100_000_000 && this.config.cpuTimeLimit < 100) {
         return {
@@ -688,7 +688,7 @@ export class MiniflareSandbox {
       for (const pattern of sleepPatterns) {
         let match
         while ((match = pattern.exec(script)) !== null) {
-          estimatedSleepTime += parseInt(match[1].replace(/_/g, ''), 10)
+          estimatedSleepTime += parseInt(match[1]!.replace(/_/g, ''), 10)
         }
       }
 

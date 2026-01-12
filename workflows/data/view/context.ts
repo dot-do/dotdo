@@ -386,7 +386,7 @@ export function createViewContext(): ViewContext {
 
       case 'last': {
         for (let i = events.length - 1; i >= 0; i--) {
-          const val = events[i][agg.field!]
+          const val = events[i]![agg.field!]
           if (val !== undefined) {
             return val
           }
@@ -585,7 +585,7 @@ export function createViewContext(): ViewContext {
         for (let i = 0; i < allEvents.length; i++) {
           const seq = sequences[i] ?? 0
           if (seq > checkpoint) {
-            events.push(allEvents[i])
+            events.push(allEvents[i]!)
           }
         }
       }
@@ -1065,7 +1065,7 @@ export function createViewContext(): ViewContext {
         for (const [viewName, viewDef] of storage.views) {
           if (viewDef.from._event === event && viewDef.from._type === 'stream') {
             // Recalculate the affected group
-            const key = getGroupKey(removedEvent, viewDef.groupBy)
+            const key = getGroupKey(removedEvent!, viewDef.groupBy)
             const groupEvents = events.filter(e => getGroupKey(e, viewDef.groupBy) === key)
 
             const data = storage.viewData.get(viewName) ?? new Map()

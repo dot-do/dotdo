@@ -372,8 +372,8 @@ async function verifyJWT(token: string, config: AuthConfig): Promise<JWTPayload>
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader) return null
   const parts = authHeader.split(' ')
-  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') return null
-  return parts[1]
+  if (parts.length !== 2 || parts[0]!.toLowerCase() !== 'bearer') return null
+  return parts[1] ?? null
 }
 
 function extractApiKey(c: Context): string | null {
@@ -387,7 +387,7 @@ function extractSessionCookie(c: Context, cookieName: string): string | null {
   const cookies = cookie.split(';').reduce(
     (acc, curr) => {
       const [key, value] = curr.trim().split('=')
-      acc[key] = value
+      if (key) acc[key] = value ?? ''
       return acc
     },
     {} as Record<string, string>,

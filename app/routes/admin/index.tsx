@@ -1,31 +1,20 @@
 /**
  * Admin Dashboard Index Route
  *
- * Renders .do/App.mdx content with @mdxui/cockpit DeveloperDashboard.
- * This provides the main dashboard page displaying dotdo metrics and overview.
+ * Renders the main admin dashboard page displaying dotdo metrics and overview.
+ * The shell UI (sidebar, header) is provided by the parent layout route (_admin.tsx).
  *
- * Uses the Shell component which wraps DeveloperDashboard with:
- * - branding: { name: 'dotdo', logo: <Logo /> }
- * - theme: 'stripe'
- * - customRoutes: workflows, sandboxes, browsers
+ * ## Features
+ * - KPI cards showing key metrics (Active Agents, Workflows, API Calls, Uptime)
+ * - API Usage chart
+ * - Recent Activity feed
+ * - Agent Status grid
  *
- * ## Customization Points
- *
- * 1. **Branding**: Edit Shell component in ~/components/ui/shell.tsx
- *    - logo: Custom React component
- *    - name: Brand name displayed in sidebar
- *
- * 2. **Theme**: Shell supports 'stripe' | 'vercel' | 'default' themes
- *
- * 3. **Custom Routes**: Add routes in Shell's customRoutes prop
- *
- * 4. **KPI Data**: Uses useDashboardMetrics hook for real-time data
- *
- * 5. **Auth**: Uses session from ~/src/admin/auth.ts
+ * ## Data Source
+ * Uses useDashboardMetrics hook for real-time metrics data.
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { Shell } from '~/components/ui/shell'
 import { useAuth } from '~/src/admin/auth'
 import { useDashboardMetrics, formatMetricValue } from '~/lib/hooks/use-dashboard-metrics'
 import {
@@ -47,15 +36,15 @@ export const Route = createFileRoute('/admin/')({
 function DashboardSkeleton() {
   return (
     <div className="animate-pulse">
-      <div className="h-8 bg-gray-800 rounded w-48 mb-6" />
-      <div className="grid grid-cols-4 gap-6 mb-6">
+      <div className="h-8 bg-muted rounded w-48 mb-6" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-32 bg-gray-800 rounded-lg" />
+          <div key={i} className="h-32 bg-muted rounded-lg" />
         ))}
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <div className="h-64 bg-gray-800 rounded-lg" />
-        <div className="h-64 bg-gray-800 rounded-lg" />
+        <div className="h-64 bg-muted rounded-lg" />
+        <div className="h-64 bg-muted rounded-lg" />
       </div>
     </div>
   )
@@ -67,9 +56,9 @@ function DashboardSkeleton() {
 function DashboardError({ error, onRetry }: { error: Error; onRetry: () => void }) {
   return (
     <div className="text-center py-12">
-      <div className="text-red-400 text-5xl mb-4">!</div>
-      <h2 className="text-xl font-semibold text-red-400 mb-2">Error loading dashboard</h2>
-      <p className="text-gray-500 mb-6">{error.message}</p>
+      <div className="text-destructive text-5xl mb-4">!</div>
+      <h2 className="text-xl font-semibold text-destructive mb-2">Error loading dashboard</h2>
+      <p className="text-muted-foreground mb-6">{error.message}</p>
       <Button type="button" variant="secondary" onClick={onRetry}>
         Try Again
       </Button>
@@ -167,11 +156,8 @@ function AdminDashboard() {
       data-authenticated={isAuthenticated ? 'true' : 'false'}
       data-user-id={user?.id}
       data-user-email={user?.email}
-      className="min-h-screen bg-gray-950 text-white"
     >
-      <Shell>
-        <DashboardWithMetrics />
-      </Shell>
+      <DashboardWithMetrics />
     </div>
   )
 }

@@ -846,7 +846,7 @@ export class CodeFunctionExecutor {
       exposedEnv = {}
       for (const key of options.exposeEnv) {
         if (key in this.env) {
-          exposedEnv[key] = this.env[key]
+          exposedEnv[key] = this.env[key] as string
         }
       }
     } else {

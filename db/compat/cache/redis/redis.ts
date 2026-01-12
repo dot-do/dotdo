@@ -811,10 +811,10 @@ class RedisStorage {
       return this.sets.get(this.prefixKey(k)) ?? new Set<string>()
     })
 
-    const result = new Set([...sets[0]])
+    const result = new Set([...sets[0]!])
     for (let i = 1; i < sets.length; i++) {
       for (const member of result) {
-        if (!sets[i].has(member)) {
+        if (!sets[i]!.has(member)) {
           result.delete(member)
         }
       }
@@ -840,15 +840,15 @@ class RedisStorage {
   sdiff(keys: string[]): string[] {
     if (keys.length === 0) return []
 
-    this.checkExpiry(keys[0])
-    this.checkType(keys[0], 'set')
-    const firstSet = this.sets.get(this.prefixKey(keys[0])) ?? new Set<string>()
+    this.checkExpiry(keys[0]!)
+    this.checkType(keys[0]!, 'set')
+    const firstSet = this.sets.get(this.prefixKey(keys[0]!)) ?? new Set<string>()
     const result = new Set([...firstSet])
 
     for (let i = 1; i < keys.length; i++) {
-      this.checkExpiry(keys[i])
-      this.checkType(keys[i], 'set')
-      const set = this.sets.get(this.prefixKey(keys[i]))
+      this.checkExpiry(keys[i]!)
+      this.checkType(keys[i]!, 'set')
+      const set = this.sets.get(this.prefixKey(keys[i]!))
       if (set) {
         for (const member of set) {
           result.delete(member)
@@ -868,7 +868,7 @@ class RedisStorage {
 
     const members = [...set]
     if (count === undefined) {
-      return members[Math.floor(Math.random() * members.length)]
+      return members[Math.floor(Math.random() * members.length)]!
     }
 
     const result: string[] = []
@@ -877,7 +877,7 @@ class RedisStorage {
 
     if (allowDuplicates) {
       for (let i = 0; i < absCount; i++) {
-        result.push(members[Math.floor(Math.random() * members.length)])
+        result.push(members[Math.floor(Math.random() * members.length)]!)
       }
     } else {
       const shuffled = [...members].sort(() => Math.random() - 0.5)
@@ -896,7 +896,7 @@ class RedisStorage {
     const members = [...set]
     if (count === undefined) {
       const idx = Math.floor(Math.random() * members.length)
-      const member = members[idx]
+      const member = members[idx]!
       set.delete(member)
       return member
     }
@@ -904,8 +904,8 @@ class RedisStorage {
     const result: string[] = []
     const shuffled = [...members].sort(() => Math.random() - 0.5)
     for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-      result.push(shuffled[i])
-      set.delete(shuffled[i])
+      result.push(shuffled[i]!)
+      set.delete(shuffled[i]!)
     }
     return result
   }
@@ -959,7 +959,7 @@ class RedisStorage {
       } else {
         // Existing member
         if (!options?.NX) {
-          const existing = zset[existingIdx]
+          const existing = zset[existingIdx]!
           let shouldUpdate = true
 
           if (options?.GT && entry.score <= existing.score) shouldUpdate = false
@@ -977,7 +977,7 @@ class RedisStorage {
     zset.sort((a, b) => a.score - b.score || a.member.localeCompare(b.member))
 
     if (options?.INCR && entries.length === 1) {
-      const entry = zset.find((e) => e.member === entries[0].member)
+      const entry = zset.find((e) => e.member === entries[0]!.member)
       return entry ? String(entry.score) : ''
     }
 
@@ -1099,8 +1099,8 @@ class RedisStorage {
       newScore = increment
       zset.push({ member, score: newScore })
     } else {
-      newScore = zset[existingIdx].score + increment
-      zset[existingIdx].score = newScore
+      newScore = zset[existingIdx]!.score + increment
+      zset[existingIdx]!.score = newScore
     }
 
     zset.sort((a, b) => a.score - b.score || a.member.localeCompare(b.member))
@@ -1731,7 +1731,7 @@ class RedisPipeline implements PipelineInterface {
     for (const cmd of this.queue) {
       try {
         const method = (this.client as unknown as Record<string, Function>)[cmd.method]
-        const result = await method.apply(this.client, cmd.args)
+        const result = await method!.apply(this.client, cmd.args)
         results.push([null, result])
       } catch (err) {
         results.push([err as Error, null])
@@ -2455,7 +2455,7 @@ class Redis implements RedisInterface {
   async randomkey(): Promise<string | null> {
     const allKeys = this.storage.keys('*')
     if (allKeys.length === 0) return null
-    return allKeys[Math.floor(Math.random() * allKeys.length)]
+    return allKeys[Math.floor(Math.random() * allKeys.length)] ?? null
   }
 
   async scan(

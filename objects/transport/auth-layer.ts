@@ -266,8 +266,8 @@ async function validateJWT(
     let payload: JWTClaims
 
     try {
-      header = JSON.parse(atob(parts[0]))
-      payload = JSON.parse(atob(parts[1]))
+      header = JSON.parse(atob(parts[0]!))
+      payload = JSON.parse(atob(parts[1]!))
     } catch (error) {
       console.warn('[auth] JWT parse failed:', {
         token: token.slice(0, 20) + '...',
@@ -371,7 +371,7 @@ async function verifyJWTSignature(
       ['sign', 'verify']
     )
 
-    const signatureBytes = base64UrlDecode(signature)
+    const signatureBytes = base64UrlDecode(signature!)
     const isValid = await crypto.subtle.verify(
       'HMAC',
       key,
@@ -545,8 +545,8 @@ function parseWindowToMs(window: string): number {
   const match = window.match(/^(\d+)([smhd])$/)
   if (!match) return 60000 // default 1 minute
 
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
+  const value = parseInt(match[1]!, 10)
+  const unit = match[2]!
 
   switch (unit) {
     case 's': return value * 1000
@@ -838,8 +838,8 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
           let header: { alg: string; typ?: string }
           let payload: JWTClaims
           try {
-            header = JSON.parse(atob(parts[0]))
-            payload = JSON.parse(atob(parts[1]))
+            header = JSON.parse(atob(parts[0]!))
+            payload = JSON.parse(atob(parts[1]!))
           } catch (error) {
             console.warn('[auth] Bearer token parse failed:', {
               error: error instanceof Error ? error.message : 'unknown',
@@ -1282,7 +1282,7 @@ export function withAuth<T extends DOConstructor>(
             const parts = token.split('.')
             if (parts.length === 3) {
               try {
-                const payload = JSON.parse(atob(parts[1]))
+                const payload = JSON.parse(atob(parts[1]!))
                 if (payload.sub) {
                   userId = payload.sub
                 }
