@@ -1,28 +1,10 @@
 #!/usr/bin/env bun
 /**
- * CLI Entry Point
+ * CLI Entry Point (Direct Bun execution)
  *
- * Main entry point for the `do` CLI command.
- * Requires Bun runtime: https://bun.sh
+ * This file is for direct bun execution (bunx dotdo).
+ * For npm/npx, use bin.js which spawns bun.
  */
-
-// Runtime check for helpful error if run without Bun
-if (typeof Bun === 'undefined') {
-  console.error(`
-dotdo CLI requires Bun runtime.
-
-Install Bun:
-  curl -fsSL https://bun.sh/install | bash
-
-Then run:
-  bunx dotdo <command>
-
-Or install globally:
-  bun add -g dotdo
-  do <command>
-`)
-  process.exit(1)
-}
 
 import { route, parseArgv, helpText, version } from './index'
 import { commands } from './commands/index'
