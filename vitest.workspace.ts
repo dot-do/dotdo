@@ -382,8 +382,20 @@ export default defineWorkspace([
   // @dotdo/auth package tests (Multi-provider auth with in-memory backend)
   createNodeWorkspace('auth', ['packages/auth/tests/**/*.test.ts']),
 
+  // @dotdo/automation package tests (n8n-compatible workflow automation)
+  createNodeWorkspace('automation', ['packages/automation/tests/**/*.test.ts']),
+
   // @dotdo/zapier package tests (Zapier Platform Core compat layer)
   createNodeWorkspace('zapier', ['packages/zapier/tests/**/*.test.ts']),
+
+  // @dotdo/benthos package tests (Benthos-compatible stream processing)
+  createNodeWorkspace('benthos', ['packages/benthos/tests/**/*.test.ts']),
+
+  // @dotdo/calls package tests (Voice/Video Calling with Twilio compatibility)
+  createNodeWorkspace('calls', ['packages/calls/tests/**/*.test.ts']),
+
+  // @dotdo/flink package tests (Apache Flink DataStream API compat layer)
+  createNodeWorkspace('flink', ['packages/flink/tests/**/*.test.ts']),
 
   // @dotdo/react package tests (React hooks and components - jsdom environment)
   {
