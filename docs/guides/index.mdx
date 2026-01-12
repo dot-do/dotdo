@@ -7,6 +7,31 @@ description: Step-by-step guides for testing, deployment, and advanced patterns 
 
 Practical, task-focused guides for building production dotdo applications. Each guide addresses a specific need with working code.
 
+## Quick Example
+
+Here is a complete dotdo application in 20 lines:
+
+```typescript
+import { Startup } from 'dotdo'
+import { priya, ralph, tom } from 'agents.do'
+
+export class MyApp extends Startup {
+  async launch() {
+    // Define the product
+    const spec = priya`define the MVP for ${this.hypothesis}`
+
+    // Build and iterate until approved
+    let app = ralph`build ${spec}`
+    do {
+      app = ralph`improve ${app} per ${tom}`
+    } while (!await tom.approve(app))
+
+    // Ship it
+    await this.deploy(app)
+  }
+}
+```
+
 ## Where to Start
 
 **Just finished the quickstart?** Start with [Unit Testing](/docs/guides/testing/unit-tests) - you'll want tests before building more.

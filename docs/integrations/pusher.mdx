@@ -1,0 +1,773 @@
+---
+title: Pusher
+description: Drop-in replacement for Pusher Channels, self-hosted on Durable Objects with unlimited connections.
+---
+
+# Pusher
+
+Drop-in replacement for `pusher-js`. Same API, self-hosted on Durable Objects.
+
+```typescript
+// Before
+import Pusher from 'pusher-js'
+
+// After
+import Pusher from '@dotdo/pusher'
+```
+
+Your existing Pusher code works unchanged. No migration required.
+
+## Why pusher.do?
+
+| Feature | Pusher | pusher.do |
+|---------|--------|-----------|
+| **Connections/channel** | 100 (Free), 10K (Enterprise) | Unlimited |
+| **Per-connection fees** | Yes ($0.0001/connection/day) | No |
+| **Per-message fees** | Yes ($0.000001/message) | No |
+| **Channel limit** | 100 per app (Free) | Unlimited |
+| **Message size** | 10KB | 128KB |
+| **Latency** | Single region | Edge (300+ cities) |
+| **Cold start** | N/A (hosted) | 0ms (V8 isolates) |
+| **Self-hosted** | No | Yes |
+
+The math: 10,000 concurrent connections for 30 days on Pusher = $30/month minimum. On dotdo, it's included.
+
+## Features
+
+| Feature | Status |
+|---------|--------|
+| Public channels | Supported |
+| Private channels | Supported |
+| Presence channels | Supported |
+| Client events | Supported |
+| Channel authorization | Supported |
+| User authentication | Supported |
+| Connection state management | Supported |
+| Event binding (bind/unbind) | Supported |
+| Global event binding | Supported |
+| Batch triggers | Supported |
+| Encrypted channels | Planned |
+| Webhooks | Planned |
+
+## Quick Start
+
+### Client SDK
+
+```typescript
+import Pusher from '@dotdo/pusher'
+
+const pusher = new Pusher('your-app-key', {
+  cluster: 'mt1',
+  forceTLS: true,
+})
+
+// Subscribe to a public channel
+const channel = pusher.subscribe('my-channel')
+
+// Bind to events
+channel.bind('my-event', (data) => {
+  console.log('Received:', data)
+})
+
+// Connection state
+pusher.connection.bind('connected', () => {
+  console.log('Socket ID:', pusher.connection.socket_id)
+})
+
+pusher.connection.bind('state_change', ({ previous, current }) => {
+  console.log(`Connection: ${previous} -> ${current}`)
+})
+```
+
+### Server SDK
+
+```typescript
+import { PusherServer } from '@dotdo/pusher'
+
+const pusher = new PusherServer({
+  appId: 'your-app-id',
+  key: 'your-app-key',
+  secret: 'your-app-secret',
+})
+
+// Trigger event on a channel
+await pusher.trigger('my-channel', 'my-event', {
+  message: 'Hello from the server!',
+})
+
+// Trigger on multiple channels
+await pusher.trigger(
+  ['channel-1', 'channel-2'],
+  'notification',
+  { type: 'update' }
+)
+
+// Batch trigger (single round trip)
+await pusher.triggerBatch([
+  { channel: 'user-123', name: 'notification', data: { type: 'like' } },
+  { channel: 'user-456', name: 'notification', data: { type: 'comment' } },
+])
+```
+
+## Channel Types
+
+### Public Channels
+
+Anyone can subscribe. No authorization required.
+
+```typescript
+const channel = pusher.subscribe('news')
+
+channel.bind('breaking', (data) => {
+  console.log('Breaking news:', data.headline)
+})
+
+channel.bind('pusher:subscription_succeeded', () => {
+  console.log('Subscribed to news channel')
+})
+```
+
+### Private Channels
+
+Require server-side authorization. Channel names must start with `private-`.
+
+```typescript
+// Client
+const privateChannel = pusher.subscribe('private-user-123')
+
+privateChannel.bind('pusher:subscription_succeeded', () => {
+  console.log('Authorized and subscribed')
+})
+
+privateChannel.bind('pusher:subscription_error', (error) => {
+  console.error('Authorization failed:', error)
+})
+
+// Client events (must start with 'client-')
+privateChannel.trigger('client-typing', { user: 'alice' })
+```
+
+```typescript
+// Server: Authorization endpoint
+app.post('/pusher/auth', async (req, res) => {
+  const { socket_id, channel_name } = req.body
+
+  // Verify user has access to this channel
+  if (!userCanAccess(req.user, channel_name)) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
+
+  const auth = pusher.authorizeChannel(socket_id, channel_name)
+  res.json(auth)
+})
+```
+
+### Presence Channels
+
+Track who's online. Channel names must start with `presence-`.
+
+```typescript
+import type { PresenceChannel, Members, PresenceMember } from '@dotdo/pusher'
+
+const presence = pusher.subscribe('presence-room-1') as PresenceChannel
+
+// When subscription succeeds, get current members
+presence.bind('pusher:subscription_succeeded', (members: Members) => {
+  console.log('Members online:', members.count)
+  console.log('My user ID:', members.me?.id)
+
+  members.each((member) => {
+    console.log(`- ${member.id}:`, member.info)
+  })
+})
+
+// When someone joins
+presence.bind('pusher:member_added', (member: PresenceMember) => {
+  console.log('Joined:', member.id, member.info)
+})
+
+// When someone leaves
+presence.bind('pusher:member_removed', (member: PresenceMember) => {
+  console.log('Left:', member.id)
+})
+
+// Access members anytime
+console.log('Current count:', presence.members.count)
+const specificMember = presence.members.get('user-123')
+const allMembers = presence.members.toArray()
+```
+
+```typescript
+// Server: Presence authorization with user data
+app.post('/pusher/auth', async (req, res) => {
+  const { socket_id, channel_name } = req.body
+
+  const presenceData = {
+    user_id: req.user.id,
+    user_info: {
+      name: req.user.name,
+      avatar: req.user.avatar,
+    },
+  }
+
+  const auth = pusher.authorizeChannel(socket_id, channel_name, presenceData)
+  res.json(auth)
+})
+```
+
+## Event Binding
+
+### Channel Events
+
+```typescript
+const channel = pusher.subscribe('updates')
+
+// Bind to specific event
+channel.bind('new-item', (data) => {
+  console.log('New item:', data)
+})
+
+// Unbind specific callback
+const handler = (data) => console.log(data)
+channel.bind('event', handler)
+channel.unbind('event', handler)
+
+// Unbind all handlers for an event
+channel.unbind('event')
+
+// Bind to ALL events on this channel
+channel.bind_global((eventName, data) => {
+  console.log(`Event: ${eventName}`, data)
+})
+
+// Unbind global handler
+channel.unbind_global(globalHandler)
+```
+
+### Connection Events
+
+```typescript
+pusher.connection.bind('initialized', () => {
+  console.log('Pusher initialized')
+})
+
+pusher.connection.bind('connecting', () => {
+  console.log('Connecting...')
+})
+
+pusher.connection.bind('connected', () => {
+  console.log('Connected! Socket ID:', pusher.connection.socket_id)
+})
+
+pusher.connection.bind('disconnected', () => {
+  console.log('Disconnected')
+})
+
+pusher.connection.bind('unavailable', () => {
+  console.log('Connection unavailable')
+})
+
+pusher.connection.bind('failed', () => {
+  console.log('Connection failed')
+})
+
+pusher.connection.bind('state_change', ({ previous, current }) => {
+  console.log(`State: ${previous} -> ${current}`)
+})
+```
+
+### Global Event Binding
+
+Listen to events across all channels:
+
+```typescript
+pusher.bind('notification', (data) => {
+  // Called for 'notification' event on ANY channel
+  console.log('Notification:', data)
+})
+
+pusher.bind_global((eventName, data) => {
+  // Called for ALL events on ALL channels
+  console.log(`[${eventName}]`, data)
+})
+```
+
+## Client Events
+
+Trigger events directly from clients on private/presence channels:
+
+```typescript
+const privateChannel = pusher.subscribe('private-chat-room')
+
+// Wait for subscription
+privateChannel.bind('pusher:subscription_succeeded', () => {
+  // Trigger client event (must start with 'client-')
+  privateChannel.trigger('client-typing', {
+    user: 'alice',
+    typing: true,
+  })
+})
+
+// Other clients receive it
+privateChannel.bind('client-typing', (data) => {
+  console.log(`${data.user} is ${data.typing ? 'typing' : 'not typing'}`)
+})
+```
+
+Rules for client events:
+- Only on private (`private-`) or presence (`presence-`) channels
+- Event name must start with `client-`
+- Channel must be subscribed
+- Sender does not receive their own event
+
+## Server API
+
+### Triggering Events
+
+```typescript
+import { PusherServer } from '@dotdo/pusher'
+
+const pusher = new PusherServer({
+  appId: 'your-app-id',
+  key: 'your-app-key',
+  secret: 'your-app-secret',
+  cluster: 'mt1', // Optional
+  useTLS: true,   // Default: true
+})
+
+// Single channel
+await pusher.trigger('my-channel', 'my-event', { message: 'Hello!' })
+
+// Multiple channels (max 100)
+await pusher.trigger(
+  ['user-1', 'user-2', 'user-3'],
+  'notification',
+  { type: 'update' }
+)
+
+// Exclude a socket (don't send back to sender)
+await pusher.trigger('chat', 'message', data, {
+  socketId: senderSocketId,
+})
+
+// Batch events (max 10)
+await pusher.triggerBatch([
+  { channel: 'channel-1', name: 'event-1', data: { a: 1 } },
+  { channel: 'channel-2', name: 'event-2', data: { b: 2 } },
+])
+```
+
+### Channel Information
+
+```typescript
+// Get channel info
+const info = await pusher.getChannelInfo('my-channel')
+// { occupied: true, subscription_count: 42 }
+
+// List all channels
+const { channels } = await pusher.getChannels()
+// { channels: { 'my-channel': { occupied: true }, ... } }
+
+// List channels with prefix
+const { channels } = await pusher.getChannels('presence-')
+
+// Get presence channel users
+const { users } = await pusher.getPresenceUsers('presence-room')
+// { users: [{ id: 'user-1' }, { id: 'user-2' }] }
+```
+
+### Authorization
+
+```typescript
+// Private channel authorization
+const auth = pusher.authorizeChannel(socketId, 'private-channel')
+// { auth: 'key:signature' }
+
+// Presence channel authorization
+const auth = pusher.authorizeChannel(socketId, 'presence-room', {
+  user_id: 'user-123',
+  user_info: { name: 'Alice', avatar: '...' },
+})
+// { auth: 'key:signature', channel_data: '{"user_id":"user-123",...}' }
+
+// User authentication
+const auth = pusher.authenticateUser(socketId, {
+  id: 'user-123',
+  user_info: { name: 'Alice' },
+})
+// { auth: 'key:signature', user_data: '{"id":"user-123",...}' }
+```
+
+## Durable Object Integration
+
+For maximum performance, connect directly to Durable Objects:
+
+```typescript
+const pusher = new PusherServer({
+  appId: 'my-app',
+  key: 'my-key',
+  secret: 'my-secret',
+  doNamespace: env.REALTIME_DO, // DO binding
+})
+
+// Events delivered directly via RPC, no HTTP round-trip
+await pusher.trigger('my-channel', 'my-event', data)
+```
+
+## Connection Management
+
+```typescript
+const pusher = new Pusher('app-key', {
+  disableStats: true, // Don't auto-connect
+})
+
+// Manual connect
+pusher.connect()
+
+// Disconnect
+pusher.disconnect()
+
+// Check state
+if (pusher.connection.state === 'connected') {
+  // Safe to send
+}
+
+// Unsubscribe from channel
+pusher.unsubscribe('my-channel')
+
+// Or via channel object
+const channel = pusher.subscribe('my-channel')
+channel.unsubscribe()
+
+// Unsubscribe from all
+pusher.unsubscribeAll()
+
+// Get all subscribed channels
+const channels = pusher.allChannels()
+
+// Get specific channel
+const channel = pusher.channel('my-channel') // null if not subscribed
+```
+
+## TypeScript Types
+
+```typescript
+import type {
+  // Client types
+  Pusher,
+  PusherOptions,
+  Connection,
+  ConnectionState,
+  StateChange,
+  Channel,
+  PrivateChannel,
+  PresenceChannel,
+  PresenceMember,
+  Members,
+  UserData,
+
+  // Auth types
+  AuthData,
+  AuthOptions,
+  Authorizer,
+  AuthorizerCallback,
+  ChannelAuthorizationOptions,
+  UserAuthenticationOptions,
+
+  // Event types
+  EventHandler,
+  GlobalEventHandler,
+  ConnectionEvents,
+  ChannelEvents,
+  PresenceChannelEvents,
+
+  // Server types
+  PusherServerOptions,
+  TriggerOptions,
+  BatchEvent,
+  ChannelInfo,
+  ChannelList,
+  PresenceUsers,
+  TriggerResult,
+  AuthSignature,
+  PresenceChannelData,
+} from '@dotdo/pusher'
+
+// Type guards
+import { isPrivateChannel, isPresenceChannel } from '@dotdo/pusher'
+
+const channel = pusher.subscribe('presence-room')
+
+if (isPresenceChannel(channel)) {
+  // TypeScript knows channel.members exists
+  console.log(channel.members.count)
+}
+```
+
+## Error Handling
+
+```typescript
+import { PusherError, AuthError, SubscriptionError } from '@dotdo/pusher'
+
+try {
+  // ...
+} catch (error) {
+  if (error instanceof AuthError) {
+    console.error('Auth failed:', error.message, error.status)
+  } else if (error instanceof SubscriptionError) {
+    console.error('Subscription failed:', error.message)
+  } else if (error instanceof PusherError) {
+    console.error('Pusher error:', error.type, error.message)
+  }
+}
+
+// Channel subscription errors
+channel.bind('pusher:subscription_error', (error) => {
+  console.error('Subscription error:', error.type, error.error, error.status)
+})
+
+// Connection errors
+pusher.connection.bind('error', (error) => {
+  console.error('Connection error:', error)
+})
+```
+
+## Migration from Pusher
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall pusher-js pusher
+
+# Install
+npm install @dotdo/pusher
+```
+
+### Import Change
+
+```typescript
+// Client
+// Before
+import Pusher from 'pusher-js'
+// After
+import Pusher from '@dotdo/pusher'
+
+// Server
+// Before
+import Pusher from 'pusher'
+// After
+import { PusherServer } from '@dotdo/pusher'
+```
+
+### Configuration
+
+```typescript
+// Before: Pusher Cloud
+const pusher = new Pusher('your-key', {
+  cluster: 'us2',
+  forceTLS: true,
+})
+
+// After: dotdo (identical)
+const pusher = new Pusher('your-key', {
+  cluster: 'us2',
+  forceTLS: true,
+})
+
+// Optional: Route to nearest edge
+const pusher = new Pusher('your-key', {
+  cluster: 'auto',
+})
+```
+
+### Auth Endpoint
+
+Your existing auth endpoint works unchanged:
+
+```typescript
+// This exact code works with both Pusher and @dotdo/pusher
+app.post('/pusher/auth', (req, res) => {
+  const { socket_id, channel_name } = req.body
+  const auth = pusher.authorizeChannel(socket_id, channel_name)
+  res.json(auth)
+})
+```
+
+## Architecture
+
+Each channel is backed by a Durable Object:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client                                │
+│           pusher.subscribe('my-channel')                     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Edge (Nearest Colo)                       │
+│              WebSocket terminates here                       │
+│                  0ms cold start                              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Channel DO                               │
+│                                                              │
+│   ┌────────────────────────────────────────────────────┐    │
+│   │               SQLite State                          │    │
+│   │   - Connection registry                             │    │
+│   │   - Presence members                                │    │
+│   │   - Channel metadata                                │    │
+│   └────────────────────────────────────────────────────┘    │
+│                                                              │
+│   ┌────────────────────────────────────────────────────┐    │
+│   │         Hibernatable WebSockets                     │    │
+│   │   - 0 CPU when idle                                 │    │
+│   │   - Wake on message                                 │    │
+│   │   - Unlimited connections                           │    │
+│   └────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Benefits over Pusher Cloud:
+- **Edge-native**: Connections terminate at nearest location (300+ cities)
+- **No connection limits**: Durable Objects scale horizontally
+- **No per-message fees**: Pay only for compute
+- **Self-hosted**: Your data stays in your infrastructure
+
+## Common Patterns
+
+### Real-Time Chat
+
+```typescript
+// Client
+const chat = pusher.subscribe('presence-chat-room') as PresenceChannel
+
+chat.bind('pusher:subscription_succeeded', (members) => {
+  displayOnlineUsers(members.toArray())
+})
+
+chat.bind('pusher:member_added', (member) => {
+  addOnlineUser(member)
+})
+
+chat.bind('pusher:member_removed', (member) => {
+  removeOnlineUser(member)
+})
+
+chat.bind('client-message', (data) => {
+  displayMessage(data)
+})
+
+// Send message
+chat.trigger('client-message', {
+  user: chat.members.me?.id,
+  text: 'Hello!',
+  timestamp: Date.now(),
+})
+```
+
+### Live Notifications
+
+```typescript
+// Client subscribes to user-specific channel
+const notifications = pusher.subscribe(`private-user-${userId}`)
+
+notifications.bind('notification', (data) => {
+  showNotification(data.title, data.body)
+})
+
+// Server triggers notification
+await pusher.trigger(`private-user-${userId}`, 'notification', {
+  title: 'New message',
+  body: 'You have a new message from Alice',
+})
+```
+
+### Typing Indicators
+
+```typescript
+const chat = pusher.subscribe('private-chat-123')
+
+// Debounced typing indicator
+let typingTimeout: number | undefined
+input.addEventListener('input', () => {
+  chat.trigger('client-typing', { user: myUserId, typing: true })
+
+  clearTimeout(typingTimeout)
+  typingTimeout = setTimeout(() => {
+    chat.trigger('client-typing', { user: myUserId, typing: false })
+  }, 1000)
+})
+
+// Display typing status
+chat.bind('client-typing', (data) => {
+  if (data.typing) {
+    showTypingIndicator(data.user)
+  } else {
+    hideTypingIndicator(data.user)
+  }
+})
+```
+
+## API Reference
+
+### Client API
+
+| Method | Description |
+|--------|-------------|
+| `new Pusher(key, options?)` | Create client instance |
+| `pusher.subscribe(channel)` | Subscribe to channel |
+| `pusher.unsubscribe(channel)` | Unsubscribe from channel |
+| `pusher.unsubscribeAll()` | Unsubscribe from all channels |
+| `pusher.channel(name)` | Get channel by name |
+| `pusher.allChannels()` | Get all subscribed channels |
+| `pusher.connect()` | Connect to server |
+| `pusher.disconnect()` | Disconnect from server |
+| `pusher.bind(event, callback)` | Bind to global event |
+| `pusher.unbind(event?, callback?)` | Unbind from global event |
+| `pusher.bind_global(callback)` | Bind to all global events |
+| `pusher.unbind_global(callback?)` | Unbind from all global events |
+| `pusher.signin()` | Sign in user |
+
+### Channel API
+
+| Method | Description |
+|--------|-------------|
+| `channel.bind(event, callback)` | Bind to event |
+| `channel.unbind(event?, callback?)` | Unbind from event |
+| `channel.bind_global(callback)` | Bind to all events |
+| `channel.unbind_global(callback?)` | Unbind from all events |
+| `channel.trigger(event, data)` | Trigger client event |
+| `channel.unsubscribe()` | Unsubscribe |
+| `channel.name` | Channel name |
+| `channel.subscribed` | Subscription status |
+
+### Presence Channel API
+
+| Method | Description |
+|--------|-------------|
+| `channel.members.count` | Member count |
+| `channel.members.me` | Current user |
+| `channel.members.each(callback)` | Iterate members |
+| `channel.members.get(userId)` | Get member by ID |
+| `channel.members.toArray()` | Get all members |
+
+### Server API
+
+| Method | Description |
+|--------|-------------|
+| `pusher.trigger(channels, event, data, options?)` | Trigger event |
+| `pusher.triggerBatch(events)` | Batch trigger |
+| `pusher.getChannelInfo(channel)` | Get channel info |
+| `pusher.getChannels(prefix?)` | List channels |
+| `pusher.getPresenceUsers(channel)` | Get presence users |
+| `pusher.authorizeChannel(socketId, channel, presenceData?)` | Authorize channel |
+| `pusher.authenticateUser(socketId, userData)` | Authenticate user |
+
+## Related
+
+- [Realtime SDKs](/docs/compat/realtime) - Pusher, Ably, Socket.IO
+- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS

@@ -1,0 +1,106 @@
+---
+title: Integrations
+description: Connect to external services, APIs, and third-party platforms
+---
+
+# Integrations
+
+dotdo provides compatibility layers for popular services, allowing you to use familiar APIs while running on the edge.
+
+## Overview
+
+Integrations let you connect your dotdo application to external services using the APIs you already know. Each integration is a drop-in replacement for the official SDK, backed by Durable Objects for edge-native performance.
+
+Key benefits:
+- **Familiar APIs** - Use the same methods and patterns you already know
+- **Edge-native** - Runs on Cloudflare's global network (300+ cities)
+- **DO-backed storage** - Persistent state without connection pooling issues
+- **Zero vendor lock-in** - Switch back to official SDKs anytime
+
+## Installation
+
+Install integrations via npm:
+
+```bash
+npm install @dotdo/stripe
+npm install @dotdo/algolia
+npm install @dotdo/pusher
+```
+
+Configure in your `wrangler.toml`:
+
+```toml
+[vars]
+STRIPE_SECRET_KEY = "sk_..."
+ALGOLIA_APP_ID = "..."
+ALGOLIA_API_KEY = "..."
+```
+
+## Available Integrations
+
+### Search
+- [Algolia](/docs/integrations/algolia) - Search as a Service
+- [Elasticsearch](/docs/compat/search) - Full-text search
+
+### Real-time
+- [Pusher](/docs/integrations/pusher) - Real-time messaging
+- [More Real-time](/docs/compat/realtime) - Ably, Socket.IO, and more
+
+### Email
+- [SendGrid](/docs/integrations/sendgrid) - Transactional email with templates
+- [More Messaging](/docs/compat/messaging) - Email, SMS, and more
+
+### Databases
+- [Database SDKs](/docs/compat/databases) - Postgres, MongoDB, Supabase, Firebase, and more
+
+### Messaging & Queues
+- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS, and more
+
+### Vector & Graph
+- [Vector Databases](/docs/compat/vector) - Pinecone, Qdrant, Weaviate, Chroma
+- [Graph Databases](/docs/compat/graph) - Neo4j with Cypher support
+
+## Quick Start
+
+All integrations follow the compat SDK pattern for API compatibility:
+
+```typescript
+import { stripe } from '@dotdo/stripe'
+
+const customer = await stripe.customers.create({
+  email: 'customer@example.com'
+})
+```
+
+```typescript
+import { algoliasearch } from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+const { results } = await client.search({
+  requests: [{ indexName: 'products', query: 'laptop' }]
+})
+```
+
+```typescript
+import Pusher from '@dotdo/pusher'
+
+const pusher = new Pusher({ appId: '...', key: '...', secret: '...' })
+await pusher.trigger('my-channel', 'my-event', { message: 'hello' })
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Algolia" href="/docs/integrations/algolia">
+    Full-text search with faceting, typo tolerance, and instant results.
+  </Card>
+  <Card title="Pusher" href="/docs/integrations/pusher">
+    Real-time channels for live updates and collaboration.
+  </Card>
+  <Card title="SendGrid" href="/docs/integrations/sendgrid">
+    Transactional email with templates and exactly-once delivery.
+  </Card>
+  <Card title="Compat SDKs" href="/docs/compat">
+    Browse all 38 API-compatible SDKs.
+  </Card>
+</Cards>

@@ -17,11 +17,61 @@ The difference isn't just ergonomics. When your code reads like your business, A
 
 **Everything is a Thing.** Customers, products, orders, campaigns - they're all Things with a type, an ID, and data. No more juggling different ORMs, caches, and storage systems.
 
+```typescript
+import { Thing } from 'dotdo'
+
+// Define a Customer thing
+const customer = Thing.create('Customer', {
+  id: 'cust_123',
+  name: 'Acme Corp',
+  plan: 'enterprise',
+})
+
+// Things are URLs - portable and linkable
+console.log(customer.url) // https://things.do/Customer/cust_123
+```
+
 **Things interact through Events.** A customer signs up. An order ships. A payment fails. Events are immutable facts that describe what happened. They're your audit log, your analytics source, and your integration layer.
+
+```typescript
+// Events capture the 5W+H: who, what, when, where, why, how
+$.emit('Customer.signup', {
+  customer: customer.id,
+  plan: 'enterprise',
+  source: 'marketing-campaign',
+})
+
+// Subscribe to events anywhere in your system
+$.on.Customer.signup(async ($, event) => {
+  await $.send.welcome.email(event.customer)
+  await mark`announce new enterprise customer`
+})
+```
 
 **Events trigger Functions.** When something happens, you respond. Functions can be code, AI completions, agent workflows, or human escalations. The caller doesn't care which - they just get results.
 
+```typescript
+// Four function types, one interface
+const summarize = CodeFunction(text => text.slice(0, 100))
+const analyze = GenerativeFunction('Analyze this feedback')
+const research = AgenticFunction(priya)
+const approve = HumanFunction('legal', { sla: '4h' })
+
+// Caller doesn't know (or care) which type
+const result = await analyze(customerFeedback)
+```
+
 **Promises pipeline together.** Don't `await` intermediate results. Let the system batch multiple agent calls into single network round trips. This is why dotdo is fast.
+
+```typescript
+// This makes ONE network round trip, not three
+const spec = priya`define the MVP for ${hypothesis}`
+const code = ralph`build ${spec}`
+const review = tom`review ${code}`
+
+// Only await when you need the final result
+const approved = await review
+```
 
 ## Core Concepts
 

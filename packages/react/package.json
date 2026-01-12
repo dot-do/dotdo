@@ -49,7 +49,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/fix-dts-extensions.mjs",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",

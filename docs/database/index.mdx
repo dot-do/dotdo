@@ -1,0 +1,71 @@
+---
+title: Database
+description: Data persistence, querying, and edge-native storage
+---
+
+# Database
+
+dotdo provides edge-native database primitives with support for SQL, document, vector, and time-series workloads.
+
+## Database Types
+
+### SQL Databases
+
+```typescript
+import { postgres } from 'db/compat/sql/postgres'
+
+const users = await postgres.query`
+  SELECT * FROM users WHERE active = true
+`
+```
+
+Supported: Postgres, MySQL, SQLite, Turso, PlanetScale, CockroachDB, Neon
+
+### Document Databases
+
+```typescript
+import { mongo } from 'db/compat/nosql/mongo'
+
+const users = await mongo.collection('users').find({
+  status: 'active'
+}).toArray()
+```
+
+Supported: MongoDB, CouchDB, Firebase, Convex, DynamoDB
+
+### Vector Databases
+
+```typescript
+import { edgevec } from 'db/edgevec'
+
+const results = await edgevec.search({
+  vector: embedding,
+  topK: 10,
+  filter: { category: 'products' }
+})
+```
+
+### Time-Series
+
+```typescript
+import { influxdb } from 'db/compat/influxdb'
+
+await influxdb.write({
+  measurement: 'cpu',
+  tags: { host: 'server01' },
+  fields: { usage: 0.64 },
+  timestamp: Date.now()
+})
+```
+
+## Edge Storage
+
+- **SQLite on DO**: Transactional storage in Durable Objects
+- **R2**: Object storage for large files
+- **KV**: Global key-value for caching
+
+## Related
+
+- [Storage](/docs/storage) - Hot, warm, and cold storage tiers
+- [Compat: Databases](/docs/compat/databases) - Database compatibility layers
+- [Compat: Vector](/docs/compat/vector) - Vector database integrations

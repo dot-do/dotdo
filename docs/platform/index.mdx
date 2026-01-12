@@ -1,0 +1,152 @@
+---
+title: Platform Overview
+description: Core platform concepts, architecture, and the dotdo runtime
+---
+
+# Platform Overview
+
+The dotdo platform provides a Business-as-Code framework for building autonomous businesses run by AI agents. It runs on Cloudflare's global edge network, providing V8 isolates with Durable Objects for persistent state.
+
+## Architecture
+
+```
++------------------+     +------------------+     +------------------+
+|   Edge Network   |     |  Durable Object  |     |    Storage       |
+|  (300+ cities)   | --> |  (Persistent)    | --> |  (SQLite/R2)     |
+|  0ms cold start  |     |  WorkflowContext |     |  Event-sourced   |
++------------------+     +------------------+     +------------------+
+```
+
+- **V8 Isolates**: Lightweight execution environments with 0ms cold starts
+- **Durable Objects**: Persistent, stateful compute at the edge with transactional guarantees
+- **300+ Cities**: Global distribution for low-latency access worldwide
+- **SQLite Storage**: Each DO has its own SQLite database with Drizzle ORM
+
+## Core Concepts
+
+### Durable Object Hierarchy
+
+dotdo provides a layered DO class hierarchy optimized for different use cases:
+
+| Class | Bundle Size | Features |
+|-------|-------------|----------|
+| `DOTiny` | ~15KB | Identity, storage, fetch, toJSON |
+| `DOBase` | ~80KB | + WorkflowContext ($), stores, events, scheduling |
+| `DOFull` | ~120KB | + Lifecycle, sharding, branching, promotion |
+
+```typescript
+// Import based on your needs
+import { DO } from 'dotdo/tiny'  // Minimal
+import { DO } from 'dotdo/base'  // WorkflowContext
+import { DO } from 'dotdo/full'  // All features
+import { DO } from 'dotdo'       // Full + mixins
+```
+
+Learn more: [DO Hierarchy](/docs/architecture/do-hierarchy)
+
+### Workflow Context ($)
+
+The `$` object provides a unified interface for all workflow operations:
+
+```typescript
+class MyBusiness extends DO {
+  async onStart() {
+    // Event handlers
+    this.$.on.Customer.signup(async (event) => {
+      await this.$.do('welcome-email', event.data)
+    })
+
+    // Scheduling
+    this.$.every.Monday.at9am(async () => {
+      await this.$.do('weekly-report', {})
+    })
+  }
+
+  async processOrder(order: Order) {
+    // Fire-and-forget (best effort)
+    this.$.send('Order.received', order)
+
+    // Single attempt with timeout
+    const inventory = await this.$.try('check-inventory', order)
+
+    // Durable execution with retries
+    const result = await this.$.do('charge-payment', order)
+  }
+}
+```
+
+Learn more: [WorkflowContext](/docs/sdk/workflow-context)
+
+### Type System
+
+dotdo uses a URL-based identity system with three core types:
+
+- **Thing**: Base entity with fully-qualified URL identity (`$id`, `$type`)
+- **Noun**: Type registry entry defining entity schemas
+- **Verb**: Predicate registry with conjugation support
+
+```typescript
+// Thing identity
+const customer: Thing = {
+  $id: 'https://acme.com/Customer/cust-123',
+  $type: 'https://acme.com/Customer',
+  name: 'John Doe',
+  // ...
+}
+
+// Type relationships
+customer.relationships = {
+  manages: [project1, project2],  // Outbound edges
+}
+customer.references = {
+  managedBy: organization,        // Inbound edges
+}
+```
+
+Learn more: [Thing](/docs/sdk/thing)
+
+### API Factory
+
+Route requests to Durable Objects with the clean `API()` factory:
+
+```typescript
+import { API } from 'dotdo'
+
+// Hostname mode (default)
+// tenant.api.dotdo.dev -> DO('tenant')
+export default API()
+
+// Path param routing (Express-style)
+// api.dotdo.dev/acme/users -> DO('acme')
+export default API({ ns: '/:org' })
+
+// Nested path params
+// api.dotdo.dev/acme/proj1/tasks -> DO('acme:proj1')
+export default API({ ns: '/:org/:project' })
+
+// Fixed namespace (singleton DO)
+export default API({ ns: 'main' })
+```
+
+Learn more: [API](/docs/api)
+
+## Quick Start
+
+```bash
+# Create a new dotdo project
+npx create-dotdo my-business
+
+# Start development server
+npm run dev
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Documentation
+
+- [Architecture: DO Hierarchy](/docs/architecture/do-hierarchy) - DO class tiers and bundle selection
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - The $ API for workflows
+- [SDK: Thing](/docs/sdk/thing) - Core type system (Thing, Noun, Verb)
+- [API](/docs/api) - Request routing and middleware
+- [Agents](/docs/agents) - AI agents for autonomous business operations

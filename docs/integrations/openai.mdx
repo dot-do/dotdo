@@ -1,0 +1,531 @@
+---
+title: OpenAI
+description: Drop-in replacement for the OpenAI SDK with edge compatibility, multi-provider routing, and named agent integration.
+---
+
+# OpenAI
+
+Drop-in replacement for the official `openai` SDK. Your existing OpenAI code works unchanged - just swap the import.
+
+```typescript
+// Before: OpenAI
+import OpenAI from 'openai'
+
+// After: dotdo
+import OpenAI from '@dotdo/openai'
+
+// Code stays the same
+const client = new OpenAI({ apiKey: 'sk-xxx' })
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+```
+
+## Why openai.do?
+
+| OpenAI SDK | openai.do |
+|------------|-----------|
+| Node.js only | Edge-compatible (Workers, Deno, Bun) |
+| Single provider | Multi-provider routing with failover |
+| No built-in retries | Automatic retries with exponential backoff |
+| Manual error handling | Typed errors with request IDs |
+| Separate from agents | Integrated with named agents (Priya, Ralph, Tom) |
+
+**This is a reimplementation.** The SDK provides 100% API compatibility while adding edge runtime support, multi-provider routing, and integration with dotdo's agent system.
+
+## Features
+
+### Implemented
+
+**Chat Completions**
+- `chat.completions.create()` - Chat completions with GPT-4, GPT-3.5-turbo, etc.
+- Streaming support via async iterables
+- Function/tool calling
+- Vision (image inputs)
+- JSON mode
+
+**Embeddings**
+- `embeddings.create()` - Text embeddings with ada-002, text-embedding-3-small/large
+
+**Images**
+- `images.generate()` - DALL-E image generation
+- `images.edit()` - Image editing with masks
+- `images.createVariation()` - Image variations
+
+**Models**
+- `models.list()` - List available models
+- `models.retrieve()` - Get model details
+- `models.del()` - Delete fine-tuned models
+
+**Assistants API**
+- Full Assistants API support (threads, messages, runs)
+- File search and code interpreter tools
+- Run streaming
+
+### Not Yet Implemented
+
+- Fine-tuning API
+- Files API
+- Batch API
+- Audio (Whisper, TTS)
+- Moderation
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/openai
+```
+
+### Chat Completions
+
+```typescript
+import OpenAI from '@dotdo/openai'
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'What is the capital of France?' },
+  ],
+})
+
+console.log(completion.choices[0].message.content)
+// "The capital of France is Paris."
+```
+
+### Streaming
+
+```typescript
+const stream = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Tell me a story' }],
+  stream: true,
+})
+
+for await (const chunk of stream) {
+  const content = chunk.choices[0]?.delta?.content
+  if (content) {
+    process.stdout.write(content)
+  }
+}
+```
+
+### Embeddings
+
+```typescript
+const embedding = await client.embeddings.create({
+  model: 'text-embedding-ada-002',
+  input: 'Hello world',
+})
+
+console.log(embedding.data[0].embedding)
+// [0.123, -0.456, 0.789, ...]
+
+// Batch embeddings
+const embeddings = await client.embeddings.create({
+  model: 'text-embedding-3-small',
+  input: ['Hello', 'World', 'How are you?'],
+})
+```
+
+### Function Calling
+
+```typescript
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'What is the weather in San Francisco?' }],
+  tools: [{
+    type: 'function',
+    function: {
+      name: 'get_weather',
+      description: 'Get the current weather for a location',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: {
+            type: 'string',
+            description: 'City name',
+          },
+          unit: {
+            type: 'string',
+            enum: ['celsius', 'fahrenheit'],
+          },
+        },
+        required: ['location'],
+      },
+    },
+  }],
+})
+
+const message = completion.choices[0].message
+
+if (message.tool_calls) {
+  const toolCall = message.tool_calls[0]
+  console.log(toolCall.function.name)
+  // "get_weather"
+  console.log(JSON.parse(toolCall.function.arguments))
+  // { location: "San Francisco", unit: "fahrenheit" }
+}
+```
+
+### Vision
+
+```typescript
+const completion = await client.chat.completions.create({
+  model: 'gpt-4-vision-preview',
+  messages: [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'What is in this image?' },
+        {
+          type: 'image_url',
+          image_url: { url: 'https://example.com/image.jpg' },
+        },
+      ],
+    },
+  ],
+})
+```
+
+### Image Generation
+
+```typescript
+const response = await client.images.generate({
+  model: 'dall-e-3',
+  prompt: 'A sunset over mountains',
+  size: '1024x1024',
+  quality: 'hd',
+})
+
+console.log(response.data[0].url)
+```
+
+## Inbound - Using openai.do
+
+Use `@dotdo/openai` as a drop-in replacement for the official SDK. Your existing code works unchanged.
+
+```typescript
+// Works with any OpenAI client code
+import OpenAI from '@dotdo/openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  organization: 'org-xxx',  // Optional
+  baseURL: 'https://api.openai.com',  // Default
+  timeout: 60000,  // Request timeout (ms)
+  maxRetries: 2,  // Automatic retries
+})
+```
+
+### Edge Runtime Compatibility
+
+Unlike the official SDK, `@dotdo/openai` works in edge runtimes:
+
+```typescript
+// Cloudflare Workers
+export default {
+  async fetch(request: Request, env: Env) {
+    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY })
+
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'Hello from the edge!' }],
+    })
+
+    return Response.json(completion)
+  },
+}
+```
+
+```typescript
+// Deno
+import OpenAI from '@dotdo/openai'
+
+const client = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') })
+```
+
+## Outbound - Connecting to OpenAI
+
+By default, requests go to OpenAI's API. You can also configure custom endpoints:
+
+```typescript
+// Default: OpenAI API
+const client = new OpenAI({ apiKey: 'sk-xxx' })
+
+// Azure OpenAI
+const azureClient = new OpenAI({
+  apiKey: process.env.AZURE_OPENAI_KEY,
+  baseURL: 'https://your-resource.openai.azure.com/openai/deployments/your-deployment',
+  defaultHeaders: {
+    'api-version': '2024-02-01',
+  },
+})
+
+// Local/self-hosted (vLLM, LocalAI, etc.)
+const localClient = new OpenAI({
+  apiKey: 'not-needed',
+  baseURL: 'http://localhost:8000/v1',
+})
+```
+
+## Multi-Provider Routing
+
+For production use, route requests across multiple providers with automatic failover:
+
+```typescript
+import { createOpenAIWithRuntime } from '@dotdo/openai'
+
+const client = createOpenAIWithRuntime({
+  providers: [
+    { name: 'openai', apiKey: process.env.OPENAI_API_KEY },
+    { name: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
+    { name: 'google', apiKey: process.env.GOOGLE_API_KEY },
+  ],
+  strategy: 'priority',  // 'priority' | 'round-robin' | 'least-latency' | 'cost-optimized'
+  fallback: {
+    enabled: true,
+    maxAttempts: 3,
+  },
+})
+
+// Same API - requests auto-route with failover
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+
+// Get routing statistics
+const stats = client.getStats()
+console.log(stats)
+// { openai: { requests: 100, failures: 2 }, anthropic: { requests: 5, failures: 0 } }
+```
+
+### Routing Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `priority` | Use first provider, failover to next (default) |
+| `round-robin` | Distribute requests evenly |
+| `least-latency` | Route to fastest provider |
+| `cost-optimized` | Route to cheapest provider for the model |
+
+## Agent Integration
+
+Integrate with dotdo's named agents for specialized AI personas:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+
+// Named agents use OpenAI under the hood
+const spec = await priya`define the MVP for ${hypothesis}`
+let app = await ralph`build ${spec}`
+
+do {
+  app = await ralph`improve ${app} per ${tom}`
+} while (!await tom.approve(app))
+
+await mark`announce the launch of ${app}`
+await sally`start selling ${app}`
+```
+
+### Named Agent Personas
+
+| Agent | Role | Description |
+|-------|------|-------------|
+| Priya | Product | Specs, roadmaps, user stories |
+| Ralph | Engineering | Builds and implements code |
+| Tom | Tech Lead | Architecture, code review |
+| Mark | Marketing | Content, launches, campaigns |
+| Sally | Sales | Outreach, demos, closing |
+| Quinn | QA | Testing, quality assurance |
+
+### Using OpenAI with Agents
+
+Configure agents to use specific OpenAI models:
+
+```typescript
+import { ralph } from 'agents.do'
+
+// Use GPT-4 for Ralph
+const codeRalph = ralph.withConfig({
+  model: 'gpt-4-turbo',
+  temperature: 0.2,
+  maxTokens: 4096,
+})
+
+const code = await codeRalph`implement a REST API for ${spec}`
+
+// Stream responses
+for await (const chunk of ralph.stream`build ${feature}`) {
+  process.stdout.write(chunk)
+}
+```
+
+## Assistants API
+
+Full support for OpenAI's Assistants API:
+
+```typescript
+import { AssistantsClient } from '@dotdo/openai'
+
+const assistants = new AssistantsClient({
+  apiKey: process.env.OPENAI_API_KEY,
+})
+
+// Create an assistant
+const assistant = await assistants.assistants.create({
+  name: 'Math Tutor',
+  instructions: 'You are a helpful math tutor.',
+  model: 'gpt-4-turbo',
+  tools: [{ type: 'code_interpreter' }],
+})
+
+// Create a thread
+const thread = await assistants.threads.create()
+
+// Add a message
+await assistants.messages.create(thread.id, {
+  role: 'user',
+  content: 'Solve x^2 + 2x + 1 = 0',
+})
+
+// Run the assistant
+const run = await assistants.runs.create(thread.id, {
+  assistant_id: assistant.id,
+})
+
+// Wait for completion
+let runStatus = await assistants.runs.retrieve(thread.id, run.id)
+while (runStatus.status === 'in_progress' || runStatus.status === 'queued') {
+  await new Promise((r) => setTimeout(r, 1000))
+  runStatus = await assistants.runs.retrieve(thread.id, run.id)
+}
+
+// Get messages
+const messages = await assistants.messages.list(thread.id)
+console.log(messages.data[0].content)
+```
+
+## TypeScript Types
+
+Full TypeScript support with OpenAI-compatible types:
+
+```typescript
+import type {
+  // Chat
+  ChatCompletion,
+  ChatCompletionChunk,
+  ChatCompletionCreateParams,
+  ChatCompletionMessage,
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+  ChatCompletionToolChoiceOption,
+
+  // Embeddings
+  Embedding,
+  EmbeddingCreateParams,
+  CreateEmbeddingResponse,
+
+  // Images
+  ImageCreateParams,
+  ImagesResponse,
+
+  // Models
+  Model,
+  ModelListResponse,
+
+  // Common
+  Usage,
+  RequestOptions,
+} from '@dotdo/openai'
+
+// Error types
+import { OpenAIError } from '@dotdo/openai'
+```
+
+## Error Handling
+
+```typescript
+import OpenAI, { OpenAIError } from '@dotdo/openai'
+
+try {
+  const completion = await client.chat.completions.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'Hello' }],
+  })
+} catch (error) {
+  if (error instanceof OpenAIError) {
+    console.error('Status:', error.status)
+    console.error('Type:', error.type)
+    console.error('Code:', error.code)
+    console.error('Message:', error.message)
+    console.error('Request ID:', error.requestId)
+
+    // Handle specific errors
+    if (error.status === 429) {
+      console.error('Rate limited - retry later')
+    } else if (error.status === 401) {
+      console.error('Invalid API key')
+    }
+  }
+}
+```
+
+## Configuration
+
+```typescript
+const client = new OpenAI({
+  // Required
+  apiKey: 'sk-xxx',
+
+  // Optional
+  organization: 'org-xxx',
+  baseURL: 'https://api.openai.com',
+  timeout: 600000,  // 10 minutes (default)
+  maxRetries: 2,    // Automatic retries (default)
+
+  // Custom headers
+  defaultHeaders: {
+    'X-Custom-Header': 'value',
+  },
+
+  // Custom fetch (for testing/mocking)
+  fetch: customFetch,
+})
+```
+
+## Migration from Official SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall openai
+
+# Install
+npm install @dotdo/openai
+```
+
+### Import Change
+
+```typescript
+// Before
+import OpenAI from 'openai'
+
+// After
+import OpenAI from '@dotdo/openai'
+```
+
+All method signatures and types are identical - no code changes required.
+
+## Related
+
+- [Anthropic](/docs/integrations/anthropic) - Claude API integration
+- [Named Agents](/docs/agents/named-agents) - Priya, Ralph, Tom, Mark, Sally, Quinn
+- [Agent SDK](/docs/agents) - Multi-provider agent system

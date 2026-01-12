@@ -1,0 +1,30 @@
+{
+  "integration": "sendgrid",
+  "package": "@sendgrid/mail",
+  "compatPath": "compat/sendgrid",
+  "docsUrl": "https://docs.sendgrid.com/api-reference/mail-send/mail-send",
+  "timestamp": "2026-01-12T13:43:27.546Z",
+  "totalExpected": 9,
+  "totalFound": 7,
+  "coverage": 78,
+  "gaps": [
+    {
+      "name": "send",
+      "type": "missing-function",
+      "severity": "P0",
+      "description": "Send email function"
+    },
+    {
+      "name": "setApiKey",
+      "type": "missing-function",
+      "severity": "P0",
+      "description": "Set API key function"
+    }
+  ],
+  "p0Gaps": 2,
+  "p1Gaps": 0,
+  "p2Gaps": 0,
+  "missingMethods": 0,
+  "missingTypes": 0,
+  "missingClasses": 2
+}

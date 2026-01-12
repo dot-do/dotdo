@@ -1,0 +1,659 @@
+---
+title: PostgreSQL Integration
+description: Drop-in replacement for pg (node-postgres) backed by Durable Objects, plus EdgePostgres for full Postgres with pgvector on the edge.
+---
+
+# PostgreSQL Integration
+
+Two complementary Postgres solutions for Cloudflare Workers:
+
+1. **@dotdo/postgres** - Drop-in `pg` replacement backed by DO SQLite. Same API, your code works unchanged.
+2. **@dotdo/edge-postgres** - Full Postgres (PGLite WASM) with pgvector, tiered storage, and sharding.
+
+```typescript
+// Option 1: pg-compatible (simple)
+import { Client } from '@dotdo/postgres'
+
+const client = new Client('postgres://localhost/mydb')
+await client.connect()
+const { rows } = await client.query('SELECT * FROM users WHERE id = $1', [1])
+await client.end()
+
+// Option 2: EdgePostgres (full Postgres + pgvector)
+import { EdgePostgres } from '@dotdo/edge-postgres'
+
+const db = new EdgePostgres(ctx, env, {
+  pglite: { extensions: ['pgvector'] }
+})
+
+const similar = await db.query(`
+  SELECT id, embedding <=> $1 AS distance
+  FROM documents
+  ORDER BY distance LIMIT 10
+`, [queryEmbedding])
+```
+
+## Why postgres.do?
+
+| pg (Node.js) | @dotdo/postgres | @dotdo/edge-postgres |
+|--------------|-----------------|----------------------|
+| Requires Node.js | Works in Workers | Works in Workers |
+| External Postgres server | Backed by DO SQLite | Full Postgres (PGLite WASM) |
+| Network latency | Edge-local | Edge-local |
+| pgvector support | No | Yes |
+| Tiered storage | No | Yes (Iceberg) |
+| Sharding/Replication | Manual | Built-in |
+
+## Installation
+
+```bash
+# pg-compatible layer
+npm install @dotdo/postgres
+
+# Full EdgePostgres
+npm install @dotdo/edge-postgres
+```
+
+## Quick Start
+
+### pg-Compatible Client
+
+```typescript
+import { Client, Pool } from '@dotdo/postgres'
+
+// Simple client
+const client = new Client({
+  host: 'localhost',
+  database: 'mydb',
+  user: 'postgres',
+  password: 'secret',
+})
+
+await client.connect()
+
+// Parameterized query
+const { rows } = await client.query(
+  'SELECT * FROM users WHERE id = $1',
+  [1]
+)
+
+// INSERT with RETURNING
+const { rows: newUser } = await client.query(
+  'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+  ['Alice', 'alice@example.com']
+)
+
+await client.end()
+```
+
+### Connection Pool
+
+```typescript
+import { Pool } from '@dotdo/postgres'
+
+const pool = new Pool({
+  connectionString: 'postgres://user:pass@localhost/mydb',
+  max: 20,
+  idleTimeoutMillis: 30000,
+})
+
+// Simple query (auto-checkout)
+const { rows } = await pool.query('SELECT * FROM users')
+
+// Manual checkout for transactions
+const client = await pool.connect()
+try {
+  await client.query('BEGIN')
+  await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [100, 1])
+  await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [100, 2])
+  await client.query('COMMIT')
+} catch (e) {
+  await client.query('ROLLBACK')
+  throw e
+} finally {
+  client.release()
+}
+
+await pool.end()
+```
+
+## Inbound (Drop-in Replacement)
+
+Your existing `pg` code works unchanged - just swap the import:
+
+```typescript
+// Before
+import { Client, Pool } from 'pg'
+
+// After
+import { Client, Pool } from '@dotdo/postgres'
+
+// Code stays exactly the same
+const client = new Client()
+await client.connect()
+const result = await client.query('SELECT $1::text as message', ['Hello'])
+console.log(result.rows[0].message) // Hello
+```
+
+### React/Next.js Integration
+
+```typescript
+// lib/db.ts
+import { Pool } from '@dotdo/postgres'
+
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 10,
+})
+
+// app/api/users/route.ts
+import { pool } from '@/lib/db'
+
+export async function GET() {
+  const { rows } = await pool.query('SELECT * FROM users LIMIT 10')
+  return Response.json(rows)
+}
+```
+
+### ORMs and Query Builders
+
+```typescript
+// Drizzle ORM
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from '@dotdo/postgres'
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const db = drizzle(pool)
+
+// Kysely
+import { Kysely, PostgresDialect } from 'kysely'
+import { Pool } from '@dotdo/postgres'
+
+const db = new Kysely({
+  dialect: new PostgresDialect({
+    pool: new Pool({ connectionString: process.env.DATABASE_URL }),
+  }),
+})
+```
+
+## Outbound (External PostgreSQL)
+
+When configured with a real PostgreSQL connection string, queries are routed to your external database:
+
+```typescript
+import { Pool } from '@dotdo/postgres'
+
+// Connect to external Postgres (Neon, Supabase, RDS, etc.)
+const pool = new Pool({
+  connectionString: 'postgres://user:pass@neon.tech/mydb?sslmode=require',
+  ssl: { rejectUnauthorized: false },
+})
+
+// Works with Hyperdrive for connection pooling
+const pool = new Pool({
+  connectionString: env.HYPERDRIVE.connectionString,
+})
+```
+
+## Transactions
+
+```typescript
+import { Client } from '@dotdo/postgres'
+
+const client = new Client()
+await client.connect()
+
+// Standard transaction
+await client.query('BEGIN')
+try {
+  await client.query('INSERT INTO orders (user_id, total) VALUES ($1, $2)', [1, 99.99])
+  await client.query('UPDATE inventory SET count = count - 1 WHERE product_id = $1', [42])
+  await client.query('COMMIT')
+} catch (e) {
+  await client.query('ROLLBACK')
+  throw e
+}
+
+// Savepoints
+await client.query('BEGIN')
+await client.query('INSERT INTO logs (message) VALUES ($1)', ['Step 1'])
+await client.query('SAVEPOINT step1')
+try {
+  await client.query('INSERT INTO logs (message) VALUES ($1)', ['Step 2'])
+  // Something fails...
+  await client.query('ROLLBACK TO SAVEPOINT step1')
+} catch (e) {
+  await client.query('ROLLBACK TO SAVEPOINT step1')
+}
+await client.query('COMMIT')
+
+await client.end()
+```
+
+## Error Handling
+
+```typescript
+import { Client, DatabaseError, ConnectionError } from '@dotdo/postgres'
+
+const client = new Client()
+await client.connect()
+
+try {
+  await client.query('SELECT * FROM nonexistent_table')
+} catch (e) {
+  if (e instanceof DatabaseError) {
+    console.log('SQLSTATE:', e.code)      // '42P01' (undefined_table)
+    console.log('Severity:', e.severity)   // 'ERROR'
+    console.log('Message:', e.message)
+  }
+}
+
+// Common SQLSTATE codes
+// 23505 - unique_violation (duplicate key)
+// 42P01 - undefined_table (table not found)
+// 42P07 - duplicate_table (table already exists)
+// 42601 - syntax_error (SQL syntax error)
+// 23502 - not_null_violation
+```
+
+## Prepared Statements
+
+```typescript
+// Named prepared statements
+const result = await client.query({
+  text: 'SELECT * FROM users WHERE status = $1',
+  values: ['active'],
+  name: 'get-active-users', // Cached and reused
+})
+
+// Callback style (for compatibility)
+client.query('SELECT * FROM users', (err, result) => {
+  if (err) {
+    console.error(err)
+    return
+  }
+  console.log(result.rows)
+})
+```
+
+## Event Handling
+
+```typescript
+const client = new Client()
+
+client.on('connect', () => console.log('Connected'))
+client.on('end', () => console.log('Disconnected'))
+client.on('error', (err) => console.error('Error:', err))
+
+const pool = new Pool()
+
+pool.on('connect', (client) => console.log('Client connected'))
+pool.on('acquire', (client) => console.log('Client acquired'))
+pool.on('release', (err, client) => console.log('Client released'))
+pool.on('remove', (client) => console.log('Client removed'))
+```
+
+---
+
+## EdgePostgres (Full Postgres on Edge)
+
+For AI agents, semantic search, and complex queries, use EdgePostgres - full Postgres with pgvector running in Durable Objects.
+
+### Basic Usage
+
+```typescript
+import { EdgePostgres } from '@dotdo/edge-postgres'
+
+class MyAgent extends DurableObject {
+  db = new EdgePostgres(this.ctx, this.env)
+
+  async setup() {
+    await this.db.exec(`
+      CREATE TABLE documents (
+        id TEXT PRIMARY KEY,
+        content TEXT,
+        embedding vector(1536)
+      );
+
+      CREATE INDEX ON documents
+      USING hnsw (embedding vector_cosine_ops);
+    `)
+  }
+
+  async remember(content: string, embedding: number[]) {
+    await this.db.query(
+      'INSERT INTO documents (id, content, embedding) VALUES ($1, $2, $3)',
+      [crypto.randomUUID(), content, embedding]
+    )
+  }
+
+  async recall(queryEmbedding: number[], limit = 5) {
+    return this.db.query(`
+      SELECT content, 1 - (embedding <=> $1) AS similarity
+      FROM documents
+      ORDER BY embedding <=> $1
+      LIMIT $2
+    `, [queryEmbedding, limit])
+  }
+}
+```
+
+### Vector Search with pgvector
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  pglite: { extensions: ['pgvector'] }
+})
+
+// Create table with vector column
+await db.exec(`
+  CREATE EXTENSION IF NOT EXISTS vector;
+
+  CREATE TABLE documents (
+    id TEXT PRIMARY KEY,
+    content TEXT,
+    embedding vector(1536)
+  );
+
+  CREATE INDEX ON documents
+  USING hnsw (embedding vector_cosine_ops);
+`)
+
+// Insert with embedding
+await db.query(
+  'INSERT INTO documents VALUES ($1, $2, $3)',
+  ['doc-1', 'Hello world', embedding]
+)
+
+// Semantic search (cosine similarity)
+const results = await db.query(`
+  SELECT id, content, 1 - (embedding <=> $1) AS similarity
+  FROM documents
+  ORDER BY embedding <=> $1
+  LIMIT 10
+`, [queryEmbedding])
+
+// L2 distance search
+const nearest = await db.query(`
+  SELECT id, embedding <-> $1 AS distance
+  FROM documents
+  ORDER BY distance
+  LIMIT 5
+`, [queryEmbedding])
+```
+
+### Transactions
+
+```typescript
+await db.transaction(async (tx) => {
+  await tx.query(
+    'UPDATE accounts SET balance = balance - $1 WHERE id = $2',
+    [100, 'acc-1']
+  )
+  await tx.query(
+    'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+    [100, 'acc-2']
+  )
+  // Automatically committed if no error
+  // Automatically rolled back on error
+})
+```
+
+### Tiered Storage
+
+Hot data in memory, cold data in Parquet/R2. Automatic tiering.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  tiering: {
+    hotRetentionMs: 5 * 60 * 1000,  // Keep 5 minutes hot
+    flushThreshold: 1000,            // Flush after 1000 writes
+    flushIntervalMs: 60_000,         // Or every 60 seconds
+  }
+})
+
+// Writes go to PGLite (hot) immediately
+await db.query('INSERT INTO events VALUES ($1, $2)', [id, data])
+
+// Background: batched to Parquet, stored in R2, tracked by Iceberg
+// Reads automatically check hot tier first, then Iceberg
+```
+
+### Sharding
+
+Distribute across up to 1000 Durable Objects. 10GB each. 10TB total.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  sharding: {
+    key: 'tenant_id',
+    count: 100,
+    algorithm: 'consistent',  // Minimal redistribution on scale
+  }
+})
+
+// Routed to correct shard automatically
+await db.query(
+  'INSERT INTO orders (tenant_id, amount) VALUES ($1, $2)',
+  ['tenant-123', 99.99]
+)
+
+// Cross-shard queries fan out and merge
+const totals = await db.query(`
+  SELECT tenant_id, SUM(amount)
+  FROM orders
+  GROUP BY tenant_id
+`)
+```
+
+### Replication
+
+Read replicas in 35+ cities. GDPR jurisdictions. Read-your-writes consistency.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  replication: {
+    jurisdiction: 'eu',
+    cities: ['fra', 'ams', 'dub'],
+    readFrom: 'nearest',
+  }
+})
+
+// Writes go to primary
+const result = await db.query(
+  'INSERT INTO users VALUES ($1, $2)',
+  [id, data],
+  { sessionToken }
+)
+
+// Reads from nearest replica, but see your own writes
+const user = await db.query(
+  'SELECT * FROM users WHERE id = $1',
+  [id],
+  { sessionToken: result.sessionToken }
+)
+```
+
+### Checkpointing
+
+Save state to durable storage for crash recovery.
+
+```typescript
+const db = new EdgePostgres(ctx, env)
+
+// Make changes
+await db.query('INSERT INTO users VALUES ($1, $2)', ['user-1', 'Alice'])
+
+// Checkpoint (state is now durable)
+await db.checkpoint()
+
+// On cold start, state is restored from checkpoint
+```
+
+### Vector Quantization (Memory Optimization)
+
+4x memory reduction with scalar (int8) quantization.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  quantization: {
+    type: 'scalar',        // int8 quantization (4x compression)
+    storeOriginal: false,  // Don't keep float32 copies
+    calibrationSamples: 1000,
+  }
+})
+
+// Calibrate from existing vectors
+const stats = await db.calibrateQuantization('documents', 'embedding', 1000)
+console.log(`Compression: ${stats.compressionRatio}x`)
+console.log(`Memory saved: ${stats.savingsPercent}%`)
+
+// Get memory stats
+const memory = await db.getVectorMemoryStats('documents', 'embedding')
+console.log(`Original: ${memory.originalBytes} bytes`)
+console.log(`Quantized: ${memory.quantizedBytes} bytes`)
+```
+
+### Hybrid Search Analysis
+
+Optimize queries combining vector search with SQL filters.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  hybridSearch: {
+    strategy: 'auto',           // 'pre-filter', 'post-filter', 'parallel'
+    selectivityThreshold: 0.1,
+    maxCandidates: 1000,
+  }
+})
+
+// Analyze hybrid query
+const analysis = db.analyzeHybridQuery(`
+  SELECT * FROM documents
+  WHERE category = 'tech'
+  ORDER BY embedding <=> $1
+  LIMIT 10
+`)
+
+console.log(analysis.recommendedStrategy) // 'pre-filter'
+console.log(analysis.reason)              // 'Low selectivity - pre-filter to reduce vector scan'
+```
+
+## Type Constants
+
+```typescript
+import { types } from '@dotdo/postgres'
+
+types.BOOL      // 16
+types.INT2      // 21
+types.INT4      // 23
+types.INT8      // 20
+types.FLOAT4    // 700
+types.FLOAT8    // 701
+types.TEXT      // 25
+types.VARCHAR   // 1043
+types.JSON      // 114
+types.JSONB     // 3802
+types.UUID      // 2950
+types.DATE      // 1082
+types.TIME      // 1083
+types.TIMESTAMP // 1114
+types.NUMERIC   // 1700
+```
+
+## Extended DO Configuration
+
+Route to Durable Objects with sharding and replication:
+
+```typescript
+import { Pool, ExtendedPostgresConfig } from '@dotdo/postgres'
+
+const pool = new Pool({
+  host: 'localhost',
+  database: 'mydb',
+
+  // Shard across multiple Durable Objects
+  shard: {
+    algorithm: 'consistent',  // 'consistent' | 'range' | 'hash'
+    count: 8,
+    key: 'tenant_id',
+  },
+
+  // Read from replicas
+  replica: {
+    readPreference: 'nearest',  // 'primary' | 'secondary' | 'nearest'
+    writeThrough: false,
+    jurisdiction: 'eu',
+  },
+
+  // Tiered storage
+  tier: {
+    hot: 'sqlite',
+    warm: 'r2',
+    cold: 'archive',
+    hotThreshold: '100MB',
+    coldAfter: '30d',
+  },
+} as ExtendedPostgresConfig)
+```
+
+## API Comparison
+
+### @dotdo/postgres vs pg
+
+| Feature | pg | @dotdo/postgres |
+|---------|-----|-----------------|
+| Client API | Yes | Yes |
+| Pool API | Yes | Yes |
+| Parameterized queries | Yes | Yes |
+| Transactions | Yes | Yes |
+| Connection events | Yes | Yes |
+| COPY commands | Yes | No |
+| Cursors | Yes | Partial |
+| Pub/Sub (LISTEN/NOTIFY) | Yes | No |
+| SSL/TLS | Yes | N/A (internal) |
+| Native bindings | Yes | Simulated |
+
+### EdgePostgres Features
+
+| Feature | DO SQLite | EdgePostgres |
+|---------|-----------|--------------|
+| Vector search | No | Yes (pgvector) |
+| JSON operators | Basic | Full (`->`, `->>`, `@>`) |
+| Full-text search | FTS5 | Yes |
+| Sharding | Manual | Built-in |
+| Replication | No | Built-in |
+| Unlimited storage | 10GB/DO | Yes (Iceberg tiering) |
+| Postgres ecosystem | No | Yes |
+
+## Memory Budget
+
+128MB Workers limit breakdown for EdgePostgres:
+
+```
+V8 Isolate              ~15MB
+PGLite WASM              ~3MB
+PGLite heap             ~20MB  (configurable)
+pgvector HNSW           ~10MB  (per 100K vectors)
+Query buffers           ~10MB
+----------------------------------------
+Total (OLTP)            ~58MB
+```
+
+## Utilities
+
+```typescript
+// Escape strings for SQL
+client.escapeLiteral("it's a test")     // "'it''s a test'"
+client.escapeIdentifier('column"name')  // '"column""name"'
+
+// Native bindings (simulated)
+import { native } from '@dotdo/postgres'
+const { Client, Pool } = native()
+```
+
+## Related
+
+- [Databases Overview](/docs/compat/databases) - All database SDK implementations
+- [Vector Search](/docs/compat/vector) - Semantic/embedding search
+- [Hot Tier Storage](/docs/storage/hot-tier) - DO SQLite for edge queries

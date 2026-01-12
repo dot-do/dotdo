@@ -1,0 +1,5 @@
+{
+  "root": true,
+  "title": "Database",
+  "description": "Data persistence, querying, and edge-native storage"
+}

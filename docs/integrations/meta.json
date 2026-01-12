@@ -1,0 +1,20 @@
+{
+  "root": true,
+  "title": "Integrations",
+  "description": "Connect to external services, APIs, and third-party platforms",
+  "pages": [
+    "index",
+    "---AI---",
+    "anthropic",
+    "---Databases---",
+    "postgres",
+    "---Storage---",
+    "s3",
+    "---Search---",
+    "algolia",
+    "---Realtime---",
+    "pusher",
+    "---Email---",
+    "sendgrid"
+  ]
+}

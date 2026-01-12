@@ -1,0 +1,883 @@
+---
+title: S3 Integration
+description: Drop-in replacement for @aws-sdk/client-s3, backed by Cloudflare R2 on Durable Objects
+---
+
+# S3 Integration
+
+Drop-in replacement for the AWS S3 SDK. Your existing `@aws-sdk/client-s3` code works unchanged - just swap the import.
+
+```typescript
+// Before: AWS S3
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+
+// After: dotdo
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+
+// Code stays the same
+const client = new S3Client({ region: 'auto' })
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'file.txt',
+  Body: 'Hello, World!'
+}))
+```
+
+## Why s3.do?
+
+| AWS S3 | s3.do |
+|--------|-------|
+| Regional latency | Edge-local (300+ cities) |
+| Per-request pricing | Flat resource pricing |
+| Cross-region data transfer fees | No egress fees (R2) |
+| Cold start for Lambda | 0ms cold starts (V8 isolates) |
+| Separate infrastructure | Unified with your DO data |
+
+**This is backed by Cloudflare R2.** Your data lives in R2 buckets with S3-compatible API - not proxied to AWS. R2 has zero egress fees.
+
+## Features
+
+### Implemented
+
+**S3Client Commands**
+- `PutObjectCommand` - Upload objects
+- `GetObjectCommand` - Download objects
+- `HeadObjectCommand` - Get object metadata
+- `DeleteObjectCommand` - Delete single object
+- `DeleteObjectsCommand` - Batch delete
+- `ListObjectsV2Command` - List objects with pagination
+- `CopyObjectCommand` - Copy objects
+- `CreateMultipartUploadCommand` - Start multipart upload
+- `UploadPartCommand` - Upload part
+- `CompleteMultipartUploadCommand` - Complete multipart
+- `AbortMultipartUploadCommand` - Abort multipart
+
+**Presigned URLs**
+- `getSignedUrl()` - Generate presigned URLs for uploads/downloads
+- Expiration control
+- Content-type restrictions
+
+### Not Yet Implemented
+
+- Bucket operations (CreateBucket, DeleteBucket, ListBuckets)
+- Object versioning
+- Object tagging
+- Lifecycle policies
+- Replication
+- S3 Select
+- Inventory
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/s3
+```
+
+### Configure
+
+Add R2 bucket binding to your `wrangler.toml`:
+
+```toml
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "my-bucket"
+```
+
+### Upload Files
+
+```typescript
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+
+const client = new S3Client({
+  region: 'auto',
+  // R2 binding injected automatically in Workers
+})
+
+// Upload text
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'hello.txt',
+  Body: 'Hello, World!',
+  ContentType: 'text/plain',
+}))
+
+// Upload JSON
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'data.json',
+  Body: JSON.stringify({ name: 'John', age: 30 }),
+  ContentType: 'application/json',
+}))
+
+// Upload with metadata
+await client.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'document.pdf',
+  Body: pdfBuffer,
+  ContentType: 'application/pdf',
+  Metadata: {
+    'uploaded-by': 'user-123',
+    'original-name': 'quarterly-report.pdf',
+  },
+}))
+```
+
+### Download Files
+
+```typescript
+import { S3Client, GetObjectCommand } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// Get object
+const response = await client.send(new GetObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'hello.txt',
+}))
+
+// Read as text
+const text = await response.Body?.transformToString()
+console.log(text) // "Hello, World!"
+
+// Read as bytes
+const bytes = await response.Body?.transformToByteArray()
+
+// Stream response
+const stream = response.Body?.transformToWebStream()
+
+// Access metadata
+console.log(response.ContentType)     // "text/plain"
+console.log(response.ContentLength)   // 13
+console.log(response.ETag)            // "abc123..."
+console.log(response.Metadata)        // { "uploaded-by": "user-123" }
+```
+
+### Check If Object Exists
+
+```typescript
+import { S3Client, HeadObjectCommand } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+try {
+  const response = await client.send(new HeadObjectCommand({
+    Bucket: 'my-bucket',
+    Key: 'file.txt',
+  }))
+  console.log('Size:', response.ContentLength)
+  console.log('Last Modified:', response.LastModified)
+} catch (error) {
+  if (error.name === 'NotFound') {
+    console.log('Object does not exist')
+  }
+}
+```
+
+### Delete Files
+
+```typescript
+import { S3Client, DeleteObjectCommand, DeleteObjectsCommand } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// Delete single object
+await client.send(new DeleteObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'old-file.txt',
+}))
+
+// Batch delete
+await client.send(new DeleteObjectsCommand({
+  Bucket: 'my-bucket',
+  Delete: {
+    Objects: [
+      { Key: 'file1.txt' },
+      { Key: 'file2.txt' },
+      { Key: 'folder/file3.txt' },
+    ],
+  },
+}))
+```
+
+### List Objects
+
+```typescript
+import { S3Client, ListObjectsV2Command } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// List all objects
+const response = await client.send(new ListObjectsV2Command({
+  Bucket: 'my-bucket',
+}))
+
+for (const object of response.Contents ?? []) {
+  console.log(`${object.Key} - ${object.Size} bytes`)
+}
+
+// List with prefix (folder-like)
+const uploads = await client.send(new ListObjectsV2Command({
+  Bucket: 'my-bucket',
+  Prefix: 'uploads/',
+  Delimiter: '/',
+}))
+
+// Objects in uploads/
+for (const object of uploads.Contents ?? []) {
+  console.log('File:', object.Key)
+}
+
+// "Subdirectories" in uploads/
+for (const prefix of uploads.CommonPrefixes ?? []) {
+  console.log('Folder:', prefix.Prefix)
+}
+
+// Pagination
+let continuationToken: string | undefined
+do {
+  const page = await client.send(new ListObjectsV2Command({
+    Bucket: 'my-bucket',
+    MaxKeys: 100,
+    ContinuationToken: continuationToken,
+  }))
+
+  for (const object of page.Contents ?? []) {
+    console.log(object.Key)
+  }
+
+  continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
+} while (continuationToken)
+```
+
+### Copy Objects
+
+```typescript
+import { S3Client, CopyObjectCommand } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// Copy within same bucket
+await client.send(new CopyObjectCommand({
+  Bucket: 'my-bucket',
+  CopySource: 'my-bucket/original.txt',
+  Key: 'backup/original.txt',
+}))
+
+// Copy with new metadata
+await client.send(new CopyObjectCommand({
+  Bucket: 'my-bucket',
+  CopySource: 'my-bucket/file.txt',
+  Key: 'file-copy.txt',
+  MetadataDirective: 'REPLACE',
+  ContentType: 'text/plain',
+  Metadata: {
+    'copied-at': new Date().toISOString(),
+  },
+}))
+```
+
+## Presigned URLs
+
+Generate temporary URLs for direct uploads/downloads without exposing credentials.
+
+### Download URL
+
+```typescript
+import { S3Client, GetObjectCommand } from '@dotdo/s3'
+import { getSignedUrl } from '@dotdo/s3/presigner'
+
+const client = new S3Client({ region: 'auto' })
+
+// Generate download URL (expires in 1 hour)
+const url = await getSignedUrl(client, new GetObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'file.pdf',
+}), {
+  expiresIn: 3600, // 1 hour
+})
+
+// Return URL to client for direct download
+return new Response(JSON.stringify({ downloadUrl: url }))
+```
+
+### Upload URL
+
+```typescript
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+import { getSignedUrl } from '@dotdo/s3/presigner'
+
+const client = new S3Client({ region: 'auto' })
+
+// Generate upload URL
+const url = await getSignedUrl(client, new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: `uploads/${crypto.randomUUID()}.jpg`,
+  ContentType: 'image/jpeg',
+}), {
+  expiresIn: 300, // 5 minutes
+})
+
+// Client can PUT directly to this URL
+return new Response(JSON.stringify({ uploadUrl: url }))
+```
+
+### Client-Side Upload
+
+```typescript
+// Frontend code
+async function uploadFile(file: File) {
+  // Get presigned URL from your API
+  const { uploadUrl } = await fetch('/api/upload-url', {
+    method: 'POST',
+    body: JSON.stringify({ filename: file.name, contentType: file.type }),
+  }).then(r => r.json())
+
+  // Upload directly to R2
+  await fetch(uploadUrl, {
+    method: 'PUT',
+    body: file,
+    headers: {
+      'Content-Type': file.type,
+    },
+  })
+}
+```
+
+## Multipart Uploads
+
+For large files (> 5MB), use multipart uploads for reliability and resumability.
+
+```typescript
+import {
+  S3Client,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+async function uploadLargeFile(bucket: string, key: string, data: ArrayBuffer) {
+  const partSize = 10 * 1024 * 1024 // 10MB parts
+  const parts: { ETag: string; PartNumber: number }[] = []
+
+  // Start multipart upload
+  const { UploadId } = await client.send(new CreateMultipartUploadCommand({
+    Bucket: bucket,
+    Key: key,
+  }))
+
+  try {
+    // Upload parts
+    for (let i = 0; i * partSize < data.byteLength; i++) {
+      const start = i * partSize
+      const end = Math.min(start + partSize, data.byteLength)
+      const partData = data.slice(start, end)
+
+      const { ETag } = await client.send(new UploadPartCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId,
+        PartNumber: i + 1,
+        Body: partData,
+      }))
+
+      parts.push({ ETag: ETag!, PartNumber: i + 1 })
+    }
+
+    // Complete upload
+    await client.send(new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId,
+      MultipartUpload: { Parts: parts },
+    }))
+
+  } catch (error) {
+    // Abort on failure
+    await client.send(new AbortMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId,
+    }))
+    throw error
+  }
+}
+```
+
+## Inbound - s3.do as Drop-in Replacement
+
+Use s3.do to replace AWS S3 in existing applications:
+
+```typescript
+// Existing AWS S3 code - works unchanged
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+// Your existing S3 code just works
+async function storeDocument(id: string, content: string) {
+  await client.send(new PutObjectCommand({
+    Bucket: 'documents',
+    Key: `docs/${id}.json`,
+    Body: content,
+    ContentType: 'application/json',
+  }))
+}
+
+async function getDocument(id: string) {
+  const response = await client.send(new GetObjectCommand({
+    Bucket: 'documents',
+    Key: `docs/${id}.json`,
+  }))
+  return response.Body?.transformToString()
+}
+```
+
+Works with S3-compatible libraries:
+
+```typescript
+// Works with multer-s3
+import multer from 'multer'
+import multerS3 from 'multer-s3'
+import { S3Client } from '@dotdo/s3'
+
+const upload = multer({
+  storage: multerS3({
+    s3: new S3Client({ region: 'auto' }),
+    bucket: 'uploads',
+    key: (req, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`)
+    },
+  }),
+})
+```
+
+## Outbound - Connecting to Real AWS S3 or R2
+
+### Connect to AWS S3
+
+If you need to interact with actual AWS S3 buckets:
+
+```typescript
+import { S3Client, GetObjectCommand } from '@dotdo/s3'
+
+// Connect to real AWS S3
+const awsClient = new S3Client({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+  },
+})
+
+// Fetch from AWS S3
+const response = await awsClient.send(new GetObjectCommand({
+  Bucket: 'my-aws-bucket',
+  Key: 'data.json',
+}))
+```
+
+### Direct R2 Access
+
+For maximum performance, use R2 bindings directly:
+
+```typescript
+import { createR2Store } from '@dotdo/s3/r2'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const store = createR2Store(env.R2_BUCKET, {
+      tenant: 'acme-corp',
+      publicUrl: 'https://files.example.com',
+    })
+
+    // Put with auto content-type detection
+    await store.put('reports/q4.pdf', pdfData)
+
+    // Get with streaming
+    const stream = await store.getStream('reports/q4.pdf')
+
+    // List with pagination
+    for await (const object of store.listAll({ prefix: 'reports/' })) {
+      console.log(object.key, object.size)
+    }
+
+    // Tenant-scoped operations
+    await store.putForTenant({
+      type: 'documents',
+      id: 'doc-123',
+      data: 'content',
+      filename: 'report.txt',
+    })
+  }
+}
+```
+
+## R2 Integration
+
+Cloudflare R2 is S3-compatible with zero egress fees. The dotdo S3 integration is built on R2.
+
+### Why R2?
+
+| Feature | AWS S3 | Cloudflare R2 |
+|---------|--------|---------------|
+| Egress fees | $0.09/GB | **Free** |
+| API compatibility | Native | S3-compatible |
+| Edge access | Via CDN | Native edge access |
+| Cold storage | Glacier tiers | Automatic tiering |
+| Min storage duration | 30-180 days | None |
+
+### R2 Bucket Configuration
+
+```toml
+# wrangler.toml
+
+# Single bucket
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "my-app-storage"
+
+# Multiple buckets
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "my-app-uploads"
+
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "my-app-backups"
+
+# With custom domain
+[[r2_buckets]]
+binding = "PUBLIC"
+bucket_name = "my-app-public"
+# Configure custom domain in Cloudflare dashboard
+```
+
+### R2 in Durable Objects
+
+Access R2 from within Durable Objects:
+
+```typescript
+import { DO } from 'dotdo'
+import { createR2Store } from '@dotdo/s3/r2'
+
+export class DocumentStore extends DO {
+  private store: R2Store
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.store = createR2Store(env.DOCUMENTS, {
+      tenant: this.id,
+    })
+  }
+
+  async saveDocument(id: string, content: string) {
+    await this.store.putForTenant({
+      type: 'docs',
+      id,
+      data: content,
+      contentType: 'text/markdown',
+    })
+  }
+
+  async getDocument(id: string) {
+    const obj = await this.store.getForTenant({
+      type: 'docs',
+      id,
+    })
+    return obj?.text()
+  }
+}
+```
+
+## Path Conventions
+
+The R2 integration uses standardized paths for multi-tenant storage:
+
+```
+{tenant}/{type}/{id}[/{timestamp}][/{filename}]
+```
+
+Examples:
+- `acme/documents/doc-123` - Simple document
+- `acme/backups/db-1/2024-01-15T10:30:00Z` - Timestamped backup
+- `acme/uploads/user-1/photo.jpg` - User upload with filename
+
+```typescript
+import { buildPath, parsePath } from '@dotdo/s3/r2'
+
+// Build path
+const path = buildPath({
+  tenant: 'acme',
+  type: 'documents',
+  id: 'doc-123',
+  filename: 'report.pdf',
+})
+// Returns: 'acme/documents/doc-123/report.pdf'
+
+// Parse path
+const components = parsePath('acme/backups/db-1/2024-01-15T10:30:00Z')
+// Returns: { tenant: 'acme', type: 'backups', id: 'db-1', timestamp: '2024-01-15T10:30:00Z' }
+```
+
+## Types
+
+Full TypeScript support with AWS SDK-compatible types:
+
+```typescript
+import type {
+  S3Client,
+  S3ClientConfig,
+
+  // Commands
+  PutObjectCommand,
+  PutObjectCommandInput,
+  PutObjectCommandOutput,
+  GetObjectCommand,
+  GetObjectCommandInput,
+  GetObjectCommandOutput,
+  HeadObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  CopyObjectCommand,
+
+  // Multipart
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+
+  // Common types
+  _Object,
+  ObjectIdentifier,
+  CommonPrefix,
+} from '@dotdo/s3'
+
+// R2 types
+import type {
+  R2Store,
+  R2StoreConfig,
+  R2Object,
+  R2ObjectMetadata,
+  R2HTTPMetadata,
+  PutOptions,
+  GetOptions,
+  R2ListOptions,
+  R2ListResult,
+  PresignedUrlOptions,
+  PathComponents,
+} from '@dotdo/s3/r2'
+```
+
+## Error Handling
+
+```typescript
+import { S3Client, GetObjectCommand, S3ServiceException } from '@dotdo/s3'
+
+const client = new S3Client({ region: 'auto' })
+
+try {
+  await client.send(new GetObjectCommand({
+    Bucket: 'my-bucket',
+    Key: 'missing.txt',
+  }))
+} catch (error) {
+  if (error instanceof S3ServiceException) {
+    switch (error.name) {
+      case 'NoSuchKey':
+        console.log('Object not found')
+        break
+      case 'NoSuchBucket':
+        console.log('Bucket not found')
+        break
+      case 'AccessDenied':
+        console.log('Permission denied')
+        break
+      default:
+        console.log('S3 error:', error.message)
+    }
+  }
+}
+```
+
+## Migration from AWS S3
+
+### Package Change
+
+```bash
+# Remove AWS SDK
+npm uninstall @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
+
+# Install dotdo S3
+npm install @dotdo/s3
+```
+
+### Import Change
+
+```typescript
+// Before
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+
+// After
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+import { getSignedUrl } from '@dotdo/s3/presigner'
+```
+
+### Configuration
+
+```typescript
+// Before: AWS S3
+const client = new S3Client({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+})
+
+// After: dotdo (R2 binding auto-injected)
+const client = new S3Client({
+  region: 'auto', // R2 is region-less
+})
+```
+
+## Common Patterns
+
+### File Upload API
+
+```typescript
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+import { getSignedUrl } from '@dotdo/s3/presigner'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const client = new S3Client({ region: 'auto' })
+    const url = new URL(request.url)
+
+    if (url.pathname === '/api/upload-url' && request.method === 'POST') {
+      const { filename, contentType } = await request.json()
+      const key = `uploads/${crypto.randomUUID()}/${filename}`
+
+      const uploadUrl = await getSignedUrl(client, new PutObjectCommand({
+        Bucket: 'uploads',
+        Key: key,
+        ContentType: contentType,
+      }), { expiresIn: 300 })
+
+      return Response.json({ uploadUrl, key })
+    }
+
+    if (url.pathname.startsWith('/files/')) {
+      const key = url.pathname.replace('/files/', '')
+      const response = await client.send(new GetObjectCommand({
+        Bucket: 'uploads',
+        Key: key,
+      }))
+
+      return new Response(response.Body?.transformToWebStream(), {
+        headers: {
+          'Content-Type': response.ContentType ?? 'application/octet-stream',
+          'Content-Length': String(response.ContentLength),
+        },
+      })
+    }
+
+    return new Response('Not found', { status: 404 })
+  }
+}
+```
+
+### Image Processing Pipeline
+
+```typescript
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@dotdo/s3'
+
+async function processImage(bucket: string, key: string) {
+  const client = new S3Client({ region: 'auto' })
+
+  // Get original
+  const original = await client.send(new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  }))
+
+  const imageData = await original.Body?.transformToByteArray()
+
+  // Process with Cloudflare Images (example)
+  const processed = await processWithCloudflareImages(imageData)
+
+  // Store processed versions
+  await Promise.all([
+    client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key.replace('.', '-thumb.'),
+      Body: processed.thumbnail,
+      ContentType: 'image/webp',
+    })),
+    client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key.replace('.', '-medium.'),
+      Body: processed.medium,
+      ContentType: 'image/webp',
+    })),
+  ])
+}
+```
+
+### Backup and Restore
+
+```typescript
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+
+async function backupDatabase(data: string) {
+  const client = new S3Client({ region: 'auto' })
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+
+  await client.send(new PutObjectCommand({
+    Bucket: 'backups',
+    Key: `database/${timestamp}.json`,
+    Body: data,
+    ContentType: 'application/json',
+    Metadata: {
+      'backup-type': 'daily',
+      'created-at': new Date().toISOString(),
+    },
+  }))
+}
+
+async function restoreLatestBackup() {
+  const client = new S3Client({ region: 'auto' })
+
+  // List backups
+  const response = await client.send(new ListObjectsV2Command({
+    Bucket: 'backups',
+    Prefix: 'database/',
+  }))
+
+  // Get latest
+  const latest = response.Contents
+    ?.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))
+    ?.[0]
+
+  if (!latest) throw new Error('No backups found')
+
+  const backup = await client.send(new GetObjectCommand({
+    Bucket: 'backups',
+    Key: latest.Key,
+  }))
+
+  return backup.Body?.transformToString()
+}
+```
+
+## Related
+
+- [Storage Overview](/docs/storage) - All storage options
+- [Hot Tier Storage](/docs/storage/hot-tier) - High-performance storage with Durable Objects
+- [Warm Tier Storage](/docs/storage/warm-tier) - R2 object storage

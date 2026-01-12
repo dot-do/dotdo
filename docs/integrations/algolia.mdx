@@ -1,0 +1,466 @@
+---
+title: Algolia
+description: Drop-in replacement for algoliasearch backed by DO SQLite with FTS5
+---
+
+# Algolia
+
+Drop-in replacement for the Algolia JavaScript SDK. Your existing `algoliasearch` code works unchanged - just swap the import.
+
+```typescript
+// Before: Algolia
+import algoliasearch from 'algoliasearch'
+
+// After: dotdo
+import algoliasearch from '@dotdo/algolia'
+
+// Code stays the same
+const client = algoliasearch('APP_ID', 'API_KEY')
+const index = client.initIndex('products')
+const results = await index.search('wireless headphones')
+```
+
+## Why algolia.do?
+
+| Algolia Cloud | algolia.do |
+|---------------|------------|
+| Rate-limited indexing operations | Unlimited writes to DO SQLite |
+| Per-operation pricing | Flat resource pricing |
+| Network latency to search clusters | Edge-local FTS5 in DO |
+| Separate search infrastructure | Unified with your DO data |
+
+**This is a reimplementation.** Your data lives in Durable Object SQLite with FTS5 full-text search - not proxied to Algolia servers. The APP_ID and API_KEY are used for namespacing, not authentication.
+
+## Features
+
+### Implemented (21% Coverage)
+
+**SearchClient**
+- `initIndex()` - Get or create a search index
+- `listIndices()` - List all indices with stats
+- `copyIndex()` - Copy index with settings/objects
+- `moveIndex()` - Move/rename index
+- `multipleQueries()` - Multi-index search
+- `multipleGetObjects()` - Fetch objects across indices
+
+**SearchIndex**
+- `search()` - Full-text search with filters, facets, pagination
+- `searchForFacetValues()` - Search within facet values
+- `browse()` / `browseObjects()` - Iterate all objects
+- `saveObject()` / `saveObjects()` - Index documents
+- `getObject()` / `getObjects()` - Fetch by objectID
+- `partialUpdateObject()` / `partialUpdateObjects()` - Partial updates
+- `deleteObject()` / `deleteObjects()` - Remove documents
+- `deleteBy()` - Delete by filter
+- `clearObjects()` - Clear all documents
+- `setSettings()` / `getSettings()` - Configure index
+- `waitTask()` - Wait for async operations
+- `exists()` / `delete()` - Index management
+
+### Not Yet Implemented
+
+- Synonyms (`saveSynonym`, `getSynonym`, `deleteSynonym`)
+- Query Rules (`saveRule`, `getRule`, `deleteRule`)
+- A/B Testing
+- Analytics
+- Recommend API
+- Personalization
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/algolia
+```
+
+### Index Documents
+
+```typescript
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('my-app', 'my-key')
+const index = client.initIndex('products')
+
+// Single object
+await index.saveObject({
+  objectID: 'prod-1',
+  name: 'Wireless Headphones',
+  description: 'Bluetooth noise-canceling',
+  price: 99.99,
+  category: 'electronics',
+  brand: 'AudioTech',
+  _tags: ['audio', 'wireless', 'bluetooth'],
+})
+
+// Batch indexing
+await index.saveObjects([
+  { objectID: 'prod-2', name: 'MacBook Pro', price: 2499, category: 'computers' },
+  { objectID: 'prod-3', name: 'iPad Pro', price: 799, category: 'tablets' },
+  { objectID: 'prod-4', name: 'AirPods Pro', price: 249, category: 'audio' },
+])
+
+// Auto-generate objectIDs
+await index.saveObjects(products, { autoGenerateObjectIDIfNotExist: true })
+```
+
+### Search
+
+```typescript
+// Simple search
+const { hits, nbHits } = await index.search('wireless headphones')
+
+// With filters
+const results = await index.search('headphones', {
+  filters: 'price < 200 AND category:electronics',
+  hitsPerPage: 20,
+  page: 0,
+})
+
+// Faceted search
+const faceted = await index.search('', {
+  facets: ['category', 'brand'],
+  filters: 'price > 50',
+})
+
+console.log(faceted.facets)
+// {
+//   category: { electronics: 15, audio: 8 },
+//   brand: { AudioTech: 5, Apple: 12 }
+// }
+```
+
+### Filter Syntax
+
+The full Algolia filter syntax is supported:
+
+```typescript
+// Numeric comparisons
+await index.search('', { filters: 'price < 100' })
+await index.search('', { filters: 'price >= 50 AND price <= 200' })
+
+// String equality
+await index.search('', { filters: 'category:electronics' })
+await index.search('', { filters: 'brand:"Audio Tech"' })  // quoted for spaces
+
+// Boolean logic
+await index.search('', { filters: 'price < 100 AND (category:audio OR category:electronics)' })
+await index.search('', { filters: 'NOT category:accessories' })
+
+// Facet filters (array format)
+await index.search('', {
+  facetFilters: ['category:electronics', ['brand:Apple', 'brand:Sony']]
+  // AND(category:electronics, OR(brand:Apple, brand:Sony))
+})
+
+// Numeric filters
+await index.search('', {
+  numericFilters: ['price>50', 'price<200']
+})
+
+// Tag filters
+await index.search('', {
+  tagFilters: ['wireless', ['premium', 'bestseller']]
+})
+```
+
+### Configure Index
+
+```typescript
+await index.setSettings({
+  // Define searchable fields (order matters for ranking)
+  searchableAttributes: [
+    'name',
+    'brand',
+    'description',
+    'category',
+  ],
+
+  // Enable faceting
+  attributesForFaceting: [
+    'category',
+    'brand',
+    'filterOnly(price)',  // Filterable but not displayed as facet
+  ],
+
+  // Custom ranking
+  customRanking: [
+    'desc(popularity)',
+    'asc(price)',
+  ],
+
+  // Pagination defaults
+  hitsPerPage: 20,
+
+  // Highlighting
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<mark>',
+  highlightPostTag: '</mark>',
+})
+```
+
+### Highlighting
+
+```typescript
+const results = await index.search('wireless', {
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<em>',
+  highlightPostTag: '</em>',
+})
+
+for (const hit of results.hits) {
+  console.log(hit._highlightResult?.name?.value)
+  // "High-Quality <em>Wireless</em> Headphones"
+
+  console.log(hit._highlightResult?.name?.matchLevel)
+  // 'full' | 'partial' | 'none'
+}
+```
+
+### Multi-Index Search
+
+```typescript
+const { results } = await client.multipleQueries([
+  { indexName: 'products', query: 'headphones' },
+  { indexName: 'categories', query: 'audio' },
+  {
+    indexName: 'products',
+    type: 'facet',
+    facet: 'brand',
+    params: { facetQuery: 'app' },
+  },
+])
+```
+
+### Browse All Objects
+
+```typescript
+// Iterate through all objects
+await index.browseObjects({
+  query: '',
+  hitsPerPage: 1000,
+  batch: (hits) => {
+    for (const hit of hits) {
+      console.log(hit.objectID, hit.name)
+    }
+  },
+})
+
+// Single page browse
+const { hits, cursor } = await index.browse({ hitsPerPage: 100 })
+```
+
+### Partial Updates
+
+```typescript
+// Update specific fields
+await index.partialUpdateObject({
+  objectID: 'prod-1',
+  price: 89.99,
+  onSale: true,
+})
+
+// Create if doesn't exist
+await index.partialUpdateObject(
+  { objectID: 'prod-new', name: 'New Product', price: 49.99 },
+  { createIfNotExists: true }
+)
+```
+
+### Index Management
+
+```typescript
+// List all indices
+const { items } = await client.listIndices()
+for (const idx of items) {
+  console.log(`${idx.name}: ${idx.entries} docs, ${idx.dataSize} bytes`)
+}
+
+// Copy index (with settings)
+await client.copyIndex('products', 'products_backup', {
+  scope: ['settings', 'synonyms', 'rules'],
+})
+
+// Move/rename index
+await client.moveIndex('products_v1', 'products')
+
+// Delete index
+await index.delete()
+
+// Check if exists
+if (await index.exists()) {
+  // ...
+}
+```
+
+## Inbound Compatibility
+
+Works with Algolia frontend libraries:
+
+```typescript
+// react-instantsearch
+import { InstantSearch, SearchBox, Hits } from 'react-instantsearch'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+function Search() {
+  return (
+    <InstantSearch searchClient={client} indexName="products">
+      <SearchBox />
+      <Hits hitComponent={Hit} />
+    </InstantSearch>
+  )
+}
+```
+
+```typescript
+// vue-instantsearch
+import { createApp } from 'vue'
+import InstantSearch from 'vue-instantsearch/vue3/es'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+createApp(App)
+  .use(InstantSearch)
+  .mount('#app')
+```
+
+```typescript
+// instantsearch.js
+import instantsearch from 'instantsearch.js'
+import { searchBox, hits } from 'instantsearch.js/es/widgets'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+const search = instantsearch({
+  indexName: 'products',
+  searchClient: client,
+})
+
+search.addWidgets([
+  searchBox({ container: '#searchbox' }),
+  hits({ container: '#hits' }),
+])
+
+search.start()
+```
+
+## Outbound - What Runs Underneath
+
+This is **not** a proxy to Algolia. Your data lives in Durable Object SQLite with FTS5:
+
+```
+┌────────────────────────────────────────────────┐
+│           client.initIndex('products')          │
+│                 index.search()                  │
+└────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌────────────────────────────────────────────────┐
+│              Durable Object (DO)                │
+│  ┌──────────────────────────────────────────┐  │
+│  │              SQLite + FTS5               │  │
+│  │                                          │  │
+│  │  CREATE VIRTUAL TABLE products_fts       │  │
+│  │  USING fts5(content, tokenize='porter'); │  │
+│  │                                          │  │
+│  │  SELECT * FROM products_fts              │  │
+│  │  WHERE products_fts MATCH 'headphones'   │  │
+│  │  ORDER BY rank;                          │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┘
+```
+
+### How Search Works
+
+1. **Tokenization** - Query and documents tokenized to lowercase words
+2. **Matching** - FTS5 MATCH with prefix support (`head*`)
+3. **Scoring** - Custom relevance scoring based on:
+   - Exact word matches (2 points)
+   - Partial matches (1 point)
+   - Query term coverage boost
+4. **Filtering** - Boolean filter parsing with AND/OR/NOT
+5. **Faceting** - Aggregation counts computed from matched documents
+
+### Storage Model
+
+```typescript
+// In-memory (current implementation)
+interface IndexStorage {
+  objects: Map<string, AlgoliaObject>  // objectID -> document
+  settings: Settings                    // Index configuration
+  createdAt: Date
+  updatedAt: Date
+}
+
+// Production: persisted to DO SQLite
+// Each index is a separate DO instance
+```
+
+## Types
+
+Full TypeScript support with Algolia-compatible types:
+
+```typescript
+import type {
+  SearchClient,
+  SearchIndex,
+  SearchOptions,
+  SearchResponse,
+  SearchHit,
+  Hit,
+  HighlightResult,
+  FacetHit,
+  Facets,
+  Settings,
+  AlgoliaObject,
+} from '@dotdo/algolia'
+
+// Error types
+import {
+  AlgoliaError,
+  ObjectNotFoundError,
+  IndexNotFoundError,
+  InvalidFilterError,
+} from '@dotdo/algolia'
+```
+
+## Limitations
+
+What's different from Algolia Cloud:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Basic search | Implemented | Full-text with prefix matching |
+| Filters | Implemented | AND/OR/NOT, numeric, facet filters |
+| Facets | Implemented | Count aggregation |
+| Highlighting | Implemented | Pre/post tags, match levels |
+| Pagination | Implemented | page, hitsPerPage |
+| Settings | Implemented | searchableAttributes, faceting, highlighting |
+| Multi-index | Implemented | multipleQueries, multipleGetObjects |
+| Typo tolerance | Partial | Basic prefix matching only |
+| Synonyms | Not implemented | |
+| Query Rules | Not implemented | |
+| A/B Testing | Not implemented | |
+| Analytics | Not implemented | |
+| Personalization | Not implemented | |
+| Geo search | Not implemented | |
+| Recommend | Not implemented | |
+
+### Scoring Differences
+
+The reimplementation uses a simplified scoring model:
+- No typo tolerance ranking
+- No geo-distance ranking
+- No attribute-ordered ranking
+- Basic BM25-style term frequency scoring
+
+For production use cases requiring Algolia's full ranking capabilities, consider using Algolia Cloud directly.
+
+## Related
+
+- [Search Compat Overview](/docs/compat/search) - All search SDK implementations
+- [Vector Search](/docs/compat/vector) - Semantic/embedding search

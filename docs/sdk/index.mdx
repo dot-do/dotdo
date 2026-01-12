@@ -9,6 +9,38 @@ import { AutoTypeTable } from 'fumadocs-typescript/ui'
 
 TypeScript SDK documentation for dotdo. This documentation is auto-generated from TypeScript type definitions.
 
+## Quick Start
+
+```typescript
+import { Thing, Startup } from 'dotdo'
+import { priya, ralph, tom } from 'agents.do'
+
+// Create a Thing with URL-based identity
+const customer = Thing.create('Customer', {
+  id: 'cust_123',
+  name: 'Acme Corp',
+  plan: 'enterprise',
+})
+
+// Use the $ context for durable workflows
+export class MyStartup extends Startup {
+  async onRequest($: WorkflowContext) {
+    // Three durability levels
+    $.send(event)          // Fire-and-forget
+    $.try(action)          // Single attempt
+    await $.do(action)     // Durable with retries
+
+    // Event handling
+    $.on.Customer.signup(async ($, event) => {
+      await $.Customer(event.id).sendWelcome()
+    })
+
+    // Scheduling
+    $.every.monday.at('9am')(() => this.weeklyReport())
+  }
+}
+```
+
 ## Core Types
 
 The following core types form the foundation of the dotdo SDK:
@@ -18,9 +50,64 @@ The following core types form the foundation of the dotdo SDK:
 - **[WorkflowContext](/docs/sdk/workflow-context)** - The unified interface for all DO operations
 - **[Events](/docs/sdk/events)** - Domain event subscription and emission via `$.on` and `$.emit`
 
+### Thing
+
+The base entity type with URL-based identity.
+
+```typescript
+import { Thing } from 'dotdo'
+
+// Create a thing
+const order = Thing.create('Order', {
+  id: 'ord_456',
+  customer: 'cust_123',
+  items: [{ sku: 'WIDGET', qty: 2 }],
+  total: 99.99,
+})
+
+// Things have URLs
+console.log(order.url) // https://things.do/Order/ord_456
+
+// Things are immutable - updates create new versions
+const updated = order.with({ status: 'shipped' })
+```
+
+### WorkflowContext ($)
+
+The unified interface for all Durable Object operations.
+
+```typescript
+// The $ context is available in all handlers
+$.on.Order.placed(async ($, event) => {
+  // Cross-DO communication
+  await $.Customer(event.customerId).notify({
+    message: 'Your order is confirmed',
+  })
+
+  // Durable scheduling
+  $.after(30).minutes(() => $.Order(event.orderId).checkStatus())
+
+  // Emit events
+  $.emit('Order.confirmed', { orderId: event.orderId })
+})
+```
+
 ## Capabilities
 
 Capability modules provide domain-specific functionality:
+
+```typescript
+// Filesystem operations
+await $.fs.write('/data/report.json', JSON.stringify(data))
+const content = await $.fs.read('/data/report.json')
+
+// Git operations
+await $.git.commit('Update report')
+await $.git.push('origin', 'main')
+
+// Shell execution
+const result = await $.bash('npm run build')
+```
 
 - **[FsCapability](/docs/sdk/capabilities)** - Filesystem operations
 - **[GitCapability](/docs/sdk/capabilities)** - Git version control
@@ -41,3 +128,49 @@ Capability modules provide domain-specific functionality:
 | `DomainEvent` | Event payload with verb, source, data |
 | `EventHandler` | Handler function for domain events |
 | `DOFunction` | Generic function type for DO methods |
+
+## Usage Patterns
+
+### Event-Driven Architecture
+
+```typescript
+// Define event handlers
+$.on.Payment.received(async ($, { amount, customerId }) => {
+  await $.Customer(customerId).credit(amount)
+  $.emit('Balance.updated', { customerId, amount })
+})
+
+$.on.Payment.failed(async ($, { orderId, reason }) => {
+  await $.Order(orderId).cancel({ reason })
+  await $.Customer(event.customerId).notify({
+    message: 'Payment failed - please update your card',
+  })
+})
+```
+
+### Scheduled Tasks
+
+```typescript
+// Recurring schedules
+$.every.hour(() => this.syncInventory())
+$.every.monday.at('9am')(() => this.weeklyReport())
+$.every(5).minutes(() => this.healthCheck())
+
+// One-time scheduling
+$.after(30).seconds(() => this.sendReminder())
+$.at('2024-12-25T00:00:00Z')(() => this.holidayPromotion())
+```
+
+### Cross-DO Communication
+
+```typescript
+// Call methods on other Durable Objects
+await $.Customer(customerId).updatePlan('premium')
+await $.Order(orderId).process()
+await $.Inventory(sku).reserve(quantity)
+
+// Broadcast to multiple DOs
+await $.broadcast('system-maintenance', {
+  message: 'Scheduled maintenance at midnight',
+})
+```

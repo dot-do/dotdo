@@ -67,6 +67,67 @@ We rebuilt these APIs on Durable Objects. Each DO is a single-threaded JavaScrip
                └─────────────────────────────────┘
 ```
 
+## Installation
+
+Install any compat SDK from npm:
+
+```bash
+npm install @dotdo/supabase
+# or
+npm install @dotdo/mongo
+# or
+npm install @dotdo/redis
+```
+
+Configure your Durable Object bindings in `wrangler.toml`:
+
+```toml
+[durable_objects]
+bindings = [
+  { name = "DO", class_name = "CompatDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["CompatDO"]
+```
+
+## Quick Start
+
+Replace your existing imports and you're done:
+
+```typescript
+// Before: cloud-hosted service
+import { createClient } from '@supabase/supabase-js'
+
+// After: edge-native with DO-backed storage
+import { createClient } from '@dotdo/supabase'
+
+// Your code stays exactly the same
+const supabase = createClient(url, key)
+const { data } = await supabase.from('users').select('*')
+```
+
+For MongoDB:
+
+```typescript
+import { MongoClient } from '@dotdo/mongo'
+
+const client = new MongoClient('mongodb://...')
+const db = client.db('myapp')
+const users = await db.collection('users').find({ active: true }).toArray()
+```
+
+For Redis:
+
+```typescript
+import { Redis } from '@dotdo/redis'
+
+const redis = new Redis()
+await redis.set('key', 'value')
+const value = await redis.get('key')
+```
+
 ## The Full List
 
 ### Databases

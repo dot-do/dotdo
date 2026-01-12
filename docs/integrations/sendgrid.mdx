@@ -1,0 +1,595 @@
+---
+title: SendGrid
+description: Drop-in replacement for @sendgrid/mail with transactional email, templates, and exactly-once delivery guarantees.
+---
+
+# SendGrid
+
+Drop-in replacement for `@sendgrid/mail`. Same API, runs on Cloudflare Workers.
+
+```typescript
+// Before
+import sgMail from '@sendgrid/mail'
+
+// After
+import sgMail from '@dotdo/sendgrid'
+```
+
+Your existing SendGrid code works unchanged. No migration required.
+
+## Why sendgrid.do?
+
+| Feature | SendGrid | sendgrid.do |
+|---------|----------|-------------|
+| **API compatibility** | Native | 100% compatible |
+| **Runtime** | Node.js | Edge (300+ cities) |
+| **Cold start** | Variable | 0ms (V8 isolates) |
+| **Template storage** | SendGrid servers | DO SQLite |
+| **Exactly-once delivery** | No | Yes (idempotency keys) |
+| **Audit logs** | Separate product | Built-in temporal store |
+| **Outbox pattern** | DIY | Built-in transactions |
+
+## Features
+
+| Feature | Status |
+|---------|--------|
+| Single email send | Supported |
+| Multiple recipients | Supported |
+| Dynamic templates | Supported |
+| Personalizations | Supported |
+| Attachments | Supported |
+| Categories & custom args | Supported |
+| Scheduled sending | Supported |
+| Template CRUD | Supported |
+| Contact management | Supported |
+| Lists management | Supported |
+| Email statistics | Supported |
+| Exactly-once delivery | Supported |
+| Webhooks | Planned |
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/sendgrid
+```
+
+### Basic Usage
+
+```typescript
+import sgMail from '@dotdo/sendgrid'
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+
+await sgMail.send({
+  to: 'recipient@example.com',
+  from: 'sender@example.com',
+  subject: 'Hello from dotdo',
+  text: 'This is a test email.',
+  html: '<h1>Hello World</h1>',
+})
+```
+
+### Multiple Recipients
+
+```typescript
+await sgMail.send({
+  to: ['user1@example.com', 'user2@example.com'],
+  from: 'sender@example.com',
+  subject: 'Team Update',
+  html: '<p>Important announcement...</p>',
+})
+```
+
+### Send Multiple (Separate Emails)
+
+When you want each recipient to receive a separate email (not seeing other recipients):
+
+```typescript
+await sgMail.sendMultiple({
+  to: ['user1@example.com', 'user2@example.com'],
+  from: 'sender@example.com',
+  subject: 'Personal Message',
+  text: 'This goes to each recipient separately.',
+})
+```
+
+## Dynamic Templates
+
+Use SendGrid-style dynamic templates with Handlebars syntax.
+
+### Send with Template
+
+```typescript
+await sgMail.send({
+  to: 'user@example.com',
+  from: 'noreply@example.com',
+  templateId: 'd-xxxxxxxxxxxxx',
+  dynamicTemplateData: {
+    name: 'John',
+    orderNumber: '12345',
+    items: [
+      { name: 'Widget', quantity: 2, price: 19.99 },
+      { name: 'Gadget', quantity: 1, price: 49.99 },
+    ],
+  },
+})
+```
+
+### Personalizations
+
+Customize content per recipient within a single API call:
+
+```typescript
+await sgMail.send({
+  personalizations: [
+    {
+      to: [{ email: 'user1@example.com' }],
+      dynamicTemplateData: { name: 'Alice', discount: '10%' },
+    },
+    {
+      to: [{ email: 'user2@example.com' }],
+      dynamicTemplateData: { name: 'Bob', discount: '15%' },
+    },
+  ],
+  from: 'noreply@example.com',
+  templateId: 'd-welcome-offer',
+})
+```
+
+## Attachments
+
+```typescript
+await sgMail.send({
+  to: 'user@example.com',
+  from: 'billing@example.com',
+  subject: 'Your Invoice',
+  text: 'Please find your invoice attached.',
+  attachments: [
+    {
+      content: Buffer.from(pdfData).toString('base64'),
+      filename: 'invoice.pdf',
+      type: 'application/pdf',
+      disposition: 'attachment',
+    },
+    {
+      content: logoBase64,
+      filename: 'logo.png',
+      type: 'image/png',
+      disposition: 'inline',
+      contentId: 'logo',
+    },
+  ],
+})
+```
+
+Inline attachments can be referenced in HTML with `<img src="cid:logo">`.
+
+## Inbound - Local Development
+
+For local development and testing, use `sendgrid.do` as a drop-in replacement endpoint:
+
+```typescript
+import { SendGridClient } from '@dotdo/sendgrid'
+
+const client = new SendGridClient({
+  apiKey: 'your-api-key',
+  host: 'https://sendgrid.do', // Routes to your local DO
+})
+
+await client.mail.send({
+  to: 'test@example.com',
+  from: 'dev@example.com',
+  subject: 'Test Email',
+  text: 'Testing in development',
+})
+```
+
+Emails are captured locally in DO SQLite for inspection without hitting SendGrid servers.
+
+## Outbound - Production
+
+In production, connect to real SendGrid:
+
+```typescript
+import sgMail from '@dotdo/sendgrid'
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+// Default host: https://api.sendgrid.com
+
+await sgMail.send({
+  to: 'customer@example.com',
+  from: 'hello@yourcompany.com',
+  subject: 'Welcome!',
+  html: '<h1>Welcome to our platform</h1>',
+})
+```
+
+## Advanced Client
+
+For full API access beyond mail sending:
+
+```typescript
+import { SendGridClient } from '@dotdo/sendgrid'
+
+const client = new SendGridClient({ apiKey: 'SG.xxx' })
+
+// Mail
+await client.mail.send({ ... })
+await client.mail.sendMultiple({ ... })
+
+// Templates
+const template = await client.templates.create({
+  name: 'Welcome Email',
+  generation: 'dynamic',
+})
+await client.templates.createVersion(template.id, {
+  name: 'Version 1',
+  subject: 'Welcome {{name}}!',
+  html_content: '<h1>Hello {{name}}</h1>',
+  active: 1,
+})
+
+// Contacts
+await client.contacts.add([
+  { email: 'user@example.com', first_name: 'John' },
+])
+const { result } = await client.contacts.search({ query: 'email LIKE \'%@example.com\'' })
+
+// Lists
+const list = await client.lists.create({ name: 'Newsletter' })
+await client.lists.addContacts(list.id, ['contact-id-1', 'contact-id-2'])
+
+// Stats
+const stats = await client.stats.global({
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+  aggregated_by: 'day',
+})
+```
+
+## Template Management
+
+Manage templates locally with DO-backed storage:
+
+```typescript
+import { TemplateManager } from '@dotdo/sendgrid'
+
+const manager = new TemplateManager({
+  kv: env.TEMPLATES_KV, // or sql: ctx.storage.sql
+})
+
+// Create template
+const template = await manager.create({
+  name: 'Order Confirmation',
+  generation: 'dynamic',
+})
+
+// Create version
+await manager.createVersion(template.id, {
+  name: 'Version 1',
+  subject: 'Order #{{orderNumber}} Confirmed',
+  html_content: `
+    <h1>Thank you, {{name}}!</h1>
+    <p>Your order #{{orderNumber}} has been confirmed.</p>
+    <ul>
+      {{#each items}}
+        <li>{{name}} x {{quantity}}</li>
+      {{/each}}
+    </ul>
+  `,
+  active: 1,
+})
+
+// Render template
+const { subject, html, text } = await manager.render(template.id, {
+  name: 'John',
+  orderNumber: '12345',
+  items: [
+    { name: 'Widget', quantity: 2 },
+  ],
+})
+
+// Get template variables
+const variables = await manager.getVariables(template.id)
+// ['name', 'orderNumber', 'items']
+```
+
+## Durable Client
+
+For exactly-once delivery guarantees with idempotency:
+
+```typescript
+import { DurableSendGridClient } from '@dotdo/sendgrid'
+
+const client = new DurableSendGridClient({
+  apiKey: 'SG.xxx',
+  eventIdTtl: 24 * 60 * 60 * 1000, // 24 hours
+  maxBufferedEmails: 100,
+})
+
+// Idempotent send - safe to retry
+await client.mail.send({
+  to: 'user@example.com',
+  from: 'noreply@example.com',
+  subject: 'Order Confirmation',
+  text: 'Your order has been confirmed.',
+}, { idempotencyKey: 'order-123-confirmation' })
+
+// Check if already processed
+if (await client.isProcessed('order-123-confirmation')) {
+  console.log('Already sent')
+}
+
+// Transactional batch
+await client.transaction(async (tx) => {
+  await tx.queueEmail({ to: 'user1@example.com', from: 'noreply@example.com', subject: 'Update', text: '...' })
+  await tx.queueEmail({ to: 'user2@example.com', from: 'noreply@example.com', subject: 'Update', text: '...' })
+})
+await client.flush()
+
+// Email logs with time-travel
+const log = await client.getEmailLog('order-123-confirmation')
+const history = await client.getEmailStatusHistory('order-123-confirmation')
+// [{ status: 'queued', timestamp: ... }, { status: 'sent', timestamp: ... }]
+
+// Status updates from webhooks
+await client.updateEmailStatus('order-123-confirmation', 'delivered', {
+  timestamp: Date.now(),
+  provider_message_id: 'sg-msg-xxx',
+})
+```
+
+## Integration with Email Channels
+
+Use SendGrid with dotdo's email channel system for human-in-the-loop workflows:
+
+```typescript
+import { EmailChannel } from 'dotdo/channels/email'
+
+const email = new EmailChannel({
+  provider: 'sendgrid',
+  apiKey: process.env.SENDGRID_API_KEY,
+  from: 'approvals@yourcompany.com',
+  tracking: { opens: true },
+})
+
+// Send notification
+await email.send({
+  to: 'manager@example.com',
+  subject: 'Expense Report Submitted',
+  message: 'John submitted an expense report for $500.',
+})
+
+// Use with approval workflows
+import { renderApprovalEmail } from 'dotdo/channels/email'
+
+const { html, text } = renderApprovalEmail({
+  message: 'Please approve this expense report',
+  requestId: 'expense-123',
+  baseUrl: 'https://app.yourcompany.com',
+  metadata: {
+    amount: '$500',
+    submitter: 'John Smith',
+  },
+  returnBoth: true,
+})
+
+await sgMail.send({
+  to: 'approver@example.com',
+  from: 'approvals@yourcompany.com',
+  subject: 'Approval Required: Expense Report',
+  html,
+  text,
+})
+```
+
+## TypeScript Types
+
+Full TypeScript support with SendGrid-compatible types:
+
+```typescript
+import type {
+  // Mail types
+  MailDataRequired,
+  PersonalizationData,
+  AttachmentData,
+  EmailAddressInput,
+  ClientResponse,
+  ResponseError,
+
+  // Client types
+  SendGridClient,
+  SendGridClientConfig,
+  MailData,
+  MailSendResponse,
+  RequestOptions,
+
+  // Template types
+  Template,
+  TemplateVersion,
+  TemplateCreateParams,
+  TemplateVersionCreateParams,
+
+  // Contact types
+  Contact,
+  ContactCreateParams,
+  ContactSearchParams,
+  ContactList,
+
+  // Stats types
+  StatsParams,
+  EmailMetrics,
+  EmailStats,
+
+  // Durable types
+  DurableSendGridClient,
+  DurableSendOptions,
+  EmailLog,
+  EmailLogStatus,
+  EmailTransaction,
+} from '@dotdo/sendgrid'
+```
+
+## Error Handling
+
+```typescript
+import sgMail, { ResponseError, SendGridError } from '@dotdo/sendgrid'
+
+try {
+  await sgMail.send({
+    to: 'invalid',
+    from: 'sender@example.com',
+    subject: 'Test',
+  })
+} catch (error) {
+  if (error instanceof ResponseError) {
+    console.error('SendGrid error:', error.code, error.response.body.errors)
+  } else if (error instanceof SendGridError) {
+    console.error('API error:', error.statusCode, error.errors)
+  }
+}
+```
+
+## Migration from @sendgrid/mail
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @sendgrid/mail
+
+# Install
+npm install @dotdo/sendgrid
+```
+
+### Import Change
+
+```typescript
+// Before
+import sgMail from '@sendgrid/mail'
+
+// After
+import sgMail from '@dotdo/sendgrid'
+
+// Everything else stays the same
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+await sgMail.send({ ... })
+```
+
+### Using the Full Client
+
+```typescript
+// Before: @sendgrid/client
+import client from '@sendgrid/client'
+client.setApiKey(process.env.SENDGRID_API_KEY)
+
+// After: @dotdo/sendgrid
+import { SendGridClient } from '@dotdo/sendgrid'
+const client = new SendGridClient({ apiKey: process.env.SENDGRID_API_KEY })
+
+// Similar API patterns
+await client.mail.send({ ... })
+await client.templates.list()
+await client.contacts.search({ query: '...' })
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   sgMail.send(data)                          │
+│              DurableSendGridClient.mail.send()               │
+└─────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌──────────────────────────┐    ┌──────────────────────────┐
+│    Development Mode       │    │    Production Mode        │
+│   host: sendgrid.do       │    │   host: api.sendgrid.com  │
+│                           │    │                           │
+│   ┌───────────────────┐  │    │   Real SendGrid API       │
+│   │    Durable Object  │  │    │   Emails delivered        │
+│   │    SQLite Storage  │  │    │   Webhooks enabled        │
+│   │                    │  │    │                           │
+│   │  - Email logs      │  │    └──────────────────────────┘
+│   │  - Templates       │  │
+│   │  - Deduplication   │  │
+│   │  - Audit trail     │  │
+│   └───────────────────┘  │
+└──────────────────────────┘
+```
+
+## Common Patterns
+
+### Welcome Email Flow
+
+```typescript
+import sgMail from '@dotdo/sendgrid'
+
+async function sendWelcomeEmail(user: { email: string; name: string }) {
+  await sgMail.send({
+    to: user.email,
+    from: 'welcome@yourapp.com',
+    templateId: 'd-welcome-template',
+    dynamicTemplateData: {
+      name: user.name,
+      loginUrl: 'https://yourapp.com/login',
+    },
+  })
+}
+```
+
+### Transactional Notifications
+
+```typescript
+import { DurableSendGridClient } from '@dotdo/sendgrid'
+
+const client = new DurableSendGridClient({ apiKey: process.env.SENDGRID_API_KEY })
+
+async function sendOrderConfirmation(order: Order) {
+  await client.mail.send({
+    to: order.customerEmail,
+    from: 'orders@yourstore.com',
+    templateId: 'd-order-confirmation',
+    dynamicTemplateData: {
+      orderNumber: order.id,
+      items: order.items,
+      total: order.total,
+    },
+  }, {
+    // Idempotent - safe to retry if webhook delivery uncertain
+    idempotencyKey: `order-${order.id}-confirmation`,
+  })
+}
+```
+
+### Batch Newsletter
+
+```typescript
+import { SendGridClient } from '@dotdo/sendgrid'
+
+const client = new SendGridClient({ apiKey: process.env.SENDGRID_API_KEY })
+
+async function sendNewsletter(subscribers: string[], content: { subject: string; html: string }) {
+  // Batch into chunks of 1000 (SendGrid limit)
+  const chunks = chunkArray(subscribers, 1000)
+
+  for (const chunk of chunks) {
+    await client.mail.send({
+      personalizations: chunk.map(email => ({ to: [{ email }] })),
+      from: 'newsletter@yourcompany.com',
+      subject: content.subject,
+      html: content.html,
+      categories: ['newsletter'],
+    })
+  }
+}
+```
+
+## Related
+
+- [Messaging SDKs](/docs/compat/messaging) - Email, SMS, and more
+- [Human Escalation](/docs/humans/escalation) - Email-based approval workflows
+- [Compat SDKs Overview](/docs/compat) - All API-compatible SDKs

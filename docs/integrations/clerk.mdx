@@ -1,0 +1,738 @@
+---
+title: Clerk
+description: Drop-in replacement for @clerk/clerk-sdk-node with full user, session, and organization management on Durable Objects.
+---
+
+# Clerk
+
+Drop-in replacement for `@clerk/clerk-sdk-node`. Same API, self-hosted on Durable Objects.
+
+```typescript
+// Before
+import { createClerkClient } from '@clerk/clerk-sdk-node'
+
+// After
+import { createClerkClient } from '@dotdo/clerk'
+```
+
+Your existing Clerk code works unchanged. No migration required.
+
+## Why clerk.do?
+
+| Feature | Clerk | clerk.do |
+|---------|-------|----------|
+| **Pricing** | Per-MAU ($0.02-0.05/MAU) | Flat resource pricing |
+| **User limits** | 10K (Free), varies by plan | Unlimited |
+| **Session storage** | Clerk infrastructure | Your DO SQLite |
+| **Latency** | Single region | Edge (300+ cities) |
+| **Data residency** | US/EU regions | Your choice |
+| **Self-hosted** | No | Yes |
+
+The math: 50,000 MAU on Clerk = $1,000-2,500/month. On dotdo, it's included.
+
+## Features
+
+| Feature | Status |
+|---------|--------|
+| User CRUD | Supported |
+| User metadata | Supported |
+| Email/phone verification | Supported |
+| Password management | Supported |
+| User banning/locking | Supported |
+| Sessions | Supported |
+| Session tokens (JWT) | Supported |
+| Token verification | Supported |
+| Organizations | Supported |
+| Organization memberships | Supported |
+| Organization invitations | Supported |
+| Roles & permissions | Supported |
+| JWT templates | Supported |
+| Webhooks | Supported |
+| MFA/TOTP | Supported |
+| OAuth providers | Planned |
+| SAML SSO | Planned |
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/clerk
+```
+
+### Create Client
+
+```typescript
+import { createClerkClient } from '@dotdo/clerk'
+
+const clerk = createClerkClient({
+  secretKey: 'sk_test_...',
+  publishableKey: 'pk_test_...',
+})
+```
+
+### User Management
+
+```typescript
+// Create a user
+const user = await clerk.users.createUser({
+  email_address: ['user@example.com'],
+  password: 'SecurePassword123!',
+  first_name: 'John',
+  last_name: 'Doe',
+  public_metadata: { plan: 'pro' },
+  private_metadata: { internal_id: 'usr_123' },
+})
+
+console.log(user.id) // user_abc123...
+
+// Get user by ID
+const fetchedUser = await clerk.users.getUser(user.id)
+
+// Update user
+const updated = await clerk.users.updateUser(user.id, {
+  first_name: 'Jane',
+  public_metadata: { plan: 'enterprise' },
+})
+
+// Delete user
+await clerk.users.deleteUser(user.id)
+```
+
+### List & Search Users
+
+```typescript
+// List users by email
+const { data: users } = await clerk.users.getUserList({
+  email_address: ['user@example.com'],
+})
+
+// List users by ID
+const { data: specific } = await clerk.users.getUserList({
+  user_id: ['user_abc', 'user_def'],
+})
+
+// Paginated list
+const { data, total_count } = await clerk.users.getUserList({
+  limit: 20,
+  offset: 0,
+  order_by: '-created_at',
+})
+```
+
+### Sessions
+
+```typescript
+// Create session for user
+const session = await clerk.sessions.createSession({
+  userId: user.id,
+})
+
+// Get session token (JWT)
+const { jwt } = await clerk.sessions.getToken(session.id)
+
+// Verify token
+const { userId, sessionId, claims } = await clerk.verifyToken(jwt, {
+  authorizedParties: ['https://myapp.com'],
+})
+
+// List user sessions
+const { data: sessions } = await clerk.sessions.getSessions({
+  userId: user.id,
+})
+
+// Revoke session
+await clerk.sessions.revokeSession(session.id)
+
+// Revoke all sessions except current
+await clerk.sessions.revokeSessions(user.id, {
+  exceptSessionId: currentSessionId,
+})
+```
+
+### Organizations
+
+```typescript
+// Create organization
+const org = await clerk.organizations.createOrganization({
+  name: 'Acme Inc',
+  slug: 'acme',
+  created_by: user.id,
+})
+
+// Add member
+const membership = await clerk.organizations.createOrganizationMembership({
+  organizationId: org.id,
+  userId: 'user_456',
+  role: 'member',
+})
+
+// Update member role
+await clerk.organizations.updateOrganizationMembership({
+  organizationId: org.id,
+  userId: 'user_456',
+  role: 'admin',
+})
+
+// Send invitation
+const invitation = await clerk.organizations.createOrganizationInvitation(org.id, {
+  email_address: 'newuser@example.com',
+  role: 'member',
+  inviter_user_id: user.id,
+})
+
+// List organization members
+const { data: members } = await clerk.organizations.getOrganizationMembershipList({
+  organizationId: org.id,
+})
+```
+
+### JWT Templates
+
+```typescript
+// Create JWT template for third-party integration
+const template = await clerk.jwtTemplates.createJWTTemplate({
+  name: 'supabase',
+  claims: {
+    role: 'authenticated',
+    aud: 'authenticated',
+  },
+  lifetime: 3600,
+})
+
+// Get session token with template
+const { jwt } = await clerk.sessions.getToken(session.id, 'supabase')
+```
+
+### User Verification
+
+```typescript
+// Create email verification
+const { verificationId, code } = await clerk.users.createEmailVerification(
+  user.id,
+  'user@example.com'
+)
+
+// In production, send the code via email
+// Then verify with the code user provides:
+const verifiedUser = await clerk.users.verifyEmail(user.id, code)
+
+// Phone verification works the same way
+const { verificationId: phoneVerificationId } = await clerk.users.createPhoneVerification(
+  user.id,
+  '+1234567890'
+)
+```
+
+### Password Management
+
+```typescript
+// Check password strength
+const strength = clerk.users.checkPasswordStrength('MyP@ssw0rd!')
+// { strength: 'strong', score: 6, warnings: [], suggestions: [] }
+
+// Update password
+await clerk.users.updatePassword(user.id, 'NewSecurePassword123!')
+
+// Password reset flow
+const { resetToken, expiresAt } = await clerk.users.resetPassword(user.id)
+// Send resetToken to user's email
+```
+
+### User Banning
+
+```typescript
+// Ban user
+const banned = await clerk.users.banUser(user.id, 'Violated terms of service')
+console.log(banned.banned) // true
+
+// Check ban status
+const { banned: isBanned, reason } = await clerk.users.isUserBanned(user.id)
+
+// Unban user
+await clerk.users.unbanUser(user.id)
+```
+
+### MFA/TOTP
+
+```typescript
+// Verify TOTP code
+const { verified } = await clerk.users.verifyTOTP({
+  userId: user.id,
+  code: '123456',
+})
+
+// Disable MFA for user
+await clerk.users.disableMFA(user.id)
+```
+
+## Inbound Compatibility
+
+Works with Clerk frontend libraries:
+
+```typescript
+// @clerk/nextjs - pages directory
+import { ClerkProvider } from '@clerk/nextjs'
+
+export default function App({ Component, pageProps }) {
+  return (
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      // Point to your clerk.do backend
+      backendUrl="https://clerk.your-domain.com"
+    >
+      <Component {...pageProps} />
+    </ClerkProvider>
+  )
+}
+```
+
+```typescript
+// @clerk/clerk-react
+import { ClerkProvider, SignIn, SignUp, UserButton } from '@clerk/clerk-react'
+
+function App() {
+  return (
+    <ClerkProvider publishableKey={publishableKey}>
+      <UserButton />
+    </ClerkProvider>
+  )
+}
+```
+
+### Webhook Handling
+
+```typescript
+import { Webhook, WebhookVerificationError } from '@dotdo/clerk'
+
+const webhook = new Webhook(process.env.CLERK_WEBHOOK_SECRET)
+
+app.post('/webhooks/clerk', async (req, res) => {
+  try {
+    const event = await webhook.verify(req.body, {
+      'svix-id': req.headers['svix-id'],
+      'svix-timestamp': req.headers['svix-timestamp'],
+      'svix-signature': req.headers['svix-signature'],
+    })
+
+    switch (event.type) {
+      case 'user.created':
+        await handleUserCreated(event.data)
+        break
+      case 'user.updated':
+        await handleUserUpdated(event.data)
+        break
+      case 'session.created':
+        await handleSessionCreated(event.data)
+        break
+      case 'organization.created':
+        await handleOrgCreated(event.data)
+        break
+    }
+
+    res.json({ received: true })
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) {
+      return res.status(400).json({ error: 'Invalid webhook signature' })
+    }
+    throw error
+  }
+})
+```
+
+## Outbound - Connecting to Real Clerk
+
+For hybrid setups where you want to use Clerk for some features:
+
+```typescript
+import { createClerkClient } from '@dotdo/clerk'
+
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+  // Enable outbound mode to proxy to real Clerk
+  outbound: {
+    enabled: true,
+    baseUrl: 'https://api.clerk.com',
+  },
+})
+
+// Requests are forwarded to Clerk's API
+const user = await clerk.users.getUser('user_123')
+```
+
+## Integration with dotdo Auth Middleware
+
+Connect clerk.do with dotdo's authentication middleware:
+
+```typescript
+import { authMiddleware, createSessionValidator } from '@dotdo/api/middleware/auth'
+import { createClerkClient } from '@dotdo/clerk'
+
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+})
+
+// Create a session validator using Clerk
+const validateClerkSession = async (token: string) => {
+  try {
+    const { userId, sessionId, claims } = await clerk.verifyToken(token)
+    const user = await clerk.users.getUser(userId)
+
+    return {
+      userId,
+      email: user.email_addresses[0]?.email_address,
+      role: user.public_metadata.role as 'admin' | 'user' ?? 'user',
+      expiresAt: new Date(claims.exp * 1000),
+      activeOrganizationId: claims.org_id,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Use with Hono middleware
+app.use('*', authMiddleware({
+  validateSession: validateClerkSession,
+  sessionCache: env.KV,
+  sessionCacheTtl: 300,
+}))
+
+// Protected routes
+app.get('/api/user', requireAuth(), async (c) => {
+  const auth = c.get('auth')
+  return c.json({ userId: auth.userId })
+})
+
+app.get('/api/admin', requireRole('admin'), async (c) => {
+  return c.json({ message: 'Admin only' })
+})
+```
+
+### Durable Object Integration
+
+For maximum performance, run clerk.do directly in your DO:
+
+```typescript
+import { DurableObject } from 'cloudflare:workers'
+import { createClerkClient } from '@dotdo/clerk'
+
+export class AuthDO extends DurableObject {
+  private clerk = createClerkClient({
+    secretKey: this.env.CLERK_SECRET_KEY,
+  })
+
+  async createUser(params: CreateUserParams) {
+    return this.clerk.users.createUser(params)
+  }
+
+  async verifySession(token: string) {
+    return this.clerk.verifyToken(token)
+  }
+
+  async getUserOrganizations(userId: string) {
+    const { data } = await this.clerk.organizations.getOrganizationMembershipList({
+      userId,
+    })
+    return data.map(m => m.organization)
+  }
+}
+```
+
+## TypeScript Types
+
+Full TypeScript support with Clerk-compatible types:
+
+```typescript
+import type {
+  // Client types
+  Clerk,
+  ClerkClientOptions,
+
+  // User types
+  ClerkUser,
+  ClerkEmailAddress,
+  ClerkPhoneNumber,
+  ClerkWeb3Wallet,
+  ClerkExternalAccount,
+  ClerkVerification,
+  CreateUserParams,
+  UpdateUserParams,
+
+  // Session types
+  ClerkSession,
+  ClerkSessionActor,
+  ClerkSessionClaims,
+
+  // Organization types
+  ClerkOrganization,
+  ClerkOrganizationMembership,
+  ClerkOrganizationInvitation,
+  ClerkOrganizationRole,
+  ClerkOrganizationPermission,
+  ClerkOrganizationDomain,
+  CreateOrganizationParams,
+  UpdateOrganizationParams,
+  CreateInvitationParams,
+
+  // JWT types
+  ClerkJWTTemplate,
+  CreateJWTTemplateParams,
+
+  // Response types
+  ClerkPaginatedList,
+  ClerkDeletedObject,
+
+  // Webhook types
+  ClerkWebhookEvent,
+  ClerkWebhookEventType,
+
+  // Error types
+  ClerkError,
+  ClerkErrorDetail,
+} from '@dotdo/clerk'
+
+import { ClerkAPIError } from '@dotdo/clerk'
+```
+
+## Error Handling
+
+```typescript
+import { ClerkAPIError } from '@dotdo/clerk'
+
+try {
+  await clerk.users.getUser('nonexistent')
+} catch (error) {
+  if (error instanceof ClerkAPIError) {
+    console.error('Status:', error.status)        // 404
+    console.error('Trace ID:', error.clerkTraceId)
+    console.error('Errors:', error.errors)
+    // [{ code: 'resource_not_found', message: 'User not found' }]
+  }
+}
+
+// Common error codes
+// - resource_not_found: User, session, or organization not found
+// - form_identifier_exists: Email, username, or phone already in use
+// - form_password_pwned: Password too weak
+// - session_not_active: Session is revoked or expired
+// - verification_failed: Invalid verification code
+// - verification_expired: Verification code expired
+```
+
+## Migration from Clerk
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @clerk/clerk-sdk-node @clerk/backend
+
+# Install
+npm install @dotdo/clerk
+```
+
+### Import Change
+
+```typescript
+// Before
+import { createClerkClient } from '@clerk/clerk-sdk-node'
+import { Webhook } from 'svix'
+
+// After
+import { createClerkClient, Webhook } from '@dotdo/clerk'
+```
+
+### Environment Variables
+
+```bash
+# Same environment variables work
+CLERK_SECRET_KEY=sk_test_...
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_WEBHOOK_SECRET=whsec_...
+```
+
+## Architecture
+
+Each tenant gets isolated user storage in Durable Objects:
+
+```
++-----------------------------------------------------------+
+|                      Client App                            |
+|            clerk.users.getUser(userId)                     |
++-----------------------------------------------------------+
+                            |
+                            v
++-----------------------------------------------------------+
+|                  Edge (Nearest Colo)                       |
+|                   0ms cold start                           |
++-----------------------------------------------------------+
+                            |
+                            v
++-----------------------------------------------------------+
+|                      Auth DO                               |
+|                                                            |
+|   +---------------------------------------------------+   |
+|   |                  SQLite State                      |   |
+|   |   - Users table (with indexes)                    |   |
+|   |   - Sessions table                                |   |
+|   |   - Organizations table                           |   |
+|   |   - Memberships table                             |   |
+|   |   - Invitations table                             |   |
+|   |   - JWT templates                                 |   |
+|   +---------------------------------------------------+   |
+|                                                            |
+|   +---------------------------------------------------+   |
+|   |              Temporal Store                        |   |
+|   |   - Session tokens with TTL                       |   |
+|   |   - Verification codes with expiry                |   |
+|   |   - Password reset tokens                         |   |
+|   +---------------------------------------------------+   |
++-----------------------------------------------------------+
+```
+
+Benefits over Clerk:
+- **Edge-native**: Auth checks at nearest location (300+ cities)
+- **No per-user fees**: Pay only for compute
+- **Data ownership**: Your data stays in your infrastructure
+- **Full API compatibility**: Drop-in replacement
+
+## Common Patterns
+
+### Multi-Tenant SaaS
+
+```typescript
+// Each organization is a tenant
+const org = await clerk.organizations.createOrganization({
+  name: tenantName,
+  created_by: adminUserId,
+})
+
+// Add members with roles
+await clerk.organizations.createOrganizationMembership({
+  organizationId: org.id,
+  userId: newUserId,
+  role: 'member',
+})
+
+// Check permissions in middleware
+app.use('/api/:orgId/*', async (c, next) => {
+  const auth = c.get('auth')
+  const orgId = c.req.param('orgId')
+
+  const { data: memberships } = await clerk.organizations.getOrganizationMembershipList({
+    userId: auth.userId,
+    organizationId: orgId,
+  })
+
+  if (memberships.length === 0) {
+    throw new HTTPException(403, { message: 'Not a member of this organization' })
+  }
+
+  c.set('membership', memberships[0])
+  return next()
+})
+```
+
+### Role-Based Access Control
+
+```typescript
+// Define roles with permissions
+await clerk.organizations.createOrganizationRole(org.id, {
+  name: 'Editor',
+  key: 'editor',
+  description: 'Can edit content',
+  permissions: ['content:read', 'content:write'],
+})
+
+await clerk.organizations.createOrganizationRole(org.id, {
+  name: 'Viewer',
+  key: 'viewer',
+  description: 'Read-only access',
+  permissions: ['content:read'],
+})
+
+// Check permissions
+const membership = await clerk.organizations.getOrganizationMembership({
+  organizationId: org.id,
+  userId: user.id,
+})
+
+if (membership.permissions.includes('content:write')) {
+  // Allow write access
+}
+```
+
+### Impersonation
+
+```typescript
+// Admin creates impersonation session
+const impersonationSession = await clerk.sessions.createSession({
+  userId: targetUserId,
+  actor: { sub: adminUserId },
+})
+
+// Verify impersonation in middleware
+const { claims } = await clerk.verifyToken(token)
+if (claims.act) {
+  console.log(`Impersonated by: ${claims.act.sub}`)
+}
+```
+
+## API Reference
+
+### ClerkClient
+
+| Method | Description |
+|--------|-------------|
+| `clerk.users.*` | User management API |
+| `clerk.sessions.*` | Session management API |
+| `clerk.organizations.*` | Organization management API |
+| `clerk.jwtTemplates.*` | JWT template management |
+| `clerk.verifyToken(token, options)` | Verify session token |
+
+### Users API
+
+| Method | Description |
+|--------|-------------|
+| `createUser(params)` | Create new user |
+| `getUser(userId)` | Get user by ID |
+| `getUserList(params)` | List/search users |
+| `updateUser(userId, params)` | Update user |
+| `deleteUser(userId)` | Delete user |
+| `banUser(userId, reason?)` | Ban user |
+| `unbanUser(userId)` | Unban user |
+| `lockUser(userId)` | Lock user account |
+| `unlockUser(userId)` | Unlock user account |
+| `verifyPassword(params)` | Verify user password |
+| `updatePassword(userId, password)` | Update password |
+
+### Sessions API
+
+| Method | Description |
+|--------|-------------|
+| `createSession(params)` | Create new session |
+| `getSession(sessionId)` | Get session by ID |
+| `getSessions(params)` | List sessions |
+| `getToken(sessionId, template?)` | Get session JWT |
+| `revokeSession(sessionId)` | Revoke session |
+| `revokeSessions(userId, options?)` | Revoke all user sessions |
+
+### Organizations API
+
+| Method | Description |
+|--------|-------------|
+| `createOrganization(params)` | Create organization |
+| `getOrganization(orgId)` | Get organization |
+| `updateOrganization(orgId, params)` | Update organization |
+| `deleteOrganization(orgId)` | Delete organization |
+| `createOrganizationMembership(params)` | Add member |
+| `updateOrganizationMembership(params)` | Update member role |
+| `deleteOrganizationMembership(params)` | Remove member |
+| `createOrganizationInvitation(orgId, params)` | Send invitation |
+| `revokeOrganizationInvitation(orgId, invitationId)` | Revoke invitation |
+
+## Related
+
+- [Auth0 Integration](/docs/integrations/auth0) - Auth0 compatibility layer
+- [API Middleware](/docs/api/middleware) - Request middleware including auth
+- [Security Authentication](/docs/security/authentication) - Authentication patterns

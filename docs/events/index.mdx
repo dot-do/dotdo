@@ -1,0 +1,74 @@
+---
+title: Events
+description: Event-driven architecture with Noun.verb patterns
+---
+
+# Events
+
+dotdo uses a Noun.verb pattern for natural, expressive event handling.
+
+## Event Handlers
+
+```typescript
+// Customer events
+$.on.Customer.signup(async (customer) => {
+  await sendWelcomeEmail(customer)
+  await notifySales(customer)
+})
+
+$.on.Customer.upgraded(async (customer, plan) => {
+  await updateBilling(customer, plan)
+})
+
+// Payment events
+$.on.Payment.succeeded(async (payment) => {
+  await fulfillOrder(payment.orderId)
+})
+
+$.on.Payment.failed(async (payment) => {
+  await notifyCustomer(payment.customerId)
+  await scheduleRetry(payment)
+})
+
+// Order events
+$.on.Order.placed(processOrder)
+$.on.Order.shipped(notifyCustomer)
+$.on.Order.delivered(requestReview)
+```
+
+## Emitting Events
+
+```typescript
+// Emit typed events
+$.emit.Customer.signup({ id, email, name })
+$.emit.Payment.succeeded({ id, amount, orderId })
+$.emit.Order.placed({ id, items, customerId })
+```
+
+## Event Patterns
+
+### Fan-out
+
+```typescript
+$.on.Order.placed([
+  updateInventory,
+  notifyWarehouse,
+  sendConfirmation,
+  updateAnalytics
+])
+```
+
+### Event Sourcing
+
+```typescript
+$.on.Account.*(async (event) => {
+  await eventStore.append(event)
+})
+```
+
+## Related
+
+- [Concepts: Events](/docs/concepts/events) - The 5W+H event model and domain events
+- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern
+- [SDK: Events](/docs/sdk/events) - Full event DSL reference
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - The $ proxy for event handlers

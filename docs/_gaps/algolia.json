@@ -1,0 +1,171 @@
+{
+  "integration": "algolia",
+  "package": "algoliasearch",
+  "compatPath": "compat/algolia",
+  "docsUrl": "https://www.algolia.com/doc/api-reference/api-methods/",
+  "timestamp": "2026-01-12T13:43:27.552Z",
+  "totalExpected": 28,
+  "totalFound": 6,
+  "coverage": 21,
+  "gaps": [
+    {
+      "name": "initIndex",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Get index",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "search",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Multi-index search",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "searchForFacetValues",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Facet search",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "multipleQueries",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Multiple queries",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "listIndices",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "List all indices",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "copyIndex",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Copy index",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "moveIndex",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Move index",
+      "parent": "SearchClient"
+    },
+    {
+      "name": "search",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Search index",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "saveObject",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Save object",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "saveObjects",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Save multiple objects",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "getObject",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Get object",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "getObjects",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Get multiple objects",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "deleteObject",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Delete object",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "deleteObjects",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Delete multiple objects",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "partialUpdateObject",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Partial update",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "partialUpdateObjects",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Partial update multiple",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "setSettings",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Set index settings",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "getSettings",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Get index settings",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "clearObjects",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Clear all objects",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "delete",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Delete index",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "browse",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Browse all objects",
+      "parent": "SearchIndex"
+    },
+    {
+      "name": "IndexSettings",
+      "type": "missing-type",
+      "severity": "P1",
+      "description": "Index settings"
+    }
+  ],
+  "p0Gaps": 7,
+  "p1Gaps": 9,
+  "p2Gaps": 6,
+  "missingMethods": 21,
+  "missingTypes": 1,
+  "missingClasses": 0
+}

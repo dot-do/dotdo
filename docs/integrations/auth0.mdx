@@ -1,0 +1,684 @@
+---
+title: Auth0
+description: Drop-in replacement for Auth0 SDKs with 100% API compatibility, self-hosted on Durable Objects.
+---
+
+# Auth0
+
+Drop-in replacement for Auth0's Node.js SDK. Your existing `auth0` code works unchanged - just swap the import.
+
+```typescript
+// Before: Auth0
+import { ManagementClient, AuthenticationClient } from 'auth0'
+
+// After: dotdo
+import { ManagementClient, AuthenticationClient } from '@dotdo/auth0'
+
+// Code stays the same
+const management = new ManagementClient({
+  domain: 'your-tenant.auth0.com',
+  clientId: 'your-client-id',
+  clientSecret: 'your-client-secret',
+})
+
+const user = await management.users.get({ id: 'user_123' })
+```
+
+## Why auth0.do?
+
+| Auth0 Cloud | auth0.do |
+|-------------|----------|
+| Per-MAU pricing ($23/1K MAU) | Flat resource pricing |
+| Single-region data residency | Edge-local in 300+ cities |
+| Vendor lock-in | Self-hosted, portable |
+| Rate-limited APIs | Unlimited API calls |
+| Separate auth infrastructure | Unified with your DO data |
+
+**This is a reimplementation.** Your auth data lives in Durable Object SQLite - not proxied to Auth0 servers. The domain and credentials are used for namespacing and JWT configuration.
+
+## Features
+
+### Implemented
+
+**ManagementClient**
+- `users.create()` / `users.get()` / `users.update()` / `users.delete()` - Full CRUD
+- `users.getByEmail()` - Find users by email
+- `users.getRoles()` / `users.assignRoles()` / `users.removeRoles()` - Role management
+- `users.getPermissions()` - Permission aggregation from roles
+- `users.getEnrollments()` / `users.deleteEnrollment()` - MFA management
+- `users.link()` / `users.unlink()` - Identity linking
+- `users.block()` / `users.unblock()` - User blocking
+- `connections.create()` / `connections.get()` / `connections.update()` / `connections.delete()`
+- `roles.create()` / `roles.get()` / `roles.update()` / `roles.delete()`
+- `roles.getPermissions()` / `roles.addPermissions()` / `roles.removePermissions()`
+- `clients.create()` / `clients.get()` / `clients.update()` / `clients.delete()`
+- `clients.rotateSecret()` - Rotate client secrets
+- `resourceServers.create()` / `resourceServers.get()` / `resourceServers.update()` / `resourceServers.delete()`
+- `organizations.*` - Full organization support with members, roles, connections, and invitations
+
+**AuthenticationClient**
+- `database.signUp()` - User registration
+- `database.changePassword()` - Password reset flow
+- `passwordless.start()` / `passwordless.verify()` - Email/SMS passwordless
+- `oauth.authorizationUrl()` - Build authorization URLs
+- `oauth.token()` - Token exchange (password, refresh_token, client_credentials)
+- `oauth.revokeToken()` - Token revocation
+- `oauth.userInfo()` - Get user info from access token
+- `mfa.challenge()` / `mfa.verify()` - MFA flows
+- `mfa.associate()` / `mfa.confirmAssociation()` - MFA enrollment
+
+### Not Yet Implemented
+
+- Custom database connections
+- Social connections (Google, GitHub, etc.) - use OAuth directly
+- SAML/WS-Federation
+- Anomaly detection
+- Breached password detection
+- Attack protection
+
+## Installation
+
+```bash
+npm install @dotdo/auth0
+```
+
+## Quick Start
+
+### User Management
+
+```typescript
+import { ManagementClient } from '@dotdo/auth0'
+
+const management = new ManagementClient({
+  domain: 'your-tenant.auth0.com',
+  clientId: 'your-client-id',
+  clientSecret: 'your-client-secret',
+})
+
+// Create a user
+const user = await management.users.create({
+  email: 'alice@example.com',
+  password: 'SecureP@ssw0rd!',
+  connection: 'Username-Password-Authentication',
+  name: 'Alice Smith',
+  user_metadata: {
+    preferences: { theme: 'dark' },
+  },
+})
+
+console.log(`Created user: ${user.user_id}`)
+
+// Get user by ID
+const fetchedUser = await management.users.get({ id: user.user_id })
+
+// Update user
+await management.users.update(
+  { id: user.user_id },
+  {
+    name: 'Alice Johnson',
+    user_metadata: { preferences: { theme: 'light' } },
+  }
+)
+
+// Find user by email
+const users = await management.users.getByEmail('alice@example.com')
+
+// Delete user
+await management.users.delete({ id: user.user_id })
+```
+
+### Authentication Flows
+
+```typescript
+import { AuthenticationClient } from '@dotdo/auth0'
+
+const auth = new AuthenticationClient({
+  domain: 'your-tenant.auth0.com',
+  clientId: 'your-client-id',
+  jwtSecret: 'your-jwt-secret',
+})
+
+// Sign up a new user
+const newUser = await auth.database.signUp({
+  client_id: 'your-client-id',
+  email: 'bob@example.com',
+  password: 'SecureP@ssw0rd!',
+  connection: 'Username-Password-Authentication',
+  name: 'Bob Wilson',
+})
+
+// Login with password grant
+const tokens = await auth.oauth.token({
+  grant_type: 'password',
+  client_id: 'your-client-id',
+  username: 'bob@example.com',
+  password: 'SecureP@ssw0rd!',
+  scope: 'openid profile email',
+})
+
+console.log('Access Token:', tokens.access_token)
+console.log('ID Token:', tokens.id_token)
+console.log('Refresh Token:', tokens.refresh_token)
+
+// Refresh tokens
+const refreshed = await auth.oauth.token({
+  grant_type: 'refresh_token',
+  client_id: 'your-client-id',
+  refresh_token: tokens.refresh_token,
+})
+
+// Get user info
+const userInfo = await auth.oauth.userInfo(tokens.access_token)
+console.log('User:', userInfo.email, userInfo.name)
+
+// Revoke token
+await auth.oauth.revokeToken({
+  client_id: 'your-client-id',
+  token: tokens.refresh_token,
+})
+```
+
+### Roles and Permissions
+
+```typescript
+import { ManagementClient } from '@dotdo/auth0'
+
+const management = new ManagementClient({
+  domain: 'your-tenant.auth0.com',
+  token: 'management-api-token',
+})
+
+// Create a role
+const adminRole = await management.roles.create({
+  name: 'admin',
+  description: 'Administrator with full access',
+})
+
+// Create a resource server (API)
+const api = await management.resourceServers.create({
+  name: 'My API',
+  identifier: 'https://api.example.com',
+  scopes: [
+    { value: 'read:users', description: 'Read user data' },
+    { value: 'write:users', description: 'Modify user data' },
+    { value: 'delete:users', description: 'Delete users' },
+  ],
+})
+
+// Add permissions to role
+await management.roles.addPermissions(
+  { id: adminRole.id },
+  {
+    permissions: [
+      { permission_name: 'read:users', resource_server_identifier: 'https://api.example.com' },
+      { permission_name: 'write:users', resource_server_identifier: 'https://api.example.com' },
+      { permission_name: 'delete:users', resource_server_identifier: 'https://api.example.com' },
+    ],
+  }
+)
+
+// Assign role to user
+await management.users.assignRoles(
+  { id: 'user_123' },
+  { roles: [adminRole.id] }
+)
+
+// Get user's effective permissions
+const permissions = await management.users.getPermissions({ id: 'user_123' })
+console.log('User permissions:', permissions.map(p => p.permission_name))
+// ['read:users', 'write:users', 'delete:users']
+```
+
+### MFA (Multi-Factor Authentication)
+
+```typescript
+import { AuthenticationClient } from '@dotdo/auth0'
+
+const auth = new AuthenticationClient({
+  domain: 'your-tenant.auth0.com',
+  jwtSecret: 'your-jwt-secret',
+})
+
+// Enroll TOTP authenticator
+const enrollment = await auth.mfa.associate({
+  client_id: 'your-client-id',
+  access_token: userAccessToken,
+  authenticator_types: ['otp'],
+})
+
+console.log('TOTP Secret:', enrollment.secret)
+console.log('QR Code URI:', enrollment.barcode_uri)
+
+// Confirm enrollment with first OTP
+await auth.mfa.confirmAssociation({
+  client_id: 'your-client-id',
+  access_token: userAccessToken,
+  factor_id: enrollment.factor_id,
+  otp: '123456', // From authenticator app
+})
+
+// During login - MFA challenge
+const challenge = await auth.mfa.challenge({
+  client_id: 'your-client-id',
+  mfa_token: mfaToken, // Returned when MFA is required
+  challenge_type: 'otp',
+})
+
+// Verify MFA
+const tokens = await auth.mfa.verify({
+  client_id: 'your-client-id',
+  mfa_token: mfaToken,
+  otp: '654321',
+})
+```
+
+### Passwordless Authentication
+
+```typescript
+import { AuthenticationClient } from '@dotdo/auth0'
+
+const auth = new AuthenticationClient({
+  domain: 'your-tenant.auth0.com',
+  jwtSecret: 'your-jwt-secret',
+})
+
+// Start passwordless flow (email)
+const { _id } = await auth.passwordless.start({
+  client_id: 'your-client-id',
+  connection: 'email',
+  email: 'user@example.com',
+  send: 'code',
+})
+
+// User receives code via email...
+
+// Verify code and get tokens
+const tokens = await auth.passwordless.verify({
+  client_id: 'your-client-id',
+  connection: 'email',
+  email: 'user@example.com',
+  verification_code: '123456',
+  scope: 'openid profile email',
+})
+```
+
+### Organizations (Multi-Tenancy)
+
+```typescript
+import { ManagementClient } from '@dotdo/auth0'
+
+const management = new ManagementClient({
+  domain: 'your-tenant.auth0.com',
+  token: 'management-api-token',
+})
+
+// Create an organization
+const org = await management.organizations.create({
+  name: 'acme-corp',
+  display_name: 'Acme Corporation',
+  branding: {
+    logo_url: 'https://acme.com/logo.png',
+    colors: {
+      primary: '#0066CC',
+      page_background: '#FFFFFF',
+    },
+  },
+  metadata: {
+    plan: 'enterprise',
+    seats: 100,
+  },
+})
+
+// Add members
+await management.organizations.addMembers(
+  { id: org.id },
+  { members: ['user_123', 'user_456'] }
+)
+
+// Assign roles to members
+await management.organizations.addMemberRoles(
+  { id: org.id, user_id: 'user_123' },
+  { roles: ['org_admin'] }
+)
+
+// Enable connections
+await management.organizations.addEnabledConnection(
+  { id: org.id },
+  {
+    connection_id: 'con_abc123',
+    assign_membership_on_login: true,
+  }
+)
+
+// Invite new members
+const invitation = await management.organizations.createInvitation(
+  { id: org.id },
+  {
+    inviter: { name: 'Admin' },
+    invitee: { email: 'newuser@example.com' },
+    client_id: 'your-client-id',
+    roles: ['org_member'],
+    ttl_sec: 604800, // 7 days
+  }
+)
+```
+
+## Inbound Compatibility (auth0.do as Auth Provider)
+
+Use auth0.do as a drop-in replacement for Auth0. Your frontend code works unchanged:
+
+```typescript
+// Using @auth0/auth0-react
+import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
+
+function App() {
+  return (
+    <Auth0Provider
+      domain="your-app.auth0.do" // Point to auth0.do
+      clientId="your-client-id"
+      authorizationParams={{
+        redirect_uri: window.location.origin,
+      }}
+    >
+      <MyApp />
+    </Auth0Provider>
+  )
+}
+
+function LoginButton() {
+  const { loginWithRedirect, logout, user, isAuthenticated } = useAuth0()
+
+  if (isAuthenticated) {
+    return (
+      <div>
+        <p>Welcome, {user?.name}!</p>
+        <button onClick={() => logout()}>Log out</button>
+      </div>
+    )
+  }
+
+  return <button onClick={() => loginWithRedirect()}>Log in</button>
+}
+```
+
+```typescript
+// Using @auth0/auth0-spa-js
+import { createAuth0Client } from '@auth0/auth0-spa-js'
+
+const auth0 = await createAuth0Client({
+  domain: 'your-app.auth0.do',
+  clientId: 'your-client-id',
+})
+
+await auth0.loginWithRedirect()
+const user = await auth0.getUser()
+const token = await auth0.getTokenSilently()
+```
+
+```typescript
+// Using @auth0/nextjs-auth0
+// pages/api/auth/[...auth0].ts
+import { handleAuth } from '@auth0/nextjs-auth0'
+
+export default handleAuth()
+
+// Configured via environment variables:
+// AUTH0_ISSUER_BASE_URL=https://your-app.auth0.do
+// AUTH0_CLIENT_ID=your-client-id
+// AUTH0_CLIENT_SECRET=your-client-secret
+```
+
+## Outbound - Connecting to Real Auth0
+
+If you need to proxy to an actual Auth0 tenant (hybrid mode):
+
+```typescript
+import { ManagementClient } from '@dotdo/auth0'
+
+const management = new ManagementClient({
+  domain: 'your-real-tenant.auth0.com',
+  clientId: env.AUTH0_CLIENT_ID,
+  clientSecret: env.AUTH0_CLIENT_SECRET,
+  // Enable proxy mode to forward requests to Auth0
+  proxyMode: true,
+})
+
+// Requests are forwarded to Auth0's API
+const user = await management.users.get({ id: 'auth0|123456' })
+```
+
+## Integration with dotdo Auth Middleware
+
+Use the Auth0 compat layer with dotdo's auth middleware for seamless authentication:
+
+```typescript
+import { Hono } from 'hono'
+import { authMiddleware, requireAuth } from '@dotdo/api/middleware/auth'
+import { AuthenticationClient } from '@dotdo/auth0'
+
+const app = new Hono()
+
+// Configure auth middleware with JWKS from auth0.do
+app.use('*', authMiddleware({
+  jwksUrl: 'https://your-app.auth0.do/.well-known/jwks.json',
+  publicPaths: ['/public', '/health'],
+}))
+
+// Protected routes
+app.get('/api/profile', requireAuth(), async (c) => {
+  const auth = c.get('auth')
+  return c.json({ userId: auth.userId, email: auth.email })
+})
+
+// Use AuthenticationClient for token operations
+const auth = new AuthenticationClient({
+  domain: 'your-app.auth0.do',
+  jwtSecret: env.JWT_SECRET,
+})
+
+app.post('/api/auth/token', async (c) => {
+  const body = await c.req.json()
+
+  const tokens = await auth.oauth.token({
+    grant_type: 'password',
+    client_id: body.client_id,
+    username: body.username,
+    password: body.password,
+  })
+
+  return c.json(tokens)
+})
+```
+
+## TypeScript Types
+
+Full TypeScript support with Auth0-compatible types:
+
+```typescript
+import type {
+  // User types
+  Auth0User,
+  Auth0Identity,
+  CreateUserParams,
+  UpdateUserParams,
+
+  // Connection types
+  Auth0Connection,
+  ConnectionOptions,
+  CreateConnectionParams,
+
+  // Role types
+  Auth0Role,
+  Auth0Permission,
+  CreateRoleParams,
+
+  // Client types
+  Auth0Client,
+  CreateClientParams,
+
+  // Resource server types
+  Auth0ResourceServer,
+  CreateResourceServerParams,
+
+  // Token types
+  TokenResponse,
+  AuthorizationParams,
+  TokenExchangeParams,
+
+  // Auth types
+  SignupParams,
+  ChangePasswordParams,
+  PasswordlessStartParams,
+  PasswordlessVerifyParams,
+
+  // MFA types
+  Auth0MFAEnrollment,
+  Auth0MFAChallenge,
+
+  // Organization types
+  Auth0Organization,
+  Auth0OrganizationMember,
+  Auth0OrganizationInvitation,
+  CreateOrganizationParams,
+
+  // Pagination types
+  PaginationParams,
+  PaginatedResponse,
+} from '@dotdo/auth0'
+
+// Error class
+import { Auth0APIError } from '@dotdo/auth0'
+
+try {
+  await management.users.get({ id: 'invalid' })
+} catch (error) {
+  if (error instanceof Auth0APIError) {
+    console.error(`${error.statusCode}: ${error.message}`)
+    // 404: User not found: invalid
+  }
+}
+```
+
+## Architecture
+
+Auth data is stored in Durable Object SQLite with the shared auth primitives:
+
+```
++----------------------------------------------------------+
+|          ManagementClient / AuthenticationClient          |
++----------------------------------------------------------+
+                            |
+                            v
++----------------------------------------------------------+
+|                   Shared Auth Layer                       |
+|  +------------------+  +------------------+               |
+|  |   UserManager    |  |  SessionManager  |               |
+|  |  - CRUD users    |  |  - JWT tokens    |               |
+|  |  - Passwords     |  |  - Sessions      |               |
+|  |  - Identities    |  |  - Refresh       |               |
+|  +------------------+  +------------------+               |
+|  +------------------+  +------------------+               |
+|  |   MFAManager     |  |  OAuthManager    |               |
+|  |  - TOTP          |  |  - Grants        |               |
+|  |  - Email/SMS OTP |  |  - PKCE          |               |
+|  |  - Recovery      |  |  - Revocation    |               |
+|  +------------------+  +------------------+               |
++----------------------------------------------------------+
+                            |
+                            v
++----------------------------------------------------------+
+|              Durable Object (DO)                          |
+|  +----------------------------------------------------+  |
+|  |                    SQLite                           |  |
+|  |  - users, sessions, mfa_factors                     |  |
+|  |  - roles, permissions, connections                  |  |
+|  |  - organizations, members, invitations              |  |
+|  +----------------------------------------------------+  |
++----------------------------------------------------------+
+```
+
+## Migration from Auth0
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall auth0
+
+# Install
+npm install @dotdo/auth0
+```
+
+### Import Change
+
+```typescript
+// Before
+import { ManagementClient, AuthenticationClient } from 'auth0'
+
+// After
+import { ManagementClient, AuthenticationClient } from '@dotdo/auth0'
+```
+
+### Data Migration
+
+Export users from Auth0 and import to auth0.do:
+
+```typescript
+import { ManagementClient as Auth0Client } from 'auth0'
+import { ManagementClient as DotdoClient } from '@dotdo/auth0'
+
+// Source: Auth0
+const auth0 = new Auth0Client({
+  domain: 'your-tenant.auth0.com',
+  clientId: process.env.AUTH0_CLIENT_ID,
+  clientSecret: process.env.AUTH0_CLIENT_SECRET,
+})
+
+// Destination: dotdo
+const dotdo = new DotdoClient({
+  domain: 'your-app.auth0.do',
+  clientId: 'local-client-id',
+  clientSecret: 'local-client-secret',
+})
+
+// Migrate users
+const users = await auth0.users.getAll()
+
+for (const user of users) {
+  await dotdo.users.create({
+    email: user.email,
+    connection: 'Username-Password-Authentication',
+    name: user.name,
+    user_metadata: user.user_metadata,
+    app_metadata: user.app_metadata,
+    email_verified: user.email_verified,
+    // Note: Passwords can't be migrated - users need to reset
+  })
+}
+```
+
+## Limitations
+
+What's different from Auth0 Cloud:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| User management | Full | CRUD, metadata, blocking |
+| Password auth | Full | Signup, login, reset |
+| JWT tokens | Full | HS256, RS256 support |
+| Refresh tokens | Full | Rotation, revocation |
+| MFA (TOTP) | Full | Enrollment, verification |
+| MFA (Email/SMS) | Full | OTP delivery (bring your own transport) |
+| Roles & Permissions | Full | RBAC with inheritance |
+| Organizations | Full | Multi-tenancy support |
+| Social connections | Not implemented | Use OAuth directly |
+| SAML | Not implemented | |
+| Custom database | Not implemented | |
+| Anomaly detection | Not implemented | |
+| Breached passwords | Not implemented | |
+
+## Related
+
+- [Authentication Overview](/docs/security/authentication) - dotdo auth concepts
+- [Authorization](/docs/security/authorization) - Permission systems
+- [Clerk Integration](/docs/integrations/clerk) - Alternative auth provider

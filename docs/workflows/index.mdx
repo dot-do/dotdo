@@ -1,0 +1,65 @@
+---
+title: Workflows
+description: Durable workflow orchestration with the $ context DSL
+---
+
+# Workflows
+
+dotdo workflows provide durable execution with automatic retries, scheduling, and cross-DO communication.
+
+## The $ Context DSL
+
+The `$` context provides three durability levels:
+
+```typescript
+// Fire-and-forget
+$.send(event)
+
+// Single attempt
+$.try(action)
+
+// Durable with retries
+$.do(action)
+```
+
+## Scheduling
+
+### Recurring Schedules
+
+```typescript
+// Every hour
+$.every.hour(handler)
+
+// Specific day and time
+$.every.monday.at('9am')(handler)
+
+// Custom intervals
+$.every(5).minutes(handler)
+```
+
+### One-time Scheduling
+
+```typescript
+// Delay execution
+$.after(30).seconds(handler)
+
+// Schedule for specific time
+$.at('2024-12-25T00:00:00Z')(handler)
+```
+
+## Cross-DO Communication
+
+```typescript
+// Call methods on other Durable Objects
+await $.Customer(id).notify()
+await $.Order(orderId).process()
+
+// Broadcast to multiple DOs
+await $.broadcast('inventory-update', { sku, quantity })
+```
+
+## Related
+
+- [SDK: WorkflowContext](/docs/sdk/workflow-context) - Full $ API reference
+- [Concepts: Events](/docs/concepts/events) - Event-driven architecture
+- [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern

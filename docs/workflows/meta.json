@@ -1,0 +1,5 @@
+{
+  "root": true,
+  "title": "Workflows",
+  "description": "Durable workflow orchestration with the $ context DSL"
+}

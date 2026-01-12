@@ -1,0 +1,74 @@
+---
+title: Functions
+description: Serverless function primitives and execution patterns
+---
+
+# Functions
+
+dotdo provides multiple function execution patterns for different use cases.
+
+## Function Types
+
+### Code Functions
+Standard TypeScript functions executed in V8 isolates:
+
+```typescript
+import { CodeFunction } from 'dotdo'
+
+export const calculateTotal = CodeFunction({
+  input: { items: 'CartItem[]' },
+  output: 'number',
+  handler: async ({ items }) => {
+    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  }
+})
+```
+
+### Generative Functions
+AI-powered functions using language models:
+
+```typescript
+import { GenerativeFunction } from 'dotdo'
+
+export const summarize = GenerativeFunction({
+  input: { text: 'string' },
+  output: 'string',
+  prompt: 'Summarize the following text in 2-3 sentences: {{text}}'
+})
+```
+
+### Agentic Functions
+Functions that leverage AI agents for complex tasks:
+
+```typescript
+import { AgenticFunction } from 'dotdo'
+import { ralph } from 'agents.do'
+
+export const buildFeature = AgenticFunction({
+  agent: ralph,
+  input: { spec: 'string' },
+  output: 'Code'
+})
+```
+
+### Human Functions
+Functions that require human input or approval:
+
+```typescript
+import { HumanFunction } from 'dotdo'
+import { ceo } from 'humans.do'
+
+export const approveContract = HumanFunction({
+  role: ceo,
+  input: { contract: 'Contract' },
+  output: 'boolean',
+  sla: '4 hours'
+})
+```
+
+## Related
+
+- [Concepts: Functions](/docs/concepts/functions) - Function types and cascade patterns
+- [SDK: Functions](/docs/sdk/functions) - DOFunction type reference
+- [Agents](/docs/agents) - AI agents for agentic functions
+- [Humans](/docs/humans) - Human-in-the-loop functions and escalation
