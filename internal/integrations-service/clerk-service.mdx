@@ -1,0 +1,582 @@
+---
+title: clerk.do
+description: Clerk on the Edge — A fully managed Clerk-compatible authentication service running on Cloudflare Workers with zero infrastructure.
+---
+
+# clerk.do
+
+**Clerk on the Edge** — A Clerk-compatible authentication service that runs entirely on Cloudflare Workers, with native edge deployment, organization management, and real-time session handling.
+
+```typescript
+import { ClerkClient } from 'clerk.do'
+
+const clerk = new ClerkClient('https://your-clerk.workers.dev')
+
+// It's just Clerk
+const user = await clerk.users.createUser({
+  email_address: ['alice@example.com'],
+  password: 'SecurePassword123!',
+  first_name: 'Alice',
+})
+
+const session = await clerk.sessions.createSession({ userId: user.id })
+const { jwt } = await clerk.sessions.getToken(session.id)
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/clerk](/docs/integrations/clerk/package) for a zero-dependency authentication SDK.
+</Callout>
+
+## Why clerk.do?
+
+Traditional authentication services require external infrastructure, have per-MAU pricing, and add network latency. clerk.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Auth at the edge, close to your users
+- **Clerk Compatible** — Drop-in replacement for `@clerk/clerk-sdk-node`
+- **Self-Hosted** — Full data ownership and compliance
+- **Predictable Pricing** — Pay for compute, not per-user
+
+## Cost Comparison
+
+| | Clerk | clerk.do |
+|---|-------|----------|
+| **50K MAU** | $1,000-2,500/mo | Included |
+| **100K MAU** | $2,000-5,000/mo | Included |
+| **500K MAU** | $10,000-25,000/mo | Included |
+
+clerk.do pricing is based on Cloudflare Workers compute usage, not per-user fees. For most applications, authentication costs become negligible.
+
+## Features
+
+### Core Authentication
+
+| Feature | Description |
+|---------|-------------|
+| **User Management** | Full CRUD with metadata, banning, locking |
+| **Sessions** | JWT-based with configurable lifetimes |
+| **Password Auth** | Secure hashing, strength validation, reset flows |
+| **Organizations** | Multi-tenant with memberships and invitations |
+| **Roles & Permissions** | Custom roles with granular permissions |
+| **JWT Templates** | Custom claims for third-party integrations |
+| **Webhooks** | Svix-compatible webhook delivery |
+| **MFA/TOTP** | Two-factor authentication |
+
+### Edge Advantages
+
+| Feature | Description |
+|---------|-------------|
+| **Global Edge** | Auth checks in 300+ cities worldwide |
+| **0ms Cold Starts** | Always-warm Durable Objects |
+| **SQLite Storage** | Persistent state per tenant |
+| **Data Residency** | Choose where your data lives |
+| **Self-Hosted** | Run on your own Cloudflare account |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **HTTP/RPC** | JSON-RPC over HTTP |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+| **Frontend SDKs** | Works with @clerk/nextjs, @clerk/clerk-react |
+
+## Installation
+
+```bash
+npm install clerk.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { ClerkEntrypoint, ClerkDatabase } from 'clerk.do'
+
+export { ClerkDatabase }
+export default ClerkEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-clerk-do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "CLERK_DATABASE", "class_name": "ClerkDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClerkDatabase"] }],
+  "vars": {
+    "CLERK_SECRET_KEY": "sk_live_...",
+    "CLERK_JWT_SECRET": "your-jwt-secret"
+  }
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Connect from Your App
+
+```typescript
+import { ClerkClient } from 'clerk.do'
+
+const clerk = new ClerkClient('https://your-clerk.workers.dev', {
+  secretKey: process.env.CLERK_SECRET_KEY,
+})
+
+// Create user
+const user = await clerk.users.createUser({
+  email_address: ['user@example.com'],
+  password: 'SecurePassword123!',
+})
+
+// Create session
+const session = await clerk.sessions.createSession({ userId: user.id })
+
+// Get JWT
+const { jwt } = await clerk.sessions.getToken(session.id)
+```
+
+## Examples
+
+### Multi-Tenant SaaS
+
+```typescript
+// Each organization is a tenant
+const org = await clerk.organizations.createOrganization({
+  name: tenantName,
+  created_by: adminUserId,
+})
+
+// Add members with roles
+await clerk.organizations.createOrganizationMembership({
+  organizationId: org.id,
+  userId: newUserId,
+  role: 'member',
+})
+
+// Check permissions in middleware
+app.use('/api/:orgId/*', async (c, next) => {
+  const auth = c.get('auth')
+  const orgId = c.req.param('orgId')
+
+  const { data: memberships } = await clerk.organizations.getOrganizationMembershipList({
+    userId: auth.userId,
+    organizationId: orgId,
+  })
+
+  if (memberships.length === 0) {
+    throw new HTTPException(403, { message: 'Not a member of this organization' })
+  }
+
+  c.set('membership', memberships[0])
+  return next()
+})
+```
+
+### Role-Based Access Control
+
+```typescript
+// Define custom roles with permissions
+await clerk.organizations.createOrganizationRole({
+  name: 'Editor',
+  key: 'editor',
+  description: 'Can edit content',
+  permissions: ['content:read', 'content:write'],
+})
+
+await clerk.organizations.createOrganizationRole({
+  name: 'Viewer',
+  key: 'viewer',
+  description: 'Read-only access',
+  permissions: ['content:read'],
+})
+
+// Check permissions in middleware
+const userMembership = memberships.find(m => m.public_user_data.user_id === user.id)
+
+if (userMembership?.permissions.includes('content:write')) {
+  // Allow write access
+}
+```
+
+### Integration with dotdo Auth Middleware
+
+```typescript
+import { authMiddleware, requireAuth, requireRole } from '@dotdo/api/middleware/auth'
+import { ClerkClient } from 'clerk.do'
+
+const clerk = new ClerkClient('https://your-clerk.workers.dev')
+
+// Create a session validator using Clerk
+const validateClerkSession = async (token: string) => {
+  try {
+    const { userId, sessionId, claims } = await clerk.verifyToken(token)
+    const user = await clerk.users.getUser(userId)
+
+    return {
+      userId,
+      email: user.email_addresses[0]?.email_address,
+      role: user.public_metadata.role as 'admin' | 'user' ?? 'user',
+      expiresAt: new Date(claims.exp * 1000),
+      activeOrganizationId: claims.org_id,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Use with Hono middleware
+app.use('*', authMiddleware({
+  validateSession: validateClerkSession,
+  sessionCache: env.KV,
+  sessionCacheTtl: 300,
+}))
+
+// Protected routes
+app.get('/api/user', requireAuth(), async (c) => {
+  const auth = c.get('auth')
+  return c.json({ userId: auth.userId })
+})
+
+app.get('/api/admin', requireRole('admin'), async (c) => {
+  return c.json({ message: 'Admin only' })
+})
+```
+
+### Durable Object Integration
+
+For maximum performance, run clerk.do directly in your DO:
+
+```typescript
+import { DurableObject } from 'cloudflare:workers'
+import { ClerkClient } from 'clerk.do'
+
+export class AuthDO extends DurableObject {
+  private clerk = new ClerkClient(this.env.CLERK_URL, {
+    secretKey: this.env.CLERK_SECRET_KEY,
+  })
+
+  async createUser(params: CreateUserParams) {
+    return this.clerk.users.createUser(params)
+  }
+
+  async verifySession(token: string) {
+    return this.clerk.verifyToken(token)
+  }
+
+  async getUserOrganizations(userId: string) {
+    const { data } = await this.clerk.organizations.getOrganizationMembershipList({
+      userId,
+    })
+    return data.map(m => m.organization)
+  }
+}
+```
+
+### Frontend SDK Compatibility
+
+Works with Clerk frontend libraries by pointing to your clerk.do backend:
+
+```typescript
+// @clerk/nextjs - pages directory
+import { ClerkProvider } from '@clerk/nextjs'
+
+export default function App({ Component, pageProps }) {
+  return (
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      // Point to your clerk.do backend
+      backendUrl="https://clerk.your-domain.com"
+    >
+      <Component {...pageProps} />
+    </ClerkProvider>
+  )
+}
+```
+
+```typescript
+// @clerk/clerk-react
+import { ClerkProvider, SignIn, SignUp, UserButton } from '@clerk/clerk-react'
+
+function App() {
+  return (
+    <ClerkProvider
+      publishableKey={publishableKey}
+      backendUrl="https://clerk.your-domain.com"
+    >
+      <UserButton />
+    </ClerkProvider>
+  )
+}
+```
+
+### Session Impersonation
+
+```typescript
+import { createSessionsManager } from 'clerk.do'
+
+// Using the sessions manager directly for advanced use cases
+const sessionsManager = createSessionsManager({
+  userManager,
+  jwtSecret: 'your-secret',
+})
+
+// Create impersonation session with actor
+const session = await sessionsManager.createSession({
+  userId: targetUserId,
+  actor: { sub: adminUserId },
+})
+
+// Verify impersonation in middleware
+const { claims } = await clerk.verifyToken(token)
+if (claims.act) {
+  console.log(`Impersonated by: ${claims.act.sub}`)
+}
+```
+
+### Hybrid Mode (Proxy to Real Clerk)
+
+For gradual migration or hybrid setups:
+
+```typescript
+import { ClerkClient } from 'clerk.do'
+
+const clerk = new ClerkClient('https://your-clerk.workers.dev', {
+  secretKey: process.env.CLERK_SECRET_KEY,
+  // Enable outbound mode to proxy to real Clerk
+  outbound: {
+    enabled: true,
+    baseUrl: 'https://api.clerk.com',
+  },
+})
+
+// Requests are forwarded to Clerk's API
+const user = await clerk.users.getUser('user_123')
+```
+
+## Architecture
+
+```
++-----------------------------------------------------------+
+|                      Client App                            |
+|  clerk.users.getUser() / @clerk/nextjs / @clerk/react     |
++-----------------------------------------------------------+
+                            |
+                            v
++-----------------------------------------------------------+
+|                  Edge (Nearest Colo)                       |
+|                   0ms cold start                           |
++-----------------------------------------------------------+
+                            |
+                            v
++-----------------------------------------------------------+
+|                      clerk.do Worker                       |
+|                                                            |
+|   +---------------------------------------------------+   |
+|   |                  SQLite State                      |   |
+|   |   - Users table (with indexes)                    |   |
+|   |   - Sessions table                                |   |
+|   |   - Organizations table                           |   |
+|   |   - Memberships table                             |   |
+|   |   - Invitations table                             |   |
+|   |   - JWT templates                                 |   |
+|   +---------------------------------------------------+   |
+|                                                            |
+|   +---------------------------------------------------+   |
+|   |              Temporal Store                        |   |
+|   |   - Session tokens with TTL                       |   |
+|   |   - Verification codes with expiry                |   |
+|   |   - Password reset tokens                         |   |
+|   +---------------------------------------------------+   |
++-----------------------------------------------------------+
+```
+
+Benefits over Clerk:
+- **Edge-native**: Auth checks at nearest location (300+ cities)
+- **No per-user fees**: Pay only for compute
+- **Data ownership**: Your data stays in your infrastructure
+- **Full API compatibility**: Drop-in replacement
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Required
+CLERK_SECRET_KEY=sk_live_...
+CLERK_JWT_SECRET=your-jwt-signing-secret
+
+# Optional
+CLERK_PUBLISHABLE_KEY=pk_live_...
+CLERK_WEBHOOK_SECRET=whsec_...
+CLERK_SESSION_LIFETIME=604800  # 7 days in seconds
+```
+
+### With KV Caching
+
+```jsonc
+{
+  "kv_namespaces": [
+    { "binding": "SESSION_CACHE", "id": "your-kv-namespace-id" }
+  ],
+  "vars": {
+    "SESSION_CACHE_TTL": "300"
+  }
+}
+```
+
+### With Analytics
+
+```jsonc
+{
+  "analytics_engine_datasets": [
+    { "binding": "AUTH_ANALYTICS" }
+  ]
+}
+```
+
+## Common Patterns
+
+### Email Verification Flow
+
+```typescript
+// 1. Create verification
+const { verificationId, code } = await clerk.users.createEmailVerification(
+  userId,
+  'user@example.com'
+)
+
+// 2. Send code via your email provider
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Verify your email',
+  body: `Your verification code is: ${code}`,
+})
+
+// 3. User submits code
+const verified = await clerk.users.verifyEmail(userId, userProvidedCode)
+```
+
+### Password Reset Flow
+
+```typescript
+// 1. Request reset
+const { resetToken, expiresAt } = await clerk.users.resetPassword(userId)
+
+// 2. Send reset link
+await sendEmail({
+  to: user.email,
+  subject: 'Reset your password',
+  body: `Reset your password: https://app.com/reset?token=${resetToken}`,
+})
+
+// 3. User submits new password
+await clerk.users.completePasswordReset(userId, resetToken, newPassword)
+```
+
+### Webhook Processing
+
+```typescript
+import { Webhook, WebhookVerificationError } from 'clerk.do'
+
+const webhook = new Webhook(process.env.CLERK_WEBHOOK_SECRET)
+
+app.post('/webhooks/clerk', async (req, res) => {
+  try {
+    const event = await webhook.verify(req.body, {
+      'svix-id': req.headers['svix-id'],
+      'svix-timestamp': req.headers['svix-timestamp'],
+      'svix-signature': req.headers['svix-signature'],
+    })
+
+    switch (event.type) {
+      case 'user.created':
+        await syncUserToDatabase(event.data)
+        break
+      case 'organization.membership.created':
+        await updateTeamAccess(event.data)
+        break
+    }
+
+    res.json({ received: true })
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) {
+      return res.status(400).json({ error: 'Invalid signature' })
+    }
+    throw error
+  }
+})
+```
+
+## Migration from Clerk
+
+### 1. Deploy clerk.do
+
+```bash
+npx wrangler deploy
+```
+
+### 2. Update Backend Imports
+
+```typescript
+// Before
+import { createClerkClient } from '@clerk/clerk-sdk-node'
+
+// After
+import { ClerkClient } from 'clerk.do'
+const clerk = new ClerkClient('https://your-clerk.workers.dev')
+```
+
+### 3. Update Frontend Config
+
+```typescript
+// Add backendUrl to point to clerk.do
+<ClerkProvider
+  publishableKey={publishableKey}
+  backendUrl="https://clerk.your-domain.com"
+>
+```
+
+### 4. Migrate Data
+
+```typescript
+// Export from Clerk, import to clerk.do
+const clerkUsers = await oldClerk.users.getUserList({ limit: 100 })
+
+for (const user of clerkUsers.data) {
+  await clerk.users.createUser({
+    id: user.id, // Preserve IDs
+    email_address: user.emailAddresses.map(e => e.emailAddress),
+    first_name: user.firstName,
+    last_name: user.lastName,
+    public_metadata: user.publicMetadata,
+    private_metadata: user.privateMetadata,
+  })
+}
+```
+
+## Development
+
+```bash
+# Local development with wrangler
+npx wrangler dev
+
+# Run tests
+npm test
+
+# Deploy
+npx wrangler deploy
+```
+
+## Related
+
+- [@dotdo/clerk](/docs/integrations/clerk/package) - In-memory Clerk for testing
+- [Auth0 Integration](/docs/integrations/auth0) - Auth0 compatibility layer
+- [API Middleware](/docs/api/middleware) - Request middleware including auth
+- [Security Authentication](/docs/security/authentication) - Authentication patterns

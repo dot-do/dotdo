@@ -1,0 +1,504 @@
+---
+title: ably.do
+description: Self-hosted Ably replacement on Cloudflare's edge — unlimited connections, zero per-message fees, 300+ global locations.
+---
+
+# ably.do
+
+**Ably on the Edge** — A drop-in Ably replacement that runs entirely on Cloudflare Workers, with unlimited connections, zero per-message fees, and global edge deployment.
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime('your-dotdo-key')
+const channel = ably.channels.get('notifications')
+
+// It's just Ably
+channel.subscribe('alert', (message) => {
+  console.log('Received:', message.data)
+})
+
+await channel.publish('alert', { text: 'Hello from the edge!' })
+```
+
+<Callout type="info">
+Looking to test with Ably Cloud first? See [@dotdo/ably](/docs/integrations/ably/package) for outbound mode that connects to Ably's infrastructure.
+</Callout>
+
+<Callout type="warn">
+**Roadmap Feature:** This integration is planned but not yet fully implemented. The API shown here represents the target design.
+</Callout>
+
+## Why ably.do?
+
+Traditional realtime services charge per-connection and per-message fees that scale unpredictably. ably.do eliminates this by running on Cloudflare's edge:
+
+- **Unlimited Connections** — No per-connection caps or fees
+- **Zero Message Fees** — Pay only for compute, not per message
+- **Global Edge** — Connections terminate at 300+ cities worldwide
+- **0ms Cold Starts** — V8 isolates boot instantly
+- **Self-Hosted** — Your data stays in your infrastructure
+- **Drop-in Replacement** — Same Ably API, no code changes
+
+## Cost Comparison
+
+| Scenario | Ably Cloud | ably.do |
+|----------|------------|---------|
+| 10,000 peak connections for 30 days | ~$450/month | Included |
+| 1 million messages/month | ~$2.50 | Included |
+| Per-connection fee | $0.0015/peak/day | None |
+| Per-message fee | $2.50/million | None |
+| Channels per app | 200 (Free tier) | Unlimited |
+| Message size limit | 64KB | 128KB |
+
+The math: At scale, ably.do can save 90%+ on realtime infrastructure costs.
+
+## Features
+
+### Core Realtime
+
+| Feature | Description |
+|---------|-------------|
+| **Realtime Channels** | Pub/sub messaging with automatic fan-out |
+| **Presence** | Track who's online with custom data |
+| **Message History** | Retrieve past messages with pagination |
+| **Channel Rewind** | Subscribe and replay historical messages |
+| **Connection Recovery** | Automatic reconnection with message continuity |
+| **REST API** | HTTP interface for server-side publishing |
+
+### Edge-Native
+
+| Feature | Description |
+|---------|-------------|
+| **Hibernatable WebSockets** | 0 CPU when idle, wake on message |
+| **Global Distribution** | 300+ edge locations worldwide |
+| **SQLite State** | Persistent storage per channel DO |
+| **0ms Cold Starts** | V8 isolates boot instantly |
+
+### Authentication
+
+| Feature | Description |
+|---------|-------------|
+| **API Keys** | Simple key-based authentication |
+| **Token Auth** | Short-lived tokens with capabilities |
+| **Custom Auth** | Integrate with your auth system |
+
+## Installation
+
+```bash
+npm install @dotdo/ably
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { AblyEntrypoint, AblyChannel } from '@dotdo/ably/do'
+
+export { AblyChannel }
+export default AblyEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-ably-do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "ABLY_CHANNEL", "class_name": "AblyChannel" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AblyChannel"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Connect from Client
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Realtime({
+  key: 'your-dotdo-key',
+  // Automatically routes to your DO infrastructure
+})
+
+const channel = ably.channels.get('my-channel')
+
+channel.subscribe('event', (message) => {
+  console.log('Received:', message.data)
+})
+
+await channel.publish('event', { hello: 'world' })
+```
+
+## Architecture
+
+Each channel is backed by a Durable Object with SQLite storage:
+
+```
++-------------------------------------------------------------+
+|                        Client                                |
+|           ably.channels.get('my-channel')                    |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                    Edge (Nearest Colo)                       |
+|              WebSocket terminates here                       |
+|                  0ms cold start                              |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                     Channel DO                               |
+|                                                              |
+|   +----------------------------------------------------+    |
+|   |               SQLite State                          |    |
+|   |   - Connection registry                             |    |
+|   |   - Presence members                                |    |
+|   |   - Message history                                 |    |
+|   |   - Channel metadata                                |    |
+|   +----------------------------------------------------+    |
+|                                                              |
+|   +----------------------------------------------------+    |
+|   |         Hibernatable WebSockets                     |    |
+|   |   - 0 CPU when idle                                 |    |
+|   |   - Wake on message                                 |    |
+|   |   - Unlimited connections                           |    |
+|   +----------------------------------------------------+    |
++-------------------------------------------------------------+
+```
+
+Benefits over Ably Cloud:
+- **Edge-native** - Connections terminate at nearest location (300+ cities)
+- **No connection limits** - Durable Objects scale horizontally
+- **No per-message fees** - Pay only for compute
+- **Self-hosted** - Your data stays in your infrastructure
+
+## Examples
+
+### Real-Time Chat
+
+```typescript
+const channel = ably.channels.get('chat-room')
+
+// Enter presence
+await channel.presence.enter({
+  name: currentUser.name,
+  avatar: currentUser.avatar,
+})
+
+// Subscribe to presence
+channel.presence.subscribe((member) => {
+  if (member.action === 'enter') {
+    addUserToList(member)
+  } else if (member.action === 'leave') {
+    removeUserFromList(member)
+  }
+})
+
+// Subscribe to messages
+channel.subscribe('message', (msg) => {
+  displayMessage(msg.data)
+})
+
+// Send message
+channel.publish('message', {
+  user: currentUser.name,
+  text: 'Hello!',
+  timestamp: Date.now(),
+})
+```
+
+### Live Notifications
+
+```typescript
+// Client subscribes to user-specific channel
+const channel = ably.channels.get(`notifications:${userId}`)
+
+channel.subscribe('notification', (msg) => {
+  showNotification(msg.data.title, msg.data.body)
+})
+
+// Server triggers notification
+const channel = ably.channels.get(`notifications:${userId}`)
+await channel.publish('notification', {
+  title: 'New message',
+  body: 'You have a new message from Alice',
+})
+```
+
+### Collaborative Editing
+
+```typescript
+const channel = ably.channels.get('document:doc-123')
+
+// Track presence with cursor position
+await channel.presence.enter({
+  user: currentUser,
+  cursor: { x: 0, y: 0 },
+})
+
+// Update cursor position
+document.addEventListener('mousemove', throttle((e) => {
+  channel.presence.update({
+    user: currentUser,
+    cursor: { x: e.clientX, y: e.clientY },
+  })
+}, 50))
+
+// Subscribe to document changes
+channel.subscribe('change', (msg) => {
+  applyChange(msg.data)
+})
+
+// Subscribe to other cursors
+channel.presence.subscribe('update', (member) => {
+  if (member.clientId !== currentUser.id) {
+    updateCursor(member.clientId, member.data.cursor)
+  }
+})
+```
+
+### Live Dashboard
+
+```typescript
+// Server publishes metrics
+setInterval(async () => {
+  const metrics = await collectMetrics()
+  await channel.publish('metrics', {
+    cpu: metrics.cpu,
+    memory: metrics.memory,
+    requests: metrics.requests,
+    timestamp: Date.now(),
+  })
+}, 1000)
+
+// Client renders live charts
+channel.subscribe('metrics', (msg) => {
+  updateChart('cpu', msg.data.cpu)
+  updateChart('memory', msg.data.memory)
+  updateChart('requests', msg.data.requests)
+})
+```
+
+### Multiplayer Game State
+
+```typescript
+const channel = ably.channels.get(`game:${gameId}`)
+
+// Enter game with player data
+await channel.presence.enter({
+  playerId: player.id,
+  position: { x: 0, y: 0 },
+  health: 100,
+})
+
+// Broadcast player actions
+channel.publish('action', {
+  playerId: player.id,
+  type: 'move',
+  direction: 'north',
+})
+
+// Subscribe to all player actions
+channel.subscribe('action', (msg) => {
+  gameEngine.processAction(msg.data)
+})
+
+// Track all players via presence
+channel.presence.subscribe((member) => {
+  gameEngine.updatePlayer(member.clientId, member.data)
+})
+```
+
+## Configuration
+
+### Basic Configuration
+
+```typescript
+const ably = new Ably.Realtime({
+  key: 'your-dotdo-key',
+})
+```
+
+### With Auto-Reconnect
+
+```typescript
+const ably = new Ably.Realtime({
+  key: 'your-dotdo-key',
+  autoConnect: true,
+  disconnectedRetryTimeout: 15000,
+  suspendedRetryTimeout: 30000,
+})
+```
+
+### Server-Side (REST)
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Rest({
+  key: 'your-dotdo-key',
+})
+
+// Publish without maintaining connection
+const channel = ably.channels.get('notifications')
+await channel.publish('alert', { message: 'Server notification' })
+```
+
+### Direct DO Binding
+
+For Workers connecting to the same account:
+
+```typescript
+const ably = new Ably.Realtime({
+  key: 'my-key',
+  doNamespace: env.ABLY_CHANNEL, // DO binding
+})
+
+// Zero-latency RPC to DO
+await channel.publish('event', data)
+```
+
+## Token Authentication
+
+### Server-Side Token Generation
+
+```typescript
+import Ably from '@dotdo/ably'
+
+const ably = new Ably.Rest('your-dotdo-key')
+
+app.post('/api/ably/auth', async (req, res) => {
+  const tokenParams = {
+    clientId: req.user.id,
+    capability: {
+      'chat:*': ['publish', 'subscribe', 'presence'],
+      'notifications:*': ['subscribe'],
+    },
+    ttl: 3600000, // 1 hour
+  }
+
+  const tokenRequest = await ably.auth.createTokenRequest(tokenParams)
+  res.json(tokenRequest)
+})
+```
+
+### Client-Side Token Usage
+
+```typescript
+const ably = new Ably.Realtime({
+  authUrl: '/api/ably/auth',
+  authMethod: 'POST',
+})
+
+// Token automatically refreshed before expiry
+```
+
+## Scaling Characteristics
+
+| Metric | Capability |
+|--------|------------|
+| Connections per channel | Unlimited (DO scales horizontally) |
+| Messages per second | ~100k per channel (DO limit) |
+| Message size | 128KB |
+| History retention | Configurable (DO SQLite) |
+| Presence members | Unlimited |
+| Channels | Unlimited |
+
+## Monitoring
+
+### Connection Events
+
+```typescript
+ably.connection.on((stateChange) => {
+  metrics.gauge('ably.connection.state', stateChange.current)
+
+  if (stateChange.reason) {
+    metrics.increment('ably.connection.errors', {
+      code: stateChange.reason.code,
+    })
+  }
+})
+```
+
+### Channel Metrics
+
+```typescript
+channel.on((stateChange) => {
+  metrics.gauge('ably.channel.state', {
+    channel: channel.name,
+    state: stateChange.current,
+  })
+})
+```
+
+## Feature Roadmap
+
+| Feature | Status |
+|---------|--------|
+| Realtime channels | Supported |
+| Presence | Supported |
+| Message history | Supported |
+| Connection state management | Supported |
+| Channel attach/detach | Supported |
+| Publish/subscribe | Supported |
+| REST API | Supported |
+| Token authentication | Supported |
+| Channel rewind | Supported |
+| Message ordering | Supported |
+| Push notifications | Planned |
+| Webhooks | Planned |
+| Delta compression | Planned |
+
+## Migration from Ably Cloud
+
+### 1. Install Package
+
+```bash
+npm uninstall ably
+npm install @dotdo/ably
+```
+
+### 2. Update Import
+
+```typescript
+// Before
+import Ably from 'ably'
+
+// After
+import Ably from '@dotdo/ably'
+```
+
+### 3. Deploy DO Infrastructure
+
+```bash
+npx wrangler deploy
+```
+
+### 4. Update API Key
+
+```typescript
+// Before: Ably Cloud
+const ably = new Ably.Realtime('your-ably-key')
+
+// After: ably.do
+const ably = new Ably.Realtime('your-dotdo-key')
+```
+
+Your application code stays the same. No other changes needed.
+
+## Related
+
+- [@dotdo/ably](/docs/integrations/ably/package) - OSS package with outbound mode
+- [Pusher Integration](/docs/integrations/pusher) - Pusher compat layer
+- [Realtime SDKs](/docs/compat/realtime) - All realtime integrations
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

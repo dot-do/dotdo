@@ -1,0 +1,453 @@
+---
+title: couchdb.do
+description: CouchDB on the Edge — A fully managed CouchDB-compatible database running on Cloudflare Workers with MapReduce views and real-time sync.
+---
+
+# couchdb.do
+
+**CouchDB on the Edge** — A CouchDB-compatible database that runs entirely on Cloudflare Workers, with MapReduce views, change feeds, and real-time sync capabilities.
+
+```typescript
+import { CouchDB } from 'couchdb.do'
+
+const db = new CouchDB('https://your-worker.workers.dev/mydb')
+
+// It's just CouchDB
+await db.put({ _id: 'doc1', type: 'post', title: 'Hello World' })
+const doc = await db.get('doc1')
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/couchdb](/docs/integrations/couchdb/package) for a zero-dependency document store.
+</Callout>
+
+## Why couchdb.do?
+
+Traditional CouchDB requires infrastructure management, Erlang expertise, and careful cluster configuration. couchdb.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Data lives at the edge, close to your users
+- **CouchDB Compatible** — Drop-in replacement for most CouchDB operations
+- **MapReduce Native** — Full support for JavaScript map/reduce views
+- **Real-time Sync** — Change feeds and replication built-in
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Database
+
+| Feature | Description |
+|---------|-------------|
+| **Document CRUD** | `put`, `get`, `remove`, `bulkDocs`, `allDocs` |
+| **MapReduce Views** | JavaScript map/reduce with compound keys, range queries, group levels |
+| **Built-in Reduces** | `_count`, `_sum`, `_stats` for common aggregations |
+| **Custom Reduces** | Write your own reduce functions with rereduce support |
+| **Design Documents** | Full design doc support with validation functions |
+| **Revision Tracking** | Automatic `_rev` management with conflict detection |
+
+### Real-time & Sync
+
+| Feature | Description |
+|---------|-------------|
+| **Change Feeds** | `_changes` endpoint with continuous, longpoll, and eventsource modes |
+| **Replication** | CouchDB-compatible replication protocol |
+| **PouchDB Sync** | Works with PouchDB for offline-first apps |
+| **WebSocket Updates** | Real-time document change notifications |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **HTTP API** | Full CouchDB REST API compatibility |
+| **Fauxton Support** | Use the CouchDB web interface |
+| **PouchDB Client** | Works with existing PouchDB applications |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install couchdb.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { CouchDoEntrypoint, CouchDoDatabase } from 'couchdb.do'
+
+export { CouchDoDatabase }
+export default CouchDoEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-couchdb.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "COUCHDO_DATABASE", "class_name": "CouchDoDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CouchDoDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx couchdb.do serve --port 5984
+
+# Connect with Fauxton
+open http://localhost:5984/_utils
+
+# Or use curl
+curl http://localhost:5984/mydb/_all_docs
+```
+
+## Examples
+
+### Document Operations
+
+```typescript
+import { CouchDB } from 'couchdb.do'
+
+const db = new CouchDB('https://your-worker.workers.dev/mydb')
+
+// Create document
+const result = await db.put({
+  _id: 'user:john',
+  type: 'user',
+  name: 'John Doe',
+  email: 'john@example.com'
+})
+console.log(result.rev) // '1-abc123...'
+
+// Get document
+const doc = await db.get('user:john')
+
+// Update document
+await db.put({
+  ...doc,
+  name: 'John Smith'
+})
+
+// Delete document
+await db.remove('user:john', doc._rev)
+```
+
+### MapReduce Views
+
+```typescript
+// Define views
+await db.putDesign('users', {
+  views: {
+    byType: {
+      map: `function(doc) {
+        if (doc.type) emit(doc.type, doc);
+      }`
+    },
+    byEmail: {
+      map: `function(doc) {
+        if (doc.email) emit(doc.email.toLowerCase(), doc.name);
+      }`
+    },
+    countByType: {
+      map: `function(doc) { emit(doc.type, 1); }`,
+      reduce: '_count'
+    }
+  }
+})
+
+// Query views
+const users = await db.view('users', 'byType', { key: 'user' })
+const counts = await db.view('users', 'countByType', { group: true })
+```
+
+### Compound Keys and Range Queries
+
+```typescript
+await db.putDesign('events', {
+  views: {
+    byDate: {
+      map: `function(doc) {
+        if (doc.type === 'event') {
+          emit([doc.year, doc.month, doc.day], doc);
+        }
+      }`
+    }
+  }
+})
+
+// Query events in 2024
+const events2024 = await db.view('events', 'byDate', {
+  startkey: [2024],
+  endkey: [2024, {}]
+})
+
+// Query January 2024
+const jan2024 = await db.view('events', 'byDate', {
+  startkey: [2024, 1],
+  endkey: [2024, 1, {}]
+})
+```
+
+### Change Feeds
+
+```typescript
+// Poll for changes
+const changes = await db.changes({
+  since: 'now',
+  include_docs: true
+})
+
+// Continuous feed (WebSocket/EventSource)
+const feed = db.changes({
+  feed: 'continuous',
+  include_docs: true,
+  since: 'now'
+})
+
+for await (const change of feed) {
+  console.log('Document changed:', change.id, change.doc)
+  await processChange(change)
+}
+```
+
+### Replication
+
+```typescript
+// One-time replication
+await db.replicate({
+  source: 'https://source.workers.dev/mydb',
+  target: 'https://target.workers.dev/mydb'
+})
+
+// Continuous replication
+const replication = await db.replicate({
+  source: 'https://source.workers.dev/mydb',
+  target: 'https://target.workers.dev/mydb',
+  continuous: true,
+  filter: 'mydesign/myfilter'
+})
+
+// Cancel replication
+await replication.cancel()
+```
+
+### PouchDB Integration
+
+```typescript
+import PouchDB from 'pouchdb'
+
+// Local database
+const localDB = new PouchDB('local-todos')
+
+// Remote couchdb.do database
+const remoteDB = new PouchDB('https://your-worker.workers.dev/todos')
+
+// Sync bidirectionally
+const sync = localDB.sync(remoteDB, {
+  live: true,
+  retry: true
+})
+
+sync.on('change', info => console.log('Synced:', info))
+sync.on('error', err => console.error('Sync error:', err))
+```
+
+### Aggregations with Group Levels
+
+```typescript
+await db.putDesign('sales', {
+  views: {
+    byDate: {
+      map: `function(doc) {
+        emit([doc.year, doc.month, doc.day], doc.amount);
+      }`,
+      reduce: '_sum'
+    }
+  }
+})
+
+// Total by year
+const byYear = await db.view('sales', 'byDate', { group_level: 1 })
+// [{ key: [2024], value: 150000 }, { key: [2025], value: 75000 }]
+
+// Total by month
+const byMonth = await db.view('sales', 'byDate', { group_level: 2 })
+// [{ key: [2024, 1], value: 12000 }, { key: [2024, 2], value: 15000 }, ...]
+
+// Total by day
+const byDay = await db.view('sales', 'byDate', { group: true })
+```
+
+### Validation Functions
+
+```typescript
+await db.putDesign('validation', {
+  validate_doc_update: `function(newDoc, oldDoc, userCtx) {
+    if (!newDoc._deleted) {
+      if (!newDoc.type) {
+        throw({ forbidden: 'Documents must have a type' });
+      }
+      if (newDoc.type === 'user' && !newDoc.email) {
+        throw({ forbidden: 'Users must have an email' });
+      }
+    }
+  }`
+})
+
+// This will throw a validation error
+await db.put({ _id: 'invalid', name: 'No type' })
+// Error: forbidden: Documents must have a type
+```
+
+## Architecture
+
+```
++-----------------------------------------------------------------------+
+|                        Client Applications                             |
++----------------+----------------+----------------+---------------------+
+|   HTTP API     |   PouchDB      |   Fauxton     |   Service Binding   |
+|   REST         |   Sync         |   Web UI      |   Worker-to-Worker  |
++----------------+----------------+----------------+---------------------+
+|                      couchdb.do Worker (Edge)                          |
++-----------------------------------------------------------------------+
+|  View Engine   |  Change Feed   |  Replication  |  Validation         |
+|  MapReduce     |  Continuous    |  Protocol     |  Functions          |
++-----------------------------------------------------------------------+
+|                   Durable Objects (SQLite Storage)                     |
++-----------------------------------------------------------------------+
+```
+
+couchdb.do translates CouchDB operations to SQLite at runtime:
+
+1. **View Engine** — Compiles JavaScript map/reduce to SQLite queries
+2. **Durable Object Storage** — Each database runs as an isolated Durable Object
+3. **Edge Execution** — Queries execute at the edge, close to your users
+4. **Change Tracking** — SQLite triggers track all document changes
+
+## Connectivity Options
+
+### HTTP API (CouchDB Compatible)
+
+```bash
+# Create document
+curl -X PUT https://your-worker.workers.dev/mydb/doc1 \
+  -H "Content-Type: application/json" \
+  -d '{"type": "post", "title": "Hello"}'
+
+# Get document
+curl https://your-worker.workers.dev/mydb/doc1
+
+# Query view
+curl 'https://your-worker.workers.dev/mydb/_design/posts/_view/byType?key="post"'
+
+# Changes feed
+curl 'https://your-worker.workers.dev/mydb/_changes?feed=longpoll&since=now'
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const doc = await env.COUCHDO.get('mydb', 'doc1')
+    return Response.json(doc)
+  }
+}
+```
+
+## Configuration
+
+### With Custom Views Engine
+
+```jsonc
+{
+  "vars": {
+    "VIEW_CACHE_TTL": "3600",
+    "MAX_VIEW_RESULTS": "10000"
+  }
+}
+```
+
+### With Replication
+
+```jsonc
+{
+  "vars": {
+    "REPLICATION_BATCH_SIZE": "100",
+    "REPLICATION_RETRY_DELAY": "5000"
+  }
+}
+```
+
+## Multi-Database Support
+
+```typescript
+import { CouchDB } from 'couchdb.do'
+
+// Multiple databases per worker
+const users = new CouchDB('https://your-worker.workers.dev/users')
+const posts = new CouchDB('https://your-worker.workers.dev/posts')
+const comments = new CouchDB('https://your-worker.workers.dev/comments')
+
+// Cross-database queries via application logic
+const user = await users.get('user:123')
+const userPosts = await posts.view('posts', 'byAuthor', { key: user._id })
+```
+
+## Offline-First with PouchDB
+
+Build offline-first applications that sync when connected:
+
+```typescript
+import PouchDB from 'pouchdb'
+
+// Create local database
+const local = new PouchDB('todos')
+
+// When online, sync with couchdb.do
+if (navigator.onLine) {
+  local.sync('https://your-worker.workers.dev/todos', {
+    live: true,
+    retry: true
+  })
+}
+
+// App works offline using local
+await local.put({ _id: 'todo:1', text: 'Buy milk', done: false })
+
+// Changes sync automatically when back online
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/couchdb](/docs/integrations/couchdb/package) - In-memory CouchDB for testing
+- [MongoDB Integration](/docs/integrations/mongo) - MongoDB compatibility
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

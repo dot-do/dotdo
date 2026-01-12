@@ -1,0 +1,421 @@
+---
+title: supabase.do
+description: Supabase on the Edge — A fully managed Supabase-compatible service running on Cloudflare Workers with automatic sharding and multi-region support.
+---
+
+# supabase.do
+
+**Supabase on the Edge** — A Supabase-compatible service that runs entirely on Cloudflare Workers, with native multi-tenant support, automatic sharding, and jurisdiction-aware data residency.
+
+```typescript
+import { createClient } from 'supabase.do'
+
+const supabase = createClient('https://your-worker.workers.dev', env.ANON_KEY)
+
+// It's just Supabase
+await supabase.from('users').insert({ name: 'Alice', email: 'alice@example.com' })
+const { data } = await supabase.from('users').select('*').eq('active', true)
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/supabase](/docs/integrations/supabase/package) for a zero-dependency SDK.
+</Callout>
+
+## Why supabase.do?
+
+Traditional Supabase requires managing your own project and dealing with single-region deployments. supabase.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** - No database to manage, no connection limits, no cold starts
+- **Global by Default** - Data lives at the edge, close to your users
+- **Supabase Compatible** - Drop-in replacement for most Supabase operations
+- **Multi-Tenant Native** - Built-in sharding with tenant isolation
+- **Jurisdiction Support** - EU, US, and FedRAMP data residency options
+- **Serverless Economics** - Pay only for what you use, scale to zero
+
+## Features
+
+### Core Database
+
+| Feature | Description |
+|---------|-------------|
+| **PostgREST API** | `select`, `insert`, `update`, `delete`, `upsert`, `rpc` |
+| **Query Filters** | All standard filters: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `is`, `in`, `contains`, `overlaps`, `textSearch` |
+| **Query Modifiers** | `order`, `limit`, `range`, `single`, `maybeSingle` |
+| **Joins** | Nested selects with foreign key relationships |
+| **Full-Text Search** | FTS5-powered `textSearch()` with ranking |
+
+### Authentication (GoTrue)
+
+| Feature | Description |
+|---------|-------------|
+| **Email/Password** | `signUp`, `signInWithPassword`, `signOut` |
+| **OAuth Providers** | GitHub, Google, Discord, Twitter, and more |
+| **Magic Links** | `signInWithOtp` for passwordless auth |
+| **MFA** | TOTP-based multi-factor authentication |
+| **Session Management** | `getSession`, `refreshSession`, `setSession` |
+| **User Management** | `getUser`, `updateUser`, `resetPasswordForEmail` |
+
+### Storage
+
+| Feature | Description |
+|---------|-------------|
+| **Bucket Management** | `createBucket`, `getBucket`, `listBuckets`, `deleteBucket` |
+| **File Operations** | `upload`, `download`, `move`, `copy`, `remove` |
+| **URLs** | `getPublicUrl`, `createSignedUrl`, `createSignedUrls` |
+| **Image Transforms** | Resize, format conversion, quality adjustment |
+| **R2 Backend** | Cloudflare R2 for cost-effective object storage |
+
+### Realtime
+
+| Feature | Description |
+|---------|-------------|
+| **Database Changes** | `postgres_changes` for INSERT, UPDATE, DELETE events |
+| **Broadcast** | Pub/sub messaging between clients |
+| **Presence** | Track online users with `track`, `untrack`, `presenceState` |
+| **WebSocket** | Persistent connections via Durable Objects |
+
+### Edge Functions
+
+| Feature | Description |
+|---------|-------------|
+| **Invoke** | `functions.invoke()` to call edge functions |
+| **Native Workers** | Functions run as Cloudflare Workers |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install supabase.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { SupabaseEntrypoint, SupabaseDO } from 'supabase.do'
+
+export { SupabaseDO }
+export default SupabaseEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-supabase",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SUPABASE_DATABASE", "class_name": "SupabaseDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SupabaseDO"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Connect from Your App
+
+```typescript
+import { createClient } from 'supabase.do'
+
+const supabase = createClient(
+  'https://your-supabase.workers.dev',
+  'your-anon-key'
+)
+
+// Query data
+const { data: users } = await supabase
+  .from('users')
+  .select('id, name, email')
+  .eq('active', true)
+  .order('created_at', { ascending: false })
+
+// Insert data
+const { data: newUser } = await supabase
+  .from('users')
+  .insert({ name: 'Alice', email: 'alice@example.com' })
+  .select()
+  .single()
+```
+
+## Examples
+
+### Multi-Tenant SaaS
+
+supabase.do has built-in support for multi-tenant applications with automatic sharding:
+
+```typescript
+import { createClient } from 'supabase.do'
+
+const supabase = createClient(
+  'https://your-project.workers.dev',
+  'anon-key',
+  {
+    // Shard by tenant for data isolation
+    shard: {
+      algorithm: 'consistent',
+      count: 16,
+      key: 'tenant_id',
+    },
+  }
+)
+
+// All queries automatically route to the correct shard
+const { data } = await supabase
+  .from('users')
+  .select('*')
+  .eq('tenant_id', 'acme-corp')
+```
+
+### Jurisdiction-Aware Data Residency
+
+Keep data in specific regions for compliance:
+
+```typescript
+const supabase = createClient(
+  'https://your-project.workers.dev',
+  'anon-key',
+  {
+    replica: {
+      jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
+      readPreference: 'nearest',
+      writeThrough: true,
+    },
+  }
+)
+
+// Data stays in EU datacenters
+await supabase.from('eu_users').insert({
+  name: 'Hans',
+  email: 'hans@example.de',
+})
+```
+
+### Real-Time Collaboration
+
+```typescript
+// Subscribe to database changes
+const channel = supabase
+  .channel('db-changes')
+  .on('postgres_changes',
+    { event: '*', table: 'documents', filter: 'project_id=eq.123' },
+    (payload) => {
+      console.log('Document changed:', payload)
+      updateUI(payload.new)
+    }
+  )
+  .subscribe()
+
+// Presence for online users
+const presenceChannel = supabase
+  .channel('project-123-presence')
+  .on('presence', { event: 'sync' }, () => {
+    const state = presenceChannel.presenceState()
+    updateOnlineUsers(Object.keys(state))
+  })
+  .subscribe()
+
+await presenceChannel.track({
+  user_id: currentUser.id,
+  cursor: { x: 0, y: 0 },
+})
+```
+
+### File Storage with R2
+
+```typescript
+// Upload files to R2-backed storage
+const file = new File(['content'], 'document.pdf', { type: 'application/pdf' })
+const { data, error } = await supabase.storage
+  .from('documents')
+  .upload('project-123/document.pdf', file)
+
+// Generate signed URLs for private access
+const { data: signedUrl } = await supabase.storage
+  .from('documents')
+  .createSignedUrl('project-123/document.pdf', 3600)
+
+// Image transforms
+const { data: publicUrl } = supabase.storage
+  .from('avatars')
+  .getPublicUrl('user-123.jpg', {
+    transform: {
+      width: 200,
+      height: 200,
+      resize: 'cover',
+    },
+  })
+```
+
+### Edge Functions
+
+```typescript
+// Define an edge function as a Worker
+// functions/send-email/index.ts
+export default {
+  async fetch(request: Request, env: Env) {
+    const { to, subject, body } = await request.json()
+    await env.EMAIL.send({ to, subject, body })
+    return Response.json({ success: true })
+  },
+}
+
+// Invoke from client
+const { data, error } = await supabase.functions.invoke('send-email', {
+  body: {
+    to: 'user@example.com',
+    subject: 'Welcome!',
+    body: 'Thanks for signing up.',
+  },
+})
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------+
+|                        Client Applications                           |
++---------------------+---------------------+-------------------------+
+|   supabase-js       |   REST API          |   WebSocket             |
+|   Compatible        |   PostgREST-style   |   Realtime              |
++---------------------+---------------------+-------------------------+
+                              |
+                              v
++---------------------------------------------------------------------+
+|                    supabase.do Worker (Edge)                         |
++---------------------------------------------------------------------+
+|  PostgREST Router  |  GoTrue Auth  |  Realtime  |  Storage API      |
++---------------------------------------------------------------------+
+|            Shard Router (consistent hash / range / key)              |
++---------------------+---------------------+-------------------------+
+|    ShardDO-0       |    ShardDO-1       |    ShardDO-N            |
+|    (SQLite)        |    (SQLite)        |    (SQLite)             |
++---------------------+---------------------+-------------------------+
+|            R2 (Object Storage)    |    Vectorize (Embeddings)       |
++---------------------------------------------------------------------+
+```
+
+supabase.do translates Supabase API calls to SQLite at runtime:
+
+1. **API Translation** - PostgREST queries -> SQLite SQL
+2. **Shard Routing** - Automatic routing based on tenant/key
+3. **Durable Object Storage** - Each shard runs as an isolated DO with SQLite
+4. **R2 Integration** - File storage backed by Cloudflare R2
+5. **Edge Execution** - All operations execute at the edge, close to users
+
+## Configuration
+
+### With Sharding
+
+```jsonc
+{
+  "durable_objects": {
+    "bindings": [
+      { "name": "SUPABASE_DATABASE", "class_name": "SupabaseDO" }
+    ]
+  },
+  "vars": {
+    "SHARD_COUNT": "16",
+    "SHARD_ALGORITHM": "consistent",
+    "SHARD_KEY": "tenant_id"
+  }
+}
+```
+
+### With Storage
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "STORAGE_BUCKET", "bucket_name": "supabase-storage" }
+  ]
+}
+```
+
+### With Jurisdiction
+
+```jsonc
+{
+  "placement": { "mode": "smart" },
+  "vars": {
+    "JURISDICTION": "eu"
+  }
+}
+```
+
+## Extended Configuration
+
+When deploying to production, configure sharding and replication:
+
+```typescript
+import { createClient } from 'supabase.do'
+
+const supabase = createClient(
+  'https://project.workers.dev',
+  'anon-key',
+  {
+    // Standard Supabase options
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+    },
+
+    // Sharding configuration
+    shard: {
+      algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
+      count: 16,
+      key: 'tenant_id',
+    },
+
+    // Replication configuration
+    replica: {
+      readPreference: 'nearest', // 'primary' | 'secondary' | 'nearest'
+      writeThrough: true,
+      jurisdiction: 'eu', // 'eu' | 'us' | 'fedramp'
+    },
+  }
+)
+```
+
+## Comparison with Supabase
+
+| Feature | Supabase | supabase.do |
+|---------|----------|-------------|
+| Database | PostgreSQL | SQLite (Durable Objects) |
+| Deployment | Single region | Global edge (300+ cities) |
+| Cold starts | Yes | No (0ms) |
+| Connection limits | Yes | No |
+| Multi-tenant | Manual RLS | Built-in sharding |
+| Data residency | Region selection | Jurisdiction-aware |
+| Pricing | Project-based | Usage-based |
+| Infrastructure | Managed by you | Zero (we manage it) |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/supabase](/docs/integrations/supabase/package) - In-memory Supabase for testing
+- [Postgres Integration](/docs/integrations/postgres) - Direct PostgreSQL compat layer
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
+- [R2 Storage](/docs/storage/r2) - Object storage integration

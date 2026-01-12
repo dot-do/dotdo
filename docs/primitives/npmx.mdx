@@ -246,7 +246,7 @@ semver.eq('1.0.0', '1.0.0')   // true
 // Range satisfaction
 semver.satisfies('1.2.3', '^1.0.0')     // true
 semver.satisfies('2.0.0', '^1.0.0')     // false
-semver.satisfies('1.2.3', '>=1.0.0 <2.0.0')  // true
+semver.satisfies('1.2.3', '>=1.0.0 \<2.0.0')  // true
 
 // Find best match
 const versions = ['1.0.0', '1.1.0', '1.2.0', '2.0.0']

@@ -1,0 +1,607 @@
+---
+title: influxdb.do
+description: InfluxDB on the Edge — A fully managed time-series database running on Cloudflare Workers for metrics, IoT, and observability.
+---
+
+# influxdb.do
+
+**InfluxDB on the Edge** — A time-series database that runs entirely on Cloudflare Workers, with native support for metrics ingestion, IoT data, and real-time observability dashboards.
+
+```typescript
+import { InfluxDB, Point } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+const writeApi = client.getWriteApi('my-org', 'metrics')
+
+// It's just InfluxDB
+writeApi.writePoint(
+  Point('cpu')
+    .tag('host', 'server01')
+    .floatField('usage', 45.2)
+)
+
+await writeApi.close()
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/influxdb](/docs/integrations/influxdb/package) for a zero-dependency time-series store.
+</Callout>
+
+## Why influxdb.do?
+
+Traditional time-series databases require dedicated infrastructure, complex clustering, and careful capacity planning. influxdb.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no capacity planning, no cold starts
+- **Global by Default** — Metrics ingestion at the edge, close to your applications
+- **InfluxDB Compatible** — Drop-in replacement for InfluxDB v2 API
+- **IoT-Ready** — Built for high-cardinality sensor data at scale
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Time-Series
+
+| Feature | Description |
+|---------|-------------|
+| **Write API** | `writePoint`, `writePoints`, `writeRecord`, `writeRecords`, line protocol |
+| **Query API** | Flux queries with `from`, `range`, `filter`, `aggregateWindow`, `group` |
+| **InfluxQL** | Legacy query language support for migrations |
+| **Bucket Management** | Create, list, delete buckets with retention policies |
+| **Retention Policies** | Automatic data expiration with configurable durations |
+| **Downsampling** | Scheduled continuous queries for data rollups |
+
+### Edge Optimizations
+
+| Feature | Description |
+|---------|-------------|
+| **Gorilla Compression** | XOR-based float compression for time-series efficiency |
+| **Columnar Storage** | Optimized storage layout for time-series queries |
+| **Sharding** | Automatic time-based sharding for query performance |
+| **Tag Indexing** | Inverted indexes for fast tag-based filtering |
+| **Cardinality Tracking** | Monitor and manage high-cardinality series |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **HTTP v2 API** | Full InfluxDB v2 HTTP API compatibility |
+| **Line Protocol** | Native line protocol ingestion endpoint |
+| **Telegraf** | Direct integration with Telegraf agents |
+| **Grafana** | InfluxDB data source support |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install influxdb.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { InfluxDBEntrypoint, InfluxDBDatabase } from 'influxdb.do'
+
+export { InfluxDBDatabase }
+export default InfluxDBEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-influxdb.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "INFLUX_DATABASE", "class_name": "InfluxDBDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["InfluxDBDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx influxdb.do serve --port 8086
+
+# Connect with influx CLI
+influx config create --config-name local \
+  --host-url http://localhost:8086 \
+  --org my-org \
+  --token my-token
+
+# Write data
+influx write --bucket metrics 'cpu,host=server01 usage=45.2'
+
+# Query data
+influx query 'from(bucket: "metrics") |> range(start: -1h)'
+```
+
+## Examples
+
+### IoT Sensor Data Ingestion
+
+```typescript
+import { InfluxDB, Point } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+
+// High-throughput sensor ingestion
+async function ingestSensorData(readings: SensorReading[]) {
+  const writeApi = client.getWriteApi('iot', 'sensors')
+
+  for (const reading of readings) {
+    writeApi.writePoint(
+      Point('sensor_data')
+        .tag('device_id', reading.deviceId)
+        .tag('sensor_type', reading.sensorType)
+        .tag('location', reading.location)
+        .floatField('value', reading.value)
+        .intField('battery_pct', reading.batteryPct)
+        .timestamp(reading.timestamp)
+    )
+  }
+
+  await writeApi.close()
+}
+
+// Query sensor statistics
+async function getSensorStats(deviceId: string) {
+  const queryApi = client.getQueryApi('iot')
+
+  return queryApi.collectRows(`
+    from(bucket: "sensors")
+    |> range(start: -24h)
+    |> filter(fn: (r) => r.device_id == "${deviceId}")
+    |> aggregateWindow(every: 1h, fn: mean)
+    |> yield(name: "hourly_avg")
+  `)
+}
+```
+
+### Application Metrics
+
+```typescript
+import { InfluxDB, Point } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+
+// Middleware for request metrics
+async function metricsMiddleware(request: Request, env: Env, ctx: ExecutionContext) {
+  const start = Date.now()
+  const url = new URL(request.url)
+
+  // Handle request
+  const response = await handleRequest(request, env)
+
+  // Record metrics asynchronously
+  ctx.waitUntil(recordMetrics({
+    path: url.pathname,
+    method: request.method,
+    status: response.status,
+    latencyMs: Date.now() - start,
+    cfRay: request.headers.get('cf-ray'),
+    colo: request.cf?.colo,
+  }))
+
+  return response
+}
+
+async function recordMetrics(metrics: RequestMetrics) {
+  const writeApi = client.getWriteApi('app', 'requests')
+
+  writeApi.writePoint(
+    Point('http_request')
+      .tag('path', metrics.path)
+      .tag('method', metrics.method)
+      .tag('status_class', `${Math.floor(metrics.status / 100)}xx`)
+      .tag('colo', metrics.colo ?? 'unknown')
+      .intField('status', metrics.status)
+      .intField('latency_ms', metrics.latencyMs)
+      .stringField('cf_ray', metrics.cfRay ?? '')
+  )
+
+  await writeApi.close()
+}
+
+// Dashboard query
+async function getRequestStats(timeRange: string = '-1h') {
+  const queryApi = client.getQueryApi('app')
+
+  const [latencyP50, latencyP99, errorRate] = await Promise.all([
+    queryApi.collectRows(`
+      from(bucket: "requests")
+      |> range(start: ${timeRange})
+      |> filter(fn: (r) => r._field == "latency_ms")
+      |> quantile(q: 0.50)
+    `),
+    queryApi.collectRows(`
+      from(bucket: "requests")
+      |> range(start: ${timeRange})
+      |> filter(fn: (r) => r._field == "latency_ms")
+      |> quantile(q: 0.99)
+    `),
+    queryApi.collectRows(`
+      from(bucket: "requests")
+      |> range(start: ${timeRange})
+      |> filter(fn: (r) => r.status_class == "5xx")
+      |> count()
+    `),
+  ])
+
+  return { latencyP50, latencyP99, errorRate }
+}
+```
+
+### Retention and Downsampling
+
+```typescript
+import { InfluxDB } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+const bucketsApi = client.getBucketsApi()
+const tasksApi = client.getTasksApi()
+
+// Create buckets with different retention periods
+await bucketsApi.createBucket({
+  name: 'metrics_realtime',
+  orgID: 'my-org',
+  retentionRules: [{ type: 'expire', everySeconds: 24 * 60 * 60 }], // 24 hours
+})
+
+await bucketsApi.createBucket({
+  name: 'metrics_hourly',
+  orgID: 'my-org',
+  retentionRules: [{ type: 'expire', everySeconds: 30 * 24 * 60 * 60 }], // 30 days
+})
+
+await bucketsApi.createBucket({
+  name: 'metrics_daily',
+  orgID: 'my-org',
+  retentionRules: [{ type: 'expire', everySeconds: 365 * 24 * 60 * 60 }], // 1 year
+})
+
+// Create downsampling task
+await tasksApi.createTask({
+  name: 'downsample_hourly',
+  org: 'my-org',
+  every: '1h',
+  flux: `
+    from(bucket: "metrics_realtime")
+    |> range(start: -1h)
+    |> aggregateWindow(every: 1h, fn: mean)
+    |> to(bucket: "metrics_hourly", org: "my-org")
+  `,
+})
+
+await tasksApi.createTask({
+  name: 'downsample_daily',
+  org: 'my-org',
+  every: '1d',
+  flux: `
+    from(bucket: "metrics_hourly")
+    |> range(start: -1d)
+    |> aggregateWindow(every: 1d, fn: mean)
+    |> to(bucket: "metrics_daily", org: "my-org")
+  `,
+})
+```
+
+### Telegraf Integration
+
+```toml
+# telegraf.conf
+[[outputs.influxdb_v2]]
+  urls = ["https://your-worker.workers.dev"]
+  token = "$INFLUX_TOKEN"
+  organization = "my-org"
+  bucket = "telegraf"
+
+[[inputs.cpu]]
+  percpu = true
+  totalcpu = true
+  collect_cpu_time = false
+  report_active = false
+
+[[inputs.mem]]
+
+[[inputs.disk]]
+  ignore_fs = ["tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"]
+
+[[inputs.net]]
+  interfaces = ["eth0"]
+```
+
+### Grafana Data Source
+
+```yaml
+# grafana/provisioning/datasources/influxdb.yml
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: https://your-worker.workers.dev
+    jsonData:
+      version: Flux
+      organization: my-org
+      defaultBucket: metrics
+    secureJsonData:
+      token: $INFLUX_TOKEN
+```
+
+### Real-Time Alerts
+
+```typescript
+import { InfluxDB } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+
+// Check for anomalies
+async function checkAlerts() {
+  const queryApi = client.getQueryApi('my-org')
+
+  // High error rate alert
+  const errorRates = await queryApi.collectRows(`
+    from(bucket: "requests")
+    |> range(start: -5m)
+    |> filter(fn: (r) => r._measurement == "http_request")
+    |> filter(fn: (r) => r.status_class == "5xx")
+    |> count()
+    |> map(fn: (r) => ({ r with _value: float(v: r._value) }))
+  `)
+
+  for (const rate of errorRates) {
+    if (rate._value > 100) {
+      await sendAlert({
+        severity: 'critical',
+        message: `High error rate: ${rate._value} errors in 5 minutes`,
+        tags: rate,
+      })
+    }
+  }
+
+  // High latency alert
+  const latencies = await queryApi.collectRows(`
+    from(bucket: "requests")
+    |> range(start: -5m)
+    |> filter(fn: (r) => r._field == "latency_ms")
+    |> quantile(q: 0.99)
+  `)
+
+  for (const latency of latencies) {
+    if (latency._value > 1000) {
+      await sendAlert({
+        severity: 'warning',
+        message: `P99 latency exceeded 1s: ${latency._value}ms`,
+        tags: latency,
+      })
+    }
+  }
+}
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Client Applications                           │
+├─────────────────┬─────────────────┬─────────────────┬───────────────────┤
+│   InfluxDB v2   │   Line Protocol │   Telegraf      │  Service Binding  │
+│   HTTP API      │   /write        │   Agent         │  Worker-to-Worker │
+├─────────────────┴─────────────────┴─────────────────┴───────────────────┤
+│                        influxdb.do Worker (Edge)                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Write Handler  │  Query Engine   │  Task Scheduler │  Retention Mgr    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                      Durable Objects (SQLite Storage)                   │
+├──────────────────┬──────────────────┬───────────────────────────────────┤
+│    BucketDO      │     ShardDO      │           TaskDO                  │
+│  (Bucket config) │  (Time shards)   │    (Scheduled queries)            │
+└──────────────────┴──────────────────┴───────────────────────────────────┘
+```
+
+influxdb.do processes time-series data at the edge:
+
+1. **Line Protocol Parsing** — Native line protocol ingestion with automatic timestamp handling
+2. **Shard Routing** — Time-based sharding for efficient range queries
+3. **Flux Query Translation** — Flux queries translated to optimized SQLite operations
+4. **Edge Storage** — Data stored in Durable Object SQLite, replicated globally
+
+## Connectivity Options
+
+### HTTP v2 API
+
+```bash
+# Write data
+curl -X POST "https://your-worker.workers.dev/api/v2/write?bucket=metrics&org=my-org" \
+  -H "Authorization: Token $INFLUX_TOKEN" \
+  -H "Content-Type: text/plain" \
+  --data-binary 'cpu,host=server01 usage=45.2'
+
+# Query data
+curl -X POST "https://your-worker.workers.dev/api/v2/query?org=my-org" \
+  -H "Authorization: Token $INFLUX_TOKEN" \
+  -H "Content-Type: application/vnd.flux" \
+  --data 'from(bucket: "metrics") |> range(start: -1h)'
+```
+
+### Line Protocol Endpoint
+
+```bash
+# Bulk write
+curl -X POST "https://your-worker.workers.dev/write?db=metrics" \
+  --data-binary @metrics.txt
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const writeApi = env.INFLUXDB.getWriteApi('my-org', 'metrics')
+
+    writeApi.writePoint(
+      Point('request')
+        .tag('worker', 'my-worker')
+        .intField('count', 1)
+    )
+
+    await writeApi.close()
+
+    return new Response('OK')
+  }
+}
+```
+
+## Configuration
+
+### With Custom Retention
+
+```jsonc
+{
+  "vars": {
+    "DEFAULT_RETENTION_SECONDS": "604800",  // 7 days
+    "MAX_SERIES_CARDINALITY": "1000000",
+    "SHARD_DURATION_HOURS": "24"
+  }
+}
+```
+
+### With R2 Cold Storage
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "COLD_STORAGE", "bucket_name": "influxdb-cold" }
+  ],
+  "vars": {
+    "COLD_STORAGE_ENABLED": "true",
+    "COLD_STORAGE_THRESHOLD_DAYS": "30"
+  }
+}
+```
+
+### With Analytics Export
+
+```jsonc
+{
+  "vars": {
+    "ANALYTICS_EXPORT_ENABLED": "true",
+    "ANALYTICS_ENDPOINT": "https://clickhouse.example.com"
+  }
+}
+```
+
+## Common Patterns
+
+### Time-Series Schema Design
+
+```typescript
+// Good: Low cardinality tags, high cardinality fields
+Point('request')
+  .tag('service', 'api')           // Low cardinality (few services)
+  .tag('endpoint', '/users')       // Moderate cardinality (bounded endpoints)
+  .tag('status_class', '2xx')      // Very low cardinality (5 values)
+  .intField('status', 200)         // High cardinality OK in fields
+  .stringField('request_id', uuid) // High cardinality in fields
+  .intField('latency_ms', 42)
+
+// Bad: High cardinality tags (causes series explosion)
+Point('request')
+  .tag('request_id', uuid)         // DON'T: Creates new series per request
+  .tag('user_id', '12345')         // DON'T: Creates series per user
+```
+
+### Efficient Queries
+
+```typescript
+// Good: Filter early, narrow time range
+const query = `
+  from(bucket: "metrics")
+  |> range(start: -1h)                           // Narrow time range first
+  |> filter(fn: (r) => r._measurement == "cpu")  // Filter by measurement
+  |> filter(fn: (r) => r.host == "server01")     // Filter by tag
+  |> aggregateWindow(every: 5m, fn: mean)        // Aggregate to reduce data
+`
+
+// Bad: Wide range, late filtering
+const badQuery = `
+  from(bucket: "metrics")
+  |> range(start: -30d)                          // DON'T: Too wide initially
+  |> aggregateWindow(every: 1h, fn: mean)        // Aggregating everything
+  |> filter(fn: (r) => r.host == "server01")     // Late filter
+`
+```
+
+### Cardinality Management
+
+```typescript
+import { InfluxDB } from 'influxdb.do'
+
+const client = new InfluxDB('https://your-worker.workers.dev')
+
+// Check cardinality
+async function checkCardinality(bucket: string) {
+  const queryApi = client.getQueryApi('my-org')
+
+  const cardinality = await queryApi.collectRows(`
+    import "influxdata/influxdb/schema"
+
+    schema.measurementTagKeys(bucket: "${bucket}")
+    |> map(fn: (r) => ({
+      tag: r._value,
+      cardinality: schema.tagValues(bucket: "${bucket}", tag: r._value) |> count()
+    }))
+  `)
+
+  return cardinality
+}
+
+// Prune high-cardinality series
+async function pruneOldSeries(bucket: string, olderThan: string) {
+  const deleteApi = client.getDeleteApi()
+
+  await deleteApi.postDelete({
+    bucket,
+    org: 'my-org',
+    body: {
+      start: '1970-01-01T00:00:00Z',
+      stop: olderThan,
+    },
+  })
+}
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/influxdb](/docs/integrations/influxdb/package) - In-memory InfluxDB for testing
+- [ClickHouse Integration](/docs/integrations/clickhouse) - Analytics database
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
+- [Edge Observability](/docs/observability) - Metrics and monitoring patterns

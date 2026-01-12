@@ -1,0 +1,403 @@
+---
+title: gcs.do
+description: Managed GCS-compatible storage on the edge — R2-backed object storage with zero egress fees and global distribution.
+---
+
+# gcs.do
+
+**GCS on the Edge** — A fully managed GCS-compatible object storage service running on Cloudflare Workers, with zero egress fees and global edge distribution.
+
+```typescript
+import { Storage } from 'gcs.do'
+
+const storage = new Storage('https://your-worker.workers.dev')
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('my-file.txt')
+
+await file.save('Hello, World!')
+const [content] = await file.download()
+```
+
+<Callout type="info">
+Looking for a self-hosted option? See [@dotdo/gcs](/docs/integrations/gcs/package) for a GCS SDK-compatible package you manage yourself.
+</Callout>
+
+## Why gcs.do?
+
+Traditional object storage requires infrastructure management, egress fee management, and regional configuration. gcs.do eliminates all of that:
+
+- **Zero Infrastructure** — No buckets to configure, no IAM to manage
+- **Zero Egress Fees** — Built on Cloudflare R2, no egress costs
+- **Global by Default** — Data cached at the edge, close to your users
+- **GCS Compatible** — Drop-in replacement for most GCS operations
+- **Multi-tenant** — Built-in tenant isolation for SaaS applications
+- **Serverless Economics** — Pay only for what you use
+
+## Features
+
+### Core Storage
+
+| Feature | Description |
+|---------|-------------|
+| **Bucket Operations** | Create, list, delete buckets with metadata |
+| **File Operations** | Upload, download, delete, copy, move files |
+| **Streaming** | Read and write streams for large files |
+| **Signed URLs** | V2 and V4 signatures for direct client access |
+| **Resumable Uploads** | Chunked uploads with resume capability |
+| **Metadata** | Custom metadata and content-type handling |
+
+### Edge Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Edge Caching** | Automatic caching at 300+ edge locations |
+| **Range Requests** | Efficient partial downloads |
+| **Content Negotiation** | Automatic content-type detection |
+| **CORS Support** | Configurable cross-origin access |
+| **Presigned URLs** | Time-limited direct access URLs |
+
+### Platform Integration
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-tenant** | Built-in tenant isolation |
+| **Durable Objects** | Integrated with DO storage layer |
+| **Workflows** | Part of dotdo workflow orchestration |
+| **Analytics** | Usage metrics and access logs |
+
+## Installation
+
+```bash
+npm install gcs.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { GCSEntrypoint, GCSStorage } from 'gcs.do'
+
+export { GCSStorage }
+export default GCSEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-gcs.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [
+    { "binding": "R2_BUCKET", "bucket_name": "my-storage" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "GCS_STORAGE", "class_name": "GCSStorage" }]
+  }
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Client Usage
+
+```typescript
+import { Storage } from 'gcs.do'
+
+const storage = new Storage('https://your-worker.workers.dev')
+
+// Create a bucket
+await storage.createBucket('my-bucket')
+
+// Upload a file
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('hello.txt')
+await file.save('Hello, World!', { contentType: 'text/plain' })
+
+// Download a file
+const [content] = await file.download()
+console.log(content.toString()) // "Hello, World!"
+```
+
+## Examples
+
+### File Upload API
+
+```typescript
+import { Storage } from 'gcs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const storage = new Storage(env.GCS_ENDPOINT)
+    const bucket = storage.bucket('uploads')
+    const url = new URL(request.url)
+
+    if (url.pathname === '/api/upload-url' && request.method === 'POST') {
+      const { filename, contentType } = await request.json()
+      const key = `uploads/${crypto.randomUUID()}/${filename}`
+      const file = bucket.file(key)
+
+      const [uploadUrl] = await file.getSignedUrl({
+        action: 'write',
+        expires: Date.now() + 5 * 60 * 1000,
+        contentType,
+      })
+
+      return Response.json({ uploadUrl, key })
+    }
+
+    if (url.pathname.startsWith('/files/')) {
+      const key = url.pathname.replace('/files/', '')
+      const file = bucket.file(key)
+
+      const stream = file.createReadStream()
+      const [metadata] = await file.getMetadata()
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': metadata.contentType ?? 'application/octet-stream',
+          'Content-Length': metadata.size ?? '0',
+        },
+      })
+    }
+
+    return new Response('Not found', { status: 404 })
+  }
+}
+```
+
+### Multi-tenant Storage
+
+```typescript
+import { Storage } from 'gcs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    // Extract tenant from subdomain or header
+    const tenant = request.headers.get('X-Tenant-ID') ?? 'default'
+
+    const storage = new Storage(env.GCS_ENDPOINT, {
+      tenant, // Automatic isolation
+    })
+
+    const bucket = storage.bucket('documents')
+    // All operations scoped to tenant namespace
+    const files = await bucket.getFiles()
+
+    return Response.json(files)
+  }
+}
+```
+
+### Image Processing Pipeline
+
+```typescript
+import { Storage } from 'gcs.do'
+
+async function processImage(bucketName: string, key: string) {
+  const storage = new Storage(env.GCS_ENDPOINT)
+  const bucket = storage.bucket(bucketName)
+  const file = bucket.file(key)
+
+  // Get original
+  const [imageData] = await file.download()
+
+  // Process with Cloudflare Images
+  const processed = await processWithCloudflareImages(imageData)
+
+  // Store processed versions
+  await Promise.all([
+    bucket.file(key.replace('.', '-thumb.')).save(processed.thumbnail, {
+      contentType: 'image/webp',
+    }),
+    bucket.file(key.replace('.', '-medium.')).save(processed.medium, {
+      contentType: 'image/webp',
+    }),
+  ])
+}
+```
+
+### Backup and Restore
+
+```typescript
+import { Storage } from 'gcs.do'
+
+const storage = new Storage(env.GCS_ENDPOINT)
+const bucket = storage.bucket('backups')
+
+async function backupDatabase(data: string) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const file = bucket.file(`database/${timestamp}.json`)
+
+  await file.save(data, {
+    contentType: 'application/json',
+    metadata: {
+      backupType: 'daily',
+      createdAt: new Date().toISOString(),
+    },
+  })
+}
+
+async function restoreLatestBackup() {
+  const [files] = await bucket.getFiles({ prefix: 'database/' })
+
+  // Get latest by sorting filenames (timestamps)
+  const sortedFiles = files.sort((a, b) => b.name.localeCompare(a.name))
+  const latest = sortedFiles[0]
+
+  if (!latest) throw new Error('No backups found')
+
+  const [content] = await latest.download()
+  return content.toString()
+}
+```
+
+### Streaming Large Files
+
+```typescript
+import { Storage } from 'gcs.do'
+
+const storage = new Storage(env.GCS_ENDPOINT)
+
+// Stream upload
+async function streamUpload(readable: ReadableStream) {
+  const file = storage.bucket('uploads').file('large-file.bin')
+  const writeStream = file.createWriteStream({
+    contentType: 'application/octet-stream',
+  })
+
+  await readable.pipeTo(writeStream)
+}
+
+// Stream download
+async function streamDownload(key: string): Promise<ReadableStream> {
+  const file = storage.bucket('uploads').file(key)
+  return file.createReadStream()
+}
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Client Applications                           │
+├─────────────────┬─────────────────┬─────────────────┬───────────────────┤
+│   GCS SDK       │   HTTP/REST     │   Signed URLs   │  Service Binding  │
+│   Compatible    │   JSON API      │   Direct Access │  Worker-to-Worker │
+├─────────────────┴─────────────────┴─────────────────┴───────────────────┤
+│                         gcs.do Worker (Edge)                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│  GCS Translator  │  Tenant Router  │  Cache Layer   │  Presign Engine   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                      Durable Objects (Metadata)                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                        Cloudflare R2 (Storage)                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+gcs.do translates GCS API calls to R2 operations:
+
+1. **GCS Translation** — GCS API requests mapped to R2 equivalents
+2. **Durable Object Metadata** — File metadata stored in DO SQLite for fast queries
+3. **R2 Storage** — Object data stored in R2 with zero egress fees
+4. **Edge Caching** — Frequently accessed objects cached at edge
+
+## Configuration
+
+### Basic Configuration
+
+```jsonc
+{
+  "name": "my-gcs.do",
+  "main": "src/index.ts",
+  "r2_buckets": [
+    { "binding": "R2_BUCKET", "bucket_name": "my-storage" }
+  ]
+}
+```
+
+### With Custom Domain
+
+```jsonc
+{
+  "routes": [
+    { "pattern": "storage.example.com/*", "zone_name": "example.com" }
+  ]
+}
+```
+
+### With Edge Caching
+
+```jsonc
+{
+  "vars": {
+    "CACHE_TTL": "3600",
+    "CACHE_ENABLED": "true"
+  }
+}
+```
+
+## HTTP API
+
+gcs.do exposes a REST API for direct access:
+
+### Upload File
+
+```bash
+curl -X PUT "https://your-worker.workers.dev/b/my-bucket/o/path/to/file.txt" \
+  -H "Content-Type: text/plain" \
+  -d "Hello, World!"
+```
+
+### Download File
+
+```bash
+curl "https://your-worker.workers.dev/b/my-bucket/o/path/to/file.txt"
+```
+
+### List Files
+
+```bash
+curl "https://your-worker.workers.dev/b/my-bucket/o?prefix=path/"
+```
+
+### Generate Signed URL
+
+```bash
+curl -X POST "https://your-worker.workers.dev/b/my-bucket/o/path/to/file.txt/sign" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "read", "expiresIn": 3600}'
+```
+
+## Comparison with Google Cloud Storage
+
+| Feature | Google Cloud Storage | gcs.do |
+|---------|---------------------|--------|
+| Egress fees | $0.12/GB | **Free** |
+| Infrastructure | Managed by Google | **Zero config** |
+| Edge access | Via CDN (extra cost) | **Native** |
+| Multi-tenant | Manual implementation | **Built-in** |
+| Cold start | N/A | **0ms** |
+| Integration | Separate service | **Unified with dotdo** |
+
+## Pricing
+
+gcs.do uses Cloudflare R2 pricing:
+
+| Operation | Price |
+|-----------|-------|
+| Storage | $0.015/GB/month |
+| Class A (writes) | $4.50/million |
+| Class B (reads) | $0.36/million |
+| Egress | **Free** |
+
+## Related
+
+- [@dotdo/gcs](/docs/integrations/gcs/package) - Self-hosted GCS SDK package
+- [S3 Integration](/docs/integrations/s3) - AWS S3 compatible storage
+- [Hot Tier Storage](/docs/storage/hot-tier) - High-performance DO storage
+- [Warm Tier Storage](/docs/storage/warm-tier) - R2 object storage

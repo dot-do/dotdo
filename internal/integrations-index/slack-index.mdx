@@ -1,0 +1,113 @@
+---
+title: Slack
+description: Choose between @dotdo/slack (OSS package) and slack.do (managed edge service) for your Slack integration needs.
+---
+
+# Slack Integration
+
+dotdo provides two ways to work with Slack-compatible APIs:
+
+| | @dotdo/slack | slack.do |
+|---|--------------|----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Mode** | In-memory for testing | Production API forwarding |
+| **Persistence** | None (resets on restart) | Full Slack API passthrough |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/slack` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/slack - In-memory, great for tests
+import { WebClient, _getMessages, _clearAll } from '@dotdo/slack'
+
+const client = new WebClient() // No token = local mode
+await client.chat.postMessage({ channel: 'C123', text: 'Test message' })
+
+const messages = _getMessages() // Retrieve for assertions
+_clearAll() // Reset between tests
+```
+
+```typescript
+// slack.do - Production Slack API
+import { WebClient } from 'slack.do'
+
+const client = new WebClient('xoxb-your-token')
+await client.chat.postMessage({ channel: '#general', text: 'Hello from edge!' })
+// Messages sent to real Slack
+```
+
+## When to Use Each
+
+### Use @dotdo/slack when:
+
+- **Unit testing** - Fast, isolated tests without hitting Slack APIs
+- **Integration testing** - Test bot flows without real Slack workspace
+- **Development** - Iterate quickly without webhook tunnels
+- **CI/CD pipelines** - Tests that need Slack SDK semantics
+
+<Callout type="info">
+@dotdo/slack is a complete in-memory Slack SDK implementation. Perfect for tests and development, but messages don't go to real Slack.
+</Callout>
+
+### Use slack.do when:
+
+- **Production applications** - Real Slack messages to real workspaces
+- **Edge deployment** - Cloudflare Workers without Node.js dependencies
+- **Bot frameworks** - Production Slack bots with full event handling
+- **OAuth flows** - Real app installation and authentication
+
+<Callout type="info">
+slack.do is a drop-in replacement for @slack/web-api and @slack/bolt that runs on the edge with zero cold starts.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/slack | slack.do |
+|---------|--------------|----------|
+| WebClient API | Full | Full |
+| App (Bolt) Framework | Full | Full |
+| Block Kit Builder | Full | Full |
+| Slash Commands | Full | Full |
+| Socket Mode | Simulated | Full |
+| OAuth Flow | Simulated | Full |
+| Request Verification | Simulated | Full |
+| In-Memory Mode | Default | Optional |
+| Real Slack API | Optional | Default |
+| Edge Compatible | Yes | Yes |
+| Zero Dependencies | Yes | Yes |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/slack/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/slack</h3>
+    <p className="text-sm text-muted-foreground">In-memory Slack SDK for testing and development</p>
+  </a>
+  <a href="/docs/integrations/slack/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">slack.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Slack SDK on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/slack` for development, then use `slack.do` for production:
+
+```typescript
+// Development (package)
+import { WebClient } from '@dotdo/slack'
+const client = new WebClient() // Local mode
+await client.chat.postMessage({ channel: 'C123', text: 'Test' })
+
+// Production (service) - same API!
+import { WebClient } from 'slack.do'
+const client = new WebClient('xoxb-token')
+await client.chat.postMessage({ channel: '#general', text: 'Hello!' })
+
+// Your application code stays the same
+const result = await client.conversations.list()
+```
+
+Both packages share the same Slack-compatible API, making migration seamless.

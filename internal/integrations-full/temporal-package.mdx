@@ -1,0 +1,763 @@
+---
+title: "@dotdo/temporal"
+description: Drop-in replacement for Temporal SDK with edge compatibility and zero infrastructure requirements.
+---
+
+# @dotdo/temporal
+
+Drop-in replacement for the Temporal SDK. Your existing `@temporalio/workflow` code works unchanged - just swap the import.
+
+```typescript
+// Before: Temporal
+import { proxyActivities, sleep, condition } from '@temporalio/workflow'
+
+// After: dotdo
+import { proxyActivities, sleep, condition } from '@dotdo/temporal'
+
+// Code stays the same
+const { sendEmail, chargeCard } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '10s',
+  retry: { maximumAttempts: 3 },
+})
+
+export async function orderWorkflow(order: Order) {
+  await chargeCard(order.cardToken, order.amount)
+  await sendEmail(order.email, 'Order confirmed!')
+  return { status: 'completed' }
+}
+```
+
+<Callout type="info">
+Looking for managed edge workflows without Temporal SDK compatibility? See [temporal.do](/docs/integrations/temporal/service) for a native edge workflow service.
+</Callout>
+
+## Why @dotdo/temporal?
+
+| Temporal | @dotdo/temporal |
+|----------|-----------------|
+| Requires Temporal cluster (self-hosted or Cloud) | No infrastructure required |
+| Workers must run 24/7 | Serverless - pay only when executing |
+| Complex HA setup | Built-in HA via Durable Objects |
+| 100ms-2s cold start | \<1ms cold start (V8 isolates) |
+| Single-region by default | Global edge (300+ cities) |
+| Separate worker processes | Runs in-process on Cloudflare Workers |
+| Per-worker hosting costs | Pay-per-execution pricing |
+
+**This is a compatibility layer.** It implements the Temporal SDK API surface on dotdo's durable execution infrastructure. Your workflows run on Cloudflare's global network without managing any Temporal infrastructure.
+
+## Installation
+
+```bash
+npm install @dotdo/temporal
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Workflow Definition**
+- Async workflow functions with full TypeScript support
+- `workflowInfo()` - Get workflow metadata
+- `workflowNow()` - Deterministic time
+
+**Activities**
+- `proxyActivities()` - Remote activity proxies with retry
+- `proxyLocalActivities()` - Local activities for fast operations
+- Full retry policy support (attempts, backoff, intervals)
+- Timeout configuration (start-to-close, schedule-to-close, heartbeat)
+
+**Signals, Queries, Updates**
+- `defineSignal()`, `defineQuery()`, `defineUpdate()`
+- `setHandler()` - Register handlers
+- Real-time signal delivery
+- Synchronous query responses
+
+**Child Workflows**
+- `startChild()` - Start without waiting
+- `executeChild()` - Start and wait for result
+- Parent close policies (TERMINATE, ABANDON, REQUEST_CANCEL)
+
+**Timers & Conditions**
+- `sleep()` - Durable sleep (survives restarts)
+- `condition()` - Wait for condition with optional timeout
+- `createTimer()` / `cancelTimer()` - Cancellable timers
+
+**Determinism Helpers**
+- `uuid4()` - Deterministic UUID generation
+- `random()` - Deterministic random numbers
+- `workflowNow()` - Deterministic timestamp
+
+**Continue-as-New**
+- `continueAsNew()` - Reset workflow history
+- `makeContinueAsNewFunc()` - Type-safe continue-as-new
+
+**Cancellation**
+- `CancellationScope.run()` - Scoped cancellation
+- `CancellationScope.nonCancellable()` - Protected cleanup code
+- `isCancellation()` - Error type checking
+
+**Versioning / Patching**
+- `patched()` - Check if patch should be applied
+- `deprecatePatch()` - Mark patches as deprecated
+
+**Search Attributes**
+- `setSearchAttributes()` - Replace all attributes
+- `upsertSearchAttributes()` - Merge attributes
+
+### Not Yet Implemented
+
+- Workflow interceptors
+- Advanced visibility API (list with complex queries)
+- Workflow schedules (cron)
+- Async activity completion
+- Side effects
+- External workflows
+
+## Quick Start
+
+### Basic Workflow
+
+```typescript
+import {
+  proxyActivities,
+  defineSignal,
+  setHandler,
+  sleep,
+  condition,
+  workflowInfo,
+} from '@dotdo/temporal'
+
+// Define activities with retry policy
+const { sendEmail, processPayment } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '30s',
+  retry: {
+    maximumAttempts: 3,
+    initialInterval: '1s',
+    backoffCoefficient: 2,
+  },
+})
+
+// Define signals
+const approvalSignal = defineSignal<[boolean]>('approval')
+
+export async function orderWorkflow(order: Order) {
+  const info = workflowInfo()
+  console.log(`Processing order ${info.workflowId}`)
+
+  let approved = false
+
+  // Register signal handler
+  setHandler(approvalSignal, (isApproved) => {
+    approved = isApproved
+  })
+
+  // Wait for approval with 7 day timeout
+  const wasApproved = await condition(() => approved, '7d')
+
+  if (!wasApproved) {
+    throw new Error('Order approval timed out')
+  }
+
+  // Process the order
+  await processPayment(order.cardToken, order.amount)
+  await sendEmail(order.email, 'Order confirmed!')
+
+  return { status: 'completed', orderId: order.id }
+}
+```
+
+### Starting Workflows
+
+```typescript
+import { WorkflowClient } from '@dotdo/temporal'
+
+const client = new WorkflowClient({
+  namespace: 'production',
+})
+
+// Start workflow
+const handle = await client.start(orderWorkflow, {
+  taskQueue: 'orders',
+  workflowId: `order-${orderId}`,
+  args: [orderData],
+})
+
+// Or execute and wait for result
+const result = await client.execute(orderWorkflow, {
+  taskQueue: 'orders',
+  args: [orderData],
+})
+
+// Get handle to existing workflow
+const existingHandle = client.getHandle('order-123')
+
+// Send signal
+await handle.signal(approvalSignal, true)
+
+// Query workflow
+const status = await handle.query(statusQuery)
+
+// Cancel or terminate
+await handle.cancel()
+await handle.terminate('Manual termination')
+```
+
+## Testing Mode
+
+For testing and development, workflows execute in-memory with the same API:
+
+```typescript
+import { WorkflowClient, registerWorker } from '@dotdo/temporal'
+
+// Register a worker for the task queue (enables validation)
+const unregister = registerWorker('orders', {
+  workflowTypes: new Set(['orderWorkflow']),
+})
+
+// Create client
+const client = new WorkflowClient()
+
+// Start workflow - executes locally
+const handle = await client.start(orderWorkflow, {
+  taskQueue: 'orders',
+  args: [testOrder],
+})
+
+// Interact with running workflow
+await handle.signal(approvalSignal, true)
+const result = await handle.result()
+
+// Cleanup
+unregister()
+```
+
+### Testing with Mock Activities
+
+```typescript
+import { registerWorker, proxyActivities } from '@dotdo/temporal'
+
+// Register worker with mock activity implementations
+const unregister = registerWorker('test-queue', {
+  executeActivity: async (name, args) => {
+    switch (name) {
+      case 'sendEmail':
+        console.log('Mock sending email to:', args[0])
+        return { sent: true }
+      case 'processPayment':
+        return { transactionId: 'mock-txn-123' }
+      default:
+        throw new Error(`Unknown activity: ${name}`)
+    }
+  },
+})
+
+// Run your workflow tests...
+```
+
+## Production Mode
+
+In production on Cloudflare Workers, workflows execute with full durability:
+
+```typescript
+// worker.ts
+import { WorkflowClient, registerWorker } from '@dotdo/temporal'
+import { orderWorkflow, activities } from './workflows'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Register workers for production task queues
+    registerWorker('orders', {
+      workflowTypes: new Set(['orderWorkflow']),
+      executeActivity: async (name, args) => {
+        return activities[name](...args)
+      },
+    })
+
+    const client = new WorkflowClient({
+      namespace: 'production',
+    })
+
+    const handle = await client.start(orderWorkflow, {
+      taskQueue: 'orders',
+      workflowId: `order-${crypto.randomUUID()}`,
+      args: [await request.json()],
+    })
+
+    return Response.json({ workflowId: handle.workflowId })
+  },
+}
+```
+
+### Using CF Workflows Backend
+
+For maximum durability and cost efficiency, use the CF Workflows backend:
+
+```typescript
+import { configure } from '@dotdo/temporal'
+
+// Use CF Workflows for durable execution
+// - sleep() is FREE (doesn't consume DO wall-clock time)
+// - Activities are DURABLE (survive restarts, automatic retries)
+configure({
+  step: ctx.step, // WorkflowStep from CF Workflows
+})
+```
+
+## Activities
+
+### Defining Activities
+
+```typescript
+// activities.ts
+export const activities = {
+  async sendEmail(to: string, subject: string, body: string) {
+    await emailService.send({ to, subject, body })
+    return { sent: true }
+  },
+
+  async processPayment(token: string, amount: number) {
+    const result = await stripe.charges.create({
+      amount,
+      currency: 'usd',
+      source: token,
+    })
+    return { chargeId: result.id }
+  },
+
+  async fetchExternalData(url: string) {
+    const response = await fetch(url)
+    return response.json()
+  },
+}
+
+export type Activities = typeof activities
+```
+
+### Using Activities in Workflows
+
+```typescript
+import { proxyActivities } from '@dotdo/temporal'
+import type { Activities } from './activities'
+
+const { sendEmail, processPayment, fetchExternalData } = proxyActivities<Activities>({
+  startToCloseTimeout: '30s',
+  retry: {
+    maximumAttempts: 5,
+    initialInterval: '1s',
+    backoffCoefficient: 2,
+    maximumInterval: '30s',
+    nonRetryableErrorTypes: ['ValidationError'],
+  },
+})
+```
+
+### Activity Workers (Independent Scaling)
+
+For CPU-intensive activities, deploy them on separate workers:
+
+```typescript
+// activity-worker.ts
+import { createActivityWorker } from '@dotdo/temporal'
+
+async function processImage(url: string, options: ImageOptions) {
+  // CPU-intensive image processing
+  return { processedUrl: '...' }
+}
+
+async function generateThumbnail(url: string, size: number) {
+  return { thumbnailUrl: '...' }
+}
+
+export const activityWorker = createActivityWorker({
+  taskQueue: 'image-processing',
+  activities: {
+    processImage,
+    generateThumbnail,
+  },
+  defaultStartToCloseTimeout: '10m',
+  maxConcurrentActivities: 5,
+})
+
+// Export for Cloudflare Workers
+export { activityWorker as ActivityWorker }
+```
+
+```toml
+# wrangler.toml
+[[services]]
+binding = "IMAGE_ACTIVITIES"
+service = "image-processing-worker"
+entrypoint = "ActivityWorker"
+```
+
+## Child Workflows
+
+### Starting Child Workflows
+
+```typescript
+import { startChild, executeChild } from '@dotdo/temporal'
+
+export async function parentWorkflow(orders: Order[]) {
+  // Start children without waiting
+  const handles = await Promise.all(
+    orders.map((order) =>
+      startChild(processOrderWorkflow, {
+        workflowId: `order-${order.id}`,
+        args: [order],
+      })
+    )
+  )
+
+  // Or execute and wait for result
+  const validationResult = await executeChild(validateWorkflow, {
+    args: [{ orderId: '123' }],
+    taskQueue: 'validation-queue',
+    parentClosePolicy: 'TERMINATE',
+  })
+
+  // Collect all results
+  return Promise.all(handles.map((h) => h.result()))
+}
+```
+
+### Parent Close Policies
+
+```typescript
+await startChild(childWorkflow, {
+  args: [data],
+  // What happens to child when parent terminates:
+  parentClosePolicy: 'TERMINATE',      // Child is terminated
+  // parentClosePolicy: 'ABANDON',     // Child continues running
+  // parentClosePolicy: 'REQUEST_CANCEL', // Child receives cancel request
+})
+```
+
+## Signals and Queries
+
+### Defining and Using Signals
+
+```typescript
+import { defineSignal, defineQuery, setHandler } from '@dotdo/temporal'
+
+// Define signals
+const pauseSignal = defineSignal('pause')
+const resumeSignal = defineSignal('resume')
+const updateConfigSignal = defineSignal<[{ key: string; value: string }]>('updateConfig')
+
+// Define queries
+const getStatusQuery = defineQuery<string>('getStatus')
+const getProgressQuery = defineQuery<number>('getProgress')
+
+export async function longRunningWorkflow() {
+  let paused = false
+  let progress = 0
+  const config: Record<string, string> = {}
+
+  // Register handlers
+  setHandler(pauseSignal, () => {
+    paused = true
+  })
+
+  setHandler(resumeSignal, () => {
+    paused = false
+  })
+
+  setHandler(updateConfigSignal, ({ key, value }) => {
+    config[key] = value
+  })
+
+  setHandler(getStatusQuery, () => (paused ? 'paused' : 'running'))
+  setHandler(getProgressQuery, () => progress)
+
+  // Workflow logic with pause support
+  for (let i = 0; i < 100; i++) {
+    while (paused) {
+      await sleep('1s')
+    }
+    await doWork(i)
+    progress = i + 1
+  }
+}
+```
+
+### Sending Signals
+
+```typescript
+// From client
+await handle.signal(updateConfigSignal, { key: 'priority', value: 'high' })
+
+// Query the workflow
+const status = await handle.query(getStatusQuery)
+const progress = await handle.query(getProgressQuery)
+```
+
+## Determinism
+
+Temporal workflows must be deterministic for replay. Use these helpers instead of non-deterministic operations:
+
+```typescript
+import { uuid4, random, workflowNow } from '@dotdo/temporal'
+
+export async function deterministicWorkflow() {
+  // Use uuid4() instead of crypto.randomUUID()
+  const orderId = uuid4()
+
+  // Use random() instead of Math.random()
+  const shouldRetry = random() < 0.5
+
+  // Use workflowNow() instead of new Date() or Date.now()
+  const orderTime = workflowNow()
+
+  return { orderId, shouldRetry, orderTime }
+}
+```
+
+### Determinism Rules
+
+| Avoid | Use Instead |
+|-------|-------------|
+| `Date.now()` | `workflowNow()` |
+| `new Date()` | `workflowNow()` |
+| `Math.random()` | `random()` |
+| `crypto.randomUUID()` | `uuid4()` |
+| `fetch()` / HTTP calls | Activities |
+| `setTimeout` / `setInterval` | `sleep()` or `createTimer()` |
+| File I/O | Activities |
+| Database queries | Activities |
+
+### Development Mode Warnings
+
+Enable determinism detection in development:
+
+```typescript
+import { configureDeterminism, enableDeterminismDetection } from '@dotdo/temporal'
+
+// Enable warnings for non-deterministic patterns
+configureDeterminism({ warnOnNonDeterministic: true })
+
+// Patch globals to detect violations
+enableDeterminismDetection()
+```
+
+## Continue-as-New
+
+Prevent unbounded history growth for long-running workflows:
+
+```typescript
+import { continueAsNew, makeContinueAsNewFunc } from '@dotdo/temporal'
+
+export async function subscriptionWorkflow(userId: string, iteration = 0) {
+  // Process current billing cycle
+  await billUser(userId)
+  await sleep('30d')
+
+  // Reset history every 100 iterations
+  if (iteration >= 100) {
+    continueAsNew(userId, 0)
+  }
+
+  // Continue to next iteration
+  continueAsNew(userId, iteration + 1)
+}
+
+// Or with type safety
+const continueSubscription = makeContinueAsNewFunc<[string, number], void>(
+  subscriptionWorkflow,
+  { taskQueue: 'billing' }
+)
+```
+
+## Cancellation Scopes
+
+Control how cancellation propagates:
+
+```typescript
+import { CancellationScope, isCancellation } from '@dotdo/temporal'
+
+export async function scopedWorkflow() {
+  try {
+    await CancellationScope.run(async () => {
+      await riskyOperation()
+    })
+  } catch (error) {
+    if (isCancellation(error)) {
+      // Handle cancellation
+      await CancellationScope.nonCancellable(async () => {
+        await cleanupResources() // This always completes
+      })
+    }
+    throw error
+  }
+}
+```
+
+## API Reference
+
+### Workflow Functions
+
+| Function | Description |
+|----------|-------------|
+| `sleep(duration)` | Durable sleep (survives restarts) |
+| `condition(fn, timeout?)` | Wait for condition to be true |
+| `workflowInfo()` | Get current workflow metadata |
+| `workflowNow()` | Deterministic current time |
+| `uuid4()` | Deterministic UUID generation |
+| `random()` | Deterministic random number |
+| `continueAsNew(...args)` | Reset workflow history |
+| `makeContinueAsNewFunc(workflow, options)` | Create typed continue-as-new |
+
+### Activity Functions
+
+| Function | Description |
+|----------|-------------|
+| `proxyActivities(options)` | Create activity proxy with retry |
+| `proxyLocalActivities(options)` | Create local activity proxy |
+| `createActivityWorker(config)` | Create activity worker for scaling |
+| `registerRemoteActivityWorker(queue, binding)` | Register remote activity binding |
+
+### Signal/Query/Update
+
+| Function | Description |
+|----------|-------------|
+| `defineSignal(name)` | Define a signal type |
+| `defineQuery(name)` | Define a query type |
+| `defineUpdate(name)` | Define an update type |
+| `setHandler(def, handler)` | Register handler |
+
+### Child Workflows
+
+| Function | Description |
+|----------|-------------|
+| `startChild(workflow, options)` | Start child, return handle |
+| `executeChild(workflow, options)` | Start child and wait for result |
+
+### Cancellation
+
+| Class/Function | Description |
+|----------------|-------------|
+| `CancellationScope.run(fn)` | Run in cancellation scope |
+| `CancellationScope.nonCancellable(fn)` | Run protected code |
+| `isCancellation(error)` | Check if error is cancellation |
+
+### Timer Functions
+
+| Function | Description |
+|----------|-------------|
+| `createTimer(duration)` | Create cancellable timer |
+| `cancelTimer(timer)` | Cancel a timer |
+
+### Versioning
+
+| Function | Description |
+|----------|-------------|
+| `patched(patchId)` | Check if patch applies |
+| `deprecatePatch(patchId)` | Mark patch deprecated |
+
+### Search Attributes
+
+| Function | Description |
+|----------|-------------|
+| `setSearchAttributes(attrs)` | Replace all attributes |
+| `upsertSearchAttributes(attrs)` | Merge attributes |
+
+### WorkflowClient
+
+| Method | Description |
+|--------|-------------|
+| `start(workflow, options)` | Start workflow, return handle |
+| `execute(workflow, options)` | Start and wait for result |
+| `getHandle(workflowId)` | Get handle to existing workflow |
+| `signalWithStart(workflow, options)` | Signal and optionally start |
+| `list(options)` | List workflows |
+
+### WorkflowHandle
+
+| Method | Description |
+|--------|-------------|
+| `result()` | Wait for workflow result |
+| `describe()` | Get workflow status/metadata |
+| `signal(signal, ...args)` | Send signal to workflow |
+| `query(query, ...args)` | Query workflow state |
+| `executeUpdate(update, ...args)` | Execute update |
+| `cancel()` | Request cancellation |
+| `terminate(reason?)` | Force terminate |
+
+### Worker Registration
+
+| Function | Description |
+|----------|-------------|
+| `registerWorker(taskQueue, handler)` | Register worker for queue |
+| `hasWorker(taskQueue)` | Check if worker registered |
+| `listTaskQueues()` | List registered queues |
+
+## Migration from Temporal SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @temporalio/client @temporalio/workflow @temporalio/worker
+
+# Install
+npm install @dotdo/temporal
+```
+
+### Import Changes
+
+```typescript
+// Before
+import { proxyActivities, sleep, condition } from '@temporalio/workflow'
+import { WorkflowClient } from '@temporalio/client'
+import { Worker } from '@temporalio/worker'
+
+// After
+import {
+  proxyActivities,
+  sleep,
+  condition,
+  WorkflowClient,
+  registerWorker,
+} from '@dotdo/temporal'
+```
+
+### Worker Setup Change
+
+```typescript
+// Before: Temporal Worker
+const worker = await Worker.create({
+  taskQueue: 'my-queue',
+  workflowsPath: require.resolve('./workflows'),
+  activities,
+})
+await worker.run()
+
+// After: dotdo Worker Registration
+registerWorker('my-queue', {
+  workflowTypes: new Set(['myWorkflow']),
+  executeActivity: async (name, args) => activities[name](...args),
+})
+```
+
+### Code Compatibility
+
+Your workflow code should work unchanged:
+
+```typescript
+// This works with both @temporalio/workflow and @dotdo/temporal
+export async function orderWorkflow(order: Order) {
+  const { processPayment, sendEmail } = proxyActivities<Activities>({
+    startToCloseTimeout: '30s',
+  })
+
+  await processPayment(order.cardToken, order.amount)
+  await sendEmail(order.email, 'Confirmed!')
+
+  return { status: 'completed' }
+}
+```
+
+## Related
+
+- [temporal.do](/docs/integrations/temporal/service) - Managed edge workflows
+- [Workflows Overview](/docs/workflows) - Durable execution primitives
+- [Durable Objects](/docs/architecture/durable-objects) - Stateful edge computing

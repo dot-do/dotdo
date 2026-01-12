@@ -1,0 +1,507 @@
+---
+title: "@dotdo/algolia"
+description: Drop-in replacement for algoliasearch backed by in-memory storage for testing and edge environments.
+---
+
+# @dotdo/algolia
+
+Drop-in replacement for the Algolia JavaScript SDK. Your existing `algoliasearch` code works unchanged - just swap the import.
+
+```typescript
+// Before: Algolia
+import algoliasearch from 'algoliasearch'
+
+// After: dotdo
+import algoliasearch from '@dotdo/algolia'
+
+// Code stays the same
+const client = algoliasearch('APP_ID', 'API_KEY')
+const index = client.initIndex('products')
+const results = await index.search('wireless headphones')
+```
+
+<Callout type="info">
+Looking for persistent storage? See [algolia.do](/docs/integrations/algolia/service) for a fully managed Algolia-compatible edge search service.
+</Callout>
+
+## Why @dotdo/algolia?
+
+| Algolia SDK | @dotdo/algolia |
+|-------------|----------------|
+| Requires Algolia account | No account needed |
+| Network latency to clusters | In-memory, zero latency |
+| Rate-limited operations | Unlimited operations |
+| Per-operation pricing | Free for testing |
+| Complex test setup | Perfect for unit tests |
+
+**This is an in-memory implementation** with an Algolia-compatible API. Data does not persist between restarts. The APP_ID and API_KEY are used for namespacing, not authentication.
+
+## Installation
+
+```bash
+npm install @dotdo/algolia
+```
+
+## Features
+
+### Implemented (21% Coverage)
+
+**SearchClient**
+- `initIndex()` - Get or create a search index
+- `listIndices()` - List all indices with stats
+- `copyIndex()` - Copy index with settings/objects
+- `moveIndex()` - Move/rename index
+- `multipleQueries()` - Multi-index search
+- `multipleGetObjects()` - Fetch objects across indices
+
+**SearchIndex**
+- `search()` - Full-text search with filters, facets, pagination
+- `searchForFacetValues()` - Search within facet values
+- `browse()` / `browseObjects()` - Iterate all objects
+- `saveObject()` / `saveObjects()` - Index documents
+- `getObject()` / `getObjects()` - Fetch by objectID
+- `partialUpdateObject()` / `partialUpdateObjects()` - Partial updates
+- `deleteObject()` / `deleteObjects()` - Remove documents
+- `deleteBy()` - Delete by filter
+- `clearObjects()` - Clear all documents
+- `setSettings()` / `getSettings()` - Configure index
+- `waitTask()` - Wait for async operations
+- `exists()` / `delete()` - Index management
+
+### Not Yet Implemented
+
+- Synonyms (`saveSynonym`, `getSynonym`, `deleteSynonym`)
+- Query Rules (`saveRule`, `getRule`, `deleteRule`)
+- A/B Testing
+- Analytics
+- Recommend API
+- Personalization
+
+## Quick Start
+
+### Index Documents
+
+```typescript
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('my-app', 'my-key')
+const index = client.initIndex('products')
+
+// Single object
+await index.saveObject({
+  objectID: 'prod-1',
+  name: 'Wireless Headphones',
+  description: 'Bluetooth noise-canceling',
+  price: 99.99,
+  category: 'electronics',
+  brand: 'AudioTech',
+  _tags: ['audio', 'wireless', 'bluetooth'],
+})
+
+// Batch indexing
+await index.saveObjects([
+  { objectID: 'prod-2', name: 'MacBook Pro', price: 2499, category: 'computers' },
+  { objectID: 'prod-3', name: 'iPad Pro', price: 799, category: 'tablets' },
+  { objectID: 'prod-4', name: 'AirPods Pro', price: 249, category: 'audio' },
+])
+
+// Auto-generate objectIDs
+await index.saveObjects(products, { autoGenerateObjectIDIfNotExist: true })
+```
+
+### Search
+
+```typescript
+// Simple search
+const { hits, nbHits } = await index.search('wireless headphones')
+
+// With filters
+const results = await index.search('headphones', {
+  filters: 'price < 200 AND category:electronics',
+  hitsPerPage: 20,
+  page: 0,
+})
+
+// Faceted search
+const faceted = await index.search('', {
+  facets: ['category', 'brand'],
+  filters: 'price > 50',
+})
+
+console.log(faceted.facets)
+// {
+//   category: { electronics: 15, audio: 8 },
+//   brand: { AudioTech: 5, Apple: 12 }
+// }
+```
+
+### Filter Syntax
+
+The full Algolia filter syntax is supported:
+
+```typescript
+// Numeric comparisons
+await index.search('', { filters: 'price < 100' })
+await index.search('', { filters: 'price >= 50 AND price <= 200' })
+
+// String equality
+await index.search('', { filters: 'category:electronics' })
+await index.search('', { filters: 'brand:"Audio Tech"' })  // quoted for spaces
+
+// Boolean logic
+await index.search('', { filters: 'price < 100 AND (category:audio OR category:electronics)' })
+await index.search('', { filters: 'NOT category:accessories' })
+
+// Facet filters (array format)
+await index.search('', {
+  facetFilters: ['category:electronics', ['brand:Apple', 'brand:Sony']]
+  // AND(category:electronics, OR(brand:Apple, brand:Sony))
+})
+
+// Numeric filters
+await index.search('', {
+  numericFilters: ['price>50', 'price<200']
+})
+
+// Tag filters
+await index.search('', {
+  tagFilters: ['wireless', ['premium', 'bestseller']]
+})
+```
+
+### Configure Index
+
+```typescript
+await index.setSettings({
+  // Define searchable fields (order matters for ranking)
+  searchableAttributes: [
+    'name',
+    'brand',
+    'description',
+    'category',
+  ],
+
+  // Enable faceting
+  attributesForFaceting: [
+    'category',
+    'brand',
+    'filterOnly(price)',  // Filterable but not displayed as facet
+  ],
+
+  // Custom ranking
+  customRanking: [
+    'desc(popularity)',
+    'asc(price)',
+  ],
+
+  // Pagination defaults
+  hitsPerPage: 20,
+
+  // Highlighting
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<mark>',
+  highlightPostTag: '</mark>',
+})
+```
+
+### Highlighting
+
+```typescript
+const results = await index.search('wireless', {
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<em>',
+  highlightPostTag: '</em>',
+})
+
+for (const hit of results.hits) {
+  console.log(hit._highlightResult?.name?.value)
+  // "High-Quality <em>Wireless</em> Headphones"
+
+  console.log(hit._highlightResult?.name?.matchLevel)
+  // 'full' | 'partial' | 'none'
+}
+```
+
+### Multi-Index Search
+
+```typescript
+const { results } = await client.multipleQueries([
+  { indexName: 'products', query: 'headphones' },
+  { indexName: 'categories', query: 'audio' },
+  {
+    indexName: 'products',
+    type: 'facet',
+    facet: 'brand',
+    params: { facetQuery: 'app' },
+  },
+])
+```
+
+### Browse All Objects
+
+```typescript
+// Iterate through all objects
+await index.browseObjects({
+  query: '',
+  hitsPerPage: 1000,
+  batch: (hits) => {
+    for (const hit of hits) {
+      console.log(hit.objectID, hit.name)
+    }
+  },
+})
+
+// Single page browse
+const { hits, cursor } = await index.browse({ hitsPerPage: 100 })
+```
+
+### Partial Updates
+
+```typescript
+// Update specific fields
+await index.partialUpdateObject({
+  objectID: 'prod-1',
+  price: 89.99,
+  onSale: true,
+})
+
+// Create if doesn't exist
+await index.partialUpdateObject(
+  { objectID: 'prod-new', name: 'New Product', price: 49.99 },
+  { createIfNotExists: true }
+)
+```
+
+### Index Management
+
+```typescript
+// List all indices
+const { items } = await client.listIndices()
+for (const idx of items) {
+  console.log(`${idx.name}: ${idx.entries} docs, ${idx.dataSize} bytes`)
+}
+
+// Copy index (with settings)
+await client.copyIndex('products', 'products_backup', {
+  scope: ['settings', 'synonyms', 'rules'],
+})
+
+// Move/rename index
+await client.moveIndex('products_v1', 'products')
+
+// Delete index
+await index.delete()
+
+// Check if exists
+if (await index.exists()) {
+  // ...
+}
+```
+
+## InstantSearch Compatibility
+
+Works with Algolia frontend libraries:
+
+```typescript
+// react-instantsearch
+import { InstantSearch, SearchBox, Hits } from 'react-instantsearch'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+function Search() {
+  return (
+    <InstantSearch searchClient={client} indexName="products">
+      <SearchBox />
+      <Hits hitComponent={Hit} />
+    </InstantSearch>
+  )
+}
+```
+
+```typescript
+// vue-instantsearch
+import { createApp } from 'vue'
+import InstantSearch from 'vue-instantsearch/vue3/es'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+createApp(App)
+  .use(InstantSearch)
+  .mount('#app')
+```
+
+```typescript
+// instantsearch.js
+import instantsearch from 'instantsearch.js'
+import { searchBox, hits } from 'instantsearch.js/es/widgets'
+import algoliasearch from '@dotdo/algolia'
+
+const client = algoliasearch('APP_ID', 'API_KEY')
+
+const search = instantsearch({
+  indexName: 'products',
+  searchClient: client,
+})
+
+search.addWidgets([
+  searchBox({ container: '#searchbox' }),
+  hits({ container: '#hits' }),
+])
+
+search.start()
+```
+
+## Type-Safe Usage
+
+Full TypeScript support with Algolia-compatible types:
+
+```typescript
+import type {
+  SearchClient,
+  SearchIndex,
+  SearchOptions,
+  SearchResponse,
+  SearchHit,
+  Hit,
+  HighlightResult,
+  FacetHit,
+  Facets,
+  Settings,
+  AlgoliaObject,
+} from '@dotdo/algolia'
+
+// Error types
+import {
+  AlgoliaError,
+  ObjectNotFoundError,
+  IndexNotFoundError,
+  InvalidFilterError,
+} from '@dotdo/algolia'
+```
+
+## Error Handling
+
+```typescript
+import {
+  AlgoliaError,
+  ObjectNotFoundError,
+  IndexNotFoundError,
+  InvalidFilterError,
+} from '@dotdo/algolia'
+
+try {
+  await index.getObject('nonexistent-id')
+} catch (error) {
+  if (error instanceof ObjectNotFoundError) {
+    console.error('Object not found:', error.message)
+  } else if (error instanceof IndexNotFoundError) {
+    console.error('Index not found:', error.message)
+  } else if (error instanceof InvalidFilterError) {
+    console.error('Invalid filter syntax:', error.message)
+  } else if (error instanceof AlgoliaError) {
+    console.error('Algolia error:', error.message, error.status)
+  }
+}
+```
+
+### Error Types
+
+| Error Type | Description |
+|------------|-------------|
+| `AlgoliaError` | Base error for all Algolia operations (includes `status` code) |
+| `ObjectNotFoundError` | Object with specified objectID not found (status 404) |
+| `IndexNotFoundError` | Index does not exist (status 404) |
+| `InvalidFilterError` | Filter syntax is invalid (status 400) |
+
+## Testing with @dotdo/algolia
+
+@dotdo/algolia is ideal for unit tests - no external Algolia account required:
+
+```typescript
+import algoliasearch from '@dotdo/algolia'
+
+describe('ProductSearch', () => {
+  let client: SearchClient
+  let index: SearchIndex
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    client = algoliasearch('test-app', 'test-key')
+    index = client.initIndex('products')
+  })
+
+  it('should find products by name', async () => {
+    await index.saveObjects([
+      { objectID: '1', name: 'Wireless Headphones', category: 'audio' },
+      { objectID: '2', name: 'Wired Earbuds', category: 'audio' },
+    ])
+
+    const { hits } = await index.search('wireless')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].name).toBe('Wireless Headphones')
+  })
+
+  it('should filter by category', async () => {
+    await index.saveObjects([
+      { objectID: '1', name: 'Headphones', category: 'audio' },
+      { objectID: '2', name: 'Laptop', category: 'computers' },
+    ])
+
+    const { hits } = await index.search('', {
+      filters: 'category:audio'
+    })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].category).toBe('audio')
+  })
+})
+```
+
+## Migration from algoliasearch
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall algoliasearch
+
+# Install
+npm install @dotdo/algolia
+```
+
+### Import Change
+
+```typescript
+// Before
+import algoliasearch from 'algoliasearch'
+
+// After
+import algoliasearch from '@dotdo/algolia'
+
+// Code stays the same
+const client = algoliasearch('APP_ID', 'API_KEY')
+const index = client.initIndex('products')
+```
+
+### Key Differences
+
+After migration, note these differences:
+
+| Feature | algoliasearch | @dotdo/algolia |
+|---------|---------------|----------------|
+| Data location | Algolia Cloud | In-memory (local) |
+| Typo tolerance | Full | Basic (prefix only) |
+| Geo search | Full | Types only (not yet filtering) |
+| Synonyms | Yes | Not yet |
+| Query Rules | Yes | Not yet |
+| Personalization | Yes | Not yet |
+| Analytics | Yes | Not yet |
+
+For production use cases requiring full Algolia features, you can use the real Algolia service or [algolia.do](/docs/integrations/algolia/service). For development, testing, and basic search needs, @dotdo/algolia provides zero-latency local search.
+
+## Related
+
+- [algolia.do](/docs/integrations/algolia/service) - Managed Algolia on the edge
+- [Search Compat Overview](/docs/compat/search) - All search SDK implementations
+- [Vector Search](/docs/compat/vector) - Semantic/embedding search

@@ -104,7 +104,7 @@ const storage = new TieredStorage({
   },
 })
 
-// Recent data: <10ms from SQLite
+// Recent data: \<10ms from SQLite
 const recent = await storage.query('SELECT * FROM orders WHERE created_at > now() - interval \'7d\'')
 
 // Historical data: DuckDB on Parquet

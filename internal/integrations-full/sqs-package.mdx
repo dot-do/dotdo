@@ -1,0 +1,787 @@
+---
+title: "@dotdo/sqs"
+description: Drop-in replacement for the AWS SQS SDK with edge compatibility and local testing support.
+---
+
+# @dotdo/sqs
+
+Drop-in replacement for the AWS SQS JavaScript SDK v3. Your existing `@aws-sdk/client-sqs` code works unchanged - just swap the import.
+
+```typescript
+// Before: AWS SQS SDK
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
+
+// After: dotdo
+import { SQSClient, SendMessageCommand } from '@dotdo/sqs'
+
+// Code stays the same
+const client = new SQSClient({ region: 'us-east-1' })
+
+await client.send(new SendMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123456789/my-queue',
+  MessageBody: JSON.stringify({ event: 'user.created', userId: '123' }),
+}))
+```
+
+<Callout type="info">
+Looking for managed message queuing without infrastructure? See [sqs.do](/docs/integrations/sqs/service) for a fully managed SQS-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/sqs?
+
+| AWS SQS SDK | @dotdo/sqs |
+|-------------|------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real AWS calls in tests | Local in-memory testing |
+| Requires AWS credentials for dev | No credentials needed locally |
+| Network latency to AWS | Zero latency in local mode |
+| AWS infrastructure costs | Free local development |
+| Complex local setup (LocalStack) | Built-in local mode |
+
+**This is a compatibility layer.** It can either forward to real AWS SQS (production) or run entirely locally using in-memory storage. The API surface matches the official AWS SDK v3.
+
+## Installation
+
+```bash
+npm install @dotdo/sqs
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Queue Operations**
+- `CreateQueueCommand` - Create standard and FIFO queues
+- `DeleteQueueCommand` - Delete queues
+- `ListQueuesCommand` - List queues with prefix filtering
+- `GetQueueUrlCommand` - Get queue URL by name
+- `GetQueueAttributesCommand` - Get queue attributes
+- `SetQueueAttributesCommand` - Update queue configuration
+- `PurgeQueueCommand` - Delete all messages from queue
+
+**Message Operations**
+- `SendMessageCommand` - Send single message
+- `SendMessageBatchCommand` - Send up to 10 messages
+- `ReceiveMessageCommand` - Receive messages with long polling
+- `DeleteMessageCommand` - Delete single message
+- `DeleteMessageBatchCommand` - Delete up to 10 messages
+- `ChangeMessageVisibilityCommand` - Extend/reset visibility timeout
+- `ChangeMessageVisibilityBatchCommand` - Batch visibility changes
+
+**Queue Tagging**
+- `TagQueueCommand` - Add tags to queue
+- `UntagQueueCommand` - Remove tags
+- `ListQueueTagsCommand` - List all tags
+
+**FIFO Queue Support**
+- Message group IDs for ordered processing
+- Message deduplication IDs
+- Content-based deduplication
+- Sequence numbers
+
+**Additional Features**
+- Message visibility timeouts
+- Message delay (up to 15 minutes)
+- Message attributes
+- MD5 hash verification
+- Dead letter queue configuration
+
+### Not Yet Implemented
+
+- Long polling with real wait
+- Message timers
+- Redrive policies (partial)
+- Server-side encryption
+- Access policies
+
+## Quick Start
+
+### Send and Receive Messages
+
+```typescript
+import {
+  SQSClient,
+  CreateQueueCommand,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+} from '@dotdo/sqs'
+
+const client = new SQSClient({ region: 'us-east-1' })
+
+// Create a queue
+const { QueueUrl } = await client.send(new CreateQueueCommand({
+  QueueName: 'my-queue',
+}))
+
+// Send a message
+const sendResult = await client.send(new SendMessageCommand({
+  QueueUrl,
+  MessageBody: JSON.stringify({ event: 'order.created', orderId: '12345' }),
+  MessageAttributes: {
+    'EventType': {
+      DataType: 'String',
+      StringValue: 'order.created',
+    },
+  },
+}))
+
+console.log('Message sent:', sendResult.MessageId)
+
+// Receive messages
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl,
+  MaxNumberOfMessages: 10,
+  WaitTimeSeconds: 20, // Long polling
+  MessageAttributeNames: ['All'],
+}))
+
+// Process and delete messages
+if (Messages) {
+  for (const message of Messages) {
+    console.log('Processing:', message.Body)
+
+    // Delete after processing
+    await client.send(new DeleteMessageCommand({
+      QueueUrl,
+      ReceiptHandle: message.ReceiptHandle!,
+    }))
+  }
+}
+```
+
+### FIFO Queue
+
+```typescript
+// Create FIFO queue
+const { QueueUrl } = await client.send(new CreateQueueCommand({
+  QueueName: 'orders.fifo',
+  Attributes: {
+    FifoQueue: 'true',
+    ContentBasedDeduplication: 'true',
+  },
+}))
+
+// Send with message group ID for ordering
+await client.send(new SendMessageCommand({
+  QueueUrl,
+  MessageBody: JSON.stringify({ orderId: '456', action: 'process' }),
+  MessageGroupId: 'customer-123', // All messages for this customer processed in order
+}))
+
+// With explicit deduplication ID
+await client.send(new SendMessageCommand({
+  QueueUrl,
+  MessageBody: JSON.stringify({ orderId: '456', action: 'ship' }),
+  MessageGroupId: 'customer-123',
+  MessageDeduplicationId: 'order-456-ship', // Prevents duplicate sends
+}))
+```
+
+### Batch Operations
+
+```typescript
+// Send batch of messages
+const { Successful, Failed } = await client.send(new SendMessageBatchCommand({
+  QueueUrl,
+  Entries: [
+    { Id: '1', MessageBody: 'First message' },
+    { Id: '2', MessageBody: 'Second message', DelaySeconds: 10 },
+    { Id: '3', MessageBody: 'Third message' },
+  ],
+}))
+
+console.log(`Sent ${Successful?.length ?? 0} messages`)
+if (Failed?.length) {
+  console.error('Failed:', Failed)
+}
+
+// Delete batch of messages
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl,
+  MaxNumberOfMessages: 10,
+}))
+
+if (Messages) {
+  await client.send(new DeleteMessageBatchCommand({
+    QueueUrl,
+    Entries: Messages.map((m, i) => ({
+      Id: `${i}`,
+      ReceiptHandle: m.ReceiptHandle!,
+    })),
+  }))
+}
+```
+
+## Local Mode (In-Memory)
+
+For testing and development, the SDK provides a complete in-memory SQS implementation:
+
+```typescript
+import {
+  SQSClient,
+  CreateQueueCommand,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+  _clearAll,
+} from '@dotdo/sqs'
+
+// Create client (no AWS credentials needed)
+const client = new SQSClient({ region: 'us-east-1' })
+
+// Use exactly like real AWS SQS
+const { QueueUrl } = await client.send(new CreateQueueCommand({
+  QueueName: 'test-queue',
+}))
+
+await client.send(new SendMessageCommand({
+  QueueUrl,
+  MessageBody: 'Test message',
+}))
+
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl,
+  MaxNumberOfMessages: 1,
+}))
+
+console.log(Messages?.[0].Body) // 'Test message'
+
+// Clear all data between tests
+_clearAll()
+```
+
+### Testing Example
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  SQSClient,
+  CreateQueueCommand,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+  _clearAll,
+} from '@dotdo/sqs'
+
+describe('Order Processing', () => {
+  let client: SQSClient
+  let queueUrl: string
+
+  beforeEach(async () => {
+    _clearAll()
+    client = new SQSClient({ region: 'us-east-1' })
+
+    const result = await client.send(new CreateQueueCommand({
+      QueueName: 'orders',
+    }))
+    queueUrl = result.QueueUrl!
+  })
+
+  it('should process order messages', async () => {
+    // Send order
+    await client.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify({ orderId: '123', total: 99.99 }),
+    }))
+
+    // Receive and process
+    const { Messages } = await client.send(new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 1,
+    }))
+
+    expect(Messages).toHaveLength(1)
+    const order = JSON.parse(Messages![0].Body!)
+    expect(order.orderId).toBe('123')
+
+    // Delete after processing
+    await client.send(new DeleteMessageCommand({
+      QueueUrl: queueUrl,
+      ReceiptHandle: Messages![0].ReceiptHandle!,
+    }))
+
+    // Verify queue is empty
+    const after = await client.send(new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 1,
+    }))
+    expect(after.Messages).toBeUndefined()
+  })
+})
+```
+
+## Production Mode (Real AWS SQS)
+
+For production, configure with AWS credentials:
+
+```typescript
+import { SQSClient, SendMessageCommand } from '@dotdo/sqs'
+
+const client = new SQSClient({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+  },
+})
+
+await client.send(new SendMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123456789/production-queue',
+  MessageBody: JSON.stringify({ event: 'user.created' }),
+}))
+```
+
+### Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+} from '@dotdo/sqs'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = new SQSClient({
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      },
+    })
+
+    // Send message
+    await client.send(new SendMessageCommand({
+      QueueUrl: env.SQS_QUEUE_URL,
+      MessageBody: JSON.stringify({ requestId: crypto.randomUUID() }),
+    }))
+
+    return new Response('Message sent')
+  },
+}
+```
+
+## API Reference
+
+### SQSClient
+
+```typescript
+const client = new SQSClient({
+  region: 'us-east-1',           // AWS region
+  credentials: {                  // AWS credentials (optional for local)
+    accessKeyId: 'AKIA...',
+    secretAccessKey: '...',
+    sessionToken: '...',          // Optional, for temporary credentials
+  },
+  endpoint: 'http://localhost',   // Custom endpoint (optional)
+  maxAttempts: 3,                 // Retry attempts (optional)
+  requestTimeout: 30000,          // Timeout in ms (optional)
+})
+```
+
+### Queue Commands
+
+#### CreateQueueCommand
+
+```typescript
+const { QueueUrl } = await client.send(new CreateQueueCommand({
+  QueueName: 'my-queue',
+  Attributes: {
+    VisibilityTimeout: '30',           // Default: 30 seconds
+    MessageRetentionPeriod: '345600',  // Default: 4 days
+    MaximumMessageSize: '262144',      // Default: 256 KB
+    DelaySeconds: '0',                 // Default: 0
+    ReceiveMessageWaitTimeSeconds: '0', // Default: 0 (short polling)
+    FifoQueue: 'true',                 // For FIFO queues
+    ContentBasedDeduplication: 'true', // FIFO only
+  },
+  tags: {
+    Environment: 'production',
+  },
+}))
+```
+
+#### GetQueueAttributesCommand
+
+```typescript
+const { Attributes } = await client.send(new GetQueueAttributesCommand({
+  QueueUrl,
+  AttributeNames: [
+    'All',  // Or specific: 'ApproximateNumberOfMessages', etc.
+  ],
+}))
+
+console.log('Messages in queue:', Attributes?.ApproximateNumberOfMessages)
+console.log('Messages in flight:', Attributes?.ApproximateNumberOfMessagesNotVisible)
+console.log('Delayed messages:', Attributes?.ApproximateNumberOfMessagesDelayed)
+```
+
+### Message Commands
+
+#### SendMessageCommand
+
+```typescript
+const result = await client.send(new SendMessageCommand({
+  QueueUrl,
+  MessageBody: 'Hello World',           // Required
+  DelaySeconds: 10,                      // 0-900 seconds
+  MessageAttributes: {                   // Custom attributes
+    'ContentType': {
+      DataType: 'String',
+      StringValue: 'application/json',
+    },
+    'Priority': {
+      DataType: 'Number',
+      StringValue: '1',
+    },
+  },
+  // FIFO only:
+  MessageGroupId: 'group-1',
+  MessageDeduplicationId: 'unique-id',
+}))
+
+console.log('MessageId:', result.MessageId)
+console.log('MD5:', result.MD5OfMessageBody)
+console.log('SequenceNumber:', result.SequenceNumber) // FIFO only
+```
+
+#### ReceiveMessageCommand
+
+```typescript
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl,
+  MaxNumberOfMessages: 10,              // 1-10, default: 1
+  VisibilityTimeout: 30,                // Override queue default
+  WaitTimeSeconds: 20,                  // Long polling (0-20)
+  AttributeNames: ['All'],              // System attributes
+  MessageAttributeNames: ['All'],       // Custom attributes
+}))
+
+if (Messages) {
+  for (const msg of Messages) {
+    console.log('MessageId:', msg.MessageId)
+    console.log('Body:', msg.Body)
+    console.log('ReceiptHandle:', msg.ReceiptHandle)
+    console.log('Attributes:', msg.Attributes)
+    console.log('MessageAttributes:', msg.MessageAttributes)
+  }
+}
+```
+
+#### ChangeMessageVisibilityCommand
+
+```typescript
+// Extend visibility timeout
+await client.send(new ChangeMessageVisibilityCommand({
+  QueueUrl,
+  ReceiptHandle: message.ReceiptHandle!,
+  VisibilityTimeout: 60,  // New timeout in seconds
+}))
+
+// Make message immediately visible (return to queue)
+await client.send(new ChangeMessageVisibilityCommand({
+  QueueUrl,
+  ReceiptHandle: message.ReceiptHandle!,
+  VisibilityTimeout: 0,
+}))
+```
+
+## Error Handling
+
+```typescript
+import {
+  SQSClient,
+  SendMessageCommand,
+  QueueDoesNotExist,
+  ReceiptHandleIsInvalid,
+  SQSServiceException,
+} from '@dotdo/sqs'
+
+try {
+  await client.send(new SendMessageCommand({
+    QueueUrl: 'https://sqs.../nonexistent',
+    MessageBody: 'test',
+  }))
+} catch (error) {
+  if (error instanceof QueueDoesNotExist) {
+    console.error('Queue not found')
+  } else if (error instanceof ReceiptHandleIsInvalid) {
+    console.error('Invalid receipt handle')
+  } else if (error instanceof SQSServiceException) {
+    console.error('SQS error:', error.message)
+    console.error('Fault:', error.$fault)  // 'client' or 'server'
+  }
+}
+```
+
+### Error Types
+
+| Error | Description |
+|-------|-------------|
+| `QueueDoesNotExist` | Queue URL not found |
+| `QueueNameExists` | Queue name already taken |
+| `ReceiptHandleIsInvalid` | Invalid or expired receipt handle |
+| `MessageNotInflight` | Message not currently being processed |
+| `EmptyBatchRequest` | Batch operation with no entries |
+| `TooManyEntriesInBatchRequest` | More than 10 entries in batch |
+| `BatchEntryIdsNotDistinct` | Duplicate IDs in batch |
+| `InvalidMessageContents` | Message too long or invalid |
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Client config
+  SQSClientConfig,
+  Credentials,
+
+  // Messages
+  Message,
+  MessageAttributeValue,
+  MessageAttributes,
+
+  // Queue
+  QueueAttributeName,
+  QueueAttributes,
+
+  // Batch operations
+  SendMessageBatchRequestEntry,
+  SendMessageBatchResultEntry,
+  DeleteMessageBatchRequestEntry,
+  BatchResultErrorEntry,
+
+  // Command I/O
+  CreateQueueCommandInput,
+  CreateQueueCommandOutput,
+  SendMessageCommandInput,
+  SendMessageCommandOutput,
+  ReceiveMessageCommandInput,
+  ReceiveMessageCommandOutput,
+} from '@dotdo/sqs'
+```
+
+## Common Patterns
+
+### Worker Pattern
+
+```typescript
+import {
+  SQSClient,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+} from '@dotdo/sqs'
+
+const client = new SQSClient({ region: 'us-east-1' })
+
+async function processMessages(queueUrl: string) {
+  while (true) {
+    const { Messages } = await client.send(new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 10,
+      WaitTimeSeconds: 20, // Long polling
+      VisibilityTimeout: 30,
+    }))
+
+    if (Messages) {
+      for (const message of Messages) {
+        try {
+          await processMessage(JSON.parse(message.Body!))
+
+          await client.send(new DeleteMessageCommand({
+            QueueUrl: queueUrl,
+            ReceiptHandle: message.ReceiptHandle!,
+          }))
+        } catch (error) {
+          console.error('Failed to process:', error)
+          // Message will become visible again after timeout
+        }
+      }
+    }
+  }
+}
+```
+
+### Event-Driven Processing
+
+```typescript
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+} from '@dotdo/sqs'
+
+// Producer: Send events to queue
+async function publishEvent(event: { type: string; data: unknown }) {
+  await client.send(new SendMessageCommand({
+    QueueUrl: EVENTS_QUEUE_URL,
+    MessageBody: JSON.stringify(event),
+    MessageAttributes: {
+      EventType: {
+        DataType: 'String',
+        StringValue: event.type,
+      },
+    },
+  }))
+}
+
+// Consumer: Process events from queue
+async function consumeEvents() {
+  const { Messages } = await client.send(new ReceiveMessageCommand({
+    QueueUrl: EVENTS_QUEUE_URL,
+    MaxNumberOfMessages: 10,
+    MessageAttributeNames: ['EventType'],
+  }))
+
+  for (const msg of Messages ?? []) {
+    const eventType = msg.MessageAttributes?.EventType?.StringValue
+    const event = JSON.parse(msg.Body!)
+
+    switch (eventType) {
+      case 'user.created':
+        await handleUserCreated(event.data)
+        break
+      case 'order.placed':
+        await handleOrderPlaced(event.data)
+        break
+    }
+  }
+}
+```
+
+### Dead Letter Queue
+
+```typescript
+// Create main queue with DLQ
+const mainQueue = await client.send(new CreateQueueCommand({
+  QueueName: 'orders',
+  Attributes: {
+    RedrivePolicy: JSON.stringify({
+      deadLetterTargetArn: 'arn:aws:sqs:us-east-1:123:orders-dlq',
+      maxReceiveCount: '3', // Move to DLQ after 3 failed attempts
+    }),
+  },
+}))
+
+// Create DLQ
+await client.send(new CreateQueueCommand({
+  QueueName: 'orders-dlq',
+}))
+```
+
+## Migration from AWS SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @aws-sdk/client-sqs
+
+# Install
+npm install @dotdo/sqs
+```
+
+### Import Change
+
+```typescript
+// Before
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+} from '@aws-sdk/client-sqs'
+
+// After
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+} from '@dotdo/sqs'
+```
+
+### Code Compatibility
+
+Your existing SQS code should work unchanged:
+
+```typescript
+// This code works with both @aws-sdk/client-sqs and @dotdo/sqs
+const client = new SQSClient({ region: 'us-east-1' })
+
+await client.send(new SendMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
+  MessageBody: JSON.stringify({ event: 'test' }),
+}))
+
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
+  MaxNumberOfMessages: 10,
+}))
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const client = new SQSClient({ region: 'us-east-1' })      |
+|  await client.send(new SendMessageCommand(...))              |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode       |     |     Local Mode          |
+|   (Outbound)            |     |     (Inbound)           |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> Real AWS SQS        |     |  -> In-memory storage   |
+|  -> AWS credentials     |     |  -> No network calls    |
+|  -> Actual queues       |     |  -> Instant operations  |
+|  -> Production traffic  |     |  -> Perfect for tests   |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero latency**: No network round-trips
+- **No AWS costs**: Free local development
+- **No credentials**: Works without AWS setup
+- **Predictable**: No external dependencies
+- **Testable**: Full control over queue state
+- **Offline**: Works without internet
+
+## API Coverage
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| CreateQueueCommand | Full | Standard and FIFO |
+| DeleteQueueCommand | Full | |
+| ListQueuesCommand | Full | With prefix filter |
+| GetQueueUrlCommand | Full | |
+| GetQueueAttributesCommand | Full | All attributes |
+| SetQueueAttributesCommand | Full | |
+| PurgeQueueCommand | Full | |
+| SendMessageCommand | Full | With attributes |
+| SendMessageBatchCommand | Full | Up to 10 messages |
+| ReceiveMessageCommand | Full | Long polling |
+| DeleteMessageCommand | Full | |
+| DeleteMessageBatchCommand | Full | |
+| ChangeMessageVisibilityCommand | Full | |
+| ChangeMessageVisibilityBatchCommand | Full | |
+| TagQueueCommand | Full | |
+| UntagQueueCommand | Full | |
+| ListQueueTagsCommand | Full | |
+
+## Related
+
+- [sqs.do](/docs/integrations/sqs/service) - Managed SQS-compatible queuing
+- [Kafka Integration](/docs/integrations/kafka) - Event streaming
+- [Events Overview](/docs/events) - Event handling patterns

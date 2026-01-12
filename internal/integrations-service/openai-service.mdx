@@ -1,0 +1,525 @@
+---
+title: openai.do
+description: Managed AI gateway on the edge with multi-provider routing, caching, and enterprise observability.
+---
+
+# openai.do
+
+**AI Gateway on the Edge** — A managed OpenAI-compatible service running on Cloudflare Workers with multi-provider routing, request caching, and enterprise-grade observability.
+
+```typescript
+import { OpenAI } from 'openai.do'
+
+const client = new OpenAI('https://your-ai-gateway.workers.dev')
+
+// It's just OpenAI
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+```
+
+<Callout type="info">
+Looking for a lightweight SDK for testing? See [@dotdo/openai](/docs/integrations/openai/package) for a drop-in OpenAI replacement.
+</Callout>
+
+## Why openai.do?
+
+Traditional AI integrations require managing API keys, handling rate limits, and building observability. openai.do handles all of that at the edge:
+
+- **Zero Infrastructure** — No servers to manage, automatic scaling
+- **Global by Default** — Requests routed through Cloudflare's network (300+ cities)
+- **OpenAI Compatible** — Drop-in replacement for the OpenAI SDK
+- **Multi-Provider** — Automatic failover between OpenAI, Anthropic, and more
+- **Enterprise Ready** — Built-in caching, analytics, and audit logging
+
+## Features
+
+### Core AI Gateway
+
+| Feature | Description |
+|---------|-------------|
+| **Chat Completions** | Full OpenAI chat API with streaming |
+| **Embeddings** | Text embeddings with automatic batching |
+| **Image Generation** | DALL-E integration |
+| **Assistants** | Persistent Assistants API with DO storage |
+| **Multi-Provider** | Route to OpenAI, Anthropic, Azure, custom endpoints |
+
+### Production Features
+
+| Feature | Description |
+|---------|-------------|
+| **Request Caching** | Semantic caching with configurable TTL |
+| **Rate Limiting** | Per-key, per-user, and global limits |
+| **Budget Controls** | Spending limits and alerts |
+| **Token Tracking** | Real-time usage analytics |
+| **Audit Logging** | Complete request/response logs |
+| **Cost Analytics** | Per-model, per-user cost breakdowns |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **HTTP/RPC** | OpenAI-compatible REST API |
+| **WebSocket** | Persistent streaming connections |
+| **Service Bindings** | Zero-latency Worker-to-Worker |
+| **MCP Protocol** | AI agent tool calling support |
+
+## Installation
+
+```bash
+npm install openai.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { AIGatewayEntrypoint, AIGatewayDatabase } from 'openai.do'
+
+export { AIGatewayDatabase }
+export default AIGatewayEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-ai-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "AI_GATEWAY", "class_name": "AIGatewayDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AIGatewayDatabase"] }],
+  "vars": {
+    "OPENAI_API_KEY": "",
+    "ANTHROPIC_API_KEY": ""
+  }
+}
+```
+
+```bash
+# Set secrets
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put ANTHROPIC_API_KEY
+
+# Deploy
+npx wrangler deploy
+```
+
+### Client Usage
+
+```typescript
+import { OpenAI } from 'openai.do'
+
+const client = new OpenAI('https://your-ai-gateway.workers.dev', {
+  apiKey: 'your-gateway-api-key', // Optional: for authenticated access
+})
+
+const completion = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+```
+
+## Examples
+
+### Multi-Provider Routing
+
+Configure automatic failover between providers:
+
+```typescript
+// Gateway configuration
+const gateway = new AIGateway({
+  providers: [
+    {
+      name: 'openai',
+      apiKey: env.OPENAI_API_KEY,
+      priority: 1,
+      models: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    },
+    {
+      name: 'anthropic',
+      apiKey: env.ANTHROPIC_API_KEY,
+      priority: 2,
+      models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+    },
+    {
+      name: 'azure',
+      apiKey: env.AZURE_OPENAI_KEY,
+      baseURL: env.AZURE_OPENAI_ENDPOINT,
+      priority: 3,
+    },
+  ],
+  routing: {
+    strategy: 'priority', // 'priority' | 'round-robin' | 'least-latency' | 'cost-optimized'
+    fallback: {
+      enabled: true,
+      maxAttempts: 3,
+      backoffMs: 1000,
+    },
+  },
+})
+```
+
+### Routing Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `priority` | Use highest priority provider, failover on errors (default) |
+| `round-robin` | Distribute requests evenly across providers |
+| `least-latency` | Route to provider with lowest p50 latency |
+| `cost-optimized` | Route based on model pricing |
+
+### Request Caching
+
+Enable semantic caching for repeated queries:
+
+```typescript
+const gateway = new AIGateway({
+  cache: {
+    enabled: true,
+    ttl: 3600, // 1 hour
+    strategy: 'semantic', // 'exact' | 'semantic'
+    maxSize: 10000, // Max cached responses
+  },
+})
+
+// First request - hits OpenAI
+const response1 = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'What is 2+2?' }],
+})
+
+// Subsequent similar request - served from cache
+const response2 = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'What is two plus two?' }],
+  // Cache hit due to semantic similarity
+})
+```
+
+### Budget Controls
+
+Set spending limits and alerts:
+
+```typescript
+const gateway = new AIGateway({
+  budget: {
+    daily: 100, // $100/day limit
+    monthly: 2000, // $2000/month limit
+    alerts: [
+      { threshold: 0.8, webhook: 'https://...' }, // Alert at 80%
+      { threshold: 0.95, webhook: 'https://...' }, // Alert at 95%
+    ],
+    action: 'throttle', // 'throttle' | 'block' | 'alert-only'
+  },
+})
+```
+
+### Rate Limiting
+
+Configure rate limits per API key or user:
+
+```typescript
+const gateway = new AIGateway({
+  rateLimit: {
+    global: {
+      requests: 10000,
+      window: '1m',
+    },
+    perKey: {
+      requests: 100,
+      window: '1m',
+    },
+    perUser: {
+      requests: 50,
+      window: '1m',
+    },
+  },
+})
+```
+
+### Streaming
+
+Full streaming support with Server-Sent Events:
+
+```typescript
+const stream = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: 'Tell me a story' }],
+  stream: true,
+})
+
+for await (const chunk of stream) {
+  const content = chunk.choices[0]?.delta?.content
+  if (content) {
+    process.stdout.write(content)
+  }
+}
+```
+
+### Analytics & Observability
+
+Access real-time analytics:
+
+```typescript
+// Get usage statistics
+const stats = await client.admin.getStats({
+  period: '24h',
+  groupBy: ['model', 'provider', 'user'],
+})
+
+console.log(stats)
+// {
+//   totalRequests: 15420,
+//   totalTokens: 2456000,
+//   totalCost: 45.23,
+//   cacheHitRate: 0.34,
+//   averageLatency: 420,
+//   byModel: {
+//     'gpt-4': { requests: 8000, tokens: 1600000, cost: 32.00 },
+//     'gpt-3.5-turbo': { requests: 7420, tokens: 856000, cost: 13.23 }
+//   },
+//   byProvider: {
+//     'openai': { requests: 14500, errors: 23, p50Latency: 400 },
+//     'anthropic': { requests: 920, errors: 1, p50Latency: 350 }
+//   }
+// }
+
+// Get audit logs
+const logs = await client.admin.getLogs({
+  startTime: new Date(Date.now() - 3600000),
+  limit: 100,
+  filter: { model: 'gpt-4' },
+})
+```
+
+### Persistent Assistants
+
+Unlike the in-memory Assistants API in `@dotdo/openai`, openai.do provides persistent storage:
+
+```typescript
+const client = new OpenAI('https://your-ai-gateway.workers.dev')
+
+// Create an assistant (persisted to DO SQLite)
+const assistant = await client.beta.assistants.create({
+  name: 'Customer Support',
+  instructions: 'You are a helpful customer support agent.',
+  model: 'gpt-4-turbo',
+  tools: [{ type: 'code_interpreter' }],
+})
+
+// Create a thread (persists across restarts)
+const thread = await client.beta.threads.create()
+
+// Add messages and run
+await client.beta.threads.messages.create(thread.id, {
+  role: 'user',
+  content: 'Help me with my order #12345',
+})
+
+const run = await client.beta.threads.runs.createAndPoll(thread.id, {
+  assistant_id: assistant.id,
+})
+
+// Thread history is persistent
+const messages = await client.beta.threads.messages.list(thread.id)
+```
+
+### Agent Integration
+
+Named agents from `agents.do` work seamlessly with openai.do:
+
+```typescript
+import { priya, ralph, tom } from 'agents.do'
+
+// Configure agents to use your gateway
+const config = {
+  gateway: 'https://your-ai-gateway.workers.dev',
+}
+
+// Named agents route through your gateway
+const spec = await priya`define the MVP for ${hypothesis}`
+let app = await ralph`build ${spec}`
+
+// Tom reviews and approves
+const review = await tom.approve(app)
+if (review.approved) {
+  console.log('Code approved!')
+}
+```
+
+## Architecture
+
+```
++------------------------------------------------------------------+
+|                        Client Applications                        |
++----------------+----------------+----------------+----------------+
+|   OpenAI SDK   |   HTTP/REST    |   WebSocket    |  agents.do     |
++----------------+----------------+----------------+----------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|                     openai.do Worker (Edge)                       |
++------------------------------------------------------------------+
+|  Auth  |  Rate Limiter  |  Cache  |  Router  |  Analytics        |
++------------------------------------------------------------------+
+|                    Provider Adapter Layer                         |
++--------+--------+--------+--------+--------+---------------------+
+| OpenAI | Claude | Azure  | Gemini | Custom | Local (Ollama)      |
++--------+--------+--------+--------+--------+---------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|              Durable Objects (SQLite Storage)                     |
+|  - Assistants & Threads                                          |
+|  - Usage & Analytics                                             |
+|  - Cache Storage                                                 |
+|  - Audit Logs                                                    |
++------------------------------------------------------------------+
+```
+
+## Connectivity Options
+
+### HTTP/REST API
+
+OpenAI-compatible REST endpoints:
+
+```bash
+# Chat completions
+curl https://your-ai-gateway.workers.dev/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+
+# Embeddings
+curl https://your-ai-gateway.workers.dev/v1/embeddings \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "text-embedding-3-small",
+    "input": "Hello world"
+  }'
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const completion = await env.AI_GATEWAY.chat({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'Hello' }],
+    })
+    return Response.json(completion)
+  }
+}
+```
+
+### MCP Protocol
+
+Expose your gateway as an MCP server for AI agents:
+
+```typescript
+import { createMcpServer } from 'openai.do/mcp'
+
+const server = createMcpServer({
+  gateway: client,
+  tools: [
+    {
+      name: 'generate_text',
+      description: 'Generate text using GPT-4',
+      parameters: { prompt: { type: 'string' } },
+    },
+  ],
+})
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `AZURE_OPENAI_KEY` | Azure OpenAI API key |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
+| `GATEWAY_API_KEY` | Key for authenticating gateway clients |
+
+### Full Configuration
+
+```typescript
+const gateway = new AIGateway({
+  // Providers
+  providers: [
+    { name: 'openai', apiKey: '...', priority: 1 },
+    { name: 'anthropic', apiKey: '...', priority: 2 },
+  ],
+
+  // Routing
+  routing: {
+    strategy: 'priority',
+    fallback: { enabled: true, maxAttempts: 3 },
+  },
+
+  // Caching
+  cache: {
+    enabled: true,
+    ttl: 3600,
+    strategy: 'semantic',
+  },
+
+  // Rate limiting
+  rateLimit: {
+    global: { requests: 10000, window: '1m' },
+    perKey: { requests: 100, window: '1m' },
+  },
+
+  // Budget
+  budget: {
+    daily: 100,
+    monthly: 2000,
+    action: 'throttle',
+  },
+
+  // Logging
+  logging: {
+    level: 'info',
+    auditRequests: true,
+    auditResponses: true,
+  },
+})
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Deploy
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/openai](/docs/integrations/openai/package) - Lightweight SDK for testing
+- [Anthropic](/docs/integrations/anthropic) - Claude API integration
+- [Named Agents](/docs/agents/named-agents) - Priya, Ralph, Tom, Mark, Sally, Quinn
+- [Agent SDK](/docs/agents) - Multi-provider agent system
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

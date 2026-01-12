@@ -1,0 +1,498 @@
+---
+title: convex.do
+description: Convex on the Edge — A fully managed Convex-compatible reactive backend running on Cloudflare Workers with real-time subscriptions and AI agent support.
+---
+
+# convex.do
+
+**Convex on the Edge** — A Convex-compatible reactive backend that runs entirely on Cloudflare Workers, with native real-time subscriptions, optimistic updates, and AI agent support.
+
+```typescript
+import { ConvexClient } from 'convex.do'
+
+const client = new ConvexClient('https://your-worker.workers.dev')
+
+// Real-time subscription
+const unsubscribe = client.onUpdate(api.messages.list, { channel: 'general' }, (messages) => {
+  renderMessages(messages)
+})
+
+// Mutation with optimistic update
+await client.mutation(api.messages.send, { body: 'Hello!' }, {
+  optimisticUpdate: (localStore, args) => {
+    const existing = localStore.getQuery(api.messages.list, { channel: 'general' }) ?? []
+    localStore.setQuery(api.messages.list, { channel: 'general' }, [
+      ...existing,
+      { _id: 'temp', _creationTime: Date.now(), ...args },
+    ])
+  },
+})
+```
+
+<Callout type="info">
+Looking for a local development setup? See [@dotdo/convex](/docs/integrations/convex/package) for a zero-dependency implementation.
+</Callout>
+
+## Why convex.do?
+
+Traditional reactive backends require infrastructure management, WebSocket servers, and careful scaling. convex.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Data and compute live at the edge, close to your users
+- **Convex Compatible** — Drop-in replacement for Convex browser SDK
+- **Real-Time Native** — Subscriptions and optimistic updates built-in
+- **AI-Native** — Built-in support for AI agents, vector search, and LLM tool calling
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Reactive Backend
+
+| Feature | Description |
+|---------|-------------|
+| **Queries** | One-shot and real-time queries with automatic caching |
+| **Mutations** | Transactional mutations with optimistic updates |
+| **Actions** | Side-effect operations for external API calls |
+| **Subscriptions** | Real-time reactive updates via WebSocket and SSE |
+| **Authentication** | Token-based auth with refresh and session management |
+| **Pagination** | Cursor-based pagination with configurable page sizes |
+
+### Server Functions
+
+| Feature | Description |
+|---------|-------------|
+| **Query Builders** | Define type-safe query functions with validation |
+| **Mutation Builders** | Define type-safe mutation functions with ACID guarantees |
+| **Action Builders** | Define actions that can call external APIs |
+| **Scheduled Functions** | Cron-like scheduling with durable execution |
+| **HTTP Endpoints** | REST API endpoints alongside reactive functions |
+
+### Storage & Search
+
+| Feature | Description |
+|---------|-------------|
+| **Document Storage** | Schemaless documents with automatic indexing |
+| **File Storage** | R2-backed file uploads with CDN delivery |
+| **Full-Text Search** | FTS5-powered search with scoring and highlights |
+| **Vector Search** | Semantic similarity search via Cloudflare Vectorize |
+| **Indexes** | Single-field, compound, and custom indexes |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **MCP Protocol** | Model Context Protocol server for AI agents |
+| **Tool Calling** | LLM-compatible function definitions |
+| **Embeddings** | Automatic vector embeddings for documents |
+| **AgentFS** | Virtual filesystem for AI agent workflows |
+
+## Installation
+
+```bash
+npm install convex.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { ConvexEntrypoint, ConvexDatabase } from 'convex.do'
+
+export { ConvexDatabase }
+export default ConvexEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-convex.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "CONVEX_DATABASE", "class_name": "ConvexDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ConvexDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Define Functions
+
+```typescript
+// convex/messages.ts
+import { query, mutation } from 'convex.do/server'
+import { v } from 'convex.do/values'
+
+export const list = query({
+  args: { channel: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('messages')
+      .filter((q) => q.eq(q.field('channel'), args.channel))
+      .order('desc')
+      .take(50)
+  },
+})
+
+export const send = mutation({
+  args: { channel: v.string(), body: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
+
+    return await ctx.db.insert('messages', {
+      channel: args.channel,
+      body: args.body,
+      author: identity.subject,
+    })
+  },
+})
+```
+
+### Client Usage
+
+```typescript
+import { ConvexClient } from 'convex.do'
+import { api } from './convex/_generated/api'
+
+const client = new ConvexClient('https://your-worker.workers.dev')
+
+// Authentication
+client.setAuth(async () => {
+  return await getAuthToken()
+})
+
+// Real-time subscription
+const unsubscribe = client.onUpdate(
+  api.messages.list,
+  { channel: 'general' },
+  (messages) => {
+    console.log('Messages:', messages)
+  }
+)
+
+// Send a message
+await client.mutation(api.messages.send, {
+  channel: 'general',
+  body: 'Hello, world!',
+})
+```
+
+## Examples
+
+### Optimistic Updates
+
+```typescript
+await client.mutation(
+  api.tasks.create,
+  { title: 'New Task', completed: false },
+  {
+    optimisticUpdate: (localStore, args) => {
+      const existing = localStore.getQuery(api.tasks.list, {}) ?? []
+      localStore.setQuery(api.tasks.list, {}, [
+        ...existing,
+        { _id: 'optimistic', _creationTime: Date.now(), ...args },
+      ])
+    },
+  }
+)
+```
+
+### Vector Search (Semantic Similarity)
+
+```typescript
+// Create a vector index
+await ctx.db.createIndex('articles_embedding', {
+  fields: ['embedding'],
+  vectorOptions: { dimensions: 1024, metric: 'cosine' },
+})
+
+// Query with semantic search
+export const search = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    const embedding = await ctx.vectorize.embed(args.query)
+
+    return await ctx.db
+      .query('articles')
+      .vectorSearch('embedding', embedding, { limit: 10 })
+      .collect()
+  },
+})
+```
+
+### Full-Text Search
+
+```typescript
+// Create a text index
+await ctx.db.createIndex('articles_search', {
+  fields: ['title', 'content'],
+  type: 'text',
+})
+
+// Search with highlights
+export const search = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('articles')
+      .textSearch('articles_search', args.query)
+      .collect()
+  },
+})
+```
+
+### Scheduled Functions
+
+```typescript
+import { cronJobs } from 'convex.do/server'
+
+const crons = cronJobs()
+
+crons.daily(
+  'cleanup old messages',
+  { hourUTC: 3, minuteUTC: 0 },
+  api.messages.cleanup
+)
+
+crons.interval(
+  'sync external data',
+  { minutes: 15 },
+  api.sync.external
+)
+
+export default crons
+```
+
+### File Storage
+
+```typescript
+// Generate upload URL
+export const generateUploadUrl = mutation({
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+// Store file reference
+export const saveFile = mutation({
+  args: { storageId: v.id('_storage'), name: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert('files', {
+      storageId: args.storageId,
+      name: args.name,
+    })
+  },
+})
+
+// Get download URL
+export const getFileUrl = query({
+  args: { storageId: v.id('_storage') },
+  handler: async (ctx, args) => {
+    return await ctx.storage.getUrl(args.storageId)
+  },
+})
+```
+
+### AI Agent with MCP
+
+```typescript
+import { createMcpServer, createAnthropicAdapter } from 'convex.do/mcp'
+import Anthropic from '@anthropic-ai/sdk'
+
+const server = createMcpServer({ db: ctx.db })
+const adapter = createAnthropicAdapter({ server })
+await adapter.initialize()
+
+const client = new Anthropic()
+const response = await client.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: await adapter.getTools(),
+  messages: [{ role: 'user', content: 'List all tasks assigned to me' }],
+})
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------------------+
+|                           Client Applications                           |
++-----------------+-----------------+-----------------+-------------------+
+|   HTTP/RPC      |   WebSocket     |   SSE           |  Service Binding  |
+|   JSON-RPC      |   Real-time     |   Subscriptions |  Worker-to-Worker |
++-----------------+-----------------+-----------------+-------------------+
+|                         convex.do Worker (Edge)                         |
++-------------------------------------------------------------------------+
+|  Query Engine  |  Subscription Manager  |  MCP Server  |  Function Runner |
++-------------------------------------------------------------------------+
+|                      Durable Objects (SQLite Storage)                   |
++----------------------------------+--------------------------------------+
+|     Vectorize                    |           R2 / Analytics             |
+|  (Vector Embeddings)             |    (File Storage, OLAP Layer)        |
++----------------------------------+--------------------------------------+
+```
+
+convex.do architecture:
+
+1. **Query Engine** — Translates Convex queries to SQLite with full expression support
+2. **Subscription Manager** — Manages real-time subscriptions with efficient invalidation
+3. **Function Runner** — Executes queries, mutations, and actions with sandboxing
+4. **Durable Object Storage** — Each database runs as an isolated Durable Object with SQLite
+5. **Edge Execution** — All operations execute at the edge, close to your users
+
+## Configuration
+
+### With Vector Search
+
+```jsonc
+{
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "embeddings" }]
+  },
+  "ai": { "binding": "AI" },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "EMBEDDING_ENABLED": "true"
+  }
+}
+```
+
+### With File Storage
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "STORAGE", "bucket_name": "convex-files" }
+  ]
+}
+```
+
+### Multi-Region Replication
+
+```jsonc
+{
+  "vars": {
+    "REPLICATION_ENABLED": "true",
+    "PRIMARY_REGION": "wnam",
+    "REPLICA_REGIONS": "enam,weur"
+  }
+}
+```
+
+## Schema Definition
+
+```typescript
+// convex/schema.ts
+import { defineSchema, defineTable } from 'convex.do/server'
+import { v } from 'convex.do/values'
+
+export default defineSchema({
+  messages: defineTable({
+    channel: v.string(),
+    body: v.string(),
+    author: v.string(),
+  })
+    .index('by_channel', ['channel'])
+    .index('by_author', ['author']),
+
+  tasks: defineTable({
+    title: v.string(),
+    completed: v.boolean(),
+    assignee: v.optional(v.string()),
+    priority: v.number(),
+  })
+    .index('by_assignee', ['assignee'])
+    .index('by_priority', ['priority']),
+})
+```
+
+## Connectivity Options
+
+### HTTP RPC
+
+```typescript
+// Direct HTTP calls
+const response = await fetch('https://your-worker.workers.dev/api/query', {
+  method: 'POST',
+  body: JSON.stringify({
+    path: 'messages:list',
+    args: { channel: 'general' },
+  }),
+})
+```
+
+### WebSocket Subscriptions
+
+```typescript
+const ws = new WebSocket('wss://your-worker.workers.dev/sync')
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    path: 'messages:list',
+    args: { channel: 'general' },
+  }))
+}
+
+ws.onmessage = (event) => {
+  const { type, data } = JSON.parse(event.data)
+  if (type === 'update') {
+    renderMessages(data)
+  }
+}
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const messages = await env.CONVEX.query('messages:list', { channel: 'general' })
+    return Response.json(messages)
+  },
+}
+```
+
+## Local Development
+
+```bash
+# Start local development server
+npx convex.do dev
+
+# With custom port
+npx convex.do dev --port 3001
+
+# With remote Convex backend (hybrid mode)
+npx convex.do dev --remote https://your-deployment.convex.cloud
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/convex](/docs/integrations/convex/package) - In-memory Convex for testing
+- [Firebase Integration](/docs/integrations/firebase) - Firebase Realtime alternative
+- [Supabase Integration](/docs/integrations/supabase) - Supabase Realtime alternative
+- [Vector Search](/docs/database/vector) - Semantic similarity search
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

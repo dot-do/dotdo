@@ -1,0 +1,539 @@
+---
+title: slack.do
+description: Slack on the Edge — Drop-in replacement for Slack SDKs running on Cloudflare Workers with zero cold starts.
+---
+
+# slack.do
+
+**Slack on the Edge** — A drop-in replacement for `@slack/web-api` and `@slack/bolt` that runs entirely on Cloudflare Workers, with zero cold starts and global edge deployment.
+
+```typescript
+import { WebClient } from 'slack.do'
+
+const client = new WebClient('xoxb-your-token')
+
+await client.chat.postMessage({
+  channel: '#general',
+  text: 'Hello from the edge!',
+})
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/slack](/docs/integrations/slack/package) for a zero-dependency Slack SDK.
+</Callout>
+
+## Why slack.do?
+
+Traditional Slack SDKs require Node.js and have cold start overhead. slack.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Cold Starts** - Instant response times for Slack events
+- **Edge Deployment** - Bot runs in 300+ cities worldwide
+- **Drop-in Replacement** - Same API as `@slack/web-api` and `@slack/bolt`
+- **Block Kit Builder** - Fluent API for building rich messages
+- **Full Event Support** - Handle all Slack events, actions, and commands
+- **Serverless Economics** - Pay only for what you use
+
+## Features
+
+### WebClient API
+
+| Feature | Description |
+|---------|-------------|
+| **Chat** | `postMessage`, `update`, `delete`, `scheduleMessage` |
+| **Conversations** | `list`, `history`, `info`, `create`, `archive`, `invite`, `kick` |
+| **Users** | `list`, `info`, `lookupByEmail` |
+| **Views** | `open`, `push`, `update`, `publish` |
+| **Reactions** | `add`, `remove`, `get`, `list` |
+| **Auth** | `test`, `revoke` |
+
+### App Framework (Bolt-Compatible)
+
+| Feature | Description |
+|---------|-------------|
+| **Messages** | Pattern matching with string or regex |
+| **Events** | All Slack event types |
+| **Actions** | Block actions, buttons, selects |
+| **Views** | Modal submissions and close handlers |
+| **Shortcuts** | Global and message shortcuts |
+| **Commands** | Slash commands with argument parsing |
+| **Middleware** | Global middleware chain |
+
+### Additional Features
+
+| Feature | Description |
+|---------|-------------|
+| **Block Kit Builder** | Fluent API for all block types |
+| **OAuth Flow** | Full OAuth 2.0 implementation |
+| **Socket Mode** | Development mode without webhook tunnels |
+| **Request Verification** | Signature verification for incoming requests |
+
+## Installation
+
+```bash
+npm install slack.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { App } from 'slack.do'
+
+const app = new App({
+  token: 'xoxb-your-token',
+  signingSecret: 'your-signing-secret',
+})
+
+app.message('hello', async ({ say }) => {
+  await say('Hello from the edge!')
+})
+
+app.command('/deploy', async ({ command, ack, respond }) => {
+  await ack('Starting deployment...')
+  await respond(`Deployed ${command.text} successfully!`)
+})
+
+export default {
+  fetch: app.handleRequest.bind(app),
+}
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-slack-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Environment Variables
+
+Store secrets in Cloudflare:
+
+```bash
+npx wrangler secret put SLACK_BOT_TOKEN
+npx wrangler secret put SLACK_SIGNING_SECRET
+```
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env) {
+    const app = new App({
+      token: env.SLACK_BOT_TOKEN,
+      signingSecret: env.SLACK_SIGNING_SECRET,
+    })
+
+    // ... handlers
+
+    return app.handleRequest(request)
+  },
+}
+```
+
+## Examples
+
+### Rich Message with Blocks
+
+```typescript
+import {
+  WebClient,
+  Blocks,
+  section,
+  header,
+  actions,
+  button,
+  mrkdwn,
+  plainText,
+} from 'slack.do'
+
+const client = new WebClient(env.SLACK_BOT_TOKEN)
+
+const blocks = new Blocks()
+  .header({ text: plainText('Approval Request') })
+  .section({
+    text: mrkdwn('*Request #12345*\nPlease review and approve.'),
+  })
+  .actions({
+    elements: [
+      button({
+        text: plainText('Approve'),
+        action_id: 'approve_request',
+        style: 'primary',
+      }),
+      button({
+        text: plainText('Reject'),
+        action_id: 'reject_request',
+        style: 'danger',
+      }),
+    ],
+  })
+  .build()
+
+await client.chat.postMessage({
+  channel: '#approvals',
+  text: 'New approval request',
+  blocks,
+})
+```
+
+### Interactive Bot
+
+```typescript
+import { App } from 'slack.do'
+
+const app = new App({
+  token: env.SLACK_BOT_TOKEN,
+  signingSecret: env.SLACK_SIGNING_SECRET,
+})
+
+// Message handlers with regex
+app.message(/bug (\d+)/i, async ({ context, say }) => {
+  const bugId = context.matches?.[1]
+  await say(`Looking up bug #${bugId}...`)
+})
+
+// Event handlers
+app.event('app_home_opened', async ({ event, client }) => {
+  await client.views.publish({
+    user_id: event.user,
+    view: {
+      type: 'home',
+      blocks: [
+        { type: 'header', text: { type: 'plain_text', text: 'Dashboard' } },
+        { type: 'section', text: { type: 'mrkdwn', text: 'Welcome to MyBot!' } },
+      ],
+    },
+  })
+})
+
+// Action handlers
+app.action('approve_request', async ({ ack, respond }) => {
+  await ack()
+  await respond({ text: 'Request approved!', replace_original: true })
+})
+
+// View submissions
+app.view('feedback_modal', async ({ view, ack, client }) => {
+  await ack()
+  const feedback = view.state?.values?.feedback_block?.feedback_input?.value
+  await client.chat.postMessage({
+    channel: '#feedback',
+    text: `New feedback: ${feedback}`,
+  })
+})
+
+export default {
+  fetch: app.handleRequest.bind(app),
+}
+```
+
+### Slash Commands with Arguments
+
+```typescript
+import { SlashCommands, plainText, textInput, Blocks } from 'slack.do'
+
+const commands = new SlashCommands({
+  signingSecret: env.SLACK_SIGNING_SECRET,
+  token: env.SLACK_BOT_TOKEN,
+})
+
+// Command with argument parsing
+commands.register('/deploy', async ({ args, ack, respond }) => {
+  await ack('Starting deployment...')
+
+  // args.positional: ['production']
+  // args.flags: { force: true, branch: 'main' }
+  const env = args.positional[0] ?? 'staging'
+  const branch = args.flags.branch ?? 'main'
+
+  await respond({
+    text: `Deployed ${branch} to ${env}`,
+    response_type: 'in_channel',
+  })
+}, {
+  argConfig: {
+    flags: {
+      force: { alias: 'f', hasValue: false },
+      branch: { alias: 'b', hasValue: true, default: 'main' },
+    },
+  },
+})
+
+// Command with modal
+commands.register('/feedback', async ({ ack, openModal }) => {
+  await ack()
+  await openModal({
+    title: plainText('Submit Feedback'),
+    callback_id: 'feedback_modal',
+    submit: plainText('Submit'),
+    blocks: new Blocks()
+      .input({
+        label: plainText('Your feedback'),
+        element: textInput({ action_id: 'feedback_input', multiline: true }),
+      })
+      .build(),
+  })
+})
+
+export default {
+  fetch: commands.handleRequest.bind(commands),
+}
+```
+
+### OAuth Flow
+
+```typescript
+import { OAuthFlow } from 'slack.do'
+
+const oauth = new OAuthFlow({
+  clientId: env.SLACK_CLIENT_ID,
+  clientSecret: env.SLACK_CLIENT_SECRET,
+  scopes: ['chat:write', 'channels:read', 'commands'],
+  redirectUri: 'https://your-worker.workers.dev/slack/callback',
+  installationStore: {
+    async storeInstallation(installation) {
+      await env.KV.put(`slack:${installation.team!.id}`, JSON.stringify(installation))
+    },
+    async fetchInstallation(query) {
+      const data = await env.KV.get(`slack:${query.teamId!}`)
+      return data ? JSON.parse(data) : null
+    },
+  },
+})
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/slack/install') {
+      const installUrl = await oauth.generateInstallUrl()
+      return Response.redirect(installUrl)
+    }
+
+    if (url.pathname === '/slack/callback') {
+      const code = url.searchParams.get('code')!
+      const state = url.searchParams.get('state')!
+      const installation = await oauth.handleCallback(code, state)
+      return new Response(`Installed to ${installation.team?.name}!`)
+    }
+
+    return new Response('Not found', { status: 404 })
+  },
+}
+```
+
+### Real-Time with Socket Mode
+
+For development without webhook tunnels:
+
+```typescript
+import { App } from 'slack.do'
+
+const app = new App({
+  token: env.SLACK_BOT_TOKEN,
+  appToken: env.SLACK_APP_TOKEN, // xapp-... token
+  socketMode: true,
+})
+
+app.message('hello', async ({ say }) => {
+  await say('Hello!')
+})
+
+await app.start()
+```
+
+### Messages API
+
+High-level messages API with convenience methods:
+
+```typescript
+import { SlackMessages } from 'slack.do'
+
+const messages = new SlackMessages(env.SLACK_BOT_TOKEN)
+
+// Simple message
+await messages.post('#general', 'Hello, World!')
+
+// Thread replies
+const original = await messages.post('#general', 'Starting thread...')
+await messages.reply(original, 'This is a reply!')
+
+// Ephemeral messages
+await messages.ephemeral('#general', 'U123', 'Only you can see this')
+
+// Convenience methods
+await messages.success('#alerts', 'Deployment Complete', 'All services healthy')
+await messages.warning('#alerts', 'High CPU', 'Server-1 at 85% CPU')
+await messages.error('#alerts', 'Service Down', 'API server unreachable')
+
+// Schedule messages
+await messages.schedule('#general', Date.now() + 3600000, 'In 1 hour')
+```
+
+### Channel Management
+
+```typescript
+import { ChannelManager } from 'slack.do'
+
+const channels = new ChannelManager({ token: env.SLACK_BOT_TOKEN })
+
+// Create channels
+const channel = await channels.create('project-alpha')
+const privateChannel = await channels.create('private-team', { isPrivate: true })
+
+// Manage members
+await channels.invite(channel.id, ['U123', 'U456'])
+await channels.kick(channel.id, 'U123')
+
+// Update channel
+await channels.setTopic(channel.id, 'Project Alpha discussions')
+await channels.rename(channel.id, 'project-alpha-v2')
+
+// Archive
+await channels.archive(channel.id)
+```
+
+## Architecture
+
+```
++-----------------------------------------------------------------------+
+|                        Your Slack Bot Code                             |
+|                                                                        |
+|  const app = new App({ token, signingSecret })                         |
+|  app.message('hello', async ({ say }) => say('Hi!'))                   |
++-----------------------------------------------------------------------+
+                                  |
+                                  v
++-----------------------------------------------------------------------+
+|                      slack.do (Edge Runtime)                           |
++-----------------------------------------------------------------------+
+|  Request Verification  |  Event Router  |  Block Kit Builder          |
++-----------------------------------------------------------------------+
+                                  |
+            +---------------------+---------------------+
+            |                                           |
+            v                                           v
++------------------------+                +------------------------+
+|   Slack API            |                |   Your Handlers        |
+|   (api.slack.com)      |                |   (Edge Functions)     |
++------------------------+                +------------------------+
+```
+
+slack.do handles all the complexity of Slack integration:
+
+1. **Request Verification** - Validates signatures on incoming webhooks
+2. **Event Routing** - Routes events to your handlers by type
+3. **Response Formatting** - Builds proper Slack API responses
+4. **Edge Execution** - All processing happens at the edge
+
+## Request Verification
+
+Incoming Slack requests are automatically verified:
+
+```typescript
+import { verifyRequestSignature } from 'slack.do'
+
+// Manual verification if needed
+const isValid = await verifyRequestSignature({
+  signingSecret: env.SLACK_SIGNING_SECRET,
+  body: await request.text(),
+  headers: {
+    'x-slack-request-timestamp': request.headers.get('x-slack-request-timestamp')!,
+    'x-slack-signature': request.headers.get('x-slack-signature')!,
+  },
+})
+```
+
+## Error Handling
+
+```typescript
+import { SlackError, WebClient } from 'slack.do'
+
+const client = new WebClient(env.SLACK_BOT_TOKEN)
+
+try {
+  await client.chat.postMessage({
+    channel: 'C_INVALID',
+    text: 'Hello',
+  })
+} catch (error) {
+  if (error instanceof SlackError) {
+    console.log('Code:', error.code)       // 'channel_not_found'
+    console.log('Message:', error.message)
+    console.log('Data:', error.data)
+  }
+}
+```
+
+### Common Error Codes
+
+| Code | Description |
+|------|-------------|
+| `channel_not_found` | Channel does not exist or bot not in channel |
+| `not_in_channel` | Bot is not a member of the channel |
+| `invalid_auth` | Invalid or expired token |
+| `missing_scope` | Token lacks required OAuth scope |
+| `rate_limited` | Too many requests |
+
+## Configuration
+
+### With KV for Installations
+
+```jsonc
+{
+  "name": "slack-bot",
+  "main": "src/index.ts",
+  "kv_namespaces": [
+    { "binding": "KV", "id": "your-kv-id" }
+  ]
+}
+```
+
+### With Durable Objects
+
+```jsonc
+{
+  "name": "slack-bot",
+  "main": "src/index.ts",
+  "durable_objects": {
+    "bindings": [
+      { "name": "SLACK_STATE", "class_name": "SlackState" }
+    ]
+  }
+}
+```
+
+## API Coverage
+
+| Resource | Coverage | Notes |
+|----------|----------|-------|
+| chat.* | Full | All message operations |
+| conversations.* | Full | Channel management |
+| users.* | Partial | info, list, lookupByEmail |
+| views.* | Full | Modals and home tabs |
+| reactions.* | Full | Add, remove, list |
+| auth.* | Full | test, revoke |
+| App events | Full | All event types |
+| Block actions | Full | All action types |
+| Shortcuts | Full | Global and message |
+| Slash commands | Full | With arg parsing |
+| OAuth | Full | v2 flow |
+| Socket Mode | Full | Development mode |
+| files.* | Not yet | |
+| reminders.* | Not yet | |
+| search.* | Not yet | |
+
+## Related
+
+- [@dotdo/slack](/docs/integrations/slack/package) - In-memory Slack for testing
+- [Pusher Integration](/docs/integrations/pusher) - Real-time messaging
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - Stateful edge computing

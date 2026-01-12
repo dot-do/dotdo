@@ -1,0 +1,902 @@
+---
+title: "@dotdo/nats"
+description: Drop-in replacement for nats.js with edge compatibility and Durable Object-backed messaging.
+---
+
+# @dotdo/nats
+
+Drop-in replacement for `nats.js`. Your existing NATS code works unchanged - just swap the import.
+
+```typescript
+// Before: nats.js
+import { connect, StringCodec } from 'nats'
+
+// After: dotdo
+import { connect, StringCodec } from '@dotdo/nats'
+
+// Code stays the same
+const nc = await connect({ servers: 'nats://localhost:4222' })
+const sc = StringCodec()
+
+nc.publish('updates', sc.encode('Hello NATS'))
+
+const sub = nc.subscribe('updates')
+for await (const msg of sub) {
+  console.log(sc.decode(msg.data))
+}
+```
+
+<Callout type="info">
+Looking for managed messaging without infrastructure? See [nats.do](/docs/integrations/nats/service) for a fully managed NATS-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/nats?
+
+| nats.js | @dotdo/nats |
+|---------|-------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Real NATS server needed | Runs entirely in-memory on DO |
+| Network latency to server | Zero latency in local mode |
+| External cluster dependency | Self-contained, no infrastructure |
+| TCP connections required | Works in serverless environments |
+
+**This is a compatibility layer.** It can either run entirely locally using Durable Objects (development/testing) or connect to real NATS servers (production). The API surface matches the official nats.js SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/nats
+```
+
+## Features
+
+### Implemented (Core)
+
+**Pub/Sub**
+- `publish()` - Publish messages to subjects
+- `subscribe()` - Subscribe to subjects with wildcards
+- Queue groups for load balancing
+- Subject pattern matching (`*`, `>`)
+
+**Request/Reply**
+- `request()` - Synchronous request/reply pattern
+- Automatic inbox generation
+- Configurable timeouts
+
+**Connection**
+- `connect()` - Establish connection
+- `close()` - Graceful shutdown
+- `drain()` - Drain subscriptions before close
+- `flush()` - Ensure all messages delivered
+- Connection status and statistics
+
+**JetStream**
+- Stream creation, update, delete
+- Message publishing with deduplication
+- Consumer creation and management
+- Fetch and consume patterns
+- Message acknowledgment (ack, nak, term, working)
+- Delivery policies (all, last, new, by sequence)
+
+**KV Store**
+- `put()`, `get()`, `create()`, `update()`, `delete()`
+- Key history and versioning
+- Watch for changes
+- Key pattern filtering
+
+### Not Yet Implemented
+
+- Object Store
+- External NATS server connection (outbound mode)
+- TLS/Authentication
+- Clustering/Mirroring
+- Account management
+
+## Quick Start
+
+### Basic Pub/Sub
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const sc = StringCodec()
+
+// Subscribe to a subject
+const sub = nc.subscribe('orders.>')
+
+// Handle messages asynchronously
+;(async () => {
+  for await (const msg of sub) {
+    console.log(`[${msg.subject}]: ${sc.decode(msg.data)}`)
+  }
+})()
+
+// Publish messages
+nc.publish('orders.created', sc.encode(JSON.stringify({ id: 1, total: 100 })))
+nc.publish('orders.updated', sc.encode(JSON.stringify({ id: 1, status: 'paid' })))
+
+await nc.drain()
+```
+
+### Request/Reply
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const sc = StringCodec()
+
+// Service: Subscribe and respond to requests
+const sub = nc.subscribe('time.service')
+
+;(async () => {
+  for await (const msg of sub) {
+    if (msg.reply) {
+      msg.respond(sc.encode(new Date().toISOString()))
+    }
+  }
+})()
+
+// Client: Make a request
+const response = await nc.request('time.service', sc.encode('what time is it?'), {
+  timeout: 1000,
+})
+
+console.log('Server time:', sc.decode(response.data))
+```
+
+### Queue Groups
+
+Distribute messages across subscribers for load balancing:
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const sc = StringCodec()
+
+// Multiple subscribers in the same queue group
+// Only ONE receives each message (round-robin)
+const sub1 = nc.subscribe('tasks', { queue: 'workers' })
+const sub2 = nc.subscribe('tasks', { queue: 'workers' })
+const sub3 = nc.subscribe('tasks', { queue: 'workers' })
+
+// Handle tasks
+async function processQueue(sub: Subscription, name: string) {
+  for await (const msg of sub) {
+    console.log(`${name} processing: ${sc.decode(msg.data)}`)
+  }
+}
+
+processQueue(sub1, 'Worker-1')
+processQueue(sub2, 'Worker-2')
+processQueue(sub3, 'Worker-3')
+
+// Publish tasks - distributed across workers
+for (let i = 0; i < 9; i++) {
+  nc.publish('tasks', sc.encode(`Task ${i}`))
+}
+```
+
+### Subject Wildcards
+
+```typescript
+// * matches a single token
+nc.subscribe('orders.*.created')  // orders.us.created, orders.eu.created
+
+// > matches one or more tokens
+nc.subscribe('orders.>')          // orders.us.created, orders.eu.shipped.confirmed
+
+// Examples
+nc.subscribe('logs.*.error')      // logs.app.error, logs.db.error
+nc.subscribe('events.>')          // events.user.signup, events.payment.completed
+```
+
+## Local Mode (In-Memory)
+
+For testing and development, the SDK runs entirely in-memory using Durable Objects:
+
+```typescript
+import { connect, StringCodec, JSONCodec } from '@dotdo/nats'
+
+// Create local NATS connection (no server needed)
+const nc = await connect()
+
+// Use exactly like real NATS
+const sc = StringCodec()
+const jc = JSONCodec<{ name: string; value: number }>()
+
+// Publish/subscribe works immediately
+const sub = nc.subscribe('data')
+
+nc.publish('data', jc.encode({ name: 'test', value: 42 }))
+
+for await (const msg of sub) {
+  const data = jc.decode(msg.data)
+  console.log(data.name, data.value)
+  break
+}
+
+await nc.close()
+```
+
+### Message Headers
+
+```typescript
+import { connect, headers, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const sc = StringCodec()
+
+// Create headers
+const h = headers()
+h.set('X-Request-Id', 'abc123')
+h.set('X-Trace-Id', 'trace-456')
+h.append('X-Tags', 'important')
+h.append('X-Tags', 'urgent')
+
+// Publish with headers
+nc.publish('events', sc.encode('event data'), { headers: h })
+
+// Subscribe and read headers
+const sub = nc.subscribe('events')
+for await (const msg of sub) {
+  console.log('Request ID:', msg.headers?.get('X-Request-Id'))
+  console.log('All tags:', msg.headers?.values('X-Tags'))
+  break
+}
+```
+
+### Connection Statistics
+
+```typescript
+const nc = await connect()
+
+// Get connection stats
+const stats = nc.stats()
+console.log('Messages in:', stats.inMsgs)
+console.log('Messages out:', stats.outMsgs)
+console.log('Bytes in:', stats.inBytes)
+console.log('Bytes out:', stats.outBytes)
+
+// Get RTT to server
+const rtt = await nc.rtt()
+console.log('Round-trip time:', rtt, 'ms')
+
+// Monitor connection status
+for await (const status of nc.status()) {
+  console.log(`Status: ${status.type}`)
+  if (status.type === 'disconnect') {
+    console.log('Disconnected!')
+  }
+}
+```
+
+## JetStream
+
+JetStream provides persistent messaging with at-least-once delivery guarantees.
+
+### Creating Streams
+
+```typescript
+import { connect, AckPolicy, RetentionPolicy } from '@dotdo/nats'
+
+const nc = await connect()
+const jsm = await nc.jetstreamManager()
+
+// Create a stream
+await jsm.streams.add({
+  name: 'ORDERS',
+  subjects: ['orders.*'],
+  retention: RetentionPolicy.Limits,
+  max_msgs: 10000,
+  max_bytes: 10 * 1024 * 1024, // 10MB
+})
+
+// List streams
+for await (const stream of jsm.streams.list()) {
+  console.log(`Stream: ${stream.config.name}`)
+  console.log(`  Messages: ${stream.state.messages}`)
+  console.log(`  Bytes: ${stream.state.bytes}`)
+}
+```
+
+### Publishing to JetStream
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const js = nc.jetstream()
+const sc = StringCodec()
+
+// Publish with acknowledgment
+const ack = await js.publish('orders.created', sc.encode(JSON.stringify({
+  id: 'order-123',
+  total: 99.99,
+})))
+
+console.log(`Published to ${ack.stream} at sequence ${ack.seq}`)
+
+// Publish with message ID for deduplication
+const ack2 = await js.publish('orders.created', sc.encode('...'), {
+  msgID: 'unique-msg-id-123',
+})
+
+if (ack2.duplicate) {
+  console.log('Message was a duplicate, not stored again')
+}
+```
+
+### Consuming Messages
+
+```typescript
+import { connect, AckPolicy, DeliverPolicy } from '@dotdo/nats'
+
+const nc = await connect()
+const jsm = await nc.jetstreamManager()
+const js = nc.jetstream()
+
+// Create a durable consumer
+await jsm.consumers.add('ORDERS', {
+  durable_name: 'order-processor',
+  ack_policy: AckPolicy.Explicit,
+  deliver_policy: DeliverPolicy.All,
+  filter_subject: 'orders.created',
+})
+
+// Get the consumer
+const consumer = await js.consumers.get('ORDERS', 'order-processor')
+
+// Fetch messages
+const messages = await consumer.fetch({ max_messages: 10 })
+
+for await (const msg of messages) {
+  console.log(`Processing order: ${msg.subject}`)
+  console.log(`  Delivery #${msg.info.deliveryCount}`)
+  console.log(`  Stream seq: ${msg.info.streamSequence}`)
+
+  try {
+    await processOrder(msg.data)
+    msg.ack()  // Acknowledge successful processing
+  } catch (error) {
+    msg.nak()  // Request redelivery
+  }
+}
+```
+
+### Message Acknowledgment
+
+```typescript
+for await (const msg of messages) {
+  // Acknowledge - message processed successfully
+  msg.ack()
+
+  // Negative acknowledge - request redelivery
+  msg.nak()
+
+  // NAK with delay - redeliver after 5 seconds
+  msg.nak(5000)
+
+  // Working - extend ack deadline (still processing)
+  await msg.working()
+
+  // Terminate - don't redeliver (poison message)
+  msg.term()
+}
+```
+
+### Delivery Policies
+
+```typescript
+import { DeliverPolicy } from '@dotdo/nats'
+
+// All messages from the beginning
+await jsm.consumers.add('ORDERS', {
+  durable_name: 'all-orders',
+  deliver_policy: DeliverPolicy.All,
+})
+
+// Only new messages (after consumer creation)
+await jsm.consumers.add('ORDERS', {
+  durable_name: 'new-orders',
+  deliver_policy: DeliverPolicy.New,
+})
+
+// Last message only
+await jsm.consumers.add('ORDERS', {
+  durable_name: 'latest-order',
+  deliver_policy: DeliverPolicy.Last,
+})
+
+// Start from specific sequence
+await jsm.consumers.add('ORDERS', {
+  durable_name: 'from-100',
+  deliver_policy: DeliverPolicy.StartSequence,
+  opt_start_seq: 100,
+})
+```
+
+## KV Store
+
+JetStream Key-Value store provides a distributed key-value database.
+
+### Basic Operations
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const js = nc.jetstream()
+const sc = StringCodec()
+
+// Create or get a KV bucket
+const kv = await js.views.kv('config')
+
+// Put a value
+const revision = await kv.put('app.name', sc.encode('My App'))
+console.log(`Stored at revision ${revision}`)
+
+// Get a value
+const entry = await kv.get('app.name')
+if (entry) {
+  console.log(`Key: ${entry.key}`)
+  console.log(`Value: ${sc.decode(entry.value)}`)
+  console.log(`Revision: ${entry.revision}`)
+  console.log(`Created: ${entry.created}`)
+}
+
+// Create (fails if key exists)
+const rev = await kv.create('app.version', sc.encode('1.0.0'))
+
+// Update (with optimistic locking)
+try {
+  await kv.update('app.version', sc.encode('1.0.1'), entry.revision)
+} catch (e) {
+  console.log('Revision mismatch - concurrent update detected')
+}
+
+// Delete
+await kv.delete('app.name')
+
+// Purge (remove all history for key)
+await kv.purge('app.name')
+```
+
+### Watching for Changes
+
+```typescript
+const kv = await js.views.kv('config')
+
+// Watch all keys
+const watch = await kv.watch()
+
+for await (const entry of watch) {
+  console.log(`${entry.operation}: ${entry.key}`)
+  if (entry.operation === 'PUT') {
+    console.log(`  New value: ${sc.decode(entry.value)}`)
+  }
+}
+
+// Watch specific key pattern
+const filtered = await kv.watch({ key: 'users.*' })
+
+for await (const entry of filtered) {
+  console.log(`User update: ${entry.key}`)
+}
+```
+
+### Key History
+
+```typescript
+const kv = await js.views.kv('config')
+
+// Get all revisions for a key
+const history = await kv.history('app.version')
+
+for await (const entry of history) {
+  console.log(`Revision ${entry.revision}: ${sc.decode(entry.value)}`)
+  console.log(`  Operation: ${entry.operation}`)
+  console.log(`  Created: ${entry.created}`)
+}
+```
+
+### Listing Keys
+
+```typescript
+const kv = await js.views.kv('config')
+
+// List all keys
+const keys = await kv.keys()
+for await (const key of keys) {
+  console.log(key)
+}
+
+// Filter by pattern
+const userKeys = await kv.keys('users.*')
+for await (const key of userKeys) {
+  console.log(key) // users.alice, users.bob, etc.
+}
+```
+
+## Production Mode (Real NATS)
+
+For production, connect to real NATS servers (coming soon):
+
+```typescript
+import { connect } from '@dotdo/nats'
+
+// Connect to real NATS server
+const nc = await connect({
+  servers: 'nats://nats.example.com:4222',
+  user: 'myuser',
+  pass: 'mypassword',
+})
+
+// All operations forward to real NATS
+nc.publish('events', sc.encode('Hello from edge!'))
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { connect, StringCodec } from '@dotdo/nats'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const nc = await connect()
+    const sc = StringCodec()
+
+    // Publish event
+    nc.publish('api.request', sc.encode(JSON.stringify({
+      method: request.method,
+      url: request.url,
+      timestamp: Date.now(),
+    })))
+
+    // Request/reply to service
+    const response = await nc.request('orders.get', sc.encode('order-123'), {
+      timeout: 5000,
+    })
+
+    return new Response(response.data)
+  },
+}
+```
+
+## Error Handling
+
+```typescript
+import { connect, NatsError, ErrorCode } from '@dotdo/nats'
+
+const nc = await connect()
+
+try {
+  await nc.request('service', undefined, { timeout: 1000 })
+} catch (error) {
+  if (error instanceof NatsError) {
+    switch (error.code) {
+      case ErrorCode.Timeout:
+        console.error('Request timed out')
+        break
+      case ErrorCode.NoResponders:
+        console.error('No service available')
+        break
+      case ErrorCode.ConnectionClosed:
+        console.error('Connection was closed')
+        break
+      default:
+        console.error('NATS error:', error.message)
+    }
+  }
+}
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `Timeout` | Request or operation timed out |
+| `NoResponders` | No subscribers for request subject |
+| `ConnectionClosed` | Connection is closed |
+| `ConnectionDraining` | Connection is draining |
+| `ConnectionTimeout` | Connection timed out |
+| `BadSubject` | Invalid subject format |
+| `JetStream404NoMessages` | Stream/consumer not found |
+| `JetStream409` | Conflict (e.g., wrong sequence) |
+
+## API Reference
+
+### Connection API
+
+| Method | Description |
+|--------|-------------|
+| `connect(options?)` | Create connection |
+| `nc.publish(subject, data?, options?)` | Publish message |
+| `nc.subscribe(subject, options?)` | Subscribe to subject |
+| `nc.request(subject, data?, options?)` | Request/reply |
+| `nc.flush()` | Flush pending messages |
+| `nc.drain()` | Drain and close |
+| `nc.close()` | Close connection |
+| `nc.isClosed()` | Check if closed |
+| `nc.isDraining()` | Check if draining |
+| `nc.stats()` | Get statistics |
+| `nc.rtt()` | Get round-trip time |
+| `nc.status()` | Status iterator |
+| `nc.jetstream(options?)` | Get JetStream client |
+| `nc.jetstreamManager(options?)` | Get JetStream manager |
+
+### JetStream API
+
+| Method | Description |
+|--------|-------------|
+| `js.publish(subject, data?, options?)` | Publish to stream |
+| `js.consumers.get(stream, consumer)` | Get consumer |
+| `js.views.kv(bucket, options?)` | Get KV store |
+| `jsm.streams.add(config)` | Create stream |
+| `jsm.streams.update(name, config)` | Update stream |
+| `jsm.streams.delete(name)` | Delete stream |
+| `jsm.streams.info(name)` | Get stream info |
+| `jsm.streams.purge(name)` | Purge messages |
+| `jsm.consumers.add(stream, config)` | Create consumer |
+| `jsm.consumers.delete(stream, name)` | Delete consumer |
+| `jsm.consumers.info(stream, name)` | Get consumer info |
+
+### KV API
+
+| Method | Description |
+|--------|-------------|
+| `kv.put(key, value)` | Store value |
+| `kv.get(key)` | Get value |
+| `kv.create(key, value)` | Create if not exists |
+| `kv.update(key, value, revision)` | Update with revision check |
+| `kv.delete(key)` | Delete key |
+| `kv.purge(key)` | Purge key history |
+| `kv.keys(filter?)` | List keys |
+| `kv.watch(options?)` | Watch for changes |
+| `kv.history(key)` | Get key history |
+| `kv.status()` | Get bucket status |
+| `kv.destroy()` | Delete bucket |
+
+### Codecs
+
+| Function | Description |
+|----------|-------------|
+| `StringCodec()` | Encode/decode strings |
+| `JSONCodec<T>()` | Encode/decode JSON |
+| `headers()` | Create message headers |
+| `Empty` | Empty byte array |
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Connection types
+  ConnectionOptions,
+  NatsConnection,
+  ServerInfo,
+  Stats,
+  Status,
+
+  // Message types
+  Msg,
+  MsgHdrs,
+  PublishOptions,
+  RequestOptions,
+
+  // Subscription types
+  Subscription,
+  SubscriptionOptions,
+
+  // JetStream types
+  JetStreamClient,
+  JetStreamManager,
+  JetStreamOptions,
+  JetStreamPublishOptions,
+  PubAck,
+
+  // Stream types
+  StreamConfig,
+  StreamInfo,
+  StreamState,
+
+  // Consumer types
+  ConsumerConfig,
+  ConsumerInfo,
+  Consumer,
+  ConsumerMessages,
+  JsMsg,
+  JsMsgInfo,
+  FetchOptions,
+
+  // KV types
+  KV,
+  KvEntry,
+  KvOptions,
+  KvStatus,
+} from '@dotdo/nats'
+
+// Enums
+import {
+  AckPolicy,
+  DeliverPolicy,
+  ReplayPolicy,
+  RetentionPolicy,
+  StorageType,
+  DiscardPolicy,
+} from '@dotdo/nats'
+```
+
+## Migration from nats.js
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall nats
+
+# Install
+npm install @dotdo/nats
+```
+
+### Import Change
+
+```typescript
+// Before
+import { connect, StringCodec, JSONCodec } from 'nats'
+
+// After
+import { connect, StringCodec, JSONCodec } from '@dotdo/nats'
+```
+
+### Code Compatibility
+
+Your existing NATS code should work unchanged:
+
+```typescript
+// This code works with both nats and @dotdo/nats
+const nc = await connect()
+const sc = StringCodec()
+
+const sub = nc.subscribe('events')
+
+;(async () => {
+  for await (const msg of sub) {
+    console.log(sc.decode(msg.data))
+    if (msg.reply) {
+      msg.respond(sc.encode('received'))
+    }
+  }
+})()
+
+nc.publish('events', sc.encode('Hello!'))
+
+const response = await nc.request('service', sc.encode('help'), {
+  timeout: 5000,
+})
+
+await nc.drain()
+```
+
+## Common Patterns
+
+### Event-Driven Architecture
+
+```typescript
+import { connect, JSONCodec } from '@dotdo/nats'
+
+interface OrderEvent {
+  type: 'created' | 'paid' | 'shipped' | 'delivered'
+  orderId: string
+  data: Record<string, unknown>
+}
+
+const nc = await connect()
+const jc = JSONCodec<OrderEvent>()
+
+// Publisher
+async function publishOrderEvent(event: OrderEvent) {
+  nc.publish(`orders.${event.type}`, jc.encode(event))
+}
+
+// Subscriber
+const sub = nc.subscribe('orders.>')
+
+for await (const msg of sub) {
+  const event = jc.decode(msg.data)
+  console.log(`Order ${event.orderId}: ${event.type}`)
+
+  switch (event.type) {
+    case 'created':
+      await sendConfirmationEmail(event)
+      break
+    case 'paid':
+      await notifyWarehouse(event)
+      break
+    case 'shipped':
+      await updateTracking(event)
+      break
+  }
+}
+```
+
+### Microservices Communication
+
+```typescript
+import { connect, StringCodec } from '@dotdo/nats'
+
+const nc = await connect()
+const sc = StringCodec()
+
+// User Service
+nc.subscribe('users.get', { queue: 'user-service' })
+  .then(async (sub) => {
+    for await (const msg of sub) {
+      const userId = sc.decode(msg.data)
+      const user = await db.users.find(userId)
+      msg.respond(sc.encode(JSON.stringify(user)))
+    }
+  })
+
+// Order Service calls User Service
+async function getUser(userId: string) {
+  const response = await nc.request('users.get', sc.encode(userId), {
+    timeout: 5000,
+  })
+  return JSON.parse(sc.decode(response.data))
+}
+```
+
+### Work Queue with JetStream
+
+```typescript
+import { connect, AckPolicy, RetentionPolicy } from '@dotdo/nats'
+
+const nc = await connect()
+const jsm = await nc.jetstreamManager()
+const js = nc.jetstream()
+
+// Create work queue stream
+await jsm.streams.add({
+  name: 'WORK',
+  subjects: ['work.>'],
+  retention: RetentionPolicy.Workqueue,
+})
+
+// Create consumer with explicit ack
+await jsm.consumers.add('WORK', {
+  durable_name: 'workers',
+  ack_policy: AckPolicy.Explicit,
+  max_deliver: 3, // Max 3 delivery attempts
+})
+
+// Worker
+const consumer = await js.consumers.get('WORK', 'workers')
+const messages = await consumer.fetch({ max_messages: 10 })
+
+for await (const msg of messages) {
+  try {
+    await processWork(msg.data)
+    msg.ack()
+  } catch (error) {
+    if (msg.info.deliveryCount >= 3) {
+      console.error('Max retries exceeded, terminating')
+      msg.term()
+    } else {
+      msg.nak(5000) // Retry after 5 seconds
+    }
+  }
+}
+```
+
+## Related
+
+- [nats.do](/docs/integrations/nats/service) - Managed NATS-compatible messaging
+- [Kafka Integration](/docs/integrations/kafka) - Event streaming
+- [Pusher Integration](/docs/integrations/pusher) - Real-time messaging

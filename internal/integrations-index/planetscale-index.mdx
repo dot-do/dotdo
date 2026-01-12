@@ -1,0 +1,164 @@
+---
+title: PlanetScale
+description: Choose between @dotdo/planetscale (OSS package) and planetscale.do (managed edge service) for your MySQL-compatible database needs.
+---
+
+# PlanetScale Integration
+
+dotdo provides two ways to work with PlanetScale-compatible serverless MySQL APIs:
+
+| | @dotdo/planetscale | planetscale.do |
+|---|-------------------|----------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | DO SQLite or real PlanetScale | Durable Object SQLite |
+| **Persistence** | Full durability | Full durability |
+| **Use case** | Testing, migration, proxy | Production workloads |
+| **Infrastructure** | Your PlanetScale or none | Zero (we manage it) |
+| **Install** | `npm install @dotdo/planetscale` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/planetscale - Drop-in @planetscale/database replacement
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: process.env.DATABASE_HOST,
+  username: process.env.DATABASE_USERNAME,
+  password: process.env.DATABASE_PASSWORD,
+})
+
+const { rows } = await conn.execute('SELECT * FROM users WHERE id = ?', [1])
+```
+
+```typescript
+// planetscale.do - Native edge MySQL
+import { createConnection } from 'planetscale.do'
+
+const conn = createConnection(env)
+const { rows } = await conn.execute('SELECT * FROM users WHERE id = ?', [1])
+// Data persists globally at the edge
+```
+
+## When to Use Each
+
+### Use @dotdo/planetscale when:
+
+- **Migrating from PlanetScale** - Drop-in replacement with same API
+- **Proxy to real PlanetScale** - Connect to existing PlanetScale databases
+- **Unit testing** - Local mode for tests without infrastructure
+- **Development** - Use DO-backed storage locally, real PlanetScale in production
+- **ORM compatibility** - Works with Drizzle, Prisma, and other ORMs
+
+<Callout type="info">
+@dotdo/planetscale is a drop-in replacement for @planetscale/database. Use it when you need the familiar PlanetScale API or want to proxy to real PlanetScale databases.
+</Callout>
+
+### Use planetscale.do when:
+
+- **Edge-native MySQL** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No PlanetScale account needed
+- **Global distribution** - Data stored at the edge
+- **Cost optimization** - Included in Workers, no per-request fees
+- **Branch-like isolation** - DO-backed database instances
+
+<Callout type="info">
+planetscale.do is MySQL-compatible database built natively on Cloudflare. Use it for production edge workloads without managing external database infrastructure.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/planetscale | planetscale.do |
+|---------|-------------------|----------------|
+| MySQL Syntax | Full | Full |
+| ? Placeholders | Full | Full |
+| AUTO_INCREMENT | Full | Full |
+| Transactions | Full | Full |
+| ON DUPLICATE KEY | Full | Full |
+| Cast Helpers | Full | Full |
+| Real PlanetScale Proxy | Yes | No |
+| Boost (Query Caching) | Via real PlanetScale | Built-in |
+| DO Sharding | Full | Full |
+| Replica Configuration | Full | Full |
+| HTTP API | Depends on mode | Full |
+| Service Bindings | Yes | Yes |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/planetscale/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/planetscale</h3>
+    <p className="text-sm text-muted-foreground">PlanetScale-compatible driver for migration and testing</p>
+  </a>
+  <a href="/docs/integrations/planetscale/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">planetscale.do</h3>
+    <p className="text-sm text-muted-foreground">Managed MySQL-compatible database on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/planetscale` pointing to real PlanetScale, then migrate to `planetscale.do`:
+
+```typescript
+// Phase 1: Use @dotdo/planetscale with real PlanetScale (drop-in for @planetscale/database)
+import { connect } from '@dotdo/planetscale'
+
+const conn = connect({
+  host: 'aws.connect.psdb.cloud',
+  username: process.env.PLANETSCALE_USERNAME,
+  password: process.env.PLANETSCALE_PASSWORD,
+})
+
+const { rows } = await conn.execute('SELECT * FROM users WHERE active = ?', [true])
+```
+
+```typescript
+// Phase 2: Migrate to planetscale.do for zero-infrastructure
+import { createConnection } from 'planetscale.do'
+
+const conn = createConnection(env)
+const { rows } = await conn.execute('SELECT * FROM users WHERE active = ?', [true])
+// Same MySQL syntax, no external database
+```
+
+## Architecture Comparison
+
+### @dotdo/planetscale
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { connect } from '@dotdo/planetscale' |
++-----------------------------------------+
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
++---------------+     +---------------+
+|  DO-backed    |     | Real          |
+|  (Local/Test) |     | PlanetScale   |
++---------------+     +---------------+
+```
+
+### planetscale.do
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { createConnection } from 'planetscale.do' |
++-----------------------------------------+
+                    |
+                    v
++-----------------------------------------+
+|         planetscale.do Worker           |
++-----------------------------------------+
+|  Query Translator  |  Transaction Mgr   |
++-----------------------------------------+
+|        Durable Object SQLite            |
++-----------------------------------------+
+```
+
+Both approaches support the same MySQL patterns (transactions, auto-increment, upserts) - choose based on whether you need real PlanetScale compatibility or native edge deployment.

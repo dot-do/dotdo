@@ -1,0 +1,142 @@
+{
+  "integration": "stripe",
+  "package": "stripe",
+  "compatPath": "compat/stripe",
+  "docsUrl": "https://stripe.com/docs/api",
+  "timestamp": "2026-01-12T13:43:27.522Z",
+  "totalExpected": 53,
+  "totalFound": 34,
+  "coverage": 64,
+  "gaps": [
+    {
+      "name": "webhookEndpoints",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Webhook Endpoints resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "setupIntents",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Setup Intents resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "coupons",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Coupons resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "promotionCodes",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Promotion Codes resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "taxRates",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Tax Rates resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "disputes",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Disputes resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "files",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Files resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "fileLinks",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "File Links resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "balanceTransactions",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Balance Transactions resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "events",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Events resource",
+      "parent": "Stripe"
+    },
+    {
+      "name": "webhooks",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Webhook signature verification"
+    },
+    {
+      "name": "StripeCardError",
+      "type": "missing-class",
+      "severity": "P1",
+      "description": "Card error"
+    },
+    {
+      "name": "StripeInvalidRequestError",
+      "type": "missing-class",
+      "severity": "P1",
+      "description": "Invalid request error"
+    },
+    {
+      "name": "StripeAuthenticationError",
+      "type": "missing-class",
+      "severity": "P1",
+      "description": "Auth error"
+    },
+    {
+      "name": "StripeRateLimitError",
+      "type": "missing-class",
+      "severity": "P2",
+      "description": "Rate limit error"
+    },
+    {
+      "name": "StripePermissionError",
+      "type": "missing-class",
+      "severity": "P2",
+      "description": "Permission error"
+    },
+    {
+      "name": "StripeConnectionError",
+      "type": "missing-class",
+      "severity": "P2",
+      "description": "Connection error"
+    },
+    {
+      "name": "StripeSignatureVerificationError",
+      "type": "missing-class",
+      "severity": "P1",
+      "description": "Signature verification error"
+    },
+    {
+      "name": "Product",
+      "type": "missing-type",
+      "severity": "P1",
+      "description": "Product object type"
+    }
+  ],
+  "p0Gaps": 1,
+  "p1Gaps": 8,
+  "p2Gaps": 10,
+  "missingMethods": 11,
+  "missingTypes": 1,
+  "missingClasses": 7
+}

@@ -1,0 +1,681 @@
+---
+title: duckdb.do
+description: DuckDB on the Edge — A fully managed analytical database running on Cloudflare Workers with WASM execution, Parquet support, and vector search.
+---
+
+# duckdb.do
+
+**DuckDB on the Edge** — Analytical queries running in Cloudflare Workers via WebAssembly with native R2/Parquet integration, vector search, and full-text search.
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const db = await createDuckDB(env)
+
+    // Query Parquet from R2
+    const object = await env.R2_BUCKET.get('sales-2024.parquet')
+    await db.registerBuffer('sales.parquet', await object.arrayBuffer())
+
+    const result = await db.query(`
+      SELECT region, SUM(revenue) as total
+      FROM parquet_scan('sales.parquet')
+      GROUP BY region
+      ORDER BY total DESC
+    `)
+
+    await db.close()
+    return Response.json(result.rows)
+  }
+}
+```
+
+<Callout type="info">
+Looking for a Node.js-compatible implementation for testing? See [@dotdo/duckdb](/docs/integrations/duckdb/package) for local development without native dependencies.
+</Callout>
+
+## Why duckdb.do?
+
+Traditional analytics databases require infrastructure management and aren't designed for edge deployment. duckdb.do solves this by running DuckDB directly in Cloudflare Workers:
+
+- **Zero Infrastructure** — No servers to manage, no cold starts, instant startup
+- **Edge Analytics** — Run analytical queries close to your users globally
+- **Parquet Native** — Query Parquet files directly from R2/S3
+- **Vector Search** — HNSW-based semantic similarity search via VSS extension
+- **Full-Text Search** — BM25-ranked text search via FTS extension
+- **Iceberg Tables** — Query Apache Iceberg tables with partition pruning
+
+| DuckDB Node.js | duckdb.do |
+|----------------|-----------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Requires native binaries | Pure WASM execution |
+| ~50MB binary size | WASM loaded from CDN |
+| Single-machine analytics | Analytics at the edge |
+| Local filesystem only | R2/S3 Parquet integration |
+| No vector search | VSS extension for embeddings |
+| No full-text search | FTS extension with BM25 |
+
+## Installation
+
+```bash
+npm install duckdb.do
+```
+
+## Features
+
+### DuckDB WASM Core
+
+| Feature | Description |
+|---------|-------------|
+| **Query Execution** | Full SQL support with analytical functions |
+| **Parquet Scanning** | Native `parquet_scan()` from R2/S3 buffers |
+| **Buffer Registration** | Load files into virtual filesystem |
+| **Module Caching** | Warm starts after initial WASM load |
+| **Memory Management** | Configurable memory limits for Workers |
+
+### Full-Text Search (FTS)
+
+| Feature | Description |
+|---------|-------------|
+| **BM25 Ranking** | Industry-standard relevance scoring |
+| **Multi-Column** | Index multiple text columns |
+| **Stemming** | Language-aware stemming (English, Porter, etc.) |
+| **Live Rebuild** | Update indexes after data changes |
+
+### Vector Similarity Search (VSS)
+
+| Feature | Description |
+|---------|-------------|
+| **HNSW Indexes** | Efficient approximate nearest neighbor search |
+| **Distance Metrics** | L2, cosine, inner product |
+| **Filtered Search** | Combine vector search with SQL filters |
+| **Memory Estimation** | Plan index memory requirements |
+
+### Iceberg Integration
+
+| Feature | Description |
+|---------|-------------|
+| **Table Scanning** | Query Iceberg tables on R2 |
+| **Partition Pruning** | Skip irrelevant partitions |
+| **Metadata Caching** | Efficient table metadata access |
+| **Time Travel** | Query historical table snapshots |
+
+## Quick Start
+
+### Basic WASM Usage
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const db = await createDuckDB(env)
+
+    // Create and query tables
+    await db.query('CREATE TABLE metrics (name VARCHAR, value DOUBLE)')
+    await db.query("INSERT INTO metrics VALUES ('cpu', 45.5)")
+
+    const result = await db.query('SELECT * FROM metrics')
+    await db.close()
+
+    return Response.json(result.rows)
+  }
+}
+```
+
+### Querying Parquet from R2
+
+Load Parquet files from R2 and query with SQL:
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const db = await createDuckDB(env)
+
+    // Fetch Parquet file from R2
+    const object = await env.R2_BUCKET.get('analytics/sales-2024.parquet')
+    const buffer = await object.arrayBuffer()
+
+    // Register the buffer as a virtual file
+    await db.registerBuffer('sales.parquet', buffer)
+
+    // Query the Parquet data
+    const result = await db.query(`
+      SELECT
+        region,
+        SUM(revenue) as total_revenue,
+        COUNT(*) as transactions
+      FROM parquet_scan('sales.parquet')
+      GROUP BY region
+      ORDER BY total_revenue DESC
+    `)
+
+    await db.close()
+    return Response.json(result.rows)
+  }
+}
+```
+
+### Full-Text Search (FTS)
+
+BM25-ranked full-text search using the FTS extension:
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+import { createFTSIndex, search, rebuildIndex } from 'duckdb.do/fts'
+
+const db = await createDuckDB(env)
+
+// Create table with text content
+await db.query(`
+  CREATE TABLE articles (
+    id INTEGER PRIMARY KEY,
+    title VARCHAR,
+    body VARCHAR
+  )
+`)
+
+await db.query(`INSERT INTO articles VALUES (1, 'Introduction to DuckDB', 'DuckDB is an analytical database...')`)
+await db.query(`INSERT INTO articles VALUES (2, 'Vector Search Guide', 'Learn how to search embeddings...')`)
+
+// Create FTS index
+await createFTSIndex(db, {
+  table: 'articles',
+  columns: ['title', 'body'],
+  stemmer: 'english',
+})
+
+// Search with BM25 ranking
+const results = await search(db, 'articles', 'analytical database', {
+  limit: 10,
+  minScore: 0.5,
+})
+
+console.log(results)
+// { results: [{ docId: 1, score: 2.5, document: {...} }], totalCount: 1, ... }
+
+// After data changes, rebuild index
+await db.query("INSERT INTO articles VALUES (3, 'New Article', '...')")
+await rebuildIndex(db, 'articles')
+```
+
+### Vector Similarity Search (VSS)
+
+HNSW-based vector search for embeddings:
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+import { loadVSS, createVectorIndex, search, estimateMemory } from 'duckdb.do/vss'
+
+const db = await createDuckDB(env)
+await loadVSS(db)
+
+// Create table with vector column
+await db.query(`
+  CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR,
+    category VARCHAR,
+    embedding FLOAT[768]
+  )
+`)
+
+// Insert embeddings (from your embedding model)
+await db.query(`INSERT INTO items VALUES (1, 'Red Sneakers', 'shoes', [0.1, 0.2, ...])`)
+
+// Create HNSW index
+await createVectorIndex(db, 'items', 'embedding', {
+  dimensions: 768,
+  metric: 'cosine',  // or 'l2', 'l2sq', 'ip'
+  M: 16,
+  efConstruction: 200,
+})
+
+// Search for similar vectors
+const queryVector = [0.15, 0.22, ...] // Your query embedding
+const results = await search(db, 'items', 'embedding', queryVector, {
+  k: 10,
+  filter: "category = 'shoes'",
+  select: ['name', 'category'],
+})
+
+console.log(results)
+// [{ id: 1, distance: 0.05, data: { name: 'Red Sneakers', category: 'shoes' } }]
+
+// Estimate memory requirements
+const estimate = estimateMemory({
+  vectorCount: 1_000_000,
+  dimensions: 768,
+})
+console.log(estimate.humanReadable) // "3.42 GB"
+```
+
+### Iceberg Table Integration
+
+Query Iceberg tables stored in R2:
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+import { createDataSource, scanIcebergTable } from 'duckdb.do/iceberg'
+
+// Create data source for R2 catalog
+const dataSource = createDataSource({
+  catalogConfig: {
+    accountId: 'abc123',
+    accessKeyId: env.R2_ACCESS_KEY,
+    secretAccessKey: env.R2_SECRET_KEY,
+    endpoint: 'https://abc123.r2.cloudflarestorage.com',
+    bucketName: 'iceberg-data',
+  },
+  r2Bucket: env.R2_BUCKET,
+  cacheTtlMs: 60000,
+})
+
+// Get table metadata
+const table = await dataSource.getTable('analytics', 'events')
+
+// Scan with partition pruning
+const scanResult = await scanIcebergTable({
+  namespace: 'analytics',
+  tableName: 'events',
+  predicate: { column: 'event_date', op: '>=', value: '2024-01-01' },
+  metadata: table.metadata,
+  fetchParquet: async (path) => {
+    const obj = await env.R2_BUCKET.get(path)
+    return obj?.arrayBuffer() ?? new ArrayBuffer(0)
+  },
+})
+
+console.log(`Pruned ${scanResult.prunedPartitions} partitions`)
+console.log(`Scanned ${scanResult.scannedFiles} files (${scanResult.scannedBytes} bytes)`)
+```
+
+## API Reference
+
+### DuckDB WASM Instance
+
+```typescript
+interface DuckDBInstance {
+  readonly path: string
+  readonly open: boolean
+
+  query<T>(sql: string, params?: unknown[], options?: QueryOptions): Promise<QueryResult<T>>
+  registerBuffer(name: string, buffer: ArrayBuffer | Uint8Array, options?: BufferRegistrationOptions): Promise<BufferRegistrationResult>
+  dropBuffer(name: string): Promise<void>
+  close(): Promise<void>
+}
+
+interface QueryResult<T> {
+  rows: T[]
+  columns: ColumnInfo[]
+  rowsAffected?: number
+}
+
+interface BufferRegistrationResult {
+  name: string
+  sizeBytes: number
+  overwritten: boolean
+}
+```
+
+### FTS Functions
+
+```typescript
+import {
+  createFTSIndex,
+  dropFTSIndex,
+  search,
+  rebuildIndex,
+  listIndexes,
+} from 'duckdb.do/fts'
+
+// Create full-text search index
+createFTSIndex(db: DuckDBInstance, config: {
+  table: string
+  columns: string | string[]
+  indexName?: string
+  stemmer?: StemmerLanguage  // 'english', 'porter', etc. Default: 'porter'
+  docIdColumn?: string       // Default: 'rowid'
+  ignoreCase?: boolean       // Default: true
+  stripAccents?: boolean     // Default: true
+  overwrite?: boolean        // Default: false
+}): Promise<FTSCreateResult>
+
+// Drop an FTS index
+dropFTSIndex(db: DuckDBInstance, table: string): Promise<FTSDropResult>
+
+// Search with BM25 ranking
+search<T>(db: DuckDBInstance, table: string, query: string, options?: {
+  limit?: number      // Default: 10
+  offset?: number     // Default: 0
+  minScore?: number   // Default: 0
+  select?: string[] | '*'
+  where?: string
+}): Promise<FTSSearchResults<T>>
+
+// Rebuild index after data changes
+rebuildIndex(db: DuckDBInstance, table: string): Promise<FTSRebuildResult>
+
+// List all FTS indexes
+listIndexes(db: DuckDBInstance): Promise<FTSIndexInfo[]>
+```
+
+### VSS Functions
+
+```typescript
+import {
+  loadVSS,
+  createVectorIndex,
+  dropVectorIndex,
+  getIndexStats,
+  search,
+  estimateMemory,
+} from 'duckdb.do/vss'
+
+// Load VSS extension
+loadVSS(db: DuckDBInstance): Promise<VSSExtensionState>
+
+// Create HNSW vector index
+createVectorIndex(db: DuckDBInstance, table: string, column: string, options: {
+  dimensions: number
+  metric?: 'l2' | 'l2sq' | 'cosine' | 'ip'  // Default: 'l2sq'
+  M?: number                 // HNSW parameter (default: 16)
+  efConstruction?: number    // HNSW parameter (default: 200)
+  efSearch?: number          // HNSW parameter (default: 64)
+  indexName?: string         // Auto-generated if not provided
+  failIfExists?: boolean     // Default: false (uses IF NOT EXISTS)
+}): Promise<void>
+
+// Drop a vector index
+dropVectorIndex(db: DuckDBInstance, table: string, column: string, indexName?: string): Promise<void>
+
+// Get index statistics
+getIndexStats(db: DuckDBInstance, table: string, column: string, indexName?: string): Promise<IndexStats>
+
+// k-NN vector search
+search<T>(db: DuckDBInstance, table: string, column: string, queryVector: number[], options?: {
+  k?: number           // Default: 10
+  efSearch?: number    // Override index default
+  filter?: string      // SQL WHERE clause
+  select?: string[]    // Additional columns to return
+  idColumn?: string    // Default: 'id'
+}): Promise<SearchResult<T>[]>
+
+// Estimate memory requirements
+estimateMemory(params: {
+  vectorCount: number
+  dimensions: number
+  M?: number           // Default: 16
+}): MemoryEstimation
+```
+
+## Performance Tips
+
+### Memory Management
+
+```typescript
+// DuckDB WASM memory is limited in Workers (~128MB)
+// Use pagination for large result sets
+const pageSize = 1000
+let offset = 0
+
+while (true) {
+  const rows = await db.query(`
+    SELECT * FROM large_table
+    ORDER BY id
+    LIMIT ${pageSize}
+    OFFSET ${offset}
+  `)
+
+  if (rows.rows.length === 0) break
+  // Process rows...
+  offset += pageSize
+}
+```
+
+### WASM Module Caching
+
+```typescript
+import { createDuckDB, isCached, clearCache, getHeapUsage } from 'duckdb.do'
+
+// First call loads WASM from CDN (~500ms cold start)
+const db1 = await createDuckDB(env)
+
+// Subsequent calls use cached module (~50ms warm start)
+console.log(isCached()) // true
+
+// Check estimated heap usage
+console.log(getHeapUsage()) // e.g., 39321600 (bytes)
+
+// Clear cache if needed
+clearCache()
+```
+
+### Index Usage
+
+```typescript
+// For large tables, always create indexes on filter columns
+await db.query('CREATE INDEX idx_events_user ON events(user_id)')
+await db.query('CREATE INDEX idx_events_timestamp ON events(timestamp)')
+
+// DuckDB will use indexes automatically
+const result = await db.query(`
+  SELECT * FROM events
+  WHERE user_id = 42 AND timestamp > '2024-01-01'
+`)
+```
+
+## Common Patterns
+
+### Analytics Dashboard
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+
+export async function analyzeMetrics(env: Env, dateRange: { start: string; end: string }) {
+  const db = await createDuckDB(env)
+
+  // Load metrics Parquet from R2
+  const metricsFile = await env.R2_BUCKET.get('metrics/daily.parquet')
+  await db.registerBuffer('metrics.parquet', await metricsFile.arrayBuffer())
+
+  // Aggregate metrics
+  const result = await db.query(`
+    SELECT
+      metric_name,
+      date_trunc('day', timestamp) as day,
+      AVG(value) as avg_value,
+      MAX(value) as max_value,
+      MIN(value) as min_value,
+      COUNT(*) as samples
+    FROM parquet_scan('metrics.parquet')
+    WHERE timestamp BETWEEN '${dateRange.start}' AND '${dateRange.end}'
+    GROUP BY metric_name, day
+    ORDER BY day DESC
+  `)
+
+  await db.close()
+  return result.rows
+}
+```
+
+### Semantic Search
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+import { loadVSS, createVectorIndex, search } from 'duckdb.do/vss'
+
+export async function semanticSearch(
+  env: Env,
+  query: string,
+  options: { limit?: number; category?: string }
+) {
+  const db = await createDuckDB(env)
+  await loadVSS(db)
+
+  // Load product embeddings from R2
+  const embeddings = await env.R2_BUCKET.get('products/embeddings.parquet')
+  await db.registerBuffer('embeddings.parquet', await embeddings.arrayBuffer())
+
+  // Create table from Parquet
+  await db.query(`
+    CREATE TABLE products AS
+    SELECT * FROM parquet_scan('embeddings.parquet')
+  `)
+
+  // Create vector index
+  await createVectorIndex(db, 'products', 'embedding', {
+    dimensions: 768,
+    metric: 'cosine',
+  })
+
+  // Generate query embedding (call your embedding API)
+  const queryEmbedding = await generateEmbedding(env, query)
+
+  // Search
+  const filter = options.category ? `category = '${options.category}'` : undefined
+  const results = await search(db, 'products', 'embedding', queryEmbedding, {
+    k: options.limit ?? 10,
+    filter,
+    select: ['name', 'description', 'price'],
+  })
+
+  await db.close()
+  return results
+}
+```
+
+### Log Analysis
+
+```typescript
+import { createDuckDB } from 'duckdb.do'
+import { createFTSIndex, search } from 'duckdb.do/fts'
+
+export async function searchLogs(env: Env, query: string, options: { limit?: number }) {
+  const db = await createDuckDB(env)
+
+  // Load logs from R2
+  const logs = await env.R2_BUCKET.get('logs/application.parquet')
+  await db.registerBuffer('logs.parquet', await logs.arrayBuffer())
+
+  // Create table
+  await db.query(`
+    CREATE TABLE logs AS
+    SELECT * FROM parquet_scan('logs.parquet')
+  `)
+
+  // Create FTS index
+  await createFTSIndex(db, {
+    table: 'logs',
+    columns: ['message', 'stack_trace'],
+    stemmer: 'english',
+  })
+
+  // Search logs
+  const results = await search(db, 'logs', query, {
+    limit: options.limit ?? 100,
+    select: ['timestamp', 'level', 'message'],
+  })
+
+  await db.close()
+  return results
+}
+```
+
+## Types
+
+### DuckDB WASM Types
+
+```typescript
+import type {
+  // Configuration
+  DuckDBConfig,
+  InstantiateOptions,
+
+  // Instance
+  DuckDBInstance,
+
+  // Results
+  QueryResult,
+  QueryOptions,
+  ColumnInfo,
+
+  // Metrics
+  InstantiationResult,
+  InstantiationMetrics,
+
+  // Buffer registration
+  BufferRegistrationOptions,
+  BufferRegistrationResult,
+} from 'duckdb.do'
+```
+
+### FTS Types
+
+```typescript
+import type {
+  FTSIndexConfig,
+  FTSIndexInfo,
+  FTSSearchOptions,
+  FTSSearchResult,
+  FTSSearchResults,
+  FTSCreateResult,
+  FTSDropResult,
+  FTSRebuildResult,
+  StemmerLanguage,
+} from 'duckdb.do/fts'
+
+import { FTSError, FTSErrorCode } from 'duckdb.do/fts'
+```
+
+### VSS Types
+
+```typescript
+import type {
+  VectorIndexConfig,
+  CreateVectorIndexOptions,
+  SearchOptions,
+  SearchResult,
+  IndexStats,
+  DistanceMetric,
+  MemoryEstimationParams,
+  MemoryEstimation,
+  VSSExtensionState,
+} from 'duckdb.do/vss'
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Client Applications                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    v
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         duckdb.do Worker (Edge)                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│    DuckDB WASM    │    FTS Extension    │    VSS Extension    │ Iceberg │
+├─────────────────────────────────────────────────────────────────────────┤
+│                         Virtual Filesystem                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                    R2 Bucket (Parquet / Iceberg Files)                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+duckdb.do runs DuckDB via WebAssembly:
+
+1. **WASM Execution** — DuckDB compiled to WebAssembly runs directly in Workers
+2. **Virtual Filesystem** — Register R2/S3 buffers as virtual files
+3. **Extension Loading** — FTS and VSS extensions loaded on demand
+4. **Edge Execution** — Queries execute at the edge, close to your users
+
+## Related
+
+- [@dotdo/duckdb](/docs/integrations/duckdb/package) - Node.js-compatible for testing
+- [Postgres Integration](/docs/integrations/postgres) - PostgreSQL compatibility layer
+- [S3/R2 Integration](/docs/integrations/s3) - Object storage for Parquet files
+- [Algolia Integration](/docs/integrations/algolia) - Alternative search solution

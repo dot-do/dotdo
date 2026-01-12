@@ -1,0 +1,139 @@
+---
+title: Pusher
+description: Choose between @dotdo/pusher (OSS package) and pusher.do (managed edge service) for real-time WebSocket needs.
+---
+
+# Pusher Integration
+
+dotdo provides two ways to work with Pusher-compatible real-time APIs:
+
+| | @dotdo/pusher | pusher.do |
+|---|----------------|----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | In-memory channels | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Self-hosted Worker | Zero (we manage it) |
+| **Install** | `npm install @dotdo/pusher` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/pusher - Self-hosted, great for testing
+import Pusher from '@dotdo/pusher'
+
+const pusher = new Pusher('app-key', {
+  cluster: 'mt1',
+  wsHost: 'your-worker.workers.dev',
+})
+
+const channel = pusher.subscribe('my-channel')
+channel.bind('event', (data) => console.log(data))
+```
+
+```typescript
+// pusher.do - Managed edge service
+import Pusher from 'pusher.do'
+
+const pusher = new Pusher('your-app-key', {
+  cluster: 'global', // Edge routing
+})
+
+const channel = pusher.subscribe('my-channel')
+channel.bind('event', (data) => console.log(data))
+```
+
+## When to Use Each
+
+### Use @dotdo/pusher when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Development** - Quick iteration with local Wrangler dev
+- **Self-hosting** - Need full control over infrastructure
+- **Cost optimization** - Running on existing Cloudflare Workers
+
+<Callout type="info">
+@dotdo/pusher is a drop-in replacement for pusher-js. Same API, self-hosted on your own Cloudflare Workers with Durable Objects.
+</Callout>
+
+### Use pusher.do when:
+
+- **Production applications** - Managed infrastructure, zero ops
+- **Global scale** - Edge deployment in 300+ cities
+- **Unlimited connections** - No per-connection fees
+- **Enterprise features** - Webhooks, analytics, monitoring
+
+<Callout type="info">
+pusher.do is Pusher on the Edge - a fully managed service with unlimited connections and no per-message fees.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/pusher | pusher.do |
+|---------|---------------|-----------|
+| Public channels | Supported | Supported |
+| Private channels | Supported | Supported |
+| Presence channels | Supported | Supported |
+| Client events | Supported | Supported |
+| Connection state | Supported | Supported |
+| Event binding | Supported | Supported |
+| Global events | Supported | Supported |
+| User signin | Supported | Supported |
+| Server SDK | Planned | Supported |
+| Channel auth endpoint | Planned | Supported |
+| Encrypted channels | Planned | Supported |
+| Webhooks | Planned | Supported |
+| Analytics dashboard | No | Supported |
+
+## Cost Comparison
+
+| | Pusher Cloud | @dotdo/pusher | pusher.do |
+|---|--------------|---------------|-----------|
+| **Connections/channel** | 100 (Free), 10K (Enterprise) | Unlimited | Unlimited |
+| **Per-connection fees** | $0.0001/connection/day | None | None |
+| **Per-message fees** | $0.000001/message | None | None |
+| **Channel limit** | 100 per app (Free) | Unlimited | Unlimited |
+| **Message size** | 10KB | 128KB | 128KB |
+| **Latency** | Single region | Edge (self-hosted) | Edge (managed) |
+| **Cold start** | N/A | 0ms | 0ms |
+
+The math: 10,000 concurrent connections for 30 days on Pusher Cloud = $30/month minimum. On dotdo, it's included.
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/pusher/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/pusher</h3>
+    <p className="text-sm text-muted-foreground">Self-hosted Pusher compat for testing and development</p>
+  </a>
+  <a href="/docs/integrations/pusher/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">pusher.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Pusher on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/pusher` for development, then switch to `pusher.do` for production:
+
+```typescript
+// Development (self-hosted)
+import Pusher from '@dotdo/pusher'
+const pusher = new Pusher('app-key', {
+  wsHost: 'localhost:8787',
+})
+
+// Production (managed service) - same API!
+import Pusher from 'pusher.do'
+const pusher = new Pusher('your-app-key', {
+  cluster: 'global',
+})
+
+// Your application code stays the same
+const channel = pusher.subscribe('notifications')
+channel.bind('new-message', (data) => {
+  showNotification(data.title, data.body)
+})
+```
+
+Both packages share the same Pusher-compatible API, making migration seamless.

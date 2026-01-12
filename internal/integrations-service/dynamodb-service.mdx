@@ -1,0 +1,526 @@
+---
+title: dynamodb.do
+description: DynamoDB on the Edge — A fully managed DynamoDB-compatible database running on Cloudflare Workers with vector search and AI agent support.
+---
+
+# dynamodb.do
+
+**DynamoDB on the Edge** — A DynamoDB-compatible database that runs entirely on Cloudflare Workers, with native AI agent support, vector search, and real-time streams.
+
+```typescript
+import { DynamoDBClient, PutItemCommand, QueryCommand } from 'dynamodb.do'
+
+const client = new DynamoDBClient('https://your-worker.workers.dev')
+
+// It's just DynamoDB
+await client.send(new PutItemCommand({
+  TableName: 'Users',
+  Item: {
+    pk: { S: 'USER#123' },
+    sk: { S: 'PROFILE' },
+    name: { S: 'Alice' },
+    email: { S: 'alice@example.com' },
+  },
+}))
+
+const result = await client.send(new QueryCommand({
+  TableName: 'Users',
+  KeyConditionExpression: 'pk = :pk',
+  ExpressionAttributeValues: { ':pk': { S: 'USER#123' } },
+}))
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/dynamodb](/docs/integrations/dynamodb/package) for a zero-dependency DynamoDB SDK.
+</Callout>
+
+## Why dynamodb.do?
+
+Traditional DynamoDB requires AWS infrastructure, IAM configuration, and careful capacity planning. dynamodb.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero AWS Dependency** — No AWS account, no IAM roles, no connection management
+- **Global by Default** — Data lives at the edge, close to your users
+- **DynamoDB Compatible** — Drop-in replacement using AWS SDK v3 API
+- **AI-Native** — Built-in support for AI agents, vector search, and MCP protocol
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Database
+
+| Feature | Description |
+|---------|-------------|
+| **CRUD Operations** | `PutItem`, `GetItem`, `UpdateItem`, `DeleteItem` with full expression support |
+| **Query & Scan** | `Query`, `Scan` with KeyConditionExpression, FilterExpression, ProjectionExpression |
+| **Batch Operations** | `BatchWriteItem` (25 items), `BatchGetItem` (100 items) |
+| **Transactions** | `TransactWriteItems`, `TransactGetItems` with ACID guarantees |
+| **Indexes** | Global Secondary Indexes (GSI), Local Secondary Indexes (LSI) |
+| **Expressions** | Full expression language (Key, Filter, Update, Condition, Projection) |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **Vector Search** | Semantic similarity search powered by Cloudflare Vectorize with automatic embeddings |
+| **Full-Text Search** | FTS5-powered search with scoring and fuzzy matching |
+| **MCP Protocol** | Model Context Protocol server for AI agent integration |
+| **DynamoDB Streams** | Real-time change data capture for event-driven architectures |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **AWS SDK Compatible** | Use existing AWS SDK v3 code with endpoint override |
+| **HTTP/RPC** | JSON-RPC over HTTP with batching |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+| **Real-time Streams** | WebSocket connections for change notifications |
+
+## Installation
+
+```bash
+npm install dynamodb.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { DynamoDBEntrypoint, DynamoDBDatabase } from 'dynamodb.do'
+
+export { DynamoDBDatabase }
+export default DynamoDBEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-dynamodb.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "DYNAMODB_DATABASE", "class_name": "DynamoDBDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DynamoDBDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Connect with AWS SDK
+
+```typescript
+import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb'
+
+const client = new DynamoDBClient({
+  endpoint: 'https://your-dynamodb.workers.dev',
+  region: 'auto',
+  credentials: {
+    accessKeyId: 'your-api-key',
+    secretAccessKey: 'your-api-secret',
+  },
+})
+
+await client.send(new PutItemCommand({
+  TableName: 'Users',
+  Item: {
+    pk: { S: 'USER#123' },
+    name: { S: 'Alice' },
+  },
+}))
+```
+
+### Local Development
+
+```bash
+# Start local server
+npx wrangler dev
+
+# Or use dynamodb.do CLI
+npx dynamodb.do serve --port 8787
+```
+
+## Examples
+
+### Vector Search (Semantic Similarity)
+
+```typescript
+import { DynamoDBClient, QueryCommand } from 'dynamodb.do'
+
+const client = new DynamoDBClient('https://your-worker.workers.dev')
+
+// Create a table with vector index
+await client.send(new CreateTableCommand({
+  TableName: 'Documents',
+  KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+  AttributeDefinitions: [{ AttributeName: 'pk', AttributeType: 'S' }],
+  VectorIndexes: [{
+    IndexName: 'embedding-index',
+    Dimensions: 1024,
+    Metric: 'cosine',
+  }],
+}))
+
+// Search by similarity
+const results = await client.send(new QueryCommand({
+  TableName: 'Documents',
+  IndexName: 'embedding-index',
+  VectorSearch: {
+    QueryVector: await getEmbedding('machine learning tutorials'),
+    TopK: 10,
+  },
+}))
+```
+
+### DynamoDB Streams
+
+```typescript
+import { DynamoDBStreamClient } from 'dynamodb.do'
+
+const streamClient = new DynamoDBStreamClient('https://your-worker.workers.dev')
+
+// Subscribe to changes
+const stream = streamClient.subscribe({
+  TableName: 'Orders',
+  EventTypes: ['INSERT', 'MODIFY'],
+})
+
+for await (const record of stream) {
+  console.log('Change:', record.eventName, record.dynamodb.Keys)
+  await processOrderChange(record)
+}
+```
+
+### AI Agent with MCP
+
+```typescript
+import { createMcpServer, createAnthropicAdapter } from 'dynamodb.do/mcp'
+import Anthropic from '@anthropic-ai/sdk'
+
+const server = createMcpServer({ dbClient })
+const adapter = createAnthropicAdapter({ server })
+await adapter.initialize()
+
+const client = new Anthropic()
+const response = await client.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: await adapter.getTools(),
+  messages: [{ role: 'user', content: 'Find all orders over $1000 from USER#123' }]
+})
+```
+
+### Transactions
+
+```typescript
+import { TransactWriteItemsCommand } from 'dynamodb.do'
+
+// ACID transaction across multiple items
+await client.send(new TransactWriteItemsCommand({
+  TransactItems: [
+    {
+      Put: {
+        TableName: 'Orders',
+        Item: {
+          pk: { S: 'ORDER#123' },
+          sk: { S: 'INFO' },
+          status: { S: 'confirmed' },
+          amount: { N: '99.99' },
+        },
+        ConditionExpression: 'attribute_not_exists(pk)',
+      },
+    },
+    {
+      Update: {
+        TableName: 'Users',
+        Key: { pk: { S: 'USER#456' }, sk: { S: 'PROFILE' } },
+        UpdateExpression: 'SET orderCount = orderCount + :inc, totalSpent = totalSpent + :amount',
+        ExpressionAttributeValues: {
+          ':inc': { N: '1' },
+          ':amount': { N: '99.99' },
+        },
+      },
+    },
+  ],
+}))
+```
+
+### Global Secondary Indexes
+
+```typescript
+// Create table with GSI
+await client.send(new CreateTableCommand({
+  TableName: 'Orders',
+  KeySchema: [
+    { AttributeName: 'pk', KeyType: 'HASH' },
+    { AttributeName: 'sk', KeyType: 'RANGE' },
+  ],
+  AttributeDefinitions: [
+    { AttributeName: 'pk', AttributeType: 'S' },
+    { AttributeName: 'sk', AttributeType: 'S' },
+    { AttributeName: 'GSI1PK', AttributeType: 'S' },
+    { AttributeName: 'GSI1SK', AttributeType: 'S' },
+  ],
+  GlobalSecondaryIndexes: [{
+    IndexName: 'GSI1',
+    KeySchema: [
+      { AttributeName: 'GSI1PK', KeyType: 'HASH' },
+      { AttributeName: 'GSI1SK', KeyType: 'RANGE' },
+    ],
+    Projection: { ProjectionType: 'ALL' },
+  }],
+}))
+
+// Query by status (using GSI)
+const pendingOrders = await client.send(new QueryCommand({
+  TableName: 'Orders',
+  IndexName: 'GSI1',
+  KeyConditionExpression: 'GSI1PK = :status',
+  ExpressionAttributeValues: {
+    ':status': { S: 'STATUS#pending' },
+  },
+}))
+```
+
+### TTL (Time to Live)
+
+```typescript
+// Enable TTL on table
+await client.send(new UpdateTimeToLiveCommand({
+  TableName: 'Sessions',
+  TimeToLiveSpecification: {
+    AttributeName: 'expiresAt',
+    Enabled: true,
+  },
+}))
+
+// Items with expiresAt in the past will be automatically deleted
+await client.send(new PutItemCommand({
+  TableName: 'Sessions',
+  Item: {
+    pk: { S: 'SESSION#abc123' },
+    userId: { S: 'USER#456' },
+    expiresAt: { N: String(Math.floor(Date.now() / 1000) + 3600) }, // 1 hour
+  },
+}))
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------------------+
+|                           Client Applications                            |
++-----------------+-----------------+-----------------+--------------------+
+|   AWS SDK v3    |   HTTP/RPC      |   WebSocket     |  Service Binding   |
+|   Compatible    |   JSON-RPC      |   Streams       |  Worker-to-Worker  |
++-----------------+-----------------+-----------------+--------------------+
+|                         dynamodb.do Worker (Edge)                        |
++-------------------------------------------------------------------------+
+|  Query Translator  |  Expression Engine  |  MCP Server  |  Stream Manager |
++-------------------------------------------------------------------------+
+|                      Durable Objects (SQLite Storage)                    |
++---------------------------+---------------------------------------------+
+|     Vectorize             |           R2 (Large Objects)                 |
+|  (Vector Embeddings)      |    (Backups, Large Items)                    |
++---------------------------+---------------------------------------------+
+```
+
+dynamodb.do translates DynamoDB operations to SQLite at runtime:
+
+1. **Query Translation** — DynamoDB expressions to SQLite SQL with full operator support
+2. **Durable Object Storage** — Each table runs as an isolated Durable Object with SQLite
+3. **Edge Execution** — Operations execute at the edge, close to your users
+4. **Optional Integrations** — Vectorize for embeddings, R2 for large objects
+
+## Connectivity Options
+
+### AWS SDK Compatible
+
+Use your existing AWS SDK code with an endpoint override:
+
+```typescript
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+
+const client = new DynamoDBClient({
+  endpoint: 'https://your-dynamodb.workers.dev',
+  region: 'auto',
+  credentials: {
+    accessKeyId: process.env.DYNAMODB_DO_KEY!,
+    secretAccessKey: process.env.DYNAMODB_DO_SECRET!,
+  },
+})
+
+// All AWS SDK operations work
+await client.send(new PutItemCommand({ ... }))
+await client.send(new QueryCommand({ ... }))
+await client.send(new TransactWriteItemsCommand({ ... }))
+```
+
+### HTTP RPC
+
+```typescript
+// Direct HTTP calls
+const response = await fetch('https://your-worker.workers.dev/rpc', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    method: 'Query',
+    params: {
+      TableName: 'Users',
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': { S: 'USER#123' } },
+    },
+  }),
+})
+
+const result = await response.json()
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const result = await env.DYNAMODB.query({
+      TableName: 'Users',
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': { S: 'USER#123' } },
+    })
+    return Response.json(result.Items)
+  },
+}
+```
+
+## Configuration
+
+### Basic Setup
+
+```jsonc
+{
+  "name": "my-dynamodb",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "DYNAMODB_DATABASE", "class_name": "DynamoDBDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DynamoDBDatabase"] }]
+}
+```
+
+### With Vector Search
+
+```jsonc
+{
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "embeddings" }]
+  },
+  "ai": { "binding": "AI" },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "EMBEDDING_ENABLED": "true"
+  }
+}
+```
+
+### With Streams
+
+```jsonc
+{
+  "queues": {
+    "producers": [{ "binding": "STREAM_QUEUE", "queue": "dynamodb-streams" }],
+    "consumers": [{ "queue": "dynamodb-streams", "max_batch_size": 100 }]
+  }
+}
+```
+
+## Expression Support
+
+dynamodb.do supports the full DynamoDB expression language:
+
+### KeyConditionExpression
+
+```typescript
+// Partition key only
+KeyConditionExpression: 'pk = :pk'
+
+// Partition key + sort key
+KeyConditionExpression: 'pk = :pk AND sk = :sk'
+KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)'
+KeyConditionExpression: 'pk = :pk AND sk BETWEEN :start AND :end'
+KeyConditionExpression: 'pk = :pk AND sk < :max'
+```
+
+### FilterExpression
+
+```typescript
+// Comparison operators
+FilterExpression: 'age >= :minAge AND status = :status'
+
+// Functions
+FilterExpression: 'contains(tags, :tag)'
+FilterExpression: 'attribute_exists(email)'
+FilterExpression: 'size(items) > :minItems'
+
+// Logical operators
+FilterExpression: '(status = :active OR status = :pending) AND NOT archived = :true'
+```
+
+### UpdateExpression
+
+```typescript
+// SET
+UpdateExpression: 'SET #name = :name, updatedAt = :now'
+
+// REMOVE
+UpdateExpression: 'REMOVE deletedField'
+
+// ADD (numeric increment)
+UpdateExpression: 'ADD viewCount :inc'
+
+// DELETE (set removal)
+UpdateExpression: 'DELETE tags :tagsToRemove'
+
+// Combined
+UpdateExpression: 'SET #name = :name, updatedAt = :now REMOVE legacy ADD views :one'
+```
+
+### ConditionExpression
+
+```typescript
+// Prevent overwrite
+ConditionExpression: 'attribute_not_exists(pk)'
+
+// Optimistic locking
+ConditionExpression: 'version = :expectedVersion'
+
+// Complex conditions
+ConditionExpression: 'status = :pending AND attribute_exists(approver)'
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/dynamodb](/docs/integrations/dynamodb/package) - In-memory DynamoDB for testing
+- [Postgres Integration](/docs/integrations/postgres) - SQL database support
+- [Vector Search](/docs/database/vector) - Semantic similarity search
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

@@ -1,0 +1,574 @@
+---
+title: segment.do
+description: Edge-native analytics platform on Cloudflare Workers with Durable Object SQLite storage.
+---
+
+# segment.do
+
+**Edge-Native Analytics** — A Segment-compatible analytics platform that runs entirely on Cloudflare Workers, with durable storage, real-time processing, and zero per-event fees.
+
+```typescript
+import { Analytics } from 'segment.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const analytics = new Analytics(env)
+
+    const userId = getUserId(request)
+
+    await analytics.track({
+      userId,
+      event: 'API Request',
+      properties: {
+        path: new URL(request.url).pathname,
+        method: request.method,
+      },
+    })
+
+    return new Response('OK')
+  }
+}
+```
+
+<Callout type="info">
+Looking for Segment SDK compatibility for testing? See [@dotdo/segment](/docs/integrations/segment/package) for a drop-in replacement with InMemoryTransport.
+</Callout>
+
+## Why segment.do?
+
+Traditional analytics platforms charge per-event or per-MTU, and require network round-trips to external APIs. segment.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Per-Event Fees** — No MTU pricing, no per-event charges, predictable compute costs
+- **Edge-Native** — Events processed and stored at the edge, close to your users
+- **Self-Hosted Data** — Your analytics data stays in your infrastructure
+- **Real-Time Processing** — Process events as they arrive with destinations
+- **Segment-Compatible** — Drop-in compatible with Segment's tracking API
+
+## Features
+
+### Core Analytics
+
+| Feature | Description |
+|---------|-------------|
+| **Tracking Methods** | `identify`, `track`, `page`, `screen`, `group`, `alias` |
+| **Batch API** | Efficient batch event ingestion with atomic writes |
+| **User Identification** | Rich user traits with anonymous-to-known user merging |
+| **Event Properties** | Structured event properties with automatic enrichment |
+| **Context Capture** | Device, location, campaign, and app context |
+
+### Destinations
+
+| Feature | Description |
+|---------|-------------|
+| **Webhook Destinations** | Forward events to any HTTP endpoint |
+| **Built-in Destinations** | Console, Buffer, Callback destinations |
+| **Custom Destinations** | Build your own with the destination API |
+| **Destination Filtering** | Control which events go to which destinations |
+| **Destination Middleware** | Transform events per-destination |
+
+### Data Processing
+
+| Feature | Description |
+|---------|-------------|
+| **Source Middleware** | Enrich, filter, or transform events at ingestion |
+| **PII Redaction** | Built-in patterns for redacting sensitive data |
+| **Event Validation** | Schema validation for event properties |
+| **Deduplication** | Automatic deduplication by messageId |
+
+### Storage & Query
+
+| Feature | Description |
+|---------|-------------|
+| **Durable Storage** | Events stored in Durable Object SQLite |
+| **Event Replay** | Replay historical events to destinations |
+| **User Timeline** | Query all events for a specific user |
+| **Real-Time Analytics** | Aggregate queries on event data |
+
+## Installation
+
+```bash
+npm install segment.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { SegmentEntrypoint, SegmentDatabase } from 'segment.do'
+
+export { SegmentDatabase }
+export default SegmentEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-segment.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "SEGMENT_DATABASE", "class_name": "SegmentDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SegmentDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Basic Usage
+
+```typescript
+import { Analytics } from 'segment.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const analytics = new Analytics(env)
+
+    // Identify a user
+    await analytics.identify({
+      userId: 'user123',
+      traits: {
+        name: 'John Doe',
+        email: 'john@example.com',
+        plan: 'premium',
+      },
+    })
+
+    // Track an event
+    await analytics.track({
+      userId: 'user123',
+      event: 'Order Completed',
+      properties: {
+        orderId: 'order_123',
+        total: 99.99,
+        currency: 'USD',
+      },
+    })
+
+    return new Response('OK')
+  }
+}
+```
+
+## Examples
+
+### User Lifecycle Tracking
+
+```typescript
+import { Analytics } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Anonymous visitor
+await analytics.page({
+  anonymousId: 'anon_abc',
+  name: 'Landing Page',
+  properties: {
+    url: 'https://example.com',
+    referrer: 'https://google.com',
+  },
+})
+
+// User signs up - merge anonymous to known
+await analytics.alias({
+  userId: 'user123',
+  previousId: 'anon_abc',
+})
+
+// Identify with traits
+await analytics.identify({
+  userId: 'user123',
+  traits: {
+    name: 'John Doe',
+    email: 'john@example.com',
+    createdAt: new Date(),
+  },
+})
+
+// Track signup event
+await analytics.track({
+  userId: 'user123',
+  event: 'Signed Up',
+  properties: {
+    signupMethod: 'email',
+    plan: 'free',
+  },
+})
+```
+
+### Custom Destinations
+
+```typescript
+import { Analytics, WebhookDestination } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Forward events to your data warehouse
+analytics.register(new WebhookDestination({
+  name: 'DataWarehouse',
+  url: 'https://warehouse.example.com/events',
+  headers: {
+    'Authorization': `Bearer ${env.WAREHOUSE_TOKEN}`,
+  },
+  // Only forward track and identify events
+  filter: (event) => ['track', 'identify'].includes(event.type),
+}))
+
+// Forward to Slack for important events
+analytics.register(new WebhookDestination({
+  name: 'Slack',
+  url: env.SLACK_WEBHOOK_URL,
+  transform: (event) => ({
+    text: `${event.type}: ${event.event || event.userId}`,
+  }),
+  filter: (event) =>
+    event.type === 'track' &&
+    event.event === 'Order Completed' &&
+    event.properties?.total > 1000,
+}))
+```
+
+### Source Middleware
+
+```typescript
+import { Analytics } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Enrich all events with server context
+analytics.addSourceMiddleware((event) => ({
+  ...event,
+  context: {
+    ...event.context,
+    server: {
+      region: env.CF_REGION,
+      version: env.APP_VERSION,
+    },
+  },
+}))
+
+// Redact PII
+analytics.addSourceMiddleware((event) => {
+  if (event.traits?.ssn) {
+    return {
+      ...event,
+      traits: { ...event.traits, ssn: '[REDACTED]' },
+    }
+  }
+  return event
+})
+
+// Filter internal events
+analytics.addSourceMiddleware((event) => {
+  if (event.event?.startsWith('_internal')) {
+    return null // Drop event
+  }
+  return event
+})
+```
+
+### Batch Ingestion
+
+```typescript
+import { Analytics } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Batch multiple events for efficiency
+await analytics.batch({
+  batch: [
+    {
+      type: 'identify',
+      userId: 'user1',
+      traits: { name: 'Alice' },
+    },
+    {
+      type: 'track',
+      userId: 'user1',
+      event: 'Signup',
+    },
+    {
+      type: 'track',
+      userId: 'user1',
+      event: 'Onboarding Started',
+    },
+    {
+      type: 'identify',
+      userId: 'user2',
+      traits: { name: 'Bob' },
+    },
+    {
+      type: 'track',
+      userId: 'user2',
+      event: 'Signup',
+    },
+  ],
+})
+```
+
+### Query User Timeline
+
+```typescript
+import { Analytics } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Get all events for a user
+const timeline = await analytics.timeline({
+  userId: 'user123',
+  limit: 100,
+  types: ['track', 'page'], // Optional: filter by type
+  since: new Date('2024-01-01'), // Optional: time range
+})
+
+for (const event of timeline.events) {
+  console.log(`${event.timestamp}: ${event.type} - ${event.event}`)
+}
+```
+
+### Real-Time Aggregations
+
+```typescript
+import { Analytics } from 'segment.do'
+
+const analytics = new Analytics(env)
+
+// Count events by type
+const counts = await analytics.aggregate({
+  groupBy: 'event',
+  metric: 'count',
+  filter: {
+    type: 'track',
+    since: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24h
+  },
+})
+
+// Sum revenue by product
+const revenue = await analytics.aggregate({
+  groupBy: 'properties.productId',
+  metric: 'sum',
+  field: 'properties.total',
+  filter: {
+    event: 'Order Completed',
+  },
+})
+```
+
+## Architecture
+
+```
++-------------------------------------------+
+|            Your Application                |
+|                                           |
+|  import { Analytics } from 'segment.do'   |
++-------------------------------------------+
+                    |
+                    v
++-------------------------------------------+
+|           segment.do Worker               |
++-------------------------------------------+
+|  Event Router  |  Middleware Pipeline     |
++-------------------------------------------+
+|  Destination Engine  |  Query Engine      |
++-------------------------------------------+
+|        Durable Object SQLite              |
++-------------------------------------------+
+```
+
+segment.do processes analytics events entirely at the edge:
+
+1. **Event Ingestion** — Events arrive via HTTP and are validated
+2. **Middleware Pipeline** — Source middleware transforms/filters events
+3. **Durable Storage** — Events stored in Durable Object SQLite
+4. **Destination Fanout** — Events forwarded to registered destinations
+5. **Query API** — Query historical events and aggregations
+
+## HTTP API Endpoints
+
+segment.do exposes a REST API compatible with Segment's HTTP Tracking API:
+
+### Tracking Endpoints
+
+- `POST /v1/identify` - Identify a user
+- `POST /v1/track` - Track an event
+- `POST /v1/page` - Track a page view
+- `POST /v1/screen` - Track a screen view
+- `POST /v1/group` - Associate user with group
+- `POST /v1/alias` - Alias user IDs
+- `POST /v1/batch` - Batch multiple events
+
+### Query Endpoints
+
+- `GET /v1/users/:userId/timeline` - Get user event timeline
+- `GET /v1/events/:messageId` - Get single event
+- `POST /v1/aggregate` - Run aggregation query
+
+### Admin Endpoints
+
+- `GET /health` - Health check
+- `GET /v1/destinations` - List destinations
+- `POST /v1/destinations` - Register destination
+- `DELETE /v1/destinations/:name` - Remove destination
+
+## Configuration
+
+### Wrangler Configuration
+
+```jsonc
+{
+  "name": "my-segment",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SEGMENT_DATABASE", "class_name": "SegmentDatabase" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SegmentDatabase"] }
+  ],
+  "vars": {
+    "SEGMENT_WRITE_KEY": "your-write-key"
+  }
+}
+```
+
+### Environment Type
+
+```typescript
+interface Env {
+  SEGMENT_DATABASE: DurableObjectNamespace
+  SEGMENT_WRITE_KEY?: string
+}
+```
+
+### Analytics Options
+
+```typescript
+const analytics = new Analytics(env, {
+  // Write key for authentication
+  writeKey: env.SEGMENT_WRITE_KEY,
+
+  // Default context for all events
+  defaultContext: {
+    app: { name: 'MyApp', version: '1.0.0' },
+  },
+
+  // Default integrations setting
+  defaultIntegrations: {
+    All: true,
+  },
+
+  // Error handler
+  onError: (error, event) => {
+    console.error('Analytics error:', error, event)
+  },
+})
+```
+
+## API Reference
+
+### Analytics
+
+#### `new Analytics(env, options?)`
+
+Creates a new analytics instance.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `writeKey` | `string` | - | Write key for authentication |
+| `defaultContext` | `Context` | `{}` | Default context for all events |
+| `defaultIntegrations` | `Integrations` | `{ All: true }` | Default integrations |
+| `onError` | `function` | - | Error handler callback |
+
+#### Analytics Methods
+
+| Method | Description |
+|--------|-------------|
+| `identify(message)` | Identify a user with traits |
+| `track(message)` | Track a custom event |
+| `page(message)` | Track a page view |
+| `screen(message)` | Track a screen view |
+| `group(message)` | Associate user with group |
+| `alias(message)` | Alias user IDs |
+| `batch(message)` | Batch multiple events |
+| `timeline(options)` | Query user timeline |
+| `aggregate(options)` | Run aggregation query |
+| `register(destination)` | Register a destination |
+| `addSourceMiddleware(fn)` | Add source middleware |
+
+### Destinations
+
+#### Built-in Destinations
+
+| Destination | Description |
+|-------------|-------------|
+| `WebhookDestination` | Forward events to HTTP endpoints |
+| `ConsoleDestination` | Log events to console |
+| `BufferDestination` | Buffer events in memory |
+| `CallbackDestination` | Call custom functions |
+
+#### Custom Destination Interface
+
+```typescript
+interface Destination {
+  name: string
+  identify?(event: IdentifyEvent): Promise<void>
+  track?(event: TrackEvent): Promise<void>
+  page?(event: PageEvent): Promise<void>
+  screen?(event: ScreenEvent): Promise<void>
+  group?(event: GroupEvent): Promise<void>
+  alias?(event: AliasEvent): Promise<void>
+}
+```
+
+## Comparison with Segment
+
+| Feature | Segment | segment.do |
+|---------|---------|------------|
+| Pricing | Per-event / MTU | Compute only |
+| Latency | Network to Segment | Edge-local |
+| Data Residency | Segment's infrastructure | Your infrastructure |
+| Cold Starts | N/A | 0ms (Durable Objects) |
+| API Compatibility | Native | Compatible |
+| Custom Destinations | Requires Functions | Built-in |
+| Source Middleware | Limited | Full control |
+| Real-Time Queries | Profiles API | Built-in |
+
+## Requirements
+
+- Cloudflare Workers environment
+- Durable Objects with SQLite storage enabled
+- Node.js 18+ (for local development)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Type check
+npm run typecheck
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/segment](/docs/integrations/segment/package) - Segment SDK compatible package
+- [Stripe Integration](/docs/integrations/stripe) - Payment processing
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

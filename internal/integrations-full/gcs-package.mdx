@@ -1,0 +1,669 @@
+---
+title: "@dotdo/gcs"
+description: Drop-in replacement for @google-cloud/storage, backed by Cloudflare R2.
+---
+
+# @dotdo/gcs
+
+Drop-in replacement for the Google Cloud Storage SDK. Your existing `@google-cloud/storage` code works unchanged - just swap the import.
+
+```typescript
+// Before: Google Cloud Storage
+import { Storage } from '@google-cloud/storage'
+
+// After: dotdo
+import { Storage } from '@dotdo/gcs'
+
+// Code stays the same
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('my-file.txt')
+await file.save('Hello, World!')
+```
+
+<Callout type="info">
+Looking for a managed service? See [gcs.do](/docs/integrations/gcs/service) for zero-infrastructure edge storage with GCS API.
+</Callout>
+
+## Why @dotdo/gcs?
+
+| GCS | @dotdo/gcs |
+|-----|------------|
+| Regional latency | Edge-local (300+ cities) |
+| Per-request pricing | Flat resource pricing |
+| Egress fees | No egress fees (R2) |
+| Cold start for Cloud Functions | 0ms cold starts (V8 isolates) |
+| Separate infrastructure | Unified with your DO data |
+| Requires service account | Works without credentials locally |
+
+**This is backed by Cloudflare R2.** Your data lives in R2 buckets with GCS-compatible API - not proxied to Google Cloud. R2 has zero egress fees.
+
+## Installation
+
+```bash
+npm install @dotdo/gcs
+```
+
+## Features
+
+### Implemented
+
+**Storage Class**
+- `new Storage()` - Create storage client
+- `storage.bucket()` - Get bucket reference
+- `storage.createBucket()` - Create new bucket
+- `storage.getBuckets()` - List all buckets
+
+**Bucket Class**
+- `bucket.file()` - Get file reference
+- `bucket.exists()` - Check if bucket exists
+- `bucket.delete()` - Delete empty bucket
+- `bucket.getMetadata()` - Get bucket metadata
+- `bucket.getFiles()` - List files with pagination
+- `bucket.upload()` - Upload from path
+
+**File Class**
+- `file.save()` - Upload content (string or Buffer)
+- `file.download()` - Download content
+- `file.exists()` - Check if file exists
+- `file.delete()` - Delete file
+- `file.copy()` - Copy to destination
+- `file.move()` - Move to destination
+- `file.getMetadata()` - Get file metadata
+- `file.setMetadata()` - Update metadata
+- `file.createReadStream()` - Stream download
+- `file.createWriteStream()` - Stream upload
+
+**Signed URLs**
+- `file.getSignedUrl()` - Generate signed URLs
+- V2 and V4 signature support
+- Read, write, delete, resumable actions
+- Expiration and content-type control
+
+**Resumable Uploads**
+- `file.createResumableUpload()` - Initiate upload
+- `file.resumableUpload()` - Upload chunks
+- `file.getResumableOffset()` - Get upload progress
+- `file.cancelResumableUpload()` - Cancel upload
+
+### Not Yet Implemented
+
+- IAM policies
+- Object versioning
+- Object lifecycle rules
+- Notifications/Pub/Sub
+- HMAC keys
+- Bucket locking
+- Uniform bucket-level access
+
+## Quick Start
+
+### Configure
+
+Add R2 bucket binding to your `wrangler.toml`:
+
+```toml
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "my-bucket"
+```
+
+### Create Storage Client
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({
+  projectId: 'my-project',
+  // Credentials optional in Workers (R2 binding injected automatically)
+})
+```
+
+### Bucket Operations
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+
+// Create a bucket
+const [bucket, metadata] = await storage.createBucket('my-bucket', {
+  location: 'US',
+  storageClass: 'STANDARD',
+})
+
+// List all buckets
+const [buckets] = await storage.getBuckets()
+for (const bucket of buckets) {
+  console.log(bucket.name)
+}
+
+// Get bucket reference
+const bucket = storage.bucket('my-bucket')
+const [exists] = await bucket.exists()
+
+// Get bucket metadata
+const [metadata] = await bucket.getMetadata()
+console.log(metadata.location, metadata.storageClass)
+```
+
+### Upload Files
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+
+// Upload text
+const file = bucket.file('hello.txt')
+await file.save('Hello, World!', {
+  contentType: 'text/plain',
+})
+
+// Upload JSON
+const jsonFile = bucket.file('data.json')
+await jsonFile.save(JSON.stringify({ name: 'John', age: 30 }), {
+  contentType: 'application/json',
+})
+
+// Upload with custom metadata
+const docFile = bucket.file('document.pdf')
+await docFile.save(pdfBuffer, {
+  contentType: 'application/pdf',
+  metadata: {
+    uploadedBy: 'user-123',
+    originalName: 'quarterly-report.pdf',
+  },
+})
+```
+
+### Download Files
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('hello.txt')
+
+// Download as Buffer
+const [content] = await file.download()
+console.log(content.toString()) // "Hello, World!"
+
+// Stream download
+const stream = file.createReadStream()
+const reader = stream.getReader()
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+  console.log(new TextDecoder().decode(value))
+}
+
+// Get metadata
+const [metadata] = await file.getMetadata()
+console.log(metadata.contentType)  // "text/plain"
+console.log(metadata.size)         // "13"
+console.log(metadata.timeCreated)  // "2024-01-15T10:30:00Z"
+```
+
+### Check If File Exists
+
+```typescript
+import { Storage, ApiError } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const file = storage.bucket('my-bucket').file('file.txt')
+
+const [exists] = await file.exists()
+if (exists) {
+  console.log('File exists')
+} else {
+  console.log('File does not exist')
+}
+
+// Or try to get metadata
+try {
+  const [metadata] = await file.getMetadata()
+  console.log('Size:', metadata.size)
+} catch (error) {
+  if (error instanceof ApiError && error.code === 404) {
+    console.log('File not found')
+  }
+}
+```
+
+### Delete Files
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+
+// Delete single file
+await bucket.file('old-file.txt').delete()
+
+// Delete multiple files
+const [files] = await bucket.getFiles({ prefix: 'temp/' })
+await Promise.all(files.map(f => f.delete()))
+```
+
+### List Files
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+
+// List all files
+const [files] = await bucket.getFiles()
+for (const file of files) {
+  console.log(file.name)
+}
+
+// List with prefix (folder-like)
+const [uploads, , response] = await bucket.getFiles({
+  prefix: 'uploads/',
+  delimiter: '/',
+})
+
+// Files directly in uploads/
+for (const file of uploads) {
+  console.log('File:', file.name)
+}
+
+// "Subdirectories" in uploads/
+for (const prefix of response.prefixes ?? []) {
+  console.log('Folder:', prefix)
+}
+
+// Pagination
+let nextQuery: GetFilesOptions | null = { maxResults: 100 }
+do {
+  const [files, query] = await bucket.getFiles(nextQuery)
+  for (const file of files) {
+    console.log(file.name)
+  }
+  nextQuery = query
+} while (nextQuery)
+```
+
+### Copy and Move Files
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('original.txt')
+
+// Copy within same bucket
+const [copiedFile] = await file.copy('backup/original.txt')
+
+// Copy to another bucket
+const destBucket = storage.bucket('backup-bucket')
+const [copiedFile2] = await file.copy(destBucket.file('original.txt'))
+
+// Move (copy + delete source)
+const [movedFile] = await file.move('archive/original.txt')
+```
+
+## Signed URLs
+
+Generate temporary URLs for direct uploads/downloads without exposing credentials.
+
+### Download URL
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const file = storage.bucket('my-bucket').file('file.pdf')
+
+// Generate download URL (expires in 15 minutes)
+const [url] = await file.getSignedUrl({
+  action: 'read',
+  expires: Date.now() + 15 * 60 * 1000,
+})
+
+// Return URL to client for direct download
+return new Response(JSON.stringify({ downloadUrl: url }))
+```
+
+### Upload URL
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const file = storage.bucket('my-bucket').file(`uploads/${crypto.randomUUID()}.jpg`)
+
+// Generate upload URL
+const [url] = await file.getSignedUrl({
+  action: 'write',
+  expires: Date.now() + 5 * 60 * 1000, // 5 minutes
+  contentType: 'image/jpeg',
+})
+
+// Client can PUT directly to this URL
+return new Response(JSON.stringify({ uploadUrl: url }))
+```
+
+### V4 Signatures
+
+```typescript
+const [url] = await file.getSignedUrl({
+  version: 'v4',
+  action: 'read',
+  expires: Date.now() + 60 * 60 * 1000, // 1 hour
+  responseDisposition: 'attachment; filename="download.txt"',
+})
+```
+
+### Client-Side Upload
+
+```typescript
+// Frontend code
+async function uploadFile(file: File) {
+  // Get presigned URL from your API
+  const { uploadUrl } = await fetch('/api/upload-url', {
+    method: 'POST',
+    body: JSON.stringify({ filename: file.name, contentType: file.type }),
+  }).then(r => r.json())
+
+  // Upload directly to R2
+  await fetch(uploadUrl, {
+    method: 'PUT',
+    body: file,
+    headers: {
+      'Content-Type': file.type,
+    },
+  })
+}
+```
+
+## Resumable Uploads
+
+For large files, use resumable uploads for reliability and the ability to resume interrupted uploads.
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const file = storage.bucket('my-bucket').file('large-file.bin')
+
+async function uploadLargeFile(data: ArrayBuffer) {
+  const chunkSize = 10 * 1024 * 1024 // 10MB chunks
+
+  // Step 1: Initiate resumable upload
+  const [uploadUri] = await file.createResumableUpload({
+    contentType: 'application/octet-stream',
+    metadata: { source: 'upload-script' },
+  })
+
+  try {
+    // Step 2: Upload chunks
+    for (let offset = 0; offset < data.byteLength; offset += chunkSize) {
+      const end = Math.min(offset + chunkSize, data.byteLength)
+      const chunk = new Uint8Array(data.slice(offset, end))
+      const isLast = end === data.byteLength
+
+      await file.resumableUpload(uploadUri, chunk, {
+        offset,
+        isPartial: !isLast,
+      })
+    }
+
+    console.log('Upload complete!')
+  } catch (error) {
+    // Check progress for resume
+    const resumeOffset = await file.getResumableOffset(uploadUri)
+    console.log(`Upload interrupted at ${resumeOffset} bytes`)
+    throw error
+  }
+}
+
+// Cancel an upload
+async function cancelUpload(uploadUri: string) {
+  await file.cancelResumableUpload(uploadUri)
+}
+```
+
+## Streaming Upload
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const file = storage.bucket('my-bucket').file('stream-upload.txt')
+
+// Create write stream
+const writeStream = file.createWriteStream({
+  contentType: 'text/plain',
+})
+
+// Pipe data to stream
+const writer = writeStream.getWriter()
+await writer.write(new TextEncoder().encode('Line 1\n'))
+await writer.write(new TextEncoder().encode('Line 2\n'))
+await writer.write(new TextEncoder().encode('Line 3\n'))
+await writer.close()
+
+// File is now saved
+const [content] = await file.download()
+console.log(content.toString())
+```
+
+## Connecting to Real GCS
+
+If you need to interact with actual GCS buckets:
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+// Connect to real GCS
+const gcsClient = new Storage({
+  projectId: 'my-gcp-project',
+  credentials: {
+    client_email: env.GCS_CLIENT_EMAIL,
+    private_key: env.GCS_PRIVATE_KEY,
+  },
+})
+
+// Fetch from GCS
+const bucket = gcsClient.bucket('my-gcs-bucket')
+const [content] = await bucket.file('data.json').download()
+```
+
+## Direct R2 Access
+
+For maximum performance, use R2 bindings directly:
+
+```typescript
+import { createR2Store } from '@dotdo/gcs/r2'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const store = createR2Store(env.R2_BUCKET, {
+      tenant: 'acme-corp',
+      publicUrl: 'https://files.example.com',
+    })
+
+    // Put with auto content-type detection
+    await store.put('reports/q4.pdf', pdfData)
+
+    // Get with streaming
+    const stream = await store.getStream('reports/q4.pdf')
+
+    // List with pagination
+    for await (const object of store.listAll({ prefix: 'reports/' })) {
+      console.log(object.key, object.size)
+    }
+  }
+}
+```
+
+## R2 in Durable Objects
+
+Access R2 from within Durable Objects:
+
+```typescript
+import { DO } from 'dotdo'
+import { Storage } from '@dotdo/gcs'
+
+export class DocumentStore extends DO {
+  private storage: Storage
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.storage = new Storage({ projectId: this.id })
+  }
+
+  async saveDocument(id: string, content: string) {
+    const file = this.storage.bucket('documents').file(`docs/${id}.json`)
+    await file.save(content, { contentType: 'application/json' })
+  }
+
+  async getDocument(id: string) {
+    const file = this.storage.bucket('documents').file(`docs/${id}.json`)
+    const [content] = await file.download()
+    return content.toString()
+  }
+}
+```
+
+## Types
+
+Full TypeScript support with GCS SDK-compatible types:
+
+```typescript
+import type {
+  // Main classes
+  Storage,
+  Bucket,
+  File,
+
+  // Options
+  StorageOptions,
+  CreateBucketOptions,
+  GetBucketsOptions,
+  GetFilesOptions,
+  SaveOptions,
+  SetMetadataOptions,
+  SignedUrlConfig,
+  CreateResumableUploadOptions,
+
+  // Metadata
+  BucketMetadata,
+  FileMetadata,
+  GetMetadataResponse,
+  GetFilesResponse,
+
+  // Errors
+  ApiError,
+  ApiErrorConfig,
+} from '@dotdo/gcs'
+```
+
+## Error Handling
+
+```typescript
+import { Storage, ApiError } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+
+try {
+  const [content] = await storage
+    .bucket('my-bucket')
+    .file('missing.txt')
+    .download()
+} catch (error) {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 404:
+        console.log('File or bucket not found')
+        break
+      case 409:
+        console.log('Conflict (e.g., bucket not empty)')
+        break
+      case 403:
+        console.log('Permission denied')
+        break
+      default:
+        console.log('GCS error:', error.message)
+    }
+  }
+}
+```
+
+## Migration from GCS
+
+### Package Change
+
+```bash
+# Remove GCS SDK
+npm uninstall @google-cloud/storage
+
+# Install dotdo GCS
+npm install @dotdo/gcs
+```
+
+### Import Change
+
+```typescript
+// Before
+import { Storage } from '@google-cloud/storage'
+
+// After
+import { Storage } from '@dotdo/gcs'
+```
+
+### Configuration
+
+```typescript
+// Before: Google Cloud Storage
+const storage = new Storage({
+  projectId: 'my-project',
+  keyFilename: '/path/to/service-account.json',
+})
+
+// After: dotdo (R2 binding auto-injected)
+const storage = new Storage({
+  projectId: 'my-project', // Optional in Workers
+})
+```
+
+## Testing
+
+Use @dotdo/gcs in tests without any external dependencies:
+
+```typescript
+import { Storage } from '@dotdo/gcs'
+
+describe('FileService', () => {
+  let storage: Storage
+  let bucket: Bucket
+
+  beforeEach(() => {
+    storage = new Storage({ projectId: 'test' })
+    bucket = storage.bucket('test-bucket')
+  })
+
+  it('should upload and download files', async () => {
+    const file = bucket.file('test.txt')
+    await file.save('Hello, World!')
+
+    const [content] = await file.download()
+    expect(content.toString()).toBe('Hello, World!')
+  })
+})
+```
+
+## Related
+
+- [gcs.do](/docs/integrations/gcs/service) - Managed GCS-compatible storage on the edge
+- [S3 Integration](/docs/integrations/s3) - AWS S3 compatible storage
+- [Hot Tier Storage](/docs/storage/hot-tier) - High-performance storage with Durable Objects
+- [Warm Tier Storage](/docs/storage/warm-tier) - R2 object storage

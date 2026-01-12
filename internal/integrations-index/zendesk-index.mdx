@@ -1,0 +1,187 @@
+---
+title: Zendesk
+description: Choose between @dotdo/zendesk (OSS package) and zendesk.do (managed edge service) for your customer support integration needs.
+---
+
+# Zendesk Integration
+
+dotdo provides two ways to work with Zendesk-compatible APIs:
+
+| | @dotdo/zendesk | zendesk.do |
+|---|----------------|------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | Mock fetch or real Zendesk | Durable Object SQLite |
+| **Persistence** | Depends on mode | Full durability |
+| **Use case** | Testing, development, Zendesk proxy | Production edge workloads |
+| **Infrastructure** | Your Zendesk or none | Zero (we manage it) |
+| **Install** | `npm install @dotdo/zendesk` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/zendesk - Drop-in replacement for node-zendesk
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: env.ZENDESK_API_TOKEN,
+})
+
+await client.tickets.create({
+  subject: 'Help needed',
+  description: 'I need assistance',
+  priority: 'high',
+})
+```
+
+```typescript
+// zendesk.do - Native edge support platform
+import { SupportClient } from 'zendesk.do'
+
+const client = new SupportClient('https://your-worker.workers.dev')
+
+await client.tickets.create({
+  subject: 'Help needed',
+  description: 'I need assistance',
+  priority: 'high',
+})
+```
+
+## When to Use Each
+
+### Use @dotdo/zendesk when:
+
+- **Migrating from node-zendesk** - Drop-in replacement with same API
+- **Proxy to real Zendesk** - Connect to existing Zendesk accounts
+- **Unit testing** - Mock fetch for tests without network calls
+- **Edge deployment** - Works in Cloudflare Workers without Node.js
+
+<Callout type="info">
+@dotdo/zendesk is a drop-in replacement for node-zendesk. Use it when you need the familiar Zendesk SDK API or want to connect to real Zendesk instances from edge environments.
+</Callout>
+
+### Use zendesk.do when:
+
+- **Edge-native support** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No Zendesk subscription required
+- **AI agent integration** - MCP protocol and tool calling support
+- **Multi-tenant SaaS** - Isolated support instances per customer
+- **Global distribution** - Support data at the edge
+
+<Callout type="info">
+zendesk.do is a Zendesk-compatible support platform running natively on Cloudflare. Use it for production edge workloads without managing external infrastructure.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/zendesk | zendesk.do |
+|---------|----------------|------------|
+| Tickets API | Full | Full |
+| Users API | Full | Full |
+| Organizations API | Full | Full |
+| Triggers & Automations | Full | Full |
+| Views & Macros | Full | Full |
+| Groups & Memberships | Full | Full |
+| Webhooks | Full | Full |
+| Custom Fields | Full | Full |
+| Real Zendesk backend | Yes | No |
+| Mock testing mode | Yes | N/A |
+| MCP Protocol | No | Yes |
+| AI Agent tools | No | Yes |
+| Multi-tenant isolation | No | Yes |
+| Change streams | No | Yes |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/zendesk/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/zendesk</h3>
+    <p className="text-sm text-muted-foreground">Drop-in replacement for node-zendesk with edge compatibility</p>
+  </a>
+  <a href="/docs/integrations/zendesk/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">zendesk.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Zendesk-compatible support on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/zendesk` pointing to real Zendesk, then migrate to `zendesk.do`:
+
+```typescript
+// Phase 1: Use @dotdo/zendesk with real Zendesk (drop-in for node-zendesk)
+import Zendesk from '@dotdo/zendesk'
+
+const client = new Zendesk.Client({
+  subdomain: 'mycompany',
+  email: 'admin@example.com',
+  token: env.ZENDESK_API_TOKEN,
+})
+
+const ticket = await client.tickets.create({
+  subject: 'Customer inquiry',
+  description: 'How do I reset my password?',
+  requester: { email: 'user@example.com' },
+})
+```
+
+```typescript
+// Phase 2: Migrate to zendesk.do for zero-infrastructure
+import { SupportClient } from 'zendesk.do'
+
+const client = new SupportClient('https://support.your-domain.workers.dev')
+
+const ticket = await client.tickets.create({
+  subject: 'Customer inquiry',
+  description: 'How do I reset my password?',
+  requester: { email: 'user@example.com' },
+})
+```
+
+## Architecture Comparison
+
+### @dotdo/zendesk
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const client = new Zendesk.Client({...})                   |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode       |     |     Test Mode           |
+|   (Real Zendesk)        |     |     (Mock Fetch)        |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> {subdomain}.zendesk |     |  -> Mock responses      |
+|  -> Real tickets        |     |  -> No network calls    |
+|  -> Live API            |     |  -> Predictable data    |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### zendesk.do
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const client = new SupportClient('https://...')            |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                     zendesk.do Worker                        |
++-------------------------------------------------------------+
+|  Ticket Engine  |  User Manager  |  MCP Server  |  AI Tools |
++-------------------------------------------------------------+
+|                   Durable Object SQLite                      |
++-------------------------------------------------------------+
+```
+
+Both approaches support the same Zendesk patterns (ticket lifecycle, automation, reporting) - choose based on whether you need real Zendesk compatibility or native edge deployment.

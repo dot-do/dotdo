@@ -7,28 +7,25 @@ import { source } from '../lib/source'
  * This test verifies that fumadocs-mdx properly processes MDX files from
  * the docs/ folder and makes them available through the source loader.
  *
- * Current state: source.ts has stubbed empty files[], fumadocs-mdx not configured
+ * Current state: source.ts uses fumadocs-mdx's async loader with virtual modules
  * Target state: fumadocs-mdx builds docs from docs/ folder and serves at /docs/*
  *
- * These tests are expected to FAIL until fumadocs-mdx is configured.
- *
  * @see https://fumadocs.dev/docs/mdx
- * @see app/lib/source.ts (currently stubbed)
+ * @see app/lib/source.ts
  * @see docs/ folder structure
  */
 
 describe('Fumadocs MDX Integration', () => {
+
   describe('Source Loader', () => {
     it('should have files loaded from docs/ folder', () => {
       // The source loader should have files array populated from docs/
-      // Currently stubbed with empty array, so this FAILS
       const pages = source.getPages()
       expect(pages.length).toBeGreaterThan(0)
     })
 
     it('should have page tree generated from docs/ structure', () => {
       // The page tree should contain navigation structure
-      // Currently empty because source is stubbed
       const tree = source.pageTree
       expect(tree).toBeDefined()
       expect(tree.children?.length).toBeGreaterThan(0)

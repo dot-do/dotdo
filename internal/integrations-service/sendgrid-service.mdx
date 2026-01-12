@@ -1,0 +1,484 @@
+---
+title: sendgrid.do
+description: Email on the Edge — A fully managed SendGrid-compatible email service running on Cloudflare Workers with exactly-once delivery and audit trails.
+---
+
+# sendgrid.do
+
+**Email on the Edge** — A SendGrid-compatible email service that runs entirely on Cloudflare Workers, with exactly-once delivery, transactional batching, and built-in audit trails.
+
+```typescript
+import { SendGridClient } from 'sendgrid.do'
+
+const client = new SendGridClient('https://your-worker.workers.dev')
+
+await client.mail.send({
+  to: 'user@example.com',
+  from: 'noreply@yourapp.com',
+  subject: 'Welcome!',
+  html: '<h1>Welcome to our platform</h1>',
+})
+```
+
+<Callout type="info">
+Looking for a drop-in replacement for development? See [@dotdo/sendgrid](/docs/integrations/sendgrid/package) for a zero-dependency SendGrid client.
+</Callout>
+
+## Why sendgrid.do?
+
+Traditional email services require external infrastructure and offer no delivery guarantees. sendgrid.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Email processing at the edge, close to your users
+- **SendGrid Compatible** — Drop-in replacement for most SendGrid operations
+- **Exactly-Once Delivery** — Idempotency keys prevent duplicate sends
+- **Built-in Audit Trail** — Temporal store for complete email history
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Email
+
+| Feature | Description |
+|---------|-------------|
+| **Single/Multiple Send** | `send`, `sendMultiple` with full personalization support |
+| **Dynamic Templates** | Handlebars-based templates with variable substitution |
+| **Attachments** | Base64-encoded attachments with inline support |
+| **Personalizations** | Per-recipient customization in a single API call |
+| **Categories & Tags** | Organize emails for analytics and filtering |
+| **Scheduled Sending** | Defer email delivery to a specific time |
+
+### Durability & Reliability
+
+| Feature | Description |
+|---------|-------------|
+| **Exactly-Once Delivery** | Idempotency keys prevent duplicate sends on retry |
+| **Transactional Batching** | Atomic email operations with outbox pattern |
+| **Email Logs** | Complete history with temporal queries (as-of queries) |
+| **Status Tracking** | Track email lifecycle: queued, sent, delivered, bounced |
+| **Checkpoint/Restore** | Distributed system support with state snapshots |
+
+### Management
+
+| Feature | Description |
+|---------|-------------|
+| **Template CRUD** | Create, update, version, and render templates locally |
+| **Contact Management** | Add, search, and manage contacts |
+| **Lists** | Organize contacts into lists for campaigns |
+| **Statistics** | Email metrics by date, category, or subuser |
+
+## Installation
+
+```bash
+npm install sendgrid.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { SendGridEntrypoint, SendGridDatabase } from 'sendgrid.do'
+
+export { SendGridDatabase }
+export default SendGridEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-sendgrid.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "SENDGRID_DATABASE", "class_name": "SendGridDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SendGridDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start local server
+npx wrangler dev
+
+# Test email sending (captured locally)
+curl -X POST http://localhost:8787/v3/mail/send \
+  -H "Authorization: Bearer test-key" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"test@example.com","from":"dev@example.com","subject":"Test","text":"Hello"}'
+```
+
+## Examples
+
+### Exactly-Once Delivery
+
+```typescript
+import { DurableSendGridClient } from 'sendgrid.do'
+
+const client = new DurableSendGridClient({
+  host: 'https://your-worker.workers.dev',
+  apiKey: 'your-api-key',
+})
+
+// Safe to retry - idempotency key prevents duplicates
+await client.mail.send({
+  to: 'user@example.com',
+  from: 'orders@yourstore.com',
+  templateId: 'd-order-confirmation',
+  dynamicTemplateData: {
+    orderNumber: '12345',
+    items: [{ name: 'Widget', quantity: 2 }],
+  },
+}, {
+  idempotencyKey: 'order-12345-confirmation',
+})
+
+// Check if already processed
+const processed = await client.isProcessed('order-12345-confirmation')
+```
+
+### Transactional Batching
+
+Atomic email operations with the outbox pattern:
+
+```typescript
+import { DurableSendGridClient } from 'sendgrid.do'
+
+const client = new DurableSendGridClient({
+  host: 'https://your-worker.workers.dev',
+  apiKey: 'your-api-key',
+})
+
+// All emails in the transaction succeed or fail together
+await client.transaction(async (tx) => {
+  await tx.queueEmail({
+    to: 'customer@example.com',
+    from: 'orders@yourstore.com',
+    subject: 'Order Confirmed',
+    text: 'Your order has been confirmed.',
+  })
+
+  await tx.queueEmail({
+    to: 'warehouse@yourstore.com',
+    from: 'orders@yourstore.com',
+    subject: 'New Order to Fulfill',
+    text: 'Order #12345 is ready for fulfillment.',
+  })
+
+  await tx.queueEmail({
+    to: 'accounting@yourstore.com',
+    from: 'orders@yourstore.com',
+    subject: 'Payment Received',
+    text: 'Payment for order #12345 has been processed.',
+  })
+})
+
+// Flush queued emails to delivery
+await client.flush()
+```
+
+### Email Audit Trail
+
+Query email history with temporal support:
+
+```typescript
+import { DurableSendGridClient } from 'sendgrid.do'
+
+const client = new DurableSendGridClient({
+  host: 'https://your-worker.workers.dev',
+  apiKey: 'your-api-key',
+})
+
+// Get specific email log
+const log = await client.getEmailLog('order-12345-confirmation')
+// { id, to, from, subject, status, sentAt, deliveredAt, ... }
+
+// Get all email logs
+const allLogs = await client.getEmailLogs()
+
+// Temporal query - see email state at a specific time
+const logsAsOf = await client.getEmailLogsAsOf(Date.now() - 3600000) // 1 hour ago
+
+// Get full status history for an email
+const history = await client.getEmailStatusHistory('order-12345-confirmation')
+// [
+//   { status: 'queued', timestamp: 1704067200000 },
+//   { status: 'sent', timestamp: 1704067201000 },
+//   { status: 'delivered', timestamp: 1704067205000 }
+// ]
+```
+
+### Template Management
+
+Store and render templates locally:
+
+```typescript
+import { TemplateManager } from 'sendgrid.do'
+
+const manager = new TemplateManager({
+  sql: ctx.storage.sql, // DO SQLite storage
+})
+
+// Create template
+const template = await manager.create({
+  name: 'Order Confirmation',
+  generation: 'dynamic',
+})
+
+// Add version with Handlebars content
+await manager.createVersion(template.id, {
+  name: 'Version 1',
+  subject: 'Order #{{orderNumber}} Confirmed',
+  html_content: `
+    <h1>Thank you, {{name}}!</h1>
+    <p>Your order #{{orderNumber}} has been confirmed.</p>
+    <ul>
+      {{#each items}}
+        <li>{{name}} x {{quantity}} - ${{price}}</li>
+      {{/each}}
+    </ul>
+    <p>Total: ${{total}}</p>
+  `,
+  active: 1,
+})
+
+// Render template with data
+const { subject, html } = await manager.render(template.id, {
+  name: 'Alice',
+  orderNumber: '12345',
+  items: [
+    { name: 'Widget', quantity: 2, price: '19.99' },
+    { name: 'Gadget', quantity: 1, price: '49.99' },
+  ],
+  total: '89.97',
+})
+
+// Get template variables for UI
+const variables = await manager.getVariables(template.id)
+// ['name', 'orderNumber', 'items', 'total']
+```
+
+### Webhook Status Updates
+
+Update email status from provider webhooks:
+
+```typescript
+import { DurableSendGridClient } from 'sendgrid.do'
+
+const client = new DurableSendGridClient({
+  host: 'https://your-worker.workers.dev',
+  apiKey: 'your-api-key',
+})
+
+// Handle SendGrid webhook events
+export default {
+  async fetch(request: Request, env: Env) {
+    if (request.method === 'POST' && new URL(request.url).pathname === '/webhook') {
+      const events = await request.json()
+
+      for (const event of events) {
+        await client.updateEmailStatus(event.sg_message_id, event.event, {
+          timestamp: event.timestamp * 1000,
+          provider_message_id: event.sg_message_id,
+          bounce_type: event.bounce_classification,
+        })
+      }
+
+      return new Response('OK')
+    }
+  }
+}
+```
+
+### Contact & List Management
+
+```typescript
+import { SendGridClient } from 'sendgrid.do'
+
+const client = new SendGridClient('https://your-worker.workers.dev')
+
+// Add contacts
+await client.contacts.add([
+  { email: 'alice@example.com', first_name: 'Alice', last_name: 'Smith' },
+  { email: 'bob@example.com', first_name: 'Bob', last_name: 'Jones' },
+])
+
+// Search contacts
+const { result } = await client.contacts.search({
+  query: "email LIKE '%@example.com'",
+})
+
+// Create list
+const list = await client.lists.create({ name: 'Newsletter Subscribers' })
+
+// Add contacts to list
+await client.lists.addContacts(list.id, ['contact-id-1', 'contact-id-2'])
+
+// Send to list
+await client.mail.send({
+  personalizations: result.map(contact => ({
+    to: [{ email: contact.email, name: `${contact.first_name} ${contact.last_name}` }],
+    dynamicTemplateData: { firstName: contact.first_name },
+  })),
+  from: 'newsletter@yourcompany.com',
+  templateId: 'd-newsletter-template',
+})
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Client Applications                           │
+├─────────────────┬─────────────────┬─────────────────┬───────────────────┤
+│   SendGrid API  │   HTTP/RPC      │   Webhooks      │  Service Binding  │
+│   Compatible    │   JSON-RPC      │   Status Events │  Worker-to-Worker │
+├─────────────────┴─────────────────┴─────────────────┴───────────────────┤
+│                        sendgrid.do Worker (Edge)                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Mail Sender  │  Template Engine  │  Contact Manager │  Stats Collector │
+├─────────────────────────────────────────────────────────────────────────┤
+│                      Durable Objects (SQLite Storage)                   │
+├─────────────────┬─────────────────┬─────────────────────────────────────┤
+│  Email Logs     │  Templates      │  Contacts & Lists                   │
+│  (Temporal)     │  (Versioned)    │  (Searchable)                       │
+└─────────────────┴─────────────────┴─────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Email Delivery (SendGrid/SMTP)                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+sendgrid.do processes email operations at the edge:
+
+1. **Request Handling** — Receives SendGrid-compatible API calls
+2. **Durable Storage** — Persists email logs, templates, contacts in DO SQLite
+3. **Idempotency** — Deduplicates requests using idempotency keys
+4. **Delivery** — Routes to SendGrid or configurable SMTP provider
+5. **Tracking** — Records status updates from delivery webhooks
+
+## Configuration
+
+### Basic Setup
+
+```jsonc
+{
+  "name": "my-sendgrid.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "SENDGRID_DATABASE", "class_name": "SendGridDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SendGridDatabase"] }],
+  "vars": {
+    "SENDGRID_API_KEY": "SG.xxx"
+  }
+}
+```
+
+### With KV Template Storage
+
+```jsonc
+{
+  "kv_namespaces": [
+    { "binding": "TEMPLATES_KV", "id": "xxx" }
+  ],
+  "vars": {
+    "TEMPLATE_STORAGE": "kv"
+  }
+}
+```
+
+### With R2 Attachment Storage
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "ATTACHMENTS_R2", "bucket_name": "email-attachments" }
+  ],
+  "vars": {
+    "ATTACHMENT_STORAGE": "r2"
+  }
+}
+```
+
+## API Endpoints
+
+sendgrid.do exposes SendGrid-compatible REST endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v3/mail/send` | Send email |
+| GET | `/v3/templates` | List templates |
+| POST | `/v3/templates` | Create template |
+| GET | `/v3/templates/{id}` | Get template |
+| POST | `/v3/templates/{id}/versions` | Create template version |
+| GET | `/v3/marketing/contacts` | List contacts |
+| PUT | `/v3/marketing/contacts` | Add/update contacts |
+| POST | `/v3/marketing/contacts/search` | Search contacts |
+| GET | `/v3/marketing/lists` | List contact lists |
+| POST | `/v3/marketing/lists` | Create list |
+| GET | `/v3/stats` | Get email statistics |
+
+## Service Bindings
+
+For zero-latency Worker-to-Worker communication:
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    // Direct RPC call to sendgrid.do
+    await env.SENDGRID.mail.send({
+      to: 'user@example.com',
+      from: 'noreply@yourapp.com',
+      subject: 'Welcome!',
+      html: '<h1>Welcome</h1>',
+    })
+
+    return new Response('Email sent')
+  }
+}
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "services": [
+    { "binding": "SENDGRID", "service": "my-sendgrid.do" }
+  ]
+}
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/sendgrid](/docs/integrations/sendgrid/package) - In-memory SendGrid for testing
+- [Human Escalation](/docs/humans/escalation) - Email-based approval workflows
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
+- [Workflows](/docs/workflows) - Email in workflow orchestration

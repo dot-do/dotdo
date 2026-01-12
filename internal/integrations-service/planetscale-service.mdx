@@ -1,0 +1,440 @@
+---
+title: planetscale.do
+description: MySQL on the Edge — A fully managed MySQL-compatible database running on Cloudflare Workers with DO-backed storage and global distribution.
+---
+
+# planetscale.do
+
+**MySQL on the Edge** — A MySQL-compatible database that runs entirely on Cloudflare Workers, with native PlanetScale API compatibility and zero infrastructure to manage.
+
+```typescript
+import { createConnection } from 'planetscale.do'
+
+const conn = createConnection(env)
+
+// It's just MySQL
+await conn.execute('INSERT INTO users (name, email) VALUES (?, ?)', ['Alice', 'alice@example.com'])
+const { rows } = await conn.execute('SELECT * FROM users WHERE email = ?', ['alice@example.com'])
+```
+
+<Callout type="info">
+Looking for a drop-in @planetscale/database replacement? See [@dotdo/planetscale](/docs/integrations/planetscale/package) for migration and testing scenarios.
+</Callout>
+
+## Why planetscale.do?
+
+Traditional databases require infrastructure management, connection pooling, and careful scaling. planetscale.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Data lives at the edge, close to your users
+- **PlanetScale Compatible** — Same API as @planetscale/database for easy migration
+- **Serverless Economics** — Pay only for what you use, scale to zero
+- **Branch-like Isolation** — Each DO instance is an isolated database
+
+## Features
+
+### Core Database
+
+| Feature | Description |
+|---------|-------------|
+| **MySQL Syntax** | Full MySQL syntax support including backticks, AUTO_INCREMENT, UNSIGNED |
+| **Parameterized Queries** | `?` placeholder parameters for safe query execution |
+| **Transactions** | ACID transactions with automatic commit/rollback |
+| **Type Safety** | Generic type parameters for typed query results |
+| **Cast Helpers** | `hex()`, `datetime()`, `json()` for value formatting |
+
+### Edge Features
+
+| Feature | Description |
+|---------|-------------|
+| **DO Sharding** | Horizontal scaling across multiple Durable Objects |
+| **Replica Configuration** | Read replicas with preference and jurisdiction controls |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+| **HTTP API** | REST endpoint for external access |
+| **Query Caching** | Built-in query result caching |
+
+## Installation
+
+```bash
+npm install planetscale.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { PlanetScaleEntrypoint, PlanetScaleDatabase } from 'planetscale.do'
+
+export { PlanetScaleDatabase }
+export default PlanetScaleEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-planetscale.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "PLANETSCALE_DATABASE", "class_name": "PlanetScaleDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlanetScaleDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Using the Client
+
+```typescript
+import { createConnection } from 'planetscale.do'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const conn = createConnection(env)
+
+    // Create table
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Insert data
+    const result = await conn.execute(
+      'INSERT INTO users (name, email) VALUES (?, ?)',
+      ['Alice', 'alice@example.com']
+    )
+
+    // Query data
+    const { rows } = await conn.execute<User>(
+      'SELECT * FROM users WHERE id = ?',
+      [result.insertId]
+    )
+
+    return Response.json(rows[0])
+  },
+}
+```
+
+## Examples
+
+### Typed Queries
+
+```typescript
+interface User {
+  id: number
+  name: string
+  email: string
+  created_at: string
+}
+
+const { rows } = await conn.execute<User>(
+  'SELECT * FROM users WHERE active = ? ORDER BY created_at DESC LIMIT ?',
+  [true, 10]
+)
+
+// rows is User[]
+for (const user of rows) {
+  console.log(user.name, user.email)
+}
+```
+
+### Transactions
+
+```typescript
+// Atomic money transfer
+await conn.transaction(async (tx) => {
+  await tx.execute(
+    'UPDATE accounts SET balance = balance - ? WHERE id = ?',
+    [100, fromId]
+  )
+  await tx.execute(
+    'UPDATE accounts SET balance = balance + ? WHERE id = ?',
+    [100, toId]
+  )
+})
+
+// Transaction with return value
+const orderId = await conn.transaction(async (tx) => {
+  const { insertId } = await tx.execute(
+    'INSERT INTO orders (user_id, total) VALUES (?, ?)',
+    [userId, total]
+  )
+
+  for (const item of items) {
+    await tx.execute(
+      'INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)',
+      [insertId, item.productId, item.quantity]
+    )
+  }
+
+  return insertId
+})
+```
+
+### Upserts with ON DUPLICATE KEY
+
+```typescript
+// Insert or update on conflict
+await conn.execute(
+  `INSERT INTO user_settings (user_id, theme, notifications)
+   VALUES (?, ?, ?)
+   ON DUPLICATE KEY UPDATE
+     theme = VALUES(theme),
+     notifications = VALUES(notifications)`,
+  [userId, 'dark', true]
+)
+```
+
+### Batch Operations
+
+```typescript
+// Insert multiple rows
+const values = users.map(u => `(?, ?, ?)`).join(', ')
+const params = users.flatMap(u => [u.name, u.email, u.role])
+
+await conn.execute(
+  `INSERT INTO users (name, email, role) VALUES ${values}`,
+  params
+)
+```
+
+### Query with Response Metadata
+
+```typescript
+const { rows, headers, size, time, insertId, rowsAffected } = await conn.execute(
+  'SELECT * FROM products WHERE price > ?',
+  [100]
+)
+
+console.log(`Found ${size} products in ${time}ms`)
+console.log('Columns:', headers)
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------------+
+|                           Client Applications                              |
++-----------------+-----------------+-----------------+---------------------+
+|   HTTP/RPC      |   SDK Client    |   Service       |  ORM (Drizzle)     |
+|   JSON-RPC      |   TypeScript    |   Binding       |                     |
++-----------------+-----------------+-----------------+---------------------+
+|                         planetscale.do Worker (Edge)                      |
++---------------------------------------------------------------------------+
+|  Query Parser   |  MySQL Translator  |  Transaction Mgr  |  Cache Layer  |
++---------------------------------------------------------------------------+
+|                      Durable Objects (SQLite Storage)                     |
++---------------------------------------------------------------------------+
+|     Shard 1     |     Shard 2     |     Shard 3     |     Shard N        |
++---------------------------------------------------------------------------+
+```
+
+planetscale.do translates MySQL queries to SQLite at runtime:
+
+1. **Query Parsing** — Parse MySQL syntax and parameter placeholders
+2. **Translation** — Convert MySQL-specific syntax to SQLite equivalents
+3. **Execution** — Run on Durable Object SQLite storage
+4. **Sharding** — Optional horizontal scaling across multiple DOs
+
+## Sharding Configuration
+
+For high-throughput workloads, configure horizontal sharding:
+
+```typescript
+const conn = createConnection(env, {
+  shard: {
+    algorithm: 'consistent', // 'consistent' | 'range' | 'hash'
+    count: 8,
+    key: 'tenant_id',
+  },
+})
+
+// Queries are automatically routed to the correct shard
+await conn.execute(
+  'INSERT INTO events (tenant_id, event_type, data) VALUES (?, ?, ?)',
+  ['acme', 'purchase', JSON.stringify(eventData)]
+)
+```
+
+### Sharding Algorithms
+
+| Algorithm | Description | Best For |
+|-----------|-------------|----------|
+| `consistent` | Consistent hashing for even distribution | Multi-tenant SaaS |
+| `range` | Range-based partitioning | Time-series data |
+| `hash` | Simple hash modulo | General workloads |
+
+## Replica Configuration
+
+Configure read replicas for read-heavy workloads:
+
+```typescript
+const conn = createConnection(env, {
+  replica: {
+    readPreference: 'nearest',  // 'primary' | 'secondary' | 'nearest'
+    writeThrough: true,         // Write to all replicas
+    jurisdiction: 'eu',         // 'eu' | 'us' | 'fedramp'
+  },
+})
+```
+
+## HTTP API
+
+planetscale.do exposes an HTTP endpoint for external access:
+
+```bash
+# Execute query via HTTP
+curl -X POST https://your-worker.workers.dev/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sql": "SELECT * FROM users WHERE active = ?",
+    "args": [true]
+  }'
+```
+
+```typescript
+// HTTP client
+const response = await fetch('https://your-worker.workers.dev/execute', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    sql: 'SELECT * FROM users WHERE id = ?',
+    args: [1],
+  }),
+})
+
+const { rows, headers, size, time } = await response.json()
+```
+
+## Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const { rows } = await env.PLANETSCALE.execute(
+      'SELECT * FROM users WHERE role = ?',
+      ['admin']
+    )
+    return Response.json(rows)
+  },
+}
+```
+
+```jsonc
+// wrangler.jsonc - consuming worker
+{
+  "services": [{
+    "binding": "PLANETSCALE",
+    "service": "my-planetscale-do"
+  }]
+}
+```
+
+## ORM Integration
+
+### Drizzle ORM
+
+```typescript
+import { drizzle } from 'drizzle-orm/planetscale-serverless'
+import { createConnection } from 'planetscale.do'
+import * as schema from './schema'
+
+const conn = createConnection(env)
+const db = drizzle(conn, { schema })
+
+// Type-safe queries
+const users = await db.query.users.findMany({
+  where: eq(schema.users.active, true),
+  with: {
+    posts: true,
+  },
+})
+```
+
+## Error Handling
+
+```typescript
+import { DatabaseError } from 'planetscale.do'
+
+try {
+  await conn.execute(
+    'INSERT INTO users (email) VALUES (?)',
+    ['duplicate@example.com']
+  )
+} catch (error) {
+  if (error instanceof DatabaseError) {
+    switch (error.code) {
+      case 'ER_DUP_ENTRY':
+        console.log('Email already exists')
+        break
+      case 'ER_NO_SUCH_TABLE':
+        console.log('Table not found')
+        break
+      default:
+        console.log('Database error:', error.message)
+    }
+  }
+}
+```
+
+## Configuration Options
+
+```typescript
+interface ConnectionOptions {
+  // Sharding
+  shard?: {
+    algorithm: 'consistent' | 'range' | 'hash'
+    count: number
+    key: string
+  }
+
+  // Replication
+  replica?: {
+    readPreference: 'primary' | 'secondary' | 'nearest'
+    writeThrough: boolean
+    jurisdiction?: 'eu' | 'us' | 'fedramp'
+  }
+
+  // Caching
+  cache?: {
+    enabled: boolean
+    ttl: number  // seconds
+  }
+
+  // Timeout
+  timeout?: number  // milliseconds
+}
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/planetscale](/docs/integrations/planetscale/package) - Drop-in PlanetScale replacement
+- [Postgres Integration](/docs/integrations/postgres) - PostgreSQL-compatible driver
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

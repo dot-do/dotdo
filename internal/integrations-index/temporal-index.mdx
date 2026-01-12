@@ -1,0 +1,196 @@
+---
+title: Temporal
+description: Choose between @dotdo/temporal (OSS package) and temporal.do (managed edge service) for your workflow orchestration needs.
+---
+
+# Temporal Integration
+
+dotdo provides two ways to work with Temporal-compatible workflow APIs:
+
+| | @dotdo/temporal | temporal.do |
+|---|-----------------|-------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | In-memory or CF Workflows | Durable Object SQLite |
+| **Persistence** | Depends on mode | Full durability |
+| **Use case** | Testing, development | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/temporal` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/temporal - Temporal SDK compatible, great for tests
+import { proxyActivities, sleep, WorkflowClient } from '@dotdo/temporal'
+
+const { sendEmail } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '10s',
+})
+
+export async function orderWorkflow(order: Order) {
+  await sendEmail(order.email, 'Order confirmed!')
+  await sleep('1d')
+  return { status: 'completed' }
+}
+```
+
+```typescript
+// temporal.do - Native edge workflows
+import { Workflow } from 'temporal.do'
+
+export class OrderWorkflow extends Workflow {
+  async run(order: Order) {
+    await this.step.do('send-email', () => sendEmail(order.email, 'Order confirmed!'))
+    await this.step.sleep('wait-day', '1d')
+    return { status: 'completed' }
+  }
+}
+```
+
+## When to Use Each
+
+### Use @dotdo/temporal when:
+
+- **Migrating from Temporal SDK** - Drop-in replacement with same API
+- **Unit testing** - In-memory execution for fast tests without infrastructure
+- **Existing Temporal code** - Your `@temporalio/workflow` code works unchanged
+- **Gradual migration** - Keep familiar API while moving to edge
+
+<Callout type="info">
+@dotdo/temporal is a Temporal SDK-compatible library. Use it when you need the familiar Temporal API or want to test workflows locally without infrastructure.
+</Callout>
+
+### Use temporal.do when:
+
+- **Edge-native workflows** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No Temporal cluster to manage
+- **Global distribution** - Workflows execute at the edge, close to users
+- **FREE sleeping** - CF Workflows backend means sleep doesn't consume DO time
+- **Native integrations** - Built-in support for CF services (R2, KV, Queues)
+
+<Callout type="info">
+temporal.do is durable workflow orchestration built natively on Cloudflare. Use it for production edge workloads without managing infrastructure.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/temporal | temporal.do |
+|---------|-----------------|-------------|
+| Workflow Definition | Temporal SDK API | Native DO/Workflow API |
+| Activities | `proxyActivities()` | `step.do()` |
+| Durable Sleep | `sleep()` | `step.sleep()` (FREE) |
+| Signals | `defineSignal()` + `setHandler()` | WebSocket + DO state |
+| Queries | `defineQuery()` + `setHandler()` | HTTP + DO state |
+| Child Workflows | `startChild()`, `executeChild()` | Service bindings |
+| Cancellation | `CancellationScope` | Native DO lifecycle |
+| Continue-as-New | `continueAsNew()` | Automatic history management |
+| Determinism Helpers | `uuid4()`, `random()`, `workflowNow()` | CF Workflows guarantees |
+| In-memory Testing | Yes | Yes |
+| Real Temporal Backend | No | No |
+| CF Workflows Backend | Yes | Native |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/temporal/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/temporal</h3>
+    <p className="text-sm text-muted-foreground">Temporal SDK compatible for migration and testing</p>
+  </a>
+  <a href="/docs/integrations/temporal/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">temporal.do</h3>
+    <p className="text-sm text-muted-foreground">Managed durable workflows on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/temporal` for compatibility, then migrate to `temporal.do` for native edge:
+
+```typescript
+// Phase 1: Use @dotdo/temporal (drop-in for Temporal SDK)
+import { proxyActivities, sleep, condition } from '@dotdo/temporal'
+
+const { processPayment, sendEmail } = proxyActivities<Activities>({
+  startToCloseTimeout: '30s',
+})
+
+export async function orderWorkflow(order: Order) {
+  await processPayment(order.cardToken, order.amount)
+  await sendEmail(order.email, 'Order confirmed!')
+  return { status: 'completed' }
+}
+```
+
+```typescript
+// Phase 2: Migrate to temporal.do for native edge execution
+import { Workflow } from 'temporal.do'
+
+export class OrderWorkflow extends Workflow {
+  async run(order: Order) {
+    await this.step.do('charge', () => processPayment(order.cardToken, order.amount))
+    await this.step.do('notify', () => sendEmail(order.email, 'Order confirmed!'))
+    return { status: 'completed' }
+  }
+}
+```
+
+## Architecture Comparison
+
+### @dotdo/temporal
+
+```
++----------------------------------------------------+
+|            Your Temporal Workflow Code             |
+|                                                    |
+|  import { proxyActivities } from '@dotdo/temporal' |
++----------------------------------------------------+
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
++---------------+     +-------------------+
+|  In-Memory    |     |  CF Workflows     |
+|  (Testing)    |     |  (Production)     |
++---------------+     +-------------------+
+                              |
+                              v
+              +-------------------------------+
+              |   Cloudflare Global Network   |
+              +-------------------------------+
+```
+
+### temporal.do
+
+```
++----------------------------------------------------+
+|            Your Workflow Code                      |
+|                                                    |
+|  import { Workflow } from 'temporal.do'            |
++----------------------------------------------------+
+                    |
+                    v
++----------------------------------------------------+
+|              temporal.do Worker                    |
++----------------------------------------------------+
+|  WorkflowDO  |  ActivityDO  |  SchedulerDO        |
++----------------------------------------------------+
+|        Durable Object SQLite + CF Workflows        |
++----------------------------------------------------+
+                    |
+                    v
++----------------------------------------------------+
+|          Cloudflare Global Network                 |
+|              300+ cities, \<50ms                    |
++----------------------------------------------------+
+```
+
+Both approaches support durable execution patterns (retries, timeouts, long-running workflows) - choose based on whether you need Temporal SDK compatibility or native edge deployment.
+
+## Performance
+
+| Metric | @dotdo/temporal | temporal.do | Native Temporal |
+|--------|-----------------|-------------|-----------------|
+| Workflow start | \<5ms | \<3ms | 50-200ms |
+| Activity dispatch | \<3ms | \<2ms | 20-100ms |
+| Sleep cost | DO time (or FREE with CF Workflows) | FREE | Cluster resources |
+| Global P99 | \<50ms | \<30ms | Region-dependent |
+| Cold start | \<1ms (V8 isolates) | \<1ms | 100ms-2s |

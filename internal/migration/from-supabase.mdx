@@ -1,0 +1,589 @@
+---
+title: From Supabase
+description: Migrate from Supabase to @dotdo/supabase. Same API, DO-backed storage, scales to millions of agents.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Migrating from Supabase
+
+This is the easiest migration. One import change. Your existing Supabase code works.
+
+## The One-Line Migration
+
+```typescript
+// Before
+import { createClient } from '@supabase/supabase-js'
+
+// After
+import { createClient } from '@dotdo/supabase'
+
+// Everything else stays exactly the same
+const supabase = createClient(url, key)
+
+const { data, error } = await supabase
+  .from('users')
+  .select('*')
+  .eq('role', 'admin')
+```
+
+That's the migration. Your queries, your auth flows, your realtime subscriptions - they all work.
+
+## Why Migrate?
+
+Supabase is excellent. But it has limits that matter for AI workloads:
+
+| Challenge | Supabase | @dotdo/supabase |
+|-----------|----------|-----------------|
+| Connection pooling | 200-500 connections | Unlimited (no pools) |
+| Concurrent AI agents | Hundreds | Millions |
+| Cold starts | 50-200ms | 0ms |
+| Regions | 1 | 300+ cities |
+| Write contention | Single Postgres | Sharded per tenant |
+
+When you spin up 10,000 AI agents to process customer requests, traditional databases hit connection limits. Pool exhaustion. Lock contention. Cascading failures.
+
+dotdo's compat layer rebuilds Supabase on Durable Objects. Each tenant gets an isolated, single-threaded environment. No pools. No locks. No connection limits.
+
+## What Works
+
+Everything you use in Supabase client SDK:
+
+### Database Queries
+
+```typescript
+// Select with filters
+const { data } = await supabase
+  .from('products')
+  .select('id, name, price')
+  .eq('category', 'electronics')
+  .gt('price', 100)
+  .order('created_at', { ascending: false })
+  .limit(10)
+
+// Joins
+const { data } = await supabase
+  .from('orders')
+  .select(`
+    id,
+    total,
+    customer:customers(name, email),
+    items:order_items(product:products(name), quantity)
+  `)
+  .eq('status', 'pending')
+
+// Insert
+const { data, error } = await supabase
+  .from('users')
+  .insert({ name: 'Alice', email: 'alice@example.com.ai' })
+  .select()
+  .single()
+
+// Update
+const { data } = await supabase
+  .from('users')
+  .update({ role: 'admin' })
+  .eq('id', userId)
+  .select()
+
+// Delete
+await supabase
+  .from('sessions')
+  .delete()
+  .lt('expires_at', new Date().toISOString())
+
+// Upsert
+const { data } = await supabase
+  .from('profiles')
+  .upsert({ user_id: userId, bio: 'Hello world' })
+  .select()
+```
+
+### Auth
+
+```typescript
+// Sign up
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com.ai',
+  password: 'securepassword'
+})
+
+// Sign in
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com.ai',
+  password: 'securepassword'
+})
+
+// Get user
+const { data: { user } } = await supabase.auth.getUser()
+
+// Sign out
+await supabase.auth.signOut()
+
+// OAuth
+const { data, error } = await supabase.auth.signInWithOAuth({
+  provider: 'google'
+})
+```
+
+### Realtime
+
+```typescript
+// Subscribe to changes
+const channel = supabase
+  .channel('room1')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'messages'
+  }, (payload) => {
+    console.log('New message:', payload.new)
+  })
+  .subscribe()
+
+// Presence
+const presenceChannel = supabase.channel('online-users')
+
+presenceChannel
+  .on('presence', { event: 'sync' }, () => {
+    const state = presenceChannel.presenceState()
+    console.log('Online users:', Object.keys(state))
+  })
+  .subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      await presenceChannel.track({ user_id: userId })
+    }
+  })
+```
+
+### Storage
+
+```typescript
+// Upload file
+const { data, error } = await supabase.storage
+  .from('avatars')
+  .upload('public/avatar.png', file)
+
+// Download file
+const { data } = await supabase.storage
+  .from('avatars')
+  .download('public/avatar.png')
+
+// Get public URL
+const { data } = supabase.storage
+  .from('avatars')
+  .getPublicUrl('public/avatar.png')
+
+// List files
+const { data } = await supabase.storage
+  .from('documents')
+  .list('folder', {
+    limit: 100,
+    offset: 0
+  })
+```
+
+### RPC Functions
+
+```typescript
+// Call database function
+const { data, error } = await supabase.rpc('get_user_stats', {
+  user_id: userId
+})
+
+// Call with filters
+const { data } = await supabase.rpc('search_products', {
+  query: 'laptop'
+}).eq('in_stock', true)
+```
+
+## How It Works Under the Hood
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Your Code (unchanged)                        │
+│              supabase.from('users').select('*')                  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      @dotdo/supabase                             │
+│              API-compatible translation layer                    │
+│         - Parses PostgREST-style queries                        │
+│         - Translates to DO operations                           │
+│         - Handles auth, realtime, storage                       │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       ShardRouter                                │
+│         Consistent hashing → tenant → DO shard                   │
+│         - 16-256 shards per deployment                          │
+│         - Automatic rebalancing                                  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+               ┌────────┐  ┌────────┐  ┌────────┐
+               │ Shard  │  │ Shard  │  │ Shard  │
+               │  DO 0  │  │  DO 1  │  │  DO 2  │
+               │ SQLite │  │ SQLite │  │ SQLite │
+               └────────┘  └────────┘  └────────┘
+                    │           │           │
+                    ▼           ▼           ▼
+               ┌─────────────────────────────────┐
+               │          Cloudflare R2          │
+               │    Cold storage + backups       │
+               └─────────────────────────────────┘
+```
+
+Each Durable Object:
+- Single-threaded JavaScript isolate
+- SQLite for local storage
+- Automatic R2 backup
+- Edge location (closest to user)
+
+## Step-by-Step Migration
+
+<Steps>
+
+<Step>
+
+### Install the compat package
+
+```bash
+npm install @dotdo/supabase
+```
+
+</Step>
+
+<Step>
+
+### Update imports
+
+Find and replace across your codebase:
+
+```bash
+# Find all Supabase imports
+grep -r "@supabase/supabase-js" --include="*.ts" --include="*.tsx"
+
+# Or use your editor's find-replace
+# Find: @supabase/supabase-js
+# Replace: @dotdo/supabase
+```
+
+</Step>
+
+<Step>
+
+### Configure the client
+
+```typescript
+// lib/supabase.ts
+import { createClient } from '@dotdo/supabase'
+
+// Use your dotdo endpoint instead of Supabase URL
+export const supabase = createClient(
+  process.env.DOTDO_URL!,
+  process.env.DOTDO_KEY!
+)
+```
+
+</Step>
+
+<Step>
+
+### Run your existing tests
+
+Your test suite should pass without changes.
+
+```bash
+npm test
+```
+
+</Step>
+
+<Step>
+
+### Deploy
+
+```bash
+npm run deploy
+```
+
+</Step>
+
+</Steps>
+
+## Data Migration
+
+### Option 1: Fresh Start
+
+For new projects or when you can rebuild:
+
+```bash
+# Export schema from Supabase
+supabase db dump -f schema.sql
+
+# Import to dotdo
+npx dotdo db:import schema.sql
+```
+
+### Option 2: Data Transfer
+
+For existing data:
+
+```bash
+# Export from Supabase
+pg_dump $SUPABASE_DB_URL > backup.sql
+
+# Import to dotdo
+npx dotdo db:import backup.sql
+```
+
+### Option 3: Live Sync
+
+For zero-downtime migration, run both in parallel:
+
+```typescript
+// Dual-write during migration
+const supabaseOriginal = createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabaseDotdo = createClient(DOTDO_URL, DOTDO_KEY)
+
+async function insertUser(data) {
+  // Write to both
+  await Promise.all([
+    supabaseOriginal.from('users').insert(data),
+    supabaseDotdo.from('users').insert(data)
+  ])
+}
+
+async function getUser(id) {
+  // Read from dotdo (once verified)
+  return supabaseDotdo.from('users').select().eq('id', id).single()
+}
+```
+
+## Edge Cases and Differences
+
+### Row-Level Security (RLS)
+
+Supabase RLS policies are defined in PostgreSQL. dotdo uses JavaScript policies:
+
+```typescript
+// Supabase (SQL)
+CREATE POLICY "Users can view own data"
+  ON users FOR SELECT
+  USING (auth.uid() = user_id);
+
+// dotdo (JavaScript)
+$.policies.define('users', {
+  select: (user, row) => user.id === row.user_id,
+  insert: (user, row) => user.id === row.user_id,
+  update: (user, row) => user.id === row.user_id,
+  delete: (user, row) => user.id === row.user_id
+})
+```
+
+<Callout type="info">
+JavaScript policies are more flexible. You can call async functions, check external services, or implement complex logic.
+</Callout>
+
+### Database Functions
+
+Supabase uses PostgreSQL functions. dotdo uses JavaScript:
+
+```typescript
+// Supabase (SQL)
+CREATE FUNCTION get_user_stats(user_id UUID)
+RETURNS TABLE(posts INT, comments INT, likes INT) AS $$
+  SELECT
+    COUNT(DISTINCT p.id),
+    COUNT(DISTINCT c.id),
+    COUNT(DISTINCT l.id)
+  FROM posts p
+  LEFT JOIN comments c ON c.user_id = $1
+  LEFT JOIN likes l ON l.user_id = $1
+  WHERE p.user_id = $1;
+$$ LANGUAGE sql;
+
+// dotdo (JavaScript)
+$.functions.define('get_user_stats', async (userId) => {
+  const [posts, comments, likes] = await Promise.all([
+    $.things.count('Post', { where: { userId } }),
+    $.things.count('Comment', { where: { userId } }),
+    $.things.count('Like', { where: { userId } })
+  ])
+  return { posts, comments, likes }
+})
+```
+
+### Triggers
+
+```typescript
+// Supabase (SQL trigger)
+CREATE TRIGGER on_user_created
+  AFTER INSERT ON users
+  FOR EACH ROW EXECUTE FUNCTION notify_new_user();
+
+// dotdo (event handler)
+$.on.User.created(async (event) => {
+  await sendWelcomeEmail(event.data.email)
+  await createDefaultWorkspace(event.data.id)
+})
+```
+
+## Using Both Together
+
+During migration, you might want both:
+
+```typescript
+// lib/db.ts
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createDotdoClient } from '@dotdo/supabase'
+
+// Original Supabase for reads (verified data)
+export const supabaseRead = createSupabaseClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_KEY!
+)
+
+// dotdo for writes (new data)
+export const supabaseWrite = createDotdoClient(
+  process.env.DOTDO_URL!,
+  process.env.DOTDO_KEY!
+)
+
+// Gradually shift reads to dotdo
+export async function getUsers() {
+  // Start: read from Supabase
+  // Later: read from dotdo
+  return supabaseWrite.from('users').select()
+}
+```
+
+## Cost Comparison
+
+| Operation | Supabase | @dotdo/supabase |
+|-----------|----------|-----------------|
+| 1M database reads | ~$0.50 | ~$0.10 |
+| 1M database writes | ~$1.25 | ~$0.50 |
+| 1GB storage | ~$0.25/mo | ~$0.015/mo (R2) |
+| Bandwidth | $0.09/GB | $0 (free egress) |
+| Auth operations | Free tier limits | Unlimited |
+| Realtime connections | 200 concurrent | Unlimited |
+
+<Callout type="info">
+Zero egress costs because everything runs on Cloudflare. Data stays on the edge network.
+</Callout>
+
+## Feature Parity
+
+| Feature | Supabase | @dotdo/supabase |
+|---------|----------|-----------------|
+| Select/Insert/Update/Delete | Yes | Yes |
+| Filtering (eq, gt, lt, etc.) | Yes | Yes |
+| Joins | Yes | Yes |
+| Auth (email/password) | Yes | Yes |
+| Auth (OAuth) | Yes | Yes |
+| Auth (magic link) | Yes | Yes |
+| Realtime subscriptions | Yes | Yes |
+| Presence | Yes | Yes |
+| Storage | Yes | Yes (R2-backed) |
+| RPC functions | Yes | Yes (JavaScript) |
+| RLS | Yes (SQL) | Yes (JavaScript) |
+| Extensions | PostgreSQL | JavaScript modules |
+| Dashboard | Supabase Studio | dotdo Console |
+
+## Performance Comparison
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Query Latency (p50)                        │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Supabase (us-east-1)                                       │
+│  ├─ US East user:     ~15ms                                 │
+│  ├─ US West user:     ~75ms                                 │
+│  └─ Europe user:      ~120ms                                │
+│                                                              │
+│  @dotdo/supabase (edge)                                     │
+│  ├─ US East user:     ~3ms                                  │
+│  ├─ US West user:     ~3ms                                  │
+│  └─ Europe user:      ~3ms                                  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Data lives where your users are. No cross-region latency.
+
+## Troubleshooting
+
+### Query Syntax Differences
+
+Most queries work identically. Some edge cases:
+
+```typescript
+// Supabase-specific syntax that needs adjustment
+// (these are rare)
+
+// Array contains - same syntax
+const { data } = await supabase
+  .from('posts')
+  .select()
+  .contains('tags', ['typescript'])
+
+// Full-text search - same syntax
+const { data } = await supabase
+  .from('posts')
+  .select()
+  .textSearch('title', 'typescript tutorial')
+
+// JSON operations - same syntax
+const { data } = await supabase
+  .from('users')
+  .select('metadata->preferences')
+```
+
+### Missing Extension
+
+If you use PostgreSQL extensions:
+
+```typescript
+// Supabase
+const { data } = await supabase.rpc('cube_distance', { a, b })
+
+// dotdo - implement in JavaScript
+$.functions.define('cube_distance', (a, b) => {
+  // Your implementation
+  return Math.sqrt(
+    a.reduce((sum, val, i) => sum + Math.pow(val - b[i], 2), 0)
+  )
+})
+```
+
+### Type Differences
+
+Generated types work the same way:
+
+```bash
+# Generate types from your schema
+npx dotdo db:types > database.types.ts
+```
+
+```typescript
+import { Database } from './database.types'
+
+const supabase = createClient<Database>(url, key)
+// Full type safety
+```
+
+## Next Steps
+
+- [Compat SDKs Overview](/docs/compat) - Other compat layers
+- [Things Store](/docs/sdk/things) - Native dotdo data model
+- [Named Agents](/docs/agents/named-agents) - Add AI agents that use your data
+
+---
+
+**Same API. Same code. Better scale. Your Supabase skills transfer directly.**

@@ -1,0 +1,502 @@
+---
+title: neo4j.do
+description: Neo4j on the Edge — A fully managed graph database running on Cloudflare Workers with Cypher support, graph algorithms, and AI agent integration.
+---
+
+# neo4j.do
+
+**Neo4j on the Edge** — A Neo4j-compatible graph database that runs entirely on Cloudflare Workers, with native AI agent support, graph algorithms, and real-time traversals.
+
+```typescript
+import { GraphClient } from 'neo4j.do'
+
+const client = new GraphClient('https://your-worker.workers.dev')
+const session = client.session()
+
+// It's just Neo4j
+await session.run(
+  'CREATE (n:Person {name: $name, email: $email})',
+  { name: 'Alice', email: 'alice@example.com' }
+)
+
+const result = await session.run('MATCH (n:Person) WHERE n.name = $name RETURN n', { name: 'Alice' })
+const records = await result.records()
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/neo4j](/docs/integrations/neo4j/package) for a zero-dependency graph database.
+</Callout>
+
+## Why neo4j.do?
+
+Traditional graph databases require infrastructure management, connection pooling, and careful scaling. neo4j.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** - No servers to manage, no connection limits, no cold starts
+- **Global by Default** - Data lives at the edge, close to your users
+- **Neo4j Compatible** - Drop-in replacement for most Neo4j operations
+- **AI-Native** - Built-in support for AI agents, knowledge graphs, and LLM tool calling
+- **Serverless Economics** - Pay only for what you use, scale to zero
+
+## Features
+
+### Core Database
+
+| Feature | Description |
+|---------|-------------|
+| **Cypher Support** | Full Cypher query language with `CREATE`, `MATCH`, `MERGE`, `DELETE`, transactions |
+| **Sessions & Transactions** | Full session API with `executeRead`, `executeWrite`, explicit transactions |
+| **Node Types** | Multiple labels, properties, unique constraints |
+| **Relationships** | Typed relationships with properties and directions |
+| **Indexes** | Single-property, composite, full-text, and spatial indexes |
+| **ACID Transactions** | Multi-statement transactions with isolation and durability |
+
+### Graph Algorithms
+
+| Feature | Description |
+|---------|-------------|
+| **Path Finding** | `shortestPath`, `allShortestPaths`, Dijkstra, A* |
+| **Centrality** | PageRank, betweenness, closeness, degree centrality |
+| **Community Detection** | Louvain, label propagation, connected components |
+| **Similarity** | Node similarity, Jaccard, cosine similarity |
+| **Link Prediction** | Common neighbors, preferential attachment, Adamic-Adar |
+| **Traversal** | BFS, DFS, custom traversal with filters |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **Knowledge Graphs** | Build and query knowledge graphs for RAG applications |
+| **Vector Search** | Semantic node search powered by Cloudflare Vectorize |
+| **Graph RAG** | Combine graph traversal with vector similarity for enhanced retrieval |
+| **MCP Protocol** | Model Context Protocol server for AI agent integration |
+| **Natural Language** | Convert natural language to Cypher queries |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **Bolt Protocol** | Connect with Neo4j Browser, neo4j-driver (coming soon) |
+| **HTTP/RPC** | JSON-RPC over HTTP with batching |
+| **WebSocket** | Persistent connections for real-time graph updates |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install neo4j.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { Neo4jEntrypoint, GraphDatabase } from 'neo4j.do'
+
+export { GraphDatabase }
+export default Neo4jEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-neo4j.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "GRAPH_DATABASE", "class_name": "GraphDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GraphDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx neo4j.do serve --port 7687
+
+# Connect with neo4j-driver
+import neo4j from 'neo4j-driver'
+const driver = neo4j.driver('bolt://localhost:7687')
+```
+
+## Examples
+
+### Social Network
+
+```typescript
+const session = client.session()
+
+// Create users
+await session.run(`
+  CREATE (alice:Person {name: 'Alice', email: 'alice@example.com'})
+  CREATE (bob:Person {name: 'Bob', email: 'bob@example.com'})
+  CREATE (carol:Person {name: 'Carol', email: 'carol@example.com'})
+  CREATE (alice)-[:FOLLOWS]->(bob)
+  CREATE (bob)-[:FOLLOWS]->(carol)
+  CREATE (carol)-[:FOLLOWS]->(alice)
+  CREATE (alice)-[:FRIENDS]->(bob)
+`)
+
+// Find friends of friends
+const result = await session.run(`
+  MATCH (me:Person {name: $name})-[:FRIENDS]->(friend)-[:FRIENDS]->(fof)
+  WHERE fof <> me AND NOT (me)-[:FRIENDS]->(fof)
+  RETURN DISTINCT fof.name as suggestion
+`, { name: 'Alice' })
+
+// Find shortest path
+const pathResult = await session.run(`
+  MATCH p = shortestPath((a:Person {name: $from})-[:FOLLOWS*]-(b:Person {name: $to}))
+  RETURN p, length(p) as distance
+`, { from: 'Alice', to: 'Carol' })
+
+await session.close()
+```
+
+### Knowledge Graph for RAG
+
+```typescript
+// Build a knowledge graph from documents
+await session.run(`
+  CREATE (doc:Document {id: $docId, title: $title})
+  CREATE (topic:Topic {name: $topic})
+  CREATE (entity:Entity {name: $entity, type: $entityType})
+  CREATE (doc)-[:ABOUT]->(topic)
+  CREATE (doc)-[:MENTIONS]->(entity)
+  CREATE (entity)-[:RELATED_TO]->(topic)
+`, {
+  docId: 'doc-123',
+  title: 'Introduction to Graph Databases',
+  topic: 'Graph Databases',
+  entity: 'Neo4j',
+  entityType: 'Technology'
+})
+
+// Query with graph context for RAG
+const context = await session.run(`
+  MATCH (doc:Document)-[:ABOUT]->(topic:Topic)
+  WHERE topic.name CONTAINS $query
+  MATCH (doc)-[:MENTIONS]->(entity:Entity)
+  OPTIONAL MATCH (entity)-[:RELATED_TO]->(related:Topic)
+  RETURN doc, collect(DISTINCT entity) as entities, collect(DISTINCT related) as relatedTopics
+  LIMIT 10
+`, { query: 'graph' })
+```
+
+### Vector Search (Graph + Embeddings)
+
+```typescript
+// Create a vector index on nodes
+await session.run(`
+  CALL db.index.vector.createNodeIndex(
+    'document_embeddings',
+    'Document',
+    'embedding',
+    1024,
+    'cosine'
+  )
+`)
+
+// Store document with embedding
+await session.run(`
+  CREATE (d:Document {
+    id: $id,
+    content: $content,
+    embedding: $embedding
+  })
+`, {
+  id: 'doc-1',
+  content: 'Graph databases store data as nodes and relationships',
+  embedding: await getEmbedding('Graph databases store data as nodes and relationships')
+})
+
+// Semantic search with graph expansion
+const results = await session.run(`
+  CALL db.index.vector.queryNodes('document_embeddings', 10, $queryEmbedding)
+  YIELD node, score
+  MATCH (node)-[:MENTIONS]->(entity:Entity)
+  MATCH (entity)-[:RELATED_TO]->(related:Document)
+  RETURN node, score, collect(DISTINCT entity) as entities, collect(DISTINCT related) as related
+  ORDER BY score DESC
+`, { queryEmbedding: await getEmbedding('How do graph databases work?') })
+```
+
+### AI Agent with MCP
+
+```typescript
+import { createMcpServer, createAnthropicAdapter } from 'neo4j.do/mcp'
+import Anthropic from '@anthropic-ai/sdk'
+
+const server = createMcpServer({ graphClient: client })
+const adapter = createAnthropicAdapter({ server })
+await adapter.initialize()
+
+const anthropic = new Anthropic()
+const response = await anthropic.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: await adapter.getTools(),
+  messages: [{
+    role: 'user',
+    content: 'Find all people who know Alice and work at the same company'
+  }]
+})
+
+// The AI can execute Cypher queries through the MCP tools
+```
+
+### Graph Algorithms
+
+```typescript
+import { GraphAlgorithms } from 'neo4j.do'
+
+const algorithms = new GraphAlgorithms(session)
+
+// PageRank for influence analysis
+const pageRank = await algorithms.pageRank({
+  nodeLabel: 'Person',
+  relationshipType: 'FOLLOWS',
+  dampingFactor: 0.85,
+  maxIterations: 20
+})
+
+console.log('Most influential users:')
+for (const { nodeId, score } of pageRank.slice(0, 10)) {
+  console.log(`  ${nodeId}: ${score.toFixed(4)}`)
+}
+
+// Community detection
+const communities = await algorithms.louvain({
+  nodeLabel: 'Person',
+  relationshipType: 'FRIENDS',
+  includeIntermediateCommunities: false
+})
+
+console.log(`Found ${communities.communityCount} communities`)
+
+// Shortest path with cost
+const path = await algorithms.dijkstra({
+  sourceNode: 'Alice',
+  targetNode: 'David',
+  nodeLabel: 'Person',
+  relationshipType: 'KNOWS',
+  costProperty: 'strength'
+})
+```
+
+### Real-Time Graph Updates
+
+```typescript
+// Subscribe to graph changes
+const subscription = client.subscribe({
+  query: 'MATCH (n:Person)-[r:FOLLOWS]->(m:Person) RETURN n, r, m',
+  onChange: (changes) => {
+    for (const change of changes) {
+      console.log(`${change.type}: ${change.node?.properties?.name}`)
+    }
+  }
+})
+
+// Changes trigger callbacks in real-time
+await session.run('CREATE (n:Person {name: $name})', { name: 'NewUser' })
+
+// Unsubscribe when done
+subscription.unsubscribe()
+```
+
+### Recommendations Engine
+
+```typescript
+// Collaborative filtering with graph
+const recommendations = await session.run(`
+  // Find users similar to me (based on shared likes)
+  MATCH (me:User {id: $userId})-[:LIKES]->(item:Product)<-[:LIKES]-(similar:User)
+  WITH similar, count(item) as commonLikes
+  WHERE commonLikes > 3
+  ORDER BY commonLikes DESC
+  LIMIT 10
+
+  // Find items they like that I haven't seen
+  MATCH (similar)-[:LIKES]->(rec:Product)
+  WHERE NOT (me)-[:LIKES]->(rec)
+  RETURN rec, count(DISTINCT similar) as score
+  ORDER BY score DESC
+  LIMIT 20
+`, { userId: 'user-123' })
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------------------+
+|                           Client Applications                            |
++-----------------+-----------------+-----------------+--------------------+
+|   Neo4j Driver  |   HTTP/RPC      |   WebSocket     |  Service Binding   |
+|   Bolt Protocol |   JSON-RPC      |   Real-time     |  Worker-to-Worker  |
++-----------------+-----------------+-----------------+--------------------+
+|                         neo4j.do Worker (Edge)                           |
++-------------------------------------------------------------------------+
+|  Cypher Parser  |  Query Planner  |  Graph Algorithms  |  MCP Server     |
++-------------------------------------------------------------------------+
+|                      Durable Objects (SQLite Storage)                    |
+|                   (Nodes, Relationships, Indexes, Props)                 |
++--------------------------+----------------------------------------------+
+|     Vectorize            |           R2 / Analytics                      |
+|  (Node Embeddings)       |    (Graph Backups, Time Travel)              |
++--------------------------+----------------------------------------------+
+```
+
+neo4j.do translates Cypher queries to SQLite at runtime:
+
+1. **Cypher Parsing** - Parse and optimize Cypher queries
+2. **Query Planning** - Generate efficient execution plans
+3. **Graph Storage** - Nodes and relationships stored in SQLite with indexes
+4. **Edge Execution** - Queries execute at the edge, close to your users
+
+## Configuration
+
+### With Vector Search
+
+```jsonc
+{
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "graph_embeddings" }]
+  },
+  "ai": { "binding": "AI" },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "EMBEDDING_ENABLED": "true"
+  }
+}
+```
+
+### With Analytics
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "GRAPH_BACKUPS", "bucket_name": "neo4j-backups" }
+  ],
+  "vars": {
+    "BACKUP_ENABLED": "true",
+    "BACKUP_INTERVAL": "86400"
+  }
+}
+```
+
+## HTTP API Endpoints
+
+neo4j.do exposes a REST API for external access:
+
+### Query Endpoints
+
+- `POST /cypher` - Execute a Cypher query
+- `POST /cypher/batch` - Execute multiple queries in a transaction
+
+### Node Endpoints
+
+- `GET /nodes/:label` - List nodes by label
+- `POST /nodes/:label` - Create a node
+- `GET /nodes/:label/:id` - Get a node by ID
+- `PUT /nodes/:label/:id` - Update a node
+- `DELETE /nodes/:label/:id` - Delete a node
+
+### Relationship Endpoints
+
+- `GET /relationships/:type` - List relationships by type
+- `POST /relationships` - Create a relationship
+- `DELETE /relationships/:id` - Delete a relationship
+
+### Algorithm Endpoints
+
+- `POST /algorithms/pagerank` - Run PageRank
+- `POST /algorithms/shortest-path` - Find shortest path
+- `POST /algorithms/community-detection` - Detect communities
+- `POST /algorithms/similarity` - Calculate node similarity
+
+### Health Endpoints
+
+- `GET /` - Service info
+- `GET /health` - Health check
+
+## API Reference
+
+### GraphClient
+
+```typescript
+new GraphClient(config: GraphClientConfig)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `baseUrl` | `string` | *required* | neo4j.do service URL |
+| `database` | `string` | `'neo4j'` | Database name |
+| `auth` | `AuthToken` | - | Authentication token |
+| `timeout` | `number` | `30000` | Request timeout (ms) |
+
+### Session Methods
+
+| Method | Description |
+|--------|-------------|
+| `run(cypher, params?)` | Execute Cypher query |
+| `beginTransaction()` | Start explicit transaction |
+| `executeRead(work)` | Execute read transaction |
+| `executeWrite(work)` | Execute write transaction |
+| `lastBookmarks()` | Get causal consistency bookmarks |
+| `close()` | Close session |
+
+### Transaction Methods
+
+| Method | Description |
+|--------|-------------|
+| `run(cypher, params?)` | Execute query in transaction |
+| `commit()` | Commit transaction |
+| `rollback()` | Rollback transaction |
+
+### GraphAlgorithms
+
+| Method | Description |
+|--------|-------------|
+| `shortestPath(from, to, config)` | Find shortest path |
+| `allShortestPaths(from, to, config)` | Find all shortest paths |
+| `dijkstra(config)` | Weighted shortest path |
+| `pageRank(config)` | PageRank centrality |
+| `betweennessCentrality(config)` | Betweenness centrality |
+| `closenessCentrality(config)` | Closeness centrality |
+| `degreeCentrality(config)` | Degree centrality |
+| `louvain(config)` | Louvain community detection |
+| `labelPropagation(config)` | Label propagation |
+| `connectedComponents(config)` | Weakly connected components |
+| `nodeSimilarity(config)` | Node similarity |
+| `bfs(start, config)` | Breadth-first search |
+| `dfs(start, config)` | Depth-first search |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/neo4j](/docs/integrations/neo4j/package) - In-memory Neo4j for testing
+- [MongoDB Integration](/docs/integrations/mongo) - Document database support
+- [Vector Search](/docs/database/vector) - Semantic similarity search
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

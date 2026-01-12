@@ -1,0 +1,488 @@
+---
+title: postgres.do
+description: EdgePostgres — Full Postgres with pgvector running on Cloudflare Workers for AI agents, semantic search, and production workloads.
+---
+
+# postgres.do
+
+**EdgePostgres** — Full Postgres (PGLite WASM) with pgvector running in Durable Objects on Cloudflare's global network. Built for AI agents, semantic search, and edge-native applications.
+
+```typescript
+import { EdgePostgres } from 'postgres.do'
+
+const db = new EdgePostgres(ctx, env, {
+  pglite: { extensions: ['pgvector'] }
+})
+
+// Full Postgres + pgvector
+const similar = await db.query(`
+  SELECT content, 1 - (embedding <=> $1) AS similarity
+  FROM documents
+  ORDER BY embedding <=> $1
+  LIMIT 10
+`, [queryEmbedding])
+```
+
+<Callout type="info">
+Looking for pg API compatibility? See [@dotdo/postgres](/docs/integrations/postgres/package) for a drop-in pg replacement.
+</Callout>
+
+## Why postgres.do?
+
+| Traditional Postgres | postgres.do |
+|----------------------|-------------|
+| Requires server infrastructure | Zero infrastructure |
+| Connection pool management | Stateless edge execution |
+| Regional deployment | Global (300+ cities) |
+| pgvector requires setup | Built-in pgvector |
+| Manual scaling | Auto-scaling |
+| Crash recovery | Automatic checkpointing |
+
+**EdgePostgres** is full Postgres with the Postgres ecosystem (pgvector, JSON operators, full-text search) running at the edge via PGLite WASM. Perfect for AI agents, RAG applications, and semantic search.
+
+## Installation
+
+```bash
+npm install postgres.do
+```
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { EdgePostgres } from 'postgres.do'
+
+class MyAgent extends DurableObject {
+  db = new EdgePostgres(this.ctx, this.env)
+
+  async setup() {
+    await this.db.exec(`
+      CREATE TABLE documents (
+        id TEXT PRIMARY KEY,
+        content TEXT,
+        embedding vector(1536)
+      );
+
+      CREATE INDEX ON documents
+      USING hnsw (embedding vector_cosine_ops);
+    `)
+  }
+
+  async remember(content: string, embedding: number[]) {
+    await this.db.query(
+      'INSERT INTO documents (id, content, embedding) VALUES ($1, $2, $3)',
+      [crypto.randomUUID(), content, embedding]
+    )
+  }
+
+  async recall(queryEmbedding: number[], limit = 5) {
+    return this.db.query(`
+      SELECT content, 1 - (embedding <=> $1) AS similarity
+      FROM documents
+      ORDER BY embedding <=> $1
+      LIMIT $2
+    `, [queryEmbedding, limit])
+  }
+}
+```
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { EdgePostgres } from 'postgres.do'
+
+export class Database extends DurableObject {
+  db = new EdgePostgres(this.ctx, this.env, {
+    pglite: { extensions: ['pgvector'] }
+  })
+
+  async query(sql: string, params?: any[]) {
+    return this.db.query(sql, params)
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const id = env.DATABASE.idFromName('main')
+    const stub = env.DATABASE.get(id)
+    return stub.fetch(request)
+  }
+}
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-postgres-do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "DATABASE", "class_name": "Database" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Database"] }]
+}
+```
+
+## Vector Search with pgvector
+
+### Setup
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  pglite: { extensions: ['pgvector'] }
+})
+
+// Create table with vector column
+await db.exec(`
+  CREATE EXTENSION IF NOT EXISTS vector;
+
+  CREATE TABLE documents (
+    id TEXT PRIMARY KEY,
+    content TEXT,
+    embedding vector(1536)
+  );
+
+  CREATE INDEX ON documents
+  USING hnsw (embedding vector_cosine_ops);
+`)
+```
+
+### Semantic Search (Cosine Similarity)
+
+```typescript
+// Insert with embedding
+await db.query(
+  'INSERT INTO documents VALUES ($1, $2, $3)',
+  ['doc-1', 'Hello world', embedding]
+)
+
+// Semantic search
+const results = await db.query(`
+  SELECT id, content, 1 - (embedding <=> $1) AS similarity
+  FROM documents
+  ORDER BY embedding <=> $1
+  LIMIT 10
+`, [queryEmbedding])
+```
+
+### L2 Distance Search
+
+```typescript
+const nearest = await db.query(`
+  SELECT id, embedding <-> $1 AS distance
+  FROM documents
+  ORDER BY distance
+  LIMIT 5
+`, [queryEmbedding])
+```
+
+### Inner Product Search
+
+```typescript
+const results = await db.query(`
+  SELECT id, (embedding <#> $1) * -1 AS similarity
+  FROM documents
+  ORDER BY embedding <#> $1
+  LIMIT 10
+`, [queryEmbedding])
+```
+
+## Transactions
+
+```typescript
+await db.transaction(async (tx) => {
+  await tx.query(
+    'UPDATE accounts SET balance = balance - $1 WHERE id = $2',
+    [100, 'acc-1']
+  )
+  await tx.query(
+    'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+    [100, 'acc-2']
+  )
+  // Automatically committed if no error
+  // Automatically rolled back on error
+})
+```
+
+## Checkpointing
+
+Save database state to durable storage for crash recovery.
+
+```typescript
+const db = new EdgePostgres(ctx, env)
+
+// Make changes
+await db.query('INSERT INTO users VALUES ($1, $2)', ['user-1', 'Alice'])
+
+// Checkpoint (state is now durable)
+await db.checkpoint()
+
+// On cold start, state is restored from checkpoint
+```
+
+## Query Options
+
+```typescript
+// Query with timeout
+const result = await db.query(
+  'SELECT * FROM large_table',
+  [],
+  { timeout: 5000 }  // 5 second timeout
+)
+
+// Query with session token for consistency
+const result = await db.query(
+  'SELECT * FROM users WHERE id = $1',
+  [id],
+  { sessionToken: previousResult.sessionToken }
+)
+```
+
+## Vector Quantization
+
+4x memory reduction with scalar (int8) quantization.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  quantization: {
+    type: 'scalar',        // int8 quantization (4x compression)
+    storeOriginal: false,  // Don't keep float32 copies
+    calibrationSamples: 1000,
+  }
+})
+
+// Calibrate from existing vectors
+const stats = await db.calibrateQuantization('documents', 'embedding', 1000)
+console.log(`Compression: ${stats.compressionRatio}x`)
+console.log(`Memory saved: ${stats.savingsPercent}%`)
+
+// Get memory stats
+const memory = await db.getVectorMemoryStats('documents', 'embedding')
+console.log(`Original: ${memory.originalBytes} bytes`)
+console.log(`Quantized: ${memory.quantizedBytes} bytes`)
+```
+
+## HNSW Index Tracking
+
+Track HNSW index creation for persistence across restarts.
+
+```typescript
+// Create index
+await db.exec(`CREATE INDEX idx ON docs USING hnsw (embedding vector_cosine_ops)`)
+
+// Track for persistence
+await db.trackHNSWIndex('docs', 'idx', 'embedding', {
+  metric: 'cosine',
+  m: 16,
+  efConstruction: 64
+})
+
+// Get tracked indexes
+const indexes = db.getHNSWIndexes()
+```
+
+## Hybrid Search
+
+Combine vector search with SQL filters.
+
+```typescript
+const db = new EdgePostgres(ctx, env, {
+  hybridSearch: {
+    strategy: 'auto',           // 'pre-filter', 'post-filter', 'parallel'
+    selectivityThreshold: 0.1,
+    maxCandidates: 1000,
+  }
+})
+
+// Analyze hybrid query
+const analysis = db.analyzeHybridQuery(`
+  SELECT * FROM documents
+  WHERE category = 'tech'
+  ORDER BY embedding <=> $1
+  LIMIT 10
+`)
+
+console.log(analysis.recommendedStrategy) // 'pre-filter'
+console.log(analysis.reason)              // 'Low selectivity - pre-filter to reduce vector scan'
+```
+
+## Full-Text Search
+
+```typescript
+// Create text search configuration
+await db.exec(`
+  CREATE TABLE articles (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    tsv tsvector GENERATED ALWAYS AS (
+      setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+      setweight(to_tsvector('english', coalesce(content, '')), 'B')
+    ) STORED
+  );
+
+  CREATE INDEX ON articles USING gin(tsv);
+`)
+
+// Full-text search with ranking
+const results = await db.query(`
+  SELECT id, title, ts_rank(tsv, query) AS rank
+  FROM articles, plainto_tsquery('english', $1) query
+  WHERE tsv @@ query
+  ORDER BY rank DESC
+  LIMIT 10
+`, ['serverless database'])
+```
+
+## JSON Operations
+
+```typescript
+// Store JSON data
+await db.query(`
+  INSERT INTO events (id, data) VALUES ($1, $2)
+`, ['evt-1', JSON.stringify({ type: 'click', x: 100, y: 200 })])
+
+// Query JSON fields
+const clicks = await db.query(`
+  SELECT id, data->>'type' AS event_type, (data->>'x')::int AS x
+  FROM events
+  WHERE data->>'type' = 'click'
+  AND (data->>'x')::int > 50
+`)
+
+// JSONB containment
+const results = await db.query(`
+  SELECT * FROM events
+  WHERE data @> '{"type": "click"}'
+`)
+```
+
+## Configuration
+
+```typescript
+interface EdgePostgresConfig {
+  // PGLite WASM configuration
+  pglite?: {
+    extensions?: string[]  // e.g., ['pgvector']
+    initialMemory?: number // Initial WASM memory in bytes
+  }
+
+  // Vector quantization for memory optimization
+  quantization?: {
+    type: 'scalar' | 'binary' | 'none'
+    storeOriginal?: boolean
+    calibrationSamples?: number
+  }
+
+  // Hybrid search optimization
+  hybridSearch?: {
+    strategy: 'auto' | 'pre-filter' | 'post-filter' | 'parallel'
+    selectivityThreshold?: number
+    maxCandidates?: number
+  }
+}
+```
+
+## Memory Budget
+
+128MB Workers limit breakdown for EdgePostgres:
+
+```
+V8 Isolate              ~15MB
+PGLite WASM              ~3MB
+PGLite heap             ~20MB  (configurable)
+pgvector HNSW           ~10MB  (per 100K vectors)
+Query buffers           ~10MB
+----------------------------------------
+Total (OLTP)            ~58MB
+```
+
+## AI Agent Integration
+
+### RAG Application
+
+```typescript
+class RAGAgent extends DurableObject {
+  db = new EdgePostgres(this.ctx, this.env, {
+    pglite: { extensions: ['pgvector'] }
+  })
+
+  async ingest(documents: { content: string; embedding: number[] }[]) {
+    for (const doc of documents) {
+      await this.db.query(
+        'INSERT INTO knowledge (id, content, embedding) VALUES ($1, $2, $3)',
+        [crypto.randomUUID(), doc.content, doc.embedding]
+      )
+    }
+    await this.db.checkpoint()
+  }
+
+  async retrieve(query: string, embedding: number[], limit = 5) {
+    const { rows } = await this.db.query(`
+      SELECT content, 1 - (embedding <=> $1) AS similarity
+      FROM knowledge
+      ORDER BY embedding <=> $1
+      LIMIT $2
+    `, [embedding, limit])
+
+    return rows.filter(r => r.similarity > 0.7)
+  }
+}
+```
+
+### Memory for Agents
+
+```typescript
+class AgentMemory extends DurableObject {
+  db = new EdgePostgres(this.ctx, this.env, {
+    pglite: { extensions: ['pgvector'] }
+  })
+
+  async remember(content: string, embedding: number[], metadata: object) {
+    await this.db.query(`
+      INSERT INTO memories (id, content, embedding, metadata, created_at)
+      VALUES ($1, $2, $3, $4, NOW())
+    `, [crypto.randomUUID(), content, embedding, JSON.stringify(metadata)])
+  }
+
+  async recall(embedding: number[], options: { limit?: number; minSimilarity?: number } = {}) {
+    const { limit = 10, minSimilarity = 0.7 } = options
+
+    return this.db.query(`
+      SELECT content, metadata, 1 - (embedding <=> $1) AS similarity
+      FROM memories
+      WHERE 1 - (embedding <=> $1) > $2
+      ORDER BY embedding <=> $1
+      LIMIT $3
+    `, [embedding, minSimilarity, limit])
+  }
+
+  async forget(olderThan: Date) {
+    await this.db.query(
+      'DELETE FROM memories WHERE created_at < $1',
+      [olderThan]
+    )
+  }
+}
+```
+
+## Comparison with @dotdo/postgres
+
+| Feature | @dotdo/postgres | postgres.do |
+|---------|-----------------|-------------|
+| API | pg-compatible | Native Postgres |
+| Backend | DO SQLite | PGLite WASM |
+| pgvector | No | Yes |
+| Use case | pg migrations, tests | AI/vector workloads |
+| Ecosystem | pg ORMs (Drizzle, Kysely) | Full Postgres |
+| Memory | Lower | Higher (WASM) |
+
+## Related
+
+- [@dotdo/postgres](/docs/integrations/postgres/package) - pg-compatible layer for migrations
+- [Vector Search](/docs/database/vector) - Semantic similarity search
+- [MongoDB Integration](/docs/integrations/mongo) - Document database support
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

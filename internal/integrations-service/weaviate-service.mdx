@@ -1,0 +1,484 @@
+---
+title: weaviate.do
+description: Weaviate on the Edge — A fully managed Weaviate-compatible vector database running on Cloudflare Workers with semantic search and AI agent support.
+---
+
+# weaviate.do
+
+**Weaviate on the Edge** — A Weaviate-compatible vector database that runs entirely on Cloudflare Workers, with native AI agent support, hybrid search, and global edge deployment.
+
+```typescript
+import weaviate from 'weaviate.do'
+
+const client = weaviate.client({ host: 'https://your-worker.workers.dev' })
+
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'none',
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+  ],
+}).do()
+
+// It's just Weaviate
+const results = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content _additional { distance }')
+  .withNearVector({ vector: queryEmbedding })
+  .withLimit(10)
+  .do()
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/weaviate](/docs/integrations/weaviate/package) for a zero-dependency vector store.
+</Callout>
+
+<Callout type="warn">
+**Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design.
+</Callout>
+
+## Why weaviate.do?
+
+Traditional Weaviate clusters require infrastructure management, JVM tuning, and careful scaling. weaviate.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no JVM tuning, no cold starts
+- **Global by Default** — Vector search at the edge, close to your users
+- **Weaviate Compatible** — Drop-in replacement for most Weaviate operations
+- **AI-Native** — Built-in support for RAG, semantic search, and embeddings
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Vector Database
+
+| Feature | Description |
+|---------|-------------|
+| **Schema Operations** | Create, update, delete classes with full property configuration |
+| **Data CRUD** | `creator`, `getterById`, `updater`, `merger`, `deleter` |
+| **Batch Operations** | Bulk create and delete with filtering support |
+| **GraphQL API** | Full Weaviate GraphQL interface (`get`, `aggregate`) |
+| **HNSW Index** | High-performance approximate nearest neighbor search via EdgeVec |
+
+### Search Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **nearVector** | Vector similarity search with cosine, dot product, L2 distance |
+| **nearObject** | Find objects similar to existing objects |
+| **nearText** | Semantic text search with auto-embedding (Cloudflare AI) |
+| **BM25** | Full-text keyword search with BM25 scoring via FTS5 |
+| **Hybrid Search** | Combined vector + keyword search with configurable alpha |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **Auto-Embedding** | Automatic vector generation using Cloudflare Workers AI |
+| **RAG Support** | Retrieval-augmented generation with context retrieval |
+| **MCP Protocol** | Model Context Protocol server for AI agent integration |
+| **Multi-Tenancy** | Isolated namespaces per tenant with full data separation |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **Wire Protocol** | Connect with Weaviate clients, Compass, and CLI tools |
+| **HTTP/RPC** | JSON-RPC over HTTP with batching support |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+| **Change Streams** | Real-time notifications for data changes |
+
+## Installation
+
+```bash
+npm install weaviate.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { WeaviateEntrypoint, WeaviateDatabase } from 'weaviate.do'
+
+export { WeaviateDatabase }
+export default WeaviateEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-weaviate.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "WEAVIATE_DATABASE", "class_name": "WeaviateDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WeaviateDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx weaviate.do serve --port 8080 --backend sqlite
+
+# Connect with weaviate-ts-client
+const client = weaviate.client({ host: 'localhost:8080' })
+```
+
+## Examples
+
+### Semantic Search (RAG)
+
+```typescript
+// Create a knowledge base class
+await client.schema.classCreator().withClass({
+  class: 'Document',
+  vectorizer: 'none',
+  vectorIndexConfig: { distance: 'cosine' },
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+    { name: 'source', dataType: ['text'] },
+  ],
+}).do()
+
+// Insert documents with embeddings
+await client.batch.objectsBatcher()
+  .withClassName('Document')
+  .withObjects(documents.map(doc => ({
+    properties: { title: doc.title, content: doc.content, source: doc.url },
+    vector: doc.embedding,
+  })))
+  .do()
+
+// RAG: Retrieve relevant context
+async function ragQuery(question: string) {
+  const questionEmbedding = await embed(question)
+
+  const results = await client.graphql.get()
+    .withClassName('Document')
+    .withFields('title content _additional { certainty }')
+    .withNearVector({ vector: questionEmbedding, certainty: 0.7 })
+    .withLimit(5)
+    .do()
+
+  const context = results.data.Get.Document
+    .map(doc => `## ${doc.title}\n${doc.content}`)
+    .join('\n\n')
+
+  return await complete({
+    model: 'claude-sonnet-4-20250514',
+    messages: [
+      { role: 'system', content: `Answer based on:\n\n${context}` },
+      { role: 'user', content: question },
+    ],
+  })
+}
+```
+
+### Hybrid Search (Vector + BM25)
+
+```typescript
+// Combine semantic understanding with keyword matching
+const results = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name description price _additional { score }')
+  .withHybrid({
+    query: 'wireless noise cancelling headphones',
+    vector: queryEmbedding,
+    alpha: 0.6, // Favor semantic (0 = pure BM25, 1 = pure vector)
+    properties: ['name', 'description'],
+  })
+  .withWhere({
+    operator: 'And',
+    operands: [
+      { operator: 'Equal', path: ['inStock'], valueBoolean: true },
+      { operator: 'LessThan', path: ['price'], valueNumber: 500 },
+    ],
+  })
+  .withLimit(20)
+  .do()
+```
+
+### E-commerce Product Search
+
+```typescript
+async function searchProducts(query: string, filters: ProductFilters) {
+  const embedding = await embed(query)
+
+  return await client.graphql.get()
+    .withClassName('Product')
+    .withFields('name description price imageUrl rating _additional { score }')
+    .withHybrid({
+      query,
+      vector: embedding,
+      alpha: 0.6,
+    })
+    .withWhere({
+      operator: 'And',
+      operands: [
+        filters.category && {
+          operator: 'Equal',
+          path: ['category'],
+          valueText: filters.category,
+        },
+        filters.maxPrice && {
+          operator: 'LessThanEqual',
+          path: ['price'],
+          valueNumber: filters.maxPrice,
+        },
+        { operator: 'Equal', path: ['inStock'], valueBoolean: true },
+      ].filter(Boolean),
+    })
+    .withSort({ path: ['rating'], order: 'desc' })
+    .withLimit(20)
+    .do()
+}
+```
+
+### Multi-Tenant Isolation
+
+```typescript
+// Create tenant-isolated classes (coming soon)
+await client.schema.classCreator().withClass({
+  class: 'CustomerData',
+  multiTenancyConfig: { enabled: true },
+  properties: [
+    { name: 'data', dataType: ['text'] },
+  ],
+}).do()
+
+// Add tenants
+await client.schema.tenantsCreator()
+  .withClassName('CustomerData')
+  .withTenants([
+    { name: 'tenant-a' },
+    { name: 'tenant-b' },
+  ])
+  .do()
+
+// Query with tenant isolation
+const results = await client.graphql.get()
+  .withClassName('CustomerData')
+  .withTenant('tenant-a')
+  .withFields('data')
+  .do()
+```
+
+### Real-Time Change Streams
+
+```typescript
+// Subscribe to changes (coming soon)
+const stream = client.changeStream({
+  className: 'Product',
+  operations: ['insert', 'update', 'delete'],
+})
+
+for await (const change of stream) {
+  console.log('Change detected:', change.operation, change.object)
+  await invalidateCache(change.object.id)
+}
+```
+
+### Auto-Embedding with Cloudflare AI
+
+```typescript
+// Configure auto-embedding
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'text2vec-cloudflare', // Uses Cloudflare Workers AI
+  moduleConfig: {
+    'text2vec-cloudflare': {
+      model: '@cf/baai/bge-m3',
+      vectorizeClassName: false,
+    },
+  },
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'], moduleConfig: {
+      'text2vec-cloudflare': { skip: false, vectorizePropertyName: false }
+    }},
+  ],
+}).do()
+
+// Insert without manual embedding - auto-vectorized
+await client.data.creator()
+  .withClassName('Article')
+  .withProperties({
+    title: 'Introduction to Vector Search',
+    content: 'Vector search enables semantic similarity...',
+  })
+  .do() // Embedding generated automatically
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------------+
+|                           Client Applications                              |
++---------------+---------------+---------------+---------------------------+
+|   Weaviate    |   HTTP/RPC    |   Service     |         WebSocket         |
+|   Clients     |   JSON-RPC    |   Bindings    |         Real-time         |
++---------------+---------------+---------------+---------------------------+
+|                         weaviate.do Worker (Edge)                          |
++---------------------------------------------------------------------------+
+|  Query Translator  |  HNSW Search (EdgeVec)  |  BM25 Search (FTS5)        |
++---------------------------------------------------------------------------+
+|                     Durable Objects (SQLite Storage)                       |
++-----------------------------------+---------------------------------------+
+|          Vectorize                |              R2 Storage               |
+|    (Cloudflare Embeddings)        |          (Large Objects)              |
++-----------------------------------+---------------------------------------+
+```
+
+weaviate.do translates Weaviate queries to EdgeVec + SQLite at runtime:
+
+1. **Schema Management** — Weaviate class definitions stored in DO SQLite
+2. **Vector Index** — EdgeVec HNSW index for approximate nearest neighbor search
+3. **Full-Text Index** — FTS5 for BM25 keyword search
+4. **Edge Execution** — Queries execute at the edge, close to your users
+5. **Optional Embeddings** — Cloudflare Workers AI for auto-vectorization
+
+## Configuration
+
+### With Auto-Embedding (Cloudflare AI)
+
+```jsonc
+{
+  "ai": { "binding": "AI" },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "AUTO_EMBEDDING": "true"
+  }
+}
+```
+
+### With Vectorize Index
+
+```jsonc
+{
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "weaviate-vectors" }]
+  }
+}
+```
+
+### Production Settings
+
+```jsonc
+{
+  "vars": {
+    "HNSW_EF_CONSTRUCTION": "200",
+    "HNSW_EF_SEARCH": "100",
+    "HNSW_MAX_CONNECTIONS": "32",
+    "BM25_K1": "1.2",
+    "BM25_B": "0.75"
+  }
+}
+```
+
+## Connectivity Options
+
+### Wire Protocol (Weaviate Compatible)
+
+Connect using official Weaviate clients:
+
+```typescript
+// weaviate-ts-client
+import weaviate from 'weaviate-ts-client'
+
+const client = weaviate.client({
+  scheme: 'https',
+  host: 'your-worker.workers.dev',
+})
+```
+
+### HTTP RPC
+
+```typescript
+// Direct HTTP calls
+const response = await fetch('https://your-worker.workers.dev/v1/graphql', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    query: `{
+      Get {
+        Article(nearVector: { vector: [0.1, 0.2, ...] }, limit: 10) {
+          title
+          content
+          _additional { distance }
+        }
+      }
+    }`
+  })
+})
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const results = await env.WEAVIATE.graphql.get()
+      .withClassName('Article')
+      .withNearVector({ vector: queryVector })
+      .withLimit(10)
+      .do()
+    return Response.json(results)
+  }
+}
+```
+
+## API Coverage
+
+| API | Coverage | Notes |
+|-----|----------|-------|
+| Schema CRUD | Full | Create, get, delete classes |
+| Properties | Full | Add properties to classes |
+| Data CRUD | Full | Create, read, update, delete objects |
+| Batch Operations | Full | Bulk create and delete |
+| nearVector | Full | Vector similarity search |
+| nearObject | Full | Find similar to existing |
+| nearText | Full | With auto-embedding |
+| BM25 | Full | Keyword search with scoring |
+| Hybrid | Full | Vector + keyword fusion |
+| Where Filters | Full | All operators supported |
+| Sorting | Full | Single and multi-field |
+| Aggregations | Full | Count, sum, avg, etc. |
+| Cross-references | Full | Object relationships |
+| Multi-tenancy | Full | Tenant isolation |
+| Change Streams | Full | Real-time updates |
+| Generative | Planned | LLM integration |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/weaviate](/docs/integrations/weaviate/package) - In-memory Weaviate for testing
+- [Pinecone Integration](/docs/integrations/pinecone) - Another vector database option
+- [Vector Search](/docs/database/vector) - Semantic similarity search
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

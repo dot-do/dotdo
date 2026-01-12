@@ -1,0 +1,171 @@
+---
+title: Elasticsearch
+description: Choose between @dotdo/elasticsearch (OSS package) and elasticsearch.do (managed search service) for your full-text search needs.
+---
+
+# Elasticsearch Integration
+
+dotdo provides two ways to work with Elasticsearch-compatible search APIs:
+
+| | @dotdo/elasticsearch | elasticsearch.do |
+|---|----------------------|------------------|
+| **Type** | OSS npm package | Managed search service |
+| **Storage** | In-memory | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, prototyping | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/elasticsearch` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/elasticsearch - In-memory, great for tests
+import { createClient } from '@dotdo/elasticsearch'
+
+const client = createClient()
+await client.indices.create({ index: 'products' })
+await client.index({
+  index: 'products',
+  id: '1',
+  document: { name: 'MacBook Pro', price: 2499 },
+})
+// Data lost on restart
+```
+
+```typescript
+// elasticsearch.do - Persistent edge search
+import { createClient } from 'elasticsearch.do'
+
+const client = createClient('https://your-worker.workers.dev')
+await client.indices.create({ index: 'products' })
+await client.index({
+  index: 'products',
+  id: '1',
+  document: { name: 'MacBook Pro', price: 2499 },
+})
+// Data persists globally
+```
+
+## When to Use Each
+
+### Use @dotdo/elasticsearch when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Prototyping** - Quick iteration without infrastructure setup
+- **Edge functions** - Need Elasticsearch API but no persistence required
+- **CI/CD pipelines** - Tests that need search semantics
+
+<Callout type="info">
+@dotdo/elasticsearch is a complete in-memory Elasticsearch implementation. Perfect for tests and development, but data doesn't persist between restarts.
+</Callout>
+
+### Use elasticsearch.do when:
+
+- **Production applications** - Real search data that must persist
+- **Global edge deployment** - Search indexes close to users worldwide
+- **AI/Agent workloads** - Vector search, hybrid search, semantic queries
+- **Real-time search** - Full-text search with instant updates
+
+<Callout type="info">
+elasticsearch.do is Elasticsearch on the Edge - a fully managed service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/elasticsearch | elasticsearch.do |
+|---------|----------------------|------------------|
+| Document Operations | Full | Full |
+| Query DSL | Full (match, bool, range, etc.) | Full |
+| Aggregations | Full (bucket + metric) | Full + streaming |
+| Vector Search (KNN) | Full | Full + Cloudflare Vectorize |
+| Hybrid Search (RRF) | Full | Full |
+| Highlighting | Full | Full |
+| Index Management | Full | Full + templates |
+| Scroll API | Not yet | Full |
+| Aliases | Not yet | Full |
+| Change Notifications | None | Real-time webhooks |
+| Wire Protocol | None | Coming soon |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/elasticsearch/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/elasticsearch</h3>
+    <p className="text-sm text-muted-foreground">In-memory Elasticsearch for testing and development</p>
+  </a>
+  <a href="/docs/integrations/elasticsearch/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">elasticsearch.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Elasticsearch on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/elasticsearch` for development, then upgrade to `elasticsearch.do` for production:
+
+```typescript
+// Development (package)
+import { createClient } from '@dotdo/elasticsearch'
+const client = createClient()
+
+// Production (service) - same API!
+import { createClient } from 'elasticsearch.do'
+const client = createClient('https://your-search.workers.dev')
+
+// Your application code stays the same
+await client.search({
+  index: 'products',
+  query: {
+    match: { description: 'laptop' },
+  },
+})
+```
+
+Both packages share the same Elasticsearch-compatible API, making migration seamless.
+
+## Architecture Comparison
+
+### @dotdo/elasticsearch
+
+```
++-------------------------------------------+
+|           Your Application                 |
+|                                           |
+|  import { createClient } from '@dotdo/elasticsearch' |
++-------------------------------------------+
+                    |
+                    v
++-------------------------------------------+
+|           In-Memory Engine                 |
++-------------------------------------------+
+|  InvertedIndex   |  HNSW Index            |
+|  (BM25 search)   |  (Vector similarity)   |
+|                  |                        |
+|  TypedColumnStore                         |
+|  (Filtering + Aggregations)               |
++-------------------------------------------+
+```
+
+### elasticsearch.do
+
+```
++-------------------------------------------+
+|           Your Application                 |
+|                                           |
+|  import { createClient } from 'elasticsearch.do' |
++-------------------------------------------+
+                    |
+                    v
++-------------------------------------------+
+|        elasticsearch.do Worker             |
++-------------------------------------------+
+|  Query Engine  |  Aggregation Pipeline    |
++-------------------------------------------+
+|        Durable Object SQLite               |
++-------------------------------------------+
+|  Cloudflare    |  R2 (Large indexes)      |
+|  Vectorize     |                          |
++-------------------------------------------+
+```
+
+Both approaches support the same search patterns (full-text, vector, hybrid) - choose based on whether you need persistence or native edge deployment.

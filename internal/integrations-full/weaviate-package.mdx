@@ -1,0 +1,669 @@
+---
+title: "@dotdo/weaviate"
+description: Weaviate-compatible in-memory vector database for edge environments and testing.
+---
+
+# @dotdo/weaviate
+
+Weaviate-compatible vector database that runs entirely in-memory. Provides a familiar Weaviate API backed by EdgeVec for HNSW vector search and FTS5 for BM25 keyword search - perfect for edge environments (Cloudflare Workers) and testing scenarios.
+
+```typescript
+import weaviate from '@dotdo/weaviate'
+
+const client = weaviate.client({ host: 'localhost:8080' })
+
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'none',
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+  ],
+}).do()
+
+const results = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content _additional { distance }')
+  .withNearVector({ vector: queryEmbedding })
+  .withLimit(10)
+  .do()
+```
+
+<Callout type="info">
+Looking for persistent storage? See [weaviate.do](/docs/integrations/weaviate/service) for a fully managed Weaviate-compatible edge database.
+</Callout>
+
+<Callout type="warn">
+**Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design.
+</Callout>
+
+## Why @dotdo/weaviate?
+
+| Weaviate Cloud | @dotdo/weaviate |
+|----------------|-----------------|
+| JVM-based infrastructure | Edge-compatible (Cloudflare Workers) |
+| Requires Weaviate cluster | In-memory, no external dependencies |
+| Network latency to cluster | Zero latency |
+| GC pauses during heavy load | Predictable performance |
+| Complex cluster management | Stateless, instant startup |
+| Connection management | Perfect for unit tests |
+
+**This is an in-memory implementation** with a Weaviate-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and edge environments where you need vector search without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/weaviate
+```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Schema Operations**
+- `schema.classCreator()` - Create class with properties and vector config
+- `schema.classGetter()` - Get class definition
+- `schema.classDeleter()` - Delete class
+- `schema.getter()` - List all classes
+- `schema.propertyCreator()` - Add property to existing class
+
+**Data Operations**
+- `data.creator()` - Create object with properties and vector
+- `data.getterById()` - Retrieve object by ID
+- `data.updater()` - Update object properties
+- `data.merger()` - Partial update (merge properties)
+- `data.deleter()` - Delete object
+
+**Batch Operations**
+- `batch.objectsBatcher()` - Bulk create objects
+- `batch.objectsDeleter()` - Bulk delete with filter
+
+**GraphQL Search**
+- `graphql.get()` - Query objects with all search methods
+- `graphql.aggregate()` - Aggregate counts with filters
+
+**Search Methods**
+- `nearVector` - Vector similarity search
+- `nearObject` - Find similar to existing object
+- `nearText` - Semantic text search (simplified)
+- `bm25` - Keyword search with BM25 scoring
+- `hybrid` - Combined vector + keyword search with alpha weighting
+
+**Filtering & Sorting**
+- Where filters: `Equal`, `NotEqual`, `GreaterThan`, `LessThan`, `Like`, `IsNull`, `ContainsAny`, `ContainsAll`
+- Boolean operators: `And`, `Or`
+- Sorting by property (ascending/descending)
+- Pagination with `limit` and `offset`
+
+**Additional Fields**
+- `id`, `vector`, `distance`, `certainty`, `score`
+- `creationTimeUnix`, `lastUpdateTimeUnix`
+
+### Not Yet Implemented
+
+- Cross-references between objects
+- Multi-tenancy with tenant isolation
+- Generative modules (`generate` field)
+- Reranking modules
+- Auto-vectorization (use external embeddings)
+- Geo-spatial queries
+- Backup/restore APIs
+
+## Quick Start
+
+### Create Schema
+
+```typescript
+import weaviate from '@dotdo/weaviate'
+
+const client = weaviate.client({ host: 'localhost:8080' })
+
+// Create a class for products
+await client.schema.classCreator().withClass({
+  class: 'Product',
+  description: 'E-commerce product catalog',
+  vectorizer: 'none', // Using external embeddings
+  vectorIndexConfig: {
+    distance: 'cosine',
+    ef: 256,
+    efConstruction: 128,
+  },
+  properties: [
+    { name: 'name', dataType: ['text'] },
+    { name: 'description', dataType: ['text'] },
+    { name: 'category', dataType: ['text'] },
+    { name: 'price', dataType: ['number'] },
+    { name: 'inStock', dataType: ['boolean'] },
+    { name: 'tags', dataType: ['text[]'] },
+  ],
+}).do()
+```
+
+### Add Objects with Vectors
+
+```typescript
+// Single object
+await client.data.creator()
+  .withClassName('Product')
+  .withId('product-uuid-1')
+  .withVector(embedding) // Your 1536-dim embedding
+  .withProperties({
+    name: 'Wireless Headphones',
+    description: 'Premium noise-cancelling Bluetooth headphones',
+    category: 'electronics',
+    price: 299.99,
+    inStock: true,
+    tags: ['audio', 'wireless', 'premium'],
+  })
+  .do()
+
+// Batch import
+const results = await client.batch.objectsBatcher()
+  .withClassName('Product')
+  .withObjects([
+    {
+      id: 'product-2',
+      vector: embedding2,
+      properties: { name: 'Running Shoes', category: 'sports', price: 129.99 },
+    },
+    {
+      id: 'product-3',
+      vector: embedding3,
+      properties: { name: 'Yoga Mat', category: 'sports', price: 39.99 },
+    },
+  ])
+  .do()
+
+console.log(results) // [{ id: '...', status: 'SUCCESS' }, ...]
+```
+
+### Semantic Search
+
+```typescript
+// Find products similar to a query embedding
+const results = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name description price _additional { id distance certainty }')
+  .withNearVector({
+    vector: queryEmbedding,
+    certainty: 0.7, // Minimum similarity threshold
+  })
+  .withLimit(10)
+  .do()
+
+for (const product of results.data.Get.Product) {
+  console.log(`${product.name}: ${product._additional.certainty}`)
+}
+```
+
+### Hybrid Search (Vector + Keywords)
+
+```typescript
+// Combine semantic understanding with keyword matching
+const results = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name description _additional { score }')
+  .withHybrid({
+    query: 'wireless audio headphones',
+    vector: queryEmbedding,
+    alpha: 0.5, // 0 = pure keyword, 1 = pure vector
+  })
+  .withWhere({
+    operator: 'And',
+    operands: [
+      { operator: 'Equal', path: ['category'], valueText: 'electronics' },
+      { operator: 'LessThan', path: ['price'], valueNumber: 300 },
+    ],
+  })
+  .withLimit(10)
+  .do()
+```
+
+### BM25 Keyword Search
+
+```typescript
+// Pure keyword search with BM25 scoring
+const results = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name description _additional { score }')
+  .withBm25({
+    query: 'noise cancelling bluetooth',
+    properties: ['name', 'description'], // Limit to specific fields
+  })
+  .withLimit(10)
+  .do()
+```
+
+### Find Similar Objects
+
+```typescript
+// Find products similar to an existing product
+const similar = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name price _additional { distance }')
+  .withNearObject({
+    id: 'product-uuid-1',
+    distance: 0.3, // Maximum distance threshold
+  })
+  .withLimit(5)
+  .do()
+```
+
+### Filtering
+
+```typescript
+// Complex where filters
+const filtered = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name category price')
+  .withWhere({
+    operator: 'And',
+    operands: [
+      {
+        operator: 'Or',
+        operands: [
+          { operator: 'Equal', path: ['category'], valueText: 'electronics' },
+          { operator: 'Equal', path: ['category'], valueText: 'audio' },
+        ],
+      },
+      { operator: 'GreaterThan', path: ['price'], valueNumber: 50 },
+      { operator: 'Equal', path: ['inStock'], valueBoolean: true },
+    ],
+  })
+  .withSort({ path: ['price'], order: 'asc' })
+  .do()
+
+// Like operator for pattern matching
+const patternMatch = await client.graphql.get()
+  .withClassName('Product')
+  .withFields('name')
+  .withWhere({
+    operator: 'Like',
+    path: ['name'],
+    valueText: '*Wireless*',
+  })
+  .do()
+```
+
+### Aggregations
+
+```typescript
+// Count objects matching criteria
+const stats = await client.graphql.aggregate()
+  .withClassName('Product')
+  .withFields('meta { count }')
+  .withWhere({
+    operator: 'Equal',
+    path: ['category'],
+    valueText: 'electronics',
+  })
+  .do()
+
+const count = stats.data.Aggregate.Product[0].meta.count
+console.log(`Electronics products: ${count}`)
+```
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import weaviate from '@dotdo/weaviate'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const client = weaviate.client({ host: 'localhost:8080' })
+    const url = new URL(request.url)
+    const query = url.searchParams.get('q')
+
+    // Embed the query (using your embedding service)
+    const embedding = await embedText(query)
+
+    // Semantic search
+    const results = await client.graphql.get()
+      .withClassName('KnowledgeBase')
+      .withFields('title content url _additional { distance }')
+      .withNearVector({ vector: embedding, certainty: 0.7 })
+      .withLimit(5)
+      .do()
+
+    return Response.json(results.data.Get.KnowledgeBase)
+  },
+}
+```
+
+## Type-Safe Usage
+
+Full TypeScript support with Weaviate-compatible type definitions:
+
+```typescript
+import type {
+  // Client types
+  WeaviateClientConfig,
+  WeaviateClient,
+
+  // Schema types
+  WeaviateClass,
+  WeaviateSchema,
+  WeaviateProperty,
+  WeaviateDataType,
+  VectorIndexConfig,
+
+  // Object types
+  WeaviateObject,
+  WeaviateAdditional,
+
+  // Search types
+  NearVectorParams,
+  NearTextParams,
+  NearObjectParams,
+  Bm25Params,
+  HybridParams,
+
+  // Filter types
+  WhereFilter,
+  WhereOperator,
+  SortSpec,
+
+  // Response types
+  GraphQLResponse,
+  BatchResult,
+} from '@dotdo/weaviate'
+```
+
+## Testing with @dotdo/weaviate
+
+@dotdo/weaviate is ideal for unit tests - no external Weaviate cluster required:
+
+```typescript
+import weaviate from '@dotdo/weaviate'
+
+describe('ProductSearch', () => {
+  let client: WeaviateClient
+
+  beforeEach(async () => {
+    // Fresh in-memory client for each test
+    client = weaviate.client({ host: 'test:8080' })
+
+    await client.schema.classCreator().withClass({
+      class: 'Product',
+      vectorizer: 'none',
+      properties: [
+        { name: 'name', dataType: ['text'] },
+        { name: 'category', dataType: ['text'] },
+      ],
+    }).do()
+  })
+
+  it('should find similar products', async () => {
+    await client.data.creator()
+      .withClassName('Product')
+      .withProperties({ name: 'Test Product', category: 'electronics' })
+      .withVector([0.1, 0.2, 0.3])
+      .do()
+
+    const results = await client.graphql.get()
+      .withClassName('Product')
+      .withFields('name')
+      .withNearVector({ vector: [0.1, 0.2, 0.3] })
+      .withLimit(1)
+      .do()
+
+    expect(results.data.Get.Product[0].name).toBe('Test Product')
+  })
+})
+```
+
+## API Reference
+
+### weaviate.client(config)
+
+Create a new Weaviate-compatible client.
+
+```typescript
+const client = weaviate.client({
+  scheme: 'https',           // URL scheme (default: 'http')
+  host: 'localhost:8080',    // Weaviate host (for namespacing)
+  apiKey: 'your-api-key',    // Optional API key
+  headers: {},               // Additional headers
+})
+```
+
+### Schema Operations
+
+```typescript
+// Create class
+await client.schema.classCreator()
+  .withClass({
+    class: 'MyClass',
+    description: 'Class description',
+    vectorizer: 'none',
+    vectorIndexType: 'hnsw',
+    vectorIndexConfig: {
+      distance: 'cosine',  // 'cosine' | 'dot' | 'l2-squared'
+      ef: 256,
+      efConstruction: 128,
+      maxConnections: 64,
+    },
+    invertedIndexConfig: {
+      bm25: { b: 0.75, k1: 1.2 },
+      indexTimestamps: true,
+    },
+    properties: [
+      {
+        name: 'fieldName',
+        dataType: ['text'],
+        description: 'Field description',
+        indexFilterable: true,
+        indexSearchable: true,
+        tokenization: 'word',
+      },
+    ],
+  })
+  .do()
+
+// Get class
+const classConfig = await client.schema.classGetter()
+  .withClassName('MyClass')
+  .do()
+
+// List all classes
+const schema = await client.schema.getter().do()
+console.log(schema.classes)
+
+// Delete class
+await client.schema.classDeleter()
+  .withClassName('MyClass')
+  .do()
+```
+
+### Data Operations
+
+```typescript
+// Create object
+const obj = await client.data.creator()
+  .withClassName('MyClass')
+  .withId('custom-uuid')          // Optional, auto-generated if omitted
+  .withProperties({ field: 'value' })
+  .withVector([0.1, 0.2, ...])    // Optional external vector
+  .do()
+
+// Get object by ID
+const found = await client.data.getterById()
+  .withClassName('MyClass')
+  .withId('object-id')
+  .withAdditional(['id', 'vector', 'creationTimeUnix'])
+  .do()
+
+// Update object (full replace)
+await client.data.updater()
+  .withClassName('MyClass')
+  .withId('object-id')
+  .withProperties({ field: 'new value' })
+  .withVector([0.4, 0.5, ...])
+  .do()
+
+// Merge object (partial update)
+await client.data.merger()
+  .withClassName('MyClass')
+  .withId('object-id')
+  .withProperties({ field: 'updated' })
+  .do()
+
+// Delete object
+await client.data.deleter()
+  .withClassName('MyClass')
+  .withId('object-id')
+  .do()
+```
+
+### Batch Operations
+
+```typescript
+// Batch create
+const results = await client.batch.objectsBatcher()
+  .withClassName('MyClass')
+  .withObjects([
+    { id: 'id-1', properties: { ... }, vector: [...] },
+    { id: 'id-2', properties: { ... }, vector: [...] },
+  ])
+  .do()
+
+// Batch delete with filter
+const deleteResult = await client.batch.objectsDeleter()
+  .withClassName('MyClass')
+  .withWhere({
+    operator: 'LessThan',
+    path: ['score'],
+    valueNumber: 0.5,
+  })
+  .do()
+
+console.log(`Deleted ${deleteResult.successful} objects`)
+```
+
+### GraphQL Get
+
+```typescript
+const response = await client.graphql.get()
+  .withClassName('MyClass')
+  .withFields('field1 field2 _additional { id distance certainty score vector }')
+
+  // Pagination
+  .withLimit(10)
+  .withOffset(0)
+
+  // Vector search
+  .withNearVector({ vector: [...], certainty: 0.8 })
+  .withNearObject({ id: 'object-id', distance: 0.3 })
+  .withNearText({ concepts: ['semantic search'] })
+
+  // Keyword search
+  .withBm25({ query: 'keyword search', properties: ['title', 'content'] })
+
+  // Hybrid search
+  .withHybrid({
+    query: 'search query',
+    vector: [...],
+    alpha: 0.5,
+    properties: ['title'],
+  })
+
+  // Filtering
+  .withWhere({
+    operator: 'And',
+    operands: [
+      { operator: 'Equal', path: ['field'], valueText: 'value' },
+      { operator: 'GreaterThan', path: ['score'], valueNumber: 0.5 },
+    ],
+  })
+
+  // Sorting
+  .withSort([
+    { path: ['field'], order: 'asc' },
+    { path: ['score'], order: 'desc' },
+  ])
+
+  .do()
+```
+
+## Error Handling
+
+```typescript
+import weaviate, { WeaviateError, WeaviateNotFoundError } from '@dotdo/weaviate'
+
+try {
+  const results = await client.graphql.get()
+    .withClassName('NonExistentClass')
+    .withFields('name')
+    .do()
+} catch (error) {
+  if (error instanceof WeaviateNotFoundError) {
+    console.error('Class or object not found:', error.message)
+  } else if (error instanceof WeaviateError) {
+    console.error('Weaviate error:', error.message)
+    console.error('Status:', error.statusCode)
+  }
+}
+```
+
+## Migration from weaviate-ts-client
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall weaviate-ts-client
+
+# Install
+npm install @dotdo/weaviate
+```
+
+### Import Change
+
+```typescript
+// Before
+import weaviate from 'weaviate-ts-client'
+
+// After
+import weaviate from '@dotdo/weaviate'
+```
+
+### Code Compatibility
+
+Your existing Weaviate code works unchanged:
+
+```typescript
+// This code works with both weaviate-ts-client and @dotdo/weaviate
+const client = weaviate.client({ host: 'localhost:8080' })
+
+await client.schema.classCreator().withClass({
+  class: 'Article',
+  vectorizer: 'none',
+  properties: [
+    { name: 'title', dataType: ['text'] },
+    { name: 'content', dataType: ['text'] },
+  ],
+}).do()
+
+await client.data.creator()
+  .withClassName('Article')
+  .withProperties({ title: 'My Article', content: 'Content here' })
+  .withVector([0.1, 0.2, 0.3])
+  .do()
+
+const results = await client.graphql.get()
+  .withClassName('Article')
+  .withFields('title content _additional { distance }')
+  .withNearVector({ vector: queryEmbedding })
+  .withLimit(10)
+  .do()
+```
+
+## Related
+
+- [weaviate.do](/docs/integrations/weaviate/service) - Managed Weaviate on the edge
+- [Pinecone Integration](/docs/integrations/pinecone) - Another vector database option
+- [Elasticsearch Integration](/docs/integrations/elasticsearch) - Full-text search
+- [Vector Compat Overview](/docs/compat/vector) - All vector SDK implementations

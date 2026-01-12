@@ -1,0 +1,598 @@
+---
+title: inngest.do
+description: Edge-native durable functions on Cloudflare Workers with zero cold starts and unlimited duration.
+---
+
+# inngest.do
+
+Edge-native durable functions on Cloudflare Workers. Run background jobs, workflows, and long-running processes with zero cold starts, unlimited duration, and global distribution across 300+ cities.
+
+```typescript
+import { InngestDO, createInngestHandler } from 'inngest.do'
+
+export class OrderProcessor extends InngestDO {
+  triggers = [{ event: 'order/created' }]
+
+  async handler({ event }) {
+    const user = await this.step.run('fetch-user', () =>
+      fetchUser(event.data.userId)
+    )
+
+    await this.step.sleep('wait-for-processing', '30m')
+
+    await this.step.run('send-confirmation', () =>
+      sendEmail(user.email, 'Order confirmed!')
+    )
+
+    return { success: true }
+  }
+}
+
+export { OrderProcessor as INNGEST_DO }
+export default createInngestHandler()
+```
+
+<Callout type="info">
+Looking for Inngest SDK compatibility? See [@dotdo/inngest](/docs/integrations/inngest/package) for a drop-in replacement that works with existing Inngest code.
+</Callout>
+
+## Why inngest.do?
+
+Traditional background job systems require external services, connection management, and careful infrastructure planning. inngest.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Cold Starts** - V8 isolates boot instantly, no container warmup
+- **Unlimited Duration** - Functions run as long as needed with Durable Objects
+- **Global Edge** - Execute in 300+ cities, close to your users
+- **Zero Infrastructure** - No servers, queues, or databases to manage
+- **Events Stay Local** - Data never leaves your Cloudflare account
+- **Serverless Economics** - Pay only for what you use, scale to zero
+
+## Features
+
+### Core Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Event-driven functions** | Trigger functions from events with pattern matching |
+| **Cron triggers** | Schedule functions with standard cron expressions |
+| **Durable steps** | `step.run()` executes exactly once with automatic memoization |
+| **Durable sleep** | `step.sleep()` pauses without blocking resources |
+| **Event correlation** | `step.waitForEvent()` waits for related events |
+| **Function invocation** | `step.invoke()` calls other functions with timeouts |
+| **Parallel execution** | `step.parallel()` runs multiple steps concurrently |
+
+### Flow Control
+
+| Feature | Description |
+|---------|-------------|
+| **Automatic retries** | Configurable retry policies with exponential backoff |
+| **Rate limiting** | Key-based limits on function invocations |
+| **Throttling** | Control execution rate over time windows |
+| **Debouncing** | Collapse rapid events into single executions |
+| **Concurrency limits** | Limit parallel executions globally or per key |
+| **Event batching** | Process multiple events together |
+| **Cancellation** | Cancel running functions via events or API |
+
+### Observability
+
+| Feature | Description |
+|---------|-------------|
+| **Run tracking** | Track function executions with unique run IDs |
+| **Step history** | Full history of step executions and results |
+| **Event logging** | All events are logged with timestamps |
+| **Error tracking** | Detailed error information with stack traces |
+| **Metrics** | Duration, success rate, retry counts |
+
+## Installation
+
+```bash
+npm install inngest.do
+```
+
+## Quick Start
+
+### Basic Function
+
+```typescript
+import { InngestDO, createInngestHandler } from 'inngest.do'
+
+export class HelloWorld extends InngestDO {
+  id = 'hello-world'
+  triggers = [{ event: 'test/hello' }]
+
+  async handler({ event }) {
+    const greeting = await this.step.run('create-greeting', () => {
+      return `Hello, ${event.data.name}!`
+    })
+    return greeting
+  }
+}
+
+export { HelloWorld as INNGEST_DO }
+export default createInngestHandler()
+```
+
+### Wrangler Configuration
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-inngest-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "INNGEST_DO", "class_name": "OrderProcessor" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OrderProcessor"] }
+  ]
+}
+```
+
+### Sending Events
+
+```typescript
+// From another Worker or external service
+await fetch('https://your-worker.workers.dev/api/inngest/send', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'test/hello',
+    data: { name: 'World' }
+  })
+})
+
+// From within your Worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const id = env.INNGEST_DO.idFromName('default')
+    const stub = env.INNGEST_DO.get(id)
+
+    await stub.send({
+      name: 'test/hello',
+      data: { name: 'World' }
+    })
+
+    return new Response('Event sent')
+  }
+}
+```
+
+## Examples
+
+### Order Processing Workflow
+
+```typescript
+export class OrderProcessor extends InngestDO {
+  id = 'process-order'
+  triggers = [{ event: 'order/created' }]
+
+  async handler({ event }) {
+    // Fetch user - memoized, survives restarts
+    const user = await this.step.run('fetch-user', async () => {
+      return await fetchUser(event.data.userId)
+    })
+
+    // Validate inventory
+    const inventory = await this.step.run('check-inventory', async () => {
+      return await checkInventory(event.data.items)
+    })
+
+    if (!inventory.available) {
+      await this.step.sendEvent('notify-backorder', {
+        name: 'order/backordered',
+        data: { orderId: event.data.orderId, userId: user.id }
+      })
+      return { status: 'backordered' }
+    }
+
+    // Process payment
+    const payment = await this.step.run('charge-payment', async () => {
+      return await chargeCard(user.paymentMethod, event.data.total)
+    })
+
+    // Wait for shipping confirmation (up to 7 days)
+    const shipment = await this.step.waitForEvent('wait-shipped', {
+      event: 'shipment/confirmed',
+      timeout: '7d',
+      match: 'data.orderId',
+    })
+
+    if (!shipment) {
+      // Timeout - escalate to support
+      await this.step.sendEvent('escalate', {
+        name: 'order/shipping-delayed',
+        data: { orderId: event.data.orderId }
+      })
+    }
+
+    // Send confirmation
+    await this.step.run('send-confirmation', async () => {
+      await sendEmail(user.email, 'Your order has shipped!')
+    })
+
+    return { status: 'completed', trackingNumber: shipment?.data.tracking }
+  }
+}
+```
+
+### Scheduled Reports
+
+```typescript
+export class DailyReport extends InngestDO {
+  id = 'daily-report'
+  triggers = [{ cron: '0 9 * * MON-FRI' }]
+
+  async handler() {
+    // Fetch data in parallel
+    const [sales, signups, churn] = await this.step.parallel('fetch-metrics', [
+      async () => fetchSalesData(),
+      async () => fetchSignupData(),
+      async () => fetchChurnData(),
+    ])
+
+    // Generate report
+    const report = await this.step.run('generate-report', async () => {
+      return generateReport({ sales, signups, churn })
+    })
+
+    // Send to stakeholders
+    await this.step.run('send-report', async () => {
+      await sendToSlack('#reports', report)
+      await sendEmail('team@company.com', report)
+    })
+
+    return { reportId: report.id }
+  }
+}
+```
+
+### User Onboarding Sequence
+
+```typescript
+export class OnboardingSequence extends InngestDO {
+  id = 'user-onboarding'
+  triggers = [{ event: 'user/signup' }]
+
+  async handler({ event }) {
+    const { userId, email, name } = event.data
+
+    // Day 0: Welcome email
+    await this.step.run('welcome-email', async () => {
+      await sendEmail(email, welcomeTemplate(name))
+    })
+
+    // Day 1: Getting started tips
+    await this.step.sleep('wait-day-1', '1d')
+    await this.step.run('tips-email', async () => {
+      await sendEmail(email, tipsTemplate(name))
+    })
+
+    // Day 3: Check engagement
+    await this.step.sleep('wait-day-3', '2d')
+    const engagement = await this.step.run('check-engagement', async () => {
+      return await getEngagementScore(userId)
+    })
+
+    if (engagement.score < 0.5) {
+      // Low engagement - send help email
+      await this.step.run('help-email', async () => {
+        await sendEmail(email, helpTemplate(name))
+      })
+    }
+
+    // Day 7: Feedback request
+    await this.step.sleep('wait-day-7', '4d')
+    await this.step.run('feedback-email', async () => {
+      await sendEmail(email, feedbackTemplate(name))
+    })
+
+    return { completed: true, engagement: engagement.score }
+  }
+}
+```
+
+### Cancellable Long-Running Process
+
+```typescript
+export class DataExport extends InngestDO {
+  id = 'data-export'
+  triggers = [{ event: 'export/requested' }]
+
+  config = {
+    cancelOn: [{
+      event: 'export/cancelled',
+      match: 'data.exportId'
+    }]
+  }
+
+  async handler({ event }) {
+    const { exportId, userId, format } = event.data
+
+    // Fetch all user data
+    const data = await this.step.run('fetch-data', async () => {
+      return await fetchAllUserData(userId)
+    })
+
+    // Process in chunks (long-running)
+    const chunks = splitIntoChunks(data, 1000)
+    const processed = []
+
+    for (let i = 0; i < chunks.length; i++) {
+      const result = await this.step.run(`process-chunk-${i}`, async () => {
+        return await processChunk(chunks[i], format)
+      })
+      processed.push(result)
+
+      // Small delay between chunks
+      if (i < chunks.length - 1) {
+        await this.step.sleep(`chunk-delay-${i}`, '1s')
+      }
+    }
+
+    // Upload to storage
+    const url = await this.step.run('upload', async () => {
+      return await uploadToR2(processed, `exports/${exportId}.${format}`)
+    })
+
+    // Notify user
+    await this.step.run('notify', async () => {
+      await sendEmail(userId, `Your export is ready: ${url}`)
+    })
+
+    return { exportId, url }
+  }
+}
+```
+
+## Function Configuration
+
+```typescript
+export class ConfiguredFunction extends InngestDO {
+  id = 'configured-function'
+  triggers = [{ event: 'my/event' }]
+
+  config = {
+    // Retry configuration
+    retries: {
+      attempts: 5,
+      backoff: 'exponential',
+      initialInterval: '1s',
+      maxInterval: '1h'
+    },
+
+    // Timeouts
+    timeouts: {
+      function: '30m',
+      step: '5m'
+    },
+
+    // Rate limiting
+    rateLimit: {
+      key: 'event.data.userId',
+      limit: 10,
+      period: '1m'
+    },
+
+    // Throttling
+    throttle: {
+      key: 'event.data.customerId',
+      count: 5,
+      period: '1h'
+    },
+
+    // Debouncing
+    debounce: {
+      key: 'event.data.userId',
+      period: '5s'
+    },
+
+    // Concurrency control
+    concurrency: {
+      limit: 10,
+      key: 'event.data.accountId',
+      scope: 'fn'
+    },
+
+    // Batching
+    batchEvents: {
+      maxSize: 100,
+      timeout: '5s',
+      key: 'event.data.tenant'
+    },
+
+    // Cancel on events
+    cancelOn: [{
+      event: 'my/cancelled',
+      match: 'data.id'
+    }]
+  }
+
+  async handler({ event, events }) {
+    // events is populated when batchEvents is configured
+    console.log(`Processing ${events?.length ?? 1} events`)
+    // ...
+  }
+}
+```
+
+## Architecture
+
+```
+Event: { name: 'order/created', data: {...} }
+         |
+         v
++------------------------------------------+
+|         inngest.do Worker                 |
+|    Route event to matching function       |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Durable Object Instance           |
+|    Persistent state per function run      |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         Step Execution                    |
+|    step.run -> SQLite memoization         |
+|    step.sleep -> DO alarm                 |
+|    step.waitForEvent -> event subscription|
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|         SQLite Storage (DO)               |
+|    Step results, event history,           |
+|    run state, pending alarms              |
++------------------------------------------+
+```
+
+Each function run gets its own Durable Object instance with:
+
+1. **Persistent State** - All step results stored in SQLite
+2. **Memoization** - Steps only execute once, results cached
+3. **Alarm Integration** - `step.sleep()` uses DO alarms
+4. **Event Subscriptions** - `step.waitForEvent()` listens for events
+5. **Automatic Recovery** - Resumes from last checkpoint on restart
+
+## API Reference
+
+### InngestDO Base Class
+
+```typescript
+class InngestDO extends DurableObject {
+  // Required
+  id: string                    // Function identifier
+  triggers: Trigger[]           // Event or cron triggers
+  async handler(ctx): Promise<any>  // Function logic
+
+  // Optional
+  config?: FunctionConfig       // Function configuration
+
+  // Step tools (available in handler)
+  step: {
+    run<T>(id: string, fn: () => T | Promise<T>): Promise<T>
+    sleep(id: string, duration: string | number): Promise<void>
+    sleepUntil(id: string, timestamp: Date | string): Promise<void>
+    waitForEvent<T>(id: string, opts: WaitForEventOpts): Promise<T | null>
+    sendEvent(id: string, event: Event | Event[]): Promise<void>
+    invoke<T>(id: string, opts: InvokeOpts): Promise<T>
+    parallel<T>(id: string, fns: Array<() => Promise<T>>): Promise<T[]>
+  }
+
+  // Management methods
+  send(event: Event): Promise<void>
+  getRuns(opts?: GetRunsOpts): Promise<Run[]>
+  getRunState(runId: string): Promise<RunState>
+  cancel(runId: string, reason?: string): Promise<void>
+}
+```
+
+### Trigger Types
+
+```typescript
+// Event trigger
+{ event: 'order/created' }
+{ event: 'user/*' }  // Wildcard matching
+
+// Cron trigger
+{ cron: '0 9 * * MON-FRI' }  // Weekdays at 9am
+{ cron: '*/15 * * * *' }     // Every 15 minutes
+```
+
+### Handler Context
+
+```typescript
+interface HandlerContext {
+  event: Event           // Triggering event (or first in batch)
+  events?: Event[]       // All events (when batching)
+  runId: string          // Unique run identifier
+  attempt: number        // Current attempt number (for retries)
+}
+
+interface Event {
+  name: string
+  data: Record<string, any>
+  id?: string
+  ts?: number
+  v?: string
+}
+```
+
+### createInngestHandler Options
+
+```typescript
+createInngestHandler({
+  path?: string          // API path prefix (default: '/api/inngest')
+  auth?: AuthConfig      // Authentication configuration
+  cors?: CorsConfig      // CORS configuration
+})
+```
+
+## HTTP API Endpoints
+
+The `createInngestHandler()` function exposes these endpoints:
+
+### Event Endpoints
+
+- `POST /api/inngest/send` - Send an event
+- `POST /api/inngest/send-batch` - Send multiple events
+
+### Management Endpoints
+
+- `GET /api/inngest/runs` - List function runs
+- `GET /api/inngest/runs/:runId` - Get run state
+- `POST /api/inngest/runs/:runId/cancel` - Cancel a run
+
+### Introspection Endpoints
+
+- `GET /api/inngest/functions` - List registered functions
+- `GET /api/inngest/health` - Health check
+
+## Performance
+
+| Metric | inngest.do |
+|--------|------------|
+| Cold start | 0ms (V8 isolates) |
+| Event routing | <1ms |
+| Step execution | <5ms overhead |
+| Max duration | Unlimited |
+| Global distribution | 300+ cities |
+| Concurrent executions | Millions |
+
+## Requirements
+
+- Cloudflare Workers environment
+- Durable Objects with SQLite storage enabled
+- Node.js 18+ (for local development)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Type check
+npm run typecheck
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/inngest](/docs/integrations/inngest/package) - Inngest SDK replacement
+- [Workflow DSL](/docs/workflows) - Native dotdo workflow syntax
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

@@ -1,0 +1,824 @@
+---
+title: From Vercel
+description: Migrate from Vercel serverless and edge functions to dotdo. Same deployment simplicity, true edge everywhere.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Migrating from Vercel
+
+You've deployed on Vercel. The git-push-to-deploy workflow, serverless functions, edge functions - you know the developer experience. dotdo gives you that same simplicity with a fundamentally different architecture.
+
+## Why Migrate?
+
+Vercel is excellent for deploying Next.js and serverless functions. But when you're building AI-native applications:
+
+| Challenge | Vercel | dotdo |
+|-----------|--------|-------|
+| Cold starts | 50-250ms (serverless), 0ms (edge) | 0ms everywhere |
+| Edge functions | Limited runtime, no state | Full runtime, persistent state |
+| WebSockets | Not supported | Native |
+| Database connections | Pool exhaustion at scale | No connection pools |
+| Concurrent AI agents | Hundreds before limits | Millions |
+| Regions | Select few | 300+ cities |
+| Durable execution | Not available | Built-in |
+| Pricing | Request + duration | More predictable |
+
+<Callout type="info">
+Vercel Edge Functions run V8 isolates like dotdo, but without persistent state. dotdo's Durable Objects add stateful, single-threaded execution to the edge model.
+</Callout>
+
+## Architecture Comparison
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            Vercel Architecture                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐             │
+│   │   Serverless │    │    Edge      │    │   Next.js    │             │
+│   │   Functions  │    │   Functions  │    │   App/Pages  │             │
+│   │   (Lambda)   │    │    (V8)      │    │   (Hybrid)   │             │
+│   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘             │
+│          │                   │                   │                      │
+│          ▼                   ▼                   ▼                      │
+│   ┌──────────────────────────────────────────────────────────┐         │
+│   │              External Database (Postgres, etc.)           │         │
+│   │              - Connection pooling required                │         │
+│   │              - Single region latency                      │         │
+│   └──────────────────────────────────────────────────────────┘         │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            dotdo Architecture                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │                        Hono HTTP Layer                           │   │
+│   │                   (API routes, middleware)                       │   │
+│   └─────────────────────────────┬───────────────────────────────────┘   │
+│                                 │                                        │
+│                                 ▼                                        │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │                      Durable Objects                             │   │
+│   │            - Persistent state (SQLite per tenant)               │   │
+│   │            - Single-threaded (no race conditions)               │   │
+│   │            - Edge location (closest to user)                    │   │
+│   └─────────────────────────────┬───────────────────────────────────┘   │
+│                                 │                                        │
+│                                 ▼                                        │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │                     Cloudflare R2/KV                             │   │
+│   │                   (Cold storage, backups)                        │   │
+│   └─────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Key Differences
+
+| Aspect | Vercel | dotdo |
+|--------|--------|-------|
+| Compute model | Serverless (stateless) + Edge (stateless) | Durable Objects (stateful) |
+| State persistence | External DB only | Built-in SQLite per DO |
+| Cold starts | Lambda: 50-250ms, Edge: 0ms | 0ms |
+| Request timeout | 10s (hobby), 60s (pro) | 30s default, configurable |
+| WebSocket | Not supported | Native |
+| Cron jobs | Vercel Cron | `$.every.*` scheduling |
+| Environment | Node.js (Lambda) or V8 (Edge) | V8 everywhere |
+| Deployment | Git push | Git push (`wrangler deploy`) |
+
+## Serverless Functions Migration
+
+### Basic API Route
+
+```typescript
+// Vercel - api/users.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  if (req.method === 'GET') {
+    const users = await db.query('SELECT * FROM users')
+    return res.json(users)
+  }
+
+  if (req.method === 'POST') {
+    const user = await db.query(
+      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+      [req.body.name, req.body.email]
+    )
+    return res.status(201).json(user)
+  }
+
+  res.status(405).json({ error: 'Method not allowed' })
+}
+```
+
+```typescript
+// dotdo - src/routes/users.ts
+import { Hono } from 'hono'
+
+const users = new Hono()
+
+users.get('/', async (c) => {
+  const users = await $.things.list('User')
+  return c.json(users)
+})
+
+users.post('/', async (c) => {
+  const { name, email } = await c.req.json()
+  const user = await $.things.create('User', { name, email })
+  return c.json(user, 201)
+})
+
+export default users
+```
+
+### With Middleware
+
+```typescript
+// Vercel - middleware.ts
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export function middleware(request: NextRequest) {
+  const token = request.headers.get('authorization')?.split(' ')[1]
+
+  if (!token && request.nextUrl.pathname.startsWith('/api/protected')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: '/api/protected/:path*'
+}
+```
+
+```typescript
+// dotdo - src/middleware/auth.ts
+import { createMiddleware } from 'hono/factory'
+
+export const auth = createMiddleware(async (c, next) => {
+  const token = c.req.header('Authorization')?.split(' ')[1]
+
+  if (!token) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const user = await verifyToken(token)
+  c.set('user', user)
+  await next()
+})
+
+// Apply to routes
+app.use('/api/protected/*', auth)
+```
+
+## Edge Functions Migration
+
+Vercel Edge Functions are already V8-based, making migration straightforward.
+
+### Basic Edge Function
+
+```typescript
+// Vercel - api/hello.ts (edge runtime)
+export const config = {
+  runtime: 'edge'
+}
+
+export default async function handler(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const name = searchParams.get('name') || 'World'
+
+  return new Response(JSON.stringify({ message: `Hello, ${name}!` }), {
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
+```
+
+```typescript
+// dotdo - same pattern, Hono syntax
+app.get('/hello', (c) => {
+  const name = c.req.query('name') || 'World'
+  return c.json({ message: `Hello, ${name}!` })
+})
+```
+
+### Edge Function with KV
+
+```typescript
+// Vercel - using Vercel KV (Redis-like)
+import { kv } from '@vercel/kv'
+
+export const config = { runtime: 'edge' }
+
+export default async function handler(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const key = searchParams.get('key')
+
+  // Get from KV
+  const value = await kv.get(key)
+
+  // Set in KV
+  await kv.set('visits', (await kv.get('visits') || 0) + 1)
+
+  return Response.json({ value })
+}
+```
+
+```typescript
+// dotdo - using Cloudflare KV or DO state
+app.get('/data', async (c) => {
+  const key = c.req.query('key')
+
+  // Option 1: Cloudflare KV
+  const value = await c.env.KV.get(key)
+
+  // Option 2: DO state (preferred for per-tenant data)
+  const value = await $.state.get(key)
+
+  // Track visits in DO state
+  const visits = (await $.state.get('visits') || 0) + 1
+  await $.state.put('visits', visits)
+
+  return c.json({ value, visits })
+})
+```
+
+## Vercel KV to dotdo
+
+Vercel KV is Redis-compatible. dotdo offers multiple storage options.
+
+### KV Operations
+
+```typescript
+// Vercel KV
+import { kv } from '@vercel/kv'
+
+// String operations
+await kv.set('user:1:name', 'Alice')
+const name = await kv.get('user:1:name')
+await kv.del('user:1:name')
+
+// With expiry
+await kv.set('session:abc', data, { ex: 3600 })
+
+// Hash operations
+await kv.hset('user:1', { name: 'Alice', email: 'alice@example.com' })
+const user = await kv.hgetall('user:1')
+
+// List operations
+await kv.lpush('queue', 'task1')
+const task = await kv.rpop('queue')
+```
+
+```typescript
+// dotdo - Cloudflare KV (simple key-value)
+const kv = c.env.KV
+
+await kv.put('user:1:name', 'Alice')
+const name = await kv.get('user:1:name')
+await kv.delete('user:1:name')
+
+// With expiry
+await kv.put('session:abc', JSON.stringify(data), { expirationTtl: 3600 })
+
+// dotdo - DO state (for structured data, preferred)
+await $.state.put('user', { name: 'Alice', email: 'alice@example.com' })
+const user = await $.state.get('user')
+
+// dotdo - for Redis-like operations, use @dotdo/redis compat
+import { createClient } from '@dotdo/redis'
+const redis = createClient()
+
+await redis.hset('user:1', { name: 'Alice', email: 'alice@example.com' })
+const user = await redis.hgetall('user:1')
+```
+
+## Vercel Postgres to dotdo
+
+### Database Queries
+
+```typescript
+// Vercel Postgres
+import { sql } from '@vercel/postgres'
+
+export default async function handler(req, res) {
+  // Select
+  const { rows } = await sql`SELECT * FROM users WHERE id = ${userId}`
+
+  // Insert
+  await sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`
+
+  // Transaction
+  const client = await sql.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`UPDATE accounts SET balance = balance - ${amount} WHERE id = ${fromId}`
+    await client.sql`UPDATE accounts SET balance = balance + ${amount} WHERE id = ${toId}`
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
+}
+```
+
+```typescript
+// dotdo - Things store (recommended)
+app.get('/users/:id', async (c) => {
+  const { id } = c.req.param()
+  const user = await $.things.get('User', id)
+  return c.json(user)
+})
+
+app.post('/users', async (c) => {
+  const { name, email } = await c.req.json()
+  const user = await $.things.create('User', { name, email })
+  return c.json(user)
+})
+
+// Transaction-like operations with $.do (durable execution)
+app.post('/transfer', async (c) => {
+  const { fromId, toId, amount } = await c.req.json()
+
+  await $.do(async () => {
+    const from = await $.things.get('Account', fromId)
+    const to = await $.things.get('Account', toId)
+
+    if (from.balance < amount) {
+      throw new Error('Insufficient funds')
+    }
+
+    await $.things.update('Account', fromId, { balance: from.balance - amount })
+    await $.things.update('Account', toId, { balance: to.balance + amount })
+  })
+
+  return c.json({ success: true })
+})
+
+// Or use @dotdo/postgres for SQL syntax
+import { createClient } from '@dotdo/postgres'
+const db = createClient(env.DATABASE_URL)
+
+const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [userId])
+```
+
+## Vercel Blob to dotdo (R2)
+
+```typescript
+// Vercel Blob
+import { put, del, list } from '@vercel/blob'
+
+// Upload
+const blob = await put('avatar.png', file, { access: 'public' })
+console.log(blob.url)
+
+// Delete
+await del('avatar.png')
+
+// List
+const { blobs } = await list()
+```
+
+```typescript
+// dotdo - Cloudflare R2
+const r2 = c.env.BUCKET
+
+// Upload
+await r2.put('avatar.png', file)
+const url = `https://your-bucket.r2.cloudflarestorage.com/avatar.png`
+
+// Delete
+await r2.delete('avatar.png')
+
+// List
+const { objects } = await r2.list()
+
+// Or use @dotdo/s3 for S3-compatible API
+import { S3Client, PutObjectCommand } from '@dotdo/s3'
+
+const s3 = new S3Client({
+  endpoint: env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: env.R2_ACCESS_KEY,
+    secretAccessKey: env.R2_SECRET_KEY
+  }
+})
+
+await s3.send(new PutObjectCommand({
+  Bucket: 'my-bucket',
+  Key: 'avatar.png',
+  Body: file
+}))
+```
+
+## Vercel Cron to dotdo
+
+```typescript
+// Vercel - vercel.json
+{
+  "crons": [
+    {
+      "path": "/api/daily-cleanup",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+
+// api/daily-cleanup.ts
+export default async function handler(req, res) {
+  await cleanupOldRecords()
+  res.json({ success: true })
+}
+```
+
+```typescript
+// dotdo - using $.every.* scheduling
+$.every.day.at('midnight')(async () => {
+  await cleanupOldRecords()
+})
+
+// More scheduling options
+$.every.hour(async () => {
+  await syncMetrics()
+})
+
+$.every.monday.at('9am')(async () => {
+  await sendWeeklyReport()
+})
+
+$.every('5 minutes')(async () => {
+  await checkHealthStatus()
+})
+```
+
+## Complete Migration Example
+
+### Before: Vercel E-commerce API
+
+```typescript
+// api/products/index.ts
+import { sql } from '@vercel/postgres'
+import { kv } from '@vercel/kv'
+
+export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    // Check cache first
+    const cached = await kv.get('products:all')
+    if (cached) return res.json(cached)
+
+    const { rows } = await sql`
+      SELECT p.*, c.name as category_name
+      FROM products p
+      JOIN categories c ON p.category_id = c.id
+      ORDER BY p.created_at DESC
+      LIMIT 100
+    `
+
+    // Cache for 5 minutes
+    await kv.set('products:all', rows, { ex: 300 })
+
+    return res.json(rows)
+  }
+
+  if (req.method === 'POST') {
+    const { name, price, categoryId } = req.body
+
+    const { rows } = await sql`
+      INSERT INTO products (name, price, category_id)
+      VALUES (${name}, ${price}, ${categoryId})
+      RETURNING *
+    `
+
+    // Invalidate cache
+    await kv.del('products:all')
+
+    return res.status(201).json(rows[0])
+  }
+}
+```
+
+```typescript
+// api/products/[id].ts
+export default async function handler(req, res) {
+  const { id } = req.query
+
+  if (req.method === 'GET') {
+    const cached = await kv.get(`product:${id}`)
+    if (cached) return res.json(cached)
+
+    const { rows } = await sql`SELECT * FROM products WHERE id = ${id}`
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+
+    await kv.set(`product:${id}`, rows[0], { ex: 300 })
+    return res.json(rows[0])
+  }
+
+  if (req.method === 'PUT') {
+    const { name, price } = req.body
+    const { rows } = await sql`
+      UPDATE products SET name = ${name}, price = ${price}
+      WHERE id = ${id} RETURNING *
+    `
+
+    await kv.del(`product:${id}`)
+    await kv.del('products:all')
+
+    return res.json(rows[0])
+  }
+
+  if (req.method === 'DELETE') {
+    await sql`DELETE FROM products WHERE id = ${id}`
+    await kv.del(`product:${id}`)
+    await kv.del('products:all')
+    return res.status(204).end()
+  }
+}
+```
+
+### After: dotdo E-commerce API
+
+```typescript
+// src/routes/products.ts
+import { Hono } from 'hono'
+
+const products = new Hono()
+
+products.get('/', async (c) => {
+  // DO state acts as automatic cache
+  const products = await $.things.list('Product', {
+    include: ['category'],
+    orderBy: { field: 'createdAt', direction: 'desc' },
+    limit: 100
+  })
+
+  return c.json(products)
+})
+
+products.get('/:id', async (c) => {
+  const { id } = c.req.param()
+  const product = await $.things.get('Product', id)
+
+  if (!product) {
+    return c.json({ error: 'Not found' }, 404)
+  }
+
+  return c.json(product)
+})
+
+products.post('/', async (c) => {
+  const { name, price, categoryId } = await c.req.json()
+
+  const product = await $.things.create('Product', {
+    name,
+    price,
+    categoryId
+  })
+
+  // Emit event for other systems
+  await $.send({ type: 'Product.created', data: product })
+
+  return c.json(product, 201)
+})
+
+products.put('/:id', async (c) => {
+  const { id } = c.req.param()
+  const { name, price } = await c.req.json()
+
+  const product = await $.things.update('Product', id, { name, price })
+
+  await $.send({ type: 'Product.updated', data: product })
+
+  return c.json(product)
+})
+
+products.delete('/:id', async (c) => {
+  const { id } = c.req.param()
+
+  await $.things.delete('Product', id)
+
+  await $.send({ type: 'Product.deleted', data: { id } })
+
+  return c.body(null, 204)
+})
+
+export default products
+```
+
+```typescript
+// src/index.ts
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import products from './routes/products'
+import { auth } from './middleware/auth'
+
+const app = new Hono()
+
+app.use('/*', cors())
+app.use('/api/*', auth)
+app.route('/api/products', products)
+
+app.onError((err, c) => {
+  console.error(err)
+  return c.json({ error: 'Internal server error' }, 500)
+})
+
+export default app
+```
+
+## What You Gain
+
+| Aspect | Vercel | dotdo |
+|--------|--------|-------|
+| Cold starts | 50-250ms (serverless) | 0ms |
+| State management | External DB + KV | Built-in DO state |
+| WebSocket | Not supported | Native |
+| Durable execution | Not available | $.do() retries |
+| AI agents | Manual integration | Native support |
+| Regions | Select few | 300+ cities |
+| Connection pooling | Required | Not needed |
+| Cache invalidation | Manual | Automatic (DO locality) |
+
+## Step-by-Step Migration
+
+<Steps>
+
+<Step>
+
+### Create dotdo project
+
+```bash
+npx dotdo init my-app
+cd my-app
+npm install
+```
+
+</Step>
+
+<Step>
+
+### Migrate API routes
+
+For each file in `api/` or `pages/api/`:
+
+1. Create corresponding Hono route in `src/routes/`
+2. Convert request/response handling to Hono context
+3. Update database calls to Things store or compat SDK
+
+</Step>
+
+<Step>
+
+### Migrate KV usage
+
+Replace `@vercel/kv` with:
+- DO state for per-tenant data
+- Cloudflare KV for global cache
+- `@dotdo/redis` for Redis-like operations
+
+</Step>
+
+<Step>
+
+### Migrate Postgres
+
+Replace `@vercel/postgres` with:
+- Things store (recommended)
+- `@dotdo/postgres` for SQL syntax
+
+</Step>
+
+<Step>
+
+### Migrate Blob storage
+
+Replace `@vercel/blob` with:
+- Cloudflare R2 direct
+- `@dotdo/s3` for S3-compatible API
+
+</Step>
+
+<Step>
+
+### Update cron jobs
+
+Convert `vercel.json` crons to `$.every.*` scheduling.
+
+</Step>
+
+<Step>
+
+### Configure deployment
+
+```toml
+# wrangler.toml
+name = "my-app"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "my-db"
+database_id = "xxx"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "my-bucket"
+```
+
+</Step>
+
+<Step>
+
+### Deploy
+
+```bash
+npm run deploy
+```
+
+</Step>
+
+</Steps>
+
+## Common Gotchas
+
+### Request Body Parsing
+
+```typescript
+// Vercel - body parsed automatically
+const { name } = req.body
+
+// dotdo - parse on demand
+const { name } = await c.req.json()
+```
+
+### Environment Variables
+
+```typescript
+// Vercel
+process.env.API_KEY
+
+// dotdo - from context
+c.env.API_KEY
+```
+
+### Response Format
+
+```typescript
+// Vercel
+res.status(201).json(data)
+
+// dotdo
+return c.json(data, 201)
+```
+
+### File Uploads
+
+```typescript
+// Vercel - multipart handled by framework
+const file = req.body.file
+
+// dotdo - use formData
+const form = await c.req.formData()
+const file = form.get('file')
+```
+
+## Keeping Vercel Frontend
+
+You can keep your Next.js frontend on Vercel and only migrate the API:
+
+```typescript
+// next.config.js
+module.exports = {
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'https://your-dotdo-app.workers.dev/api/:path*'
+      }
+    ]
+  }
+}
+```
+
+This lets you migrate gradually - backend first, then frontend when ready.
+
+## Next Steps
+
+- [Workflow Context ($)](/docs/sdk/workflow-context) - Durable execution and events
+- [Things Store](/docs/sdk/things) - Data persistence patterns
+- [Named Agents](/docs/agents/named-agents) - Add AI to your API
+- [Deployment](/docs/deployment) - Production configuration
+
+---
+
+**Same git-push-to-deploy experience. True edge everywhere. Your Vercel skills transfer directly.**

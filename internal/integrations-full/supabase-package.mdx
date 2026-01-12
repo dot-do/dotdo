@@ -1,0 +1,553 @@
+---
+title: "@dotdo/supabase"
+description: Drop-in replacement for the Supabase JS SDK with edge compatibility, local testing, and in-memory storage.
+---
+
+# @dotdo/supabase
+
+Drop-in replacement for `@supabase/supabase-js`. Your existing Supabase code works unchanged - just swap the import.
+
+```typescript
+// Before: Supabase
+import { createClient } from '@supabase/supabase-js'
+
+// After: dotdo
+import { createClient } from '@dotdo/supabase'
+
+// Code stays the same
+const supabase = createClient(
+  'https://your-project.supabase.co',
+  'your-anon-key'
+)
+
+const { data, error } = await supabase
+  .from('users')
+  .select('*')
+  .eq('active', true)
+```
+
+<Callout type="info">
+Looking for persistent storage? See [supabase.do](/docs/integrations/supabase/service) for a fully managed Supabase-compatible edge service.
+</Callout>
+
+## Why @dotdo/supabase?
+
+| Supabase SDK | @dotdo/supabase |
+|--------------|-----------------|
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| External PostgreSQL required | In-memory, no external dependencies |
+| Network latency for all operations | Zero latency in local mode |
+| Requires separate test project | Same code, isolated testing |
+| Complex CI/CD setup | Works anywhere, instantly |
+
+**This is an in-memory implementation** with a Supabase-compatible API. Data does not persist between restarts. Ideal for testing, prototyping, and development where you need Supabase semantics without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/supabase
+```
+
+## Features
+
+### Implemented (Full API)
+
+**Database (PostgREST)**
+- `from().select()` - Query with column selection
+- `from().insert()` - Single and batch inserts
+- `from().update()` - Update with filters
+- `from().delete()` - Delete with filters
+- `from().upsert()` - Insert or update
+- `rpc()` - Call stored procedures
+
+**Query Filters**
+- `eq()`, `neq()`, `gt()`, `gte()`, `lt()`, `lte()`
+- `like()`, `ilike()` - Pattern matching
+- `is()` - Null/boolean checks
+- `in()` - Array membership
+- `contains()`, `containedBy()`, `overlaps()` - Array operations
+- `textSearch()` - Full-text search
+- `match()`, `not()`, `or()`, `filter()`
+
+**Query Modifiers**
+- `order()` - Sorting with ascending/descending
+- `limit()`, `range()` - Pagination
+- `single()`, `maybeSingle()` - Single row returns
+- `csv()`, `explain()` - Output formats
+
+**Auth**
+- `signUp()` - Email/phone registration
+- `signInWithPassword()` - Email/phone login
+- `signInWithOAuth()` - OAuth providers (GitHub, Google, etc.)
+- `signInWithOtp()` - Magic link/OTP
+- `signInWithIdToken()`, `signInWithSSO()`
+- `verifyOtp()` - OTP verification
+- `signOut()` - Session termination
+- `getSession()`, `getUser()`, `refreshSession()`, `setSession()`
+- `updateUser()`, `resetPasswordForEmail()`
+- `onAuthStateChange()` - Auth event subscription
+- `mfa.enroll()`, `mfa.challenge()`, `mfa.verify()`, `mfa.unenroll()` - MFA support
+
+**Storage**
+- `createBucket()`, `getBucket()`, `listBuckets()`, `updateBucket()`, `deleteBucket()`, `emptyBucket()`
+- `from().upload()`, `from().download()`, `from().update()`
+- `from().list()`, `from().move()`, `from().copy()`, `from().remove()`
+- `from().getPublicUrl()`, `from().createSignedUrl()`, `from().createSignedUrls()`
+- Image transforms (resize, format, quality)
+
+**Realtime**
+- `channel()` - Create realtime channels
+- `on('broadcast', ...)` - Listen for broadcast events
+- `on('presence', ...)` - Presence sync, join, leave
+- `on('postgres_changes', ...)` - Database change events
+- `send()` - Broadcast messages
+- `track()`, `untrack()` - Presence tracking
+- `presenceState()` - Get presence state
+- `subscribe()`, `unsubscribe()` - Channel subscription
+
+**Edge Functions**
+- `functions.invoke()` - Call edge functions
+- `functions.setAuth()` - Set auth token
+
+## Quick Start
+
+### Basic Usage
+
+```typescript
+import { createClient } from '@dotdo/supabase'
+
+const supabase = createClient(
+  'https://your-project.supabase.co',
+  'your-anon-key'
+)
+
+// Query data
+const { data: users, error } = await supabase
+  .from('users')
+  .select('id, name, email')
+  .eq('active', true)
+  .order('created_at', { ascending: false })
+  .limit(10)
+
+// Insert data
+const { data: newUser, error: insertError } = await supabase
+  .from('users')
+  .insert({ name: 'Alice', email: 'alice@example.com' })
+  .select()
+  .single()
+
+// Update data
+const { data: updatedUser } = await supabase
+  .from('users')
+  .update({ name: 'Alice Smith' })
+  .eq('id', newUser.id)
+  .select()
+  .single()
+
+// Delete data
+await supabase
+  .from('users')
+  .delete()
+  .eq('id', newUser.id)
+```
+
+### Authentication
+
+```typescript
+// Sign up
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com',
+  password: 'securepassword123',
+  options: {
+    data: { name: 'New User' },
+  },
+})
+
+// Sign in
+const { data: session } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'securepassword123',
+})
+
+// OAuth
+const { data: oauthData } = await supabase.auth.signInWithOAuth({
+  provider: 'github',
+  options: {
+    redirectTo: 'https://example.com/callback',
+  },
+})
+
+// Listen to auth changes
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth event:', event)
+})
+```
+
+### Storage
+
+```typescript
+// Upload a file
+const file = new Blob(['Hello, World!'], { type: 'text/plain' })
+const { data, error } = await supabase.storage
+  .from('uploads')
+  .upload('hello.txt', file)
+
+// Get public URL
+const { data: urlData } = supabase.storage
+  .from('uploads')
+  .getPublicUrl('hello.txt')
+
+// Download
+const { data: blob } = await supabase.storage
+  .from('uploads')
+  .download('hello.txt')
+
+// Create signed URL (private files)
+const { data: signedUrl } = await supabase.storage
+  .from('private')
+  .createSignedUrl('document.pdf', 3600) // 1 hour expiry
+```
+
+### Realtime
+
+```typescript
+// Subscribe to database changes
+const channel = supabase
+  .channel('db-changes')
+  .on('postgres_changes',
+    { event: '*', table: 'messages' },
+    (payload) => {
+      console.log('Change:', payload)
+    }
+  )
+  .subscribe()
+
+// Broadcast messages
+const broadcastChannel = supabase
+  .channel('room-1')
+  .on('broadcast', { event: 'cursor' }, (payload) => {
+    console.log('Cursor position:', payload)
+  })
+  .subscribe()
+
+await broadcastChannel.send({
+  type: 'broadcast',
+  event: 'cursor',
+  payload: { x: 100, y: 200 },
+})
+
+// Presence tracking
+const presenceChannel = supabase
+  .channel('online-users')
+  .on('presence', { event: 'sync' }, () => {
+    console.log('Presence state:', presenceChannel.presenceState())
+  })
+  .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+    console.log('User joined:', key)
+  })
+  .subscribe()
+
+await presenceChannel.track({
+  user_id: '123',
+  online_at: new Date().toISOString(),
+})
+```
+
+## Testing Patterns
+
+@dotdo/supabase is ideal for unit tests - no external Supabase project required:
+
+```typescript
+import { createClient } from '@dotdo/supabase'
+import { describe, it, expect, beforeEach } from 'vitest'
+
+describe('User Service', () => {
+  let supabase: ReturnType<typeof createClient>
+
+  beforeEach(() => {
+    // Fresh client for each test (isolated storage)
+    supabase = createClient('https://test.supabase.co', 'test-key')
+  })
+
+  it('should create and retrieve user', async () => {
+    // Insert
+    const { data: created } = await supabase
+      .from('users')
+      .insert({ name: 'Test', email: 'test@example.com' })
+      .select()
+      .single()
+
+    expect(created.name).toBe('Test')
+
+    // Query
+    const { data: found } = await supabase
+      .from('users')
+      .select()
+      .eq('id', created.id)
+      .single()
+
+    expect(found.email).toBe('test@example.com')
+  })
+
+  it('should handle authentication', async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email: 'test@example.com',
+      password: 'password123',
+    })
+
+    expect(error).toBeNull()
+    expect(data.user?.email).toBe('test@example.com')
+  })
+})
+```
+
+### Local Mode Benefits
+
+- **Zero latency** - No network round-trips
+- **No API limits** - Unlimited requests
+- **Predictable** - No external dependencies
+- **Isolated** - Each client instance has separate storage
+- **Offline** - Works without internet
+- **Fast tests** - Run thousands of tests in seconds
+
+## Edge Compatibility
+
+Works in Cloudflare Workers without Node.js dependencies:
+
+```typescript
+// worker.ts
+import { createClient } from '@dotdo/supabase'
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const supabase = createClient(
+      'https://my-project.supabase.co',
+      'anon-key'
+    )
+
+    // Currently runs in-memory mode
+    // Full API compatibility for development/testing
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('in_stock', true)
+
+    if (error) {
+      return new Response(error.message, { status: 500 })
+    }
+
+    return Response.json(data)
+  },
+}
+```
+
+## API Reference
+
+### createClient
+
+```typescript
+function createClient(
+  url: string,
+  key: string,
+  options?: SupabaseClientOptions
+): SupabaseClient
+```
+
+Creates a Supabase client instance.
+
+### Database Methods
+
+```typescript
+// Select
+supabase.from('table').select('columns')
+
+// Insert (single or batch)
+supabase.from('table').insert({ col: 'value' })
+supabase.from('table').insert([{ col: 'a' }, { col: 'b' }])
+
+// Update
+supabase.from('table').update({ col: 'new' }).eq('id', 1)
+
+// Upsert
+supabase.from('table').upsert({ id: 1, col: 'value' })
+
+// Delete
+supabase.from('table').delete().eq('id', 1)
+
+// RPC
+supabase.rpc('function_name', { arg: 'value' })
+```
+
+### Filter Methods
+
+```typescript
+.eq(column, value)        // Equal
+.neq(column, value)       // Not equal
+.gt(column, value)        // Greater than
+.gte(column, value)       // Greater than or equal
+.lt(column, value)        // Less than
+.lte(column, value)       // Less than or equal
+.like(column, pattern)    // Pattern match (case-sensitive)
+.ilike(column, pattern)   // Pattern match (case-insensitive)
+.is(column, value)        // Is null/true/false
+.in(column, [values])     // In array
+.contains(column, value)  // Array contains
+.containedBy(column, arr) // Array contained by
+.overlaps(column, arr)    // Arrays overlap
+.textSearch(column, query)// Full-text search
+.match({ col: value })    // Match object
+.not(column, op, value)   // Negate filter
+.or('col1.eq.a,col2.eq.b')// OR conditions
+```
+
+### Modifier Methods
+
+```typescript
+.order(column, { ascending: true })
+.limit(count)
+.range(from, to)
+.single()      // Returns single row or error
+.maybeSingle() // Returns single row or null
+.csv()         // Return as CSV
+.explain()     // Return query plan
+```
+
+### Auth Methods
+
+```typescript
+supabase.auth.signUp(credentials)
+supabase.auth.signInWithPassword(credentials)
+supabase.auth.signInWithOAuth({ provider })
+supabase.auth.signInWithOtp(credentials)
+supabase.auth.signInWithIdToken(credentials)
+supabase.auth.verifyOtp(params)
+supabase.auth.signOut()
+supabase.auth.getSession()
+supabase.auth.getUser()
+supabase.auth.refreshSession()
+supabase.auth.updateUser(attributes)
+supabase.auth.onAuthStateChange(callback)
+supabase.auth.mfa.enroll(params)
+supabase.auth.mfa.challenge(params)
+supabase.auth.mfa.verify(params)
+```
+
+### Storage Methods
+
+```typescript
+supabase.storage.createBucket(id, options)
+supabase.storage.getBucket(id)
+supabase.storage.listBuckets()
+supabase.storage.deleteBucket(id)
+supabase.storage.from(bucket).upload(path, file, options)
+supabase.storage.from(bucket).download(path)
+supabase.storage.from(bucket).getPublicUrl(path)
+supabase.storage.from(bucket).createSignedUrl(path, expiresIn)
+supabase.storage.from(bucket).list(folder, options)
+supabase.storage.from(bucket).move(from, to)
+supabase.storage.from(bucket).copy(from, to)
+supabase.storage.from(bucket).remove([paths])
+```
+
+### Realtime Methods
+
+```typescript
+supabase.channel(name, options)
+channel.on('broadcast', { event }, callback)
+channel.on('presence', { event: 'sync' | 'join' | 'leave' }, callback)
+channel.on('postgres_changes', { event, table }, callback)
+channel.send({ type, event, payload })
+channel.track(payload)
+channel.untrack()
+channel.presenceState()
+channel.subscribe()
+channel.unsubscribe()
+supabase.removeChannel(channel)
+supabase.removeAllChannels()
+supabase.getChannels()
+```
+
+## Types
+
+Full TypeScript support with comprehensive type definitions:
+
+```typescript
+import type {
+  // Client types
+  SupabaseClient,
+  SupabaseClientOptions,
+
+  // Response types
+  PostgrestResponse,
+  PostgrestSingleResponse,
+  AuthResponse,
+  UserResponse,
+
+  // User & Session
+  User,
+  Session,
+
+  // Storage
+  FileObject,
+  Bucket,
+
+  // Realtime
+  RealtimeChannel,
+  RealtimePresenceState,
+  RealtimePostgresChangesPayload,
+} from '@dotdo/supabase'
+```
+
+## Migration from Supabase SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @supabase/supabase-js
+
+# Install
+npm install @dotdo/supabase
+```
+
+### Import Change
+
+```typescript
+// Before
+import { createClient } from '@supabase/supabase-js'
+
+// After
+import { createClient } from '@dotdo/supabase'
+```
+
+### Code Compatibility
+
+Your existing Supabase code should work unchanged:
+
+```typescript
+// This code works with both @supabase/supabase-js and @dotdo/supabase
+const { data, error } = await supabase
+  .from('users')
+  .select('id, name, email')
+  .eq('active', true)
+  .order('created_at', { ascending: false })
+  .limit(10)
+
+const { data: session } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password',
+})
+
+await supabase.storage.from('avatars').upload('avatar.png', file)
+
+const channel = supabase
+  .channel('room')
+  .on('postgres_changes', { event: '*', table: 'messages' }, callback)
+  .subscribe()
+```
+
+## Related
+
+- [supabase.do](/docs/integrations/supabase/service) - Managed Supabase on the edge
+- [Postgres Integration](/docs/integrations/postgres) - Direct PostgreSQL compat layer
+- [Pusher Integration](/docs/integrations/pusher) - Realtime alternatives

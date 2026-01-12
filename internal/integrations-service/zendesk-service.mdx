@@ -1,0 +1,565 @@
+---
+title: zendesk.do
+description: Zendesk-compatible customer support platform on Cloudflare Workers with Durable Object SQLite storage and AI agent integration.
+---
+
+# zendesk.do
+
+**Customer Support on the Edge** — A Zendesk-compatible support platform that runs entirely on Cloudflare Workers, with native AI agent support, multi-tenant isolation, and real-time analytics.
+
+```typescript
+import { SupportClient } from 'zendesk.do'
+
+const client = new SupportClient('https://your-worker.workers.dev')
+const tickets = client.tickets
+
+// It's just Zendesk
+await tickets.create({
+  subject: 'Help needed',
+  description: 'I need assistance with my order',
+  requester: { email: 'customer@example.com' },
+  priority: 'high',
+})
+```
+
+<Callout type="info">
+Looking for a drop-in replacement for node-zendesk? See [@dotdo/zendesk](/docs/integrations/zendesk/package) for a zero-dependency SDK that can also connect to real Zendesk instances.
+</Callout>
+
+## Why zendesk.do?
+
+Traditional help desk platforms require infrastructure management, per-seat licensing, and careful scaling. zendesk.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no Zendesk subscription required
+- **Global by Default** — Support data lives at the edge, close to your customers
+- **Zendesk Compatible** — Drop-in replacement for most Zendesk operations
+- **AI-Native** — Built-in support for AI agents, MCP protocol, and LLM tool calling
+- **Multi-Tenant** — Isolated support instances per customer for SaaS applications
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Support
+
+| Feature | Description |
+|---------|-------------|
+| **Tickets** | `create`, `get`, `update`, `delete`, `list`, `search`, `comments` |
+| **Users** | `create`, `get`, `update`, `delete`, `list`, `search`, `merge` |
+| **Organizations** | `create`, `get`, `update`, `delete`, `list` with domain mapping |
+| **Groups** | Agent groups with membership management |
+| **Custom Fields** | Ticket fields, user fields, organization fields |
+| **Views** | Saved ticket filters with execution and counting |
+| **Macros** | Reusable ticket actions with apply and preview |
+| **Triggers** | Automatic actions on ticket events |
+| **Automations** | Time-based ticket workflows |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **MCP Protocol** | Model Context Protocol server with Anthropic and Vercel AI SDK adapters |
+| **AI Tools** | Pre-built tools for ticket triage, response drafting, sentiment analysis |
+| **Agent Handoff** | Seamless escalation from AI to human agents |
+| **Knowledge Base** | Vector-powered article search for agent suggestions |
+| **Auto-Tagging** | Automatic ticket categorization using AI |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **HTTP/RPC** | JSON-RPC over HTTP with batching and request deduplication |
+| **WebSocket** | Real-time ticket updates and agent presence |
+| **Webhooks** | Outbound webhooks for ticket events |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install zendesk.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { SupportEntrypoint, SupportDatabase } from 'zendesk.do'
+
+export { SupportDatabase }
+export default SupportEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-zendesk",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "SUPPORT_DATABASE", "class_name": "SupportDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SupportDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx zendesk.do serve --port 3000
+
+# Access the admin UI
+open http://localhost:3000/admin
+```
+
+## Examples
+
+### Ticket Lifecycle
+
+```typescript
+import { SupportClient } from 'zendesk.do'
+
+const client = new SupportClient('https://support.your-domain.workers.dev')
+
+// Create a ticket
+const ticket = await client.tickets.create({
+  subject: 'Cannot access my account',
+  description: 'I forgot my password and the reset email never arrives.',
+  requester: { email: 'customer@example.com', name: 'Jane Doe' },
+  priority: 'high',
+  type: 'incident',
+  tags: ['login', 'password-reset'],
+})
+
+console.log(`Created ticket #${ticket.id}`)
+
+// Add an internal note
+await client.tickets.createComment(ticket.id, {
+  body: 'Checked email logs - reset email was sent but bounced.',
+  public: false,
+})
+
+// Update the ticket
+await client.tickets.update(ticket.id, {
+  status: 'pending',
+  assignee_id: 123,
+  comment: {
+    body: 'We noticed the email bounced. Could you verify your email address?',
+    public: true,
+  },
+})
+
+// Search for related tickets
+const related = await client.tickets.search('tags:password-reset status:open')
+console.log(`Found ${related.count} related tickets`)
+```
+
+### AI Agent Integration
+
+```typescript
+import { createMcpServer, createAnthropicAdapter } from 'zendesk.do/mcp'
+import Anthropic from '@anthropic-ai/sdk'
+
+// Create MCP server with support tools
+const server = createMcpServer({ client })
+const adapter = createAnthropicAdapter({ server })
+await adapter.initialize()
+
+const anthropic = new Anthropic()
+
+// AI agent can now interact with tickets
+const response = await anthropic.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: await adapter.getTools(),
+  messages: [{
+    role: 'user',
+    content: 'Find all high priority tickets about password resets and draft responses'
+  }]
+})
+```
+
+### AI-Powered Tools
+
+```typescript
+import { SupportAgent, AutoTagger, ResponseDrafter } from 'zendesk.do/ai'
+
+const agent = new SupportAgent(client, {
+  ai: env.AI,
+  vectorize: env.VECTORIZE,
+})
+
+// Auto-tag incoming tickets
+const tagger = new AutoTagger(agent)
+await tagger.tagTicket(ticketId)
+// Adds tags like: ['billing', 'refund-request', 'urgent']
+
+// Draft a response based on knowledge base
+const drafter = new ResponseDrafter(agent)
+const draft = await drafter.draft(ticketId)
+console.log(draft.suggestedResponse)
+console.log(draft.relevantArticles)
+
+// Sentiment analysis
+const sentiment = await agent.analyzeSentiment(ticketId)
+console.log(sentiment.score) // -1 to 1
+console.log(sentiment.urgency) // 'low' | 'medium' | 'high' | 'critical'
+```
+
+### Multi-Tenant Support
+
+```typescript
+import { MultiTenantSupport } from 'zendesk.do'
+
+// Each tenant gets an isolated support instance
+const support = new MultiTenantSupport(env)
+
+// Tenant-specific client
+const tenantClient = support.forTenant('acme-corp')
+
+// Create ticket in tenant's isolated database
+await tenantClient.tickets.create({
+  subject: 'Billing question',
+  description: 'When will my invoice be ready?',
+  requester: { email: 'user@acme.com' },
+})
+
+// List only this tenant's tickets
+const tickets = await tenantClient.tickets.list()
+```
+
+### Real-Time Updates
+
+```typescript
+import { SupportClient } from 'zendesk.do'
+
+const client = new SupportClient('https://support.your-domain.workers.dev')
+
+// Subscribe to ticket changes
+const stream = client.tickets.watch({
+  filter: { status: ['open', 'pending'] }
+})
+
+for await (const change of stream) {
+  console.log('Ticket changed:', change.ticketId)
+  console.log('Operation:', change.operationType) // 'insert' | 'update' | 'delete'
+  console.log('Fields:', change.updatedFields)
+
+  // Notify agents in real-time
+  await notifyAgents(change)
+}
+```
+
+### Triggers and Automations
+
+```typescript
+// Create a trigger for urgent tickets
+await client.triggers.create({
+  title: 'Notify on urgent tickets',
+  conditions: {
+    all: [
+      { field: 'priority', operator: 'is', value: 'urgent' },
+      { field: 'status', operator: 'is', value: 'new' },
+    ],
+  },
+  actions: [
+    { field: 'notification_webhook', value: 'https://slack.webhook/urgent' },
+    { field: 'assignee_id', value: 'on-call-agent' },
+  ],
+  active: true,
+})
+
+// Create an automation for stale tickets
+await client.automations.create({
+  title: 'Follow up on stale tickets',
+  conditions: {
+    all: [
+      { field: 'status', operator: 'is', value: 'pending' },
+      { field: 'pending_hours', operator: 'greater_than', value: '48' },
+    ],
+  },
+  actions: [
+    { field: 'comment_value', value: 'Following up on your request. Please let us know if you need further assistance.' },
+    { field: 'notification_user', value: ['requester', 'We have followed up on your ticket'] },
+  ],
+  active: true,
+})
+```
+
+### Views and Macros
+
+```typescript
+// Create a view for high priority tickets
+const view = await client.views.create({
+  title: 'Urgent Unassigned',
+  conditions: {
+    all: [
+      { field: 'priority', operator: 'is', value: 'urgent' },
+      { field: 'assignee_id', operator: 'is', value: '' },
+    ],
+  },
+  output: {
+    columns: ['subject', 'requester', 'created_at'],
+    sort_by: 'created_at',
+    sort_order: 'asc',
+  },
+})
+
+// Execute the view
+const results = await client.views.execute(view.id)
+console.log(`Found ${results.count} urgent unassigned tickets`)
+
+// Create a macro for common responses
+const macro = await client.macros.create({
+  title: 'Password Reset Instructions',
+  actions: [
+    { field: 'comment_value', value: 'To reset your password:\n1. Go to login page\n2. Click "Forgot Password"\n3. Enter your email\n\nLet us know if you need further help!' },
+    { field: 'status', value: 'pending' },
+  ],
+})
+
+// Apply macro to a ticket
+await client.macros.apply(macro.id, ticketId)
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------------+
+|                           Client Applications                              |
++-----------------+-----------------+-----------------+---------------------+
+|   HTTP/RPC      |   WebSocket     |  Service Binding|    MCP Protocol    |
+|   JSON-RPC      |   Real-time     |  Worker-to-Worker|   AI Agent Tools  |
++-----------------+-----------------+-----------------+---------------------+
+|                          zendesk.do Worker (Edge)                          |
++---------------------------------------------------------------------------+
+|  Ticket Engine  |  User Manager  |  Trigger Engine  |  Automation Runner |
++---------------------------------------------------------------------------+
+|  AI Tools  |  Response Drafter  |  Auto-Tagger  |  Sentiment Analyzer    |
++---------------------------------------------------------------------------+
+|                     Durable Objects (SQLite Storage)                       |
++-----------------------+---------------------------------------------------+
+|      Vectorize        |              R2 (Attachments)                     |
+|  (Knowledge Search)   |       (File storage, exports)                     |
++-----------------------+---------------------------------------------------+
+```
+
+zendesk.do translates Zendesk API calls to SQLite at runtime:
+
+1. **API Translation** — Zendesk API -> SQLite SQL with full expression support
+2. **Durable Object Storage** — Each tenant runs as an isolated Durable Object with SQLite
+3. **Edge Execution** — Requests execute at the edge, close to your users
+4. **Optional Integrations** — Vectorize for knowledge search, R2 for attachments, AI for automation
+
+## HTTP API Endpoints
+
+zendesk.do exposes a REST API compatible with Zendesk's API:
+
+### Tickets
+
+- `GET /api/v2/tickets` - List tickets
+- `POST /api/v2/tickets` - Create ticket
+- `GET /api/v2/tickets/:id` - Get ticket
+- `PUT /api/v2/tickets/:id` - Update ticket
+- `DELETE /api/v2/tickets/:id` - Delete ticket
+- `GET /api/v2/tickets/:id/comments` - List comments
+- `POST /api/v2/tickets/:id/comments` - Create comment
+- `GET /api/v2/search` - Search tickets
+
+### Users
+
+- `GET /api/v2/users` - List users
+- `POST /api/v2/users` - Create user
+- `GET /api/v2/users/:id` - Get user
+- `PUT /api/v2/users/:id` - Update user
+- `DELETE /api/v2/users/:id` - Delete user
+- `PUT /api/v2/users/:id/merge` - Merge users
+
+### Organizations
+
+- `GET /api/v2/organizations` - List organizations
+- `POST /api/v2/organizations` - Create organization
+- `GET /api/v2/organizations/:id` - Get organization
+- `PUT /api/v2/organizations/:id` - Update organization
+- `DELETE /api/v2/organizations/:id` - Delete organization
+
+### Groups
+
+- `GET /api/v2/groups` - List groups
+- `POST /api/v2/groups` - Create group
+- `GET /api/v2/groups/:id` - Get group
+- `PUT /api/v2/groups/:id` - Update group
+- `DELETE /api/v2/groups/:id` - Delete group
+- `GET /api/v2/groups/:id/memberships` - List memberships
+
+### Views and Macros
+
+- `GET /api/v2/views` - List views
+- `GET /api/v2/views/:id/execute` - Execute view
+- `GET /api/v2/views/:id/count` - Count view
+- `GET /api/v2/macros` - List macros
+- `GET /api/v2/macros/:id/apply` - Apply macro
+
+### Triggers and Automations
+
+- `GET /api/v2/triggers` - List triggers
+- `POST /api/v2/triggers` - Create trigger
+- `GET /api/v2/automations` - List automations
+- `POST /api/v2/automations` - Create automation
+
+## Configuration
+
+### With AI Features
+
+```jsonc
+{
+  "ai": { "binding": "AI" },
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "knowledge" }]
+  },
+  "vars": {
+    "AI_ENABLED": "true",
+    "AUTO_TAGGING": "true"
+  }
+}
+```
+
+### With Attachments
+
+```jsonc
+{
+  "r2_buckets": [
+    { "binding": "ATTACHMENTS", "bucket_name": "support-attachments" }
+  ]
+}
+```
+
+## API Reference
+
+### SupportClient
+
+```typescript
+new SupportClient(baseUrl: string, options?: ClientOptions)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `baseUrl` | `string` | *required* | zendesk.do service URL |
+| `timeout` | `number` | `30000` | Request timeout (ms) |
+| `headers` | `object` | `{}` | Default headers |
+| `fetch` | `function` | `globalThis.fetch` | Custom fetch implementation |
+
+### Tickets
+
+```typescript
+client.tickets.create(params: TicketCreateParams): Promise<Ticket>
+client.tickets.get(id: number): Promise<Ticket>
+client.tickets.update(id: number, params: TicketUpdateParams): Promise<Ticket>
+client.tickets.delete(id: number): Promise<void>
+client.tickets.list(params?: TicketListParams): Promise<TicketListResponse>
+client.tickets.search(query: string): Promise<SearchResponse>
+client.tickets.createComment(id: number, params: CommentParams): Promise<Comment>
+client.tickets.listComments(id: number): Promise<CommentListResponse>
+client.tickets.watch(options?: WatchOptions): AsyncIterable<TicketChange>
+```
+
+### Users
+
+```typescript
+client.users.create(params: UserCreateParams): Promise<User>
+client.users.get(id: number): Promise<User>
+client.users.update(id: number, params: UserUpdateParams): Promise<User>
+client.users.delete(id: number): Promise<void>
+client.users.list(params?: UserListParams): Promise<UserListResponse>
+client.users.search(params: UserSearchParams): Promise<UserListResponse>
+client.users.merge(targetId: number, sourceId: number): Promise<User>
+```
+
+### Organizations
+
+```typescript
+client.organizations.create(params: OrgCreateParams): Promise<Organization>
+client.organizations.get(id: number): Promise<Organization>
+client.organizations.update(id: number, params: OrgUpdateParams): Promise<Organization>
+client.organizations.delete(id: number): Promise<void>
+client.organizations.list(): Promise<OrgListResponse>
+```
+
+### Views
+
+```typescript
+client.views.create(params: ViewCreateParams): Promise<View>
+client.views.get(id: number): Promise<View>
+client.views.update(id: number, params: ViewUpdateParams): Promise<View>
+client.views.delete(id: number): Promise<void>
+client.views.list(): Promise<ViewListResponse>
+client.views.execute(id: number): Promise<ViewExecuteResponse>
+client.views.count(id: number): Promise<ViewCountResponse>
+client.views.preview(params: ViewCreateParams): Promise<ViewPreviewResponse>
+```
+
+### Macros
+
+```typescript
+client.macros.create(params: MacroCreateParams): Promise<Macro>
+client.macros.get(id: number): Promise<Macro>
+client.macros.update(id: number, params: MacroUpdateParams): Promise<Macro>
+client.macros.delete(id: number): Promise<void>
+client.macros.list(): Promise<MacroListResponse>
+client.macros.apply(macroId: number, ticketId: number): Promise<MacroApplyResult>
+client.macros.search(query: string): Promise<MacroListResponse>
+```
+
+### Triggers and Automations
+
+```typescript
+client.triggers.create(params: TriggerCreateParams): Promise<Trigger>
+client.triggers.get(id: number): Promise<Trigger>
+client.triggers.update(id: number, params: TriggerUpdateParams): Promise<Trigger>
+client.triggers.delete(id: number): Promise<void>
+client.triggers.list(): Promise<TriggerListResponse>
+client.triggers.listActive(): Promise<TriggerListResponse>
+
+client.automations.create(params: AutomationCreateParams): Promise<Automation>
+client.automations.get(id: number): Promise<Automation>
+client.automations.update(id: number, params: AutomationUpdateParams): Promise<Automation>
+client.automations.delete(id: number): Promise<void>
+client.automations.list(): Promise<AutomationListResponse>
+```
+
+## Requirements
+
+- Cloudflare Workers environment
+- Durable Objects with SQLite storage enabled
+- Node.js 18+ (for local development)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Type check
+npm run typecheck
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/zendesk](/docs/integrations/zendesk/package) - Drop-in Zendesk SDK replacement
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
+- [AI Agents](/docs/agents) - AI agent integration

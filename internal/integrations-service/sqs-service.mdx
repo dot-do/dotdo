@@ -1,0 +1,672 @@
+---
+title: sqs.do
+description: SQS-compatible message queuing platform on Cloudflare Workers with Durable Object SQLite storage.
+---
+
+# sqs.do
+
+SQS-compatible message queuing platform on Cloudflare Workers with Durable Object SQLite.
+
+sqs.do brings familiar SQS semantics to the edge, running entirely on Cloudflare's global network. Each queue is backed by a Durable Object with SQLite storage, providing strong consistency and durability without managing any infrastructure.
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const queue = createQueue(env, 'orders')
+
+    await queue.send({
+      body: { orderId: '123', amount: 99.99 },
+      delaySeconds: 0,
+    })
+
+    return new Response('Message queued')
+  }
+}
+```
+
+<Callout type="info">
+Looking for AWS SDK v3 compatibility? See [@dotdo/sqs](/docs/integrations/sqs/package) for a drop-in replacement that can also connect to real AWS SQS.
+</Callout>
+
+## Features
+
+- **SQS-compatible API** - Familiar send, receive, delete semantics
+- **Edge-native** - Runs on Cloudflare Workers with global distribution
+- **Durable storage** - Messages stored in Durable Object SQLite
+- **FIFO support** - Message ordering with message group IDs
+- **Visibility timeout** - Prevent duplicate processing
+- **HTTP Client SDK** - Access sqs.do from any JavaScript runtime
+- **Dead letter queues** - Handle failed message processing
+- **Batch operations** - Efficient batch send and receive
+
+## Installation
+
+```bash
+npm install sqs.do
+```
+
+## Quick Start
+
+### Queue Operations
+
+Send and receive messages using the Queue API within a Cloudflare Worker:
+
+```typescript
+import { createQueue, createQueueManager } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    // Create or get a queue
+    const queue = createQueue(env, 'orders')
+
+    // Send a single message
+    const result = await queue.send({
+      body: { orderId: '123', customer: 'alice@example.com' },
+      messageAttributes: {
+        EventType: { dataType: 'String', stringValue: 'order.created' },
+      },
+    })
+
+    console.log(`Message sent: ${result.messageId}`)
+
+    // Send with delay
+    await queue.send({
+      body: { reminder: 'Follow up on order 123' },
+      delaySeconds: 300, // 5 minutes
+    })
+
+    // Send batch of messages
+    const batchResult = await queue.sendBatch([
+      { id: '1', body: { orderId: '124' } },
+      { id: '2', body: { orderId: '125' }, delaySeconds: 10 },
+      { id: '3', body: { orderId: '126' } },
+    ])
+
+    console.log(`Sent ${batchResult.successful.length} messages`)
+
+    return new Response('Messages queued')
+  }
+}
+```
+
+### Receiving Messages
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const queue = createQueue(env, 'orders')
+
+    // Receive messages
+    const messages = await queue.receive({
+      maxNumberOfMessages: 10,
+      visibilityTimeout: 30,
+      waitTimeSeconds: 20, // Long polling
+      messageAttributeNames: ['All'],
+    })
+
+    for (const message of messages) {
+      console.log(`Processing: ${message.messageId}`)
+      console.log(`Body: ${JSON.stringify(message.body)}`)
+
+      try {
+        await processOrder(message.body)
+
+        // Delete after successful processing
+        await queue.delete(message.receiptHandle)
+      } catch (error) {
+        console.error('Failed to process:', error)
+        // Message will become visible again after timeout
+      }
+    }
+
+    return new Response(`Processed ${messages.length} messages`)
+  }
+}
+```
+
+### FIFO Queues
+
+```typescript
+import { createFifoQueue } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    // Create a FIFO queue
+    const queue = createFifoQueue(env, 'orders.fifo')
+
+    // Send with message group ID for ordering
+    await queue.send({
+      body: { orderId: '456', action: 'process' },
+      messageGroupId: 'customer-123', // All messages for this customer in order
+    })
+
+    // With explicit deduplication ID
+    await queue.send({
+      body: { orderId: '456', action: 'ship' },
+      messageGroupId: 'customer-123',
+      messageDeduplicationId: 'order-456-ship', // Prevents duplicates
+    })
+
+    // Receive maintains ordering within message groups
+    const messages = await queue.receive({
+      maxNumberOfMessages: 10,
+    })
+
+    return new Response('FIFO messages processed')
+  }
+}
+```
+
+### Queue Manager
+
+Manage queues programmatically:
+
+```typescript
+import { createQueueManager } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const manager = createQueueManager(env)
+
+    // Create a queue with configuration
+    await manager.createQueue({
+      name: 'notifications',
+      attributes: {
+        visibilityTimeout: 60,
+        messageRetentionPeriod: 86400, // 1 day
+        maxMessageSize: 262144, // 256 KB
+        delaySeconds: 0,
+      },
+      tags: {
+        Environment: 'production',
+        Team: 'platform',
+      },
+    })
+
+    // List all queues
+    const queues = await manager.listQueues()
+    console.log('Queues:', queues.map(q => q.name))
+
+    // List with prefix
+    const orderQueues = await manager.listQueues({ prefix: 'order' })
+
+    // Get queue attributes
+    const attributes = await manager.getQueueAttributes('notifications')
+    console.log('Message count:', attributes.approximateNumberOfMessages)
+
+    // Update queue attributes
+    await manager.setQueueAttributes('notifications', {
+      visibilityTimeout: 120,
+    })
+
+    // Purge queue (delete all messages)
+    await manager.purgeQueue('notifications')
+
+    // Delete queue
+    await manager.deleteQueue('old-queue')
+
+    return new Response('Queue management complete')
+  }
+}
+```
+
+## HTTP Client SDK
+
+Access sqs.do from any JavaScript environment using the HTTP Client SDK:
+
+```typescript
+import { SQSClient } from 'sqs.do/client'
+
+// Create client pointing to your sqs.do deployment
+const client = new SQSClient({
+  baseUrl: 'https://sqs.your-domain.workers.dev',
+  timeout: 30000,
+  headers: {
+    'Authorization': 'Bearer your-token',
+  },
+})
+
+// Check service health
+const health = await client.health()
+console.log('Status:', health.status)
+
+// Queue operations
+const queue = client.queue('orders')
+
+// Send message
+await queue.send({
+  body: { orderId: '123' },
+})
+
+// Send batch
+await queue.sendBatch([
+  { id: '1', body: { orderId: '124' } },
+  { id: '2', body: { orderId: '125' } },
+])
+
+// Receive messages
+const messages = await queue.receive({
+  maxNumberOfMessages: 10,
+  waitTimeSeconds: 20,
+})
+
+for (const message of messages) {
+  console.log(`${message.messageId}: ${JSON.stringify(message.body)}`)
+  await queue.delete(message.receiptHandle)
+}
+
+// Queue management
+const manager = client.manager()
+
+await manager.createQueue({ name: 'events' })
+const queues = await manager.listQueues()
+const attrs = await manager.getQueueAttributes('orders')
+```
+
+## Dead Letter Queues
+
+Handle failed message processing with dead letter queues:
+
+```typescript
+import { createQueue, createQueueManager } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const manager = createQueueManager(env)
+
+    // Create the DLQ first
+    await manager.createQueue({
+      name: 'orders-dlq',
+      attributes: {
+        messageRetentionPeriod: 1209600, // 14 days
+      },
+    })
+
+    // Create main queue with redrive policy
+    await manager.createQueue({
+      name: 'orders',
+      attributes: {
+        redrivePolicy: {
+          deadLetterTargetArn: 'orders-dlq',
+          maxReceiveCount: 3, // Move to DLQ after 3 failures
+        },
+      },
+    })
+
+    // Process with automatic DLQ handling
+    const queue = createQueue(env, 'orders')
+
+    const messages = await queue.receive({ maxNumberOfMessages: 10 })
+
+    for (const message of messages) {
+      try {
+        await processOrder(message.body)
+        await queue.delete(message.receiptHandle)
+      } catch (error) {
+        // Message will be retried, then moved to DLQ after 3 attempts
+        console.error('Processing failed:', error)
+      }
+    }
+
+    return new Response('Processing complete')
+  }
+}
+```
+
+### Processing DLQ Messages
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+// Scheduled worker to process DLQ
+export default {
+  async scheduled(event: ScheduledEvent, env: Env) {
+    const dlq = createQueue(env, 'orders-dlq')
+
+    const messages = await dlq.receive({ maxNumberOfMessages: 10 })
+
+    for (const message of messages) {
+      // Log for investigation
+      console.error('DLQ message:', {
+        messageId: message.messageId,
+        body: message.body,
+        receiveCount: message.attributes?.ApproximateReceiveCount,
+      })
+
+      // Alert operations team
+      await alertOps({
+        type: 'dlq_message',
+        queue: 'orders-dlq',
+        message: message.body,
+      })
+
+      // Delete from DLQ after handling
+      await dlq.delete(message.receiptHandle)
+    }
+  }
+}
+```
+
+## Visibility Timeout
+
+Control message visibility to prevent duplicate processing:
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const queue = createQueue(env, 'orders')
+
+    // Receive with custom visibility timeout
+    const messages = await queue.receive({
+      maxNumberOfMessages: 1,
+      visibilityTimeout: 300, // 5 minutes
+    })
+
+    const message = messages[0]
+    if (!message) return new Response('No messages')
+
+    try {
+      // Start processing
+      await startLongRunningTask(message.body)
+
+      // Extend visibility if processing takes longer
+      await queue.changeVisibility({
+        receiptHandle: message.receiptHandle,
+        visibilityTimeout: 600, // Extend to 10 minutes
+      })
+
+      // Continue processing
+      await completeLongRunningTask()
+
+      // Delete when done
+      await queue.delete(message.receiptHandle)
+    } catch (error) {
+      // Make message immediately visible for retry
+      await queue.changeVisibility({
+        receiptHandle: message.receiptHandle,
+        visibilityTimeout: 0,
+      })
+    }
+
+    return new Response('Processing complete')
+  }
+}
+```
+
+## Configuration
+
+### Wrangler Configuration
+
+Add the following to your `wrangler.toml`:
+
+```toml
+name = "my-sqs-app"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "SQS_QUEUE", class_name = "QueueDO" },
+  { name = "SQS_MESSAGE", class_name = "MessageDO" },
+  { name = "SQS_MANAGER", class_name = "QueueManagerDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QueueDO", "MessageDO", "QueueManagerDO"]
+```
+
+### Environment Type
+
+```typescript
+interface Env {
+  SQS_QUEUE: DurableObjectNamespace
+  SQS_MESSAGE: DurableObjectNamespace
+  SQS_MANAGER: DurableObjectNamespace
+}
+```
+
+## HTTP API Endpoints
+
+sqs.do exposes a REST API for external access:
+
+### Queue Endpoints
+
+- `POST /queues` - Create a queue
+- `GET /queues` - List all queues
+- `GET /queues/:name` - Get queue attributes
+- `PUT /queues/:name` - Update queue attributes
+- `DELETE /queues/:name` - Delete a queue
+- `POST /queues/:name/purge` - Purge all messages
+
+### Message Endpoints
+
+- `POST /queues/:name/messages` - Send a message
+- `POST /queues/:name/messages/batch` - Send batch of messages
+- `GET /queues/:name/messages` - Receive messages
+- `DELETE /queues/:name/messages/:receiptHandle` - Delete a message
+- `POST /queues/:name/messages/:receiptHandle/visibility` - Change visibility
+
+### Tag Endpoints
+
+- `GET /queues/:name/tags` - List queue tags
+- `POST /queues/:name/tags` - Add tags
+- `DELETE /queues/:name/tags` - Remove tags
+
+### Health Endpoints
+
+- `GET /` - Service info
+- `GET /health` - Health check
+
+## API Reference
+
+### Queue
+
+#### `createQueue(env, name, options?)`
+
+Creates a queue client for sending and receiving messages.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fifo` | `boolean` | `false` | Enable FIFO queue semantics |
+
+#### Queue Methods
+
+- `send(message)` - Send a single message, returns `SendResult`
+- `sendBatch(messages)` - Send multiple messages, returns `BatchSendResult`
+- `receive(options?)` - Receive messages, returns `Message[]`
+- `delete(receiptHandle)` - Delete a processed message
+- `deleteBatch(receiptHandles)` - Delete multiple messages
+- `changeVisibility(options)` - Extend or reset visibility timeout
+
+### Message Format
+
+```typescript
+interface SendMessageInput {
+  body: unknown                    // Message body (JSON serializable)
+  delaySeconds?: number            // 0-900 seconds
+  messageAttributes?: Record<string, MessageAttribute>
+  // FIFO only:
+  messageGroupId?: string
+  messageDeduplicationId?: string
+}
+
+interface Message {
+  messageId: string
+  receiptHandle: string
+  body: unknown
+  md5OfBody: string
+  attributes: MessageSystemAttributes
+  messageAttributes?: Record<string, MessageAttribute>
+}
+```
+
+### QueueManager
+
+#### `createQueueManager(env)`
+
+Creates a manager for queue lifecycle operations.
+
+#### Manager Methods
+
+- `createQueue(config)` - Create a new queue
+- `deleteQueue(name)` - Delete a queue
+- `listQueues(options?)` - List all queues
+- `getQueueAttributes(name)` - Get queue configuration
+- `setQueueAttributes(name, attributes)` - Update queue configuration
+- `purgeQueue(name)` - Delete all messages from queue
+- `tagQueue(name, tags)` - Add tags to queue
+- `untagQueue(name, tagKeys)` - Remove tags from queue
+- `listQueueTags(name)` - List all tags
+
+### HTTP Client
+
+#### `SQSClient`
+
+| Config Option | Type | Default | Description |
+|---------------|------|---------|-------------|
+| `baseUrl` | `string` | *required* | sqs.do service URL |
+| `timeout` | `number` | `30000` | Request timeout (ms) |
+| `headers` | `object` | `{}` | Default headers |
+| `fetch` | `function` | `globalThis.fetch` | Custom fetch implementation |
+
+## Common Patterns
+
+### Worker Pattern
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+// Continuous message processing
+async function processMessages(env: Env) {
+  const queue = createQueue(env, 'tasks')
+
+  while (true) {
+    const messages = await queue.receive({
+      maxNumberOfMessages: 10,
+      waitTimeSeconds: 20, // Long polling
+      visibilityTimeout: 30,
+    })
+
+    for (const message of messages) {
+      try {
+        await processTask(message.body)
+        await queue.delete(message.receiptHandle)
+      } catch (error) {
+        console.error('Failed to process:', error)
+        // Message will become visible again after timeout
+      }
+    }
+  }
+}
+```
+
+### Fan-Out Pattern
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+// Single event, multiple queues
+async function fanOut(env: Env, event: unknown) {
+  const queues = [
+    createQueue(env, 'analytics'),
+    createQueue(env, 'notifications'),
+    createQueue(env, 'audit-log'),
+  ]
+
+  await Promise.all(
+    queues.map(queue => queue.send({ body: event }))
+  )
+}
+```
+
+### Delayed Processing
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+// Schedule for later
+async function scheduleReminder(env: Env, reminder: unknown) {
+  const queue = createQueue(env, 'reminders')
+
+  await queue.send({
+    body: reminder,
+    delaySeconds: 3600, // Process in 1 hour
+  })
+}
+```
+
+### Request-Response Pattern
+
+```typescript
+import { createQueue } from 'sqs.do'
+
+// Send request and wait for response
+async function requestResponse(env: Env, request: unknown) {
+  const requestQueue = createQueue(env, 'requests')
+  const responseQueue = createQueue(env, 'responses')
+
+  const correlationId = crypto.randomUUID()
+
+  await requestQueue.send({
+    body: { ...request, correlationId },
+  })
+
+  // Poll for response
+  const deadline = Date.now() + 30000
+  while (Date.now() < deadline) {
+    const messages = await responseQueue.receive({
+      maxNumberOfMessages: 10,
+      waitTimeSeconds: 5,
+    })
+
+    for (const message of messages) {
+      if (message.body.correlationId === correlationId) {
+        await responseQueue.delete(message.receiptHandle)
+        return message.body.result
+      }
+    }
+  }
+
+  throw new Error('Response timeout')
+}
+```
+
+## Requirements
+
+- Cloudflare Workers environment
+- Durable Objects with SQLite storage enabled
+- Node.js 18+ (for local development)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Type check
+npm run typecheck
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/sqs](/docs/integrations/sqs/package) - AWS SDK v3 compatible package
+- [Kafka Integration](/docs/integrations/kafka) - Event streaming
+- [Events Overview](/docs/events) - Event handling patterns
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

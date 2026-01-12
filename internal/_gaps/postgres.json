@@ -1,0 +1,95 @@
+{
+  "integration": "postgres",
+  "package": "pg",
+  "compatPath": "compat/postgres",
+  "docsUrl": "https://node-postgres.com/",
+  "timestamp": "2026-01-12T13:43:27.525Z",
+  "totalExpected": 28,
+  "totalFound": 17,
+  "coverage": 61,
+  "gaps": [
+    {
+      "name": "connect",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Connect to database",
+      "parent": "Client"
+    },
+    {
+      "name": "end",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Close connection",
+      "parent": "Client"
+    },
+    {
+      "name": "on",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Event listener",
+      "parent": "Client"
+    },
+    {
+      "name": "once",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "One-time event listener",
+      "parent": "Client"
+    },
+    {
+      "name": "removeListener",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Remove event listener",
+      "parent": "Client"
+    },
+    {
+      "name": "connect",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Get client from pool",
+      "parent": "Pool"
+    },
+    {
+      "name": "end",
+      "type": "missing-method",
+      "severity": "P0",
+      "description": "Close all connections",
+      "parent": "Pool"
+    },
+    {
+      "name": "on",
+      "type": "missing-method",
+      "severity": "P1",
+      "description": "Event listener",
+      "parent": "Pool"
+    },
+    {
+      "name": "totalCount",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Total connections",
+      "parent": "Pool"
+    },
+    {
+      "name": "idleCount",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Idle connections",
+      "parent": "Pool"
+    },
+    {
+      "name": "waitingCount",
+      "type": "missing-method",
+      "severity": "P2",
+      "description": "Waiting requests",
+      "parent": "Pool"
+    }
+  ],
+  "p0Gaps": 4,
+  "p1Gaps": 2,
+  "p2Gaps": 5,
+  "missingMethods": 11,
+  "missingTypes": 0,
+  "missingClasses": 0
+}

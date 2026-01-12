@@ -1,0 +1,474 @@
+---
+title: linear.do
+description: Linear on the Edge — A fully managed Linear-compatible project management service running on Cloudflare Workers with AI agent support.
+---
+
+# linear.do
+
+**Linear on the Edge** — A Linear-compatible project management service that runs entirely on Cloudflare Workers, with native AI agent support, real-time webhooks, and global edge deployment.
+
+```typescript
+import { LinearClient } from 'linear.do'
+
+const client = new LinearClient('https://your-worker.workers.dev')
+
+// It's just Linear
+const { team } = await client.teamCreate({ name: 'Engineering', key: 'ENG' })
+const { issue } = await client.issueCreate({
+  teamId: team.id,
+  title: 'Implement authentication',
+  priority: 1,
+})
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/linear](/docs/integrations/linear/package) for a zero-dependency Linear SDK.
+</Callout>
+
+## Why linear.do?
+
+Traditional project management tools require external API calls, connection management, and careful rate limiting. linear.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** — No servers to manage, no connection limits, no cold starts
+- **Global by Default** — Data lives at the edge, close to your users
+- **Linear Compatible** — Drop-in replacement for Linear API operations
+- **AI-Native** — Built-in support for AI agents, MCP protocol, and automated workflows
+- **Serverless Economics** — Pay only for what you use, scale to zero
+
+## Features
+
+### Core Project Management
+
+| Feature | Description |
+|---------|-------------|
+| **Teams** | Create, update, delete teams with workflow states |
+| **Issues** | Full CRUD with priorities, states, relations, and search |
+| **Projects** | Project tracking with milestones and health updates |
+| **Cycles** | Sprint management with progress tracking |
+| **Comments** | Threaded comments with reactions |
+| **Labels** | Hierarchical labels (team and org-wide) |
+| **Workflow States** | Customizable states (backlog, started, completed, etc.) |
+
+### AI & Agents
+
+| Feature | Description |
+|---------|-------------|
+| **MCP Protocol** | Model Context Protocol server for AI agent integration |
+| **Automated Triage** | AI-powered issue routing and assignment |
+| **Sprint Planning** | Automated workload balancing and capacity planning |
+| **Time-Travel** | Query historical state for debugging and audits |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **GraphQL API** | Linear-compatible GraphQL endpoint |
+| **HTTP/RPC** | JSON-RPC over HTTP with batching |
+| **Webhooks** | Real-time event notifications with signature verification |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install linear.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { LinearEntrypoint, LinearDatabase } from 'linear.do'
+
+export { LinearDatabase }
+export default LinearEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-linear.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "LINEAR_DATABASE", "class_name": "LinearDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LinearDatabase"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Local Development
+
+```bash
+# Start a local server
+npx linear.do serve --port 3000
+
+# Use in your code
+const client = new LinearClient('http://localhost:3000')
+```
+
+## Examples
+
+### AI Agent Issue Triage
+
+```typescript
+import { LinearClient } from 'linear.do'
+import { createMcpServer, createAnthropicAdapter } from 'linear.do/mcp'
+import Anthropic from '@anthropic-ai/sdk'
+
+const linear = new LinearClient('https://your-worker.workers.dev')
+
+const server = createMcpServer({ linear })
+const adapter = createAnthropicAdapter({ server })
+await adapter.initialize()
+
+const anthropic = new Anthropic()
+const response = await anthropic.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  tools: await adapter.getTools(),
+  messages: [{
+    role: 'user',
+    content: 'Create a high priority bug for the login page crashing on Safari'
+  }]
+})
+```
+
+### Automated Sprint Planning
+
+```typescript
+import { LinearClient } from 'linear.do'
+
+const linear = new LinearClient('https://your-worker.workers.dev')
+
+async function planSprint(teamId: string) {
+  // Get unassigned issues ordered by priority
+  const backlog = await linear.issues({
+    filter: {
+      team: { id: { eq: teamId } },
+      assignee: { null: true },
+      state: { type: { eq: 'backlog' } },
+    },
+    orderBy: 'priority',
+  })
+
+  // Get team members and their current workload
+  const team = await linear.team(teamId)
+  const members = await team.members?.()
+
+  const assignments = await Promise.all(
+    members?.nodes.map(async (member) => {
+      const inProgress = await linear.issues({
+        filter: {
+          assignee: { id: { eq: member.id } },
+          state: { type: { eq: 'started' } },
+        },
+      })
+      return { member, workload: inProgress.nodes.length }
+    }) ?? []
+  )
+
+  // Auto-assign based on capacity
+  for (const issue of backlog.nodes.slice(0, 10)) {
+    const leastBusy = assignments.sort((a, b) => a.workload - b.workload)[0]
+    await linear.issueUpdate(issue.id, {
+      assigneeId: leastBusy.member.id,
+    })
+    leastBusy.workload++
+  }
+}
+```
+
+### Real-Time Webhooks
+
+```typescript
+import { LinearClient } from 'linear.do'
+
+const linear = new LinearClient('https://your-worker.workers.dev')
+
+// Register webhook
+await linear.webhookCreate({
+  url: 'https://your-app.com/webhooks/linear',
+  resourceTypes: ['Issue', 'Comment', 'Project'],
+  secret: env.WEBHOOK_SECRET,
+})
+
+// Handle incoming webhooks
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const payload = await request.text()
+
+    const isValid = await linear.webhooks.verifyRequest(
+      payload,
+      {
+        'linear-signature': request.headers.get('linear-signature')!,
+        'linear-timestamp': request.headers.get('linear-timestamp')!,
+      },
+      env.WEBHOOK_SECRET
+    )
+
+    if (!isValid) {
+      return new Response('Invalid signature', { status: 401 })
+    }
+
+    const event = JSON.parse(payload)
+
+    switch (event.type) {
+      case 'Issue':
+        await handleIssueEvent(event)
+        break
+      case 'Comment':
+        await handleCommentEvent(event)
+        break
+    }
+
+    return new Response('OK')
+  }
+}
+```
+
+### Time-Travel Queries
+
+```typescript
+const linear = new LinearClient('https://your-worker.workers.dev')
+
+// Get issue as it was yesterday
+const issueYesterday = await linear.issueAsOf(
+  'issue-id',
+  Date.now() - 86400000
+)
+
+// Get full issue history for audit
+const history = await linear.issueHistory('issue-id')
+
+// Compare states
+console.log('Title changed from:', history[0].title, 'to:', history[1].title)
+```
+
+### Sprint Metrics Dashboard
+
+```typescript
+async function getSprintMetrics(cycleId: string) {
+  const cycle = await linear.cycle(cycleId)
+  const issues = await cycle.issues?.()
+
+  const total = issues?.nodes.length ?? 0
+  const completed = issues?.nodes.filter(
+    (i) => i.state.type === 'completed'
+  ).length ?? 0
+  const inProgress = issues?.nodes.filter(
+    (i) => i.state.type === 'started'
+  ).length ?? 0
+
+  return {
+    total,
+    completed,
+    inProgress,
+    remaining: total - completed,
+    progress: total > 0 ? (completed / total) * 100 : 0,
+    daysLeft: Math.ceil(
+      (new Date(cycle.endsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)
+    ),
+    burndownRate: completed / (total - (total - completed - inProgress) || 1),
+  }
+}
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------------+
+|                           Client Applications                              |
++-------------------+-------------------+-------------------+----------------+
+|    GraphQL API    |     HTTP/RPC      |    Webhooks       | Service Bind   |
+|  (Linear compat)  |    JSON-RPC       |   Real-time       | Worker-to-Wkr  |
++-------------------+-------------------+-------------------+----------------+
+|                          linear.do Worker (Edge)                          |
++---------------------------------------------------------------------------+
+|  Query Engine  |  Webhook Dispatcher  |  MCP Server  |  Time-Travel       |
++---------------------------------------------------------------------------+
+|                    Durable Objects (SQLite Storage)                       |
++-----------------------------------+---------------------------------------+
+|           TemporalStore           |              WindowManager            |
+|    (Issues, Projects, Teams)      |     (Cycles, Sprint Tracking)         |
++-----------------------------------+---------------------------------------+
+```
+
+linear.do stores all data in Durable Objects with SQLite:
+
+1. **TemporalStore** — Version-controlled storage for issues, projects, and teams
+2. **WindowManager** — Time-windowed tracking for cycles and sprints
+3. **Edge Execution** — Queries execute at the edge, close to your users
+4. **Webhook System** — Real-time event dispatch with retry and verification
+
+## Connectivity Options
+
+### GraphQL API (Linear Compatible)
+
+```graphql
+query {
+  issues(filter: { priority: { lte: 2 } }) {
+    nodes {
+      id
+      identifier
+      title
+      priority
+      state {
+        name
+        type
+      }
+    }
+  }
+}
+```
+
+### HTTP RPC
+
+```typescript
+// Direct HTTP calls
+const response = await fetch('https://your-worker.workers.dev/rpc', {
+  method: 'POST',
+  body: JSON.stringify({
+    method: 'issueCreate',
+    params: {
+      teamId: 'team-id',
+      title: 'New issue',
+      priority: 2,
+    }
+  })
+})
+
+// Batch requests
+const batch = await fetch('https://your-worker.workers.dev/rpc/batch', {
+  method: 'POST',
+  body: JSON.stringify([
+    { id: '1', method: 'issues', params: { filter: { priority: { eq: 1 } } } },
+    { id: '2', method: 'teams', params: {} }
+  ])
+})
+```
+
+### Service Bindings (Zero Latency)
+
+```typescript
+// In your consuming worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const issues = await env.LINEAR.issues({
+      filter: { priority: { lte: 2 } }
+    })
+    return Response.json(issues)
+  }
+}
+```
+
+## Configuration
+
+### Basic Setup
+
+```jsonc
+{
+  "name": "linear-do",
+  "main": "src/index.ts",
+  "durable_objects": {
+    "bindings": [{ "name": "LINEAR_DATABASE", "class_name": "LinearDatabase" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LinearDatabase"] }]
+}
+```
+
+### With AI Integration
+
+```jsonc
+{
+  "ai": { "binding": "AI" },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "AUTO_TRIAGE_ENABLED": "true"
+  }
+}
+```
+
+## Common Patterns
+
+### Issue Triage Workflow
+
+```typescript
+async function triageIssue(issueId: string) {
+  const issue = await linear.issue(issueId)
+
+  // Auto-assign priority based on keywords
+  let priority = 3 // Medium default
+
+  if (issue.title.toLowerCase().includes('crash') ||
+      issue.title.toLowerCase().includes('down')) {
+    priority = 1 // Urgent
+  } else if (issue.title.toLowerCase().includes('bug')) {
+    priority = 2 // High
+  }
+
+  // Auto-assign labels
+  const labels: string[] = []
+  if (issue.description?.includes('mobile')) labels.push('mobile')
+  if (issue.description?.includes('api')) labels.push('backend')
+
+  await linear.issueUpdate(issueId, {
+    priority,
+    labelIds: labels,
+  })
+}
+```
+
+### Cycle Progress Tracking
+
+```typescript
+async function trackCycleProgress(teamId: string) {
+  const team = await linear.team(teamId)
+  const cycle = await team.activeCycle
+
+  if (!cycle) return null
+
+  const issues = await cycle.issues?.()
+  const states = issues?.nodes.reduce((acc, issue) => {
+    acc[issue.state.type] = (acc[issue.state.type] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  return {
+    cycleId: cycle.id,
+    name: cycle.name,
+    startsAt: cycle.startsAt,
+    endsAt: cycle.endsAt,
+    issuesByState: states,
+    completionRate: (states?.completed || 0) / (issues?.nodes.length || 1),
+  }
+}
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/linear](/docs/integrations/linear/package) - In-memory Linear for testing
+- [Webhooks](/docs/events) - Event handling and webhooks
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
+- [AI Agents](/docs/agents) - Agent integration patterns

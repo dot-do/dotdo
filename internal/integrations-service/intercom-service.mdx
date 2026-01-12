@@ -1,0 +1,457 @@
+---
+title: intercom.do
+description: Customer Messaging on the Edge - A fully managed Intercom-compatible platform running on Cloudflare Workers with AI agent support and real-time features.
+---
+
+# intercom.do
+
+**Customer Messaging on the Edge** - An Intercom-compatible customer messaging platform that runs entirely on Cloudflare Workers, with native AI agent support, real-time conversations, and omnichannel delivery.
+
+```typescript
+import { IntercomClient } from 'intercom.do'
+
+const client = new IntercomClient('https://your-worker.workers.dev')
+
+// It's just Intercom
+const contact = await client.contacts.create({
+  role: 'user',
+  email: 'alice@example.com',
+  name: 'Alice Smith',
+})
+
+const conversation = await client.conversations.create({
+  from: { type: 'user', id: contact.id },
+  body: 'Hi, I need help with my order',
+})
+```
+
+<Callout type="info">
+Looking for an SDK for testing? See [@dotdo/intercom](/docs/integrations/intercom/package) for a local implementation perfect for development and CI/CD.
+</Callout>
+
+## Why intercom.do?
+
+Traditional customer messaging platforms require expensive subscriptions, complex integrations, and careful scaling. intercom.do eliminates all of that by running directly on Cloudflare's edge network:
+
+- **Zero Infrastructure** - No servers to manage, no connection limits, no cold starts
+- **Global by Default** - Conversations happen at the edge, close to your users
+- **Intercom Compatible** - Drop-in replacement for most Intercom operations
+- **AI-Native** - Built-in support for AI support agents, automated responses, and intelligent routing
+- **Serverless Economics** - Pay only for what you use, scale to zero
+
+## Features
+
+### Core Messaging
+
+| Feature | Description |
+|---------|-------------|
+| **Contacts** | Full contact management with users, leads, custom attributes, tags, and companies |
+| **Conversations** | Real-time messaging with assignment, snoozing, priorities, and conversation parts |
+| **Help Center** | Articles, collections, and full-text search for self-service support |
+| **Events** | Track user activity with custom events and metadata |
+| **Webhooks** | Real-time event notifications with signature verification |
+
+### AI & Automation
+
+| Feature | Description |
+|---------|-------------|
+| **AI Support Agents** | Claude-powered agents that can handle Tier 1 support automatically |
+| **Smart Routing** | AI-powered conversation routing based on intent and sentiment |
+| **Suggested Replies** | Real-time reply suggestions for human agents |
+| **Auto-Tagging** | Automatic conversation categorization and tagging |
+| **Knowledge Base RAG** | AI responses grounded in your help center articles |
+
+### Delivery Channels
+
+| Feature | Description |
+|---------|-------------|
+| **In-App Messaging** | JavaScript SDK for web and mobile apps |
+| **Email** | Transactional and marketing email with templates |
+| **Push Notifications** | iOS and Android push via FCM/APNs |
+| **SMS** | Two-way SMS messaging (via Twilio integration) |
+| **Slack** | Conversation sync with Slack channels |
+
+### Connectivity
+
+| Feature | Description |
+|---------|-------------|
+| **REST API** | Full Intercom-compatible REST API |
+| **WebSocket** | Real-time conversation updates and presence |
+| **Webhooks** | Event-driven integrations with signature verification |
+| **Service Bindings** | Zero-latency Worker-to-Worker communication |
+
+## Installation
+
+```bash
+npm install intercom.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { IntercomEntrypoint, IntercomMessaging } from 'intercom.do'
+
+export { IntercomMessaging }
+export default IntercomEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-intercom.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "INTERCOM_MESSAGING", "class_name": "IntercomMessaging" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IntercomMessaging"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Connect Your App
+
+```typescript
+import { IntercomClient } from 'intercom.do'
+
+const client = new IntercomClient('https://your-worker.workers.dev', {
+  apiKey: process.env.INTERCOM_DO_API_KEY,
+})
+
+// Create a contact when a user signs up
+const contact = await client.contacts.create({
+  role: 'user',
+  email: user.email,
+  name: user.name,
+  external_id: user.id,
+  custom_attributes: {
+    plan: user.plan,
+    signup_source: 'web',
+  },
+})
+```
+
+## Examples
+
+### AI-Powered Support Agent
+
+```typescript
+import { createSupportAgent } from 'intercom.do/ai'
+
+const agent = createSupportAgent({
+  name: 'Support Bot',
+  model: 'claude-sonnet-4-20250514',
+  knowledgeBase: client.articles,
+  escalationRules: {
+    sentimentThreshold: 0.3, // Escalate negative conversations
+    topics: ['billing', 'refund'], // Always escalate these topics
+    slaMinutes: 5, // Escalate if no human response in 5 mins
+  },
+})
+
+// Handle incoming conversations
+client.conversations.watch(async (conversation) => {
+  if (conversation.assignee_type === 'bot') {
+    const response = await agent.respond(conversation)
+
+    if (response.shouldEscalate) {
+      await client.conversations.assign({
+        id: conversation.id,
+        admin_id: 'system',
+        assignee_id: response.suggestedAdmin,
+      })
+    } else {
+      await client.conversations.reply({
+        id: conversation.id,
+        type: 'admin',
+        admin_id: agent.id,
+        body: response.message,
+      })
+    }
+  }
+})
+```
+
+### Real-Time Conversation Stream
+
+```typescript
+const stream = client.conversations.watch({
+  filter: { open: true },
+})
+
+for await (const event of stream) {
+  switch (event.type) {
+    case 'conversation.created':
+      console.log('New conversation:', event.conversation.id)
+      await notifyTeam(event.conversation)
+      break
+
+    case 'conversation.user.replied':
+      console.log('User replied:', event.conversation.id)
+      await updateDashboard(event.conversation)
+      break
+
+    case 'conversation.admin.replied':
+      console.log('Admin replied:', event.conversation.id)
+      break
+  }
+}
+```
+
+### Omnichannel Messaging
+
+```typescript
+// Send via multiple channels based on user preference
+await client.messages.send({
+  contact_id: contact.id,
+  template: 'order_shipped',
+  data: {
+    order_id: '12345',
+    tracking_url: 'https://tracking.example.com/12345',
+  },
+  channels: ['in_app', 'email', 'push'], // Try each in order
+  fallback: true, // Use next channel if delivery fails
+})
+```
+
+### Help Center with RAG Search
+
+```typescript
+// Create articles
+await client.articles.create({
+  title: 'How to Reset Your Password',
+  body: '<h1>Password Reset</h1><p>Follow these steps...</p>',
+  author_id: adminId,
+  state: 'published',
+  collection_id: 'getting-started',
+})
+
+// AI-powered search
+const results = await client.articles.search({
+  query: 'I forgot my password',
+  semantic: true, // Use vector similarity
+  limit: 5,
+})
+
+// Get suggested response based on articles
+const suggestion = await client.ai.suggestReply({
+  conversation_id: conversationId,
+  context: results.articles,
+})
+```
+
+### Custom Bots and Workflows
+
+```typescript
+import { BotBuilder } from 'intercom.do/bots'
+
+const onboardingBot = new BotBuilder('onboarding')
+  .trigger({ event: 'user.created' })
+  .wait({ duration: '5 minutes' })
+  .sendMessage({
+    template: 'welcome',
+    channel: 'in_app',
+  })
+  .branch({
+    condition: 'user.completed_onboarding',
+    true: [
+      { action: 'tag', tag: 'onboarded' },
+    ],
+    false: [
+      { action: 'wait', duration: '1 day' },
+      { action: 'sendMessage', template: 'onboarding_reminder' },
+    ],
+  })
+  .build()
+
+await client.bots.deploy(onboardingBot)
+```
+
+### Analytics and Reporting
+
+```typescript
+// Get conversation metrics
+const metrics = await client.analytics.conversations({
+  period: 'last_30_days',
+  groupBy: 'day',
+})
+
+console.log('Metrics:', {
+  totalConversations: metrics.total,
+  avgResponseTime: metrics.avgResponseTime,
+  avgResolutionTime: metrics.avgResolutionTime,
+  csat: metrics.csat,
+})
+
+// Team performance
+const teamStats = await client.analytics.team({
+  period: 'last_7_days',
+  admins: ['admin_1', 'admin_2'],
+})
+```
+
+## Architecture
+
+```
++---------------------------------------------------------------------------+
+|                           Client Applications                              |
++-----------------+-----------------+-----------------+---------------------+
+|   JavaScript    |   REST API      |   WebSocket     |  Service Binding    |
+|   SDK           |   Intercom-     |   Real-time     |  Worker-to-Worker   |
+|   (Web/Mobile)  |   Compatible    |   Updates       |                     |
++-----------------+-----------------+-----------------+---------------------+
+|                         intercom.do Worker (Edge)                         |
++---------------------------------------------------------------------------+
+|  Contact Manager  |  Conversation Engine  |  AI Agent  |  Delivery Router  |
++---------------------------------------------------------------------------+
+|                      Durable Objects (SQLite Storage)                      |
++---------------------------+-----------------------------------------------+
+|     Vectorize             |           Queues / Channels                    |
+|  (Article Embeddings)     |    (Email, Push, SMS Delivery)                |
++---------------------------+-----------------------------------------------+
+```
+
+intercom.do processes messages at the edge:
+
+1. **Contact Management** - Contacts, companies, and attributes stored in Durable Objects
+2. **Conversation Engine** - Real-time messaging with SQLite-backed persistence
+3. **AI Layer** - Claude-powered agents with RAG over your knowledge base
+4. **Delivery Router** - Omnichannel message delivery with fallback logic
+
+## Configuration
+
+### With AI Support Agent
+
+```jsonc
+{
+  "ai": { "binding": "AI" },
+  "vectorize": {
+    "bindings": [{ "binding": "VECTORIZE", "index_name": "articles" }]
+  },
+  "vars": {
+    "ANTHROPIC_API_KEY": "sk-...",
+    "AI_AGENT_ENABLED": "true",
+    "AI_AGENT_MODEL": "claude-sonnet-4-20250514"
+  }
+}
+```
+
+### With Email Delivery
+
+```jsonc
+{
+  "vars": {
+    "SENDGRID_API_KEY": "SG...",
+    "EMAIL_FROM": "support@yourapp.com",
+    "EMAIL_ENABLED": "true"
+  }
+}
+```
+
+### With Push Notifications
+
+```jsonc
+{
+  "vars": {
+    "FCM_SERVER_KEY": "...",
+    "APNS_KEY_ID": "...",
+    "APNS_TEAM_ID": "...",
+    "PUSH_ENABLED": "true"
+  }
+}
+```
+
+## JavaScript SDK (Client-Side)
+
+```html
+<script>
+  window.intercomSettings = {
+    api_base: 'https://your-worker.workers.dev',
+    app_id: 'your-workspace-id',
+  }
+</script>
+<script src="https://your-worker.workers.dev/sdk.js" async></script>
+```
+
+```javascript
+// Identify the user
+Intercom('boot', {
+  user_id: 'user_123',
+  email: 'alice@example.com',
+  name: 'Alice Smith',
+  created_at: 1234567890,
+})
+
+// Track events
+Intercom('trackEvent', 'purchased', {
+  product: 'Pro Plan',
+  value: 99,
+})
+
+// Open messenger
+Intercom('show')
+
+// Start a conversation
+Intercom('showNewMessage', 'Hi, I need help with...')
+```
+
+## Webhooks
+
+```typescript
+import { verifyWebhook } from 'intercom.do'
+
+app.post('/webhooks/intercom', async (c) => {
+  const signature = c.req.header('X-Hub-Signature')
+  const body = await c.req.text()
+
+  if (!verifyWebhook(body, signature, process.env.WEBHOOK_SECRET)) {
+    return c.text('Invalid signature', 401)
+  }
+
+  const event = JSON.parse(body)
+
+  switch (event.topic) {
+    case 'conversation.user.created':
+      await handleNewConversation(event.data.item)
+      break
+    case 'conversation.user.replied':
+      await handleUserReply(event.data.item)
+      break
+    case 'contact.created':
+      await syncToSalesforce(event.data.item)
+      break
+  }
+
+  return c.text('OK')
+})
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run locally
+npm run dev
+
+# Run tests
+npm test
+
+# Deploy
+npm run deploy
+```
+
+## Related
+
+- [@dotdo/intercom](/docs/integrations/intercom/package) - Intercom SDK for testing
+- [Slack Integration](/docs/integrations/slack) - Team messaging
+- [SendGrid Integration](/docs/integrations/sendgrid) - Email delivery
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage
