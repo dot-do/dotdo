@@ -78,19 +78,18 @@ const [rows] = await connection.execute(
 )
 ```
 
-### @dotdo/mongo
+### @dotdo/mongodb
 
 MongoDB driver compatible. Supports the full CRUD API.
 
 ```typescript
-import { MongoClient } from '@dotdo/mongo'
+import { DocumentStore } from '@dotdo/mongodb'
 
-const client = new MongoClient(uri, {
+const store = new DocumentStore({
   shardKey: 'workspace_id',
 })
 
-await client.connect()
-const db = client.db('myapp')
+const db = store.db('myapp')
 const users = db.collection('users')
 
 // Sharded by workspace_id
@@ -230,16 +229,16 @@ import { createDuckDB } from '@dotdo/duckdb'
 const db = await createDuckDB()
 
 // Query Parquet files directly from R2
-// Note: Use parameterized queries in production to prevent SQL injection
+// Use parameterized queries to prevent SQL injection
 const result = await db.query(`
   SELECT
     date_trunc('day', created_at) as day,
     count(*) as signups
   FROM read_parquet('r2://analytics/users/*.parquet')
-  WHERE tenant_id = '${tenantId}'
+  WHERE tenant_id = $1
   GROUP BY 1
   ORDER BY 1
-`)
+`, [tenantId])
 ```
 
 ### @dotdo/cockroach
@@ -393,15 +392,15 @@ const recent = await pool.query(
 )
 
 // Cold queries go to DuckDB + Parquet
-// Note: Use parameterized queries in production to prevent SQL injection
+// Use parameterized queries to prevent SQL injection
 const historical = await pool.queryAnalytics(`
   SELECT
     date_trunc('month', created_at) as month,
     sum(amount) as revenue
   FROM orders
-  WHERE tenant_id = '${tenantId}'
+  WHERE tenant_id = $1
   GROUP BY 1
-`)
+`, [tenantId])
 ```
 
 ## Migration Patterns
@@ -435,13 +434,13 @@ import { MongoClient } from 'mongodb'
 const client = new MongoClient('mongodb+srv://...')
 
 // After
-import { MongoClient } from '@dotdo/mongo'
-const client = new MongoClient(process.env.DOTDO_URL, {
+import { DocumentStore } from '@dotdo/mongodb'
+const store = new DocumentStore({
   shardKey: 'workspace_id', // Add shard key
 })
 
 // Code stays the same
-const db = client.db('myapp')
+const db = store.db('myapp')
 const users = await db.collection('users').findOne({ email })
 ```
 

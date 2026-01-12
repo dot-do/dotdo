@@ -97,9 +97,12 @@ const type = ai`what type of function is this? ${spec}`
 
 ## Execution Durability
 
-Three levels of execution durability:
+Three levels of execution durability via the WorkflowContext (`$`):
 
 ```typescript
+// $ is the WorkflowContext, available as this.$ in DO methods
+const $ = this.$
+
 $.send(event, data)  // Fire-and-forget (non-blocking, non-durable)
 $.try(action, data)  // Quick attempt (blocking, non-durable)
 $.do(action, data)   // Durable execution (blocking, retries, guaranteed)

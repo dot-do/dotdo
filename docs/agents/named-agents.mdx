@@ -1,14 +1,14 @@
 ---
 title: Named Agents
-description: Meet Priya, Ralph, Tom, Rae, Mark, Sally, and Quinn - your AI team with real identity
+description: Meet Priya, Ralph, Tom, Mark, Sally, and Quinn - your AI team with real identity
 ---
 
 # Named Agents
 
-Seven agents. Real identity. Full audit trail.
+Six agents. Real identity. Full audit trail.
 
 ```typescript
-import { priya, ralph, tom, rae, mark, sally, quinn } from 'agents.do'
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
 ```
 
 Each agent has a GitHub account, email address, and consistent avatar across all platforms. When they act, their identity is preserved.
@@ -101,35 +101,6 @@ const approved = await tom.approve(code)
 - Suggests refactors, not rewrites
 
 When Tom reviews your PR, you see `@tom-do` commenting on GitHub. Real comments, real identity.
-
----
-
-## Rae
-
-**Frontend Engineer** | `rae@agents.do` | `@rae-do`
-
-React, UI, accessibility. Rae builds interfaces. They care about UX, responsiveness, and a11y.
-
-```typescript
-// Build components
-await rae`build the ${component} component`
-
-// Make responsive
-await rae`make ${page} responsive`
-
-// Accessibility audit
-await rae`audit accessibility for ${app}`
-
-// UI polish
-await rae`improve the UX of ${flow}`
-```
-
-**How they build:**
-
-- Mobile-first responsive design
-- WCAG 2.1 AA compliance
-- Semantic HTML
-- Progressive enhancement
 
 ---
 

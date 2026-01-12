@@ -10,7 +10,42 @@ import { AutoTypeTable } from 'fumadocs-typescript/ui'
 
 The `$` proxy is THE primary API in dotdo. One interface for durability, events, scheduling, AI, and cross-DO communication.
 
+## Getting the $ Context
+
+The `$` WorkflowContext is available as `this.$` inside any Durable Object method. You can use it directly or destructure it for convenience:
+
 ```typescript
+import { DO } from 'dotdo'
+
+export class MyStartup extends DO {
+  async launch() {
+    // Option 1: Use this.$ directly
+    this.$.on.Customer.signup(async (event) => {
+      await sendWelcomeEmail(event.data.email)
+    })
+
+    // Option 2: Destructure for cleaner code
+    const $ = this.$
+
+    $.every.monday.at('9am')(async () => {
+      await generateWeeklyReport()
+    })
+
+    await $.do('processPayment', { amount: 100 })
+  }
+}
+```
+
+<Callout type="info">
+Throughout the docs, standalone `$` in code examples assumes you've set `const $ = this.$` or are inside a DO method where `this.$` is available.
+</Callout>
+
+## Overview
+
+```typescript
+// $ is the WorkflowContext, available as this.$ in DO methods
+const $ = this.$
+
 // Three durability levels
 $.send(event)   // Fire-and-forget
 $.try(action)   // Single attempt

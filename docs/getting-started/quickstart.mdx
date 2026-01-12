@@ -26,7 +26,7 @@ Unlike typical async code, you pass promises directly to other agents: `ralph`bu
 <Callout type="info">
 **The $ Context**
 
-`$` is your workflow context, providing event handlers (`$.on.Customer.signup`), scheduling (`$.every.monday.at('9am')`), and durability levels (`$.do()`, `$.try()`, `$.send()`).
+`$` is your workflow context, available as `this.$` inside DO methods. It provides event handlers (`$.on.Customer.signup`), scheduling (`$.every.monday.at('9am')`), and durability levels (`$.do()`, `$.try()`, `$.send()`). In code examples, we typically use `const $ = this.$` for cleaner syntax.
 </Callout>
 
 These patterns will make more sense as you see them in action below.
@@ -243,6 +243,9 @@ export class SaasIdea extends Startup {
   hypothesis = 'Small teams need a simple way to track customer feedback'
 
   async init() {
+    // $ is the WorkflowContext, available as this.$ in DO methods
+    const $ = this.$
+
     // When a customer signs up
     $.on.Customer.signup(async (event) => {
       sally`welcome ${event.customer}`

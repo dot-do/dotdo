@@ -107,7 +107,8 @@ $.on.Customer.signup(handler)
 $.on.Payment.failed(handler)
 
 // Scheduling
-$.every.monday.at('9am')(handler)
+$.every.Monday.at9am(handler)
+$.every.day.at('6pm')(handler)
 $.every.hour(handler)
 
 // Cross-DO RPC

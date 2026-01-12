@@ -111,10 +111,10 @@ const { data } = await supabase.from('users').select('*')
 For MongoDB:
 
 ```typescript
-import { MongoClient } from '@dotdo/mongo'
+import { DocumentStore } from '@dotdo/mongodb'
 
-const client = new MongoClient('mongodb://...')
-const db = client.db('myapp')
+const store = new DocumentStore()
+const db = store.db('myapp')
 const users = await db.collection('users').find({ active: true }).toArray()
 ```
 
@@ -134,7 +134,7 @@ const value = await redis.get('key')
 
 - `@dotdo/postgres` - PostgreSQL wire protocol
 - `@dotdo/mysql` - MySQL wire protocol
-- `@dotdo/mongo` - MongoDB driver compatible
+- `@dotdo/mongodb` - MongoDB driver compatible
 - `@dotdo/supabase` - Supabase client SDK
 - `@dotdo/firebase` - Firebase Admin SDK
 - `@dotdo/neon` - Neon serverless driver

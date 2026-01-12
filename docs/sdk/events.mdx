@@ -9,15 +9,30 @@ import { Callout } from 'fumadocs-ui/components/callout'
 
 Domain events are the backbone of reactive workflows in dotdo. Subscribe to any `Noun.verb` combination, emit events to trigger handlers, and build loosely-coupled systems that respond to business changes.
 
-```typescript
-// Subscribe - infinite Noun.verb combinations
-$.on.Customer.signup(handler)
-$.on.Payment.failed(handler)
-$.on.Order.shipped(handler)
+## Getting the $ Context
 
-// Emit - trigger handlers across the system
-$.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
+The `$` WorkflowContext is available as `this.$` inside any Durable Object method:
+
+```typescript
+import { DO } from 'dotdo'
+
+export class MyApp extends DO {
+  async init() {
+    // $ is the WorkflowContext, available as this.$ in DO methods
+    const $ = this.$
+
+    // Subscribe - infinite Noun.verb combinations
+    $.on.Customer.signup(handler)
+    $.on.Payment.failed(handler)
+    $.on.Order.shipped(handler)
+
+    // Emit - trigger handlers across the system
+    $.emit.Customer.signup({ id: 'cust-123', email: 'user@example.com.ai' })
+  }
+}
 ```
+
+Throughout this page, `$` in code examples assumes you have access to `this.$`.
 
 ## The Two-Level Proxy Pattern
 

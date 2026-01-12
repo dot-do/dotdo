@@ -13,6 +13,9 @@ Events are the connective tissue of dotdo. Every action, every state change, eve
 2. **5W+H Events** - A universal schema for storage, querying, and interoperability
 
 ```typescript
+// $ is the WorkflowContext, available as this.$ in DO methods
+const $ = this.$
+
 // Domain events - subscribe to any Noun.verb combination
 $.on.Customer.signup(async (event) => {
   await sendWelcomeEmail(event.data.email)

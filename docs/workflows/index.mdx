@@ -3,63 +3,789 @@ title: Workflows
 description: Durable workflow orchestration with the $ context DSL
 ---
 
+import { Callout, Tabs, Tab } from 'fumadocs-ui/components/callout'
+
 # Workflows
 
-dotdo workflows provide durable execution with automatic retries, scheduling, and cross-DO communication.
+dotdo workflows provide durable execution with automatic retries, scheduling, and cross-DO communication. Built on V8 isolates and Durable Objects, workflows run at the edge with 0ms cold starts and automatic state persistence.
+
+## Why dotdo Workflows?
+
+| Feature | Temporal | Inngest | AWS Step Functions | dotdo $ DSL |
+|---------|----------|---------|-------------------|-------------|
+| **Cold starts** | Warm workers | Serverless | Warm | 0ms (V8 isolates) |
+| **Pricing** | Per-worker | Per-execution | Per-transition | Per-request |
+| **Durability** | Explicit | Automatic | Explicit (JSON) | Automatic |
+| **SDK complexity** | High | Medium | High (JSON/ASL) | Low (JS native) |
+| **State location** | Temporal Cloud | Inngest Cloud | AWS | Your DOs |
+| **Type safety** | Good | Good | Poor | Excellent |
+| **Local dev** | Complex | Good | Limited | Native |
+| **Edge runtime** | No | No | No | Yes (300+ cities) |
+
+### Key Differentiators
+
+**Zero Cold Starts**: V8 isolates start in microseconds, not seconds. Your workflows respond instantly to events.
+
+**True Edge**: State lives in Durable Objects, distributed globally. No round-trips to a central cloud.
+
+**Native JavaScript**: No YAML, JSON state machines, or DSLs to learn. Just JavaScript/TypeScript with full type safety.
+
+**Automatic Durability**: Steps are automatically persisted and replayed. No explicit `workflow.sleep()` or `ctx.step.run()` required.
+
+**Pay-per-Request**: No idle worker costs. Pay only when workflows execute.
 
 ## The $ Context DSL
 
-The `$` context provides three durability levels:
+The `$` context is the heart of dotdo workflows. It provides a unified API for durable execution, event handling, scheduling, and cross-DO communication.
 
 ```typescript
-// Fire-and-forget
-$.send(event)
+import { createWorkflowProxy, createWorkflowRuntime } from 'dotdo/workflows'
 
-// Single attempt
-$.try(action)
+const runtime = createWorkflowRuntime()
+const $ = createWorkflowProxy(runtime)
 
-// Durable with retries
-$.do(action)
+// Domain-driven workflow syntax
+const result = await $.Inventory(product).check()
+const priorities = await $.Roadmap(startup).prioritizeBacklog()
+```
+
+## Durability Levels
+
+dotdo provides three distinct durability levels, each optimized for different use cases:
+
+### Fire-and-Forget: `$.send`
+
+Use when you don't need to wait for results or handle failures inline. Events are queued for async processing.
+
+```typescript
+// Non-blocking, non-durable
+// Returns immediately, doesn't wait for result
+$.send('Order.shipped', { orderId, trackingNumber })
+
+// Use for:
+// - Analytics events
+// - Audit logs
+// - Notifications where delivery isn't critical
+// - Cache invalidation
+```
+
+**Characteristics:**
+- Returns immediately (non-blocking)
+- No retry on failure
+- No result returned
+- Lowest latency
+
+**Example: Analytics Pipeline**
+
+```typescript
+on.Customer.signup(async (event) => {
+  // Fire analytics event without waiting
+  $.send('Analytics.track', {
+    event: 'signup',
+    userId: event.data.id,
+    source: event.data.source,
+    timestamp: Date.now(),
+  })
+
+  // Continue with critical path
+  await $.do('Email.sendWelcome', event.data)
+})
+```
+
+### Single Attempt: `$.try`
+
+Use when you want a result but can handle failures gracefully. Single execution attempt with no retries.
+
+```typescript
+// Blocking, non-durable
+// Single attempt, returns result or throws
+const inventory = await $.try('Inventory.check', { sku: 'ABC123' })
+
+// Use for:
+// - Quick lookups
+// - Validations
+// - Operations where retry doesn't make sense
+// - Idempotent checks
+```
+
+**Characteristics:**
+- Blocks until complete
+- Single attempt (no retries)
+- Returns result directly
+- Throws on failure
+
+**Example: Validation Before Checkout**
+
+```typescript
+async function processCheckout(cart: Cart) {
+  try {
+    // Quick inventory check - no need for retries
+    const available = await $.try('Inventory.checkAll', cart.items)
+
+    if (!available.allInStock) {
+      return { error: 'Some items out of stock', items: available.outOfStock }
+    }
+
+    // Proceed with durable checkout
+    await $.do('Checkout.process', cart)
+  } catch (error) {
+    // Inventory service unavailable - handle gracefully
+    return { error: 'Please try again later' }
+  }
+}
+```
+
+### Durable with Retries: `$.do`
+
+Use for critical operations that must succeed. Automatically persists state and retries on failure.
+
+```typescript
+// Blocking, durable, retries on failure
+// Persisted to DO storage, replayed on restart
+const receipt = await $.do('Payment.charge', {
+  customerId,
+  amount: 9999,
+  currency: 'usd',
+})
+
+// Use for:
+// - Payment processing
+// - Order fulfillment
+// - Critical business operations
+// - Anything that MUST eventually succeed
+```
+
+**Characteristics:**
+- Blocks until complete
+- Automatic retries with exponential backoff
+- State persisted to Durable Object storage
+- Replayed on workflow restart
+- Exactly-once execution guarantee
+
+**Example: Order Fulfillment**
+
+```typescript
+on.Order.placed(async (event) => {
+  const order = event.data
+
+  // Each step is durable - if the workflow crashes,
+  // completed steps are skipped on replay
+  await $.do('Inventory.reserve', order.items)
+  await $.do('Payment.charge', order.payment)
+  await $.do('Shipping.createLabel', order.address)
+  await $.do('Notification.send', {
+    type: 'order_confirmed',
+    orderId: order.id,
+  })
+})
+```
+
+### Choosing the Right Level
+
+| Scenario | Level | Why |
+|----------|-------|-----|
+| Log page view | `$.send` | Don't block rendering for analytics |
+| Validate email format | `$.try` | Pure function, no side effects |
+| Charge credit card | `$.do` | Critical, must retry on failure |
+| Send welcome email | `$.do` | Important, should retry if mail server is down |
+| Update search index | `$.send` | Eventually consistent is fine |
+| Check inventory | `$.try` | Fast lookup, can show "check failed" message |
+| Create invoice | `$.do` | Business-critical, must persist |
+
+## Event Handlers
+
+Subscribe to domain events with the `on` proxy:
+
+```typescript
+import { on } from 'dotdo/workflows'
+
+// Noun.verb pattern maps to business domain
+on.Customer.signup(async (event) => {
+  const { id, email, name } = event.data
+
+  await $.do('CRM.createContact', { id, email, name })
+  await $.do('Email.sendWelcome', { email, name })
+  await $.do('Analytics.identify', { userId: id })
+})
+
+on.Payment.failed(async (event) => {
+  await $.do('Notification.sendPaymentFailed', event.data)
+  await $.do('Dunning.startSequence', event.data.customerId)
+})
+
+on.Subscription.cancelled(async (event) => {
+  await $.do('Billing.stopRecurring', event.data)
+  await $.do('Email.sendCancellation', event.data)
+  await $.do('Retention.startWinback', event.data.customerId)
+})
+```
+
+### Handler Cleanup
+
+Handlers return an unsubscribe function:
+
+```typescript
+const unsubscribe = on.Customer.signup(handler)
+
+// Later, remove the handler
+unsubscribe()
+```
+
+For Durable Objects, use context-based cleanup:
+
+```typescript
+import { clearHandlersByContext } from 'dotdo/workflows'
+
+export class MyDO extends DurableObject {
+  async destroy() {
+    // Remove all handlers registered by this DO
+    clearHandlersByContext(this.id)
+  }
+}
 ```
 
 ## Scheduling
 
+Fluent API for recurring and one-time schedules:
+
 ### Recurring Schedules
 
 ```typescript
+import { every } from 'dotdo/workflows'
+
 // Every hour
-$.every.hour(handler)
+every.hour(async () => {
+  await $.do('Metrics.aggregate')
+})
 
 // Specific day and time
-$.every.monday.at('9am')(handler)
+every.Monday.at9am(async () => {
+  await $.do('Reports.generateWeekly')
+})
 
 // Custom intervals
-$.every(5).minutes(handler)
+every('every 5 minutes', async () => {
+  await $.do('Health.checkExternalServices')
+})
+
+// Weekdays only
+every.weekday.at8am(async () => {
+  await $.do('Team.sendDailyBrief')
+})
 ```
 
 ### One-time Scheduling
 
 ```typescript
 // Delay execution
-$.after(30).seconds(handler)
+$.after(30).seconds(async () => {
+  await $.do('Notification.sendReminder', { userId })
+})
 
 // Schedule for specific time
-$.at('2024-12-25T00:00:00Z')(handler)
+$.at('2024-12-25T00:00:00Z')(async () => {
+  await $.do('Holiday.sendGreeting')
+})
 ```
 
 ## Cross-DO Communication
+
+Call methods on other Durable Objects with the same `$` syntax:
 
 ```typescript
 // Call methods on other Durable Objects
 await $.Customer(id).notify()
 await $.Order(orderId).process()
+await $.Invoice(invoiceId).send()
+
+// Chain calls with pipeline promises
+const customer = await $.Customer(id).load()
+const orders = await $.Customer(id).orders.recent(10)
 
 // Broadcast to multiple DOs
 await $.broadcast('inventory-update', { sku, quantity })
 ```
 
+## Complex Workflow Patterns
+
+### Saga Pattern
+
+Sagas provide a way to maintain data consistency across distributed services without distributed transactions. Each step has a compensation that can undo its effects if a later step fails.
+
+```typescript
+import { SagaBuilder, parallel } from 'dotdo/workflows/compat/temporal/saga'
+
+// Define the order fulfillment saga
+const orderSaga = new SagaBuilder()
+  .addStep({
+    name: 'reserveInventory',
+    execute: async (order) => {
+      const reservation = await inventoryService.reserve(order.items)
+      return reservation
+    },
+    compensate: async (reservation, error) => {
+      // Release the inventory reservation
+      await inventoryService.release(reservation.id)
+    },
+  })
+  .addStep({
+    name: 'processPayment',
+    execute: async (reservation) => {
+      const payment = await paymentService.charge({
+        amount: reservation.total,
+        customerId: reservation.customerId,
+      })
+      return payment
+    },
+    compensate: async (payment, error) => {
+      // Refund the payment
+      await paymentService.refund(payment.id)
+    },
+  })
+  .addStep({
+    name: 'createShipment',
+    execute: async (payment) => {
+      const shipment = await shippingService.create({
+        orderId: payment.orderId,
+        address: payment.shippingAddress,
+      })
+      return shipment
+    },
+    compensate: async (shipment, error) => {
+      // Cancel the shipment
+      await shippingService.cancel(shipment.id)
+    },
+  })
+  .build()
+
+// Execute the saga
+on.Order.placed(async (event) => {
+  const result = await orderSaga.execute(event.data, {
+    timeout: 30000, // 30 second timeout
+    parallelCompensation: false, // Run compensations in reverse order
+  })
+
+  if (result.success) {
+    await $.send('Order.fulfilled', { orderId: event.data.id })
+  } else {
+    // Compensations already ran automatically
+    await $.send('Order.failed', {
+      orderId: event.data.id,
+      reason: result.error?.message,
+      compensated: result.compensated,
+    })
+  }
+})
+```
+
+### Parallel Steps in Sagas
+
+Execute multiple steps concurrently while maintaining compensation guarantees:
+
+```typescript
+import { SagaBuilder, parallel } from 'dotdo/workflows/compat/temporal/saga'
+
+const checkoutSaga = new SagaBuilder()
+  .addStep(parallel({
+    name: 'parallelValidations',
+    steps: [
+      {
+        name: 'validateInventory',
+        execute: async (cart) => inventoryService.validate(cart.items),
+        compensate: async () => {}, // No compensation needed for validation
+      },
+      {
+        name: 'validatePaymentMethod',
+        execute: async (cart) => paymentService.validate(cart.paymentMethod),
+      },
+      {
+        name: 'calculateShipping',
+        execute: async (cart) => shippingService.estimate(cart.address),
+      },
+    ],
+  }))
+  .addStep({
+    name: 'processOrder',
+    execute: async ([inventory, payment, shipping]) => {
+      // All validations passed, process the order
+      return orderService.create({ inventory, payment, shipping })
+    },
+    compensate: async (order) => {
+      await orderService.cancel(order.id)
+    },
+  })
+  .build()
+```
+
+### Long-Running Workflows
+
+Workflows that span days, weeks, or months with scheduled checkpoints:
+
+```typescript
+import { Workflow, every } from 'dotdo/workflows'
+
+// Multi-day onboarding workflow
+const onboardingWorkflow = Workflow('customer-onboarding', async ($, customer) => {
+  // Day 0: Welcome
+  await $.do('Email.sendWelcome', customer)
+  await $.do('Account.createTrial', customer)
+
+  // Day 1: Check engagement
+  await $.sleep('1 day')
+  const engaged = await $.do('Analytics.checkEngagement', customer.id)
+
+  if (!engaged) {
+    await $.do('Email.sendTip1', customer)
+  }
+
+  // Day 3: Feature highlight
+  await $.sleep('2 days')
+  await $.do('Email.sendFeatureHighlight', customer)
+
+  // Day 7: Trial ending soon
+  await $.sleep('4 days')
+  await $.do('Email.sendTrialEndingWarning', customer)
+
+  // Day 14: Trial ended
+  await $.sleep('7 days')
+  const converted = await $.do('Billing.checkConversion', customer.id)
+
+  if (!converted) {
+    await $.do('Retention.startWinbackSequence', customer)
+  }
+})
+
+// Scheduled workflow for recurring operations
+every.monday.at9am(async () => {
+  // Weekly report that runs for each active account
+  const accounts = await $.do('Account.listActive')
+
+  for (const account of accounts) {
+    await $.do('Reports.generateWeekly', account)
+    await $.do('Email.sendWeeklyDigest', account.owner)
+  }
+})
+
+// Long-running approval workflow
+const approvalWorkflow = Workflow('expense-approval', async ($, expense) => {
+  // Create approval request
+  await $.do('Approval.createRequest', expense)
+
+  // Wait for approval (up to 7 days)
+  const approval = await $.waitFor('approval.completed', {
+    timeout: '7 days',
+    filter: { requestId: expense.id },
+  })
+
+  if (approval.approved) {
+    await $.do('Payment.reimburse', expense)
+    await $.do('Email.sendApproved', expense.submitter)
+  } else {
+    await $.do('Email.sendRejected', {
+      submitter: expense.submitter,
+      reason: approval.reason,
+    })
+  }
+})
+```
+
+### Parallel Execution
+
+Execute multiple independent operations concurrently:
+
+```typescript
+on.Order.placed(async (event) => {
+  const order = event.data
+
+  // Execute independent operations in parallel
+  const [inventory, fraud, shipping] = await Promise.all([
+    $.do('Inventory.reserve', order.items),
+    $.do('Fraud.check', order.payment),
+    $.do('Shipping.estimate', order.address),
+  ])
+
+  // All succeeded - continue with order
+  if (fraud.score > 0.8) {
+    // Hold for manual review
+    await $.do('Review.createHold', { order, reason: 'fraud_score' })
+    return
+  }
+
+  await $.do('Payment.charge', {
+    ...order.payment,
+    amount: shipping.cost + order.subtotal,
+  })
+})
+```
+
+### Fan-Out / Fan-In
+
+Process items in parallel and aggregate results:
+
+```typescript
+async function processLargeDataset(items: Item[]) {
+  // Fan-out: process items in parallel batches
+  const batchSize = 100
+  const batches = chunk(items, batchSize)
+
+  const results = await Promise.all(
+    batches.map((batch, i) =>
+      $.do('DataProcessor.processBatch', { batch, batchIndex: i })
+    )
+  )
+
+  // Fan-in: aggregate results
+  const aggregated = await $.do('DataProcessor.aggregate', {
+    results: results.flat(),
+    totalItems: items.length,
+  })
+
+  return aggregated
+}
+```
+
+### Conditional Branching
+
+Route workflows based on runtime conditions:
+
+```typescript
+import { when } from 'dotdo/workflows'
+
+on.Customer.signup(async (event) => {
+  const customer = event.data
+
+  // Conditional routing based on customer type
+  await when(customer.plan === 'enterprise', {
+    then: () => $.do('Sales.assignRep', customer),
+    else: () => $.do('Email.sendSelfServiceGuide', customer),
+  })
+
+  // Multi-branch based on source
+  switch (customer.source) {
+    case 'referral':
+      await $.do('Referral.creditReferrer', customer.referredBy)
+      break
+    case 'ads':
+      await $.do('Marketing.trackConversion', customer)
+      break
+    case 'organic':
+      await $.do('Analytics.trackOrganic', customer)
+      break
+  }
+})
+```
+
+### Human-in-the-Loop
+
+Wait for human input or approval:
+
+```typescript
+import { waitFor } from 'dotdo/workflows'
+import { ceo, legal } from 'humans.do'
+
+// Wait for external approval
+const approval = await waitFor('contract.approved', {
+  timeout: '48 hours',
+  type: 'approval',
+})
+
+// Template literal syntax for human escalation
+const partnershipApproved = await ceo`approve the ${partner.name} partnership`
+const contractReviewed = await legal`review contract for ${deal.amount}`
+
+// With escalation policy
+on.Refund.requested(async (event) => {
+  const refund = event.data
+
+  if (refund.amount > 10000) {
+    // Escalate to human for large refunds
+    const approval = await $.do('Human.requestApproval', {
+      type: 'refund_approval',
+      data: refund,
+      assignTo: 'senior-accountant',
+      sla: '4 hours',
+    })
+
+    if (!approval.approved) {
+      await $.do('Email.sendRefundDenied', refund)
+      return
+    }
+  }
+
+  await $.do('Payment.processRefund', refund)
+})
+```
+
+## Error Handling
+
+### Retry Configuration
+
+Configure retry behavior per operation:
+
+```typescript
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime({
+  retryPolicy: {
+    maxAttempts: 5,
+    initialDelayMs: 1000,
+    maxDelayMs: 60000,
+    backoffMultiplier: 2,
+    jitter: true,
+  },
+})
+```
+
+### Error Callbacks
+
+Handle errors at the runtime level:
+
+```typescript
+const runtime = createWorkflowRuntime({
+  onStepError: (stepId, error, attempt) => {
+    logger.error(`Step ${stepId} failed (attempt ${attempt})`, error)
+
+    if (attempt === 3) {
+      alerting.notify('workflow_step_failing', { stepId, error })
+    }
+  },
+  onStepComplete: (stepId, result) => {
+    metrics.increment('workflow.step.completed', { stepId })
+  },
+})
+```
+
+### Dead Letter Queue
+
+Handle permanently failed steps:
+
+```typescript
+on.DLQ.message(async (event) => {
+  const { stepId, error, attempts, originalPayload } = event.data
+
+  // Log for investigation
+  await $.do('Logging.recordFailure', {
+    stepId,
+    error,
+    attempts,
+    payload: originalPayload,
+  })
+
+  // Notify on-call
+  await $.do('PagerDuty.alert', {
+    severity: 'high',
+    message: `Workflow step permanently failed: ${stepId}`,
+  })
+})
+```
+
+## Cost Comparison
+
+Real-world cost example for 100,000 workflow executions per month, each with 5 steps:
+
+| Platform | Base Cost | Per-Execution | Total Monthly |
+|----------|-----------|---------------|---------------|
+| **Temporal (Cloud)** | $200/mo (base) | $25/million steps | ~$225/mo |
+| **Inngest** | Free tier | $0.10/1K executions | ~$10/mo |
+| **AWS Step Functions** | None | $25/million transitions | ~$12.50/mo |
+| **dotdo** | Workers pricing | $0.50/million requests | ~$0.25/mo |
+
+### Cost Breakdown
+
+**Temporal Cloud:**
+- Base platform fee: $200/month minimum
+- Step execution: ~$25 per million activity executions
+- History storage: Additional charges for long-running workflows
+- Best for: Large enterprises with complex, long-running workflows
+
+**Inngest:**
+- Free tier: 25,000 executions/month
+- Pro: $0.10 per 1,000 executions
+- Events and steps are separate charges
+- Best for: Mid-size teams with moderate workflow volume
+
+**AWS Step Functions:**
+- Standard: $25 per million state transitions
+- Express: $1 per million requests + duration charges
+- Additional charges for logs, X-Ray tracing
+- Best for: AWS-native architectures
+
+**dotdo (Cloudflare Workers):**
+- First 10 million requests: Free
+- Additional: $0.50 per million requests
+- Durable Object storage: $0.20 per million reads/writes
+- DO compute: $12.50 per million GB-seconds
+- Best for: High-volume, low-latency workflows
+
+### Why dotdo is Cheaper
+
+1. **No Platform Fee**: Cloudflare Workers has no base cost
+2. **Pay Per Request**: Only pay when workflows execute
+3. **Edge Execution**: No egress charges for state access
+4. **Efficient State**: DO storage is cheap and fast
+5. **No Idle Workers**: V8 isolates scale to zero instantly
+
+## Testing Workflows
+
+### Unit Testing
+
+```typescript
+import { createTestRuntime, InMemoryStepStorage } from 'dotdo/workflows'
+
+describe('Order workflow', () => {
+  it('processes order successfully', async () => {
+    const storage = new InMemoryStepStorage()
+    const runtime = createTestRuntime()
+
+    // Mock domain handlers
+    registerDomain('Inventory', {
+      reserve: async (items) => ({ reservationId: '123' }),
+    })
+    registerDomain('Payment', {
+      charge: async (payment) => ({ transactionId: '456' }),
+    })
+
+    const $ = createWorkflowProxy(runtime)
+    const result = await $.Order({ id: 'order-1', items: [] }).process()
+
+    expect(result).toBeDefined()
+  })
+})
+```
+
+### Integration Testing
+
+```typescript
+import { unstable_dev } from 'wrangler'
+
+describe('Workflow integration', () => {
+  let worker: UnstableDevWorker
+
+  beforeAll(async () => {
+    worker = await unstable_dev('src/index.ts', {
+      experimental: { disableExperimentalWarning: true },
+    })
+  })
+
+  afterAll(async () => {
+    await worker.stop()
+  })
+
+  it('handles order webhook', async () => {
+    const response = await worker.fetch('/webhooks/order', {
+      method: 'POST',
+      body: JSON.stringify({ orderId: '123', items: [] }),
+    })
+
+    expect(response.status).toBe(200)
+  })
+})
+```
+
 ## Related
 
+- [Workflow Triggers](/docs/workflows/triggers) - Event, schedule, manual, and webhook triggers
 - [SDK: WorkflowContext](/docs/sdk/workflow-context) - Full $ API reference
 - [Concepts: Events](/docs/concepts/events) - Event-driven architecture
 - [Concepts: Actions](/docs/concepts/actions) - The Noun.verb pattern
+- [Temporal Integration](/docs/integrations/temporal) - Temporal workflow compatibility
