@@ -263,6 +263,9 @@ export default defineWorkspace([
   // @dotdo/turso package tests
   createNodeWorkspace('turso', ['packages/turso/tests/**/*.test.ts']),
 
+  // @dotdo/kafka package tests (Kafka-compatible message queue)
+  createNodeWorkspace('kafka', ['packages/kafka/tests/**/*.test.ts']),
+
   // @dotdo/duckdb-worker package tests (Node.js compatible tests only)
   // Note: Workers-specific tests are in packages/duckdb-worker/tests/workers/ and run in duckdb-worker-workers project
   createNodeWorkspace('duckdb-worker', [
@@ -288,6 +291,39 @@ export default defineWorkspace([
 
   // @dotdo/rpc package tests (Universal SDK Wrapper)
   createNodeWorkspace('rpc', ['packages/rpc/tests/**/*.test.ts']),
+
+  // @dotdo/core package tests (Error handling and retry infrastructure)
+  createNodeWorkspace('core', ['packages/core/tests/**/*.test.ts']),
+
+  // @dotdo/stripe package tests (Stripe API compatibility layer)
+  createNodeWorkspace('stripe', ['packages/stripe/tests/**/*.test.ts']),
+
+  // @dotdo/shopify package tests (Shopify API compatibility layer)
+  createNodeWorkspace('shopify', ['packages/shopify/tests/**/*.test.ts']),
+
+  // @dotdo/shared package tests (Event emitters and shared utilities)
+  createNodeWorkspace('shared', ['packages/shared/tests/**/*.test.ts']),
+
+  // @dotdo/discord package tests (Discord SDK compat layer)
+  createNodeWorkspace('discord', ['packages/discord/tests/**/*.test.ts']),
+
+  // @dotdo/linear package tests (Linear SDK compat layer)
+  createNodeWorkspace('linear', ['packages/linear/tests/**/*.test.ts']),
+
+  // @dotdo/github package tests (Octokit-compatible GitHub SDK)
+  createNodeWorkspace('github', ['packages/github/tests/**/*.test.ts']),
+
+  // @dotdo/google-ai package tests (Google Generative AI compatibility layer)
+  createNodeWorkspace('google-ai', ['packages/google-ai/tests/**/*.test.ts']),
+
+  // @dotdo/twilio package tests (Twilio SDK compat layer)
+  createNodeWorkspace('twilio', ['packages/twilio/tests/**/*.test.ts']),
+
+  // @dotdo/anthropic package tests (Anthropic SDK compat layer)
+  createNodeWorkspace('anthropic', ['packages/anthropic/tests/**/*.test.ts']),
+
+  // @dotdo/openai package tests (OpenAI API compatibility layer)
+  createNodeWorkspace('openai', ['packages/openai/tests/**/*.test.ts']),
 
   // @dotdo/react package tests (React hooks and components - jsdom environment)
   {
