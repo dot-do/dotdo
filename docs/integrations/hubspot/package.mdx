@@ -1,9 +1,9 @@
 ---
-title: HubSpot
+title: "@dotdo/hubspot"
 description: Drop-in replacement for the HubSpot SDK with edge compatibility and local testing support.
 ---
 
-# HubSpot
+# @dotdo/hubspot
 
 Drop-in replacement for the HubSpot JavaScript SDK. Your existing `@hubspot/api-client` code works unchanged - just swap the import.
 
@@ -24,18 +24,13 @@ const contact = await hubspot.crm.contacts.basicApi.create({
     lastname: 'Doe',
   },
 })
-
-const deal = await hubspot.crm.deals.basicApi.create({
-  properties: {
-    dealname: 'Enterprise Contract',
-    amount: '50000',
-    dealstage: 'appointmentscheduled',
-    pipeline: 'default',
-  },
-})
 ```
 
-## Why hubspot.do?
+<Callout type="info">
+Looking for persistent storage? See [hubspot.do](/docs/integrations/hubspot/service) for a fully managed HubSpot-compatible edge CRM.
+</Callout>
+
+## Why @dotdo/hubspot?
 
 | HubSpot SDK | @dotdo/hubspot |
 |-------------|----------------|
@@ -46,6 +41,12 @@ const deal = await hubspot.crm.deals.basicApi.create({
 | Requires account for dev | Works offline |
 
 **This is a proxy/compatibility layer.** It can either forward to real HubSpot APIs (production) or run entirely locally for testing and development. The API surface matches HubSpot's official SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/hubspot
+```
 
 ## Features
 
@@ -138,12 +139,6 @@ const deal = await hubspot.crm.deals.basicApi.create({
 
 ## Quick Start
 
-### Install
-
-```bash
-npm install @dotdo/hubspot
-```
-
 ### Basic Usage
 
 ```typescript
@@ -198,7 +193,7 @@ const results = await hubspot.crm.contacts.searchApi.doSearch({
 console.log(`Found ${results.total} leads`)
 ```
 
-## Inbound - Using hubspot.do Locally
+## Local Testing with HubSpotCRM
 
 For testing and development, use `HubSpotCRM` - a complete in-memory HubSpot implementation backed by Durable Objects storage:
 
@@ -423,23 +418,7 @@ const deliveryStats = await webhooks.getDeliveryStats()
 console.log(`Success rate: ${deliveryStats.successRate}%`)
 ```
 
-## Outbound - Connecting to Real HubSpot
-
-For production, the client connects to HubSpot's API:
-
-```typescript
-import { Client } from '@dotdo/hubspot'
-
-const hubspot = new Client({
-  accessToken: env.HUBSPOT_ACCESS_TOKEN,
-  basePath: 'https://api.hubapi.com', // Default
-})
-
-// All requests go to api.hubapi.com
-const contacts = await hubspot.crm.contacts.basicApi.getPage(100)
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -470,19 +449,6 @@ export default {
     return new Response('Not Found', { status: 404 })
   },
 }
-```
-
-### Custom Configuration
-
-```typescript
-const hubspot = new Client({
-  accessToken: 'pat-xxx',
-  basePath: 'https://api.hubapi.com',  // API base URL
-  defaultHeaders: {                      // Custom headers
-    'X-Custom-Header': 'value',
-  },
-  fetch: customFetch,                    // Custom fetch implementation
-})
 ```
 
 ## API Reference
@@ -818,6 +784,36 @@ import type {
 } from '@dotdo/hubspot'
 ```
 
+## Testing with HubSpotCRM
+
+HubSpotCRM is ideal for unit tests - no HubSpot account required:
+
+```typescript
+import { HubSpotCRM } from '@dotdo/hubspot/crm'
+
+describe('LeadScoring', () => {
+  let crm: HubSpotCRM
+
+  beforeEach(() => {
+    // Fresh in-memory CRM for each test
+    crm = new HubSpotCRM()
+  })
+
+  it('should score leads based on engagement', async () => {
+    const contact = await crm.createContact({
+      email: 'lead@example.com',
+      firstName: 'Jane',
+    })
+
+    // Simulate engagement
+    await crm.createNote('contacts', contact.id, 'Attended webinar')
+
+    const updated = await crm.getContact(contact.id)
+    expect(updated.engagementCount).toBeGreaterThan(0)
+  })
+})
+```
+
 ## Migration from HubSpot SDK
 
 ### Package Change
@@ -901,74 +897,6 @@ await hubspot.crm.associations.v4.basicApi.create(
 - **Testable**: Full control over data
 - **Offline**: Works without internet
 
-## Common Patterns
-
-### Lead Scoring Workflow
-
-```typescript
-import { HubSpotCRM } from '@dotdo/hubspot/crm'
-import { HubSpotWorkflows } from '@dotdo/hubspot/workflows'
-
-const crm = new HubSpotCRM(ctx.storage)
-const workflows = new HubSpotWorkflows({ accessToken: 'xxx' })
-
-// Create lead scoring property
-await crm.createProperty('contacts', {
-  name: 'lead_score',
-  type: 'number',
-  label: 'Lead Score',
-  groupName: 'contactinformation',
-})
-
-// Workflow to update score on engagement
-const scoringWorkflow = await workflows.createWorkflow({
-  name: 'Lead Scoring',
-  type: 'contact',
-  enrollmentTriggers: [
-    { type: 'event', eventName: 'email_opened' },
-    { type: 'pageView', urlPattern: '/pricing*' },
-  ],
-  actions: [
-    { type: 'incrementProperty', property: 'lead_score', amount: 10 },
-    {
-      type: 'branch',
-      branchType: 'if-then',
-      condition: { property: 'lead_score', operator: 'gte', value: 50 },
-    },
-    { type: 'setProperty', property: 'lifecyclestage', value: 'marketingqualifiedlead' },
-    { type: 'createTask', title: 'High-value lead - reach out!' },
-  ],
-})
-```
-
-### Contact Sync
-
-```typescript
-import { Client } from '@dotdo/hubspot'
-
-const hubspot = new Client({ accessToken: env.HUBSPOT_ACCESS_TOKEN })
-
-async function syncContacts(externalContacts: ExternalContact[]) {
-  // Batch create contacts
-  const result = await hubspot.crm.contacts.batchApi.create({
-    inputs: externalContacts.map((c) => ({
-      properties: {
-        email: c.email,
-        firstname: c.firstName,
-        lastname: c.lastName,
-        company: c.company,
-        hs_lead_source: 'API Import',
-      },
-    })),
-  })
-
-  console.log(`Created ${result.results.length} contacts`)
-  if (result.errors.length > 0) {
-    console.error(`Failed: ${result.errors.length}`)
-  }
-}
-```
-
 ## API Coverage
 
 | Resource | Coverage | Notes |
@@ -996,6 +924,6 @@ async function syncContacts(externalContacts: ExternalContact[]) {
 
 ## Related
 
-- [Events Overview](/docs/events) - Event handling including CRM events
-- [SDK Events](/docs/sdk/events) - Event subscription patterns
+- [hubspot.do](/docs/integrations/hubspot/service) - Managed HubSpot on the edge
+- [Stripe Integration](/docs/integrations/stripe) - Payment processing
 - [Compat SDKs](/docs/compat) - All API-compatible SDKs

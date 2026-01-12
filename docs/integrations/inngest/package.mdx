@@ -1,15 +1,9 @@
 ---
-title: Inngest
-description: Drop-in replacement for Inngest SDK with edge-native durable functions and zero external dependencies.
+title: "@dotdo/inngest"
+description: Drop-in replacement for Inngest SDK with edge compatibility and in-memory testing support.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-
-<Callout type="info">
-  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
-</Callout>
-
-# Inngest
+# @dotdo/inngest
 
 Drop-in replacement for the Inngest SDK. Your existing `inngest` code works unchanged - just swap the import.
 
@@ -40,57 +34,79 @@ export const processOrder = inngest.createFunction(
 )
 ```
 
-## Why inngest.do?
+<Callout type="info">
+Looking for managed edge deployment? See [inngest.do](/docs/integrations/inngest/service) for a fully managed durable function service on Cloudflare Workers.
+</Callout>
 
-| Feature | Inngest | inngest.do |
-|---------|---------|------------|
-| **API Compatibility** | - | 100% |
-| **Events leave infra** | Yes (to Inngest servers) | No |
-| **Cold start** | ~50ms | 0ms (V8 isolates) |
-| **Global edge** | 5 regions | 300+ cities |
-| **Max duration** | 2 hours | Unlimited |
-| **Pricing** | Per-step billing | Included |
-| **Self-hosted** | Enterprise only | Always |
-| **DO integration** | N/A | Native |
+## Why @dotdo/inngest?
 
-**Inngest is great.** Event-driven durable functions with a beautiful API.
+| Inngest SDK | @dotdo/inngest |
+|-------------|----------------|
+| Requires Inngest service | Runs on Durable Objects or in-memory |
+| Events leave infrastructure | Events stay in your Workers |
+| ~50ms cold start | 0ms cold start (V8 isolates) |
+| 5 regions | 300+ cities |
+| 2 hour max duration | Unlimited with DO storage |
+| Per-step billing | Included |
+| Self-hosted (Enterprise) | Always self-hosted |
 
-**But it's another service.** Events leave your infrastructure, hop to Inngest's servers, then back to your workers. Extra latency. Extra cost. Extra vendor dependency.
-
-**inngest.do runs on dotdo's infrastructure.** Same API, same patterns - but your functions execute on Cloudflare's edge in 300+ cities. Events never leave your infrastructure. Zero cold starts. Scales to millions of concurrent executions.
-
-## Features
-
-| Feature | Status |
-|---------|--------|
-| Event-driven functions | Supported |
-| Cron triggers | Supported |
-| step.run (durable steps) | Supported |
-| step.sleep (durable sleep) | Supported |
-| step.waitForEvent | Supported |
-| step.sendEvent | Supported |
-| step.invoke | Supported |
-| step.parallel | Supported |
-| Middleware | Supported |
-| Throttling | Supported |
-| Concurrency limits | Supported |
-| Rate limiting | Supported |
-| Debouncing | Supported |
-| Batch events | Supported |
-| Cancellation | Supported |
-| Cancel on event | Supported |
-| Retries | Supported |
-| NonRetriableError | Supported |
-| RetryAfterError | Supported |
-| serve() handler | Supported |
-| step.ai.infer | Planned |
-| Encrypted channels | Planned |
+**This is a compatibility layer.** It runs entirely in-memory for testing, or uses Durable Object SQLite for production. The API surface matches the Inngest SDK exactly.
 
 ## Installation
 
 ```bash
 npm install @dotdo/inngest
 ```
+
+## Features
+
+### Implemented (Core APIs)
+
+**Function Creation**
+- `createFunction()` - Event and cron triggers
+- Event triggers with pattern matching
+- Cron triggers with standard expressions
+- String shorthand for simple events
+
+**Step Tools**
+- `step.run()` - Durable step execution with memoization
+- `step.sleep()` - Durable sleep (function pauses, not blocked)
+- `step.sleepUntil()` - Sleep until specific timestamp
+- `step.waitForEvent()` - Wait for correlated events
+- `step.sendEvent()` - Send events from within functions
+- `step.invoke()` - Invoke other functions
+- `step.parallel()` - Run steps in parallel
+
+**Function Configuration**
+- Retry policies (attempts, backoff, intervals)
+- Timeouts (function and step level)
+- Rate limiting (key-based)
+- Throttling (key-based)
+- Debouncing (key-based)
+- Concurrency limits (global and key-based)
+- Batch events (maxSize, timeout, key)
+- Cancel on events (event matching)
+
+**Error Handling**
+- `NonRetriableError` - Errors that should not retry
+- `RetryAfterError` - Errors with retry delay
+- `StepError` - Step execution errors
+- `CancellationError` - Function cancellation
+
+**Middleware**
+- `onSendEvent` - Transform outgoing events
+- `onFunctionRun` - Lifecycle hooks for function execution
+- `beforeExecution`, `afterExecution` - Pre/post hooks
+- `transformInput`, `transformOutput` - Data transformation
+
+**HTTP Handler**
+- `serve()` - Framework-agnostic HTTP handler
+
+### Not Yet Implemented
+
+- `step.ai.infer()` - AI inference step
+- Encrypted channels
+- Replay/recovery UI
 
 ## Quick Start
 
@@ -99,10 +115,8 @@ npm install @dotdo/inngest
 ```typescript
 import { Inngest } from '@dotdo/inngest'
 
-// Create a client
 const inngest = new Inngest({ id: 'my-app' })
 
-// Define a function
 const helloWorld = inngest.createFunction(
   { id: 'hello-world' },
   { event: 'test/hello' },
@@ -230,7 +244,7 @@ const mainFn = inngest.createFunction(
 )
 ```
 
-## Inbound Mode - Local Development
+## In-Memory Mode (Testing)
 
 For testing and development, the compat layer runs entirely in-memory with no external dependencies:
 
@@ -329,7 +343,7 @@ describe('Payment Processing', () => {
 })
 ```
 
-## Outbound Mode - Production Deployment
+## Durable Object Mode (Production)
 
 For production on Cloudflare Workers with Durable Objects:
 
@@ -583,6 +597,8 @@ await inngest.cancel(runs[0].runId, 'User requested cancellation')
 ### Cancel on Event
 
 ```typescript
+import { CancellationError } from '@dotdo/inngest'
+
 const fn = inngest.createFunction(
   {
     id: 'process-order',
@@ -674,11 +690,11 @@ const fn = inngest.createFunction(
 |--------|-------------|
 | `step.run(id, fn)` | Execute durable step with memoization |
 | `step.sleep(id, duration)` | Sleep for duration |
+| `step.sleepUntil(id, timestamp)` | Sleep until timestamp |
 | `step.waitForEvent(id, opts)` | Wait for correlated event |
 | `step.sendEvent(id, event)` | Send event(s) |
 | `step.invoke(id, opts)` | Invoke another function |
 | `step.parallel(id, fns)` | Run steps in parallel |
-| `step.ai.infer(id, opts)` | AI inference (experimental) |
 
 ### Error Types
 
@@ -703,54 +719,6 @@ const fn = inngest.createFunction(
 '1d'     // 1 day
 '1w'     // 1 week
 1000     // 1000 milliseconds (number)
-```
-
-## Architecture
-
-```
-Event: { name: 'order/created', data: {...} }
-         |
-         v
-+------------------------------------------+
-|         inngest.send()                    |
-|    Generate event ID, add timestamp       |
-+------------------------------------------+
-         |
-         v
-+------------------------------------------+
-|         Middleware: onSendEvent           |
-|    Transform, validate, log events        |
-+------------------------------------------+
-         |
-         v
-+------------------------------------------+
-|         Event Router                      |
-|    Match event name to registered fns     |
-|    Deliver to waitForEvent waiters        |
-+------------------------------------------+
-         |
-         v
-+------------------------------------------+
-|         Middleware: onFunctionRun         |
-|    beforeExecution, transformInput        |
-+------------------------------------------+
-         |
-         v
-+------------------------------------------+
-|         Function Execution                |
-|    step.run -> memoized execution         |
-|    step.sleep -> durable timer            |
-|    step.waitForEvent -> suspend/resume    |
-+------------------------------------------+
-         |
-         v
-+------------------------------------------+
-|         Middleware: afterExecution        |
-|    transformOutput, cleanup               |
-+------------------------------------------+
-         |
-         v
-Result: returned to caller or stored
 ```
 
 ## Migration from Inngest
@@ -798,17 +766,8 @@ const fn = inngest.createFunction(
 )
 ```
 
-## Performance
-
-- **0ms cold start** via V8 isolates
-- **<1ms** event routing and dispatch
-- **Unlimited duration** with Durable Objects
-- **Global edge** execution in 300+ cities
-- **Scales to millions** of concurrent executions
-
 ## Related
 
+- [inngest.do](/docs/integrations/inngest/service) - Managed durable functions on the edge
 - [Workflow DSL](/docs/workflows) - Native dotdo workflow syntax
-- [Durable Objects](/docs/architecture/durable-objects) - Understanding DO-based durability
 - [Events Overview](/docs/events) - Event handling patterns
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

@@ -1,9 +1,9 @@
 ---
-title: Intercom
+title: "@dotdo/intercom"
 description: Intercom-compatible customer messaging SDK for conversations, contacts, and help articles.
 ---
 
-# Intercom
+# @dotdo/intercom
 
 Intercom-compatible SDK for customer messaging, contact management, and help center functionality. Build customer communication features that work with Intercom's API or run independently with the local implementation.
 
@@ -26,16 +26,11 @@ const conversation = await client.conversations.create({
   from: { type: 'user', id: contact.id },
   body: 'Hi, I need help with my order',
 })
-
-// Send a reply
-await client.conversations.reply({
-  id: conversation.id,
-  type: 'admin',
-  admin_id: 'admin_123',
-  body: 'Sure! What is your order number?',
-  message_type: 'comment',
-})
 ```
+
+<Callout type="info">
+Looking for a managed production service? See [intercom.do](/docs/integrations/intercom/service) for a fully managed customer messaging platform on the edge.
+</Callout>
 
 ## Why @dotdo/intercom?
 
@@ -45,6 +40,15 @@ await client.conversations.reply({
 | Usage-based pricing | Unlimited operations |
 | Third-party dependency | Self-hosted option |
 | Limited customization | Full control |
+| Node.js runtime required | Edge-compatible |
+
+**This SDK provides both an Intercom API client and a local implementation.** Use the client to connect to real Intercom, or use the local mode for testing and development without external dependencies.
+
+## Installation
+
+```bash
+npm install @dotdo/intercom
+```
 
 ## Features
 
@@ -96,13 +100,7 @@ await client.conversations.reply({
 
 ## Quick Start
 
-### Install
-
-```bash
-npm install @dotdo/intercom
-```
-
-### Initialize Client
+### Initialize Client (API Mode)
 
 ```typescript
 import Intercom from '@dotdo/intercom'
@@ -611,6 +609,37 @@ try {
 }
 ```
 
+## Testing with IntercomLocal
+
+IntercomLocal is ideal for unit tests - no external Intercom required:
+
+```typescript
+import { IntercomLocal } from '@dotdo/intercom'
+
+describe('CustomerSupport', () => {
+  let client: IntercomLocal
+
+  beforeEach(() => {
+    // Fresh local instance for each test
+    client = new IntercomLocal({ workspaceId: 'test' })
+  })
+
+  it('should create a conversation', async () => {
+    const contact = await client.contacts.create({
+      role: 'user',
+      email: 'test@example.com',
+    })
+
+    const conversation = await client.conversations.create({
+      from: { type: 'user', id: contact.id },
+      body: 'Test message',
+    })
+
+    expect(conversation.id).toBeDefined()
+  })
+})
+```
+
 ## API Reference
 
 ### Intercom Class
@@ -699,6 +728,7 @@ import type {
 
 ## Related
 
+- [intercom.do](/docs/integrations/intercom/service) - Managed customer messaging on the edge
 - [Slack](/docs/integrations/slack) - Slack integration for messaging
 - [Zendesk](/docs/integrations/zendesk) - Customer support platform integration
 - [Events](/docs/events) - Event handling patterns

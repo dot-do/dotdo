@@ -1,0 +1,212 @@
+---
+title: Trigger.dev
+description: Choose between @dotdo/trigger (OSS package) and trigger.do (managed edge service) for your background job needs.
+---
+
+# Trigger.dev Integration
+
+dotdo provides two ways to work with Trigger.dev-compatible background job APIs:
+
+| | @dotdo/trigger | trigger.do |
+|---|----------------|------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | In-memory (testing) | Durable Object / CF Workflows |
+| **Persistence** | Configurable | Full durability |
+| **Use case** | Testing, local dev | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/trigger` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/trigger - Drop-in replacement for testing
+import { task, wait } from '@dotdo/trigger'
+
+const helloWorld = task({
+  id: 'hello-world',
+  run: async (payload: { name: string }) => {
+    await wait.for({ seconds: 5 })
+    return `Hello, ${payload.name}!`
+  },
+})
+
+// Execute in-memory for tests
+const result = await helloWorld.triggerAndWait({ name: 'World' })
+```
+
+```typescript
+// trigger.do - Production edge execution
+import { task, wait, configure } from '@dotdo/trigger'
+import { CFWorkflowsBackend } from '@dotdo/workflows/backends'
+
+// Configure for production with CF Workflows backend
+configure({
+  storage: new CFWorkflowsBackend(env.MY_WORKFLOW),
+})
+
+// Same task code, runs on edge infrastructure
+const result = await helloWorld.triggerAndWait({ name: 'World' })
+```
+
+## When to Use Each
+
+### Use @dotdo/trigger when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Local development** - Quick iteration without infrastructure setup
+- **Migration from Trigger.dev** - Drop-in replacement for existing code
+- **CI/CD pipelines** - Tests that need task execution semantics
+
+<Callout type="info">
+@dotdo/trigger is a complete Trigger.dev v3 API implementation. Your existing Trigger.dev code works unchanged - just swap the import.
+</Callout>
+
+### Use trigger.do when:
+
+- **Production applications** - Real background jobs that must persist
+- **Long-running tasks** - Jobs that run for minutes or hours
+- **Global edge deployment** - Tasks execute close to users worldwide
+- **Cost optimization** - Sleep is FREE on CF Workflows backend
+
+<Callout type="info">
+trigger.do is Trigger.dev on the Edge - background jobs running on Cloudflare's global network with zero cold starts and unlimited duration.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/trigger | trigger.do |
+|---------|----------------|------------|
+| Task definition | Full v3 API | Full v3 API |
+| trigger() / triggerAndWait() | In-memory | Durable execution |
+| Batch operations | Supported | Supported |
+| ctx.run() memoization | Supported | Durable replay |
+| Retry configuration | Supported | Supported |
+| Queue configuration | Supported | Supported |
+| Lifecycle hooks | Supported | Supported |
+| Middleware | Supported | Supported |
+| wait.for() / wait.until() | Supported | Durable (FREE on CF Workflows) |
+| Scheduled tasks (cron) | Supported | Native cron triggers |
+| Run handles (status, cancel) | Supported | Full observability |
+| Cold start | Instant | 0ms (V8 isolates) |
+| Max duration | Request timeout | Unlimited (DO) / 24h (Workflows) |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/trigger/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/trigger</h3>
+    <p className="text-sm text-muted-foreground">Trigger.dev v3 SDK compatible package for testing and migration</p>
+  </a>
+  <a href="/docs/integrations/trigger/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">trigger.do</h3>
+    <p className="text-sm text-muted-foreground">Managed background jobs on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/trigger` for development and testing, then deploy to `trigger.do` for production:
+
+```typescript
+// Development: In-memory execution for tests
+import { task, configure } from '@dotdo/trigger'
+import { InMemoryStepStorage } from '@dotdo/workflows/runtime'
+
+configure({
+  storage: new InMemoryStepStorage(),
+})
+
+const processOrder = task({
+  id: 'process-order',
+  run: async (payload, { ctx }) => {
+    const user = await ctx.run('fetch-user', async () => {
+      return await fetchUser(payload.userId)
+    })
+    return { userId: user.id, status: 'processed' }
+  },
+})
+```
+
+```typescript
+// Production: Durable edge execution
+import { task, configure } from '@dotdo/trigger'
+import { CFWorkflowsBackend } from '@dotdo/workflows/backends'
+
+configure({
+  storage: new CFWorkflowsBackend(env.MY_WORKFLOW),
+})
+
+// Same task code - no changes needed!
+const processOrder = task({
+  id: 'process-order',
+  run: async (payload, { ctx }) => {
+    const user = await ctx.run('fetch-user', async () => {
+      return await fetchUser(payload.userId)
+    })
+    return { userId: user.id, status: 'processed' }
+  },
+})
+```
+
+Both configurations use the same Trigger.dev v3 API, making migration seamless.
+
+## Architecture Comparison
+
+### @dotdo/trigger (Testing)
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { task } from '@dotdo/trigger'  |
++-----------------------------------------+
+                    |
+                    v
++-----------------------------------------+
+|         In-Memory Execution             |
+|  - Fast test execution                  |
+|  - No external dependencies             |
+|  - Data resets on restart               |
++-----------------------------------------+
+```
+
+### trigger.do (Production)
+
+```
++-----------------------------------------+
+|            Your Application              |
+|                                         |
+|  import { task } from '@dotdo/trigger'  |
++-----------------------------------------+
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
++-------------------+   +-------------------+
+|  Durable Objects  |   | Cloudflare        |
+|  - Real-time      |   | Workflows         |
+|  - Unlimited      |   | - CPU-only bill   |
+|  - WebSocket      |   | - Sleep is FREE   |
++-------------------+   +-------------------+
+                    |
+                    v
++-----------------------------------------+
+|           Edge Execution                 |
+|  - 0ms cold start (V8 isolates)         |
+|  - 300+ global locations                |
+|  - Automatic failover                   |
++-----------------------------------------+
+```
+
+## Why Switch from Trigger.dev?
+
+| Trigger.dev | trigger.do |
+|-------------|------------|
+| Payloads leave your infrastructure | Data stays in your Workers |
+| ~100ms cold start | 0ms (V8 isolates) |
+| Limited regions | 300+ cities globally |
+| Per-task pricing | Included in compute |
+| Enterprise for self-hosted | Always self-hostable |
+| Separate infrastructure | Native Cloudflare integration |
+
+The math: Trigger.dev charges per task run. On dotdo, background jobs are included in your Cloudflare compute costs, and sleep time on CF Workflows is completely free.

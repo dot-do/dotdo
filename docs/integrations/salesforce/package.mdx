@@ -1,9 +1,9 @@
 ---
-title: Salesforce
+title: "@dotdo/salesforce"
 description: Drop-in replacement for the jsforce SDK with edge compatibility and local testing support.
 ---
 
-# Salesforce
+# @dotdo/salesforce
 
 Drop-in replacement for the jsforce JavaScript SDK. Your existing Salesforce code works unchanged - just swap the import.
 
@@ -31,7 +31,11 @@ const account = await conn.sobject('Account').create({
 })
 ```
 
-## Why salesforce.do?
+<Callout type="info">
+Looking for managed Salesforce access without infrastructure? See [salesforce.do](/docs/integrations/salesforce/service) for a fully managed edge service.
+</Callout>
+
+## Why @dotdo/salesforce?
 
 | jsforce SDK | @dotdo/salesforce |
 |-------------|-------------------|
@@ -42,6 +46,12 @@ const account = await conn.sobject('Account').create({
 | Bulky dependencies | Lightweight, tree-shakeable |
 
 **This is a proxy/compatibility layer.** It connects to real Salesforce APIs for production use. The API surface matches jsforce's official SDK, making migration seamless.
+
+## Installation
+
+```bash
+npm install @dotdo/salesforce
+```
 
 ## Features
 
@@ -88,7 +98,9 @@ const account = await conn.sobject('Account').create({
 - `metadata.read()` - Read metadata components
 - `metadata.list()` - List metadata by type
 
-> Note: The Metadata API uses a simplified REST-like approach. Full SOAP envelope support for metadata deployment is not yet implemented.
+<Callout type="warn">
+The Metadata API uses a simplified REST-like approach. Full SOAP envelope support for metadata deployment is not yet implemented.
+</Callout>
 
 **Other**
 - `describeGlobal()` - List all SObjects
@@ -127,12 +139,6 @@ Works with all standard Salesforce objects including:
 - SalesforceLocal (local testing mode) - planned for future release
 
 ## Quick Start
-
-### Install
-
-```bash
-npm install @dotdo/salesforce
-```
 
 ### Basic Usage
 
@@ -247,47 +253,7 @@ await conn.sobject('Account').destroy([
 ])
 ```
 
-## Inbound - Using salesforce.do Locally
-
-> **Coming Soon:** SalesforceLocal will provide a complete in-memory Salesforce implementation for testing and development.
-
-```typescript
-// Planned API
-import { SalesforceLocal } from '@dotdo/salesforce/local'
-
-const conn = new SalesforceLocal()
-
-// Use exactly like real Salesforce
-const account = await conn.sobject('Account').create({
-  Name: 'Test Account',
-})
-
-const result = await conn.query('SELECT Id, Name FROM Account')
-```
-
-For now, use Salesforce sandbox orgs or developer editions for testing.
-
-## Outbound - Connecting to Real Salesforce
-
-For production, connect to Salesforce's APIs:
-
-```typescript
-import { Connection } from '@dotdo/salesforce'
-
-// Production org
-const conn = new Connection({
-  loginUrl: 'https://login.salesforce.com',
-})
-
-// Sandbox org
-const sandboxConn = new Connection({
-  loginUrl: 'https://test.salesforce.com',
-})
-
-await conn.login(env.SF_USERNAME, env.SF_PASSWORD + env.SF_SECURITY_TOKEN)
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -781,7 +747,9 @@ import type {
 } from '@dotdo/salesforce'
 ```
 
-> Note: Streaming types (`StreamingChannelType`, `StreamingSubscription`, `StreamingMessage`) are exported for future compatibility but the Streaming API is not yet implemented.
+<Callout type="info">
+Streaming types (`StreamingChannelType`, `StreamingSubscription`, `StreamingMessage`) are exported for future compatibility but the Streaming API is not yet implemented.
+</Callout>
 
 ## Migration from jsforce
 
@@ -830,32 +798,6 @@ const newAccount = await conn.sobject('Account').create({
 })
 
 const job = conn.bulk.createJob('Account', 'insert')
-```
-
-## Architecture
-
-```
-+-------------------------------------------------------------+
-|                    Your Application                          |
-|                                                              |
-|  const conn = new Connection(config)                         |
-|  await conn.query(...)                                       |
-+-------------------------------------------------------------+
-                              |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|   Production Mode       |     |     Local Mode          |
-|   (Connection)          |     |     (SalesforceLocal)   |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> login.salesforce.com|     |  -> In-memory storage   |
-|  -> Real API calls      |     |  -> No network calls    |
-|  -> OAuth flows         |     |  -> Test data           |
-|  -> Full Salesforce API |     |  -> Coming soon!        |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
 ```
 
 ## Common Patterns
@@ -976,7 +918,7 @@ async function importContacts(contacts: Contact[]) {
 
 ## Related
 
-- [Events Overview](/docs/events) - Event handling patterns
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs
+- [salesforce.do](/docs/integrations/salesforce/service) - Managed Salesforce on the edge
 - [Stripe Integration](/docs/integrations/stripe) - Payment processing
 - [Algolia Integration](/docs/integrations/algolia) - Search integration
+- [Events Overview](/docs/events) - Event handling patterns

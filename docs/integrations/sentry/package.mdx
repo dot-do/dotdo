@@ -1,20 +1,15 @@
 ---
-title: Sentry
+title: "@dotdo/sentry"
 description: Drop-in replacement for the Sentry SDK with edge compatibility and full error tracking support.
 ---
 
-# Sentry
+# @dotdo/sentry
 
 Drop-in replacement for the Sentry JavaScript SDK. Your existing `@sentry/browser` or `@sentry/node` code works unchanged - just swap the import.
 
 ```typescript
-// Before: Sentry
-import * as Sentry from '@sentry/browser'
-
-// After: dotdo
 import * as Sentry from '@dotdo/sentry'
 
-// Code stays the same
 Sentry.init({
   dsn: env.SENTRY_DSN,
   environment: 'production',
@@ -28,7 +23,11 @@ try {
 }
 ```
 
-## Why sentry.do?
+<Callout type="info">
+Looking for a managed production service? See [sentry.do](/docs/integrations/sentry/service) for an edge-optimized Sentry proxy with automatic batching and retries.
+</Callout>
+
+## Why @dotdo/sentry?
 
 | Sentry SDK | @dotdo/sentry |
 |------------|---------------|
@@ -39,6 +38,12 @@ try {
 | No local testing mode | Built-in InMemoryTransport for tests |
 
 **This is a compatibility layer.** It can either forward to real Sentry APIs (production) or run entirely locally for testing and development. The API surface matches Sentry's official SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/sentry
+```
 
 ## Features
 
@@ -85,12 +90,6 @@ try {
 - Attachments
 - Release health
 - Cron monitoring (partial - `captureCheckIn` exists)
-
-## Installation
-
-```bash
-npm install @dotdo/sentry
-```
 
 ## Quick Start
 
@@ -193,7 +192,7 @@ Sentry.withScope((scope) => {
 Sentry.captureMessage('General log message')
 ```
 
-## Inbound Mode - Using sentry.do Locally
+## Testing with InMemoryTransport
 
 For testing and development, use `InMemoryTransport` to capture events without sending to Sentry:
 
@@ -279,7 +278,7 @@ client.captureException(new Error('Offline error'))
 await client.replayEvents(Date.now() - 3600000) // Last hour
 ```
 
-## Outbound Mode - Connecting to Real Sentry
+## Production Usage
 
 For production, the client connects to Sentry's API:
 
@@ -614,8 +613,35 @@ const queryBreadcrumb = createQueryBreadcrumb({
 | Session Replay | Not yet | |
 | Profiling | Not yet | |
 
+## Migration from @sentry/browser
+
+### Import Change
+
+```typescript
+// Before: Sentry SDK
+import * as Sentry from '@sentry/browser'
+
+// After: dotdo package
+import * as Sentry from '@dotdo/sentry'
+```
+
+### Code Migration
+
+Your existing Sentry code works unchanged:
+
+```typescript
+// Before and After - identical usage
+Sentry.init({
+  dsn: env.SENTRY_DSN,
+  environment: 'production',
+})
+
+Sentry.setUser({ id: 'user-123' })
+Sentry.captureException(new Error('Something went wrong'))
+```
+
 ## Related
 
+- [sentry.do](/docs/integrations/sentry/service) - Managed Sentry on the edge
 - [Events Overview](/docs/events) - Event handling patterns
 - [Observability](/docs/observability) - Monitoring and tracing
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

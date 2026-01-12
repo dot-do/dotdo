@@ -1,9 +1,9 @@
 ---
-title: Algolia
-description: Drop-in replacement for algoliasearch backed by DO SQLite with FTS5
+title: "@dotdo/algolia"
+description: Drop-in replacement for algoliasearch backed by in-memory storage for testing and edge environments.
 ---
 
-# Algolia
+# @dotdo/algolia
 
 Drop-in replacement for the Algolia JavaScript SDK. Your existing `algoliasearch` code works unchanged - just swap the import.
 
@@ -20,16 +20,27 @@ const index = client.initIndex('products')
 const results = await index.search('wireless headphones')
 ```
 
-## Why algolia.do?
+<Callout type="info">
+Looking for persistent storage? See [algolia.do](/docs/integrations/algolia/service) for a fully managed Algolia-compatible edge search service.
+</Callout>
 
-| Algolia Cloud | algolia.do |
-|---------------|------------|
-| Rate-limited indexing operations | Unlimited writes to DO SQLite |
-| Per-operation pricing | Flat resource pricing |
-| Network latency to search clusters | Edge-local FTS5 in DO |
-| Separate search infrastructure | Unified with your DO data |
+## Why @dotdo/algolia?
 
-**This is a reimplementation.** Your data lives in Durable Object SQLite with FTS5 full-text search - not proxied to Algolia servers. The APP_ID and API_KEY are used for namespacing, not authentication.
+| Algolia SDK | @dotdo/algolia |
+|-------------|----------------|
+| Requires Algolia account | No account needed |
+| Network latency to clusters | In-memory, zero latency |
+| Rate-limited operations | Unlimited operations |
+| Per-operation pricing | Free for testing |
+| Complex test setup | Perfect for unit tests |
+
+**This is an in-memory implementation** with an Algolia-compatible API. Data does not persist between restarts. The APP_ID and API_KEY are used for namespacing, not authentication.
+
+## Installation
+
+```bash
+npm install @dotdo/algolia
+```
 
 ## Features
 
@@ -65,12 +76,6 @@ const results = await index.search('wireless headphones')
 - Analytics
 - Recommend API
 - Personalization
-
-## Installation
-
-```bash
-npm install @dotdo/algolia
-```
 
 ## Quick Start
 
@@ -293,7 +298,7 @@ if (await index.exists()) {
 }
 ```
 
-## Inbound Compatibility
+## InstantSearch Compatibility
 
 Works with Algolia frontend libraries:
 
@@ -348,59 +353,7 @@ search.addWidgets([
 search.start()
 ```
 
-## Outbound - What Runs Underneath
-
-This is **not** a proxy to Algolia. Your data lives in Durable Object SQLite with FTS5:
-
-```
-┌────────────────────────────────────────────────┐
-│           client.initIndex('products')          │
-│                 index.search()                  │
-└────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌────────────────────────────────────────────────┐
-│              Durable Object (DO)                │
-│  ┌──────────────────────────────────────────┐  │
-│  │              SQLite + FTS5               │  │
-│  │                                          │  │
-│  │  CREATE VIRTUAL TABLE products_fts       │  │
-│  │  USING fts5(content, tokenize='porter'); │  │
-│  │                                          │  │
-│  │  SELECT * FROM products_fts              │  │
-│  │  WHERE products_fts MATCH 'headphones'   │  │
-│  │  ORDER BY rank;                          │  │
-│  └──────────────────────────────────────────┘  │
-└────────────────────────────────────────────────┘
-```
-
-### How Search Works
-
-1. **Tokenization** - Query and documents tokenized to lowercase words
-2. **Matching** - FTS5 MATCH with prefix support (`head*`)
-3. **Scoring** - Custom relevance scoring based on:
-   - Exact word matches (2 points)
-   - Partial matches (1 point)
-   - Query term coverage boost
-4. **Filtering** - Boolean filter parsing with AND/OR/NOT
-5. **Faceting** - Aggregation counts computed from matched documents
-
-### Storage Model
-
-```typescript
-// In-memory (current implementation)
-interface IndexStorage {
-  objects: Map<string, AlgoliaObject>  // objectID -> document
-  settings: Settings                    // Index configuration
-  createdAt: Date
-  updatedAt: Date
-}
-
-// Production: persisted to DO SQLite
-// Each index is a separate DO instance
-```
-
-## Types
+## Type-Safe Usage
 
 Full TypeScript support with Algolia-compatible types:
 
@@ -462,19 +415,47 @@ try {
 | `IndexNotFoundError` | Index does not exist (status 404) |
 | `InvalidFilterError` | Filter syntax is invalid (status 400) |
 
-### Search Errors
+## Testing with @dotdo/algolia
+
+@dotdo/algolia is ideal for unit tests - no external Algolia account required:
 
 ```typescript
-try {
-  const results = await index.search('query', {
-    filters: 'invalid [ filter',
+import algoliasearch from '@dotdo/algolia'
+
+describe('ProductSearch', () => {
+  let client: SearchClient
+  let index: SearchIndex
+
+  beforeEach(() => {
+    // Fresh in-memory client for each test
+    client = algoliasearch('test-app', 'test-key')
+    index = client.initIndex('products')
   })
-} catch (error) {
-  if (error instanceof InvalidFilterError) {
-    // Show user-friendly error message
-    console.error('Please check your filter syntax')
-  }
-}
+
+  it('should find products by name', async () => {
+    await index.saveObjects([
+      { objectID: '1', name: 'Wireless Headphones', category: 'audio' },
+      { objectID: '2', name: 'Wired Earbuds', category: 'audio' },
+    ])
+
+    const { hits } = await index.search('wireless')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].name).toBe('Wireless Headphones')
+  })
+
+  it('should filter by category', async () => {
+    await index.saveObjects([
+      { objectID: '1', name: 'Headphones', category: 'audio' },
+      { objectID: '2', name: 'Laptop', category: 'computers' },
+    ])
+
+    const { hits } = await index.search('', {
+      filters: 'category:audio'
+    })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].category).toBe('audio')
+  })
+})
 ```
 
 ## Migration from algoliasearch
@@ -503,50 +484,13 @@ const client = algoliasearch('APP_ID', 'API_KEY')
 const index = client.initIndex('products')
 ```
 
-### API Compatibility
-
-Core search and indexing operations work identically:
-
-```typescript
-// These work unchanged with @dotdo/algolia
-await index.saveObject({ objectID: '1', name: 'Product' })
-await index.saveObjects([...])
-await index.search('query')
-await index.search('query', { filters: 'price > 10' })
-await index.getObject('1')
-await index.deleteObject('1')
-await index.setSettings({ searchableAttributes: ['name'] })
-await client.multipleQueries([...])
-```
-
-### Frontend Library Compatibility
-
-Works with Algolia's frontend libraries:
-
-```typescript
-// react-instantsearch
-import { InstantSearch, SearchBox, Hits } from 'react-instantsearch'
-import algoliasearch from '@dotdo/algolia'
-
-const client = algoliasearch('APP_ID', 'API_KEY')
-
-function Search() {
-  return (
-    <InstantSearch searchClient={client} indexName="products">
-      <SearchBox />
-      <Hits />
-    </InstantSearch>
-  )
-}
-```
-
 ### Key Differences
 
 After migration, note these differences:
 
 | Feature | algoliasearch | @dotdo/algolia |
 |---------|---------------|----------------|
-| Data location | Algolia Cloud | DO SQLite (local) |
+| Data location | Algolia Cloud | In-memory (local) |
 | Typo tolerance | Full | Basic (prefix only) |
 | Geo search | Full | Types only (not yet filtering) |
 | Synonyms | Yes | Not yet |
@@ -554,41 +498,10 @@ After migration, note these differences:
 | Personalization | Yes | Not yet |
 | Analytics | Yes | Not yet |
 
-For production use cases requiring full Algolia features, you can use the real Algolia service. For development, testing, and basic search needs, @dotdo/algolia provides zero-latency local search.
-
-## Limitations
-
-What's different from Algolia Cloud:
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Basic search | Implemented | Full-text with prefix matching |
-| Filters | Implemented | AND/OR/NOT, numeric, facet filters |
-| Facets | Implemented | Count aggregation |
-| Highlighting | Implemented | Pre/post tags, match levels |
-| Pagination | Implemented | page, hitsPerPage |
-| Settings | Implemented | searchableAttributes, faceting, highlighting |
-| Multi-index | Implemented | multipleQueries, multipleGetObjects |
-| Typo tolerance | Partial | Basic prefix matching only |
-| Geo search | Partial | Types defined; filtering not yet implemented |
-| Synonyms | Not implemented | |
-| Query Rules | Not implemented | |
-| A/B Testing | Not implemented | |
-| Analytics | Not implemented | |
-| Personalization | Not implemented | |
-| Recommend | Not implemented | |
-
-### Scoring Differences
-
-The reimplementation uses a simplified scoring model:
-- No typo tolerance ranking
-- No geo-distance ranking
-- No attribute-ordered ranking
-- Basic BM25-style term frequency scoring
-
-For production use cases requiring Algolia's full ranking capabilities, consider using Algolia Cloud directly.
+For production use cases requiring full Algolia features, you can use the real Algolia service or [algolia.do](/docs/integrations/algolia/service). For development, testing, and basic search needs, @dotdo/algolia provides zero-latency local search.
 
 ## Related
 
+- [algolia.do](/docs/integrations/algolia/service) - Managed Algolia on the edge
 - [Search Compat Overview](/docs/compat/search) - All search SDK implementations
 - [Vector Search](/docs/compat/vector) - Semantic/embedding search

@@ -1,9 +1,9 @@
 ---
-title: Linear
+title: "@dotdo/linear"
 description: Drop-in replacement for the Linear SDK with edge compatibility and local testing support.
 ---
 
-# Linear
+# @dotdo/linear
 
 Drop-in replacement for the Linear JavaScript SDK. Your existing `@linear/sdk` code works unchanged - just swap the import.
 
@@ -28,7 +28,11 @@ await linear.issueUpdate(issue.id, {
 })
 ```
 
-## Why linear.do?
+<Callout type="info">
+Looking for persistent storage? See [linear.do](/docs/integrations/linear/service) for a fully managed Linear-compatible edge service.
+</Callout>
+
+## Why @dotdo/linear?
 
 | Linear SDK | @dotdo/linear |
 |------------|---------------|
@@ -39,6 +43,12 @@ await linear.issueUpdate(issue.id, {
 | GraphQL complexity | Same GraphQL-style API, simpler internals |
 
 **This is a proxy/compatibility layer.** It can either forward to real Linear APIs (production) or run entirely locally for testing and development. The API surface matches Linear's official SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/linear
+```
 
 ## Features
 
@@ -106,12 +116,6 @@ await linear.issueUpdate(issue.id, {
 
 ## Quick Start
 
-### Install
-
-```bash
-npm install @dotdo/linear
-```
-
 ### Basic Usage
 
 ```typescript
@@ -142,7 +146,7 @@ await linear.issueUpdate(issue.id, {
 console.log('Issue:', issue.identifier) // ENG-1
 ```
 
-## Inbound - Using linear.do Locally
+## Local Mode with LinearLocal
 
 For testing and development, use `LinearLocal` - a complete in-memory Linear implementation:
 
@@ -212,27 +216,7 @@ console.log(historicalIssue?.title) // 'Original title'
 const history = await linear.issueHistory(issue.id)
 ```
 
-## Outbound - Connecting to Real Linear
-
-For production, the client connects to Linear's API:
-
-```typescript
-import { LinearClient } from '@dotdo/linear'
-
-const linear = new LinearClient({
-  apiKey: env.LINEAR_API_KEY,
-  // Or use OAuth access token:
-  // accessToken: env.LINEAR_ACCESS_TOKEN,
-})
-
-// All requests go to api.linear.app
-const { issue } = await linear.issueCreate({
-  teamId: 'team-uuid',
-  title: 'Production issue',
-})
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -547,6 +531,49 @@ const projectResults = await linear.searchIssues('bug', {
 })
 ```
 
+## Testing with LinearLocal
+
+LinearLocal is ideal for unit tests - no external Linear API required:
+
+```typescript
+import { LinearLocal } from '@dotdo/linear'
+
+describe('IssueService', () => {
+  let linear: LinearLocal
+  let team: Team
+
+  beforeEach(async () => {
+    // Fresh in-memory instance for each test
+    linear = new LinearLocal()
+    const result = await linear.teamCreate({ name: 'Test', key: 'TST' })
+    team = result.team
+  })
+
+  it('should create an issue', async () => {
+    const { issue } = await linear.issueCreate({
+      teamId: team.id,
+      title: 'Test issue',
+      priority: 2,
+    })
+
+    expect(issue.identifier).toBe('TST-1')
+    expect(issue.title).toBe('Test issue')
+  })
+
+  it('should track issue history', async () => {
+    const { issue } = await linear.issueCreate({
+      teamId: team.id,
+      title: 'Original',
+    })
+
+    await linear.issueUpdate(issue.id, { title: 'Updated' })
+
+    const history = await linear.issueHistory(issue.id)
+    expect(history.length).toBe(2)
+  })
+})
+```
+
 ## Error Handling
 
 ```typescript
@@ -729,78 +756,6 @@ await linear.issueUpdate(issue.id, {
 - **TemporalStore**: Issue and project state with version history
 - **WindowManager**: Cycle/sprint duration tracking with triggers
 
-## Common Patterns
-
-### Issue Triage Workflow
-
-```typescript
-import { LinearLocal } from '@dotdo/linear'
-
-const linear = new LinearLocal()
-
-// Get triaged issues
-async function getTriagedIssues(teamId: string) {
-  return linear.issues({
-    filter: {
-      team: { id: { eq: teamId } },
-      state: { type: { eq: 'unstarted' } },
-      priority: { neq: 0 }, // Has priority set
-    },
-    orderBy: 'priority',
-  })
-}
-
-// Auto-assign based on workload
-async function autoAssign(issueId: string, teamId: string) {
-  const users = await linear.users()
-  const assignments = await Promise.all(
-    users.nodes.map(async (user) => {
-      const assigned = await linear.issues({
-        filter: {
-          assignee: { id: { eq: user.id } },
-          state: { type: { eq: 'started' } },
-        },
-      })
-      return { user, count: assigned.nodes.length }
-    })
-  )
-
-  const leastBusy = assignments.sort((a, b) => a.count - b.count)[0]
-
-  await linear.issueUpdate(issueId, {
-    assigneeId: leastBusy.user.id,
-  })
-}
-```
-
-### Sprint Metrics
-
-```typescript
-async function getSprintMetrics(cycleId: string) {
-  const cycle = await linear.cycle(cycleId)
-  const issues = await cycle.issues?.()
-
-  const total = issues?.nodes.length ?? 0
-  const completed = issues?.nodes.filter(
-    (i) => i.state.type === 'completed'
-  ).length ?? 0
-  const inProgress = issues?.nodes.filter(
-    (i) => i.state.type === 'started'
-  ).length ?? 0
-
-  return {
-    total,
-    completed,
-    inProgress,
-    remaining: total - completed,
-    progress: total > 0 ? (completed / total) * 100 : 0,
-    daysLeft: Math.ceil(
-      (new Date(cycle.endsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)
-    ),
-  }
-}
-```
-
 ## API Coverage
 
 | Resource | Coverage | Notes |
@@ -823,6 +778,7 @@ async function getSprintMetrics(cycleId: string) {
 
 ## Related
 
+- [linear.do](/docs/integrations/linear/service) - Managed Linear on the edge
 - [Events Overview](/docs/events) - Event handling including webhooks
 - [SDK Events](/docs/sdk/events) - Event subscription patterns
 - [Compat SDKs](/docs/compat) - All API-compatible SDKs

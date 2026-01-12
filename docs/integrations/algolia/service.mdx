@@ -1,0 +1,430 @@
+---
+title: algolia.do
+description: Algolia on the Edge — Drop-in replacement for Algolia backed by Durable Object SQLite with FTS5 full-text search.
+---
+
+# algolia.do
+
+**Algolia on the Edge** — A fully managed Algolia-compatible search service running on Cloudflare Workers with Durable Object SQLite and FTS5 full-text search.
+
+```typescript
+import algoliasearch from 'algolia.do'
+
+const client = algoliasearch('https://your-worker.workers.dev')
+const index = client.initIndex('products')
+
+// It's just Algolia
+await index.saveObject({
+  objectID: 'prod-1',
+  name: 'Wireless Headphones',
+  price: 99.99,
+})
+
+const results = await index.search('wireless headphones')
+```
+
+<Callout type="info">
+Looking for an in-memory implementation for testing? See [@dotdo/algolia](/docs/integrations/algolia/package) for a zero-dependency search index.
+</Callout>
+
+## Why algolia.do?
+
+| Algolia Cloud | algolia.do |
+|---------------|------------|
+| Rate-limited indexing operations | Unlimited writes to DO SQLite |
+| Per-operation pricing | Flat resource pricing |
+| Network latency to search clusters | Edge-local FTS5 in DO |
+| Separate search infrastructure | Unified with your DO data |
+
+**This is a reimplementation.** Your data lives in Durable Object SQLite with FTS5 full-text search - not proxied to Algolia servers. The Algolia API is used for compatibility, not authentication.
+
+## Features
+
+### Core Search
+
+| Feature | Description |
+|---------|-------------|
+| **Full-Text Search** | FTS5-powered search with tokenization and ranking |
+| **Filters** | AND/OR/NOT, numeric comparisons, facet filters |
+| **Facets** | Count aggregation with refinement support |
+| **Highlighting** | Pre/post tags with match level indicators |
+| **Pagination** | Standard page/hitsPerPage support |
+| **Multi-Index** | Search across multiple indices in one request |
+
+### Edge Benefits
+
+| Feature | Description |
+|---------|-------------|
+| **Zero Infrastructure** | No servers to manage, no connection limits |
+| **Global by Default** | Search index lives at the edge, close to users |
+| **Serverless Economics** | Pay only for what you use, scale to zero |
+| **InstantSearch Compatible** | Works with React, Vue, and vanilla InstantSearch |
+
+## Installation
+
+```bash
+npm install algolia.do
+```
+
+## Quick Start
+
+### Deploy to Cloudflare Workers
+
+```typescript
+// src/index.ts
+import { AlgoliaEntrypoint, AlgoliaIndex } from 'algolia.do'
+
+export { AlgoliaIndex }
+export default AlgoliaEntrypoint
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-algolia.do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "ALGOLIA_INDEX", "class_name": "AlgoliaIndex" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AlgoliaIndex"] }]
+}
+```
+
+```bash
+npx wrangler deploy
+```
+
+### Client Usage
+
+```typescript
+import algoliasearch from 'algolia.do'
+
+const client = algoliasearch('https://your-worker.workers.dev')
+const index = client.initIndex('products')
+
+// Index documents
+await index.saveObjects([
+  { objectID: 'prod-1', name: 'Wireless Headphones', price: 99.99, category: 'audio' },
+  { objectID: 'prod-2', name: 'MacBook Pro', price: 2499, category: 'computers' },
+  { objectID: 'prod-3', name: 'iPad Pro', price: 799, category: 'tablets' },
+])
+
+// Search
+const { hits, nbHits } = await index.search('wireless')
+console.log(`Found ${nbHits} results`)
+
+// Filtered search
+const filtered = await index.search('', {
+  filters: 'price < 1000 AND category:audio',
+  facets: ['category'],
+})
+```
+
+## Examples
+
+### Faceted Search
+
+```typescript
+// Configure faceting
+await index.setSettings({
+  attributesForFaceting: ['category', 'brand', 'filterOnly(price)'],
+})
+
+// Search with facets
+const results = await index.search('headphones', {
+  facets: ['category', 'brand'],
+})
+
+console.log(results.facets)
+// {
+//   category: { audio: 15, electronics: 8 },
+//   brand: { Sony: 5, Apple: 12 }
+// }
+
+// Refine by facet
+const refined = await index.search('headphones', {
+  facetFilters: ['category:audio', ['brand:Sony', 'brand:Apple']],
+})
+```
+
+### Highlighting
+
+```typescript
+const results = await index.search('wireless', {
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<mark>',
+  highlightPostTag: '</mark>',
+})
+
+for (const hit of results.hits) {
+  console.log(hit._highlightResult?.name?.value)
+  // "High-Quality <mark>Wireless</mark> Headphones"
+}
+```
+
+### Multi-Index Search
+
+```typescript
+const { results } = await client.multipleQueries([
+  { indexName: 'products', query: 'headphones' },
+  { indexName: 'categories', query: 'audio' },
+  {
+    indexName: 'products',
+    type: 'facet',
+    facet: 'brand',
+    params: { facetQuery: 'app' },
+  },
+])
+```
+
+### InstantSearch Integration
+
+```typescript
+// react-instantsearch
+import { InstantSearch, SearchBox, Hits, RefinementList } from 'react-instantsearch'
+import algoliasearch from 'algolia.do'
+
+const client = algoliasearch('https://your-algolia.workers.dev')
+
+function Search() {
+  return (
+    <InstantSearch searchClient={client} indexName="products">
+      <SearchBox />
+      <RefinementList attribute="category" />
+      <Hits hitComponent={Hit} />
+    </InstantSearch>
+  )
+}
+```
+
+### Browse All Objects
+
+```typescript
+// Iterate through all objects
+await index.browseObjects({
+  query: '',
+  hitsPerPage: 1000,
+  batch: (hits) => {
+    for (const hit of hits) {
+      console.log(hit.objectID, hit.name)
+    }
+  },
+})
+```
+
+## Architecture
+
+```
+┌────────────────────────────────────────────────┐
+│           client.initIndex('products')          │
+│                 index.search()                  │
+└────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌────────────────────────────────────────────────┐
+│              Durable Object (DO)                │
+│  ┌──────────────────────────────────────────┐  │
+│  │              SQLite + FTS5               │  │
+│  │                                          │  │
+│  │  CREATE VIRTUAL TABLE products_fts       │  │
+│  │  USING fts5(content, tokenize='porter'); │  │
+│  │                                          │  │
+│  │  SELECT * FROM products_fts              │  │
+│  │  WHERE products_fts MATCH 'headphones'   │  │
+│  │  ORDER BY rank;                          │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┘
+```
+
+### How Search Works
+
+1. **Tokenization** - Query and documents tokenized to lowercase words
+2. **Matching** - FTS5 MATCH with prefix support (`head*`)
+3. **Scoring** - Custom relevance scoring based on:
+   - Exact word matches (2 points)
+   - Partial matches (1 point)
+   - Query term coverage boost
+4. **Filtering** - Boolean filter parsing with AND/OR/NOT
+5. **Faceting** - Aggregation counts computed from matched documents
+
+### Storage Model
+
+Each index runs as an isolated Durable Object with SQLite:
+
+```typescript
+interface IndexStorage {
+  objects: Map<string, AlgoliaObject>  // objectID -> document
+  settings: Settings                    // Index configuration
+  fts5_table: string                   // Full-text search table
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+## Configuration
+
+### Index Settings
+
+```typescript
+await index.setSettings({
+  // Define searchable fields (order matters for ranking)
+  searchableAttributes: [
+    'name',
+    'brand',
+    'description',
+    'category',
+  ],
+
+  // Enable faceting
+  attributesForFaceting: [
+    'category',
+    'brand',
+    'filterOnly(price)',  // Filterable but not displayed as facet
+  ],
+
+  // Custom ranking
+  customRanking: [
+    'desc(popularity)',
+    'asc(price)',
+  ],
+
+  // Pagination defaults
+  hitsPerPage: 20,
+
+  // Highlighting
+  attributesToHighlight: ['name', 'description'],
+  highlightPreTag: '<mark>',
+  highlightPostTag: '</mark>',
+})
+```
+
+### Wrangler Configuration
+
+```jsonc
+{
+  "name": "algolia-do",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ALGOLIA_INDEX", "class_name": "AlgoliaIndex" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AlgoliaIndex"] }
+  ]
+}
+```
+
+## API Reference
+
+### SearchClient
+
+```typescript
+const client = algoliasearch(baseUrl: string)
+```
+
+| Method | Description |
+|--------|-------------|
+| `initIndex(name)` | Get or create an index |
+| `listIndices()` | List all indices with stats |
+| `copyIndex(src, dest, scope?)` | Copy index with settings |
+| `moveIndex(src, dest)` | Move/rename index |
+| `multipleQueries(queries)` | Search multiple indices |
+| `multipleGetObjects(requests)` | Fetch objects across indices |
+
+### SearchIndex
+
+| Method | Description |
+|--------|-------------|
+| `search(query, options?)` | Full-text search |
+| `searchForFacetValues(facet, query, options?)` | Search facet values |
+| `saveObject(object)` | Index a document |
+| `saveObjects(objects)` | Batch index documents |
+| `getObject(objectID)` | Fetch by ID |
+| `getObjects(objectIDs)` | Batch fetch by IDs |
+| `partialUpdateObject(object)` | Update fields |
+| `deleteObject(objectID)` | Remove document |
+| `deleteObjects(objectIDs)` | Batch remove |
+| `deleteBy(params)` | Delete by filter |
+| `clearObjects()` | Clear all documents |
+| `setSettings(settings)` | Configure index |
+| `getSettings()` | Get index settings |
+| `browse(params?)` | Paginate all objects |
+| `browseObjects(params)` | Iterate all objects |
+| `exists()` | Check if index exists |
+| `delete()` | Delete index |
+
+### Search Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `query` | `string` | Search query |
+| `filters` | `string` | Boolean filter expression |
+| `facetFilters` | `string[][]` | Facet filter arrays |
+| `numericFilters` | `string[]` | Numeric comparisons |
+| `tagFilters` | `string[][]` | Tag filters |
+| `facets` | `string[]` | Facets to retrieve |
+| `hitsPerPage` | `number` | Results per page |
+| `page` | `number` | Page number (0-indexed) |
+| `attributesToHighlight` | `string[]` | Fields to highlight |
+| `highlightPreTag` | `string` | Highlight open tag |
+| `highlightPostTag` | `string` | Highlight close tag |
+
+## Limitations
+
+What's different from Algolia Cloud:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Basic search | Implemented | Full-text with prefix matching |
+| Filters | Implemented | AND/OR/NOT, numeric, facet filters |
+| Facets | Implemented | Count aggregation |
+| Highlighting | Implemented | Pre/post tags, match levels |
+| Pagination | Implemented | page, hitsPerPage |
+| Settings | Implemented | searchableAttributes, faceting, highlighting |
+| Multi-index | Implemented | multipleQueries, multipleGetObjects |
+| Typo tolerance | Partial | Basic prefix matching only |
+| Geo search | Planned | Types defined; filtering not yet implemented |
+| Synonyms | Planned | |
+| Query Rules | Planned | |
+| A/B Testing | Not planned | |
+| Analytics | Not planned | |
+| Personalization | Not planned | |
+| Recommend | Not planned | |
+
+### Scoring Differences
+
+The reimplementation uses a simplified scoring model:
+- No typo tolerance ranking
+- No geo-distance ranking
+- No attribute-ordered ranking
+- Basic BM25-style term frequency scoring
+
+For production use cases requiring Algolia's full ranking capabilities, consider using Algolia Cloud directly.
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Local development
+npm run dev
+```
+
+## Related
+
+- [@dotdo/algolia](/docs/integrations/algolia/package) - In-memory Algolia for testing
+- [Search Compat Overview](/docs/compat/search) - All search SDK implementations
+- [Vector Search](/docs/compat/vector) - Semantic/embedding search
+- [Durable Objects](/docs/architecture/durable-objects) - DO-backed storage

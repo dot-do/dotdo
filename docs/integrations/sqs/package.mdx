@@ -1,9 +1,9 @@
 ---
-title: SQS
+title: "@dotdo/sqs"
 description: Drop-in replacement for the AWS SQS SDK with edge compatibility and local testing support.
 ---
 
-# SQS
+# @dotdo/sqs
 
 Drop-in replacement for the AWS SQS JavaScript SDK v3. Your existing `@aws-sdk/client-sqs` code works unchanged - just swap the import.
 
@@ -23,7 +23,11 @@ await client.send(new SendMessageCommand({
 }))
 ```
 
-## Why sqs.do?
+<Callout type="info">
+Looking for managed message queuing without infrastructure? See [sqs.do](/docs/integrations/sqs/service) for a fully managed SQS-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/sqs?
 
 | AWS SQS SDK | @dotdo/sqs |
 |-------------|------------|
@@ -34,11 +38,17 @@ await client.send(new SendMessageCommand({
 | AWS infrastructure costs | Free local development |
 | Complex local setup (LocalStack) | Built-in local mode |
 
-**This is a proxy/compatibility layer.** It can either forward to real AWS SQS (production) or run entirely locally using in-memory storage backed by Durable Objects. The API surface matches the official AWS SDK v3.
+**This is a compatibility layer.** It can either forward to real AWS SQS (production) or run entirely locally using in-memory storage. The API surface matches the official AWS SDK v3.
+
+## Installation
+
+```bash
+npm install @dotdo/sqs
+```
 
 ## Features
 
-### Implemented
+### Implemented (Core APIs)
 
 **Queue Operations**
 - `CreateQueueCommand` - Create standard and FIFO queues
@@ -83,12 +93,6 @@ await client.send(new SendMessageCommand({
 - Redrive policies (partial)
 - Server-side encryption
 - Access policies
-
-## Installation
-
-```bash
-npm install @dotdo/sqs
-```
 
 ## Quick Start
 
@@ -209,7 +213,7 @@ if (Messages) {
 }
 ```
 
-## Inbound Mode - Using sqs.do Locally
+## Local Mode (In-Memory)
 
 For testing and development, the SDK provides a complete in-memory SQS implementation:
 
@@ -306,7 +310,7 @@ describe('Order Processing', () => {
 })
 ```
 
-## Outbound Mode - Connecting to Real AWS SQS
+## Production Mode (Real AWS SQS)
 
 For production, configure with AWS credentials:
 
@@ -562,90 +566,6 @@ import type {
 } from '@dotdo/sqs'
 ```
 
-## Migration from AWS SDK
-
-### Package Change
-
-```bash
-# Remove
-npm uninstall @aws-sdk/client-sqs
-
-# Install
-npm install @dotdo/sqs
-```
-
-### Import Change
-
-```typescript
-// Before
-import {
-  SQSClient,
-  SendMessageCommand,
-  ReceiveMessageCommand,
-} from '@aws-sdk/client-sqs'
-
-// After
-import {
-  SQSClient,
-  SendMessageCommand,
-  ReceiveMessageCommand,
-} from '@dotdo/sqs'
-```
-
-### Code Compatibility
-
-Your existing SQS code should work unchanged:
-
-```typescript
-// This code works with both @aws-sdk/client-sqs and @dotdo/sqs
-const client = new SQSClient({ region: 'us-east-1' })
-
-await client.send(new SendMessageCommand({
-  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
-  MessageBody: JSON.stringify({ event: 'test' }),
-}))
-
-const { Messages } = await client.send(new ReceiveMessageCommand({
-  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
-  MaxNumberOfMessages: 10,
-}))
-```
-
-## Architecture
-
-```
-+-------------------------------------------------------------+
-|                    Your Application                          |
-|                                                              |
-|  const client = new SQSClient({ region: 'us-east-1' })      |
-|  await client.send(new SendMessageCommand(...))              |
-+-------------------------------------------------------------+
-                              |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|   Production Mode       |     |     Local Mode          |
-|   (Outbound)            |     |     (Inbound)           |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> Real AWS SQS        |     |  -> In-memory storage   |
-|  -> AWS credentials     |     |  -> No network calls    |
-|  -> Actual queues       |     |  -> DO SQLite backing   |
-|  -> Production traffic  |     |  -> Instant operations  |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
-```
-
-### Local Mode Benefits
-
-- **Zero latency**: No network round-trips
-- **No AWS costs**: Free local development
-- **No credentials**: Works without AWS setup
-- **Predictable**: No external dependencies
-- **Testable**: Full control over queue state
-- **Offline**: Works without internet
-
 ## Common Patterns
 
 ### Worker Pattern
@@ -754,6 +674,90 @@ await client.send(new CreateQueueCommand({
 }))
 ```
 
+## Migration from AWS SDK
+
+### Package Change
+
+```bash
+# Remove
+npm uninstall @aws-sdk/client-sqs
+
+# Install
+npm install @dotdo/sqs
+```
+
+### Import Change
+
+```typescript
+// Before
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+} from '@aws-sdk/client-sqs'
+
+// After
+import {
+  SQSClient,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+} from '@dotdo/sqs'
+```
+
+### Code Compatibility
+
+Your existing SQS code should work unchanged:
+
+```typescript
+// This code works with both @aws-sdk/client-sqs and @dotdo/sqs
+const client = new SQSClient({ region: 'us-east-1' })
+
+await client.send(new SendMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
+  MessageBody: JSON.stringify({ event: 'test' }),
+}))
+
+const { Messages } = await client.send(new ReceiveMessageCommand({
+  QueueUrl: 'https://sqs.us-east-1.amazonaws.com/123/my-queue',
+  MaxNumberOfMessages: 10,
+}))
+```
+
+## Architecture
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  const client = new SQSClient({ region: 'us-east-1' })      |
+|  await client.send(new SendMessageCommand(...))              |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode       |     |     Local Mode          |
+|   (Outbound)            |     |     (Inbound)           |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> Real AWS SQS        |     |  -> In-memory storage   |
+|  -> AWS credentials     |     |  -> No network calls    |
+|  -> Actual queues       |     |  -> Instant operations  |
+|  -> Production traffic  |     |  -> Perfect for tests   |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### Local Mode Benefits
+
+- **Zero latency**: No network round-trips
+- **No AWS costs**: Free local development
+- **No credentials**: Works without AWS setup
+- **Predictable**: No external dependencies
+- **Testable**: Full control over queue state
+- **Offline**: Works without internet
+
 ## API Coverage
 
 | Command | Status | Notes |
@@ -778,6 +782,6 @@ await client.send(new CreateQueueCommand({
 
 ## Related
 
+- [sqs.do](/docs/integrations/sqs/service) - Managed SQS-compatible queuing
+- [Kafka Integration](/docs/integrations/kafka) - Event streaming
 - [Events Overview](/docs/events) - Event handling patterns
-- [Workflows](/docs/workflows) - Durable workflow execution
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

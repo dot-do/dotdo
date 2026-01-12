@@ -1,0 +1,137 @@
+---
+title: Linear
+description: Choose between @dotdo/linear (OSS package) and linear.do (managed edge service) for your Linear integration needs.
+---
+
+# Linear Integration
+
+dotdo provides two ways to work with Linear-compatible APIs:
+
+| | @dotdo/linear | linear.do |
+|---|---------------|-----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Storage** | In-memory (LinearLocal) | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, prototyping | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/linear` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/linear - In-memory, great for tests
+import { LinearLocal } from '@dotdo/linear'
+
+const linear = new LinearLocal()
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+const { issue } = await linear.issueCreate({ teamId: team.id, title: 'Ship MVP' })
+// Data lost on restart
+```
+
+```typescript
+// linear.do - Persistent edge service
+import { LinearClient } from 'linear.do'
+
+const linear = new LinearClient('https://your-worker.workers.dev')
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+const { issue } = await linear.issueCreate({ teamId: team.id, title: 'Ship MVP' })
+// Data persists globally
+```
+
+## When to Use Each
+
+### Use @dotdo/linear when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Prototyping** - Quick iteration without infrastructure setup
+- **Edge functions** - Need Linear API but no persistence required
+- **CI/CD pipelines** - Tests that need Linear semantics
+- **Webhook testing** - Simulate and verify webhook handlers
+
+<Callout type="info">
+@dotdo/linear is a complete in-memory Linear implementation with time-travel queries. Perfect for tests and development, but data doesn't persist between restarts.
+</Callout>
+
+### Use linear.do when:
+
+- **Production applications** - Real project data that must persist
+- **Global edge deployment** - Data close to users worldwide
+- **AI/Agent workloads** - Project management automation with agents
+- **Real-time features** - Webhook events, live updates
+
+<Callout type="info">
+linear.do is Linear on the Edge - a fully managed service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/linear | linear.do |
+|---------|---------------|-----------|
+| Teams CRUD | Full | Full |
+| Issues CRUD | Full | Full |
+| Projects & Milestones | Full | Full |
+| Cycles (Sprints) | Full | Full |
+| Comments (threaded) | Full | Full |
+| Labels (hierarchical) | Full | Full |
+| Workflow States | Full | Full |
+| Issue Relations | Full | Full |
+| Search | Full | Full + vector |
+| Webhooks | Simulation | Real + simulation |
+| Time-Travel Queries | Full | Full |
+| Transactions | N/A | ACID |
+| Change Streams | N/A | Real-time |
+| Wire Protocol | N/A | GraphQL compatible |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/linear/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/linear</h3>
+    <p className="text-sm text-muted-foreground">In-memory Linear for testing and development</p>
+  </a>
+  <a href="/docs/integrations/linear/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">linear.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Linear on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/linear` for development, then upgrade to `linear.do` for production:
+
+```typescript
+// Development (package)
+import { LinearLocal } from '@dotdo/linear'
+const linear = new LinearLocal()
+
+// Production (service) - same API!
+import { LinearClient } from 'linear.do'
+const linear = new LinearClient('https://your-linear.workers.dev')
+
+// Your application code stays the same
+const { team } = await linear.teamCreate({ name: 'Engineering', key: 'ENG' })
+const { issue } = await linear.issueCreate({
+  teamId: team.id,
+  title: 'Implement authentication',
+  priority: 1,
+})
+```
+
+Both packages share the same Linear-compatible API, making migration seamless.
+
+## Connecting to Real Linear
+
+Both packages can also proxy to the real Linear API:
+
+```typescript
+import { LinearClient } from '@dotdo/linear'
+
+// Connect to real Linear API
+const linear = new LinearClient({ apiKey: env.LINEAR_API_KEY })
+
+// All requests go to api.linear.app
+const { issue } = await linear.issueCreate({
+  teamId: 'team-uuid',
+  title: 'Production issue',
+})
+```

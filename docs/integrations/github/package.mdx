@@ -1,9 +1,9 @@
 ---
-title: GitHub
+title: "@dotdo/github"
 description: Drop-in replacement for Octokit with edge compatibility and comprehensive API coverage.
 ---
 
-# GitHub
+# @dotdo/github
 
 Drop-in replacement for the Octokit JavaScript SDK. Your existing GitHub code works unchanged - just swap the import.
 
@@ -30,7 +30,11 @@ const { data: issue } = await octokit.rest.issues.create({
 })
 ```
 
-## Why github.do?
+<Callout type="info">
+Looking for managed GitHub integration with webhook routing and App hosting? See [github.do](/docs/integrations/github/service) for a fully managed service on the edge.
+</Callout>
+
+## Why @dotdo/github?
 
 | Octokit SDK | @dotdo/github |
 |-------------|---------------|
@@ -41,6 +45,12 @@ const { data: issue } = await octokit.rest.issues.create({
 | No built-in signature verification | Built-in webhook signature verification |
 
 **This is a proxy/compatibility layer.** It forwards to real GitHub APIs in production. The API surface matches Octokit's official SDK structure.
+
+## Installation
+
+```bash
+npm install @dotdo/github
+```
 
 ## Features
 
@@ -108,12 +118,6 @@ const { data: issue } = await octokit.rest.issues.create({
 - Code Scanning API
 - Secret Scanning API
 - Dependabot API
-
-## Installation
-
-```bash
-npm install @dotdo/github
-```
 
 ## Quick Start
 
@@ -190,9 +194,9 @@ await octokit.rest.actions.createWorkflowDispatch({
 console.log('Workflow triggered')
 ```
 
-## Inbound Mode - Webhook Handling
+## Webhook Handling
 
-Handle GitHub webhooks in your Cloudflare Worker with built-in signature verification:
+Handle GitHub webhooks in your Cloudflare Worker with built-in signature verification.
 
 ### Using createWebhookHandler
 
@@ -303,30 +307,7 @@ export default {
 }
 ```
 
-## Outbound Mode - Connecting to Real GitHub
-
-For production, the client connects to GitHub's API:
-
-```typescript
-import { Octokit } from '@dotdo/github'
-
-const octokit = new Octokit({
-  auth: env.GITHUB_TOKEN,
-  userAgent: 'my-app/1.0.0',
-  request: {
-    timeout: 30000,
-  },
-})
-
-// All requests go to api.github.com
-const { data: repos } = await octokit.rest.repos.listForAuthenticatedUser({
-  visibility: 'all',
-  sort: 'updated',
-  per_page: 100,
-})
-```
-
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -560,6 +541,35 @@ const handler = createWebhookHandler({
 }, { secret: env.GITHUB_WEBHOOK_SECRET })
 ```
 
+## Testing with @dotdo/github
+
+The package is ideal for testing GitHub integrations:
+
+```typescript
+import { Octokit } from '@dotdo/github'
+import { describe, it, expect, vi } from 'vitest'
+
+describe('GitHub Integration', () => {
+  it('should create an issue', async () => {
+    const octokit = new Octokit({ auth: 'test-token' })
+
+    // Mock the API call
+    vi.spyOn(octokit.rest.issues, 'create').mockResolvedValue({
+      status: 201,
+      data: { number: 42, title: 'Test Issue' },
+    } as any)
+
+    const { data } = await octokit.rest.issues.create({
+      owner: 'test',
+      repo: 'test',
+      title: 'Test Issue',
+    })
+
+    expect(data.number).toBe(42)
+  })
+})
+```
+
 ## Types
 
 Full TypeScript support with comprehensive type definitions:
@@ -686,6 +696,7 @@ const { data: issue } = await octokit.rest.issues.create({
 
 ## Related
 
+- [github.do](/docs/integrations/github/service) - Managed GitHub integration on the edge
 - [Events Overview](/docs/events) - Event handling patterns
 - [SDK Events](/docs/sdk/events) - Event subscription patterns
 - [Compat SDKs](/docs/compat) - All API-compatible SDKs

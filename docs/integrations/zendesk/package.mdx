@@ -1,9 +1,9 @@
 ---
-title: Zendesk
+title: "@dotdo/zendesk"
 description: Drop-in replacement for the Zendesk SDK with edge compatibility and local testing support.
 ---
 
-# Zendesk
+# @dotdo/zendesk
 
 Drop-in replacement for the node-zendesk SDK. Your existing Zendesk code works unchanged - just swap the import.
 
@@ -29,7 +29,11 @@ const ticket = await client.tickets.create({
 })
 ```
 
-## Why zendesk.do?
+<Callout type="info">
+Looking for a managed support platform without Zendesk infrastructure? See [zendesk.do](/docs/integrations/zendesk/service) for a fully managed Zendesk-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/zendesk?
 
 | node-zendesk | @dotdo/zendesk |
 |--------------|----------------|
@@ -40,6 +44,12 @@ const ticket = await client.tickets.create({
 | Separate test mode | Same code, different backends |
 
 **This is a proxy/compatibility layer.** It can either forward to real Zendesk APIs (production) or run entirely locally for testing and development. The API surface matches Zendesk's official SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/zendesk
+```
 
 ## Features
 
@@ -104,12 +114,6 @@ const ticket = await client.tickets.create({
 
 ## Quick Start
 
-### Install
-
-```bash
-npm install @dotdo/zendesk
-```
-
 ### Basic Usage
 
 ```typescript
@@ -140,7 +144,7 @@ await client.tickets.createComment(ticket.id, {
 })
 ```
 
-## Inbound - Using zendesk.do Locally
+## Testing with Mock Fetch
 
 For testing and development, use mock fetch to simulate Zendesk responses:
 
@@ -236,7 +240,7 @@ describe('Support workflow', () => {
 })
 ```
 
-## Outbound - Connecting to Real Zendesk
+## Production Mode (Real Zendesk)
 
 For production, the client connects to Zendesk's API:
 
@@ -1104,6 +1108,6 @@ async function routeTicket(ticketId: number) {
 
 ## Related
 
+- [zendesk.do](/docs/integrations/zendesk/service) - Managed Zendesk-compatible support on the edge
 - [Events Overview](/docs/events) - Event handling including webhooks
-- [SDK Events](/docs/sdk/events) - Event subscription patterns
 - [Compat SDKs](/docs/compat) - All API-compatible SDKs

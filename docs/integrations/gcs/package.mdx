@@ -1,9 +1,9 @@
 ---
-title: GCS Integration
-description: Drop-in replacement for @google-cloud/storage, backed by Cloudflare R2 on Durable Objects
+title: "@dotdo/gcs"
+description: Drop-in replacement for @google-cloud/storage, backed by Cloudflare R2.
 ---
 
-# GCS Integration
+# @dotdo/gcs
 
 Drop-in replacement for the Google Cloud Storage SDK. Your existing `@google-cloud/storage` code works unchanged - just swap the import.
 
@@ -21,10 +21,14 @@ const file = bucket.file('my-file.txt')
 await file.save('Hello, World!')
 ```
 
-## Why gcs.do?
+<Callout type="info">
+Looking for a managed service? See [gcs.do](/docs/integrations/gcs/service) for zero-infrastructure edge storage with GCS API.
+</Callout>
 
-| GCS | gcs.do |
-|-----|--------|
+## Why @dotdo/gcs?
+
+| GCS | @dotdo/gcs |
+|-----|------------|
 | Regional latency | Edge-local (300+ cities) |
 | Per-request pricing | Flat resource pricing |
 | Egress fees | No egress fees (R2) |
@@ -33,6 +37,12 @@ await file.save('Hello, World!')
 | Requires service account | Works without credentials locally |
 
 **This is backed by Cloudflare R2.** Your data lives in R2 buckets with GCS-compatible API - not proxied to Google Cloud. R2 has zero egress fees.
+
+## Installation
+
+```bash
+npm install @dotdo/gcs
+```
 
 ## Features
 
@@ -85,12 +95,6 @@ await file.save('Hello, World!')
 - HMAC keys
 - Bucket locking
 - Uniform bucket-level access
-
-## Installation
-
-```bash
-npm install @dotdo/gcs
-```
 
 ## Quick Start
 
@@ -452,53 +456,7 @@ const [content] = await file.download()
 console.log(content.toString())
 ```
 
-## Inbound - gcs.do as Drop-in Replacement
-
-Use gcs.do to replace Google Cloud Storage in existing applications:
-
-```typescript
-// Existing GCS code - works unchanged
-import { Storage } from '@dotdo/gcs'
-
-const storage = new Storage({ projectId: 'my-project' })
-
-// Your existing GCS code just works
-async function storeDocument(id: string, content: string) {
-  const bucket = storage.bucket('documents')
-  const file = bucket.file(`docs/${id}.json`)
-  await file.save(content, { contentType: 'application/json' })
-}
-
-async function getDocument(id: string) {
-  const bucket = storage.bucket('documents')
-  const file = bucket.file(`docs/${id}.json`)
-  const [content] = await file.download()
-  return content.toString()
-}
-```
-
-Works with GCS-compatible patterns:
-
-```typescript
-// Express middleware pattern
-import { Storage } from '@dotdo/gcs'
-import express from 'express'
-
-const storage = new Storage({ projectId: 'my-project' })
-const bucket = storage.bucket('uploads')
-
-app.post('/upload', async (req, res) => {
-  const file = bucket.file(`${Date.now()}-${req.body.filename}`)
-  await file.save(req.body.content, {
-    contentType: req.body.contentType,
-  })
-  res.json({ key: file.name })
-})
-```
-
-## Outbound - Connecting to Real GCS
-
-### Connect to Google Cloud Storage
+## Connecting to Real GCS
 
 If you need to interact with actual GCS buckets:
 
@@ -519,7 +477,7 @@ const bucket = gcsClient.bucket('my-gcs-bucket')
 const [content] = await bucket.file('data.json').download()
 ```
 
-### Direct R2 Access
+## Direct R2 Access
 
 For maximum performance, use R2 bindings directly:
 
@@ -547,41 +505,7 @@ export default {
 }
 ```
 
-## R2 Integration
-
-Cloudflare R2 is GCS-compatible with zero egress fees. The dotdo GCS integration is built on R2.
-
-### Why R2?
-
-| Feature | GCS | Cloudflare R2 |
-|---------|-----|---------------|
-| Egress fees | $0.12/GB | **Free** |
-| API compatibility | Native | S3/GCS-compatible |
-| Edge access | Via CDN | Native edge access |
-| Cold storage | Archive tiers | Automatic tiering |
-| Min storage duration | 30-365 days | None |
-
-### R2 Bucket Configuration
-
-```toml
-# wrangler.toml
-
-# Single bucket
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "my-app-storage"
-
-# Multiple buckets
-[[r2_buckets]]
-binding = "UPLOADS"
-bucket_name = "my-app-uploads"
-
-[[r2_buckets]]
-binding = "BACKUPS"
-bucket_name = "my-app-backups"
-```
-
-### R2 in Durable Objects
+## R2 in Durable Objects
 
 Access R2 from within Durable Objects:
 
@@ -711,119 +635,35 @@ const storage = new Storage({
 })
 ```
 
-## Common Patterns
+## Testing
 
-### File Upload API
-
-```typescript
-import { Storage } from '@dotdo/gcs'
-
-export default {
-  async fetch(request: Request, env: Env) {
-    const storage = new Storage({ projectId: 'api' })
-    const bucket = storage.bucket('uploads')
-    const url = new URL(request.url)
-
-    if (url.pathname === '/api/upload-url' && request.method === 'POST') {
-      const { filename, contentType } = await request.json()
-      const key = `uploads/${crypto.randomUUID()}/${filename}`
-      const file = bucket.file(key)
-
-      const [uploadUrl] = await file.getSignedUrl({
-        action: 'write',
-        expires: Date.now() + 5 * 60 * 1000,
-        contentType,
-      })
-
-      return Response.json({ uploadUrl, key })
-    }
-
-    if (url.pathname.startsWith('/files/')) {
-      const key = url.pathname.replace('/files/', '')
-      const file = bucket.file(key)
-
-      const stream = file.createReadStream()
-      const [metadata] = await file.getMetadata()
-
-      return new Response(stream, {
-        headers: {
-          'Content-Type': metadata.contentType ?? 'application/octet-stream',
-          'Content-Length': metadata.size ?? '0',
-        },
-      })
-    }
-
-    return new Response('Not found', { status: 404 })
-  }
-}
-```
-
-### Image Processing Pipeline
+Use @dotdo/gcs in tests without any external dependencies:
 
 ```typescript
 import { Storage } from '@dotdo/gcs'
 
-async function processImage(bucketName: string, key: string) {
-  const storage = new Storage({ projectId: 'processor' })
-  const bucket = storage.bucket(bucketName)
-  const file = bucket.file(key)
+describe('FileService', () => {
+  let storage: Storage
+  let bucket: Bucket
 
-  // Get original
-  const [imageData] = await file.download()
-
-  // Process with Cloudflare Images (example)
-  const processed = await processWithCloudflareImages(imageData)
-
-  // Store processed versions
-  await Promise.all([
-    bucket.file(key.replace('.', '-thumb.')).save(processed.thumbnail, {
-      contentType: 'image/webp',
-    }),
-    bucket.file(key.replace('.', '-medium.')).save(processed.medium, {
-      contentType: 'image/webp',
-    }),
-  ])
-}
-```
-
-### Backup and Restore
-
-```typescript
-import { Storage } from '@dotdo/gcs'
-
-const storage = new Storage({ projectId: 'backup-service' })
-const bucket = storage.bucket('backups')
-
-async function backupDatabase(data: string) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const file = bucket.file(`database/${timestamp}.json`)
-
-  await file.save(data, {
-    contentType: 'application/json',
-    metadata: {
-      backupType: 'daily',
-      createdAt: new Date().toISOString(),
-    },
+  beforeEach(() => {
+    storage = new Storage({ projectId: 'test' })
+    bucket = storage.bucket('test-bucket')
   })
-}
 
-async function restoreLatestBackup() {
-  const [files] = await bucket.getFiles({ prefix: 'database/' })
+  it('should upload and download files', async () => {
+    const file = bucket.file('test.txt')
+    await file.save('Hello, World!')
 
-  // Get latest by sorting filenames (timestamps)
-  const sortedFiles = files.sort((a, b) => b.name.localeCompare(a.name))
-  const latest = sortedFiles[0]
-
-  if (!latest) throw new Error('No backups found')
-
-  const [content] = await latest.download()
-  return content.toString()
-}
+    const [content] = await file.download()
+    expect(content.toString()).toBe('Hello, World!')
+  })
+})
 ```
 
 ## Related
 
-- [Storage Overview](/docs/storage) - All storage options
+- [gcs.do](/docs/integrations/gcs/service) - Managed GCS-compatible storage on the edge
 - [S3 Integration](/docs/integrations/s3) - AWS S3 compatible storage
 - [Hot Tier Storage](/docs/storage/hot-tier) - High-performance storage with Durable Objects
 - [Warm Tier Storage](/docs/storage/warm-tier) - R2 object storage

@@ -1,15 +1,9 @@
 ---
-title: NATS
-description: Drop-in replacement for nats.js with edge-native pub/sub, request/reply, and JetStream.
+title: "@dotdo/nats"
+description: Drop-in replacement for nats.js with edge compatibility and Durable Object-backed messaging.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-
-<Callout type="info">
-  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
-</Callout>
-
-# NATS
+# @dotdo/nats
 
 Drop-in replacement for `nats.js`. Your existing NATS code works unchanged - just swap the import.
 
@@ -32,7 +26,11 @@ for await (const msg of sub) {
 }
 ```
 
-## Why nats.do?
+<Callout type="info">
+Looking for managed messaging without infrastructure? See [nats.do](/docs/integrations/nats/service) for a fully managed NATS-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/nats?
 
 | nats.js | @dotdo/nats |
 |---------|-------------|
@@ -43,6 +41,12 @@ for await (const msg of sub) {
 | TCP connections required | Works in serverless environments |
 
 **This is a compatibility layer.** It can either run entirely locally using Durable Objects (development/testing) or connect to real NATS servers (production). The API surface matches the official nats.js SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/nats
+```
 
 ## Features
 
@@ -87,12 +91,6 @@ for await (const msg of sub) {
 - TLS/Authentication
 - Clustering/Mirroring
 - Account management
-
-## Installation
-
-```bash
-npm install @dotdo/nats
-```
 
 ## Quick Start
 
@@ -195,7 +193,7 @@ nc.subscribe('logs.*.error')      // logs.app.error, logs.db.error
 nc.subscribe('events.>')          // events.user.signup, events.payment.completed
 ```
 
-## Inbound - Using nats.do Locally
+## Local Mode (In-Memory)
 
 For testing and development, the SDK runs entirely in-memory using Durable Objects:
 
@@ -522,7 +520,7 @@ for await (const key of userKeys) {
 }
 ```
 
-## Outbound - Connecting to Real NATS
+## Production Mode (Real NATS)
 
 For production, connect to real NATS servers (coming soon):
 
@@ -540,7 +538,7 @@ const nc = await connect({
 nc.publish('events', sc.encode('Hello from edge!'))
 ```
 
-### Edge Compatibility
+## Edge Compatibility
 
 Works in Cloudflare Workers without Node.js dependencies:
 
@@ -610,6 +608,68 @@ try {
 | `BadSubject` | Invalid subject format |
 | `JetStream404NoMessages` | Stream/consumer not found |
 | `JetStream409` | Conflict (e.g., wrong sequence) |
+
+## API Reference
+
+### Connection API
+
+| Method | Description |
+|--------|-------------|
+| `connect(options?)` | Create connection |
+| `nc.publish(subject, data?, options?)` | Publish message |
+| `nc.subscribe(subject, options?)` | Subscribe to subject |
+| `nc.request(subject, data?, options?)` | Request/reply |
+| `nc.flush()` | Flush pending messages |
+| `nc.drain()` | Drain and close |
+| `nc.close()` | Close connection |
+| `nc.isClosed()` | Check if closed |
+| `nc.isDraining()` | Check if draining |
+| `nc.stats()` | Get statistics |
+| `nc.rtt()` | Get round-trip time |
+| `nc.status()` | Status iterator |
+| `nc.jetstream(options?)` | Get JetStream client |
+| `nc.jetstreamManager(options?)` | Get JetStream manager |
+
+### JetStream API
+
+| Method | Description |
+|--------|-------------|
+| `js.publish(subject, data?, options?)` | Publish to stream |
+| `js.consumers.get(stream, consumer)` | Get consumer |
+| `js.views.kv(bucket, options?)` | Get KV store |
+| `jsm.streams.add(config)` | Create stream |
+| `jsm.streams.update(name, config)` | Update stream |
+| `jsm.streams.delete(name)` | Delete stream |
+| `jsm.streams.info(name)` | Get stream info |
+| `jsm.streams.purge(name)` | Purge messages |
+| `jsm.consumers.add(stream, config)` | Create consumer |
+| `jsm.consumers.delete(stream, name)` | Delete consumer |
+| `jsm.consumers.info(stream, name)` | Get consumer info |
+
+### KV API
+
+| Method | Description |
+|--------|-------------|
+| `kv.put(key, value)` | Store value |
+| `kv.get(key)` | Get value |
+| `kv.create(key, value)` | Create if not exists |
+| `kv.update(key, value, revision)` | Update with revision check |
+| `kv.delete(key)` | Delete key |
+| `kv.purge(key)` | Purge key history |
+| `kv.keys(filter?)` | List keys |
+| `kv.watch(options?)` | Watch for changes |
+| `kv.history(key)` | Get key history |
+| `kv.status()` | Get bucket status |
+| `kv.destroy()` | Delete bucket |
+
+### Codecs
+
+| Function | Description |
+|----------|-------------|
+| `StringCodec()` | Encode/decode strings |
+| `JSONCodec<T>()` | Encode/decode JSON |
+| `headers()` | Create message headers |
+| `Empty` | Empty byte array |
 
 ## Types
 
@@ -724,41 +784,6 @@ const response = await nc.request('service', sc.encode('help'), {
 await nc.drain()
 ```
 
-## Architecture
-
-```
-+-------------------------------------------------------------+
-|                    Your Application                          |
-|                                                              |
-|  const nc = await connect()                                  |
-|  nc.publish('events', data)                                  |
-+-------------------------------------------------------------+
-                              |
-              +---------------+---------------+
-              |                               |
-              v                               v
-+-------------------------+     +-------------------------+
-|    Local Mode           |     |   Outbound Mode         |
-|    (In-Memory DO)       |     |   (Real NATS)           |
-+-------------------------+     +-------------------------+
-|                         |     |                         |
-|  -> In-memory storage   |     |  -> nats://server:4222  |
-|  -> No network calls    |     |  -> Full NATS cluster   |
-|  -> Sub-10ms latency    |     |  -> Production-ready    |
-|  -> JetStream emulated  |     |  -> External infra      |
-|  -> KV Store built-in   |     |                         |
-|                         |     |                         |
-+-------------------------+     +-------------------------+
-```
-
-### Local Mode Benefits
-
-- **Zero latency**: No network round-trips
-- **No infrastructure**: No NATS server to manage
-- **Predictable**: No external dependencies
-- **Testable**: Perfect for unit tests
-- **Edge-native**: Runs in V8 isolates
-
 ## Common Patterns
 
 ### Event-Driven Architecture
@@ -828,10 +853,10 @@ async function getUser(userId: string) {
 }
 ```
 
-### Work Queue
+### Work Queue with JetStream
 
 ```typescript
-import { connect, AckPolicy } from '@dotdo/nats'
+import { connect, AckPolicy, RetentionPolicy } from '@dotdo/nats'
 
 const nc = await connect()
 const jsm = await nc.jetstreamManager()
@@ -870,70 +895,8 @@ for await (const msg of messages) {
 }
 ```
 
-## API Reference
-
-### Connection API
-
-| Method | Description |
-|--------|-------------|
-| `connect(options?)` | Create connection |
-| `nc.publish(subject, data?, options?)` | Publish message |
-| `nc.subscribe(subject, options?)` | Subscribe to subject |
-| `nc.request(subject, data?, options?)` | Request/reply |
-| `nc.flush()` | Flush pending messages |
-| `nc.drain()` | Drain and close |
-| `nc.close()` | Close connection |
-| `nc.isClosed()` | Check if closed |
-| `nc.isDraining()` | Check if draining |
-| `nc.stats()` | Get statistics |
-| `nc.rtt()` | Get round-trip time |
-| `nc.status()` | Status iterator |
-| `nc.jetstream(options?)` | Get JetStream client |
-| `nc.jetstreamManager(options?)` | Get JetStream manager |
-
-### JetStream API
-
-| Method | Description |
-|--------|-------------|
-| `js.publish(subject, data?, options?)` | Publish to stream |
-| `js.consumers.get(stream, consumer)` | Get consumer |
-| `js.views.kv(bucket, options?)` | Get KV store |
-| `jsm.streams.add(config)` | Create stream |
-| `jsm.streams.update(name, config)` | Update stream |
-| `jsm.streams.delete(name)` | Delete stream |
-| `jsm.streams.info(name)` | Get stream info |
-| `jsm.streams.purge(name)` | Purge messages |
-| `jsm.consumers.add(stream, config)` | Create consumer |
-| `jsm.consumers.delete(stream, name)` | Delete consumer |
-| `jsm.consumers.info(stream, name)` | Get consumer info |
-
-### KV API
-
-| Method | Description |
-|--------|-------------|
-| `kv.put(key, value)` | Store value |
-| `kv.get(key)` | Get value |
-| `kv.create(key, value)` | Create if not exists |
-| `kv.update(key, value, revision)` | Update with revision check |
-| `kv.delete(key)` | Delete key |
-| `kv.purge(key)` | Purge key history |
-| `kv.keys(filter?)` | List keys |
-| `kv.watch(options?)` | Watch for changes |
-| `kv.history(key)` | Get key history |
-| `kv.status()` | Get bucket status |
-| `kv.destroy()` | Delete bucket |
-
-### Codecs
-
-| Function | Description |
-|----------|-------------|
-| `StringCodec()` | Encode/decode strings |
-| `JSONCodec<T>()` | Encode/decode JSON |
-| `headers()` | Create message headers |
-| `Empty` | Empty byte array |
-
 ## Related
 
-- [Realtime SDKs](/docs/compat/realtime) - Pusher, Ably, Socket.IO
-- [Messaging SDKs](/docs/compat/messaging) - Kafka, Redis, NATS, SQS
-- [JetStream Guide](https://docs.nats.io/nats-concepts/jetstream) - Official NATS JetStream docs
+- [nats.do](/docs/integrations/nats/service) - Managed NATS-compatible messaging
+- [Kafka Integration](/docs/integrations/kafka) - Event streaming
+- [Pusher Integration](/docs/integrations/pusher) - Real-time messaging

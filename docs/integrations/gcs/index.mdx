@@ -1,0 +1,134 @@
+---
+title: GCS (Google Cloud Storage)
+description: Choose between @dotdo/gcs (OSS package) and gcs.do (managed edge service) for your object storage needs.
+---
+
+# GCS Integration
+
+dotdo provides two ways to work with GCS-compatible storage APIs:
+
+| | @dotdo/gcs | gcs.do |
+|---|------------|--------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | R2 or real GCS | Cloudflare R2 |
+| **Persistence** | Full (R2-backed) | Full durability |
+| **Use case** | Drop-in replacement, testing | Production edge storage |
+| **Infrastructure** | Your R2 bucket | Zero (we manage it) |
+| **Install** | `npm install @dotdo/gcs` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/gcs - GCS SDK-compatible, backed by R2
+import { Storage } from '@dotdo/gcs'
+
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('my-file.txt')
+await file.save('Hello, World!')
+```
+
+```typescript
+// gcs.do - Managed edge storage with GCS API
+import { Storage } from 'gcs.do'
+
+const storage = new Storage('https://your-worker.workers.dev')
+const bucket = storage.bucket('my-bucket')
+await bucket.file('my-file.txt').save('Hello, World!')
+```
+
+## When to Use Each
+
+### Use @dotdo/gcs when:
+
+- **Migrating from GCS** - Drop-in replacement for `@google-cloud/storage`
+- **Testing** - Swap imports without changing code
+- **Self-hosted R2** - Direct control over your R2 bucket bindings
+- **Hybrid cloud** - Can also connect to real GCS when needed
+
+<Callout type="info">
+@dotdo/gcs is a GCS SDK-compatible package backed by Cloudflare R2. Perfect for migration from Google Cloud Storage - just swap the import.
+</Callout>
+
+### Use gcs.do when:
+
+- **Zero infrastructure** - No R2 buckets to configure
+- **Multi-tenant storage** - Built-in tenant isolation
+- **Global edge delivery** - Automatic edge caching
+- **Unified platform** - Integrated with mongo.do, kafka.do, etc.
+
+<Callout type="info">
+gcs.do is managed GCS-compatible storage on the edge. Zero egress fees, global distribution, and no infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/gcs | gcs.do |
+|---------|------------|--------|
+| Storage/Bucket/File | ✅ Full | ✅ Full |
+| Signed URLs | ✅ V2 + V4 | ✅ V2 + V4 |
+| Resumable Uploads | ✅ Full | ✅ Full |
+| Streaming | ✅ Read + Write | ✅ Read + Write |
+| Metadata | ✅ Full | ✅ Full |
+| Real GCS backend | ✅ Optional | ❌ No |
+| Multi-tenant | ❌ Manual | ✅ Built-in |
+| Edge caching | ❌ Manual | ✅ Automatic |
+| Egress fees | ❌ None (R2) | ❌ None (R2) |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/gcs/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/gcs</h3>
+    <p className="text-sm text-muted-foreground">GCS SDK-compatible package for migration and testing</p>
+  </a>
+  <a href="/docs/integrations/gcs/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">gcs.do</h3>
+    <p className="text-sm text-muted-foreground">Managed GCS-compatible storage on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/gcs` to migrate from Google Cloud Storage, then optionally upgrade to `gcs.do`:
+
+```typescript
+// Phase 1: Replace @google-cloud/storage with @dotdo/gcs
+// Before
+import { Storage } from '@google-cloud/storage'
+
+// After - just change the import
+import { Storage } from '@dotdo/gcs'
+
+// All your existing code works unchanged
+const storage = new Storage({ projectId: 'my-project' })
+const bucket = storage.bucket('my-bucket')
+const file = bucket.file('document.pdf')
+await file.save(pdfBuffer, { contentType: 'application/pdf' })
+```
+
+```typescript
+// Phase 2: Optionally migrate to gcs.do for managed service
+import { Storage } from 'gcs.do'
+
+const storage = new Storage('https://your-worker.workers.dev')
+const bucket = storage.bucket('my-bucket')
+// Same API, zero infrastructure
+await bucket.file('document.pdf').save(pdfBuffer, {
+  contentType: 'application/pdf',
+})
+```
+
+## Why R2 Over GCS?
+
+Both options use Cloudflare R2 as the storage backend, eliminating egress fees:
+
+| Feature | Google Cloud Storage | Cloudflare R2 |
+|---------|---------------------|---------------|
+| Egress fees | $0.12/GB | **Free** |
+| API compatibility | Native | S3/GCS-compatible |
+| Edge access | Via CDN | Native edge access |
+| Cold storage | Archive tiers | Automatic tiering |
+| Min storage duration | 30-365 days | None |
+
+Both `@dotdo/gcs` and `gcs.do` give you GCS API compatibility with R2 economics.

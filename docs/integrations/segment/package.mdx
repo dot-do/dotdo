@@ -1,9 +1,9 @@
 ---
-title: Segment
+title: "@dotdo/segment"
 description: Drop-in replacement for Segment Analytics SDK with edge compatibility and local testing support.
 ---
 
-# Segment
+# @dotdo/segment
 
 Drop-in replacement for the `@segment/analytics-node` SDK. Your existing Segment code works unchanged - just swap the import.
 
@@ -36,7 +36,11 @@ analytics.track({
 })
 ```
 
-## Why segment.do?
+<Callout type="info">
+Looking for managed analytics without infrastructure? See [segment.do](/docs/integrations/segment/service) for a fully managed Segment-compatible service on the edge.
+</Callout>
+
+## Why @dotdo/segment?
 
 | Segment | @dotdo/segment |
 |---------|----------------|
@@ -48,6 +52,12 @@ analytics.track({
 | Vendor lock-in | Self-hosted option |
 
 **This is a proxy/compatibility layer.** It can either forward to real Segment APIs (production) or run entirely locally for testing and development. The API surface matches Segment's official SDK.
+
+## Installation
+
+```bash
+npm install @dotdo/segment
+```
 
 ## Features
 
@@ -91,12 +101,6 @@ analytics.track({
 - Destination Functions
 - Personas/Profiles API
 - Protocols enforcement
-
-## Installation
-
-```bash
-npm install @dotdo/segment
-```
 
 ## Quick Start
 
@@ -211,7 +215,7 @@ analytics.batch({
 await analytics.flush()
 ```
 
-## Inbound Mode - Using segment.do Locally
+## Local Mode - Testing with InMemoryTransport
 
 For testing and development, use `InMemoryTransport` - a complete in-memory implementation:
 
@@ -323,7 +327,7 @@ analytics.addSourceMiddleware((event) => {
 })
 ```
 
-## Outbound Mode - Connecting to Real Segment
+## Production Mode - Connecting to Real Segment
 
 For production, the client connects to Segment's API:
 
@@ -743,6 +747,42 @@ for (const event of events) {
 }
 ```
 
+## Testing with @dotdo/segment
+
+@dotdo/segment is ideal for unit tests - no external Segment required:
+
+```typescript
+import { Analytics, InMemoryTransport } from '@dotdo/segment'
+
+describe('Analytics', () => {
+  let analytics: Analytics
+  let transport: InMemoryTransport
+
+  beforeEach(() => {
+    transport = new InMemoryTransport()
+    analytics = new Analytics({
+      writeKey: 'test-key',
+      transport: () => transport,
+    })
+  })
+
+  it('should track events', async () => {
+    analytics.track({
+      userId: 'user123',
+      event: 'Button Clicked',
+      properties: { buttonId: 'signup' },
+    })
+
+    await analytics.flush()
+
+    const events = transport.getEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0].type).toBe('track')
+    expect(events[0].event).toBe('Button Clicked')
+  })
+})
+```
+
 ## Migration from Segment SDK
 
 ### Package Change
@@ -786,49 +826,6 @@ analytics.track({
 
 await analytics.flush()
 ```
-
-## Architecture
-
-```
-                    Your Application
-                           │
-            ┌──────────────┴──────────────┐
-            │                             │
-            ▼                             ▼
-┌─────────────────────────┐   ┌─────────────────────────┐
-│   Production Mode        │   │     Local Mode          │
-│   (FetchTransport)       │   │   (InMemoryTransport)   │
-├─────────────────────────┤   ├─────────────────────────┤
-│                         │   │                         │
-│  → api.segment.io       │   │  → In-memory storage    │
-│  → Real event delivery  │   │  → No network calls     │
-│  → Segment destinations │   │  → Event inspection     │
-│  → Full Segment API     │   │  → Testing utilities    │
-│                         │   │                         │
-└─────────────────────────┘   └─────────────────────────┘
-            │                             │
-            └──────────────┬──────────────┘
-                           │
-                           ▼
-            ┌─────────────────────────────┐
-            │   Custom Destinations       │
-            │                             │
-            │  ┌────────────────────────┐ │
-            │  │ Console │ Webhook     │ │
-            │  │ Buffer  │ Callback    │ │
-            │  │ Custom  │ ...         │ │
-            │  └────────────────────────┘ │
-            └─────────────────────────────┘
-```
-
-### Benefits
-
-- **Edge-native**: Runs in Cloudflare Workers, no Node.js required
-- **Zero latency testing**: No network round-trips in test mode
-- **Predictable pricing**: No per-event fees
-- **Self-hosted option**: Keep your data in your infrastructure
-- **Plugin system**: Extend with custom logic
-- **Primitives integration**: Advanced batching and routing
 
 ## Common Patterns
 
@@ -955,7 +952,7 @@ function onSignup(userId: string) {
 
 ## Related
 
+- [segment.do](/docs/integrations/segment/service) - Managed Segment-compatible analytics
 - [Stripe](/docs/integrations/stripe) - Payment processing
 - [Algolia](/docs/integrations/algolia) - Search analytics
 - [SendGrid](/docs/integrations/sendgrid) - Email tracking
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

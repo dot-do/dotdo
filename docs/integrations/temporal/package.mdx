@@ -1,15 +1,9 @@
 ---
-title: Temporal
+title: "@dotdo/temporal"
 description: Drop-in replacement for Temporal SDK with edge compatibility and zero infrastructure requirements.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-
-<Callout type="info">
-  **Roadmap Feature:** This integration is planned but not yet implemented. The API shown here represents the target design. [Track progress](#) or [contribute](https://github.com/dot-do/dotdo).
-</Callout>
-
-# Temporal
+# @dotdo/temporal
 
 Drop-in replacement for the Temporal SDK. Your existing `@temporalio/workflow` code works unchanged - just swap the import.
 
@@ -33,7 +27,11 @@ export async function orderWorkflow(order: Order) {
 }
 ```
 
-## Why temporal.do?
+<Callout type="info">
+Looking for managed edge workflows without Temporal SDK compatibility? See [temporal.do](/docs/integrations/temporal/service) for a native edge workflow service.
+</Callout>
+
+## Why @dotdo/temporal?
 
 | Temporal | @dotdo/temporal |
 |----------|-----------------|
@@ -46,6 +44,12 @@ export async function orderWorkflow(order: Order) {
 | Per-worker hosting costs | Pay-per-execution pricing |
 
 **This is a compatibility layer.** It implements the Temporal SDK API surface on dotdo's durable execution infrastructure. Your workflows run on Cloudflare's global network without managing any Temporal infrastructure.
+
+## Installation
+
+```bash
+npm install @dotdo/temporal
+```
 
 ## Features
 
@@ -108,12 +112,6 @@ export async function orderWorkflow(order: Order) {
 - Async activity completion
 - Side effects
 - External workflows
-
-## Installation
-
-```bash
-npm install @dotdo/temporal
-```
 
 ## Quick Start
 
@@ -204,7 +202,7 @@ await handle.cancel()
 await handle.terminate('Manual termination')
 ```
 
-## Inbound Mode - Using temporal.do Locally
+## Testing Mode
 
 For testing and development, workflows execute in-memory with the same API:
 
@@ -256,7 +254,7 @@ const unregister = registerWorker('test-queue', {
 // Run your workflow tests...
 ```
 
-## Outbound Mode - Connecting to Production
+## Production Mode
 
 In production on Cloudflare Workers, workflows execute with full durability:
 
@@ -692,60 +690,6 @@ export async function scopedWorkflow() {
 | `hasWorker(taskQueue)` | Check if worker registered |
 | `listTaskQueues()` | List registered queues |
 
-## Architecture
-
-```
-+--------------------------------------------------------------------+
-|                    Your Temporal Workflow Code                      |
-|   import { proxyActivities, sleep } from '@dotdo/temporal'         |
-+--------------------------------------------------------------------+
-                                |
-                                v
-+--------------------------------------------------------------------+
-|                   temporal.do Compat Layer                          |
-|                                                                     |
-|   +-------------+  +-------------+  +-------------+  +-----------+  |
-|   |  Signals    |  |  Queries    |  |  Updates    |  | Activities|  |
-|   |  Handlers   |  |  Handlers   |  |  Handlers   |  |   Proxy   |  |
-|   +-------------+  +-------------+  +-------------+  +-----------+  |
-|                                                                     |
-|   +-------------------------------------------------------------+   |
-|   |              WorkflowStorageStrategy                         |   |
-|   |  - CFWorkflowsStrategy (production, FREE sleeping)          |   |
-|   |  - InMemoryStrategy (testing, development)                   |   |
-|   +-------------------------------------------------------------+   |
-+--------------------------------------------------------------------+
-                                |
-               +----------------+----------------+
-               |                                 |
-               v                                 v
-    +-------------------+             +-------------------+
-    | CF Workflows      |             | In-Memory         |
-    | Backend           |             | (Development)     |
-    +-------------------+             +-------------------+
-    | - step.sleep()    |             | - setTimeout      |
-    | - step.do()       |             | - Map storage     |
-    | - Durable         |             | - Fast testing    |
-    +-------------------+             +-------------------+
-               |
-               v
-    +-------------------------------------------+
-    |       Cloudflare Global Network            |
-    |           300+ cities, <50ms               |
-    +-------------------------------------------+
-```
-
-## Performance
-
-| Metric | temporal.do | Native Temporal |
-|--------|-------------|-----------------|
-| Workflow start latency | <5ms | 50-200ms |
-| Signal delivery | <2ms | 10-50ms |
-| Query response | <1ms | 5-20ms |
-| Activity dispatch | <3ms | 20-100ms |
-| Sleep precision | +/- 100ms | +/- 1s |
-| Global P99 latency | <50ms | Region-dependent |
-
 ## Migration from Temporal SDK
 
 ### Package Change
@@ -814,7 +758,6 @@ export async function orderWorkflow(order: Order) {
 
 ## Related
 
+- [temporal.do](/docs/integrations/temporal/service) - Managed edge workflows
 - [Workflows Overview](/docs/workflows) - Durable execution primitives
 - [Durable Objects](/docs/architecture/durable-objects) - Stateful edge computing
-- [SDK Events](/docs/sdk/events) - Event handling patterns
-- [Compat SDKs](/docs/compat) - All API-compatible SDKs

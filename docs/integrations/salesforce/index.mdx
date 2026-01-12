@@ -1,0 +1,179 @@
+---
+title: Salesforce
+description: Choose between @dotdo/salesforce (OSS package) and salesforce.do (managed edge service) for your Salesforce CRM needs.
+---
+
+# Salesforce Integration
+
+dotdo provides two ways to work with Salesforce CRM APIs:
+
+| | @dotdo/salesforce | salesforce.do |
+|---|-------------------|---------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Backend** | Real Salesforce APIs | Edge-cached Salesforce proxy |
+| **Runtime** | Edge-compatible | Cloudflare Workers |
+| **Use case** | Drop-in jsforce replacement | Production CRM workflows |
+| **Infrastructure** | Your Salesforce org | Zero (we manage it) |
+| **Install** | `npm install @dotdo/salesforce` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/salesforce - jsforce-compatible, connects to real Salesforce
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({
+  loginUrl: 'https://login.salesforce.com',
+})
+
+await conn.login('user@example.com', 'password+securitytoken')
+
+const accounts = await conn.query(
+  "SELECT Id, Name FROM Account WHERE Industry = 'Technology'"
+)
+```
+
+```typescript
+// salesforce.do - Edge-optimized CRM access
+import { SalesforceClient } from 'salesforce.do'
+
+const client = new SalesforceClient('https://your-worker.workers.dev')
+
+const accounts = await client.query(
+  "SELECT Id, Name FROM Account WHERE Industry = 'Technology'"
+)
+```
+
+## When to Use Each
+
+### Use @dotdo/salesforce when:
+
+- **Migrating from jsforce** - Drop-in replacement with same API
+- **Edge environments** - jsforce doesn't work in Cloudflare Workers
+- **Unit testing** - Mock Salesforce responses without hitting the API
+- **Gradual migration** - Keep existing jsforce code patterns
+
+<Callout type="info">
+@dotdo/salesforce is a jsforce-compatible library that works in edge environments. Use it when you need the familiar jsforce API but want edge compatibility.
+</Callout>
+
+### Use salesforce.do when:
+
+- **Production CRM workflows** - Built for high-volume Salesforce operations
+- **Edge-first architecture** - Native Cloudflare Workers integration
+- **Caching and optimization** - Built-in response caching and request batching
+- **AI agent integration** - MCP protocol support for LLM tool calling
+
+<Callout type="info">
+salesforce.do is Salesforce on the Edge - a managed service optimized for CRM workflows running on Cloudflare's global network.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/salesforce | salesforce.do |
+|---------|-------------------|---------------|
+| SOQL Queries | Full | Full + caching |
+| SObject CRUD | Full | Full + batching |
+| Bulk API 2.0 | Full | Full + streaming |
+| OAuth 2.0 Flows | Full | Full + token management |
+| Reports & Analytics | Full | Full |
+| Metadata API | Partial | Full |
+| Local Testing Mode | Planned | N/A |
+| Response Caching | N/A | Built-in |
+| Request Batching | N/A | Built-in |
+| MCP Protocol | N/A | Built-in |
+| Rate Limit Management | Basic | Intelligent |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/salesforce/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/salesforce</h3>
+    <p className="text-sm text-muted-foreground">jsforce-compatible SDK for edge environments and testing</p>
+  </a>
+  <a href="/docs/integrations/salesforce/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">salesforce.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Salesforce proxy on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/salesforce` as a drop-in jsforce replacement, then upgrade to `salesforce.do` for production:
+
+```typescript
+// Phase 1: Use @dotdo/salesforce (drop-in for jsforce)
+import jsforce from '@dotdo/salesforce'
+
+const conn = new jsforce.Connection({
+  loginUrl: 'https://login.salesforce.com',
+})
+
+await conn.login(env.SF_USERNAME, env.SF_PASSWORD)
+
+const accounts = await conn.query('SELECT Id, Name FROM Account')
+```
+
+```typescript
+// Phase 2: Migrate to salesforce.do for zero-infrastructure
+import { SalesforceClient } from 'salesforce.do'
+
+const client = new SalesforceClient(env)
+
+// Same query, with built-in caching and optimization
+const accounts = await client.query('SELECT Id, Name FROM Account')
+```
+
+## Architecture Comparison
+
+### @dotdo/salesforce
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  import jsforce from '@dotdo/salesforce'                     |
++-------------------------------------------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
++-------------------------+     +-------------------------+
+|   Production Mode       |     |     Local Mode          |
+|   (Connection)          |     |     (SalesforceLocal)   |
++-------------------------+     +-------------------------+
+|                         |     |                         |
+|  -> login.salesforce.com|     |  -> In-memory storage   |
+|  -> Real API calls      |     |  -> No network calls    |
+|  -> OAuth flows         |     |  -> Test data           |
+|  -> Full Salesforce API |     |  -> Coming soon!        |
+|                         |     |                         |
++-------------------------+     +-------------------------+
+```
+
+### salesforce.do
+
+```
++-------------------------------------------------------------+
+|                    Your Application                          |
+|                                                              |
+|  import { SalesforceClient } from 'salesforce.do'            |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                    salesforce.do Worker                      |
++-------------------------------------------------------------+
+|  Query Cache  |  Request Batcher  |  Token Manager  |  MCP   |
++-------------------------------------------------------------+
+|                    Durable Object State                      |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                    Salesforce APIs                           |
+|  login.salesforce.com  |  *.my.salesforce.com               |
++-------------------------------------------------------------+
+```
+
+Both approaches provide full Salesforce API compatibility - choose based on whether you need jsforce compatibility or native edge optimization.

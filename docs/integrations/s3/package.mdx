@@ -1,9 +1,9 @@
 ---
-title: S3 Integration
-description: Drop-in replacement for @aws-sdk/client-s3, backed by Cloudflare R2 on Durable Objects
+title: "@dotdo/s3"
+description: Drop-in replacement for @aws-sdk/client-s3, backed by Cloudflare R2 on Durable Objects.
 ---
 
-# S3 Integration
+# @dotdo/s3
 
 Drop-in replacement for the AWS S3 SDK. Your existing `@aws-sdk/client-s3` code works unchanged - just swap the import.
 
@@ -23,10 +23,14 @@ await client.send(new PutObjectCommand({
 }))
 ```
 
-## Why s3.do?
+<Callout type="info">
+Looking for managed production storage? See [s3.do](/docs/integrations/s3/service) for a fully managed S3-compatible edge service.
+</Callout>
 
-| AWS S3 | s3.do |
-|--------|-------|
+## Why @dotdo/s3?
+
+| AWS S3 | @dotdo/s3 |
+|--------|-----------|
 | Regional latency | Edge-local (300+ cities) |
 | Per-request pricing | Flat resource pricing |
 | Cross-region data transfer fees | No egress fees (R2) |
@@ -34,6 +38,12 @@ await client.send(new PutObjectCommand({
 | Separate infrastructure | Unified with your DO data |
 
 **This is backed by Cloudflare R2.** Your data lives in R2 buckets with S3-compatible API - not proxied to AWS. R2 has zero egress fees.
+
+## Installation
+
+```bash
+npm install @dotdo/s3
+```
 
 ## Features
 
@@ -96,12 +106,6 @@ await client.send(new PutObjectCommand({
 - Object Lock
 
 ## Quick Start
-
-### Install
-
-```bash
-npm install @dotdo/s3
-```
 
 ### Configure
 
@@ -434,57 +438,7 @@ async function uploadLargeFile(bucket: string, key: string, data: ArrayBuffer) {
 }
 ```
 
-## Inbound - s3.do as Drop-in Replacement
-
-Use s3.do to replace AWS S3 in existing applications:
-
-```typescript
-// Existing AWS S3 code - works unchanged
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
-
-const client = new S3Client({ region: 'auto' })
-
-// Your existing S3 code just works
-async function storeDocument(id: string, content: string) {
-  await client.send(new PutObjectCommand({
-    Bucket: 'documents',
-    Key: `docs/${id}.json`,
-    Body: content,
-    ContentType: 'application/json',
-  }))
-}
-
-async function getDocument(id: string) {
-  const response = await client.send(new GetObjectCommand({
-    Bucket: 'documents',
-    Key: `docs/${id}.json`,
-  }))
-  return response.Body?.transformToString()
-}
-```
-
-Works with S3-compatible libraries:
-
-```typescript
-// Works with multer-s3
-import multer from 'multer'
-import multerS3 from 'multer-s3'
-import { S3Client } from '@dotdo/s3'
-
-const upload = multer({
-  storage: multerS3({
-    s3: new S3Client({ region: 'auto' }),
-    bucket: 'uploads',
-    key: (req, file, cb) => {
-      cb(null, `${Date.now()}-${file.originalname}`)
-    },
-  }),
-})
-```
-
-## Outbound - Connecting to Real AWS S3 or R2
-
-### Connect to AWS S3
+## Connecting to Real AWS S3
 
 If you need to interact with actual AWS S3 buckets:
 
@@ -507,231 +461,25 @@ const response = await awsClient.send(new GetObjectCommand({
 }))
 ```
 
-### Direct R2 Access
+## SDK Compatibility
 
-For maximum performance, use R2 bindings directly with the `R2Store` utility:
-
-```typescript
-import { createR2Store } from 'dotdo/cloudflare/r2'
-
-export default {
-  async fetch(request: Request, env: Env) {
-    const store = createR2Store(env.R2_BUCKET, {
-      tenant: 'acme-corp',
-      publicUrl: 'https://files.example.com',
-    })
-
-    // Put with auto content-type detection
-    await store.put('reports/q4.pdf', pdfData)
-
-    // Get with streaming
-    const stream = await store.getStream('reports/q4.pdf')
-
-    // List with pagination
-    for await (const object of store.listAll({ prefix: 'reports/' })) {
-      console.log(object.key, object.size)
-    }
-
-    // Tenant-scoped operations
-    await store.putForTenant({
-      type: 'documents',
-      id: 'doc-123',
-      data: 'content',
-      filename: 'report.txt',
-    })
-  }
-}
-```
-
-## R2 Integration
-
-Cloudflare R2 is S3-compatible with zero egress fees. The dotdo S3 integration is built on R2.
-
-### Why R2?
-
-| Feature | AWS S3 | Cloudflare R2 |
-|---------|--------|---------------|
-| Egress fees | $0.09/GB | **Free** |
-| API compatibility | Native | S3-compatible |
-| Edge access | Via CDN | Native edge access |
-| Cold storage | Glacier tiers | Automatic tiering |
-| Min storage duration | 30-180 days | None |
-
-### R2 Bucket Configuration
-
-```toml
-# wrangler.toml
-
-# Single bucket
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "my-app-storage"
-
-# Multiple buckets
-[[r2_buckets]]
-binding = "UPLOADS"
-bucket_name = "my-app-uploads"
-
-[[r2_buckets]]
-binding = "BACKUPS"
-bucket_name = "my-app-backups"
-
-# With custom domain
-[[r2_buckets]]
-binding = "PUBLIC"
-bucket_name = "my-app-public"
-# Configure custom domain in Cloudflare dashboard
-```
-
-### R2 in Durable Objects
-
-Access R2 from within Durable Objects:
+Works with S3-compatible libraries:
 
 ```typescript
-import { DO } from 'dotdo'
-import { createR2Store, type R2Store } from 'dotdo/cloudflare/r2'
+// Works with multer-s3
+import multer from 'multer'
+import multerS3 from 'multer-s3'
+import { S3Client } from '@dotdo/s3'
 
-export class DocumentStore extends DO {
-  private store: R2Store
-
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-    this.store = createR2Store(env.DOCUMENTS, {
-      tenant: this.id,
-    })
-  }
-
-  async saveDocument(id: string, content: string) {
-    await this.store.putForTenant({
-      type: 'docs',
-      id,
-      data: content,
-      contentType: 'text/markdown',
-    })
-  }
-
-  async getDocument(id: string) {
-    const obj = await this.store.getForTenant({
-      type: 'docs',
-      id,
-    })
-    return obj?.text()
-  }
-}
-```
-
-## Path Conventions
-
-The R2 integration uses standardized paths for multi-tenant storage:
-
-```
-{tenant}/{type}/{id}[/{timestamp}][/{filename}]
-```
-
-Examples:
-- `acme/documents/doc-123` - Simple document
-- `acme/backups/db-1/2024-01-15T10:30:00Z` - Timestamped backup
-- `acme/uploads/user-1/photo.jpg` - User upload with filename
-
-```typescript
-import { buildPath, parsePath } from 'dotdo/cloudflare/r2'
-
-// Build path
-const path = buildPath({
-  tenant: 'acme',
-  type: 'documents',
-  id: 'doc-123',
-  filename: 'report.pdf',
+const upload = multer({
+  storage: multerS3({
+    s3: new S3Client({ region: 'auto' }),
+    bucket: 'uploads',
+    key: (req, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`)
+    },
+  }),
 })
-// Returns: 'acme/documents/doc-123/report.pdf'
-
-// Parse path
-const components = parsePath('acme/backups/db-1/2024-01-15T10:30:00Z')
-// Returns: { tenant: 'acme', type: 'backups', id: 'db-1', timestamp: '2024-01-15T10:30:00Z' }
-```
-
-## Types
-
-Full TypeScript support with AWS SDK-compatible types:
-
-```typescript
-import type {
-  // Client config
-  S3ClientConfig,
-  ExtendedS3ClientConfig,
-  ResponseMetadata,
-  StreamingBody,
-
-  // Bucket operations
-  CreateBucketCommandInput,
-  CreateBucketCommandOutput,
-  DeleteBucketCommandInput,
-  DeleteBucketCommandOutput,
-  HeadBucketCommandInput,
-  HeadBucketCommandOutput,
-  ListBucketsCommandInput,
-  ListBucketsCommandOutput,
-
-  // Object operations
-  PutObjectCommandInput,
-  PutObjectCommandOutput,
-  GetObjectCommandInput,
-  GetObjectCommandOutput,
-  HeadObjectCommandInput,
-  HeadObjectCommandOutput,
-  DeleteObjectCommandInput,
-  DeleteObjectCommandOutput,
-  DeleteObjectsCommandInput,
-  DeleteObjectsCommandOutput,
-  CopyObjectCommandInput,
-  CopyObjectCommandOutput,
-  ListObjectsV2CommandInput,
-  ListObjectsV2CommandOutput,
-
-  // Multipart operations
-  CreateMultipartUploadCommandInput,
-  CreateMultipartUploadCommandOutput,
-  UploadPartCommandInput,
-  UploadPartCommandOutput,
-  CompleteMultipartUploadCommandInput,
-  CompleteMultipartUploadCommandOutput,
-  AbortMultipartUploadCommandInput,
-  AbortMultipartUploadCommandOutput,
-  ListPartsCommandInput,
-  ListPartsCommandOutput,
-  ListMultipartUploadsCommandInput,
-  ListMultipartUploadsCommandOutput,
-
-  // CORS types
-  CORSRule,
-  CORSConfiguration,
-
-  // Lifecycle types
-  LifecycleRule,
-  LifecycleConfiguration,
-
-  // Versioning types
-  VersioningStatus,
-  ObjectVersion,
-
-  // Storage class
-  StorageClass,
-} from '@dotdo/s3'
-
-// R2 Store types (from dotdo/cloudflare/r2)
-import type {
-  R2Store,
-  R2StoreConfig,
-  R2Object,
-  R2ObjectMetadata,
-  R2HTTPMetadata,
-  PutOptions,
-  GetOptions,
-  R2ListOptions,
-  R2ListResult,
-  PresignedUrlOptions,
-  PathComponents,
-} from 'dotdo/cloudflare/r2'
 ```
 
 ## Error Handling
@@ -822,137 +570,112 @@ const client = new S3Client({
 })
 ```
 
-## Common Patterns
+## Testing with @dotdo/s3
 
-### File Upload API
-
-```typescript
-import { S3Client, PutObjectCommand } from '@dotdo/s3'
-import { getSignedUrl } from '@dotdo/s3/presigner'
-
-export default {
-  async fetch(request: Request, env: Env) {
-    const client = new S3Client({ region: 'auto' })
-    const url = new URL(request.url)
-
-    if (url.pathname === '/api/upload-url' && request.method === 'POST') {
-      const { filename, contentType } = await request.json()
-      const key = `uploads/${crypto.randomUUID()}/${filename}`
-
-      const uploadUrl = await getSignedUrl(client, new PutObjectCommand({
-        Bucket: 'uploads',
-        Key: key,
-        ContentType: contentType,
-      }), { expiresIn: 300 })
-
-      return Response.json({ uploadUrl, key })
-    }
-
-    if (url.pathname.startsWith('/files/')) {
-      const key = url.pathname.replace('/files/', '')
-      const response = await client.send(new GetObjectCommand({
-        Bucket: 'uploads',
-        Key: key,
-      }))
-
-      return new Response(response.Body?.transformToWebStream(), {
-        headers: {
-          'Content-Type': response.ContentType ?? 'application/octet-stream',
-          'Content-Length': String(response.ContentLength),
-        },
-      })
-    }
-
-    return new Response('Not found', { status: 404 })
-  }
-}
-```
-
-### Image Processing Pipeline
-
-```typescript
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@dotdo/s3'
-
-async function processImage(bucket: string, key: string) {
-  const client = new S3Client({ region: 'auto' })
-
-  // Get original
-  const original = await client.send(new GetObjectCommand({
-    Bucket: bucket,
-    Key: key,
-  }))
-
-  const imageData = await original.Body?.transformToByteArray()
-
-  // Process with Cloudflare Images (example)
-  const processed = await processWithCloudflareImages(imageData)
-
-  // Store processed versions
-  await Promise.all([
-    client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: key.replace('.', '-thumb.'),
-      Body: processed.thumbnail,
-      ContentType: 'image/webp',
-    })),
-    client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: key.replace('.', '-medium.'),
-      Body: processed.medium,
-      ContentType: 'image/webp',
-    })),
-  ])
-}
-```
-
-### Backup and Restore
+@dotdo/s3 is ideal for testing S3 operations without AWS infrastructure:
 
 ```typescript
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@dotdo/s3'
+import { describe, it, expect, beforeEach } from 'vitest'
 
-async function backupDatabase(data: string) {
-  const client = new S3Client({ region: 'auto' })
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+describe('FileStorage', () => {
+  let client: S3Client
 
-  await client.send(new PutObjectCommand({
-    Bucket: 'backups',
-    Key: `database/${timestamp}.json`,
-    Body: data,
-    ContentType: 'application/json',
-    Metadata: {
-      'backup-type': 'daily',
-      'created-at': new Date().toISOString(),
-    },
-  }))
-}
+  beforeEach(() => {
+    // Fresh client for each test
+    client = new S3Client({ region: 'auto' })
+  })
 
-async function restoreLatestBackup() {
-  const client = new S3Client({ region: 'auto' })
+  it('should upload and retrieve a file', async () => {
+    await client.send(new PutObjectCommand({
+      Bucket: 'test-bucket',
+      Key: 'test.txt',
+      Body: 'Hello, World!',
+    }))
 
-  // List backups
-  const response = await client.send(new ListObjectsV2Command({
-    Bucket: 'backups',
-    Prefix: 'database/',
-  }))
+    const response = await client.send(new GetObjectCommand({
+      Bucket: 'test-bucket',
+      Key: 'test.txt',
+    }))
 
-  // Get latest
-  const latest = response.Contents
-    ?.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))
-    ?.[0]
+    const text = await response.Body?.transformToString()
+    expect(text).toBe('Hello, World!')
+  })
+})
+```
 
-  if (!latest) throw new Error('No backups found')
+## Types
 
-  const backup = await client.send(new GetObjectCommand({
-    Bucket: 'backups',
-    Key: latest.Key,
-  }))
+Full TypeScript support with AWS SDK-compatible types:
 
-  return backup.Body?.transformToString()
-}
+```typescript
+import type {
+  // Client config
+  S3ClientConfig,
+  ExtendedS3ClientConfig,
+  ResponseMetadata,
+  StreamingBody,
+
+  // Bucket operations
+  CreateBucketCommandInput,
+  CreateBucketCommandOutput,
+  DeleteBucketCommandInput,
+  DeleteBucketCommandOutput,
+  HeadBucketCommandInput,
+  HeadBucketCommandOutput,
+  ListBucketsCommandInput,
+  ListBucketsCommandOutput,
+
+  // Object operations
+  PutObjectCommandInput,
+  PutObjectCommandOutput,
+  GetObjectCommandInput,
+  GetObjectCommandOutput,
+  HeadObjectCommandInput,
+  HeadObjectCommandOutput,
+  DeleteObjectCommandInput,
+  DeleteObjectCommandOutput,
+  DeleteObjectsCommandInput,
+  DeleteObjectsCommandOutput,
+  CopyObjectCommandInput,
+  CopyObjectCommandOutput,
+  ListObjectsV2CommandInput,
+  ListObjectsV2CommandOutput,
+
+  // Multipart operations
+  CreateMultipartUploadCommandInput,
+  CreateMultipartUploadCommandOutput,
+  UploadPartCommandInput,
+  UploadPartCommandOutput,
+  CompleteMultipartUploadCommandInput,
+  CompleteMultipartUploadCommandOutput,
+  AbortMultipartUploadCommandInput,
+  AbortMultipartUploadCommandOutput,
+  ListPartsCommandInput,
+  ListPartsCommandOutput,
+  ListMultipartUploadsCommandInput,
+  ListMultipartUploadsCommandOutput,
+
+  // CORS types
+  CORSRule,
+  CORSConfiguration,
+
+  // Lifecycle types
+  LifecycleRule,
+  LifecycleConfiguration,
+
+  // Versioning types
+  VersioningStatus,
+  ObjectVersion,
+
+  // Storage class
+  StorageClass,
+} from '@dotdo/s3'
 ```
 
 ## Related
 
+- [s3.do](/docs/integrations/s3/service) - Managed S3 on the edge
 - [Storage Overview](/docs/storage) - All storage options
 - [Hot Tier Storage](/docs/storage/hot-tier) - High-performance storage with Durable Objects
 - [Warm Tier Storage](/docs/storage/warm-tier) - R2 object storage

@@ -1,0 +1,165 @@
+---
+title: Inngest
+description: Choose between @dotdo/inngest (OSS package) and inngest.do (managed edge service) for your durable function needs.
+---
+
+# Inngest Integration
+
+dotdo provides two ways to work with Inngest-compatible durable function APIs:
+
+| | @dotdo/inngest | inngest.do |
+|---|----------------|------------|
+| **Type** | OSS npm package | Managed edge service |
+| **Storage** | In-memory or DO SQLite | Durable Object SQLite |
+| **Persistence** | Configurable | Full durability |
+| **Use case** | Testing, migration | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/inngest` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/inngest - Drop-in replacement for Inngest SDK
+import { Inngest } from '@dotdo/inngest'
+
+const inngest = new Inngest({ id: 'my-app' })
+
+const fn = inngest.createFunction(
+  { id: 'process-order' },
+  { event: 'order/created' },
+  async ({ event, step }) => {
+    await step.run('validate', () => validateOrder(event.data))
+    await step.sleep('wait', '1h')
+    await step.run('fulfill', () => fulfillOrder(event.data))
+  }
+)
+```
+
+```typescript
+// inngest.do - Native edge durable functions
+import { InngestDO } from 'inngest.do'
+
+export class OrderProcessor extends InngestDO {
+  async processOrder(event) {
+    await this.step.run('validate', () => validateOrder(event.data))
+    await this.step.sleep('wait', '1h')
+    await this.step.run('fulfill', () => fulfillOrder(event.data))
+  }
+}
+```
+
+## When to Use Each
+
+### Use @dotdo/inngest when:
+
+- **Migrating from Inngest** - Drop-in replacement with same API
+- **Unit testing** - In-memory mode for fast, isolated tests
+- **Gradual adoption** - Test Inngest patterns without changing infrastructure
+- **Existing codebase** - Keep familiar API while moving to edge
+
+<Callout type="info">
+@dotdo/inngest is a complete Inngest SDK replacement. Use it when you need the familiar Inngest API for migration or testing scenarios.
+</Callout>
+
+### Use inngest.do when:
+
+- **Production workloads** - Full durability with Durable Objects
+- **Edge-native deployment** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No external services to manage
+- **Global distribution** - Functions execute in 300+ cities
+- **Unlimited duration** - No time limits on function execution
+
+<Callout type="info">
+inngest.do is edge-native durable functions built on Cloudflare. Use it for production workloads that need durability, global distribution, and zero cold starts.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/inngest | inngest.do |
+|---------|----------------|------------|
+| Event-driven functions | Full | Full |
+| Cron triggers | Full | Full |
+| step.run (durable steps) | Full | Full |
+| step.sleep (durable sleep) | Full | Full |
+| step.waitForEvent | Full | Full |
+| step.invoke | Full | Full |
+| step.parallel | Full | Full |
+| Middleware | Full | Full |
+| Rate limiting | Full | Full |
+| Concurrency control | Full | Full |
+| Batching | Full | Full |
+| Cancellation | Full | Full |
+| In-memory mode | Yes | No |
+| DO SQLite storage | Optional | Built-in |
+| Cold start | Depends on storage | 0ms |
+| Max duration | Depends on storage | Unlimited |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/inngest/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/inngest</h3>
+    <p className="text-sm text-muted-foreground">Inngest SDK replacement for testing and migration</p>
+  </a>
+  <a href="/docs/integrations/inngest/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">inngest.do</h3>
+    <p className="text-sm text-muted-foreground">Managed durable functions on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/inngest` as a drop-in replacement, then migrate to `inngest.do` for production:
+
+```typescript
+// Phase 1: Replace Inngest SDK with @dotdo/inngest
+// Before
+import { Inngest } from 'inngest'
+// After
+import { Inngest } from '@dotdo/inngest'
+
+// Your code stays exactly the same
+const inngest = new Inngest({ id: 'my-app' })
+
+const fn = inngest.createFunction(
+  { id: 'my-function' },
+  { event: 'my/event' },
+  async ({ event, step }) => {
+    const result = await step.run('step-1', () => doSomething(event.data))
+    await step.sleep('wait', '1h')
+    return result
+  }
+)
+```
+
+```typescript
+// Phase 2: Move to inngest.do for production edge deployment
+import { InngestDO } from 'inngest.do'
+
+export class MyFunction extends InngestDO {
+  triggers = [{ event: 'my/event' }]
+
+  async handler({ event }) {
+    const result = await this.step.run('step-1', () => doSomething(event.data))
+    await this.step.sleep('wait', '1h')
+    return result
+  }
+}
+```
+
+## Why Not Just Use Inngest?
+
+**Inngest is great.** Event-driven durable functions with a beautiful API.
+
+**But it's another service.** Events leave your infrastructure, hop to Inngest's servers, then back to your workers. Extra latency. Extra cost. Extra vendor dependency.
+
+| Aspect | Inngest | dotdo |
+|--------|---------|-------|
+| **Events leave infra** | Yes (to Inngest servers) | No |
+| **Cold start** | ~50ms | 0ms (V8 isolates) |
+| **Global edge** | 5 regions | 300+ cities |
+| **Max duration** | 2 hours | Unlimited |
+| **Pricing** | Per-step billing | Included |
+| **Self-hosted** | Enterprise only | Always |
+
+Both `@dotdo/inngest` and `inngest.do` run on your infrastructure - events never leave your Workers.

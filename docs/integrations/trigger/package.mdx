@@ -1,66 +1,88 @@
 ---
-title: Trigger.dev
-description: Drop-in replacement for Trigger.dev background jobs with edge-native execution and zero cold starts.
+title: "@dotdo/trigger"
+description: Drop-in replacement for @trigger.dev/sdk with edge compatibility and in-memory execution for testing.
 ---
 
-# Trigger.dev
+# @dotdo/trigger
 
-Drop-in replacement for `@trigger.dev/sdk`. Same API, runs on Cloudflare's edge.
+Drop-in replacement for `@trigger.dev/sdk/v3`. Your existing Trigger.dev code works unchanged - just swap the import.
 
 ```typescript
-// Before
+// Before: Trigger.dev
 import { task, wait, retry } from '@trigger.dev/sdk/v3'
 
-// After
+// After: dotdo
 import { task, wait, retry } from '@dotdo/trigger'
+
+// Code stays the same
+export const helloWorld = task({
+  id: 'hello-world',
+  run: async (payload: { name: string }) => {
+    await wait.for({ seconds: 5 })
+    return `Hello, ${payload.name}!`
+  },
+})
 ```
 
-Your existing Trigger.dev code works unchanged. No migration required.
+<Callout type="info">
+Looking for managed edge execution? See [trigger.do](/docs/integrations/trigger/service) for production deployments with durable storage and zero cold starts.
+</Callout>
 
-## Why trigger.do?
+## Why @dotdo/trigger?
 
-| Feature | Trigger.dev | trigger.do |
-|---------|-------------|------------|
-| **API compatibility** | - | 100% v3 API |
-| **Payloads leave infra** | Yes | No |
-| **Cold start** | ~100ms | 0ms (V8 isolates) |
-| **Global edge** | Limited regions | 300+ cities |
-| **Max duration** | Varies by plan | Unlimited (DO) |
-| **Pricing** | Per-task run | Included |
-| **Self-hosted** | Enterprise only | Always |
-| **DO integration** | N/A | Native |
-| **CF Workflows** | N/A | Native backend |
+| @trigger.dev/sdk | @dotdo/trigger |
+|------------------|----------------|
+| Requires Trigger.dev infrastructure | Runs entirely in-memory |
+| Network latency to API | Zero latency (local) |
+| Complex dev/test setup | Perfect for unit tests |
+| Node.js runtime required | Edge-compatible (Cloudflare Workers) |
+| Payloads leave your infra | Data stays local |
 
-The math: Trigger.dev charges per task run. On dotdo, background jobs are included in your compute.
-
-## Features
-
-| Feature | Status |
-|---------|--------|
-| Task definition | Supported |
-| trigger() - fire and forget | Supported |
-| triggerAndWait() | Supported |
-| batchTrigger() | Supported |
-| batchTriggerAndWait() | Supported |
-| ctx.run() step memoization | Supported |
-| Retry configuration | Supported |
-| Queue configuration | Supported |
-| Machine presets | Supported |
-| Lifecycle hooks (onStart, onSuccess, onFailure) | Supported |
-| Middleware | Supported |
-| wait.for() / wait.until() | Supported |
-| Scheduled tasks (cron) | Supported |
-| abort() utility | Supported |
-| Idempotency keys | Supported |
-| Delayed execution | Supported |
-| Tags and metadata | Supported |
-| Run handles (status, result, cancel) | Supported |
+**This is a compatibility layer** for testing and development. For production, configure a durable backend like CF Workflows or Durable Objects.
 
 ## Installation
 
 ```bash
 npm install @dotdo/trigger
 ```
+
+## Features
+
+### Implemented (Full v3 API)
+
+**Task Definition**
+- `task()` - Create tasks with full configuration
+- `schedules()` - Cron-triggered scheduled tasks
+- `configure()` - Global configuration
+
+**Trigger Methods**
+- `trigger()` - Fire and forget
+- `triggerAndWait()` - Await completion
+- `batchTrigger()` - Batch fire and forget
+- `batchTriggerAndWait()` - Batch await
+
+**Context Operations**
+- `ctx.run()` - Step memoization with replay
+- `ctx.run.id`, `ctx.attempt.number` - Run context
+- `ctx.task.id`, `ctx.task.version` - Task metadata
+
+**Configuration**
+- Retry configuration (exponential, linear, presets)
+- Queue configuration (concurrency, rate limits)
+- Machine presets
+- Lifecycle hooks (onStart, onSuccess, onFailure)
+- Middleware support
+
+**Utilities**
+- `wait.for()`, `wait.until()` - Durable waits
+- `retry.preset()`, `retry.exponential()`, `retry.linear()` - Retry helpers
+- `queue.create()` - Queue configuration
+- `abort()` - Graceful task abort
+
+**Run Handles**
+- `handle.status()` - Get run status
+- `handle.result()` - Poll for result
+- `handle.cancel()` - Cancel execution
 
 ## Quick Start
 
@@ -86,7 +108,7 @@ const { id, handle } = await helloWorld.trigger({ name: 'World' })
 console.log('Run ID:', id)
 
 // Later, check status or get result
-const status = await handle.status()  // 'PENDING' | 'QUEUED' | 'EXECUTING' | 'COMPLETED' | 'FAILED'
+const status = await handle.status()  // 'PENDING' | 'EXECUTING' | 'COMPLETED' | 'FAILED'
 const result = await handle.result()  // Polls until complete
 ```
 
@@ -429,25 +451,9 @@ export const validateOrder = task({
 })
 ```
 
-## Inbound Mode - Local Development
+## Testing
 
-For development and testing, trigger.do runs entirely in-process:
-
-```typescript
-import { task, configure } from '@dotdo/trigger'
-import { InMemoryStepStorage } from '@dotdo/workflows/runtime'
-
-// Configure in-memory storage for local development
-configure({
-  storage: new InMemoryStepStorage(),
-})
-
-// Tasks execute immediately in-process
-const result = await myTask.triggerAndWait({ value: 42 })
-console.log(result.output)
-```
-
-### Testing
+@dotdo/trigger is ideal for unit tests - no external infrastructure required:
 
 ```typescript
 import { describe, it, expect } from 'vitest'
@@ -482,70 +488,48 @@ describe('my task', () => {
 })
 ```
 
-## Outbound Mode - Connecting to Trigger.dev
+### Configure In-Memory Storage
 
-To use real Trigger.dev infrastructure (hybrid mode):
-
-```typescript
-import { Stripe } from '@dotdo/trigger/outbound'
-
-// Configure to forward to Trigger.dev
-const trigger = new TriggerClient({
-  apiKey: env.TRIGGER_DEV_API_KEY,
-  apiUrl: 'https://api.trigger.dev',
-})
-
-// Tasks forward to Trigger.dev
-export const myTask = trigger.defineTask({
-  id: 'my-task',
-  run: async (payload) => {
-    // Executes on Trigger.dev infrastructure
-  },
-})
-```
-
-## Backend Options
-
-trigger.do supports multiple execution backends:
-
-| Backend | Best For | Durability | Max Duration | Cost |
-|---------|----------|------------|--------------|------|
-| **Durable Objects** | Real-time, interactive | Transactional | Unlimited | Wall-clock billing |
-| **CF Workflows** | Background jobs, long waits | Event-sourced | 24h | CPU-only (sleep is FREE) |
-| **Pipelines** | High-throughput batch | At-least-once | 5m/step | Batch writes |
+For development and testing, configure in-memory storage:
 
 ```typescript
-import { configure } from '@dotdo/trigger'
-import { CFWorkflowsBackend } from '@dotdo/workflows/backends'
+import { task, configure } from '@dotdo/trigger'
+import { InMemoryStepStorage } from '@dotdo/workflows/runtime'
 
-// Use CF Workflows backend for cost-efficient background jobs
+// Configure in-memory storage for local development
 configure({
-  storage: new CFWorkflowsBackend(env.MY_WORKFLOW),
+  storage: new InMemoryStepStorage(),
 })
+
+// Tasks execute immediately in-process
+const result = await myTask.triggerAndWait({ value: 42 })
+console.log(result.output)
 ```
 
-## Durable Object Integration
+## Edge Compatibility
 
-For maximum control, integrate directly with Durable Objects:
+Works in Cloudflare Workers without Node.js dependencies:
 
 ```typescript
-import { configure } from '@dotdo/trigger'
+// worker.ts
+import { task, configure } from '@dotdo/trigger'
 
-export class MyDO extends DurableObject {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-
-    // Configure trigger.do to use DO storage
-    configure({
-      state: ctx.state,
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const processRequest = task({
+      id: 'process-request',
+      run: async (payload: { url: string }) => {
+        const data = await fetch(payload.url).then(r => r.json())
+        return { processed: true, data }
+      },
     })
-  }
 
-  async processOrder(payload: OrderPayload) {
-    // Tasks execute within the DO context
-    const result = await processOrder.triggerAndWait(payload)
-    return result
-  }
+    const result = await processRequest.triggerAndWait({
+      url: 'https://api.example.com/data',
+    })
+
+    return Response.json(result)
+  },
 }
 ```
 
@@ -586,9 +570,6 @@ export class MyDO extends DurableObject {
 | `triggerAndWait(payload, opts?)` | `TPayload, TriggerOptions?` | `Promise<TaskRunResult<O>>` | Await completion |
 | `batchTrigger(items, opts?)` | `TPayload[], TriggerOptions?` | `Promise<{ runs: TriggerResult[] }>` | Batch trigger |
 | `batchTriggerAndWait(items, opts?)` | `TPayload[], TriggerOptions?` | `Promise<{ runs: TaskRunResult<O>[] }>` | Batch await |
-| `getFailedRuns()` | - | `Map<string, { error, timestamp }>` | Get failed runs for observability |
-| `getRunningTaskCount()` | - | `number` | Count of running background tasks |
-| `waitForAllTasks()` | - | `Promise<void>` | Wait for all background tasks |
 
 ### TaskRunHandle
 
@@ -623,18 +604,10 @@ type TaskRunStatus =
 | `run.createdAt` | `Date` | When run was created |
 | `run.startedAt` | `Date` | When execution started |
 | `run.idempotencyKey` | `string?` | Idempotency key if provided |
-| `run.parentId` | `string?` | Parent run ID (for child tasks) |
-| `run.batchId` | `string?` | Batch ID (for batch triggers) |
 | `task.id` | `string` | Task identifier |
 | `task.version` | `string?` | Task version |
 | `attempt.id` | `string` | Attempt identifier |
 | `attempt.number` | `number` | Attempt number (1-indexed) |
-| `attempt.startedAt` | `Date` | When attempt started |
-| `environment.type` | `string` | Environment type |
-| `organization.id` | `string` | Organization identifier |
-| `project.id` | `string` | Project identifier |
-| `machine.cpu` | `number` | CPU allocation |
-| `machine.memory` | `number` | Memory allocation (MB) |
 
 ### Wait Utilities
 
@@ -663,44 +636,7 @@ type TaskRunStatus =
 |-------|-------------|
 | `AbortTaskRunError` | Thrown by `abort()` to stop execution without retry |
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Your Application                          │
-│                                                              │
-│  const task = task({ id: 'my-task', run: ... })             │
-│  await task.trigger({ orderId: '123' })                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-┌─────────────────────────┐     ┌─────────────────────────┐
-│   Durable Objects        │     │   Cloudflare Workflows  │
-├─────────────────────────┤     ├─────────────────────────┤
-│                         │     │                         │
-│  → Real-time execution  │     │  → CPU-only billing     │
-│  → Unlimited duration   │     │  → Sleep is FREE        │
-│  → Transactional        │     │  → Up to 24h duration   │
-│  → WebSocket support    │     │  → Event-sourced        │
-│                         │     │                         │
-└─────────────────────────┘     └─────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Edge Execution                           │
-│                                                              │
-│   ┌────────────────────────────────────────────────────┐    │
-│   │               V8 Isolate Runtime                    │    │
-│   │   - 0ms cold start                                  │    │
-│   │   - 300+ global locations                           │    │
-│   │   - Automatic failover                              │    │
-│   └────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Migration from Trigger.dev
+## Migration from @trigger.dev/sdk
 
 ### Package Change
 
@@ -720,146 +656,12 @@ import { task, wait, retry, queue } from '@trigger.dev/sdk/v3'
 
 // After
 import { task, wait, retry, queue } from '@dotdo/trigger'
+
+// Code compatibility - no changes needed
 ```
-
-### Code Compatibility
-
-Your existing Trigger.dev code works unchanged:
-
-```typescript
-// This code works with both @trigger.dev/sdk and @dotdo/trigger
-export const processOrder = task({
-  id: 'process-order',
-  retry: { maxAttempts: 3 },
-  run: async (payload, { ctx }) => {
-    const user = await ctx.run('fetch-user', async () => {
-      return await fetchUser(payload.userId)
-    })
-
-    await wait.for({ seconds: 30 })
-
-    return { userId: user.id, status: 'processed' }
-  },
-})
-
-await processOrder.trigger({ orderId: '123' })
-```
-
-## Common Patterns
-
-### Order Processing
-
-```typescript
-export const processOrder = task({
-  id: 'process-order',
-  retry: retry.exponential(5),
-
-  run: async (payload, { ctx }) => {
-    // Validate
-    const order = await ctx.run('validate', async () => {
-      const order = await db.orders.findById(payload.orderId)
-      if (!order) abort('Order not found')
-      return order
-    })
-
-    // Charge payment
-    const payment = await ctx.run('charge', async () => {
-      return await stripe.paymentIntents.create({
-        amount: order.total,
-        customer: order.customerId,
-      })
-    })
-
-    // Fulfill
-    await ctx.run('fulfill', async () => {
-      await inventory.reserve(order.items)
-      await shipping.createLabel(order)
-    })
-
-    // Notify
-    await ctx.run('notify', async () => {
-      await email.send(order.email, 'order-confirmation', { order })
-    })
-
-    return { orderId: order.id, paymentId: payment.id }
-  },
-})
-```
-
-### Scheduled Reports
-
-```typescript
-export const dailyDigest = schedules({
-  id: 'daily-digest',
-  cron: '0 8 * * *',  // 8 AM daily
-  timezone: 'America/New_York',
-
-  run: async (payload, { ctx }) => {
-    const stats = await ctx.run('gather-stats', async () => {
-      return await analytics.getDailyStats()
-    })
-
-    const users = await ctx.run('get-subscribers', async () => {
-      return await db.users.findSubscribers()
-    })
-
-    await ctx.run('send-emails', async () => {
-      await Promise.all(
-        users.map(user => email.send(user.email, 'daily-digest', stats))
-      )
-    })
-
-    return { sentTo: users.length }
-  },
-})
-```
-
-### Webhook Processing
-
-```typescript
-export const processWebhook = task({
-  id: 'process-webhook',
-  queue: queue.create('webhooks', { concurrency: 50 }),
-
-  run: async (payload, { ctx }) => {
-    const { event, data } = payload
-
-    switch (event) {
-      case 'customer.created':
-        await ctx.run('sync-crm', () => crm.createContact(data))
-        break
-
-      case 'payment.succeeded':
-        await ctx.run('update-subscription', () =>
-          db.subscriptions.activate(data.subscriptionId)
-        )
-        break
-
-      case 'subscription.cancelled':
-        await ctx.run('cleanup', () =>
-          db.subscriptions.deactivate(data.subscriptionId)
-        )
-        break
-    }
-
-    return { processed: event }
-  },
-})
-```
-
-## Performance
-
-- **29 tests** covering all functionality
-- **0ms cold start** via V8 isolates
-- **<1ms** task dispatch latency (edge)
-- **Unlimited duration** with Durable Objects
-- **Global edge** execution in 300+ cities
-- **Automatic memoization** for ctx.run steps
-- **Free sleep** on CF Workflows backend
 
 ## Related
 
+- [trigger.do](/docs/integrations/trigger/service) - Managed edge background jobs
 - [Workflows Overview](/docs/workflows) - Workflow primitives and DSL
-- [Durable Objects](/docs/architecture/durable-objects) - DO-based execution
-- [Deployment](/docs/deployment) - Deployment and infrastructure
-- [Events](/docs/events) - Event-driven patterns
+- [Events Overview](/docs/events) - Event-driven patterns
