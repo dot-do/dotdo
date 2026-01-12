@@ -1,0 +1,27 @@
+# Ignore everything by default (use "files" in package.json for allowlist)
+# This file handles exclusions within the allowed directories
+
+# CLI build artifacts and dependencies
+cli/node_modules
+cli/.*.bun-build
+cli/bun.lock
+
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/tests/
+**/test/
+
+# Development files
+**/*.map
+.git
+.beads
+.wrangler
+.tanstack
+
+# IDE and OS files
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo

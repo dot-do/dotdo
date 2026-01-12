@@ -23,7 +23,7 @@
   ],
   "main": "./dist/do/index.js",
   "bin": {
-    "do": "./dist/cli/bin.js"
+    "do": "./cli/bin.ts"
   },
   "types": "./dist/types/index.d.ts",
   "exports": {
@@ -137,7 +137,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "cli/*.ts",
+    "cli/commands",
+    "cli/runtime",
+    "cli/utils",
+    "cli/src",
+    "cli/package.json",
+    "cli/README.md"
   ],
   "scripts": {
     "types": "wrangler types types/worker.d.ts -c wrangler.jsonc",
