@@ -1,0 +1,174 @@
+---
+title: Kafka
+description: Choose between @dotdo/kafka (OSS package) and kafka.do (managed streaming service) for your event streaming needs.
+---
+
+# Kafka Integration
+
+dotdo provides two ways to work with Kafka-compatible streaming APIs:
+
+| | @dotdo/kafka | kafka.do |
+|---|--------------|----------|
+| **Type** | OSS npm package | Managed streaming service |
+| **Backend** | In-memory or real Kafka | Durable Object SQLite |
+| **Persistence** | Depends on mode | Full durability |
+| **Use case** | Testing, Kafka proxy | Production streaming |
+| **Infrastructure** | Your Kafka or none | Zero (we manage it) |
+| **Install** | `npm install @dotdo/kafka` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/kafka - KafkaJS-compatible, can proxy to real Kafka
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['localhost:9092'], // Empty for local mode
+})
+
+const producer = kafka.producer()
+await producer.connect()
+await producer.send({
+  topic: 'orders',
+  messages: [{ key: 'order-1', value: 'order data' }],
+})
+```
+
+```typescript
+// kafka.do - Native edge streaming
+import { createProducer } from 'kafka.do'
+
+const producer = createProducer(env)
+await producer.send({
+  topic: 'orders',
+  key: 'order-1',
+  value: { orderId: '123', amount: 99.99 },
+})
+```
+
+## When to Use Each
+
+### Use @dotdo/kafka when:
+
+- **Migrating from KafkaJS** - Drop-in replacement with same API
+- **Proxy to real Kafka** - Connect to existing Kafka/Confluent clusters
+- **Unit testing** - Local mode for tests without infrastructure
+- **Gradual migration** - Keep using real Kafka while moving to edge
+
+<Callout type="info">
+@dotdo/kafka is a KafkaJS-compatible library. Use it when you need the familiar KafkaJS API or want to connect to real Kafka brokers.
+</Callout>
+
+### Use kafka.do when:
+
+- **Edge-native streaming** - Built for Cloudflare Workers from the ground up
+- **Zero infrastructure** - No Kafka cluster to manage
+- **Global distribution** - Messages stored at the edge
+- **HTTP access** - REST API for external clients
+- **Integrations** - MongoDB CDC, R2 Event Bridge built-in
+
+<Callout type="info">
+kafka.do is Kafka-compatible streaming built natively on Cloudflare. Use it for production edge workloads without managing infrastructure.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/kafka | kafka.do |
+|---------|--------------|----------|
+| Producer API | ✅ KafkaJS-compatible | ✅ Native |
+| Consumer API | ✅ KafkaJS-compatible | ✅ Native + HTTP |
+| Admin API | ✅ Full | ✅ Full |
+| Consumer Groups | ✅ Full | ✅ Full |
+| Transactions | ✅ Full | ✅ Full |
+| Partitioning | ✅ Multiple strategies | ✅ Key-based |
+| Real Kafka backend | ✅ Yes | ❌ No |
+| HTTP Client SDK | ❌ | ✅ Yes |
+| MongoDB CDC | ❌ | ✅ Built-in |
+| R2 Event Bridge | ❌ | ✅ Built-in |
+| Wire Protocol | ❌ | ❌ |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/kafka/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/kafka</h3>
+    <p className="text-sm text-muted-foreground">KafkaJS-compatible streaming for migration and testing</p>
+  </a>
+  <a href="/docs/integrations/kafka/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">kafka.do</h3>
+    <p className="text-sm text-muted-foreground">Managed Kafka-compatible streaming on the edge</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/kafka` pointing to real Kafka, then migrate to `kafka.do`:
+
+```typescript
+// Phase 1: Use @dotdo/kafka with real Kafka (drop-in for KafkaJS)
+import { Kafka } from '@dotdo/kafka'
+
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['broker1:9092', 'broker2:9092'],
+})
+
+const producer = kafka.producer()
+await producer.send({
+  topic: 'events',
+  messages: [{ value: JSON.stringify(event) }],
+})
+```
+
+```typescript
+// Phase 2: Migrate to kafka.do for zero-infrastructure
+import { createProducer } from 'kafka.do'
+
+const producer = createProducer(env)
+await producer.send({
+  topic: 'events',
+  value: event, // Native JSON support
+})
+```
+
+## Architecture Comparison
+
+### @dotdo/kafka
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { Kafka } from '@dotdo/kafka'   │
+└─────────────────────────────────────────┘
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+        v                       v
+┌───────────────┐     ┌───────────────┐
+│  Local Mode   │     │ Production    │
+│  (In-memory)  │     │ (Real Kafka)  │
+└───────────────┘     └───────────────┘
+```
+
+### kafka.do
+
+```
+┌─────────────────────────────────────────┐
+│            Your Application              │
+│                                         │
+│  import { createProducer } from 'kafka.do' │
+└─────────────────────────────────────────┘
+                    │
+                    v
+┌─────────────────────────────────────────┐
+│           kafka.do Worker               │
+├─────────────────────────────────────────┤
+│  TopicPartitionDO  │  ConsumerGroupDO   │
+├─────────────────────────────────────────┤
+│        Durable Object SQLite            │
+└─────────────────────────────────────────┘
+```
+
+Both approaches support the same streaming patterns (event sourcing, CQRS, fan-out) - choose based on whether you need real Kafka compatibility or native edge deployment.

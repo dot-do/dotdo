@@ -1,0 +1,113 @@
+---
+title: MongoDB
+description: Choose between @dotdo/mongodb (OSS package) and mongo.do (managed edge service) for your MongoDB needs.
+---
+
+# MongoDB Integration
+
+dotdo provides two ways to work with MongoDB-compatible APIs:
+
+| | @dotdo/mongodb | mongo.do |
+|---|----------------|----------|
+| **Type** | OSS npm package | Managed edge service |
+| **Storage** | In-memory | Durable Object SQLite |
+| **Persistence** | None (resets on restart) | Full durability |
+| **Use case** | Testing, prototyping | Production workloads |
+| **Infrastructure** | Zero | Zero (we manage it) |
+| **Install** | `npm install @dotdo/mongodb` | Deploy to Cloudflare |
+
+## Quick Comparison
+
+```typescript
+// @dotdo/mongodb - In-memory, great for tests
+import { DocumentStore } from '@dotdo/mongodb'
+
+const store = new DocumentStore()
+const users = store.db('app').collection('users')
+await users.insertOne({ name: 'Alice' })
+// Data lost on restart
+```
+
+```typescript
+// mongo.do - Persistent edge database
+import { MongoClient } from 'mongo.do'
+
+const client = new MongoClient('https://your-worker.workers.dev')
+const users = client.db('app').collection('users')
+await users.insertOne({ name: 'Alice' })
+// Data persists globally
+```
+
+## When to Use Each
+
+### Use @dotdo/mongodb when:
+
+- **Unit testing** - Fast, isolated tests without external dependencies
+- **Prototyping** - Quick iteration without infrastructure setup
+- **Edge functions** - Need MongoDB API but no persistence required
+- **CI/CD pipelines** - Tests that need MongoDB semantics
+
+<Callout type="info">
+@dotdo/mongodb is a complete in-memory MongoDB implementation. Perfect for tests and development, but data doesn't persist between restarts.
+</Callout>
+
+### Use mongo.do when:
+
+- **Production applications** - Real user data that must persist
+- **Global edge deployment** - Data close to users worldwide
+- **AI/Agent workloads** - Vector search, MCP protocol, AgentFS
+- **Real-time features** - Change streams, subscriptions
+
+<Callout type="info">
+mongo.do is MongoDB on the Edge - a fully managed service running on Cloudflare's global network with zero infrastructure to manage.
+</Callout>
+
+## Feature Comparison
+
+| Feature | @dotdo/mongodb | mongo.do |
+|---------|----------------|----------|
+| CRUD Operations | ✅ Full | ✅ Full |
+| Aggregation Pipeline | ✅ 12+ stages | ✅ 20+ stages |
+| Indexes | ✅ Basic | ✅ Full (text, geo, TTL) |
+| Transactions | ❌ | ✅ ACID |
+| Change Streams | ❌ | ✅ Real-time |
+| Vector Search | ❌ | ✅ Cloudflare Vectorize |
+| Full-Text Search | ✅ Basic | ✅ FTS5 with scoring |
+| Wire Protocol | ❌ | ✅ MongoDB Compass, mongosh |
+| MCP Protocol | ❌ | ✅ AI agent integration |
+| AgentFS | ❌ | ✅ Virtual filesystem |
+
+## Getting Started
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <a href="/docs/integrations/mongo/package" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">@dotdo/mongodb</h3>
+    <p className="text-sm text-muted-foreground">In-memory MongoDB for testing and development</p>
+  </a>
+  <a href="/docs/integrations/mongo/service" className="block p-4 border rounded-lg hover:border-primary">
+    <h3 className="font-semibold">mongo.do</h3>
+    <p className="text-sm text-muted-foreground">Managed MongoDB on the edge for production</p>
+  </a>
+</div>
+
+## Migration Path
+
+Start with `@dotdo/mongodb` for development, then upgrade to `mongo.do` for production:
+
+```typescript
+// Development (package)
+import { DocumentStore } from '@dotdo/mongodb'
+const store = new DocumentStore()
+const db = store.db('myapp')
+
+// Production (service) - same API!
+import { MongoClient } from 'mongo.do'
+const client = new MongoClient('https://your-mongo.workers.dev')
+const db = client.db('myapp')
+
+// Your application code stays the same
+const users = db.collection('users')
+await users.find({ status: 'active' }).toArray()
+```
+
+Both packages share the same MongoDB-compatible API, making migration seamless.
