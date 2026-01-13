@@ -1,0 +1,417 @@
+---
+title: Function Executors
+description: Execution strategies for code, AI, agent, and human functions
+---
+
+# Function Executors
+
+Executors handle the actual execution of functions. Each executor type provides a specialized strategy for running different kinds of functions.
+
+## Overview
+
+| Executor | Purpose | Environment |
+|----------|---------|-------------|
+| `CodeFunctionExecutor` | TypeScript/JavaScript code | V8 isolates |
+| `GenerativeFunctionExecutor` | LLM text generation | AI Gateway |
+| `AgenticFunctionExecutor` | Multi-step AI agents | Agent runtime |
+| `HumanFunctionExecutor` | Human-in-the-loop | Notification channels |
+| `CascadeExecutor` | Try multiple executors | Fallback chain |
+| `ParallelStepExecutor` | Concurrent execution | Parallel workflow steps |
+
+## CodeFunctionExecutor
+
+Executes TypeScript/JavaScript handlers in V8 isolates with timeout and retry support.
+
+```typescript
+import { CodeFunctionExecutor } from 'lib/executors/CodeFunctionExecutor'
+
+const executor = new CodeFunctionExecutor({
+  timeout: 5000,
+  retries: 2,
+  sandboxed: true
+})
+
+const result = await executor.execute({
+  handler: async (input, ctx) => {
+    const { orderId } = input
+    ctx.log(`Processing order ${orderId}`)
+    return { success: true }
+  },
+  input: { orderId: 'ORD-123' },
+  context: functionContext
+})
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeout` | `number` | - | Max execution time (ms) |
+| `retries` | `number` | `0` | Retry attempts on failure |
+| `retryDelay` | `number` | `1000` | Delay between retries (ms) |
+| `sandboxed` | `boolean` | `false` | Restrict global access |
+
+### Execution Context
+
+The handler receives a `FunctionContext`:
+
+```typescript
+interface FunctionContext {
+  functionId: string
+  invocationId: string
+  input: unknown
+  env: Record<string, unknown>
+  emit: (event: string, data: unknown) => Promise<void>
+  log: (message: string, data?: unknown) => void
+}
+```
+
+## GenerativeFunctionExecutor
+
+Calls language models for AI-powered generation with schema validation.
+
+```typescript
+import { GenerativeFunctionExecutor } from 'lib/executors/GenerativeFunctionExecutor'
+
+const executor = new GenerativeFunctionExecutor({
+  model: 'claude-sonnet-4-20250514',
+  temperature: 0.7,
+  maxTokens: 1000
+})
+
+const result = await executor.execute({
+  prompt: 'Summarize this article: {{text}}',
+  input: { text: 'Long article content...' },
+  schema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      keyPoints: { type: 'array', items: { type: 'string' } }
+    }
+  }
+})
+```
+
+### Template Substitution
+
+Prompts support `{{variable}}` substitution:
+
+```typescript
+const result = await executor.execute({
+  prompt: `
+    Write a {{tone}} email to {{recipient}} about {{topic}}.
+    Keep it under {{wordLimit}} words.
+  `,
+  input: {
+    tone: 'professional',
+    recipient: 'the engineering team',
+    topic: 'the upcoming release',
+    wordLimit: 200
+  }
+})
+```
+
+### Streaming
+
+```typescript
+const executor = new GenerativeFunctionExecutor({
+  model: 'claude-sonnet-4-20250514',
+  stream: true
+})
+
+const stream = await executor.execute({
+  prompt: 'Write a long story about {{topic}}',
+  input: { topic: 'space exploration' }
+})
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.text)
+}
+```
+
+### Structured Output
+
+```typescript
+const result = await executor.execute({
+  prompt: 'Extract entities from: {{text}}',
+  input: { text: 'John works at Acme Corp in New York' },
+  schema: {
+    type: 'object',
+    properties: {
+      people: { type: 'array', items: { type: 'string' } },
+      organizations: { type: 'array', items: { type: 'string' } },
+      locations: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['people', 'organizations', 'locations']
+  }
+})
+
+// result = {
+//   people: ['John'],
+//   organizations: ['Acme Corp'],
+//   locations: ['New York']
+// }
+```
+
+## AgenticFunctionExecutor
+
+Orchestrates multi-step AI agents with tool access and iteration limits.
+
+```typescript
+import { AgenticFunctionExecutor } from 'lib/executors/AgenticFunctionExecutor'
+
+const executor = new AgenticFunctionExecutor({
+  agent: 'ralph',
+  tools: ['code_search', 'file_read', 'file_edit', 'run_tests'],
+  maxIterations: 15,
+  systemPrompt: 'You are a senior software engineer.'
+})
+
+const result = await executor.execute({
+  input: {
+    task: 'Implement user authentication',
+    requirements: ['JWT tokens', 'Password hashing']
+  },
+  onStep: async (step) => {
+    console.log(`Step ${step.iteration}: ${step.thought}`)
+    if (step.action) {
+      console.log(`  Action: ${step.action}`)
+    }
+    if (step.observation) {
+      console.log(`  Observation: ${step.observation}`)
+    }
+  }
+})
+```
+
+### Agent Steps
+
+```typescript
+interface AgentStep {
+  iteration: number
+  thought: string
+  action?: string
+  observation?: string
+}
+```
+
+### Tool Configuration
+
+```typescript
+const executor = new AgenticFunctionExecutor({
+  agent: 'research-agent',
+  tools: [
+    'web_search',      // Search the web
+    'scrape_url',      // Extract content from URLs
+    'summarize',       // Summarize text
+    'code_search',     // Search codebase
+    'file_read',       // Read files
+    'file_edit',       // Edit files
+    'run_tests',       // Run test suites
+    'shell_exec'       // Execute shell commands
+  ],
+  maxIterations: 20
+})
+```
+
+## HumanFunctionExecutor
+
+Queues tasks for human input through notification channels.
+
+```typescript
+import { HumanFunctionExecutor } from 'lib/executors/HumanFunctionExecutor'
+
+const executor = new HumanFunctionExecutor({
+  channel: 'slack:finance-approvals',
+  timeout: 14400000, // 4 hours
+  escalation: {
+    timeout: 7200000, // 2 hours
+    to: 'slack:vp-finance'
+  }
+})
+
+const response = await executor.execute({
+  prompt: (input) => `
+    Refund Request
+    Customer: ${input.customerId}
+    Amount: $${input.amount.toFixed(2)}
+    Reason: ${input.reason}
+
+    Please approve or reject.
+  `,
+  input: {
+    customerId: 'CUST-456',
+    amount: 150.00,
+    reason: 'Product defect'
+  },
+  form: {
+    fields: [
+      { name: 'decision', type: 'select', label: 'Decision',
+        options: ['approve', 'reject'] },
+      { name: 'notes', type: 'text', label: 'Notes' }
+    ]
+  }
+})
+```
+
+### Form Fields
+
+```typescript
+interface FormField {
+  name: string
+  type: 'text' | 'number' | 'boolean' | 'select' | 'multiselect'
+  label: string
+  required?: boolean
+  options?: string[]  // For select/multiselect
+  validation?: (value: unknown) => boolean | string
+}
+```
+
+### Escalation
+
+If no response within the escalation timeout, the request is forwarded:
+
+```typescript
+const executor = new HumanFunctionExecutor({
+  channel: 'slack:approvals',
+  timeout: 14400000,     // Total timeout: 4 hours
+  escalation: {
+    timeout: 7200000,    // Escalate after: 2 hours
+    to: 'slack:management'
+  }
+})
+```
+
+## CascadeExecutor
+
+Tries multiple executors in sequence until one succeeds.
+
+```typescript
+import { CascadeExecutor } from 'lib/executors/CascadeExecutor'
+
+const executor = new CascadeExecutor([
+  new CodeFunctionExecutor({ timeout: 1000 }),
+  new GenerativeFunctionExecutor({ model: 'claude-haiku' }),
+  new GenerativeFunctionExecutor({ model: 'claude-sonnet-4-20250514' })
+])
+
+// Tries code first, falls back to AI if it fails
+const result = await executor.execute({
+  handler: computeResult,
+  prompt: 'Generate a result for {{input}}',
+  input: data
+})
+```
+
+### Fallback Strategies
+
+```typescript
+const executor = new CascadeExecutor(
+  executors,
+  {
+    stopOnSuccess: true,    // Stop at first success
+    collectErrors: true,    // Gather all errors
+    onFallback: (from, to, error) => {
+      console.log(`Falling back from ${from} to ${to}: ${error.message}`)
+    }
+  }
+)
+```
+
+## ParallelStepExecutor
+
+Executes multiple workflow steps concurrently.
+
+```typescript
+import { ParallelStepExecutor } from 'lib/executors/ParallelStepExecutor'
+
+const executor = new ParallelStepExecutor({
+  maxConcurrency: 5,
+  collectMode: 'allSettled'
+})
+
+const results = await executor.execute([
+  { name: 'fetchUser', fn: () => fetchUser(userId) },
+  { name: 'fetchOrders', fn: () => fetchOrders(userId) },
+  { name: 'fetchRecommendations', fn: () => getRecommendations(userId) }
+])
+
+// Results keyed by step name
+// {
+//   fetchUser: { status: 'fulfilled', value: user },
+//   fetchOrders: { status: 'fulfilled', value: orders },
+//   fetchRecommendations: { status: 'rejected', reason: error }
+// }
+```
+
+### Collection Modes
+
+| Mode | Behavior |
+|------|----------|
+| `all` | Fail fast on first error |
+| `allSettled` | Collect all results regardless of errors |
+
+## BaseFunctionExecutor
+
+Base class for creating custom executors:
+
+```typescript
+import { BaseFunctionExecutor } from 'lib/executors/BaseFunctionExecutor'
+
+class CustomExecutor extends BaseFunctionExecutor {
+  async execute(config) {
+    // Pre-execution setup
+    this.beforeExecute(config)
+
+    try {
+      // Custom execution logic
+      const result = await this.customLogic(config)
+
+      // Post-execution cleanup
+      this.afterExecute(result)
+
+      return result
+    } catch (error) {
+      this.onError(error)
+      throw error
+    }
+  }
+}
+```
+
+## Step Context
+
+Executors receive a `StepContext` when running within workflows:
+
+```typescript
+interface StepContext {
+  input: unknown
+  previousStepOutput?: unknown
+  stepName: string
+  stepIndex: number
+  workflowInstanceId: string
+  waitForEvent: <T>(eventName: string, options?) => Promise<T>
+  $: Record<string, unknown>  // Domain proxy
+  emit: (event: string, data: unknown) => void
+}
+```
+
+## Error Types
+
+```typescript
+import { ExecutionError } from 'lib/functions/createFunction'
+
+try {
+  await executor.execute(config)
+} catch (error) {
+  if (error instanceof ExecutionError) {
+    console.error('Execution failed:', error.message)
+  }
+}
+```
+
+## Related
+
+- [createFunction Factory](/docs/functions/create-function) - Create functions
+- [Function Registry](/docs/lib/functions) - Register and discover
+- [Workflows](/docs/workflows) - Orchestrate execution

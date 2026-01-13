@@ -1,0 +1,549 @@
+---
+title: createFunction Factory
+description: Create typed function instances with validation, composition, and automatic registration
+---
+
+# createFunction Factory
+
+The `createFunction()` factory is the primary way to create function instances in dotdo. It validates definitions, registers functions with Durable Objects, and provides built-in composition methods.
+
+## Overview
+
+`createFunction()` creates function instances based on four types:
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `code` | TypeScript/JavaScript handlers | Deterministic business logic |
+| `generative` | Single LLM completion | AI-powered text generation |
+| `agentic` | Multi-step AI tasks | Autonomous task orchestration |
+| `human` | Human-in-the-loop tasks | Approvals, manual input |
+
+## Basic Usage
+
+```typescript
+import { createFunction } from 'dotdo/functions'
+
+const myFunction = await createFunction(
+  {
+    name: 'processOrder',
+    type: 'code',
+    handler: async (input, ctx) => {
+      const { orderId } = input as { orderId: string }
+      ctx.log(`Processing order ${orderId}`)
+      return { success: true, orderId }
+    }
+  },
+  { env: {} }
+)
+
+// Execute the function
+const result = await myFunction.execute({ orderId: 'ORD-123' })
+```
+
+## Function Types
+
+### Code Functions
+
+Execute TypeScript/JavaScript handlers in V8 isolates:
+
+```typescript
+const calculateTotal = await createFunction({
+  name: 'calculateTotal',
+  type: 'code',
+  description: 'Calculate order total with tax',
+  handler: async (input, ctx) => {
+    const { items, taxRate } = input as {
+      items: Array<{ price: number; quantity: number }>
+      taxRate: number
+    }
+
+    const subtotal = items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    )
+
+    return {
+      subtotal,
+      tax: subtotal * taxRate,
+      total: subtotal * (1 + taxRate)
+    }
+  },
+  timeout: 5000,
+  retries: 2,
+  runtime: 'typescript',
+  sandboxed: true
+}, { env: {} })
+```
+
+#### Code Function Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `handler` | `Function` | Required | The function to execute |
+| `runtime` | `'javascript' \| 'typescript'` | `'javascript'` | Runtime environment |
+| `sandboxed` | `boolean` | `false` | Restrict global access |
+| `timeout` | `number` | - | Max execution time (ms) |
+| `retries` | `number` | `0` | Number of retry attempts |
+
+### Generative Functions
+
+Call language models for AI-powered generation:
+
+```typescript
+const summarize = await createFunction({
+  name: 'summarize',
+  type: 'generative',
+  description: 'Summarize text into key points',
+  model: 'claude-sonnet-4-20250514',
+  prompt: 'Summarize the following text in 3 bullet points:\n\n{{text}}',
+  temperature: 0.7,
+  maxTokens: 500,
+  schema: {
+    type: 'object',
+    properties: {
+      bullets: {
+        type: 'array',
+        items: { type: 'string' }
+      }
+    },
+    required: ['bullets']
+  }
+}, { env: { AI: aiBinding } })
+
+// Execute with template substitution
+const result = await summarize.execute({
+  text: 'Long article text here...'
+})
+// result.bullets = ['Point 1', 'Point 2', 'Point 3']
+```
+
+#### Generative Function Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | `string` | Required | Model identifier |
+| `prompt` | `string \| Function` | Required | Prompt template or function |
+| `temperature` | `number` | `1` | Sampling temperature (0-2) |
+| `maxTokens` | `number` | - | Maximum tokens to generate |
+| `stream` | `boolean` | `false` | Enable streaming output |
+| `schema` | `object` | - | JSON Schema for structured output |
+
+#### Dynamic Prompts
+
+Use a function for complex prompt generation:
+
+```typescript
+const dynamicPrompt = await createFunction({
+  name: 'contextualResponse',
+  type: 'generative',
+  model: 'claude-sonnet-4-20250514',
+  prompt: (input) => {
+    const { context, question, language } = input as {
+      context: string
+      question: string
+      language: string
+    }
+
+    return `You are a helpful assistant. Answer in ${language}.
+
+Context: ${context}
+
+Question: ${question}
+
+Answer:`
+  }
+}, { env: { AI: aiBinding } })
+```
+
+### Agentic Functions
+
+Orchestrate multi-step AI tasks with tool access:
+
+```typescript
+const buildFeature = await createFunction({
+  name: 'buildFeature',
+  type: 'agentic',
+  description: 'Implement a feature autonomously',
+  agent: 'ralph',
+  tools: ['code_search', 'file_read', 'file_edit', 'run_tests'],
+  maxIterations: 15,
+  systemPrompt: `You are a senior software engineer.
+Follow TDD practices and write clean, maintainable code.`,
+  onStep: async (step) => {
+    console.log(`Step ${step.iteration}:`, step.thought)
+    if (step.action) {
+      console.log('Action:', step.action)
+    }
+  }
+}, { env: { AGENT_RUNNER: agentRunner } })
+
+const result = await buildFeature.execute({
+  feature: 'Add user authentication',
+  requirements: ['JWT tokens', 'Password hashing', 'Session management']
+})
+```
+
+#### Agentic Function Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `agent` | `string` | Required | Agent identifier |
+| `tools` | `string[]` | - | Available tool names |
+| `maxIterations` | `number` | `10` | Maximum agent iterations |
+| `systemPrompt` | `string` | - | Agent system prompt |
+| `onStep` | `Function` | - | Callback for each step |
+
+### Human Functions
+
+Queue tasks for human input with escalation:
+
+```typescript
+const approveRefund = await createFunction({
+  name: 'approveRefund',
+  type: 'human',
+  description: 'Get manager approval for refund',
+  channel: 'slack:finance-approvals',
+  prompt: (input) => {
+    const { customerId, amount, reason } = input as {
+      customerId: string
+      amount: number
+      reason: string
+    }
+    return `Refund Request
+Customer: ${customerId}
+Amount: $${amount.toFixed(2)}
+Reason: ${reason}
+
+Please approve or reject this refund.`
+  },
+  timeout: 14400000, // 4 hours
+  escalation: {
+    timeout: 7200000, // 2 hours
+    to: 'slack:vp-finance'
+  },
+  form: {
+    fields: [
+      {
+        name: 'decision',
+        type: 'select',
+        label: 'Decision',
+        required: true,
+        options: ['approve', 'reject', 'escalate']
+      },
+      {
+        name: 'notes',
+        type: 'text',
+        label: 'Notes',
+        required: false
+      }
+    ]
+  }
+}, { env: { NOTIFICATIONS: notificationService } })
+
+const approval = await approveRefund.execute({
+  customerId: 'CUST-456',
+  amount: 150.00,
+  reason: 'Product defect'
+})
+```
+
+#### Human Function Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `channel` | `string` | Required | Notification channel |
+| `prompt` | `string \| Function` | - | Message template |
+| `timeout` | `number` | Required | Response deadline (ms) |
+| `escalation` | `object` | - | Escalation configuration |
+| `form` | `FormDefinition` | - | Form fields for response |
+
+## Factory Options
+
+```typescript
+interface CreateFunctionOptions {
+  env: Record<string, unknown>        // Required: environment bindings
+  registry?: FunctionRegistry          // Optional: function registry
+  state?: DurableObjectState          // Optional: DO state for persistence
+  durableObject?: DurableObject       // Optional: DO instance for registration
+  id?: string                         // Optional: custom function ID
+  autoRegister?: boolean              // Default: true
+  replace?: boolean                   // Default: false - replace existing
+  onEvent?: (event, data) => void     // Optional: event callback
+}
+```
+
+### Auto-Registration
+
+By default, functions are automatically registered:
+
+```typescript
+const registry = new FunctionRegistry()
+
+const fn = await createFunction({
+  name: 'myFunction',
+  type: 'code',
+  handler: () => 'hello'
+}, {
+  env: {},
+  registry,
+  autoRegister: true  // default
+})
+
+// Function is now in registry
+const found = await registry.get('myFunction')
+```
+
+### Replace Existing Functions
+
+Update a function definition:
+
+```typescript
+const updated = await createFunction({
+  name: 'myFunction',  // same name
+  type: 'code',
+  handler: () => 'updated!'
+}, {
+  env: {},
+  registry,
+  replace: true  // replace existing
+})
+```
+
+## Function Instance Methods
+
+Every function instance provides these methods:
+
+### execute(input)
+
+Execute the function with the given input:
+
+```typescript
+const result = await myFunction.execute({ key: 'value' })
+```
+
+### chain(nextFunction)
+
+Chain functions together (output flows to next input):
+
+```typescript
+const pipeline = validateOrder
+  .chain(calculateTotal)
+  .chain(processPayment)
+  .chain(sendConfirmation)
+
+const result = await pipeline.execute(orderData)
+```
+
+### if(predicate)
+
+Conditional execution:
+
+```typescript
+const conditionalProcess = processOrder
+  .if((input) => input.amount > 1000)
+  .else(quickProcess)
+
+const result = await conditionalProcess.execute(order)
+```
+
+### map(transform)
+
+Transform the output:
+
+```typescript
+const withFormatting = getUser.map((user) => ({
+  displayName: `${user.firstName} ${user.lastName}`,
+  email: user.email
+}))
+```
+
+### contramap(transform)
+
+Transform the input before execution:
+
+```typescript
+const fromString = processData.contramap((str: string) => JSON.parse(str))
+```
+
+### catch(handler)
+
+Handle errors:
+
+```typescript
+const withFallback = fetchData.catch((error) => {
+  console.error('Fetch failed:', error)
+  return { data: [], fromCache: true }
+})
+```
+
+### finally(handler)
+
+Run cleanup regardless of success/failure:
+
+```typescript
+const withCleanup = processFile.finally(() => {
+  cleanupTempFiles()
+})
+```
+
+### toJSON()
+
+Serialize the function definition:
+
+```typescript
+const json = myFunction.toJSON()
+// Useful for storing/transmitting function metadata
+```
+
+### getMetadata()
+
+Get function metadata:
+
+```typescript
+const meta = myFunction.getMetadata()
+// { id, name, type, createdAt, invocationCount }
+```
+
+### getInvocationHistory()
+
+Get execution history:
+
+```typescript
+const history = await myFunction.getInvocationHistory()
+// [{ id, input, output, status, startedAt, completedAt, duration }]
+```
+
+## Static Methods
+
+### createFunction.all(functions)
+
+Execute multiple functions in parallel (fail-fast):
+
+```typescript
+const parallel = createFunction.all([
+  fetchUserData,
+  fetchOrderHistory,
+  fetchRecommendations
+])
+
+const [user, orders, recommendations] = await parallel.execute(userId)
+```
+
+### createFunction.allSettled(functions)
+
+Execute in parallel, collect all results:
+
+```typescript
+const settled = createFunction.allSettled([
+  riskyOperation1,
+  riskyOperation2,
+  riskyOperation3
+])
+
+const results = await settled.execute(input)
+// [
+//   { status: 'fulfilled', value: result1 },
+//   { status: 'rejected', reason: error2 },
+//   { status: 'fulfilled', value: result3 }
+// ]
+```
+
+### createFunction.fromStorage(name, options)
+
+Load a function from Durable Object storage:
+
+```typescript
+const restored = await createFunction.fromStorage('myFunction', {
+  env: {},
+  state: doState
+})
+```
+
+## Validation
+
+Function definitions are validated on creation:
+
+```typescript
+// Invalid name - will throw ValidationError
+await createFunction({
+  name: '123invalid',  // Must start with letter
+  type: 'code',
+  handler: () => {}
+}, { env: {} })
+
+// Missing required field - will throw ValidationError
+await createFunction({
+  name: 'noHandler',
+  type: 'code'
+  // Missing handler!
+}, { env: {} })
+```
+
+### Name Rules
+
+- Must start with a letter
+- Can contain letters, numbers, and underscores
+- Examples: `processOrder`, `calculate_total`, `step2Handler`
+
+## Events
+
+Functions emit events during execution:
+
+```typescript
+const fn = await createFunction({
+  name: 'trackedFunction',
+  type: 'code',
+  handler: async (input) => {
+    return processInput(input)
+  }
+}, {
+  env: {},
+  onEvent: (event, data) => {
+    switch (event) {
+      case 'function.invoked':
+        console.log('Started:', data.invocationId)
+        break
+      case 'function.completed':
+        console.log('Completed in', data.duration, 'ms')
+        break
+      case 'function.failed':
+        console.error('Failed:', data.error)
+        break
+      case 'function.registered':
+        console.log('Registered:', data.name)
+        break
+    }
+  }
+})
+```
+
+## Error Classes
+
+The factory provides specific error types:
+
+```typescript
+import {
+  ValidationError,
+  RegistrationError,
+  ExecutionError
+} from 'dotdo/functions'
+
+try {
+  await createFunction(invalidDef, options)
+} catch (error) {
+  if (error instanceof ValidationError) {
+    // Definition validation failed
+  } else if (error instanceof RegistrationError) {
+    // Function already registered
+  } else if (error instanceof ExecutionError) {
+    // Runtime execution error
+  }
+}
+```
+
+## Related
+
+- [Function Composition](/docs/functions/composition) - Pipe, parallel, conditional
+- [Function Middleware](/docs/functions/middleware) - Logging, auth, caching
+- [Function Registry](/docs/functions/registry) - Discovery and management
+- [Code Executor](/docs/functions/code-executor) - V8 execution details

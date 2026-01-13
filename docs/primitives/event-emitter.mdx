@@ -1,0 +1,336 @@
+---
+title: event-emitter - Type-Safe Events
+description: Type-safe event system with buffering, filtering, history, and global event bus
+---
+
+# event-emitter - Type-Safe Events
+
+Type-safe pub/sub for decoupled communication. Wildcard handlers, priority ordering, buffering, and history tracking.
+
+The event-emitter primitive provides fully typed event handling with features like pause/resume buffering, global filtering, event history, and a singleton event bus.
+
+## Quick Start
+
+```typescript
+import { EventEmitter } from 'dotdo/primitives/event-emitter'
+
+// Define your event map
+interface AppEvents {
+  'user:created': { id: string; email: string }
+  'user:deleted': { id: string }
+  'order:placed': { orderId: string; total: number }
+}
+
+// Create typed emitter
+const events = new EventEmitter<AppEvents>()
+
+// Subscribe to events
+events.on('user:created', (user) => {
+  console.log(`New user: ${user.email}`)  // TypeScript knows the payload type
+})
+
+// Emit events
+events.emit('user:created', { id: '123', email: 'user@example.com' })
+```
+
+## Event Subscription
+
+### Basic Subscription
+
+```typescript
+// Subscribe and get subscription handle
+const subscription = events.on('order:placed', (order) => {
+  processOrder(order)
+})
+
+// Unsubscribe
+subscription.unsubscribe()
+
+// Or use off() directly
+events.off('order:placed', handler)
+```
+
+### One-Time Handlers
+
+```typescript
+// Handler fires once, then auto-unsubscribes
+events.once('user:created', (user) => {
+  sendWelcomeEmail(user)
+})
+```
+
+### Handler Options
+
+```typescript
+events.on('order:placed', handler, {
+  // Priority (higher runs first, default: 0)
+  priority: 10,
+
+  // Fire once
+  once: true,
+
+  // Filter which events to handle
+  filter: (order) => order.total > 100
+})
+```
+
+### Wildcard Handlers
+
+```typescript
+// Handle ALL events
+events.onAny((event, payload) => {
+  console.log(`Event: ${String(event)}`, payload)
+  logAnalytics(event, payload)
+})
+
+// Remove wildcard handler
+events.offAny(wildcardHandler)
+```
+
+## Emitting Events
+
+### Synchronous Emit
+
+```typescript
+// Fire and forget
+events.emit('user:created', { id: '123', email: 'test@example.com' })
+```
+
+### Async Emit
+
+```typescript
+// Wait for all async handlers to complete
+await events.emitAsync('order:placed', { orderId: 'abc', total: 99.99 })
+```
+
+### Safe Emit
+
+```typescript
+// Continue even if handlers throw
+events.emitSafe('user:created', user, (error) => {
+  console.error('Handler error:', error)
+  reportError(error)
+})
+```
+
+## Buffered Emitter
+
+Buffer events while paused, then flush on resume.
+
+```typescript
+import { BufferedEmitter } from 'dotdo/primitives/event-emitter'
+
+const emitter = new BufferedEmitter<AppEvents>()
+
+// Pause buffering
+emitter.pause()
+
+// Events are buffered, not emitted
+emitter.emit('user:created', { id: '1', email: 'a@test.com' })
+emitter.emit('user:created', { id: '2', email: 'b@test.com' })
+
+console.log(emitter.bufferSize)  // 2
+console.log(emitter.isPaused)    // true
+
+// Resume - flushes all buffered events
+emitter.resume()  // Both events now fire
+
+// Clear buffer without emitting
+emitter.pause()
+emitter.emit('user:created', { id: '3', email: 'c@test.com' })
+emitter.clear()   // Event discarded
+emitter.resume()
+```
+
+## Filtered Emitter
+
+Apply global filters to all events.
+
+```typescript
+import { FilteredEmitter } from 'dotdo/primitives/event-emitter'
+
+const emitter = new FilteredEmitter<AppEvents>((event, payload) => {
+  // Only allow events in production
+  return process.env.NODE_ENV === 'production'
+})
+
+// Filter blocks events that don't pass
+emitter.emit('user:created', user)  // May be blocked
+
+// Change filter dynamically
+emitter.setFilter((event, payload) => {
+  // Block high-value orders in test mode
+  if (event === 'order:placed' && payload.total > 10000) {
+    return process.env.NODE_ENV === 'production'
+  }
+  return true
+})
+
+// Remove filter
+emitter.clearFilter()
+```
+
+## Event History
+
+Record all emitted events for debugging or replay.
+
+```typescript
+import { EventHistory } from 'dotdo/primitives/event-emitter'
+
+const emitter = new EventHistory<AppEvents>({
+  maxHistory: 1000  // Keep last 1000 events
+})
+
+// Events are recorded as they're emitted
+emitter.emit('user:created', { id: '1', email: 'a@test.com' })
+emitter.emit('order:placed', { orderId: 'abc', total: 50 })
+
+// Get all history
+const history = emitter.getHistory()
+// [
+//   { event: 'user:created', payload: {...}, timestamp: 1704067200000 },
+//   { event: 'order:placed', payload: {...}, timestamp: 1704067201000 }
+// ]
+
+// Get history for specific event
+const userEvents = emitter.getHistoryForEvent('user:created')
+
+// Clear history
+emitter.clearHistory()
+```
+
+## Global Event Bus
+
+Singleton event bus for app-wide communication.
+
+```typescript
+import { EventBus, createEventBus } from 'dotdo/primitives/event-emitter'
+
+// Get global singleton
+const bus = EventBus.getInstance<AppEvents>()
+
+// Same instance everywhere
+const bus2 = EventBus.getInstance<AppEvents>()
+console.log(bus === bus2)  // true
+
+// Subscribe anywhere
+bus.on('order:placed', handleOrder)
+
+// Emit from anywhere
+bus.emit('order:placed', { orderId: '123', total: 99.99 })
+
+// Reset for testing
+EventBus.reset()
+
+// Or create isolated bus
+const isolatedBus = createEventBus<AppEvents>()
+```
+
+## Listener Management
+
+```typescript
+// Count listeners for an event
+const count = events.listenerCount('user:created')
+
+// Remove all listeners for an event
+events.removeAllListeners('user:created')
+
+// Remove ALL listeners
+events.removeAllListeners()
+
+// Set max listeners (0 = unlimited)
+events.setMaxListeners(10)  // Warns if exceeded
+
+const max = events.getMaxListeners()  // 10
+```
+
+## Type Definitions
+
+```typescript
+// Event map defines event names and payloads
+interface EventMap {
+  [event: string]: unknown
+}
+
+// Event handler
+type EventHandler<T> = (payload: T) => void | Promise<void>
+
+// Wildcard handler
+type WildcardHandler<Events extends EventMap> = <K extends keyof Events>(
+  event: K,
+  payload: Events[K]
+) => void
+
+// Handler options
+interface EventOptions {
+  priority?: number           // Higher runs first
+  once?: boolean              // Auto-unsubscribe after first emit
+  filter?: (payload: unknown) => boolean  // Filter events
+}
+
+// Subscription handle
+interface EventSubscription {
+  id: string
+  unsubscribe: () => void
+}
+```
+
+## Real-World Example
+
+```typescript
+import { EventEmitter, EventHistory } from 'dotdo/primitives/event-emitter'
+
+// Define domain events
+interface DomainEvents {
+  'product:viewed': { productId: string; userId?: string }
+  'cart:updated': { cartId: string; items: CartItem[] }
+  'order:placed': { orderId: string; total: number; userId: string }
+  'order:shipped': { orderId: string; trackingNumber: string }
+  'payment:failed': { orderId: string; reason: string }
+}
+
+// Create emitter with history for debugging
+const events = new EventHistory<DomainEvents>({ maxHistory: 500 })
+
+// Analytics tracking (lowest priority, runs last)
+events.on('product:viewed', (data) => {
+  analytics.track('Product Viewed', data)
+}, { priority: -10 })
+
+// Inventory update (high priority)
+events.on('order:placed', async (order) => {
+  await inventory.reserve(order.orderId)
+}, { priority: 100 })
+
+// Email notifications (normal priority)
+events.on('order:placed', async (order) => {
+  await email.sendConfirmation(order)
+}, { priority: 0 })
+
+events.on('order:shipped', async (data) => {
+  await email.sendShippingNotification(data)
+})
+
+events.on('payment:failed', async (data) => {
+  await email.sendPaymentFailedNotification(data)
+  await alerts.notifyOps('Payment failed', data)
+})
+
+// Log all events
+events.onAny((event, payload) => {
+  logger.info(`Domain event: ${String(event)}`, payload)
+})
+
+// Usage
+await events.emitAsync('order:placed', {
+  orderId: 'order-123',
+  total: 99.99,
+  userId: 'user-456'
+})
+```
+
+## Next Steps
+
+- [task-queue](/docs/primitives/task-queue) - Queue background jobs from events
+- [webhook-engine](/docs/primitives/webhook-engine) - Send webhooks on events
+- [channel](/docs/primitives/channel) - Real-time event channels

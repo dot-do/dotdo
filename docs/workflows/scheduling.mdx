@@ -1,0 +1,553 @@
+---
+title: Scheduling
+description: Fluent API for recurring and one-time scheduled workflows with $.every
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+# Scheduling
+
+The `every` proxy provides a fluent API for scheduling recurring tasks. Schedules convert to cron expressions and integrate with Durable Object alarms for reliable execution.
+
+## Basic Usage
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Every hour
+every.hour(() => {
+  console.log('Hourly task running')
+})
+
+// Every minute (use sparingly)
+every.minute(() => {
+  console.log('Minute task running')
+})
+
+// Daily at midnight
+every.day(() => {
+  console.log('Daily midnight task')
+})
+```
+
+## Day-Based Scheduling
+
+Schedule tasks for specific days of the week:
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Specific days
+every.Monday(() => {
+  console.log('Start of week!')
+})
+
+every.Friday(() => {
+  console.log('End of week!')
+})
+
+every.Sunday(() => {
+  console.log('Weekend batch processing')
+})
+
+// All days available
+every.Tuesday(() => {})
+every.Wednesday(() => {})
+every.Thursday(() => {})
+every.Saturday(() => {})
+```
+
+## Time-Based Scheduling
+
+Combine days with specific times using preset methods or custom times:
+
+### Preset Time Methods
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Day + preset time
+every.Monday.at9am(() => {
+  console.log('Monday morning standup')
+})
+
+every.day.at6am(() => {
+  console.log('Daily morning routine')
+})
+
+every.Friday.at5pm(() => {
+  console.log('Weekly wrap-up')
+})
+```
+
+Available preset times:
+
+| Preset | Time |
+|--------|------|
+| `at6am` | 6:00 AM |
+| `at7am` | 7:00 AM |
+| `at8am` | 8:00 AM |
+| `at9am` | 9:00 AM |
+| `at10am` | 10:00 AM |
+| `at11am` | 11:00 AM |
+| `at12pm` | 12:00 PM |
+| `at1pm` | 1:00 PM |
+| `at2pm` | 2:00 PM |
+| `at3pm` | 3:00 PM |
+| `at4pm` | 4:00 PM |
+| `at5pm` | 5:00 PM |
+| `at6pm` | 6:00 PM |
+| `atnoon` | 12:00 PM |
+| `atmidnight` | 12:00 AM |
+
+### Custom Time with .at()
+
+For times not covered by presets, use the `.at()` method:
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Custom time formats
+every.Monday.at('3:30pm')(() => {
+  console.log('Monday afternoon meeting')
+})
+
+every.day.at('14:30')(() => {
+  console.log('2:30 PM daily sync')
+})
+
+every.Tuesday.at('noon')(() => {
+  console.log('Tuesday lunch meeting')
+})
+
+every.Saturday.at('midnight')(() => {
+  console.log('Weekend batch job')
+})
+```
+
+Supported time formats:
+- 12-hour: `9am`, `9:30am`, `3pm`, `3:15pm`
+- 24-hour: `14:30`, `09:00`, `23:45`
+- Special: `noon`, `midnight`
+
+## Weekday and Weekend Schedules
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Weekdays only (Monday-Friday)
+every.weekday.at8am(() => {
+  console.log('Weekday morning brief')
+})
+
+// Weekends only (Saturday-Sunday)
+every.weekend.atnoon(() => {
+  console.log('Weekend status check')
+})
+```
+
+## Natural Language Schedules
+
+The `every` function also accepts natural language strings:
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+// Natural language scheduling
+every('Monday at 9am', () => {
+  console.log('Weekly planning')
+})
+
+every('daily at 6am', () => {
+  console.log('Morning routine')
+})
+
+every('weekdays at 8:30am', () => {
+  console.log('Daily standup')
+})
+
+every('every 5 minutes', () => {
+  console.log('Health check')
+})
+
+every('hourly', () => {
+  console.log('Metrics aggregation')
+})
+
+every('every minute', () => {
+  console.log('Frequent polling')
+})
+```
+
+<Callout type="warning">
+High-frequency schedules (every minute, every 5 minutes) consume more resources. Use them only when necessary for time-sensitive operations.
+</Callout>
+
+## Handler Context and Cleanup
+
+Like event handlers, schedule handlers support context for cleanup:
+
+```typescript
+import { every, type EveryHandlerOptions } from 'dotdo/workflows'
+import { clearHandlersByContext } from 'dotdo/workflows'
+
+const options: EveryHandlerOptions = {
+  context: 'my-do-namespace'
+}
+
+// Register with context
+every.hour(() => {
+  console.log('Hourly task')
+}, options)
+
+every.Monday.at9am(() => {
+  console.log('Weekly task')
+}, options)
+
+// Later: clean up all schedules for this context
+clearHandlersByContext('my-do-namespace')
+```
+
+## Unsubscribe Pattern
+
+Schedule registrations return unsubscribe functions:
+
+```typescript
+import { every } from 'dotdo/workflows'
+
+const unsubscribeHourly = every.hour(() => {
+  console.log('Hourly check')
+})
+
+const unsubscribeWeekly = every.Monday.at9am(() => {
+  console.log('Weekly report')
+})
+
+// Later: remove specific schedules
+unsubscribeHourly()
+unsubscribeWeekly()
+```
+
+## How Scheduling Works
+
+Under the hood, schedules convert to cron expressions and use Durable Object alarms:
+
+```typescript
+// Schedule builder converts to cron
+every.Monday.at9am(handler)
+// -> cron: '0 9 * * 1' (minute 0, hour 9, any day of month, any month, Monday)
+
+every.day.at6am(handler)
+// -> cron: '0 6 * * *' (minute 0, hour 6, any day of month, any month, any day of week)
+
+every.hour(handler)
+// -> cron: '0 * * * *' (minute 0, any hour, etc.)
+
+every('every 5 minutes', handler)
+// -> cron: '*/5 * * * *' (every 5 minutes)
+```
+
+### Cron Expression Format
+
+dotdo uses standard 5-field cron expressions:
+
+```
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+### The ScheduleManager
+
+The `ScheduleManager` handles:
+
+1. **Schedule Registration**: Stores schedule metadata with cron expressions
+2. **Next Run Calculation**: Computes the next execution time from cron
+3. **Alarm Management**: Sets/updates DO alarms for the next run
+4. **Execution**: Triggers handlers when alarms fire
+
+```typescript
+import { ScheduleManager } from 'dotdo/workflows'
+
+export class MyDO extends DurableObject {
+  private scheduleManager: ScheduleManager
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.scheduleManager = new ScheduleManager(state)
+
+    // Register handler for when schedules trigger
+    this.scheduleManager.onScheduleTrigger(async (schedule) => {
+      console.log(`Running schedule: ${schedule.name}`)
+      // Execute scheduled logic
+    })
+  }
+
+  async setupSchedules() {
+    // Register a schedule programmatically
+    await this.scheduleManager.schedule(
+      '0 9 * * 1', // Monday at 9am
+      'weekly-report',
+      {
+        timezone: 'America/New_York',
+        metadata: { type: 'report' }
+      }
+    )
+  }
+
+  async alarm() {
+    // ScheduleManager handles alarm execution
+    await this.scheduleManager.handleAlarm()
+  }
+}
+```
+
+## Timezone Support
+
+The `ScheduleManager` supports timezone-aware scheduling:
+
+```typescript
+import { ScheduleManager, parseCronExpression, getNextRunTime } from 'dotdo/workflows'
+
+// Calculate next run time with timezone
+const cron = parseCronExpression('0 9 * * 1') // Monday at 9am
+const nextRun = getNextRunTime(cron, {
+  timezone: 'America/New_York',
+  from: new Date() // Optional: calculate from specific time
+})
+
+console.log('Next run (UTC):', nextRun.toISOString())
+```
+
+## Managing Schedules Programmatically
+
+The `ScheduleManager` provides CRUD operations for schedules:
+
+```typescript
+import { ScheduleManager } from 'dotdo/workflows'
+
+const manager = new ScheduleManager(state)
+
+// Create a schedule
+const schedule = await manager.schedule('0 9 * * 1', 'weekly-report', {
+  timezone: 'America/New_York',
+  metadata: { department: 'sales' },
+  enabled: true
+})
+
+// List all schedules
+const all = await manager.listSchedules()
+const active = await manager.listSchedules({ status: 'active' })
+const paused = await manager.listSchedules({ status: 'paused' })
+
+// Get specific schedule
+const report = await manager.getSchedule('weekly-report')
+console.log({
+  name: report?.name,
+  nextRunAt: report?.nextRunAt,
+  lastRunAt: report?.lastRunAt,
+  runCount: report?.runCount
+})
+
+// Update schedule
+await manager.updateSchedule('weekly-report', {
+  cronExpression: '0 10 * * 1', // Change to 10am
+  enabled: true
+})
+
+// Pause schedule
+await manager.updateSchedule('weekly-report', { enabled: false })
+
+// Delete schedule
+await manager.deleteSchedule('weekly-report')
+```
+
+## Schedule Metadata
+
+Schedules track execution history:
+
+```typescript
+interface Schedule {
+  id: string              // Unique identifier
+  name: string            // User-defined name
+  cronExpression: string  // Cron schedule
+  status: 'active' | 'paused'
+  nextRunAt: Date | null  // Next scheduled execution
+  lastRunAt: Date | null  // Last execution time
+  runCount: number        // Total executions
+  timezone?: string       // Timezone for calculation
+  metadata?: Record<string, unknown>  // Custom data
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+## Combining Schedules with Workflows
+
+Schedules typically trigger workflow logic:
+
+```typescript
+import { every } from 'dotdo/workflows'
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
+// Weekly report with durable execution
+every.Monday.at9am(async () => {
+  // Each step is durable and will retry on failure
+  const metrics = await runtime.do('Analytics.weeklyMetrics', {
+    week: getPreviousWeek()
+  })
+
+  const insights = await runtime.do('AI.generateInsights', {
+    metrics,
+    template: 'weekly-report'
+  })
+
+  await runtime.do('Slack.post', {
+    channel: '#leadership',
+    blocks: formatReport(metrics, insights)
+  })
+
+  await runtime.do('Email.sendDigest', {
+    recipients: getStakeholders(),
+    subject: 'Weekly Business Report',
+    content: insights
+  })
+})
+
+// Hourly health checks
+every.hour(async () => {
+  const services = ['api', 'database', 'cache', 'queue']
+
+  for (const service of services) {
+    const health = await runtime.try(`Health.check`, { service })
+
+    if (!health.ok) {
+      await runtime.do('PagerDuty.alert', {
+        service,
+        status: health.status,
+        message: health.error
+      })
+    }
+  }
+})
+
+// Daily cleanup
+every.day.at2am(async () => {
+  // Run maintenance tasks in parallel
+  await Promise.all([
+    runtime.do('Database.vacuumTables'),
+    runtime.do('Storage.deleteExpired'),
+    runtime.do('Cache.pruneStale'),
+    runtime.do('Logs.archive', { olderThan: '30 days' })
+  ])
+})
+```
+
+## Testing Schedules
+
+```typescript
+import { every, clearHandlers, getRegisteredHandlers } from 'dotdo/workflows'
+import { parseCronExpression, getNextRunTime } from 'dotdo/workflows'
+import { describe, it, expect, beforeEach } from 'vitest'
+
+describe('Scheduling', () => {
+  beforeEach(() => {
+    clearHandlers()
+  })
+
+  it('registers schedule handlers', () => {
+    every.Monday.at9am(() => {})
+    every.hour(() => {})
+
+    // Handlers stored with cron key
+    expect(getRegisteredHandlers('schedule:0 9 * * 1')).toHaveLength(1)
+    expect(getRegisteredHandlers('schedule:0 * * * *')).toHaveLength(1)
+  })
+
+  it('parses cron expressions correctly', () => {
+    const cron = parseCronExpression('0 9 * * 1')
+
+    expect(cron.minute).toEqual([0])
+    expect(cron.hour).toEqual([9])
+    expect(cron.dayOfMonth).toBe('*')
+    expect(cron.month).toBe('*')
+    expect(cron.dayOfWeek).toEqual([1]) // Monday
+  })
+
+  it('calculates next run time', () => {
+    const cron = parseCronExpression('0 * * * *') // Every hour
+    const now = new Date('2024-01-15T10:30:00Z')
+    const nextRun = getNextRunTime(cron, { from: now })
+
+    expect(nextRun.getUTCHours()).toBe(11)
+    expect(nextRun.getUTCMinutes()).toBe(0)
+  })
+
+  it('unsubscribes correctly', () => {
+    const unsubscribe = every.hour(() => {})
+    expect(getRegisteredHandlers('schedule:0 * * * *')).toHaveLength(1)
+
+    unsubscribe()
+    expect(getRegisteredHandlers('schedule:0 * * * *')).toHaveLength(0)
+  })
+})
+```
+
+## Best Practices
+
+### Choose Appropriate Intervals
+
+```typescript
+// Good: Match interval to use case
+every.hour(() => aggregateMetrics())      // Hourly metrics
+every.day.at3am(() => runBackup())        // Daily backup at low-traffic time
+every.Monday.at9am(() => generateReport()) // Weekly reports
+
+// Avoid: Over-frequent schedules
+every.minute(() => checkEverything())     // Usually too frequent
+every('every 10 seconds', () => poll())   // Not supported, use DO alarms directly
+```
+
+### Use Meaningful Schedule Names
+
+```typescript
+// With ScheduleManager
+await manager.schedule('0 9 * * 1', 'weekly-sales-report', {
+  metadata: { department: 'sales', type: 'report' }
+})
+
+await manager.schedule('0 * * * *', 'hourly-metrics-aggregation', {
+  metadata: { system: 'metrics' }
+})
+```
+
+### Handle Schedule Failures
+
+```typescript
+every.Monday.at9am(async () => {
+  try {
+    await runtime.do('Report.generate', { type: 'weekly' })
+  } catch (error) {
+    // runtime.do already retries, this catches exhausted retries
+    await runtime.do('Alert.notify', {
+      severity: 'high',
+      message: 'Weekly report generation failed after retries',
+      error: error.message
+    })
+  }
+})
+```
+
+## Related
+
+- [Workflows Overview](/docs/workflows) - The $ context DSL and durability levels
+- [Workflow Triggers](/docs/workflows/triggers) - All trigger types
+- [Event Handlers](/docs/workflows/event-handlers) - The on.Noun.verb pattern
+- [Pipelines](/docs/workflows/pipelines) - Promise pipelining for deferred execution

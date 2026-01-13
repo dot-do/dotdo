@@ -1,0 +1,544 @@
+---
+title: Pipeline Promises
+description: Deferred execution with promise pipelining for efficient, composable workflows
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+# Pipeline Promises
+
+Pipeline Promises enable deferred execution by capturing workflow operations as expressions without executing them immediately. Inspired by [Cap'n Proto](https://capnproto.org/) promise pipelining and implemented via [capnweb](https://github.com/cloudflare/capnweb), this approach provides lazy evaluation, expression analysis, and automatic batching.
+
+## The Problem with Eager Execution
+
+Traditional async code executes immediately on each await:
+
+```typescript
+// Traditional: Each line blocks until completion
+const crm = await createAccount(customer)          // Wait...
+const billing = await setupBilling(customer)       // Wait...
+const email = await sendWelcome(customer, crm.id)  // Wait...
+
+// Total time: sum of all latencies
+```
+
+With dependent operations, you can't parallelize without manual coordination.
+
+## The Pipeline Promise Solution
+
+Pipeline Promises capture operations as expressions, enabling analysis and optimization:
+
+```typescript
+import { createPipelinePromise, isPipelinePromise } from 'dotdo/workflows'
+
+// These don't execute immediately - they capture intent
+const crm = CRM(customer).createAccount()
+const billing = Billing(customer).setupSubscription()
+
+// Property access on unresolved values works
+const email = Email(customer).sendWelcome({
+  crmId: crm.accountId,        // Expression, not value
+  portalUrl: billing.portalUrl  // Expression, not value
+})
+
+// Runtime analyzes dependencies and optimizes execution
+await runtime.execute([crm, billing, email])
+// Independent ops (crm, billing) run in parallel
+// Dependent op (email) runs after dependencies resolve
+```
+
+## Core Concepts
+
+### Expression Types
+
+Pipeline Promises capture operations as typed expressions:
+
+```typescript
+import type { PipelineExpression } from 'dotdo/workflows'
+
+// Method call expression
+{
+  type: 'call',
+  domain: 'CRM',
+  method: ['createAccount'],
+  context: customer,
+  args: []
+}
+
+// Property access expression
+{
+  type: 'property',
+  base: { type: 'call', domain: 'CRM', ... },
+  property: 'accountId'
+}
+
+// Send (fire-and-forget) expression
+{
+  type: 'send',
+  entity: 'Order',
+  event: 'shipped',
+  payload: { orderId, trackingNumber }
+}
+
+// Conditional expression
+{
+  type: 'conditional',
+  condition: { type: 'literal', value: true },
+  thenBranch: { type: 'call', ... },
+  elseBranch: { type: 'call', ... }
+}
+
+// Wait for external event expression
+{
+  type: 'waitFor',
+  eventName: 'approval.completed',
+  options: { timeout: '7 days' }
+}
+```
+
+### Creating Pipeline Promises
+
+Use `createPipelinePromise` to wrap expressions:
+
+```typescript
+import { createPipelinePromise, type WorkflowProxyOptions } from 'dotdo/workflows'
+
+const options: WorkflowProxyOptions = {
+  execute: async (expr) => {
+    // Custom execution logic
+    return executeExpression(expr)
+  },
+  onExecute: (expr) => {
+    // Hook for testing/logging
+    console.log('Executing:', expr.type)
+  }
+}
+
+const promise = createPipelinePromise({
+  type: 'call',
+  domain: 'Inventory',
+  method: ['check'],
+  context: { sku: 'ABC123' },
+  args: []
+}, options)
+
+// The promise is both a Thenable and a Proxy
+const result = await promise           // Triggers execution
+const quantity = promise.quantity      // Returns new PipelinePromise
+```
+
+### Type Guard
+
+Check if a value is a Pipeline Promise:
+
+```typescript
+import { isPipelinePromise } from 'dotdo/workflows'
+
+function processValue(value: unknown) {
+  if (isPipelinePromise(value)) {
+    console.log('Pipeline expression:', value.__expr)
+    // Can inspect expression before executing
+  } else {
+    console.log('Regular value:', value)
+  }
+}
+```
+
+## The Workflow Proxy
+
+The `$` proxy creates Pipeline Promises for domain calls:
+
+```typescript
+import { createWorkflowProxy } from 'dotdo/workflows'
+
+const $ = createWorkflowProxy({
+  execute: async (expr) => {
+    // Route to appropriate handler
+    if (expr.type === 'call') {
+      const handler = resolveHandler([expr.domain, ...expr.method])
+      return handler.fn(expr.context, expr.args[0], $)
+    }
+    // Handle other expression types...
+  }
+})
+
+// Usage captures expressions
+const inventory = $.Inventory(product).check()
+// inventory.__expr = {
+//   type: 'call',
+//   domain: 'Inventory',
+//   method: ['check'],
+//   context: product,
+//   args: []
+// }
+```
+
+### Property Access Chaining
+
+Property access on a Pipeline Promise returns a new Pipeline Promise:
+
+```typescript
+const crm = $.CRM(customer).createAccount()
+// crm.__expr = { type: 'call', domain: 'CRM', method: ['createAccount'], context: customer, args: [] }
+
+const accountId = crm.accountId
+// accountId.__expr = {
+//   type: 'property',
+//   base: { type: 'call', domain: 'CRM', method: ['createAccount'], ... },
+//   property: 'accountId'
+// }
+
+const tier = accountId.tier
+// tier.__expr = {
+//   type: 'property',
+//   base: { type: 'property', base: { type: 'call', ... }, property: 'accountId' },
+//   property: 'tier'
+// }
+```
+
+## Conditionals
+
+### Simple Conditionals with when
+
+```typescript
+import { when } from 'dotdo/workflows'
+
+const result = when(condition, {
+  then: () => $.Branch.thenPath(data),
+  else: () => $.Branch.elsePath(data)
+})
+
+// result.__expr = {
+//   type: 'conditional',
+//   condition: conditionExpr,
+//   thenBranch: thenExpr,
+//   elseBranch: elseExpr
+// }
+```
+
+### Multi-way Branching with $.branch
+
+```typescript
+const result = $.branch(status, {
+  pending: () => $.Order.process(data),
+  approved: () => $.Order.fulfill(data),
+  rejected: () => $.Order.cancel(data),
+  default: () => $.Order.hold(data)
+})
+```
+
+### Pattern Matching with $.match
+
+```typescript
+const result = $.match(value, [
+  [(v) => v.type === 'premium', () => $.Service.premium(data)],
+  [(v) => v.type === 'standard', () => $.Service.standard(data)],
+  [(v) => true, () => $.Service.basic(data)] // default
+])
+```
+
+## Human-in-the-Loop
+
+Wait for external events with `waitFor`:
+
+```typescript
+import { waitFor } from 'dotdo/workflows'
+
+// Returns a PipelinePromise that hibernates the workflow
+const approval = waitFor('contract.approved', {
+  timeout: '48 hours',
+  type: 'approval'
+})
+
+// approval.__expr = {
+//   type: 'waitFor',
+//   eventName: 'contract.approved',
+//   options: { timeout: '48 hours', type: 'approval' }
+// }
+
+// When executed, workflow hibernates until event received
+```
+
+## Expression Analysis
+
+### Collecting Expressions
+
+Extract all Pipeline Promises from a value tree:
+
+```typescript
+import { collectExpressions } from 'dotdo/workflows'
+
+const crm = $.CRM(customer).createAccount()
+const billing = $.Billing(customer).setupSubscription()
+const notification = $.Email(customer).sendWelcome({
+  crmId: crm.accountId,
+  portalUrl: billing.portalUrl
+})
+
+// Collect all pipeline promises
+const expressions = collectExpressions({
+  crm,
+  billing,
+  notification,
+  nested: { deep: crm.accountId }
+})
+
+console.log(expressions.length) // All PipelinePromises found
+```
+
+### Dependency Analysis
+
+Analyze which operations can run in parallel:
+
+```typescript
+import { analyzeExpressions } from 'dotdo/workflows'
+
+const expressions = [crm, billing, notification]
+const { independent, dependent } = analyzeExpressions(expressions)
+
+// independent: [crm, billing] - no dependencies between them
+// dependent: [notification] - depends on crm and billing
+```
+
+### Advanced Analysis
+
+For detailed dependency graphs:
+
+```typescript
+import { analyzeExpressionsFull, findEmbeddedPromises } from 'dotdo/workflows'
+
+const analysis = analyzeExpressionsFull(expressions)
+// Returns detailed analysis with dependency chains
+
+const embedded = findEmbeddedPromises(notification)
+// Returns PipelinePromises embedded in notification's context/args
+```
+
+## Domains
+
+### Creating Domains
+
+The `Domain` factory creates callable domains that return Pipeline Promises:
+
+```typescript
+import { Domain, registerDomain } from 'dotdo/workflows'
+
+// Define domain with handlers
+const CRM = Domain('CRM', {
+  createAccount: (customer) => ({
+    accountId: generateId(),
+    tier: customer.plan === 'enterprise' ? 'premium' : 'standard'
+  }),
+
+  updateAccount: (customer, updates) => ({
+    ...customer,
+    ...updates,
+    updatedAt: new Date()
+  })
+})
+
+// Register for handler resolution
+registerDomain(CRM)
+
+// Use directly - returns PipelinePromise
+const account = CRM(customer).createAccount()
+```
+
+### Domain Handler Types
+
+Handlers receive context, args, and the $ proxy:
+
+```typescript
+import { Domain, type HandlerFunction } from 'dotdo/workflows'
+
+// Handler function signature
+type Handler<TContext, TArgs, TResult> =
+  (context: TContext, args: TArgs, $: unknown) => TResult | Promise<TResult>
+
+const Inventory = Domain('Inventory', {
+  // Sync handler
+  check: (product, _, $) => ({
+    available: true,
+    quantity: 100,
+    sku: product.sku
+  }),
+
+  // Async handler
+  reserve: async (product, { quantity }, $) => {
+    await $.do('Storage.decrement', { sku: product.sku, quantity })
+    return {
+      reservationId: crypto.randomUUID(),
+      sku: product.sku,
+      quantity,
+      expiresAt: new Date(Date.now() + 3600000)
+    }
+  }
+})
+```
+
+### Handler Resolution
+
+Resolve handlers by path:
+
+```typescript
+import { resolveHandler } from 'dotdo/workflows'
+
+const handler = resolveHandler(['CRM', 'createAccount'])
+if (handler) {
+  const result = await handler.fn(customer, undefined, $)
+  console.log('Source:', handler.source) // Function source code
+}
+```
+
+## Map Operations (Magic Map)
+
+Pipeline Promises support `.map()` for record-replay style transformations:
+
+```typescript
+const customers = $.Customers.list({ status: 'active' })
+
+// Map captures the transformation as an expression
+const accounts = customers.map((customer) =>
+  $.CRM(customer).createAccount()
+)
+
+// accounts.__expr = {
+//   type: 'map',
+//   array: { type: 'call', domain: 'Customers', method: ['list'], ... },
+//   mapper: [{ operation: 'call', path: ['CRM', 'createAccount'], inputPaths: [[]] }]
+// }
+```
+
+The mapper instructions are extracted via placeholder proxies during a "recording" phase, enabling the runtime to understand the transformation without executing it.
+
+## Execution Flow
+
+When a Pipeline Promise is awaited:
+
+1. **Expression Capture**: Operations build expression tree
+2. **Analysis**: Runtime analyzes dependencies
+3. **Optimization**: Independent operations batch together
+4. **Execution**: Steps run with appropriate concurrency
+5. **Resolution**: Results flow through the expression tree
+
+```typescript
+// 1. Capture phase (synchronous)
+const crm = $.CRM(customer).createAccount()
+const billing = $.Billing(customer).setup()
+const email = $.Email(customer).send({ crmId: crm.accountId })
+
+// 2-5. Execution phase (on await)
+await email
+// Runtime:
+// - Analyzes: crm and billing are independent, email depends on crm
+// - Executes: crm and billing in parallel
+// - Then: email with resolved crm.accountId
+```
+
+## Testing Pipelines
+
+```typescript
+import {
+  createPipelinePromise,
+  isPipelinePromise,
+  collectExpressions,
+  analyzeExpressions
+} from 'dotdo/workflows'
+import { describe, it, expect } from 'vitest'
+
+describe('Pipeline Promises', () => {
+  it('captures expressions without execution', () => {
+    const executed: string[] = []
+
+    const promise = createPipelinePromise({
+      type: 'call',
+      domain: 'Test',
+      method: ['action'],
+      context: {},
+      args: []
+    }, {
+      execute: async (expr) => {
+        executed.push(expr.type)
+        return { result: 'done' }
+      }
+    })
+
+    // No execution yet
+    expect(executed).toHaveLength(0)
+    expect(isPipelinePromise(promise)).toBe(true)
+    expect(promise.__expr.type).toBe('call')
+  })
+
+  it('executes on await', async () => {
+    const executed: string[] = []
+
+    const promise = createPipelinePromise({
+      type: 'call',
+      domain: 'Test',
+      method: ['action'],
+      context: {},
+      args: []
+    }, {
+      execute: async (expr) => {
+        executed.push(expr.type)
+        return { result: 'done' }
+      }
+    })
+
+    const result = await promise
+    expect(executed).toEqual(['call'])
+    expect(result).toEqual({ result: 'done' })
+  })
+
+  it('chains property access', () => {
+    const promise = createPipelinePromise({
+      type: 'call',
+      domain: 'CRM',
+      method: ['create'],
+      context: {},
+      args: []
+    }, {})
+
+    const accountId = promise.accountId
+    expect(isPipelinePromise(accountId)).toBe(true)
+    expect(accountId.__expr.type).toBe('property')
+    expect(accountId.__expr.property).toBe('accountId')
+  })
+
+  it('analyzes dependencies', () => {
+    const options = { execute: async () => ({}) }
+
+    const crm = createPipelinePromise({
+      type: 'call', domain: 'CRM', method: ['create'], context: {}, args: []
+    }, options)
+
+    const billing = createPipelinePromise({
+      type: 'call', domain: 'Billing', method: ['setup'], context: {}, args: []
+    }, options)
+
+    // Independent operations
+    const { independent, dependent } = analyzeExpressions([crm, billing])
+    expect(independent).toHaveLength(2)
+    expect(dependent).toHaveLength(0)
+  })
+})
+```
+
+## Benefits of Pipeline Promises
+
+| Benefit | Description |
+|---------|-------------|
+| **No async/await clutter** | Workflows read like synchronous code |
+| **Automatic parallelization** | Independent operations run concurrently |
+| **Dependency analysis** | Runtime understands operation dependencies |
+| **Deterministic replay** | Expressions serialize for durable execution |
+| **Composability** | Property access and chaining work naturally |
+| **Type safety** | Full TypeScript inference throughout |
+
+## Related
+
+- [Workflows Overview](/docs/workflows) - The $ context DSL and durability levels
+- [Event Handlers](/docs/workflows/event-handlers) - The on.Noun.verb pattern
+- [Scheduling](/docs/workflows/scheduling) - The $.every scheduling API
+- [Cap'n Web](https://github.com/cloudflare/capnweb) - The inspiration for promise pipelining

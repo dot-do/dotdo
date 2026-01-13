@@ -1,0 +1,257 @@
+---
+title: Things & Versioning
+description: Versioned entity storage with time-travel queries and soft deletes
+---
+
+# Things & Versioning
+
+Things are the core entity abstraction in dotdo. They are versioned, not mutated. Each write creates a new version, enabling time-travel queries and complete audit trails.
+
+## Core Concepts
+
+### Append-Only Versioning
+
+Things are stored in an append-only log. The SQLite `rowid` serves as the version identifier:
+
+```typescript
+// Each insert creates a new version
+await things.create({ $type: 'User', name: 'Alice' })
+// v1: { $id: 'abc123', $type: 'User', name: 'Alice' }
+
+await things.update('abc123', { name: 'Alice Smith' })
+// v2: { $id: 'abc123', $type: 'User', name: 'Alice Smith' }
+// v1 still exists for time-travel
+```
+
+### Version Structure
+
+Every Thing has these core fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `$id` | string | Unique identifier within namespace |
+| `$type` | string | Entity type (maps to Noun) |
+| `name` | string | Optional display name |
+| `data` | JSON | Arbitrary structured data |
+| `branch` | string | Branch name (null = main) |
+| `version` | number | Version number (rowid) |
+| `deleted` | boolean | Soft delete marker |
+| `visibility` | string | Access level: public, unlisted, org, user |
+
+## ThingsStore API
+
+The `ThingsStore` provides CRUD operations on Things.
+
+### Creating Things
+
+```typescript
+import { ThingsStore } from 'db/stores'
+
+const things = new ThingsStore(ctx)
+
+// Create with auto-generated ID
+const user = await things.create({
+  $type: 'User',
+  name: 'Alice',
+  data: { email: 'alice@example.com', role: 'admin' }
+})
+
+// Create with explicit ID
+const product = await things.create({
+  $id: 'prod-123',
+  $type: 'Product',
+  name: 'Widget',
+  data: { price: 99, category: 'electronics' }
+})
+```
+
+### Reading Things
+
+```typescript
+// Get current version
+const user = await things.get('abc123')
+
+// Get specific version (time-travel)
+const oldVersion = await things.get('abc123', { version: 1 })
+
+// Include soft-deleted things
+const deleted = await things.get('abc123', { includeDeleted: true })
+
+// Get from specific branch
+const feature = await things.get('abc123', { branch: 'feature-x' })
+```
+
+### Listing Things
+
+```typescript
+// List all (paginated)
+const users = await things.list({ type: 'User', limit: 100 })
+
+// Filter by type and branch
+const products = await things.list({
+  type: 'Product',
+  branch: 'main',
+  limit: 50,
+  offset: 0
+})
+
+// Filter by JSON data fields
+const admins = await things.list({
+  type: 'User',
+  where: { 'data.role': 'admin' }
+})
+
+// Cursor-based pagination
+const page2 = await things.list({
+  type: 'User',
+  after: 'last-id-from-page-1',
+  limit: 100
+})
+```
+
+### Updating Things
+
+Updates create new versions (append-only):
+
+```typescript
+// Merge update (default)
+await things.update('abc123', {
+  data: { role: 'super-admin' }
+})
+// Merges with existing data
+
+// Replace update
+await things.update('abc123', {
+  data: { role: 'super-admin' }
+}, { merge: false })
+// Replaces entire data field
+```
+
+### Deleting Things
+
+```typescript
+// Soft delete (creates version with deleted=true)
+await things.delete('abc123')
+
+// Hard delete (removes all versions)
+await things.delete('abc123', { hard: true })
+```
+
+## Time-Travel Queries
+
+Access historical state with version-based queries:
+
+```typescript
+// Get all versions of a Thing
+const versions = await things.versions('abc123')
+
+for (const v of versions) {
+  console.log(`v${v.version}: ${v.name}`)
+}
+
+// Get state at specific version
+const historical = await things.get('abc123', { version: 5 })
+```
+
+## Branching
+
+Things support Git-like branching for experimentation:
+
+```typescript
+// Create on a branch
+await things.create({
+  $type: 'User',
+  name: 'Test User'
+}, { branch: 'experiment' })
+
+// Read from branch
+const branchUser = await things.get('abc123', { branch: 'experiment' })
+
+// Main branch uses null
+const mainUser = await things.get('abc123') // branch: null
+```
+
+## Visibility Levels
+
+Control access with visibility levels:
+
+| Level | Description |
+|-------|-------------|
+| `public` | Visible to everyone including anonymous |
+| `unlisted` | Not discoverable but accessible with direct link |
+| `org` | Visible to organization members only |
+| `user` | Visible only to the owner (default) |
+
+```typescript
+// Create public resource
+await things.create({
+  $type: 'Function',
+  name: 'calculateTax',
+  visibility: 'public'
+})
+
+// Query by visibility
+const publicFunctions = await things.list({
+  type: 'Function',
+  visibility: 'public'
+})
+
+// Multiple visibility levels
+const accessible = await things.list({
+  type: 'Function',
+  visibility: ['public', 'org']
+})
+```
+
+## Schema (Drizzle)
+
+The underlying SQLite table:
+
+```typescript
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
+
+export const things = sqliteTable('things', {
+  // rowid is implicit version ID
+  id: text('id').notNull(),
+  type: integer('type').notNull(),      // FK to nouns.rowid
+  branch: text('branch'),                // null = main
+  name: text('name'),
+  data: text('data', { mode: 'json' }),
+  deleted: integer('deleted', { mode: 'boolean' }).default(false),
+  visibility: text('visibility').default('user'),
+}, (table) => [
+  index('things_id_idx').on(table.id),
+  index('things_type_idx').on(table.type),
+  index('things_visibility_type_idx').on(table.visibility, table.type),
+])
+```
+
+## Type Resolution
+
+Types are stored as integer IDs referencing the `nouns` table:
+
+```typescript
+// Types are auto-created when first used
+await things.create({ $type: 'Customer', name: 'Acme' })
+// Creates noun 'Customer' if not exists
+
+// Type cache prevents repeated lookups
+const typeId = await things.getTypeId('Customer')  // Cached
+const typeName = await things.getTypeName(typeId)  // Cached
+```
+
+## Batch Operations
+
+Efficient batch type resolution avoids N+1 queries:
+
+```typescript
+// List returns fully-resolved types
+const users = await things.list({ type: 'User', limit: 1000 })
+// Internally batches type name lookups
+```
+
+## Related
+
+- [Store Accessors](/docs/database/stores) - Full store API reference
+- [JSON Indexes](/docs/database/json-indexes) - Index JSON fields for fast queries
+- [Relationships](/docs/concepts/relationships) - Connect Things with typed edges

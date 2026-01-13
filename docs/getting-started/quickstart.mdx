@@ -53,6 +53,10 @@ This creates a new project with `wrangler.jsonc`, `tsconfig.json`, and a basic D
 
 Open `src/index.ts` and replace its contents with your startup definition:
 
+<Callout type="info">
+**About `agents.do`:** This is a path alias configured by `npx dotdo init`. If you created your project manually, see [Installation: Import Aliases](/docs/getting-started/installation#import-aliases) to set it up.
+</Callout>
+
 ```typescript title="src/index.ts"
 import { Startup } from 'dotdo'
 import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'

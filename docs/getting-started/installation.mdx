@@ -110,6 +110,10 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+<Callout type="warn">
+**These keys are required.** Without at least one API key, the named agents (Priya, Ralph, Tom, etc.) can't call LLMs and your startup won't work. See [API Keys](/docs/getting-started/api-keys) for details on getting and configuring these keys.
+</Callout>
+
 <Callout type="error">
 Never commit `.dev.vars`. It's already in `.gitignore`, but double-check.
 </Callout>
@@ -195,7 +199,56 @@ export class MyStartup extends Startup {
 }
 ```
 
+## Import Aliases
+
+The dotdo ecosystem uses domain-style imports like `agents.do` and `humans.do`. These are **path aliases** that need to be configured in your project.
+
+<Callout type="warn">
+**Required for named agents and human escalation.** Without these aliases, you'll get "Cannot find module 'agents.do'" errors when using code from the quickstart guide.
+</Callout>
+
+### Automatic Setup
+
+If you used `npx dotdo init`, these are already configured. Skip to the next section.
+
+### Manual Setup
+
+Add path mappings to your `tsconfig.json`:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "paths": {
+      "agents.do": ["./node_modules/dotdo/dist/agents/named/index.js"],
+      "humans.do": ["./node_modules/dotdo/dist/lib/humans/index.js"]
+    }
+  }
+}
+```
+
+Or use Node.js subpath imports in `package.json`:
+
+```json title="package.json"
+{
+  "imports": {
+    "agents.do": "dotdo/agents/named",
+    "humans.do": "dotdo/lib/humans"
+  }
+}
+```
+
+Now you can use the domain-style imports:
+
+```typescript
+import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
+import { ceo, legal, cfo, cto, hr, support } from 'humans.do'
+```
+
 ## Troubleshooting
+
+### "Cannot find module 'agents.do'" or "Cannot find module 'humans.do'"
+
+These are path aliases, not npm packages. Add the path mappings to your `tsconfig.json` or `package.json` as shown in the [Import Aliases](#import-aliases) section above.
 
 ### "Cannot find module 'dotdo'"
 

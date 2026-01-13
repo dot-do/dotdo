@@ -1,5 +1,15 @@
 {
   "root": true,
   "title": "Database",
-  "description": "Data persistence, querying, and edge-native storage"
+  "description": "Data persistence, querying, and edge-native storage",
+  "pages": [
+    "index",
+    "things",
+    "stores",
+    "query-engine",
+    "primitives",
+    "json-indexes",
+    "iceberg",
+    "edgevec"
+  ]
 }

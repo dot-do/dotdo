@@ -1,0 +1,515 @@
+---
+title: Query Engine
+description: Unified query primitive for Document, Analytics, Search, and Graph workloads
+---
+
+# Query Engine
+
+The Query Engine provides a unified query primitive that parses multiple query syntaxes into a common AST, compiles to TypedColumnStore predicates, and executes queries with cost estimation and optimization.
+
+## Architecture
+
+```
++----------------+     +----------------+     +----------------+
+|   MongoDB      |     |    SQL WHERE   |     |   GraphQL      |
+|   Query        |     |    Clause      |     |   Filters      |
++-------+--------+     +-------+--------+     +-------+--------+
+        |                      |                      |
+        v                      v                      v
++-------------------------------------------------------+
+|                  Query AST (Unified)                   |
+|   PredicateNode | LogicalNode | ProjectionNode | ...   |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------+-----------------------------+
+|              Predicate Compiler                        |
+|   AST -> TypedColumnStore Predicates                   |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------+-----------------------------+
+|              Query Planner                             |
+|   Cost estimation, index selection, join ordering      |
++-------------------------+-----------------------------+
+                          |
+                          v
++-------------------------+-----------------------------+
+|              Execution Engine                          |
+|   Columnar scan, bloom filters, aggregations           |
++-------------------------+-----------------------------+
+```
+
+## Quick Start
+
+```typescript
+import {
+  MongoQueryParser,
+  SQLWhereParser,
+  PredicateCompiler,
+  QueryPlanner,
+  ExecutionEngine,
+} from 'db/primitives/query-engine'
+
+// Parse MongoDB query
+const mongoParser = new MongoQueryParser()
+const ast = mongoParser.parse({ age: { $gt: 21 }, status: 'active' })
+
+// Compile to predicates
+const compiler = new PredicateCompiler()
+const predicates = compiler.compile(ast)
+
+// Plan execution
+const planner = new QueryPlanner()
+const plan = planner.plan(ast, 'users', tableStats)
+
+// Execute
+const engine = new ExecutionEngine()
+const result = await engine.execute(plan, { columnStore })
+```
+
+## AST Types
+
+### Predicate Nodes
+
+Filter conditions on columns:
+
+```typescript
+import { eq, gt, gte, lt, lte, neq, inSet, between, like } from 'db/primitives/query-engine'
+
+// Equality
+eq('status', 'active')           // status = 'active'
+
+// Comparison
+gt('age', 21)                    // age > 21
+gte('price', 100)                // price >= 100
+lt('count', 10)                  // count < 10
+lte('score', 0.9)                // score <= 0.9
+
+// Negation
+neq('status', 'deleted')         // status != 'deleted'
+
+// Set membership
+inSet('category', ['a', 'b'])    // category IN ('a', 'b')
+
+// Range
+between('price', 10, 100)        // price BETWEEN 10 AND 100
+
+// Pattern matching
+like('name', 'John%')            // name LIKE 'John%'
+contains('description', 'sale')  // CONTAINS(description, 'sale')
+startsWith('email', 'admin')     // email LIKE 'admin%'
+
+// Null checks
+isNull('deletedAt')              // deletedAt IS NULL
+isNotNull('email')               // email IS NOT NULL
+```
+
+### Logical Nodes
+
+Combine predicates:
+
+```typescript
+import { and, or, not } from 'db/primitives/query-engine'
+
+// AND combination
+and(
+  eq('status', 'active'),
+  gt('age', 18)
+)
+
+// OR combination
+or(
+  eq('category', 'electronics'),
+  eq('category', 'computers')
+)
+
+// NOT
+not(eq('deleted', true))
+
+// Complex nesting
+and(
+  eq('status', 'active'),
+  or(
+    gt('priority', 5),
+    eq('urgent', true)
+  )
+)
+```
+
+### Vector Search
+
+Nearest neighbor queries:
+
+```typescript
+import { near } from 'db/primitives/query-engine'
+
+// Vector similarity search
+near('embedding', queryVector, {
+  k: 10,
+  metric: 'cosine',    // 'cosine' | 'euclidean' | 'dot'
+  minScore: 0.7
+})
+```
+
+### Projections
+
+Select specific columns:
+
+```typescript
+import { select, exclude } from 'db/primitives/query-engine'
+
+// Include columns
+select(['id', 'name', 'email'])
+
+// Exclude columns
+exclude(['password', 'secret'])
+```
+
+### Aggregations
+
+Statistical operations:
+
+```typescript
+import { count, sum, avg, min, max } from 'db/primitives/query-engine'
+
+count('*')                     // COUNT(*)
+count('status', 'active')      // COUNT(status) WHERE status = 'active'
+sum('amount')                  // SUM(amount)
+avg('price')                   // AVG(price)
+min('created_at')              // MIN(created_at)
+max('score')                   // MAX(score)
+```
+
+### Grouping and Sorting
+
+```typescript
+import { createGroupBy, asc, desc } from 'db/primitives/query-engine'
+
+// Group by columns
+createGroupBy(['category', 'status'])
+
+// Sort ascending
+asc('created_at')
+
+// Sort descending
+desc('score')
+
+// Compound sort
+[desc('priority'), asc('created_at')]
+```
+
+### Joins
+
+Cross-table operations:
+
+```typescript
+import { innerJoin, leftJoin, rightJoin } from 'db/primitives/query-engine'
+
+// Inner join
+innerJoin('orders', 'users', {
+  left: 'user_id',
+  right: 'id'
+})
+
+// Left join
+leftJoin('users', 'profiles', {
+  left: 'id',
+  right: 'user_id'
+})
+```
+
+### Graph Traversal
+
+For graph queries:
+
+```typescript
+import { createTraversal, ref } from 'db/primitives/query-engine'
+
+// Traverse relationships
+createTraversal({
+  startNode: ref('users', 'id'),
+  edge: 'follows',
+  direction: 'outgoing',  // 'outgoing' | 'incoming' | 'both'
+  depth: 2
+})
+```
+
+## Parsers
+
+### MongoDB Query Parser
+
+Parse MongoDB-style filter documents:
+
+```typescript
+const parser = new MongoQueryParser()
+
+// Simple equality
+parser.parse({ status: 'active' })
+
+// Comparison operators
+parser.parse({
+  age: { $gt: 21, $lte: 65 },
+  score: { $gte: 0.5 }
+})
+
+// Logical operators
+parser.parse({
+  $and: [
+    { status: 'active' },
+    { $or: [{ role: 'admin' }, { role: 'moderator' }] }
+  ]
+})
+
+// Array operators
+parser.parse({
+  tags: { $in: ['featured', 'sale'] },
+  categories: { $nin: ['hidden', 'archived'] }
+})
+
+// Element operators
+parser.parse({
+  email: { $exists: true },
+  phone: { $type: 'string' }
+})
+```
+
+#### Aggregation Pipeline
+
+```typescript
+const pipeline = parser.parsePipeline([
+  { $match: { status: 'active' } },
+  { $group: { _id: '$category', count: { $sum: 1 } } },
+  { $sort: { count: -1 } },
+  { $limit: 10 }
+])
+```
+
+### SQL WHERE Parser
+
+Parse SQL WHERE clauses:
+
+```typescript
+const parser = new SQLWhereParser()
+
+// Simple condition
+parser.parse("status = 'active'")
+
+// Complex conditions
+parser.parse(`
+  status = 'active'
+  AND age > 21
+  AND (role = 'admin' OR role = 'moderator')
+`)
+
+// With table reference
+parser.parse("u.email LIKE '%@company.com'")
+
+// Full SELECT parsing
+const { projection, filter, groupBy, orderBy } = parser.parseSelect(`
+  SELECT category, COUNT(*) as count
+  FROM products
+  WHERE status = 'active'
+  GROUP BY category
+  ORDER BY count DESC
+`)
+```
+
+## Predicate Compiler
+
+Compiles AST to TypedColumnStore predicates:
+
+```typescript
+const compiler = new PredicateCompiler()
+
+// Basic compilation
+const predicate = compiler.compile(ast)
+
+// With column statistics for optimization
+const optimized = compiler.compile(ast, {
+  columnStats: {
+    status: { distinct: 5, nullRatio: 0.01 },
+    age: { min: 0, max: 120, distinct: 100 }
+  }
+})
+
+// The compiler returns:
+interface CompiledPredicate {
+  // Predicate for TypedColumnStore.filter()
+  predicate: TCSPredicate
+  // Estimated selectivity (0-1)
+  selectivity: number
+  // Columns required
+  columns: string[]
+  // Can use bloom filter?
+  canUseBloom: boolean
+  // Can use min/max pruning?
+  canUseMinMax: boolean
+}
+```
+
+## Query Planner
+
+Generates optimized execution plans:
+
+```typescript
+const planner = new QueryPlanner()
+
+const plan = planner.plan(ast, 'users', {
+  rowCount: 1000000,
+  indexes: [
+    { name: 'idx_status', columns: ['status'] },
+    { name: 'idx_email', columns: ['email'], unique: true }
+  ],
+  columnStats: {
+    status: { distinct: 5 },
+    email: { distinct: 1000000 }
+  }
+})
+
+// Plan includes:
+interface QueryPlan {
+  // Root operation
+  root: PlanNode
+  // Estimated cost
+  cost: number
+  // Estimated rows
+  estimatedRows: number
+  // Indexes used
+  indexesUsed: string[]
+}
+
+// Plan nodes form a tree:
+type PlanNode =
+  | { type: 'scan', table: string, predicate?: TCSPredicate }
+  | { type: 'index_scan', index: string, predicate: TCSPredicate }
+  | { type: 'filter', child: PlanNode, predicate: TCSPredicate }
+  | { type: 'project', child: PlanNode, columns: string[] }
+  | { type: 'sort', child: PlanNode, columns: SortColumn[] }
+  | { type: 'aggregate', child: PlanNode, aggregations: AggregationNode[] }
+  | { type: 'join', left: PlanNode, right: PlanNode, condition: JoinNode }
+```
+
+## Execution Engine
+
+Executes query plans against columnar storage:
+
+```typescript
+const engine = new ExecutionEngine()
+
+const result = await engine.execute(plan, {
+  columnStore,        // TypedColumnStore instance
+  bloomFilters: {     // Optional bloom filters
+    email: bloomFilter
+  },
+  minMaxStats: {      // Optional statistics
+    age: { min: 0, max: 120 }
+  }
+})
+
+// Returns:
+interface ExecutionResult {
+  // Result rows
+  rows: ColumnBatch
+  // Execution statistics
+  stats: {
+    rowsScanned: number
+    rowsReturned: number
+    bloomChecks: number
+    bloomHits: number
+    partitionsPruned: number
+    executionTimeMs: number
+  }
+}
+```
+
+### Bloom Filter Optimization
+
+Skip partitions using bloom filters:
+
+```typescript
+// Build bloom filter during ingestion
+const bloom = columnStore.bloomFilter('email')
+
+// At query time
+const result = await engine.execute(plan, {
+  columnStore,
+  bloomFilters: { email: bloom }
+})
+
+// Queries like email = 'x@y.com' check bloom first
+// If bloom says "definitely not", skip the partition
+```
+
+### Min/Max Pruning
+
+Skip partitions using statistics:
+
+```typescript
+// Statistics from partition metadata
+const stats = {
+  created_at: { min: '2024-01-01', max: '2024-01-31' }
+}
+
+// Query: WHERE created_at > '2024-02-01'
+// Engine sees max < query value, skips partition entirely
+```
+
+## AST Visitor Pattern
+
+Traverse and transform AST nodes:
+
+```typescript
+import { visit, BaseVisitor, collectColumns } from 'db/primitives/query-engine'
+
+// Collect all column references
+const columns = collectColumns(ast)
+
+// Custom visitor
+class ColumnRenamer extends BaseVisitor {
+  visitPredicate(node: PredicateNode) {
+    if (node.column === 'old_name') {
+      return { ...node, column: 'new_name' }
+    }
+    return node
+  }
+}
+
+const renamer = new ColumnRenamer()
+const transformedAst = visit(ast, renamer)
+```
+
+## Type Guards
+
+Runtime type checking:
+
+```typescript
+import {
+  isPredicate,
+  isLogical,
+  isProjection,
+  isAggregation,
+  isGroupBy,
+  isSort,
+  isJoin,
+  isTraversal,
+  isColumnRef
+} from 'db/primitives/query-engine'
+
+function processNode(node: QueryNode) {
+  if (isPredicate(node)) {
+    console.log(`Predicate on ${node.column}`)
+  } else if (isLogical(node)) {
+    console.log(`Logical ${node.operator}`)
+  } else if (isAggregation(node)) {
+    console.log(`Aggregation ${node.function}`)
+  }
+}
+```
+
+## Related
+
+- [TypedColumnStore](/docs/database/primitives) - Columnar storage with compression
+- [JSON Indexes](/docs/database/json-indexes) - Index JSON fields
+- [MongoDB Compat](/docs/compat/databases) - Full MongoDB API
+- [Vector Search](/docs/database/edgevec) - HNSW vector queries

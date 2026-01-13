@@ -7,6 +7,62 @@ description: AI does the work. Humans make the decisions.
 
 AI handles the 95%. Humans handle the edge cases. Full audit trail. Clear accountability.
 
+## Installation
+
+The human escalation templates are exported from `humans.do`, a path alias that points to the humans module in the dotdo package. Configure this in your project:
+
+<Tabs items={['tsconfig.json', 'package.json']}>
+  <Tab value="tsconfig.json">
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "paths": {
+      "agents.do": ["./node_modules/dotdo/dist/agents/named/index.js"],
+      "humans.do": ["./node_modules/dotdo/dist/lib/humans/index.js"]
+    }
+  }
+}
+```
+  </Tab>
+  <Tab value="package.json">
+```json title="package.json"
+{
+  "imports": {
+    "agents.do": "dotdo/agents/named",
+    "humans.do": "dotdo/lib/humans"
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+<Callout type="info">
+**Using `npx dotdo init`?** These aliases are configured automatically. You can start importing right away.
+</Callout>
+
+### Available Role Templates
+
+The `humans.do` module exports pre-configured role templates for common escalation scenarios:
+
+| Import | Role | Use Case |
+|--------|------|----------|
+| `ceo` | Chief Executive | Final approvals, strategic decisions |
+| `cfo` | Chief Financial | Budget approvals, financial sign-offs |
+| `cto` | Chief Technical | Architecture decisions, security approvals |
+| `legal` | Legal Counsel | Contract review, compliance sign-off |
+| `hr` | Human Resources | Policy decisions, personnel matters |
+| `support` | Customer Support | Ticket escalations, customer issues |
+| `manager` | Generic Manager | Team-level approvals |
+
+You can also create custom role templates:
+
+```typescript
+import { createHumanTemplate } from 'humans.do'
+
+const accountant = createHumanTemplate('senior-accountant')
+const approved = await accountant`verify Q4 reconciliation`
+```
+
 ## The Philosophy
 
 Autonomous doesn't mean unsupervised. The best AI systems know their limits. When confidence drops, stakes rise, or judgment is required, the system escalates to humans.

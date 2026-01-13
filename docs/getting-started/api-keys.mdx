@@ -1,0 +1,267 @@
+---
+title: API Keys
+description: Configure API keys for AI providers - which keys you need and how to set them up
+---
+
+# API Keys
+
+Your agents need LLM access. Here's how to configure it.
+
+## Which Keys Do I Need?
+
+**At minimum, you need one of:**
+
+| Key | Provider | Used For |
+|-----|----------|----------|
+| `ANTHROPIC_API_KEY` | [Anthropic](https://console.anthropic.com/) | Claude models (claude-sonnet-4, claude-opus-4.5) |
+| `OPENAI_API_KEY` | [OpenAI](https://platform.openai.com/api-keys) | GPT models (gpt-4o, gpt-4-turbo) |
+
+Named agents (Priya, Ralph, Tom, Mark, Sally, Quinn) will use whichever key is available. If both are set, Anthropic is used by default.
+
+<Callout type="warn">
+**Running the Quickstart without API keys?** You'll get an error like `Error: No API key configured` when your agents try to call an LLM. The agents need at least one provider configured.
+</Callout>
+
+## Getting API Keys
+
+### Anthropic (Claude)
+
+1. Go to [console.anthropic.com](https://console.anthropic.com/)
+2. Create an account or sign in
+3. Navigate to **API Keys**
+4. Click **Create Key**
+5. Copy the key (starts with `sk-ant-`)
+
+<Callout type="info">
+**Free tier:** Anthropic offers a free tier with limited credits. Perfect for development.
+</Callout>
+
+### OpenAI (GPT)
+
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Create an account or sign in
+3. Click **Create new secret key**
+4. Copy the key (starts with `sk-`)
+
+<Callout type="info">
+**Pay-as-you-go:** OpenAI requires adding a payment method. Start with a small budget ($5-10) for development.
+</Callout>
+
+## Local Development
+
+Create a `.dev.vars` file in your project root:
+
+```bash title=".dev.vars"
+# At least one of these is required for agents
+ANTHROPIC_API_KEY=sk-ant-api03-...
+OPENAI_API_KEY=sk-proj-...
+```
+
+<Callout type="error">
+**Never commit this file.** The `.dev.vars` file is automatically included in `.gitignore` by `npx dotdo init`. Double-check it's not being tracked.
+</Callout>
+
+### Verify Your Setup
+
+Start the dev server and check that keys are loaded:
+
+```bash
+npm run dev
+```
+
+Then test an agent call:
+
+```bash
+curl -X POST http://localhost:8787/launch
+```
+
+If you see agent output in your logs, you're configured correctly. If you see an API key error, check that:
+
+1. Your `.dev.vars` file exists in the project root
+2. The key format is correct (no extra spaces or quotes)
+3. The key is valid and not expired
+
+## Production Deployment
+
+For production on Cloudflare Workers, use Wrangler secrets:
+
+```bash
+# Set each secret interactively
+npx wrangler secret put ANTHROPIC_API_KEY
+# You'll be prompted to enter the value
+
+npx wrangler secret put OPENAI_API_KEY
+# You'll be prompted to enter the value
+```
+
+Secrets are encrypted and only available at runtime. They don't appear in your code, logs, or Cloudflare dashboard.
+
+### Verify Production Secrets
+
+List your configured secrets:
+
+```bash
+npx wrangler secret list
+```
+
+This shows secret names (not values) for your worker.
+
+## Optional Provider Keys
+
+For advanced use cases, you may need additional keys:
+
+| Key | Provider | Used For |
+|-----|----------|----------|
+| `DEVIN_API_KEY` | [Cognition](https://cognition.ai/) | Devin agent sessions |
+| `VAPI_API_KEY` | [Vapi](https://vapi.ai/) | Voice agent capabilities |
+| `LIVEKIT_API_KEY` | [LiveKit](https://livekit.io/) | Real-time voice/video |
+| `LIVEKIT_API_SECRET` | LiveKit | Required with LIVEKIT_API_KEY |
+
+These are only needed if you're using the corresponding provider in your agent configuration.
+
+## Using Keys in Code
+
+### Automatic Provider Detection
+
+Named agents automatically detect which provider to use based on available keys:
+
+```typescript
+import { priya, ralph, tom } from 'agents.do'
+
+// Uses Anthropic if ANTHROPIC_API_KEY is set
+// Falls back to OpenAI if only OPENAI_API_KEY is set
+const spec = await priya`define the MVP for ${hypothesis}`
+```
+
+### Explicit Provider Selection
+
+You can explicitly configure which provider an agent uses:
+
+```typescript
+import { createClaudeProvider, createOpenAIProvider } from 'agents'
+
+// Force Claude (Anthropic)
+const claudeProvider = createClaudeProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultModel: 'claude-sonnet-4-20250514',
+})
+
+// Force OpenAI
+const openaiProvider = createOpenAIProvider({
+  apiKey: process.env.OPENAI_API_KEY,
+  defaultModel: 'gpt-4o',
+})
+```
+
+### Direct SDK Usage
+
+For direct API access without agents:
+
+```typescript
+// Anthropic
+import { Anthropic } from 'compat/anthropic'
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+})
+
+const message = await anthropic.messages.create({
+  model: 'claude-sonnet-4-20250514',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+```typescript
+// OpenAI
+import OpenAI from '@dotdo/openai'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
+
+const completion = await openai.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+## Accessing Keys in Durable Objects
+
+In your DO class, access keys from the environment:
+
+```typescript
+import { DO } from 'dotdo'
+
+export class MyStartup extends DO {
+  async init() {
+    // Access from env binding
+    const anthropicKey = this.env.ANTHROPIC_API_KEY
+    const openaiKey = this.env.OPENAI_API_KEY
+  }
+}
+```
+
+Keys set via `wrangler secret` or `.dev.vars` are automatically available in `this.env`.
+
+## Security Best Practices
+
+<Cards>
+<Card title="Use Vault for Production" href="/docs/security/secrets">
+For enterprise deployments, consider using the Vault integration for automatic rotation and access control.
+</Card>
+</Cards>
+
+### Do
+
+- Use `.dev.vars` for local development
+- Use `wrangler secret` for production
+- Rotate keys periodically
+- Use separate keys for development and production
+- Monitor API usage in provider dashboards
+
+### Don't
+
+- Commit keys to git
+- Log keys in error messages
+- Share keys across projects
+- Use production keys in development
+- Hardcode keys in source files
+
+## Troubleshooting
+
+### "Error: No API key configured"
+
+Neither `ANTHROPIC_API_KEY` nor `OPENAI_API_KEY` is set. Add at least one to your `.dev.vars` file.
+
+### "Error: Invalid API key"
+
+The key format is wrong or the key has been revoked. Generate a new key from the provider's dashboard.
+
+### "Error: 401 Unauthorized"
+
+The key is invalid or doesn't have the required permissions. Check:
+- Key hasn't expired
+- Account is in good standing
+- Key has correct permissions/scopes
+
+### "Error: 429 Rate Limited"
+
+You've exceeded the provider's rate limits. Options:
+- Wait and retry
+- Implement request throttling
+- Upgrade your API plan
+
+### Keys not loading in production
+
+1. Verify secrets are set: `npx wrangler secret list`
+2. Redeploy after setting secrets: `npm run deploy`
+3. Check spelling matches exactly (case-sensitive)
+
+## Next Steps
+
+With your API keys configured, you're ready to build:
+
+- [Quickstart](/docs/getting-started/quickstart) - Build your first AI-powered startup
+- [Named Agents](/docs/agents/named-agents) - Meet Priya, Ralph, Tom, and the team
+- [Secrets Management](/docs/security/secrets) - Advanced key management with Vault

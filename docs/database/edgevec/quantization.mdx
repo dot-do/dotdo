@@ -1,0 +1,433 @@
+---
+title: Quantization
+description: Product quantization and scalar quantization for memory-efficient vector storage in EdgeVec.
+---
+
+# Quantization
+
+Quantization reduces memory usage by compressing vectors while maintaining search quality. EdgeVec supports product quantization (PQ) for aggressive compression and scalar quantization for simpler cases.
+
+## Why Quantization?
+
+Full-precision vectors are memory-intensive:
+
+| Dimensions | float32 | Quantized (PQ8x8) |
+|------------|---------|-------------------|
+| 384 | 1.5 KB | ~50 bytes |
+| 768 | 3 KB | ~100 bytes |
+| 1536 | 6 KB | ~200 bytes |
+| 3072 | 12 KB | ~400 bytes |
+
+For 100,000 vectors at 1536 dimensions:
+- Full precision: **600 MB**
+- With PQ: **20 MB** (~30x compression)
+
+This enables larger datasets in DO memory constraints (~128MB).
+
+## Product Quantization (PQ)
+
+Product quantization divides vectors into subvectors and quantizes each independently.
+
+### How PQ Works
+
+```
+Original vector (1536 dims):
+[------------------------------------]
+
+Split into M subvectors (M=8, 192 dims each):
+[sub0][sub1][sub2][sub3][sub4][sub5][sub6][sub7]
+
+Learn Ksub centroids for each subspace:
+sub0 -> codebook0 with 256 centroids
+sub1 -> codebook1 with 256 centroids
+...
+sub7 -> codebook7 with 256 centroids
+
+Encode: find nearest centroid for each subvector:
+[sub0] -> centroid 42 from codebook0
+[sub1] -> centroid 127 from codebook1
+...
+
+Final PQ code: [42, 127, 8, 201, 55, 99, 12, 88]
+8 bytes instead of 6144 bytes (float32)!
+```
+
+### PQ Codec
+
+The PQ codec handles encoding and decoding:
+
+```typescript
+import { PQCodec, PQConfig } from 'db/edgevec/pq-codec'
+
+// Configuration
+const config: PQConfig = {
+  dimensions: 1536,    // Vector dimensions
+  M: 8,                // Number of subspaces
+  Ksub: 256,           // Centroids per subspace (typically 256)
+  metric: 'l2'         // Distance metric for training
+}
+
+// Create codec
+const codec = new PQCodec(config)
+
+// Train on sample vectors
+await codec.train(sampleVectors, {
+  iterations: 20,      // K-means iterations
+  sampleSize: 10000    // Max training vectors
+})
+
+// Encode vectors to PQ codes
+const pqCode = codec.encode(vector) // Returns Uint8Array[M]
+
+// Decode back to approximate vector
+const approximateVector = codec.decode(pqCode)
+```
+
+### Asymmetric Distance Computation (ADC)
+
+PQ enables fast distance computation using precomputed lookup tables:
+
+```typescript
+// Build distance table for query (once per query)
+const distTable = codec.buildDistanceTable(queryVector)
+
+// Score candidate using table lookups (very fast)
+const distance = codec.computeADCDistance(distTable, pqCode)
+```
+
+ADC computation:
+```
+distance = sum over m of distTable[m][pqCode[m]]
+```
+
+This replaces 1536 multiply-adds with 8 table lookups!
+
+### PQ Index
+
+Use PQIndex for memory-efficient ANN search:
+
+```typescript
+import { createPQIndex, PQIndexConfig } from 'db/edgevec/pq'
+
+const config: PQIndexConfig = {
+  dimensions: 1536,
+  M: 8,                  // Subspaces
+  Ksub: 256,             // Centroids per subspace
+  metric: 'l2',
+  trainingVectors: 10000 // Vectors for codebook training
+}
+
+const index = createPQIndex(config)
+
+// Train codebooks (required before insert)
+await index.train(trainingVectors)
+
+// Insert vectors (stores PQ codes internally)
+index.insert('doc-1', vector1)
+index.insert('doc-2', vector2)
+
+// Search using ADC
+const results = index.search(query, { k: 10 })
+```
+
+### IVF-PQ (Coarse + Fine Search)
+
+For large datasets, combine inverted file index with PQ:
+
+```typescript
+import { CoarseSearch } from 'db/edgevec/coarse-search'
+
+const coarse = new CoarseSearch({
+  fetch: fetch,
+  basePath: '/static/vectors'
+})
+
+await coarse.initialize()
+
+// Search: coarse finds clusters, fine ranks with PQ
+const result = await coarse.search(queryVector, {
+  k: 10,
+  nprobe: 20  // Number of clusters to probe
+})
+
+console.log(`
+  Clusters probed: ${result.stats.clustersProbed}
+  Candidates scanned: ${result.stats.candidatesScanned}
+  Time: ${result.stats.totalTimeMs}ms
+  Cost: $${result.stats.estimatedCostUSD}
+`)
+```
+
+## Centroid Index
+
+The CentroidIndex handles coarse-level search:
+
+```typescript
+import { CentroidIndex, parseCentroidFile } from 'db/edgevec/centroid-index'
+
+// Create index
+const centroidIndex = new CentroidIndex({ lazyLoad: false })
+
+// Load from binary CENT file
+const buffer = await fetch('/static/centroids.bin').then(r => r.arrayBuffer())
+await centroidIndex.load(buffer)
+
+// Find nearest clusters
+const clusters = await centroidIndex.search(queryVector, 20)
+for (const { clusterId, distance } of clusters) {
+  console.log(`Cluster ${clusterId}: distance ${distance}`)
+}
+```
+
+### CENT File Format
+
+Binary format for centroid storage:
+
+```
+Header (32 bytes):
+- magic: uint32 = 0x43454E54 ("CENT")
+- version: uint16 = 1
+- flags: uint16 = 0
+- num_centroids: uint32
+- dimensions: uint32
+- dtype: uint8 (0=float32, 1=float16)
+- metric: uint8 (0=cosine, 1=l2, 2=dot)
+- reserved: uint8[10]
+
+Data:
+- centroid vectors: num_centroids * dimensions * sizeof(dtype)
+```
+
+### Optimized Search
+
+CentroidIndex includes several optimizations:
+
+**Loop Unrolling**: Process 16 elements at a time for ILP:
+```typescript
+// Process 16 dims at a time with 4 accumulators
+for (; d < dimsLimit16; d += 16) {
+  dot0 += query[d] * centroids[offset + d] + ...
+  dot1 += query[d+4] * centroids[offset + d+4] + ...
+  dot2 += query[d+8] * centroids[offset + d+8] + ...
+  dot3 += query[d+12] * centroids[offset + d+12] + ...
+}
+```
+
+**Precomputed Norms**: Avoid division in inner loop:
+```typescript
+// Precompute inverse norms
+const queryNormInv = 1 / Math.sqrt(qNormSq)
+const centroidNormInv = precomputed[i]
+
+// Multiply instead of divide
+const distance = 1 - dot * queryNormInv * centroidNormInv
+```
+
+**Partial Sort**: Top-K without full sort:
+```typescript
+// Max-heap for top-K selection
+// Only keeps K best elements, O(n log k) vs O(n log n)
+const results = partialSortTopK(distances, numCentroids, k, heapDist, heapIdx)
+```
+
+## Scalar Quantization
+
+For simpler compression, use scalar quantization:
+
+### int8 Quantization
+
+```typescript
+import { scalarQuantize, scalarDequantize, QuantizationConfig } from 'db/edgevec/quantization'
+
+const config: QuantizationConfig = {
+  type: 'int8',
+  dimensions: 1536
+}
+
+// Quantize float32 to int8 (-128 to 127)
+const quantized = scalarQuantize(vector, config)
+// Returns: { data: Int8Array, scale: number, offset: number }
+
+// Dequantize back to float32
+const restored = scalarDequantize(quantized)
+```
+
+Memory: 1 byte per dimension (4x compression from float32)
+
+### Binary Quantization
+
+Extreme compression for high-dimensional vectors:
+
+```typescript
+const config: QuantizationConfig = {
+  type: 'binary',
+  dimensions: 1536
+}
+
+// Quantize to binary (1 bit per dimension)
+const binary = scalarQuantize(vector, config)
+// Returns: { data: Uint8Array, threshold: number }
+
+// Use Hamming distance for fast search
+const hammingDist = hammingDistance(binary1.data, binary2.data)
+```
+
+Memory: 1 bit per dimension (32x compression from float32)
+
+### Quantization Comparison
+
+| Type | Compression | Quality | Speed |
+|------|-------------|---------|-------|
+| float32 | 1x | 100% | Baseline |
+| float16 | 2x | ~99.9% | 0.8x |
+| int8 | 4x | ~99% | 1.2x |
+| PQ8x256 | 32x | ~95% | 3x |
+| Binary | 32x | ~85% | 10x |
+
+## Training PQ Codebooks
+
+### K-Means Training
+
+PQ codebooks are trained using k-means clustering:
+
+```typescript
+// Sample vectors for training (10-50K recommended)
+const trainingSet = vectors.slice(0, 10000)
+
+// Train codebooks
+await codec.train(trainingSet, {
+  iterations: 20,        // K-means iterations
+  seed: 42,              // For reproducibility
+  verbose: true          // Log progress
+})
+
+// Save trained codebooks
+const codebooks = codec.getCodebooks()
+await storage.put('codebooks.bin', serializeCodebooks(codebooks))
+```
+
+### PQCB File Format
+
+Binary format for codebook storage:
+
+```
+Header (32 bytes):
+- magic: uint32 = 0x50514342 ("PQCB")
+- version: uint16 = 1
+- flags: uint16 = 0
+- M: uint32 (number of subspaces)
+- Ksub: uint32 (centroids per subspace)
+- dimensions: uint32
+- subvector_dim: uint32
+- reserved: uint8[8]
+
+Data:
+- For each subspace m (0 to M-1):
+  - centroids: Ksub * subvector_dim * sizeof(float32)
+```
+
+## Memory Budget Calculator
+
+Estimate memory for your dataset:
+
+```typescript
+function estimateMemory(options: {
+  vectorCount: number
+  dimensions: number
+  quantization: 'none' | 'int8' | 'pq8' | 'binary'
+  hnswM: number
+}) {
+  const { vectorCount, dimensions, quantization, hnswM } = options
+
+  // Vector storage
+  let bytesPerVector: number
+  switch (quantization) {
+    case 'none': bytesPerVector = dimensions * 4; break
+    case 'int8': bytesPerVector = dimensions * 1; break
+    case 'pq8': bytesPerVector = 8; break // 8 bytes for PQ code
+    case 'binary': bytesPerVector = Math.ceil(dimensions / 8); break
+  }
+
+  // HNSW overhead (~16 bytes per neighbor link average)
+  const hnswOverhead = hnswM * 2 * 8 // bytes per vector
+
+  // ID storage (~50 bytes average for string IDs)
+  const idOverhead = 50
+
+  const totalPerVector = bytesPerVector + hnswOverhead + idOverhead
+  const totalMB = (vectorCount * totalPerVector) / (1024 * 1024)
+
+  return {
+    perVector: totalPerVector,
+    totalMB,
+    fitsInDO: totalMB < 100 // Leave 28MB headroom
+  }
+}
+```
+
+Example calculations:
+
+```typescript
+// 10K vectors, 1536 dims, float32
+estimateMemory({ vectorCount: 10000, dimensions: 1536, quantization: 'none', hnswM: 16 })
+// { perVector: 6450, totalMB: 61.5, fitsInDO: true }
+
+// 100K vectors, 1536 dims, PQ8
+estimateMemory({ vectorCount: 100000, dimensions: 1536, quantization: 'pq8', hnswM: 16 })
+// { perVector: 314, totalMB: 29.9, fitsInDO: true }
+
+// 1M vectors, 1536 dims, PQ8
+estimateMemory({ vectorCount: 1000000, dimensions: 1536, quantization: 'pq8', hnswM: 16 })
+// { perVector: 314, totalMB: 299, fitsInDO: false }
+```
+
+## Coarse Search ($0 Cost)
+
+CoarseSearch uses only static assets for zero billing:
+
+```typescript
+const coarse = new CoarseSearch({
+  fetch: fetch,
+  basePath: '/static/vectors'
+})
+
+// Static assets needed:
+// /static/vectors/centroids.bin  - Centroid index (CENT format)
+// /static/vectors/codebooks.bin  - PQ codebooks (PQCB format)
+// /static/vectors/cluster-0000.bin - Cluster data (CLST format)
+// /static/vectors/cluster-0001.bin
+// ...
+
+const result = await coarse.search(query, { k: 10, nprobe: 20 })
+
+// No R2 reads, no billable API calls
+console.log(`R2 reads: ${result.stats.r2Reads}`) // 0
+console.log(`Cost: $${result.stats.estimatedCostUSD}`) // $0
+```
+
+### CLST File Format
+
+Cluster data format for static assets:
+
+```
+Header (64 bytes):
+- magic: uint32 = 0x434C5354 ("CLST")
+- version: uint16 = 1
+- flags: uint16 = 0
+- cluster_id: uint32
+- vector_count: uint32
+- M: uint8 (PQ subspaces)
+- id_type: uint8 (0=uint64, 1=string)
+- reserved: uint8[42]
+
+Data:
+- vector_ids: vector_count * 8 bytes (uint64)
+- pq_codes: vector_count * M bytes
+```
+
+## Related
+
+- [EdgeVec Overview](/docs/database/edgevec) - Full system documentation
+- [HNSW Indexing](/docs/database/edgevec/hnsw) - Graph-based search
+- [Filtering](/docs/database/edgevec/filtering) - Metadata filters
+- [Persistence](/docs/database/edgevec/persistence) - R2 backup

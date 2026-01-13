@@ -1,0 +1,387 @@
+---
+title: StateStorage
+description: Type-safe wrapper around Durable Object state with TTL, versioning, and migrations
+---
+
+# StateStorage
+
+`StateStorage` provides a type-safe wrapper around the Durable Object state API with support for TTL, versioning, migrations, transactions, and key prefixing.
+
+## Overview
+
+```typescript
+import { StateStorage } from 'lib/StateStorage'
+
+const storage = new StateStorage(state, {
+  prefix: 'user:',
+  defaultTTL: 3600000,  // 1 hour
+  versioned: true,
+  version: 2
+})
+
+// Type-safe operations
+await storage.set('profile', { name: 'Alice', email: 'alice@example.com' })
+const profile = await storage.get<UserProfile>('profile')
+```
+
+## Configuration
+
+```typescript
+interface StateStorageOptions {
+  prefix?: string           // Key prefix (e.g., 'user:', 'session:')
+  defaultTTL?: number       // Default TTL in milliseconds
+  maxValueSize?: number     // Max value size in bytes
+  versioned?: boolean       // Enable versioning
+  version?: number          // Current schema version
+  validators?: Validators   // Validators by key
+  validateOnGet?: boolean   // Validate values on read
+  migrations?: Migrations   // Migration functions
+}
+```
+
+## Basic Operations
+
+### Get and Set
+
+```typescript
+// Set a value
+await storage.set('key', { data: 'value' })
+
+// Get a value
+const value = await storage.get<MyType>('key')
+
+// Get with default
+const value = await storage.get('key', { defaultData: true })
+```
+
+### Delete and Check
+
+```typescript
+// Delete a key
+const deleted = await storage.delete('key')
+
+// Check if key exists
+const exists = await storage.has('key')
+```
+
+## TTL Support
+
+Values can have time-to-live for automatic expiration:
+
+```typescript
+// Set with TTL
+await storage.set('session', sessionData, {
+  ttl: 3600000  // 1 hour
+})
+
+// Use default TTL from constructor
+const storage = new StateStorage(state, {
+  defaultTTL: 86400000  // 24 hours
+})
+await storage.set('cache', data)  // Uses default TTL
+
+// Override with no expiry
+await storage.set('permanent', data, { ttl: 0 })
+```
+
+When a value expires:
+- `get()` returns `undefined` (or default)
+- The expired entry is automatically deleted
+
+## Key Prefixing
+
+Isolate data with key prefixes:
+
+```typescript
+const userStorage = new StateStorage(state, { prefix: 'user:' })
+const orderStorage = new StateStorage(state, { prefix: 'order:' })
+
+// Keys are automatically prefixed
+await userStorage.set('alice', { name: 'Alice' })
+// Actually stored as 'user:alice'
+
+await orderStorage.set('ORD-123', { total: 99.99 })
+// Actually stored as 'order:ORD-123'
+```
+
+## Batch Operations
+
+### Get Many
+
+```typescript
+const results = await storage.getMany<UserProfile>([
+  'alice',
+  'bob',
+  'charlie'
+])
+// { alice: UserProfile, bob: UserProfile, charlie: undefined }
+```
+
+### Set Many
+
+```typescript
+await storage.setMany({
+  alice: { name: 'Alice', role: 'admin' },
+  bob: { name: 'Bob', role: 'user' }
+}, { ttl: 3600000 })
+```
+
+### Delete Many
+
+```typescript
+const count = await storage.deleteMany(['old-1', 'old-2', 'old-3'])
+// => 3 (number deleted)
+```
+
+## Listing and Counting
+
+### List Entries
+
+```typescript
+// List all entries
+const entries = await storage.list<UserProfile>()
+// Map<string, UserProfile>
+
+// List with prefix filter
+const adminUsers = await storage.list({
+  prefix: 'admin:'
+})
+
+// List with pagination
+const page = await storage.list({
+  limit: 10,
+  start: 'user:a',
+  end: 'user:m'
+})
+```
+
+### Keys and Count
+
+```typescript
+// Get keys only
+const keys = await storage.keys({ prefix: 'session:' })
+// ['session:abc', 'session:def', ...]
+
+// Count entries
+const count = await storage.count({ prefix: 'user:' })
+// => 42
+```
+
+### Clear
+
+```typescript
+// Clear all entries
+await storage.clear()
+
+// Clear by prefix
+await storage.clear({ prefix: 'cache:' })
+```
+
+## Transactions
+
+Atomic operations with transactions:
+
+```typescript
+await storage.transaction(async (tx) => {
+  const user = await tx.get('alice')
+
+  if (user.balance >= amount) {
+    await tx.set('alice', { ...user, balance: user.balance - amount })
+    await tx.set('transfers', [...transfers, { amount, date: Date.now() }])
+  }
+})
+```
+
+Transaction context provides:
+- `get<T>(key, default?)` - Read value
+- `set<T>(key, value, options?)` - Write value
+- `delete(key)` - Delete value
+- `has(key)` - Check existence
+
+## Versioning and Migrations
+
+Schema versioning with automatic migrations:
+
+```typescript
+const storage = new StateStorage(state, {
+  versioned: true,
+  version: 3,
+  migrations: {
+    'user': {
+      // Migrate from v1 to v2
+      1: (data) => ({
+        ...data,
+        email: data.email || `${data.name.toLowerCase()}@example.com`
+      }),
+      // Migrate from v2 to v3
+      2: (data) => ({
+        ...data,
+        preferences: data.preferences || { theme: 'light' }
+      })
+    }
+  }
+})
+
+// Old v1 data is automatically migrated to v3 on read
+const user = await storage.get<UserV3>('alice')
+```
+
+Migrations run:
+- Automatically on `get()` when version mismatch detected
+- In sequence (v1 -> v2 -> v3)
+- Updated value is stored with new version
+
+## Validation
+
+Validate values on write (and optionally read):
+
+```typescript
+const storage = new StateStorage(state, {
+  validators: {
+    'email': (value): value is string => {
+      return typeof value === 'string' && value.includes('@')
+    },
+    'age': (value): value is number => {
+      return typeof value === 'number' && value >= 0 && value < 150
+    }
+  },
+  validateOnGet: true
+})
+
+// Throws StateValidationError if invalid
+await storage.set('email', 'invalid')
+
+// Or validate on read
+const email = await storage.get('email')  // Throws if stored value invalid
+```
+
+## Metadata
+
+Get metadata about stored values:
+
+```typescript
+const meta = await storage.getMetadata('key')
+// {
+//   version: 2,
+//   createdAt: 1699920000000,
+//   updatedAt: 1699923600000,
+//   expiresAt: 1700006400000
+// }
+```
+
+## Statistics
+
+```typescript
+const stats = await storage.getStats()
+// {
+//   keyCount: 150,
+//   estimatedSize: 45678  // bytes
+// }
+```
+
+## Value Size Limits
+
+```typescript
+const storage = new StateStorage(state, {
+  maxValueSize: 1048576  // 1MB
+})
+
+// Throws if value exceeds limit
+await storage.set('large', hugeObject)  // StateStorageError
+
+// Warn on large values
+await storage.set('data', object, {
+  warnOnLargeValue: true,
+  largeValueThreshold: 100000  // 100KB
+})
+```
+
+## Error Handling
+
+```typescript
+import {
+  StateStorageError,
+  StateValidationError,
+  StateMigrationError
+} from 'lib/StateStorage'
+
+try {
+  await storage.set('user', invalidData)
+} catch (error) {
+  if (error instanceof StateValidationError) {
+    console.error(`Validation failed for ${error.key}`)
+    console.error(`Validator: ${error.validatorKey}`)
+  } else if (error instanceof StateMigrationError) {
+    console.error(`Migration failed: v${error.fromVersion} -> v${error.toVersion}`)
+  } else if (error instanceof StateStorageError) {
+    console.error(`Storage error during ${error.operation}: ${error.message}`)
+  }
+}
+```
+
+### Error Types
+
+| Error | Cause |
+|-------|-------|
+| `StateStorageError` | General storage operations |
+| `StateValidationError` | Validation failed |
+| `StateMigrationError` | Migration failed |
+
+## Internal Structure
+
+Values are wrapped with metadata:
+
+```typescript
+interface WrappedValue<T> {
+  value: T
+  version?: number    // Schema version
+  createdAt: number   // Timestamp
+  updatedAt: number   // Timestamp
+  expiresAt?: number  // TTL expiration
+}
+```
+
+This structure is transparent - you work with raw values while StateStorage manages the wrapper.
+
+## Usage in Durable Objects
+
+```typescript
+import { DO } from 'objects/DO'
+import { StateStorage } from 'lib/StateStorage'
+
+class UserDO extends DO {
+  private storage: StateStorage
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.storage = new StateStorage(state, {
+      prefix: 'user:',
+      versioned: true,
+      version: 2,
+      migrations: {
+        profile: {
+          1: (data) => ({ ...data, createdAt: Date.now() })
+        }
+      }
+    })
+  }
+
+  async getProfile(): Promise<UserProfile> {
+    return await this.storage.get('profile', {
+      name: 'Unknown',
+      createdAt: Date.now()
+    })
+  }
+
+  async updateProfile(updates: Partial<UserProfile>): Promise<void> {
+    const current = await this.getProfile()
+    await this.storage.set('profile', { ...current, ...updates })
+  }
+}
+```
+
+## Related
+
+- [Capabilities](/docs/lib/capabilities) - Lazy-loading system
+- [Storage](/docs/storage) - Storage architecture
+- [Durable Objects](/docs/storage/durable-objects) - DO storage patterns

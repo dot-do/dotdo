@@ -1,0 +1,626 @@
+---
+title: Function Composition
+description: Compose functions with pipe, parallel, conditional, retry, and fallback patterns
+---
+
+# Function Composition
+
+dotdo provides a comprehensive set of composition utilities for combining functions into complex workflows. These utilities support sequential pipelines, parallel execution, conditional branching, retries, and more.
+
+## Overview
+
+The composition system provides:
+
+| Utility | Description |
+|---------|-------------|
+| `pipe` | Sequential execution, output to next input |
+| `parallel` | Concurrent execution with same input |
+| `conditional` | Branch based on predicate |
+| `switchCase` | Multi-way branching |
+| `retry` | Automatic retry with backoff |
+| `withTimeout` | Execution time limits |
+| `fallback` | Try primary, fall back on failure |
+| `mapOver` | Apply function to array elements |
+
+## Import
+
+```typescript
+import {
+  pipe,
+  createPipeline,
+  parallel,
+  parallelWithResults,
+  conditional,
+  switchCase,
+  retry,
+  withTimeout,
+  fallback,
+  tryEach,
+  mapOver,
+  filterBy,
+  reduceWith,
+  tap,
+  log
+} from 'dotdo/functions/composition'
+```
+
+## Sequential Composition (pipe)
+
+Execute functions in sequence, passing output to the next function:
+
+```typescript
+const processOrder = pipe(
+  validateOrder,
+  calculateTotal,
+  applyDiscounts,
+  processPayment,
+  sendConfirmation
+)
+
+const result = await processOrder(orderData)
+```
+
+### Type-Safe Pipes
+
+The pipe function provides type inference for up to 5 functions:
+
+```typescript
+// Types flow through the pipeline
+const pipeline = pipe<Order, ValidatedOrder>(
+  validateOrder,                    // Order -> ValidatedOrder
+)
+
+const pipeline2 = pipe<Order, ValidatedOrder, OrderWithTotal>(
+  validateOrder,                    // Order -> ValidatedOrder
+  calculateTotal                    // ValidatedOrder -> OrderWithTotal
+)
+
+const pipeline3 = pipe<Order, ValidatedOrder, OrderWithTotal, ProcessedOrder>(
+  validateOrder,                    // Order -> ValidatedOrder
+  calculateTotal,                   // ValidatedOrder -> OrderWithTotal
+  processPayment                    // OrderWithTotal -> ProcessedOrder
+)
+```
+
+### Pipeline Options
+
+Control error handling behavior:
+
+```typescript
+const resilientPipeline = pipe(
+  step1,
+  step2,
+  step3,
+  {
+    name: 'order-processing',
+    stopOnError: false  // Continue on error, use previous value
+  }
+)
+```
+
+### Named Pipelines with Results
+
+Get detailed execution information:
+
+```typescript
+const orderPipeline = createPipeline<OrderInput, OrderResult>([
+  { name: 'validate', fn: validateOrder },
+  { name: 'calculate', fn: calculateTotal },
+  { name: 'payment', fn: processPayment },
+  { name: 'notify', fn: sendConfirmation }
+])
+
+const result = await orderPipeline(orderData)
+
+if (result.success) {
+  console.log('Order completed:', result.result)
+} else {
+  console.error('Failed at stage:', result.error)
+}
+
+// Detailed stage results
+for (const stage of result.stages) {
+  console.log(`${stage.name}: ${stage.success ? 'OK' : 'FAILED'} (${stage.duration}ms)`)
+}
+```
+
+#### Pipeline Result Structure
+
+```typescript
+interface PipelineResult<T> {
+  success: boolean
+  result?: T
+  error?: Error
+  duration: number
+  stages: StageResult[]
+}
+
+interface StageResult {
+  name: string
+  index: number
+  success: boolean
+  duration: number
+  result?: unknown
+  error?: Error
+}
+```
+
+## Parallel Composition
+
+Execute multiple functions concurrently:
+
+```typescript
+const fetchAllData = parallel(
+  fetchUserProfile,
+  fetchOrderHistory,
+  fetchRecommendations
+)
+
+const [profile, orders, recommendations] = await fetchAllData(userId)
+```
+
+### Type-Safe Parallel
+
+```typescript
+const getData = parallel<string, User, Order[], Product[]>(
+  fetchUser,          // string -> User
+  fetchOrders,        // string -> Order[]
+  fetchProducts       // string -> Product[]
+)
+
+const [user, orders, products] = await getData(userId)
+// user: User, orders: Order[], products: Product[]
+```
+
+### Parallel Options
+
+```typescript
+const limitedParallel = parallel(
+  task1,
+  task2,
+  task3,
+  task4,
+  task5,
+  {
+    maxConcurrency: 3,     // Run at most 3 at a time
+    stopOnFirstError: false,
+    settleAll: true        // Wait for all to complete
+  }
+)
+```
+
+### Parallel with Detailed Results
+
+```typescript
+const parallelResults = parallelWithResults<UserId, [User, Orders, Prefs]>(
+  [fetchUser, fetchOrders, fetchPreferences]
+)
+
+const result = await parallelResults(userId)
+
+console.log(`Completed: ${result.completed}, Failed: ${result.failed}`)
+console.log(`Duration: ${result.duration}ms`)
+
+for (let i = 0; i < result.results.length; i++) {
+  if (result.errors[i]) {
+    console.error(`Task ${i} failed:`, result.errors[i])
+  } else {
+    console.log(`Task ${i} result:`, result.results[i])
+  }
+}
+```
+
+## Conditional Composition
+
+### Simple Conditional
+
+```typescript
+const processOrder = conditional(
+  (order) => order.total > 1000,  // Predicate
+  requireApproval,                 // If true
+  autoApprove                      // If false (optional)
+)
+
+const result = await processOrder(order)
+```
+
+### Switch Case
+
+Multi-way branching based on discriminator:
+
+```typescript
+const processPayment = switchCase(
+  (payment) => payment.method,  // Discriminator
+  {
+    'credit_card': processCreditCard,
+    'bank_transfer': processBankTransfer,
+    'crypto': processCrypto,
+    'paypal': processPayPal
+  },
+  rejectPayment  // Default case
+)
+
+const result = await processPayment({
+  method: 'credit_card',
+  amount: 100
+})
+```
+
+### Async Predicates
+
+```typescript
+const checkPermission = conditional(
+  async (request) => {
+    const user = await getUser(request.userId)
+    return user.permissions.includes('admin')
+  },
+  handleAdminRequest,
+  handleRegularRequest
+)
+```
+
+## Retry Composition
+
+Automatically retry on failure:
+
+```typescript
+const reliableApiCall = retry(fetchFromApi, {
+  maxAttempts: 5,
+  delay: 1000,
+  backoff: 'exponential',
+  maxDelay: 30000,
+  retryIf: (error) => error.statusCode >= 500,
+  onRetry: (attempt, error) => {
+    console.log(`Retry ${attempt}:`, error.message)
+  }
+})
+```
+
+### Retry Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `maxAttempts` | `number` | Required | Maximum retry attempts |
+| `delay` | `number` | Required | Initial delay (ms) |
+| `backoff` | `'fixed' \| 'exponential' \| 'linear'` | `'fixed'` | Delay strategy |
+| `maxDelay` | `number` | - | Maximum delay cap |
+| `retryIf` | `(error) => boolean` | - | Selective retry |
+| `onRetry` | `(attempt, error) => void` | - | Retry callback |
+
+### Backoff Strategies
+
+```typescript
+// Fixed delay - always wait 1000ms
+retry(fn, { maxAttempts: 3, delay: 1000, backoff: 'fixed' })
+
+// Exponential - 1000, 2000, 4000, 8000...
+retry(fn, { maxAttempts: 5, delay: 1000, backoff: 'exponential' })
+
+// Linear - 1000, 2000, 3000, 4000...
+retry(fn, { maxAttempts: 5, delay: 1000, backoff: 'linear' })
+```
+
+## Timeout Composition
+
+Limit execution time:
+
+```typescript
+const quickFetch = withTimeout(fetchData, 5000)
+
+try {
+  const data = await quickFetch(url)
+} catch (error) {
+  if (error instanceof TimeoutError) {
+    console.log('Request timed out')
+  }
+}
+```
+
+### Combine with Retry
+
+```typescript
+const reliableQuickFetch = retry(
+  withTimeout(fetchData, 5000),
+  {
+    maxAttempts: 3,
+    delay: 1000,
+    backoff: 'exponential'
+  }
+)
+```
+
+## Fallback Composition
+
+Try primary function, fall back on failure:
+
+```typescript
+const getUser = fallback(
+  fetchFromApi,
+  fetchFromCache,
+  (error) => error.statusCode === 503  // Only fallback on service unavailable
+)
+```
+
+### Try Multiple Fallbacks
+
+```typescript
+const getData = tryEach(
+  fetchFromPrimaryApi,
+  fetchFromSecondaryApi,
+  fetchFromCache,
+  () => DEFAULT_DATA  // Ultimate fallback
+)
+
+const data = await getData(query)
+```
+
+## Collection Operations
+
+### Map Over Array
+
+Apply function to each element:
+
+```typescript
+const processItems = mapOver(processItem, {
+  parallel: true,      // Process in parallel
+  maxConcurrency: 5    // Limit concurrent operations
+})
+
+const results = await processItems(items)
+```
+
+### Sequential Processing
+
+```typescript
+const processSequentially = mapOver(processItem, {
+  parallel: false  // Process one at a time
+})
+```
+
+### Filter Array
+
+```typescript
+const filterActiveUsers = filterBy(async (user) => {
+  const lastActivity = await getLastActivity(user.id)
+  return Date.now() - lastActivity < 86400000  // Active in last 24h
+})
+
+const activeUsers = await filterActiveUsers(users)
+```
+
+### Reduce Array
+
+```typescript
+const calculateTotal = reduceWith(
+  async (sum, order) => {
+    const discount = await getDiscount(order.id)
+    return sum + (order.total - discount)
+  },
+  0  // Initial value
+)
+
+const total = await calculateTotal(orders)
+```
+
+## Side Effects
+
+### Tap (Side Effect Without Modification)
+
+```typescript
+const withLogging = pipe(
+  tap((input) => console.log('Input:', input)),
+  processData,
+  tap((result) => console.log('Result:', result)),
+  formatOutput
+)
+```
+
+### Log
+
+Convenience wrapper for tap with logging:
+
+```typescript
+const debugPipeline = pipe(
+  log('input'),          // Logs: [input] <value>
+  validateInput,
+  log('validated'),
+  processData,
+  log('processed'),
+  formatOutput,
+  log('output')
+)
+```
+
+## Execution Context
+
+All composable functions receive an optional execution context:
+
+```typescript
+interface ExecutionContext {
+  signal?: AbortSignal
+  metadata?: Record<string, unknown>
+  onProgress?: (progress: Progress) => void
+}
+```
+
+### Cancellation
+
+```typescript
+const controller = new AbortController()
+
+const pipeline = pipe(step1, step2, step3)
+
+// Start execution
+const promise = pipeline(input, { signal: controller.signal })
+
+// Cancel after 5 seconds
+setTimeout(() => controller.abort(), 5000)
+
+try {
+  await promise
+} catch (error) {
+  console.log('Pipeline cancelled')
+}
+```
+
+### Progress Tracking
+
+```typescript
+const pipeline = createPipeline([
+  { name: 'fetch', fn: fetchData },
+  { name: 'transform', fn: transformData },
+  { name: 'save', fn: saveData }
+])
+
+await pipeline(input, {
+  onProgress: (progress) => {
+    console.log(`Stage ${progress.stage} (${progress.index + 1}/${progress.total})`)
+  }
+})
+```
+
+## Error Handling
+
+### Pipeline Errors
+
+```typescript
+import { PipelineError } from 'dotdo/functions/composition'
+
+try {
+  await pipeline(input)
+} catch (error) {
+  if (error instanceof PipelineError) {
+    console.log(`Pipeline failed at stage ${error.stageIndex} (${error.stageName})`)
+    console.log('Cause:', error.cause)
+  }
+}
+```
+
+### Retry Exhausted
+
+```typescript
+import { RetryExhaustedError } from 'dotdo/functions/composition'
+
+try {
+  await retriableFunction(input)
+} catch (error) {
+  if (error instanceof RetryExhaustedError) {
+    console.log(`All ${error.attempts} retries failed`)
+    console.log('Last error:', error.lastError)
+  }
+}
+```
+
+### Timeout Errors
+
+```typescript
+import { TimeoutError } from 'dotdo/functions/composition'
+
+try {
+  await timedFunction(input)
+} catch (error) {
+  if (error instanceof TimeoutError) {
+    console.log('Operation timed out')
+  }
+}
+```
+
+## Composition Patterns
+
+### Request Processing Pipeline
+
+```typescript
+const handleRequest = pipe(
+  // Authentication
+  conditional(
+    (req) => req.headers.authorization,
+    validateToken,
+    () => { throw new Error('Unauthorized') }
+  ),
+  // Rate limiting
+  withTimeout(checkRateLimit, 100),
+  // Business logic
+  retry(processRequest, { maxAttempts: 2, delay: 100 }),
+  // Response formatting
+  formatResponse
+)
+```
+
+### Data Aggregation
+
+```typescript
+const aggregateUserData = async (userId: string) => {
+  const [profile, orders, preferences] = await parallel(
+    fetchProfile,
+    fetchOrders,
+    fetchPreferences
+  )(userId)
+
+  return {
+    user: profile,
+    recentOrders: orders.slice(0, 5),
+    settings: preferences
+  }
+}
+```
+
+### Resilient External Calls
+
+```typescript
+const fetchWithResilience = pipe(
+  // Add timeout
+  withTimeout(fetchFromApi, 5000),
+  // Retry transient failures
+  retry({ maxAttempts: 3, delay: 1000, backoff: 'exponential' }),
+  // Fall back to cache
+  fallback(fetchFromCache)
+)
+```
+
+### Batch Processing
+
+```typescript
+const processBatch = pipe(
+  // Validate all items
+  mapOver(validateItem),
+  // Filter valid items
+  filterBy((result) => result.valid),
+  // Process in parallel with limit
+  mapOver(processItem, { parallel: true, maxConcurrency: 10 }),
+  // Aggregate results
+  reduceWith((acc, result) => ({
+    processed: acc.processed + 1,
+    total: acc.total + result.value
+  }), { processed: 0, total: 0 })
+)
+```
+
+## Type Definitions
+
+### ComposableFunction
+
+```typescript
+type ComposableFunction<TInput = unknown, TOutput = unknown> = (
+  input: TInput,
+  context?: ExecutionContext
+) => TOutput | Promise<TOutput>
+```
+
+### Progress
+
+```typescript
+interface Progress {
+  stage: string
+  index: number
+  total: number
+  result?: unknown
+  error?: Error
+}
+```
+
+## Related
+
+- [createFunction Factory](/docs/functions/create-function) - Creating function instances
+- [Function Middleware](/docs/functions/middleware) - Cross-cutting concerns
+- [Function Registry](/docs/functions/registry) - Function discovery
+- [Workflows](/docs/workflows) - Durable workflow orchestration

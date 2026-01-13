@@ -1,0 +1,420 @@
+---
+title: Entity
+description: Domain object container with schema validation, CRUD operations, and indexed queries.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Entity
+
+The `Entity` class is a domain object container that provides schema-based validation, CRUD operations, and indexed queries. Use it to model business domain objects like Customers, Orders, Products, and more.
+
+## Overview
+
+```
+DO
+ |
+ v
+Entity
+ |
+ +-- Collection
+ +-- Directory
+```
+
+Entity extends `DO` with:
+- **Schema validation** - Define field types, requirements, and custom validators
+- **CRUD operations** - Create, read, update, delete with automatic versioning
+- **Indexed queries** - O(k) lookups via configurable field indexes
+
+<Callout type="info">
+Use `Entity` when you need structured data with validation and efficient queries. For simple key-value storage, use the base `DO` with `this.things`.
+</Callout>
+
+## Basic Usage
+
+```typescript
+import { Entity, EntitySchema } from 'dotdo'
+
+class CustomerEntity extends Entity {
+  static override readonly $type = 'Customer'
+
+  async onStart() {
+    await this.setSchema({
+      name: 'Customer',
+      fields: {
+        email: { type: 'string', required: true },
+        name: { type: 'string', required: true },
+        status: { type: 'string', default: 'active' },
+        plan: { type: 'string' },
+        createdAt: { type: 'date', default: () => new Date() },
+      },
+      indexes: ['email', 'status'],
+      unique: ['email'],
+    })
+  }
+}
+```
+
+## Schema Definition
+
+### Field Types
+
+```typescript
+interface FieldDefinition {
+  type: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'reference'
+  required?: boolean
+  default?: unknown | (() => unknown)
+  reference?: string  // For 'reference' type - target entity class
+  validate?: (value: unknown) => boolean
+}
+```
+
+### Example Schema
+
+```typescript
+const orderSchema: EntitySchema = {
+  name: 'Order',
+  fields: {
+    customerId: { type: 'reference', reference: 'Customer', required: true },
+    items: { type: 'json', required: true },
+    total: { type: 'number', required: true },
+    status: {
+      type: 'string',
+      default: 'pending',
+      validate: (v) => ['pending', 'paid', 'shipped', 'delivered'].includes(v as string),
+    },
+    createdAt: { type: 'date', default: () => new Date() },
+    shippedAt: { type: 'date' },
+  },
+  indexes: ['customerId', 'status'],
+}
+
+await this.setSchema(orderSchema)
+```
+
+### Getting Schema
+
+```typescript
+const schema = await this.getSchema()
+// Returns null if no schema set
+```
+
+## CRUD Operations
+
+### Create
+
+```typescript
+const record = await this.create({
+  email: 'john@example.com',
+  name: 'John Doe',
+  plan: 'pro',
+})
+// record: {
+//   id: 'uuid...',
+//   type: 'Customer',
+//   data: { email: 'john@example.com', name: 'John Doe', plan: 'pro', status: 'active', createdAt: Date },
+//   createdAt: Date,
+//   updatedAt: Date,
+//   version: 1,
+// }
+```
+
+Events emitted:
+- `entity.created` with `{ record }`
+
+### Read
+
+```typescript
+const record = await this.get('record-id')
+// Returns null if not found
+```
+
+### Update
+
+```typescript
+const updated = await this.update('record-id', {
+  status: 'inactive',
+  plan: 'enterprise',
+})
+// updated: { ...record, version: 2, updatedAt: Date }
+```
+
+Events emitted:
+- `entity.updated` with `{ record, changes }`
+
+### Delete
+
+```typescript
+const deleted = await this.delete('record-id')
+// Returns true if deleted, false if not found
+```
+
+Events emitted:
+- `entity.deleted` with `{ id, record }`
+
+### List All
+
+```typescript
+// List all records (sorted by createdAt desc)
+const records = await this.list()
+
+// With pagination
+const page = await this.list({ offset: 10, limit: 20 })
+```
+
+## Indexed Queries
+
+Indexes enable O(k) lookups where k is the number of matching records, instead of O(n) full table scans.
+
+### Configuring Indexes
+
+Add field names to the `indexes` array in your schema:
+
+```typescript
+const schema: EntitySchema = {
+  name: 'Customer',
+  fields: { /* ... */ },
+  indexes: ['email', 'status', 'plan'],  // These fields are indexed
+}
+```
+
+### Querying with Indexes
+
+```typescript
+// Find by indexed field (O(k) - uses index)
+const activeCustomers = await this.find('status', 'active')
+
+// Find by non-indexed field (O(n) - full scan)
+const johnDoes = await this.find('name', 'John Doe')
+
+// Explicit index query (throws if field not indexed)
+const proUsers = await this.findWithIndex('plan', 'pro')
+```
+
+<Callout type="warn">
+Use `findWithIndex()` when you want to guarantee index usage. It throws an error if the field isn't indexed, helping catch missing indexes early.
+</Callout>
+
+### Rebuilding Indexes
+
+After schema changes or data migrations, rebuild indexes:
+
+```typescript
+const result = await this.rebuildIndexes()
+// result: { indexed: 1500, fields: ['email', 'status', 'plan'] }
+```
+
+Events emitted:
+- `indexes.rebuilt` with `{ count, fields }`
+
+## Validation
+
+### Automatic Validation
+
+Validation runs automatically on `create()` and `update()`:
+
+```typescript
+// Throws: "Validation failed: email is required"
+await this.create({ name: 'John' })
+
+// Throws: "Validation failed: plan failed custom validation"
+await this.update('id', { plan: 'invalid-plan' })
+```
+
+### Manual Validation
+
+```typescript
+const result = this.validate({ email: 'test@example.com', name: '' })
+// result: { valid: false, errors: ['name is required'] }
+```
+
+### Custom Validators
+
+```typescript
+const schema: EntitySchema = {
+  name: 'User',
+  fields: {
+    age: {
+      type: 'number',
+      validate: (v) => (v as number) >= 18,
+    },
+    email: {
+      type: 'string',
+      validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v as string),
+    },
+  },
+}
+```
+
+## HTTP Endpoints
+
+Entity provides built-in HTTP endpoints:
+
+### Schema
+
+```http
+GET /schema
+```
+
+Returns the current schema or `null`.
+
+```http
+PUT /schema
+Content-Type: application/json
+
+{ "name": "Customer", "fields": {...}, "indexes": [...] }
+```
+
+### Records
+
+```http
+GET /records
+```
+
+Returns all records.
+
+```http
+POST /records
+Content-Type: application/json
+
+{ "email": "john@example.com", "name": "John" }
+```
+
+Creates a new record. Returns `201 Created`.
+
+### Single Record
+
+```http
+GET /record/{id}
+```
+
+Returns a record or `404 Not Found`.
+
+```http
+PUT /record/{id}
+Content-Type: application/json
+
+{ "status": "inactive" }
+```
+
+Updates a record. Returns `404` if not found.
+
+```http
+DELETE /record/{id}
+```
+
+Deletes a record. Returns `404` if not found.
+
+## Types
+
+### EntitySchema
+
+```typescript
+interface EntitySchema {
+  name: string
+  fields: Record<string, FieldDefinition>
+  indexes?: string[]
+  unique?: string[]
+}
+```
+
+### FieldDefinition
+
+```typescript
+interface FieldDefinition {
+  type: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'reference'
+  required?: boolean
+  default?: unknown
+  reference?: string
+  validate?: (value: unknown) => boolean
+}
+```
+
+### EntityRecord
+
+```typescript
+interface EntityRecord {
+  id: string
+  type: string
+  data: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+  version: number
+}
+```
+
+## API Reference
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `$type` | `'Entity'` | Type discriminator |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getSchema()` | `Promise<EntitySchema \| null>` | Get current schema |
+| `setSchema(schema)` | `Promise<void>` | Set entity schema |
+| `create(data)` | `Promise<EntityRecord>` | Create new record |
+| `get(id)` | `Promise<EntityRecord \| null>` | Get record by ID |
+| `update(id, data)` | `Promise<EntityRecord \| null>` | Update record |
+| `delete(id)` | `Promise<boolean>` | Delete record |
+| `list(options?)` | `Promise<EntityRecord[]>` | List all records |
+| `find(field, value)` | `Promise<EntityRecord[]>` | Find by field value |
+| `findWithIndex(field, value)` | `Promise<EntityRecord[]>` | Find using index (throws if not indexed) |
+| `rebuildIndexes()` | `Promise<{ indexed, fields }>` | Rebuild all indexes |
+
+## Example: Complete Entity
+
+```typescript
+import { Entity, EntitySchema, EntityRecord } from 'dotdo'
+
+class ProductEntity extends Entity {
+  static override readonly $type = 'Product'
+
+  private static readonly schema: EntitySchema = {
+    name: 'Product',
+    fields: {
+      sku: { type: 'string', required: true },
+      name: { type: 'string', required: true },
+      description: { type: 'string' },
+      price: { type: 'number', required: true },
+      category: { type: 'string', required: true },
+      inStock: { type: 'boolean', default: true },
+      tags: { type: 'json', default: [] },
+      createdAt: { type: 'date', default: () => new Date() },
+    },
+    indexes: ['sku', 'category', 'inStock'],
+    unique: ['sku'],
+  }
+
+  async onStart() {
+    await this.setSchema(ProductEntity.schema)
+  }
+
+  // Custom method: Find products by category
+  async findByCategory(category: string): Promise<EntityRecord[]> {
+    return this.findWithIndex('category', category)
+  }
+
+  // Custom method: Get in-stock products
+  async getAvailableProducts(): Promise<EntityRecord[]> {
+    return this.findWithIndex('inStock', true)
+  }
+
+  // Custom method: Update stock status
+  async updateStock(sku: string, inStock: boolean): Promise<EntityRecord | null> {
+    const products = await this.findWithIndex('sku', sku)
+    if (products.length === 0) return null
+    return this.update(products[0]!.id, { inStock })
+  }
+}
+```
+
+## See Also
+
+- [DO](/docs/objects/do) - Base class documentation
+- [Things](/docs/concepts/things) - Understanding domain entities
+- [Relationships](/docs/concepts/relationships) - Linking entities

@@ -1,0 +1,507 @@
+---
+title: Database Primitives
+description: Core building blocks for distributed data processing - temporal storage, columnar stores, streaming, and schema evolution
+---
+
+# Database Primitives
+
+The `db/primitives` module provides core building blocks for distributed data processing. These primitives power the higher-level database APIs with time-aware storage, columnar compression, stream windowing, and schema evolution.
+
+## Overview
+
+```typescript
+import {
+  // Stores
+  createTemporalStore,
+  createColumnStore,
+
+  // Streaming
+  WindowManager,
+  createWatermarkService,
+  createExactlyOnceContext,
+
+  // Routing
+  createKeyedRouter,
+
+  // Schema
+  createSchemaEvolution,
+
+  // Orchestration
+  createDAG,
+  task,
+} from 'db/primitives'
+```
+
+## TemporalStore
+
+Time-aware key-value storage with versioning and snapshots.
+
+```typescript
+import { createTemporalStore, type Duration } from 'db/primitives'
+
+const store = createTemporalStore<User>({
+  enableTTL: true,
+  retention: {
+    maxVersions: 10,
+    maxAge: { days: 30 }
+  }
+})
+
+// Put with timestamp
+await store.put('user-123', user, Date.now())
+
+// Get current value
+const current = await store.get('user-123')
+
+// Time-travel query
+const historical = await store.getAsOf('user-123', timestamp)
+
+// Range query with time bounds
+const iterator = store.range('user-', {
+  start: startTimestamp,
+  end: endTimestamp
+})
+
+for await (const user of iterator) {
+  console.log(user)
+}
+
+// Create snapshot
+const snapshotId = await store.snapshot()
+
+// Restore to snapshot
+await store.restoreSnapshot(snapshotId)
+
+// Prune old versions
+const stats = await store.prune({
+  maxVersions: 5,
+  maxAge: { days: 7 }
+})
+console.log(`Removed ${stats.versionsRemoved} versions`)
+```
+
+### Retention Policy
+
+Control memory usage with retention policies:
+
+```typescript
+interface RetentionPolicy {
+  // Keep only the last N versions per key
+  maxVersions?: number
+
+  // Keep versions newer than this duration
+  maxAge?: Duration
+}
+
+// Duration helpers
+const policy: RetentionPolicy = {
+  maxVersions: 100,
+  maxAge: { hours: 24 }  // or { days: 7 }, { minutes: 30 }
+}
+```
+
+## TypedColumnStore
+
+Columnar storage with compression codecs optimized for analytical workloads.
+
+```typescript
+import { createColumnStore } from 'db/primitives'
+
+const store = createColumnStore()
+
+// Define columns
+store.addColumn('timestamp', 'timestamp')
+store.addColumn('value', 'float64')
+store.addColumn('category', 'string')
+store.addColumn('count', 'int64')
+store.addColumn('active', 'boolean')
+
+// Append data
+store.append('timestamp', [Date.now(), Date.now() + 1000])
+store.append('value', [3.14, 2.71])
+store.append('category', ['electronics', 'clothing'])
+store.append('count', [100n, 200n])
+store.append('active', [true, false])
+
+// Project specific columns
+const batch = store.project(['timestamp', 'value'])
+// Returns: { columns: Map, rowCount: 2 }
+
+// Filter with predicates
+const filtered = store.filter({
+  column: 'category',
+  op: '=',
+  value: 'electronics'
+})
+
+// Aggregate
+const sum = store.aggregate('count', 'sum')     // 300
+const avg = store.aggregate('value', 'avg')     // 2.925
+const count = store.aggregate('*', 'count')     // 2
+```
+
+### Compression Codecs
+
+```typescript
+// Gorilla XOR - optimal for floating-point time series
+const compressed = store.encode(floatValues, 'gorilla')
+
+// Delta-of-delta - optimal for timestamps
+const compressed = store.encode(timestamps, 'delta')
+
+// Run-length encoding - optimal for low-cardinality data
+const compressed = store.encode(categories, 'rle')
+
+// ZSTD-like general purpose (uses deflate)
+const compressed = store.encode(generalData, 'zstd')
+
+// Decode
+const values = store.decode(compressed, 'gorilla')
+```
+
+### Statistical Operations
+
+```typescript
+// Min/max statistics (for partition pruning)
+const { min, max } = store.minMax('value')
+
+// Distinct count (HyperLogLog estimate)
+const distinct = store.distinctCount('category')
+
+// Bloom filter (membership testing)
+const bloom = store.bloomFilter('email')
+if (bloom.mightContain('user@example.com')) {
+  // Might be in the column, do full scan
+}
+```
+
+## Window Manager
+
+Stream windowing for temporal data processing.
+
+```typescript
+import {
+  WindowManager,
+  hours,
+  minutes,
+  seconds,
+  EventTimeTrigger,
+  CountTrigger,
+} from 'db/primitives'
+
+// Tumbling windows (fixed, non-overlapping)
+const tumblingManager = new WindowManager({
+  type: 'tumbling',
+  size: hours(1)
+})
+
+// Sliding windows (overlapping)
+const slidingManager = new WindowManager({
+  type: 'sliding',
+  size: hours(1),
+  slide: minutes(15)  // New window every 15 minutes
+})
+
+// Session windows (gap-based)
+const sessionManager = new WindowManager({
+  type: 'session',
+  gap: minutes(30)  // 30 minute inactivity closes window
+})
+
+// Global window
+const globalManager = new WindowManager({
+  type: 'global'
+})
+
+// Assign element to windows
+const windows = manager.assignWindows(element, timestamp)
+
+// Process window with trigger
+const trigger = new EventTimeTrigger()
+const result = trigger.onElement(element, timestamp, window)
+
+if (result === TriggerResult.FIRE) {
+  // Window is ready to emit
+  const windowContents = manager.getWindowState(window)
+  processWindow(windowContents)
+}
+```
+
+### Trigger Types
+
+```typescript
+// Fire when watermark passes window end
+const eventTimeTrigger = new EventTimeTrigger()
+
+// Fire after N elements
+const countTrigger = new CountTrigger(100)
+
+// Fire at processing time
+const processingTimeTrigger = new ProcessingTimeTrigger(minutes(5))
+
+// Purge state after firing
+const purgingTrigger = new PurgingTrigger(eventTimeTrigger)
+```
+
+### Late Data Handling
+
+```typescript
+const manager = new WindowManager({
+  type: 'tumbling',
+  size: hours(1),
+  allowedLateness: minutes(10),
+  lateDataHandler: async (element, window) => {
+    // Process late-arriving data
+    console.log(`Late element for window ${window.start}-${window.end}`)
+  }
+})
+```
+
+## Watermark Service
+
+Track event-time progress for out-of-order processing.
+
+```typescript
+import { createWatermarkService, minutes } from 'db/primitives'
+
+const watermarkService = createWatermarkService({
+  maxOutOfOrderness: minutes(5)
+})
+
+// Advance watermark based on observed timestamps
+watermarkService.onEvent(eventTimestamp)
+
+// Get current watermark
+const watermark = watermarkService.currentWatermark()
+
+// Subscribe to watermark advances
+const unsubscribe = watermarkService.onWatermarkAdvance((newWatermark) => {
+  // Trigger window processing
+  triggerWindowsBelow(newWatermark)
+})
+```
+
+## ExactlyOnceContext
+
+Transactional processing with deduplication.
+
+```typescript
+import { createExactlyOnceContext } from 'db/primitives'
+
+const context = createExactlyOnceContext({
+  checkpointInterval: seconds(30),
+  maxPendingCheckpoints: 3
+})
+
+// Process with exactly-once semantics
+const transaction = await context.beginTransaction()
+
+try {
+  await transaction.process(record)
+  await transaction.commit()
+} catch (error) {
+  await transaction.rollback()
+}
+
+// Checkpoint for fault tolerance
+const barrier = context.initiateCheckpoint()
+await barrier.acknowledge('operator-1')
+await barrier.acknowledge('operator-2')
+// All acknowledged = checkpoint complete
+
+// Recover from checkpoint
+const state = await context.loadCheckpoint(checkpointId)
+```
+
+## KeyedRouter
+
+Partition-aware routing for distributed processing.
+
+```typescript
+import { createKeyedRouter } from 'db/primitives'
+
+const router = createKeyedRouter({
+  partitions: 16,
+  hashFunction: 'murmur3'
+})
+
+// Route by key
+const partition = router.route(userId)
+
+// Consistent hashing ensures same key always routes to same partition
+const p1 = router.route('user-123')  // 7
+const p2 = router.route('user-123')  // 7 (same)
+
+// Get all records for a partition
+const records = await router.getPartitionRecords(7)
+```
+
+## Schema Evolution
+
+Dynamic schema management with compatibility checking.
+
+```typescript
+import { createSchemaEvolution, createEmptySchema } from 'db/primitives'
+
+const evolution = createSchemaEvolution({
+  compatibilityMode: 'backward',  // 'forward' | 'full' | 'none'
+  historyRetention: { days: 90 }
+})
+
+// Define schema
+const v1 = {
+  fields: [
+    { name: 'id', type: { primitive: 'string' }, required: true },
+    { name: 'name', type: { primitive: 'string' }, required: true },
+    { name: 'email', type: { primitive: 'string' }, required: false }
+  ]
+}
+
+// Register schema
+await evolution.register('users', v1)
+
+// Evolve schema (add optional field)
+const v2 = {
+  fields: [
+    ...v1.fields,
+    { name: 'phone', type: { primitive: 'string' }, required: false }
+  ]
+}
+
+const result = await evolution.evolve('users', v2)
+if (result.compatible) {
+  console.log('Schema updated to version', result.version)
+} else {
+  console.log('Incompatible change:', result.diff)
+}
+
+// Get schema diff
+const diff = evolution.diff(v1, v2)
+// { added: ['phone'], removed: [], modified: [] }
+
+// Check compatibility
+const compat = evolution.checkCompatibility(v1, v2)
+// { compatible: true, reason: 'Added optional field' }
+```
+
+### Field Types
+
+```typescript
+type FieldType =
+  | { primitive: 'boolean' | 'int32' | 'int64' | 'float32' | 'float64' | 'string' | 'bytes' | 'timestamp' }
+  | { array: FieldType }
+  | { map: { key: FieldType; value: FieldType } }
+  | { struct: { fields: Field[] } }
+```
+
+## DAG Scheduler
+
+Workflow orchestration with dependency resolution.
+
+```typescript
+import { createDAG, task, createRetryPolicy } from 'db/primitives'
+
+// Define tasks
+const fetchData = task('fetch-data', async (ctx) => {
+  return await fetch(ctx.input.url)
+})
+
+const processData = task('process-data', async (ctx) => {
+  return transform(ctx.deps['fetch-data'].result)
+})
+
+const saveResults = task('save-results', async (ctx) => {
+  await db.insert(ctx.deps['process-data'].result)
+})
+
+// Create DAG
+const dag = createDAG({
+  name: 'data-pipeline',
+  tasks: [fetchData, processData, saveResults],
+  edges: [
+    { from: 'fetch-data', to: 'process-data' },
+    { from: 'process-data', to: 'save-results' }
+  ],
+  retryPolicy: createRetryPolicy({
+    maxAttempts: 3,
+    backoff: { type: 'exponential', initial: 1000, max: 30000 }
+  })
+})
+
+// Execute
+const run = await dag.execute({ url: 'https://api.example.com/data' })
+
+// Check status
+console.log(run.status)  // 'completed' | 'failed' | 'running'
+console.log(run.taskResults)
+```
+
+### Cron Triggers
+
+```typescript
+import { createCronTrigger, parseCronExpression } from 'db/primitives'
+
+const trigger = createCronTrigger({
+  expression: '0 0 * * *',  // Daily at midnight
+  timezone: 'America/New_York'
+})
+
+// Get next execution time
+const nextRun = trigger.getNextExecution()
+
+// Parse cron expression
+const parsed = parseCronExpression('0 */2 * * *')
+// Every 2 hours
+```
+
+### Sensors
+
+Wait for external conditions:
+
+```typescript
+import { createSensor } from 'db/primitives'
+
+const fileSensor = createSensor({
+  name: 'wait-for-file',
+  check: async () => {
+    const exists = await env.R2.head('data/input.csv')
+    return exists !== null
+  },
+  interval: minutes(1),
+  timeout: hours(1)
+})
+
+const dag = createDAG({
+  tasks: [fileSensor, processTask],
+  edges: [{ from: 'wait-for-file', to: 'process' }]
+})
+```
+
+## Observability
+
+Built-in metrics for primitives:
+
+```typescript
+import { createTemporalStore } from 'db/primitives'
+
+const store = createTemporalStore({
+  metrics: {
+    counter: (name) => ({ inc: () => {} }),
+    gauge: (name) => ({ set: (v) => {} }),
+    histogram: (name) => ({ observe: (v) => {} })
+  }
+})
+
+// Metrics automatically collected:
+// - temporal_store_puts_total
+// - temporal_store_gets_total
+// - temporal_store_versions_pruned
+// - temporal_store_snapshot_duration_ms
+```
+
+## Related
+
+- [Query Engine](/docs/database/query-engine) - Query parsing and execution
+- [TypedColumnStore](/docs/database/query-engine#typed-column-store) - Columnar operations
+- [Iceberg Storage](/docs/database/iceberg) - Cold storage format
+- [EdgeVec](/docs/database/edgevec) - Vector search primitives

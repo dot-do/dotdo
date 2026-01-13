@@ -1,0 +1,487 @@
+---
+title: feature-flags - Progressive Rollouts
+description: Feature flag system with percentage rollouts, targeting rules, A/B testing, and scheduled activation
+---
+
+# feature-flags - Progressive Rollouts
+
+Ship features safely with gradual rollouts. Target specific users, run A/B tests, and schedule releases - all without deploys.
+
+The feature-flags primitive provides boolean flags, percentage-based rollouts, attribute targeting, multi-variant experiments, scheduled activation, and cohort-based segmentation.
+
+## Quick Start
+
+```typescript
+import { FeatureFlagClient } from 'dotdo/primitives/feature-flags'
+
+const client = new FeatureFlagClient({
+  flags: [
+    { key: 'dark-mode', enabled: true, defaultValue: false },
+    {
+      key: 'new-dashboard',
+      enabled: true,
+      defaultValue: false,
+      rollout: { percentage: 20 }  // 20% of users
+    }
+  ]
+})
+
+// Simple boolean check
+if (client.isEnabled('dark-mode', { userId: 'user-123' })) {
+  showDarkMode()
+}
+
+// Percentage rollout is deterministic per user
+const showNewDashboard = client.isEnabled('new-dashboard', { userId: 'user-123' })
+```
+
+## Flag Configuration
+
+### Boolean Flags
+
+Simple on/off flags with default values.
+
+```typescript
+const client = new FeatureFlagClient({
+  flags: [
+    {
+      key: 'maintenance-mode',
+      enabled: true,
+      defaultValue: false
+    },
+    {
+      key: 'beta-features',
+      enabled: true,
+      defaultValue: true  // Enabled by default
+    }
+  ]
+})
+```
+
+### Percentage Rollouts
+
+Gradually roll out features to a percentage of users. Deterministic by user ID.
+
+```typescript
+{
+  key: 'new-checkout',
+  enabled: true,
+  defaultValue: false,
+  rollout: {
+    percentage: 25,       // 25% of users
+    bucketBy: 'userId'    // Default: userId
+  }
+}
+
+// Same user always gets same result
+client.isEnabled('new-checkout', { userId: 'user-123' })  // true (deterministic)
+client.isEnabled('new-checkout', { userId: 'user-123' })  // true (same)
+client.isEnabled('new-checkout', { userId: 'user-456' })  // false (different user)
+```
+
+### Targeting Rules
+
+Target specific users or groups based on attributes.
+
+```typescript
+{
+  key: 'premium-features',
+  enabled: true,
+  defaultValue: false,
+  rules: [
+    {
+      id: 'premium-users',
+      conditions: [
+        { attribute: 'plan', operator: 'eq', values: ['premium'] }
+      ],
+      value: true
+    },
+    {
+      id: 'beta-testers',
+      conditions: [
+        { attribute: 'tags', operator: 'contains', values: ['beta'] }
+      ],
+      value: true,
+      percentage: 50  // 50% of beta testers
+    }
+  ]
+}
+
+// Evaluate with context
+client.isEnabled('premium-features', {
+  userId: 'user-123',
+  attributes: { plan: 'premium' }
+})  // true
+```
+
+### Targeting Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `eq` | Equals | `plan == 'premium'` |
+| `neq` | Not equals | `status != 'banned'` |
+| `gt` | Greater than | `age > 18` |
+| `gte` | Greater than or equal | `version >= 2.0` |
+| `lt` | Less than | `requests < 1000` |
+| `lte` | Less than or equal | `score <= 100` |
+| `in` | In list | `country in ['US', 'CA']` |
+| `nin` | Not in list | `region nin ['EU']` |
+| `contains` | String contains | `email contains '@company'` |
+| `startsWith` | String starts with | `name startsWith 'test'` |
+| `endsWith` | String ends with | `file endsWith '.pdf'` |
+| `matches` | Regex match | `id matches '^user-\d+'` |
+
+### Condition Groups
+
+Use OR logic between groups, AND logic within groups.
+
+```typescript
+{
+  key: 'special-offer',
+  enabled: true,
+  defaultValue: false,
+  rules: [
+    {
+      id: 'qualified-users',
+      conditionGroups: [
+        // Group 1: Premium users in US
+        [
+          { attribute: 'plan', operator: 'eq', values: ['premium'] },
+          { attribute: 'country', operator: 'eq', values: ['US'] }
+        ],
+        // OR Group 2: Any user with 100+ purchases
+        [
+          { attribute: 'purchaseCount', operator: 'gte', values: [100] }
+        ]
+      ],
+      value: true
+    }
+  ]
+}
+```
+
+## A/B Testing (Variants)
+
+Run experiments with multiple variants.
+
+```typescript
+const client = new FeatureFlagClient({
+  flags: [
+    {
+      key: 'checkout-button',
+      enabled: true,
+      defaultValue: 'blue',
+      variants: [
+        { key: 'control', value: 'blue', weight: 50 },
+        { key: 'variant-a', value: 'green', weight: 25 },
+        { key: 'variant-b', value: 'orange', weight: 25 }
+      ]
+    }
+  ]
+})
+
+// Get variant value
+const buttonColor = client.getVariant('checkout-button', { userId: 'user-123' })
+// 'blue', 'green', or 'orange' - deterministic per user
+
+// Get full evaluation result
+const result = client.evaluate('checkout-button', { userId: 'user-123' })
+// {
+//   value: 'green',
+//   variant: 'variant-a',
+//   flagFound: true,
+//   reason: 'VARIANT_SELECTED'
+// }
+```
+
+## Scheduled Flags
+
+Activate flags at specific times.
+
+```typescript
+{
+  key: 'black-friday-sale',
+  enabled: true,
+  defaultValue: false,
+  rollout: {
+    schedule: {
+      start: '2024-11-29T00:00:00Z',
+      end: '2024-12-02T23:59:59Z'
+    }
+  }
+}
+
+// Automatically enabled during scheduled period
+client.isEnabled('black-friday-sale')  // true during Nov 29 - Dec 2
+```
+
+## Cohort Targeting
+
+Target pre-defined user segments.
+
+```typescript
+const client = new FeatureFlagClient({
+  cohorts: [
+    {
+      id: 'power-users',
+      userIds: ['user-1', 'user-2', 'user-3'],  // Explicit list
+      rules: [  // Or dynamic rules
+        { attribute: 'loginCount', operator: 'gte', values: [100] }
+      ]
+    },
+    {
+      id: 'internal-team',
+      rules: [
+        { attribute: 'email', operator: 'endsWith', values: ['@company.com'] }
+      ]
+    }
+  ],
+  flags: [
+    {
+      key: 'experimental-feature',
+      enabled: true,
+      defaultValue: false,
+      rollout: {
+        cohort: 'power-users'  // Only power users
+      }
+    }
+  ]
+})
+```
+
+## User Overrides
+
+Force specific values for individual users.
+
+```typescript
+const client = new FeatureFlagClient({
+  flags: [...],
+  overrides: [
+    {
+      flagKey: 'new-feature',
+      userId: 'user-123',
+      value: true,
+      expiresAt: '2024-02-01T00:00:00Z'  // Optional expiration
+    }
+  ]
+})
+
+// Override takes precedence
+client.isEnabled('new-feature', { userId: 'user-123' })  // true (override)
+client.isEnabled('new-feature', { userId: 'user-456' })  // normal evaluation
+
+// Add override at runtime
+client.setOverride({
+  flagKey: 'new-feature',
+  userId: 'user-789',
+  value: true
+})
+
+// Remove override
+client.removeOverride('new-feature', 'user-123')
+```
+
+## Evaluation Context
+
+Pass context for targeting.
+
+```typescript
+const context = {
+  userId: 'user-123',           // For percentage rollouts
+  sessionId: 'session-abc',     // Alternative to userId
+  timestamp: '2024-01-15T10:00:00Z',  // For schedule checking
+  attributes: {
+    plan: 'premium',
+    country: 'US',
+    age: 25,
+    tags: ['beta', 'vip'],
+    company: {
+      name: 'Acme',
+      employees: 100
+    }
+  }
+}
+
+client.isEnabled('feature', context)
+
+// Nested attributes work with dot notation
+// { attribute: 'company.employees', operator: 'gte', values: [50] }
+```
+
+## Default Context
+
+Set default context for all evaluations.
+
+```typescript
+const client = new FeatureFlagClient({
+  flags: [...],
+  defaultContext: {
+    attributes: {
+      environment: 'production',
+      version: '2.0.0'
+    }
+  }
+})
+
+// Merged with per-call context
+client.isEnabled('feature', {
+  userId: 'user-123',
+  attributes: { plan: 'premium' }  // Merged with defaults
+})
+```
+
+## Evaluation Results
+
+Get detailed evaluation information.
+
+```typescript
+const result = client.evaluate('feature', context)
+// {
+//   value: true,              // The flag value
+//   flagFound: true,          // Flag exists
+//   variant: 'variant-a',     // Selected variant (if applicable)
+//   ruleId: 'rule-123',       // Matched rule ID (if applicable)
+//   reason: 'RULE_MATCH'      // Why this value was returned
+// }
+```
+
+### Evaluation Reasons
+
+| Reason | Description |
+|--------|-------------|
+| `FLAG_NOT_FOUND` | Flag doesn't exist |
+| `FLAG_DISABLED` | Flag is disabled |
+| `OVERRIDE` | User override applied |
+| `SCHEDULED` | Outside scheduled period |
+| `RULE_MATCH` | Targeting rule matched |
+| `VARIANT_SELECTED` | A/B variant selected |
+| `PERCENTAGE_ROLLOUT` | Percentage rollout applied |
+| `DEFAULT_VALUE` | Default value returned |
+
+## All Flags
+
+Get all flag values for a context.
+
+```typescript
+const allFlags = client.getAllFlags({ userId: 'user-123' })
+// {
+//   'dark-mode': true,
+//   'new-dashboard': false,
+//   'checkout-button': 'green',
+//   ...
+// }
+```
+
+## Dynamic Updates
+
+Update flags at runtime.
+
+```typescript
+// Update all flags
+client.updateFlags([
+  { key: 'feature-a', enabled: true, defaultValue: true },
+  { key: 'feature-b', enabled: false, defaultValue: false }
+])
+
+// Add single flag
+client.addFlag({
+  key: 'new-feature',
+  enabled: true,
+  defaultValue: false,
+  rollout: { percentage: 10 }
+})
+
+// Remove flag
+client.removeFlag('old-feature')
+
+// Check flag existence
+if (client.hasFlag('feature')) {
+  const flag = client.getFlag('feature')
+}
+```
+
+## Real-World Example
+
+```typescript
+import { FeatureFlagClient } from 'dotdo/primitives/feature-flags'
+
+const flags = new FeatureFlagClient({
+  cohorts: [
+    {
+      id: 'enterprise',
+      rules: [
+        { attribute: 'plan', operator: 'eq', values: ['enterprise'] }
+      ]
+    }
+  ],
+  flags: [
+    // Simple feature flag
+    {
+      key: 'dark-mode',
+      enabled: true,
+      defaultValue: false
+    },
+
+    // Gradual rollout
+    {
+      key: 'new-editor',
+      enabled: true,
+      defaultValue: false,
+      rollout: { percentage: 30 }
+    },
+
+    // Enterprise-only feature
+    {
+      key: 'sso',
+      enabled: true,
+      defaultValue: false,
+      rollout: { cohort: 'enterprise' }
+    },
+
+    // A/B test
+    {
+      key: 'pricing-page',
+      enabled: true,
+      defaultValue: 'control',
+      variants: [
+        { key: 'control', value: 'control', weight: 50 },
+        { key: 'new-pricing', value: 'new-pricing', weight: 50 }
+      ]
+    },
+
+    // Scheduled launch
+    {
+      key: 'product-launch',
+      enabled: true,
+      defaultValue: false,
+      rollout: {
+        schedule: {
+          start: '2024-03-01T00:00:00Z'
+        }
+      }
+    }
+  ]
+})
+
+// In your application
+function renderEditor(user: User) {
+  const context = {
+    userId: user.id,
+    attributes: {
+      plan: user.plan,
+      createdAt: user.createdAt
+    }
+  }
+
+  if (flags.isEnabled('new-editor', context)) {
+    return <NewEditor />
+  }
+  return <ClassicEditor />
+}
+```
+
+## Next Steps
+
+- [rate-limiter](/docs/primitives/rate-limiter) - Percentage-based rate limiting
+- [cache-manager](/docs/primitives/cache-manager) - Cache flag evaluations
+- [event-emitter](/docs/primitives/event-emitter) - Track flag evaluation events

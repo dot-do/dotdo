@@ -1,5 +1,13 @@
 {
   "root": true,
   "title": "Functions",
-  "description": "Serverless function primitives and execution patterns"
+  "description": "Serverless function primitives and execution patterns",
+  "pages": [
+    "index",
+    "create-function",
+    "composition",
+    "middleware",
+    "registry",
+    "code-executor"
+  ]
 }

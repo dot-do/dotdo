@@ -1,0 +1,4 @@
+{
+  "title": "EdgeVec",
+  "pages": ["index", "hnsw", "quantization", "filtering", "persistence"]
+}

@@ -4,8 +4,12 @@
   "root": true,
   "pages": [
     "index",
+    "durable-objects",
+    "persistence",
     "do-hierarchy",
     "bundle-optimization",
-    "data-model"
+    "data-model",
+    "edge-computing",
+    "scalability"
   ]
 }

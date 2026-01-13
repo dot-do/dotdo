@@ -1,0 +1,346 @@
+---
+title: EdgeVec Vector Database
+description: HNSW-based vector search engine for Durable Objects with quantization, filtering, and R2 persistence.
+---
+
+# EdgeVec Vector Database
+
+EdgeVec is a high-performance vector search engine designed for Cloudflare Workers and Durable Objects. It provides HNSW indexing, product quantization for memory efficiency, metadata filtering, and automatic persistence to R2.
+
+## Architecture Overview
+
+```
++-------------------------------------------------+
+|           Your App Worker                        |
+|   vector: { engine: 'edgevec' }                 |
++----------------------+--------------------------+
+                       | Service Binding (RPC)
+                       v
++-------------------------------------------------+
+|         EdgeVec Worker (217KB WASM)             |
+|   EdgeVecServiceImpl (WorkerEntrypoint)         |
+|         |                                        |
+|   EdgeVecDO (Durable Object storage)            |
++-------------------------------------------------+
+         |                    |
+         v                    v
+   DO SQLite             R2 Parquet
+   (Hot Index)           (Cold Data)
+```
+
+EdgeVec runs as a separate worker to avoid bundle bloat. Access it via Service Bindings for RPC calls.
+
+## Quick Start
+
+### Configuration
+
+```typescript
+// wrangler.toml
+[[services]]
+binding = "EDGEVEC"
+service = "edgevec-worker"
+
+[[r2_buckets]]
+binding = "EDGEVEC_R2"
+bucket_name = "vectors"
+```
+
+### Create an Index
+
+```typescript
+const result = await env.EDGEVEC.createIndex('my-namespace', 'products', {
+  dimensions: 1536,
+  metric: 'cosine',
+  m: 16,              // HNSW connections per node
+  efConstruction: 200 // Build quality parameter
+})
+
+if (result.success) {
+  console.log(`Created index: ${result.name}`)
+}
+```
+
+### Insert Vectors
+
+```typescript
+const insertResult = await env.EDGEVEC.insert('my-namespace', 'products', [
+  {
+    id: 'prod-1',
+    values: embedding,
+    metadata: { category: 'electronics', price: 299 }
+  },
+  {
+    id: 'prod-2',
+    values: embedding2,
+    metadata: { category: 'clothing', price: 49 }
+  }
+])
+
+console.log(`Inserted: ${insertResult.inserted}`)
+```
+
+### Search
+
+```typescript
+const searchResult = await env.EDGEVEC.search(
+  'my-namespace',
+  'products',
+  queryEmbedding,
+  {
+    k: 10,
+    ef: 100, // Search quality parameter
+    filter: { category: 'electronics' }
+  }
+)
+
+if (searchResult.success) {
+  for (const match of searchResult.results) {
+    console.log(`${match.id}: ${match.score}`)
+  }
+}
+```
+
+## Components
+
+EdgeVec is composed of several modules:
+
+| Module | Description |
+|--------|-------------|
+| [HNSW](/docs/database/edgevec/hnsw) | Hierarchical Navigable Small World graph for ANN search |
+| [Quantization](/docs/database/edgevec/quantization) | Product and scalar quantization for memory efficiency |
+| [Filtering](/docs/database/edgevec/filtering) | MongoDB-style metadata filters |
+| [Persistence](/docs/database/edgevec/persistence) | R2 backup and recovery |
+
+## Service Interface
+
+EdgeVec exposes these methods via WorkerEntrypoint RPC:
+
+### Index Management
+
+```typescript
+// Create index
+createIndex(namespace: string, name: string, config: IndexConfig): Promise<CreateIndexResult>
+
+// Delete index
+deleteIndex(namespace: string, name: string): Promise<DeleteIndexResult>
+
+// Get index info
+describeIndex(namespace: string, name: string): Promise<DescribeIndexResult>
+
+// List all indexes
+listIndexes(namespace: string): Promise<ListIndexesResult>
+```
+
+### Vector Operations
+
+```typescript
+// Insert/upsert vectors
+insert(namespace: string, indexName: string, vectors: Vector[]): Promise<InsertResult>
+
+// Delete vectors by ID
+delete(namespace: string, indexName: string, ids: string[]): Promise<DeleteResult>
+
+// Single query search
+search(namespace: string, indexName: string, query: number[], options?: SearchOptions): Promise<SearchResult>
+
+// Batch search
+batchSearch(namespace: string, indexName: string, queries: number[][], options?: SearchOptions): Promise<BatchSearchResult>
+```
+
+### Persistence
+
+```typescript
+// Save to durable storage
+persist(namespace: string, indexName: string): Promise<PersistResult>
+persistAll(): Promise<PersistAllResult>
+
+// Load from durable storage
+load(namespace: string, indexName: string): Promise<LoadResult>
+loadAll(): Promise<LoadAllResult>
+```
+
+## Distance Metrics
+
+EdgeVec supports three distance metrics:
+
+### Cosine Similarity
+
+Best for normalized embeddings (OpenAI, Cohere). Returns values from -1 to 1 where 1 is identical.
+
+```typescript
+const config = { dimensions: 1536, metric: 'cosine' }
+```
+
+### Euclidean (L2) Distance
+
+Best for unnormalized vectors or spatial data. Returns values from 0 to infinity where 0 is identical.
+
+```typescript
+const config = { dimensions: 1536, metric: 'euclidean' }
+```
+
+### Dot Product
+
+Best for maximum inner product search (MIPS). Higher values indicate more similarity.
+
+```typescript
+const config = { dimensions: 1536, metric: 'dot' }
+```
+
+## Memory Management
+
+EdgeVec is designed for Durable Object memory constraints (~128MB). Key optimizations:
+
+### Vector Storage
+
+Vectors are stored as `Float32Array` for memory efficiency:
+- 1536-dim vector = 6KB per vector
+- 10,000 vectors = ~60MB
+
+### Index Size
+
+HNSW index overhead depends on M parameter:
+- M=16: ~256 bytes per vector
+- M=32: ~512 bytes per vector
+
+### Memory Budget Example
+
+```
+DO Memory Limit: 128MB
+- Reserve for runtime: 20MB
+- Available for vectors: ~108MB
+
+With 1536-dim vectors (6KB each):
+- Index overhead: ~0.5KB per vector
+- Total per vector: ~6.5KB
+- Max vectors: ~16,000
+```
+
+For larger datasets, use [quantization](/docs/database/edgevec/quantization) to reduce memory usage by 4-64x.
+
+## Durable Object Class
+
+EdgeVecDO provides persistence and HTTP access:
+
+```typescript
+import { EdgeVecDO } from 'db/edgevec'
+
+export class MyVectorDO extends EdgeVecDO {
+  async initialize() {
+    await super.initialize({
+      dimension: 1536,
+      metric: 'cosine',
+      efConstruction: 200,
+      M: 16,
+      maxElements: 50000,
+      compactionThreshold: 1000, // Trigger compaction at 1000 vectors
+      namespace: 'my-vectors'
+    })
+  }
+}
+```
+
+### HTTP Endpoints
+
+EdgeVecDO exposes these HTTP endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/stats` | Index statistics |
+| POST | `/vectors` | Insert vector |
+| GET | `/vectors/:id` | Get vector by ID |
+| DELETE | `/vectors/:id` | Delete vector |
+| POST | `/search` | Search vectors |
+
+## Compaction to Parquet
+
+EdgeVec automatically compacts vectors to Parquet files in R2:
+
+```typescript
+const config = {
+  compactionThreshold: 1000,    // Vectors before compaction
+  maxVectorsPerFile: 10000,     // Max per Parquet file
+  checkInterval: 60000,         // Check interval (1 min)
+}
+```
+
+Compaction process:
+1. Alarm triggers when threshold reached
+2. Select pending (non-compacted) vectors
+3. Build Parquet file with ZSTD compression
+4. Upload to R2 with partition path
+5. Mark vectors as compacted
+
+Parquet files are stored at:
+```
+vectors/{namespace}/dt={date}/{timestamp}.parquet
+```
+
+## Error Handling
+
+EdgeVec uses typed errors for better debugging:
+
+```typescript
+type EdgeVecErrorCode =
+  | 'INVALID_DIMENSIONS'
+  | 'INVALID_INDEX_NAME'
+  | 'INVALID_NAMESPACE'
+  | 'INDEX_EXISTS'
+  | 'INDEX_NOT_FOUND'
+  | 'VECTORS_NOT_FOUND'
+  | 'DIMENSION_MISMATCH'
+  | 'PERSIST_FAILED'
+  | 'LOAD_FAILED'
+```
+
+Handle errors:
+
+```typescript
+const result = await env.EDGEVEC.search(ns, index, query)
+
+if (!result.success) {
+  switch (result.error.code) {
+    case 'INDEX_NOT_FOUND':
+      // Create index first
+      break
+    case 'DIMENSION_MISMATCH':
+      // Query has wrong dimensions
+      break
+    default:
+      console.error(result.error.message)
+  }
+}
+```
+
+## Performance
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Insert (single) | < 5ms | Hot path |
+| Insert (batch 100) | < 50ms | Amortized |
+| Search (k=10) | < 10ms | ef=100 |
+| Search (k=100) | < 30ms | ef=200 |
+| Persist to R2 | < 500ms | Depends on size |
+
+### Tuning Parameters
+
+**efConstruction**: Higher = better index quality, slower build
+- Default: 200
+- Range: 100-500
+
+**M**: Connections per node. Higher = better recall, more memory
+- Default: 16
+- Range: 8-64
+
+**ef**: Search quality. Higher = better recall, slower search
+- Default: 40
+- Range: k to 500
+
+## Related
+
+- [HNSW Indexing](/docs/database/edgevec/hnsw) - Deep dive into HNSW algorithm
+- [Quantization](/docs/database/edgevec/quantization) - Memory optimization techniques
+- [Filtering](/docs/database/edgevec/filtering) - Metadata-based filtering
+- [Persistence](/docs/database/edgevec/persistence) - R2 backup and recovery
+- [Vector Compat SDKs](/docs/compat/vector) - Pinecone, Qdrant, Weaviate compatibility

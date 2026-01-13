@@ -170,6 +170,102 @@ Supports aggregations: mean, sum, count, min, max, first, last, median, stddev
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Core Components
+
+### Things & Versioning
+
+The foundational entity storage with append-only versioning:
+
+```typescript
+import { ThingsStore } from 'db/stores'
+
+const things = new ThingsStore(ctx)
+
+// Create versioned entity
+const user = await things.create({
+  $type: 'User',
+  name: 'Alice',
+  data: { email: 'alice@example.com' }
+})
+
+// Time-travel queries
+const oldVersion = await things.get('abc123', { version: 1 })
+```
+
+[Learn more about Things](/docs/database/things)
+
+### Store Accessors
+
+Typed APIs for Things, Relationships, Actions, Events, Search, and Objects:
+
+```typescript
+import { ThingsStore, RelationshipsStore, EventsStore } from 'db/stores'
+
+const things = new ThingsStore(ctx)
+const relationships = new RelationshipsStore(ctx)
+const events = new EventsStore(ctx)
+```
+
+[Learn more about Store Accessors](/docs/database/stores)
+
+### Query Engine
+
+Unified query primitive for Document, Analytics, Search, and Graph workloads:
+
+```typescript
+import { MongoQueryParser, PredicateCompiler, ExecutionEngine } from 'db/primitives/query-engine'
+
+const parser = new MongoQueryParser()
+const ast = parser.parse({ age: { $gt: 21 }, status: 'active' })
+```
+
+[Learn more about the Query Engine](/docs/database/query-engine)
+
+### Database Primitives
+
+Core building blocks including temporal stores, columnar storage, and streaming:
+
+```typescript
+import { createTemporalStore, createColumnStore, WindowManager } from 'db/primitives'
+```
+
+[Learn more about Database Primitives](/docs/database/primitives)
+
+### JSON Indexes
+
+Expression indexes on JSON fields for fast structured data queries:
+
+```typescript
+import { createJsonIndex, syncNounIndexes } from 'db/json-indexes'
+
+await createJsonIndex(db, { table: 'things', path: 'email', typeId: 1 })
+```
+
+[Learn more about JSON Indexes](/docs/database/json-indexes)
+
+### Iceberg Storage
+
+Apache Iceberg format for cold storage with fast point lookups:
+
+```typescript
+import { IcebergReader } from 'db/iceberg'
+
+const reader = new IcebergReader(env.R2)
+const record = await reader.getRecord({
+  table: 'do_resources',
+  partition: { ns: 'myapp.do', type: 'Function' },
+  id: 'processPayment'
+})
+```
+
+[Learn more about Iceberg Storage](/docs/database/iceberg)
+
+### EdgeVec Vector Database
+
+HNSW-based vector search with quantization and R2 persistence:
+
+[Learn more about EdgeVec](/docs/database/edgevec)
+
 ## Related
 
 - [Storage](/docs/storage) - Hot, warm, and cold storage tiers

@@ -1,0 +1,393 @@
+---
+title: Event Handlers
+description: Subscribe to domain events with the on.Noun.verb pattern
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+# Event Handlers
+
+The `on` proxy provides a fluent API for subscribing to domain events. Handlers are invoked when events are emitted, enabling reactive, event-driven workflows.
+
+## Basic Usage
+
+```typescript
+import { on } from 'dotdo/workflows'
+
+// Subscribe to Customer signup events
+on.Customer.signup((event) => {
+  console.log('New customer:', event)
+})
+
+// Subscribe to Order events
+on.Order.placed((order) => {
+  console.log('Order placed:', order.id)
+})
+
+on.Order.shipped((order) => {
+  console.log('Order shipped:', order.trackingNumber)
+})
+```
+
+The pattern is always `on.<Entity>.<event>(handler)` where:
+- **Entity** (Noun): The domain entity that generated the event (e.g., `Customer`, `Order`, `Payment`)
+- **event** (Verb): The action that occurred (e.g., `signup`, `placed`, `failed`)
+
+## Handler Registration
+
+Handlers are registered with optional context for cleanup:
+
+```typescript
+import { on, type OnHandlerOptions } from 'dotdo/workflows'
+
+const options: OnHandlerOptions = {
+  context: 'my-do-namespace' // For grouped cleanup
+}
+
+on.Customer.signup((customer) => {
+  // Handle signup
+}, options)
+```
+
+### Unsubscribe Pattern
+
+Every handler registration returns an unsubscribe function:
+
+```typescript
+// Register handler and capture unsubscribe function
+const unsubscribe = on.Customer.signup((customer) => {
+  console.log('Customer signed up:', customer.email)
+})
+
+// Later, remove the handler
+const wasRemoved = unsubscribe()
+console.log('Handler removed:', wasRemoved) // true
+```
+
+### Durable Object Cleanup
+
+For Durable Objects, use context-based cleanup to remove all handlers when the DO is destroyed:
+
+```typescript
+import { on, clearHandlersByContext } from 'dotdo/workflows'
+
+export class MyDO extends DurableObject {
+  private readonly namespace: string
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.namespace = state.id.toString()
+
+    // Register handlers with context
+    on.Order.placed((order) => {
+      this.processOrder(order)
+    }, { context: this.namespace })
+
+    on.Payment.received((payment) => {
+      this.recordPayment(payment)
+    }, { context: this.namespace })
+  }
+
+  async destroy() {
+    // Remove all handlers registered by this DO
+    const removedCount = clearHandlersByContext(this.namespace)
+    console.log(`Removed ${removedCount} handlers`)
+  }
+}
+```
+
+## Handler Metadata
+
+The system tracks handler registration metadata:
+
+```typescript
+import {
+  getRegisteredHandlers,
+  getHandlerRegistrations,
+  getHandlerCount,
+  getRegisteredEventKeys
+} from 'dotdo/workflows'
+
+// Get handlers for a specific event
+const handlers = getRegisteredHandlers('Customer.signup')
+console.log(`${handlers.length} handlers for Customer.signup`)
+
+// Get handlers with metadata
+const registrations = getHandlerRegistrations('Customer.signup')
+for (const reg of registrations) {
+  console.log({
+    eventKey: reg.eventKey,
+    context: reg.context,
+    registeredAt: new Date(reg.registeredAt)
+  })
+}
+
+// Count handlers (optionally by context)
+const totalCount = getHandlerCount()
+const doCount = getHandlerCount('my-do-namespace')
+
+// List all registered event keys
+const eventKeys = getRegisteredEventKeys()
+console.log('Subscribed events:', eventKeys)
+// ['Customer.signup', 'Order.placed', 'Payment.received']
+```
+
+## Working with Event Payloads
+
+Events carry typed payloads that handlers can destructure:
+
+```typescript
+import { on } from 'dotdo/workflows'
+
+// Full event object
+on.Customer.signup((event) => {
+  const { id, email, name, source } = event
+  console.log(`New customer ${name} (${email}) from ${source}`)
+})
+
+// Common event patterns
+on.Payment.failed((payment) => {
+  const { customerId, amount, reason, attemptCount } = payment
+  if (attemptCount >= 3) {
+    // Escalate after 3 failed attempts
+  }
+})
+
+on.Subscription.cancelled((subscription) => {
+  const { customerId, plan, endDate, cancellationReason } = subscription
+  // Trigger win-back workflow
+})
+```
+
+## Combining with Durability Levels
+
+Event handlers typically use the workflow runtime for durable execution:
+
+```typescript
+import { on, send } from 'dotdo/workflows'
+import { createWorkflowRuntime } from 'dotdo/workflows'
+
+const runtime = createWorkflowRuntime()
+
+on.Customer.signup(async (customer) => {
+  // Durable operations with retries
+  await runtime.do('CRM.createContact', customer)
+  await runtime.do('Email.sendWelcome', customer)
+
+  // Fire-and-forget analytics
+  send.Analytics.track({
+    event: 'signup',
+    userId: customer.id,
+    properties: { source: customer.source }
+  })
+})
+
+on.Order.placed(async (order) => {
+  // Quick validation (no retries)
+  try {
+    const validation = await runtime.try('Inventory.validate', order.items)
+    if (!validation.valid) {
+      send.Order.rejected({ orderId: order.id, reason: 'out_of_stock' })
+      return
+    }
+  } catch (error) {
+    // Validation service unavailable
+    send.Order.pendingReview({ orderId: order.id })
+    return
+  }
+
+  // Durable fulfillment
+  await runtime.do('Payment.charge', order.payment)
+  await runtime.do('Inventory.reserve', order.items)
+  await runtime.do('Shipping.createLabel', order.address)
+})
+```
+
+## Event Emission
+
+Emit events using the `send` proxy:
+
+```typescript
+import { on, send } from 'dotdo/workflows'
+
+// Fire-and-forget event emission
+send.Order.shipped({
+  orderId: '123',
+  trackingNumber: 'TRACK-456',
+  carrier: 'fedex'
+})
+
+// Events can trigger other event handlers
+on.Order.paid((order) => {
+  // Processing...
+
+  // Emit next event in the lifecycle
+  send.Order.readyToShip({
+    orderId: order.id,
+    items: order.items,
+    address: order.shippingAddress
+  })
+})
+
+on.Order.readyToShip((order) => {
+  // Pick, pack, and ship...
+  send.Order.shipped({
+    orderId: order.orderId,
+    trackingNumber: generateTrackingNumber()
+  })
+})
+```
+
+<Callout type="info">
+The `send` proxy returns a PipelinePromise for lazy execution. Events are captured as expressions and executed by the runtime.
+</Callout>
+
+## Conditional Event Handling
+
+Use the `when` helper for declarative conditionals:
+
+```typescript
+import { on, when, waitFor } from 'dotdo/workflows'
+
+on.Expense.submitted((expense) => {
+  when(expense.amount > 1000, {
+    then: () => {
+      // High-value expenses require approval
+      send.Expense.needsApproval(expense)
+    },
+    else: () => {
+      // Auto-approve small expenses
+      send.Expense.approved(expense)
+    }
+  })
+})
+
+on.Expense.needsApproval(async (expense) => {
+  // Notify approver
+  send.Slack.message({
+    channel: expense.approver,
+    template: 'approval-request',
+    data: expense
+  })
+
+  // Wait for human response (workflow hibernates)
+  const decision = await waitFor('expense.decision', {
+    timeout: '7 days',
+    type: 'approval'
+  })
+
+  if (decision.approved) {
+    send.Expense.approved(expense)
+  } else {
+    send.Expense.rejected({ expense, reason: decision.reason })
+  }
+})
+```
+
+## Testing Event Handlers
+
+Clear handlers between tests for isolation:
+
+```typescript
+import { on, clearHandlers, getHandlerCount } from 'dotdo/workflows'
+import { describe, it, expect, beforeEach } from 'vitest'
+
+describe('Customer signup flow', () => {
+  beforeEach(() => {
+    // Clear all handlers between tests
+    clearHandlers()
+    expect(getHandlerCount()).toBe(0)
+  })
+
+  it('sends welcome email on signup', async () => {
+    const emails: string[] = []
+
+    on.Customer.signup((customer) => {
+      emails.push(customer.email)
+    })
+
+    // Simulate event
+    const handlers = getRegisteredHandlers('Customer.signup')
+    await handlers[0]({ email: 'test@example.com', name: 'Test' })
+
+    expect(emails).toContain('test@example.com')
+  })
+
+  it('can register multiple handlers', () => {
+    on.Customer.signup(() => {})
+    on.Customer.signup(() => {})
+    on.Customer.upgraded(() => {})
+
+    expect(getHandlerCount()).toBe(3)
+    expect(getRegisteredEventKeys()).toEqual([
+      'Customer.signup',
+      'Customer.upgraded'
+    ])
+  })
+})
+```
+
+## Best Practices
+
+### Keep Handlers Focused
+
+Each handler should do one thing well:
+
+```typescript
+// Good: Focused handlers
+on.Customer.signup((customer) => {
+  runtime.do('Email.sendWelcome', customer)
+})
+
+on.Customer.signup((customer) => {
+  runtime.do('CRM.createContact', customer)
+})
+
+on.Customer.signup((customer) => {
+  runtime.do('Analytics.identify', customer)
+})
+
+// Less ideal: One handler doing everything
+on.Customer.signup(async (customer) => {
+  await runtime.do('Email.sendWelcome', customer)
+  await runtime.do('CRM.createContact', customer)
+  await runtime.do('Analytics.identify', customer)
+})
+```
+
+### Use Context for DO Handlers
+
+Always provide context when registering handlers in Durable Objects:
+
+```typescript
+// Good: Context enables cleanup
+on.Order.placed(handler, { context: this.id.toString() })
+
+// Risky: No context, handler may leak
+on.Order.placed(handler)
+```
+
+### Prefer Fire-and-Forget for Side Effects
+
+Non-critical operations should use `send`:
+
+```typescript
+on.Order.placed(async (order) => {
+  // Critical path with durability
+  await runtime.do('Payment.charge', order.payment)
+  await runtime.do('Inventory.reserve', order.items)
+
+  // Non-critical side effects
+  send.Analytics.track({ event: 'order_placed', orderId: order.id })
+  send.Search.indexOrder(order)
+  send.Metrics.increment('orders.count')
+})
+```
+
+## Related
+
+- [Workflows Overview](/docs/workflows) - The $ context DSL and durability levels
+- [Workflow Triggers](/docs/workflows/triggers) - All trigger types including schedules
+- [Scheduling](/docs/workflows/scheduling) - The $.every scheduling API
+- [Pipelines](/docs/workflows/pipelines) - Promise pipelining for deferred execution

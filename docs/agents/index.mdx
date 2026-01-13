@@ -7,6 +7,41 @@ description: AI workers with real identity. Not chatbots. Workers.
 
 Named agents with real identity. When Tom reviews your PR, you see `@tom-do` commenting. Not "AI Assistant".
 
+## Installation
+
+The named agents are exported from `agents.do`, a path alias that points to the named agents module in the dotdo package. Configure this in your project:
+
+<Tabs items={['tsconfig.json', 'package.json']}>
+  <Tab value="tsconfig.json">
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "paths": {
+      "agents.do": ["./node_modules/dotdo/dist/agents/named/index.js"],
+      "humans.do": ["./node_modules/dotdo/dist/lib/humans/index.js"]
+    }
+  }
+}
+```
+  </Tab>
+  <Tab value="package.json">
+```json title="package.json"
+{
+  "imports": {
+    "agents.do": "dotdo/agents/named",
+    "humans.do": "dotdo/lib/humans"
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+<Callout type="info">
+**Using `npx dotdo init`?** These aliases are configured automatically. You can start importing right away.
+</Callout>
+
+Once configured, import the named agents:
+
 ```typescript
 import { priya, ralph, tom, mark, sally, quinn } from 'agents.do'
 

@@ -1,0 +1,321 @@
+---
+title: Human Escalation
+description: Template literal syntax for human-in-the-loop workflows
+---
+
+# Human Escalation (humans.do)
+
+The humans module provides template literal syntax for escalating tasks to humans. Same calling convention as AI agents, but routed to real people.
+
+## Overview
+
+```typescript
+import { ceo, legal, cfo, manager } from 'lib/humans'
+
+// Escalate to CEO for approval
+const approved = await ceo`approve the partnership deal`
+
+// Get legal review
+const reviewed = await legal`review contract ${contractId}`
+
+// CFO sign-off
+const signedOff = await cfo`authorize budget increase of $${amount}`
+```
+
+## Role Templates
+
+Pre-built role templates are available for common organizational roles:
+
+| Template | Role | Use Case |
+|----------|------|----------|
+| `ceo` | CEO | Final approvals, strategic decisions |
+| `cfo` | CFO | Financial authorizations |
+| `cto` | CTO | Technical decisions |
+| `legal` | Legal | Contract review, compliance |
+| `hr` | HR | People decisions |
+| `support` | Support | Customer escalations |
+| `manager` | Manager | General approvals |
+
+## Basic Usage
+
+```typescript
+import { ceo, legal } from 'lib/humans'
+
+// Simple escalation
+const approved = await ceo`approve the acquisition`
+
+// With interpolated values
+const amount = 50000
+const customer = 'Acme Corp'
+const refundApproved = await cfo`approve refund of $${amount} for ${customer}`
+
+// The message becomes: "approve refund of $50000 for Acme Corp"
+```
+
+## HumanRequest Class
+
+The template literals return a `HumanRequest` that extends `Promise<boolean>`:
+
+```typescript
+const request = ceo`approve the deal`
+
+// Access request properties
+console.log(request.role)    // 'ceo'
+console.log(request.message) // 'approve the deal'
+console.log(request.sla)     // undefined (not set yet)
+console.log(request.channel) // undefined (not set yet)
+
+// Await the result
+const approved = await request
+```
+
+### Setting Timeouts
+
+```typescript
+// Set SLA/timeout
+const request = ceo`approve the partnership`.timeout('4 hours')
+
+console.log(request.sla) // 14400000 (milliseconds)
+```
+
+Supported duration formats:
+- `'30 seconds'`
+- `'15 minutes'`
+- `'4 hours'`
+- `'2 days'`
+- `'1 week'`
+
+### Setting Channels
+
+```typescript
+// Route to specific channel
+const request = ceo`approve the deal`.via('slack')
+
+console.log(request.channel) // 'slack'
+```
+
+### Chaining
+
+```typescript
+// Combine timeout and channel
+const approved = await ceo`approve the acquisition`
+  .timeout('4 hours')
+  .via('email')
+```
+
+## Creating Custom Templates
+
+Create templates for custom roles:
+
+```typescript
+import { createHumanTemplate } from 'lib/humans'
+
+// Create custom role template
+const seniorAccountant = createHumanTemplate('senior-accountant')
+const securityReviewer = createHumanTemplate('security-reviewer')
+
+// Use the custom template
+const approved = await seniorAccountant`verify the Q4 financials`
+const reviewed = await securityReviewer`audit access controls for ${system}`
+```
+
+## HumanFunction Class
+
+For more complex escalation workflows with triggers and routing:
+
+```typescript
+import { HumanFunction, type HumanFunctionConfig } from 'lib/humans'
+
+const refundApproval = new HumanFunction({
+  trigger: 'refund > $10000',
+  role: 'senior-accountant',
+  sla: '4 hours',
+  escalate: 'vp-finance',
+  notify: ['slack', 'email']
+})
+
+// Check if trigger matches
+const shouldEscalate = refundApproval.shouldTrigger({ refund: 15000 })
+
+// Execute the escalation
+const approved = await refundApproval.execute({ refund: 15000, customer: 'Acme' })
+```
+
+### Configuration Options
+
+```typescript
+interface HumanFunctionConfig {
+  trigger?: string        // Condition expression
+  role: string           // Target role
+  sla?: string           // Response deadline
+  escalate?: string      // Escalation path
+  notify?: string[]      // Notification channels
+}
+```
+
+## Integration with Channels
+
+The humans module re-exports channel adapters for convenience:
+
+```typescript
+import {
+  SlackBlockKitChannel,
+  DiscordChannel,
+  EmailChannel,
+  MDXUIChatChannel,
+  buildApprovalBlocks,
+  buildEmbed,
+  buildActionRow,
+  renderApprovalEmail
+} from 'lib/humans'
+
+// Configure escalation with specific channels
+const slack = new SlackBlockKitChannel({
+  webhookUrl: 'https://hooks.slack.com/...'
+})
+
+await slack.send({
+  message: 'Approval Required',
+  blocks: buildApprovalBlocks({
+    message: 'Approve $15,000 refund?',
+    requestId: 'refund-123'
+  })
+})
+```
+
+## Human and User Proxies
+
+For workflow context integration:
+
+```typescript
+import {
+  createHumanProxy,
+  createUserProxy,
+  type HumanProxyConfig,
+  type UserProxyConfig
+} from 'lib/humans'
+
+// Create human proxy for $.human.*
+const humanProxy = createHumanProxy(config)
+
+// Create user proxy for $.user.*
+const userProxy = createUserProxy(config)
+```
+
+### Human Proxy Methods
+
+```typescript
+// Request approval
+const approved = await $.human.approve({
+  message: 'Deploy to production?',
+  role: 'tech-lead'
+})
+
+// Ask a question
+const answer = await $.human.ask({
+  question: 'What priority should this be?',
+  role: 'product-manager'
+})
+
+// Request review
+const review = await $.human.review({
+  content: documentContent,
+  role: 'legal'
+})
+```
+
+### User Proxy Methods
+
+```typescript
+// Confirm with user
+const confirmed = await $.user.confirm({
+  message: 'Are you sure you want to delete this?'
+})
+
+// Prompt for input
+const name = await $.user.prompt({
+  message: 'Enter your name:'
+})
+
+// Select from options
+const choice = await $.user.select({
+  message: 'Choose a plan:',
+  options: ['Basic', 'Pro', 'Enterprise']
+})
+```
+
+## Error Handling
+
+```typescript
+import {
+  HumanTimeoutError,
+  HumanEscalationError,
+  HumanNotificationError
+} from 'lib/humans'
+
+try {
+  const approved = await ceo`approve the deal`.timeout('1 hour')
+} catch (error) {
+  if (error instanceof HumanTimeoutError) {
+    console.log('No response within SLA')
+  } else if (error instanceof HumanEscalationError) {
+    console.log('Escalation failed')
+  } else if (error instanceof HumanNotificationError) {
+    console.log('Could not notify human')
+  }
+}
+```
+
+## Duration Parsing
+
+The `parseDuration` function converts human-readable durations to milliseconds:
+
+```typescript
+import { parseDuration } from 'lib/humans/templates'
+
+parseDuration('30 seconds') // 30000
+parseDuration('15 minutes') // 900000
+parseDuration('4 hours')    // 14400000
+parseDuration('2 days')     // 172800000
+parseDuration('1 week')     // 604800000
+```
+
+## Type Exports
+
+```typescript
+import type {
+  HumanTemplate,
+  HumanFunctionConfig,
+  HumanProxyConfig,
+  ApprovalOptions,
+  AskOptions,
+  ReviewOptions,
+  ApprovalResult,
+  ReviewResult,
+  SLAConfig,
+  EscalationConfig,
+  NotificationChannel
+} from 'lib/humans'
+```
+
+## Comparison: Agents vs Humans
+
+```typescript
+import { ralph } from 'agents.do'
+import { ceo } from 'humans.do'
+
+// AI agent builds the app
+const app = await ralph`build ${spec}`
+
+// Human approves for production
+const approved = await ceo`approve ${app} for launch`
+
+// Same syntax, different intelligence
+```
+
+## Related
+
+- [Channel Adapters](/docs/lib/channels) - Notification channels
+- [Human-in-the-Loop](/docs/humans) - High-level patterns
+- [Escalation](/docs/humans/escalation) - Triggers and SLAs
+- [Approval Workflows](/docs/humans/approval-workflows) - Building chains

@@ -1,0 +1,303 @@
+---
+title: rate-limiter - Request Throttling
+description: Comprehensive rate limiting with multiple strategies for protecting services and enforcing quotas
+---
+
+# rate-limiter - Request Throttling
+
+Protect your services from abuse and enforce usage quotas. Multiple algorithms for different use cases.
+
+The rate-limiter primitive provides fixed window, sliding window, token bucket, and leaky bucket algorithms, plus distributed rate limiting across multiple regions and quota management for period-based limits.
+
+## Quick Start
+
+```typescript
+import { createRateLimiter, createTokenBucket, createQuotaManager } from 'dotdo/primitives/rate-limiter'
+
+// Basic rate limiter: 100 requests per minute
+const limiter = createRateLimiter({
+  requests: 100,
+  window: 60000 // 1 minute in ms
+})
+
+// Check and consume
+const result = await limiter.consume('user:123')
+if (!result.allowed) {
+  // Rate limited - return 429
+  return new Response('Too Many Requests', {
+    status: 429,
+    headers: { 'Retry-After': String(result.retryAfter) }
+  })
+}
+```
+
+## Algorithms
+
+### Fixed Window
+
+Simple time-based windows. Fast and memory-efficient, but can allow bursts at window boundaries.
+
+```typescript
+import { createRateLimiter } from 'dotdo/primitives/rate-limiter'
+
+const limiter = createRateLimiter({
+  requests: 100,
+  window: 60000,
+  strategy: 'fixed-window' // default
+})
+
+const result = await limiter.consume('api-key:abc')
+console.log(result)
+// {
+//   allowed: true,
+//   remaining: 99,
+//   resetAt: 1704067260000,
+//   retryAfter: 0,
+//   limit: 100,
+//   used: 1
+// }
+```
+
+### Sliding Window
+
+Accurate rate limiting using a log of timestamps. No burst issues at window boundaries.
+
+```typescript
+const slidingLimiter = createRateLimiter({
+  requests: 100,
+  window: 60000,
+  strategy: 'sliding-window'
+})
+
+// Each request is tracked individually
+await slidingLimiter.consume('user:456')
+```
+
+### Token Bucket
+
+Classic burst-tolerant algorithm. Tokens refill at a steady rate, allowing controlled bursts.
+
+```typescript
+import { createTokenBucket } from 'dotdo/primitives/rate-limiter'
+
+const bucket = createTokenBucket({
+  capacity: 10,      // Max tokens (burst size)
+  refillRate: 1,     // Tokens per second
+  initialTokens: 10  // Start full (optional)
+})
+
+// Try to consume a token
+const allowed = await bucket.tryConsume('user:123')
+if (!allowed) {
+  console.log('Rate limited - no tokens available')
+}
+
+// Check token state
+const state = await bucket.getTokens('user:123')
+console.log(`Available: ${state.tokens}`)
+```
+
+### Leaky Bucket
+
+Smooth rate enforcement. Requests queue up and "leak" out at a constant rate.
+
+```typescript
+import { createLeakyBucket } from 'dotdo/primitives/rate-limiter'
+
+const bucket = createLeakyBucket({
+  capacity: 10,   // Queue size
+  leakRate: 2     // 2 requests per second drain
+})
+
+// Add request to bucket
+const accepted = await bucket.add('user:123')
+if (!accepted) {
+  console.log('Bucket full - request rejected')
+}
+
+// Check current level
+const state = await bucket.getLevel('user:123')
+console.log(`Queue level: ${state.level}`)
+```
+
+## Quota Management
+
+Track usage across multiple time periods (minute, hour, day, week, month).
+
+```typescript
+import { createQuotaManager } from 'dotdo/primitives/rate-limiter'
+
+const quota = createQuotaManager({
+  minute: 10,     // 10 per minute
+  hourly: 100,    // 100 per hour
+  daily: 1000,    // 1000 per day
+  monthly: 10000  // 10000 per month
+})
+
+// Check and consume quota
+const status = await quota.consume('user:123')
+
+if (status.exceeded) {
+  console.log('Quota exceeded for periods:', status.exceededPeriods)
+  // ['minute'] or ['minute', 'hourly'], etc.
+}
+
+// Get detailed usage
+console.log(status.usage)
+// {
+//   minute: { used: 10, limit: 10, remaining: 0, resetAt: ... },
+//   hourly: { used: 50, limit: 100, remaining: 50, resetAt: ... },
+//   daily: { used: 200, limit: 1000, remaining: 800, resetAt: ... },
+//   monthly: { used: 500, limit: 10000, remaining: 9500, resetAt: ... }
+// }
+```
+
+## Distributed Rate Limiting
+
+Coordinate rate limits across multiple regions using Durable Objects.
+
+```typescript
+import { DistributedRateLimiter, MemoryStorage } from 'dotdo/primitives/rate-limiter'
+
+const limiter = new DistributedRateLimiter(
+  { requests: 1000, window: 60000 },
+  {
+    syncInterval: 1000,  // Sync every second
+    localBurst: 10       // Allow 10 local before sync
+  },
+  new MemoryStorage(),
+  'node-1',
+  'us-east'
+)
+
+// Consume locally, sync periodically
+const result = await limiter.consume('global-key')
+```
+
+## Key Types
+
+### RateLimitKey
+
+Identify rate-limited entities by string or structured key.
+
+```typescript
+// Simple string key
+await limiter.consume('user:123')
+
+// Structured key with scope
+await limiter.consume({
+  identifier: 'user:123',
+  scope: 'api:write'  // Optional scope for finer control
+})
+```
+
+### RateLimitResult
+
+```typescript
+interface RateLimitResult {
+  allowed: boolean      // Whether request is allowed
+  remaining: number     // Requests remaining in window
+  resetAt: number       // Timestamp when limit resets
+  retryAfter: number    // Seconds to wait (0 if allowed)
+  limit: number         // Total limit
+  used: number          // Requests used
+}
+```
+
+## Operations
+
+| Method | Description |
+|--------|-------------|
+| `check(key)` | Check limit without consuming |
+| `consume(key, tokens?)` | Check and consume tokens |
+| `reset(key)` | Reset limit for a key |
+| `getStatus(key)` | Get current status |
+
+## HTTP Integration
+
+```typescript
+import { createRateLimiter } from 'dotdo/primitives/rate-limiter'
+import { Hono } from 'hono'
+
+const limiter = createRateLimiter({ requests: 100, window: 60000 })
+
+const app = new Hono()
+
+app.use('*', async (c, next) => {
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown'
+  const result = await limiter.consume(`ip:${ip}`)
+
+  // Set rate limit headers
+  c.header('X-RateLimit-Limit', String(result.limit))
+  c.header('X-RateLimit-Remaining', String(result.remaining))
+  c.header('X-RateLimit-Reset', String(result.resetAt))
+
+  if (!result.allowed) {
+    c.header('Retry-After', String(result.retryAfter))
+    return c.json({ error: 'Too many requests' }, 429)
+  }
+
+  await next()
+})
+```
+
+## Custom Storage
+
+Implement `RateLimitStorage` for persistent storage.
+
+```typescript
+import type { RateLimitStorage } from 'dotdo/primitives/rate-limiter'
+
+class KVStorage implements RateLimitStorage {
+  constructor(private kv: KVNamespace) {}
+
+  async get<T>(key: string): Promise<T | null> {
+    const value = await this.kv.get(key, 'json')
+    return value as T | null
+  }
+
+  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    await this.kv.put(key, JSON.stringify(value), {
+      expirationTtl: ttl ? Math.ceil(ttl / 1000) : undefined
+    })
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.kv.delete(key)
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    const result = await this.kv.list({ prefix })
+    return result.keys.map(k => k.name)
+  }
+}
+
+// Use custom storage
+const limiter = createRateLimiter(
+  { requests: 100, window: 60000 },
+  new KVStorage(env.RATE_LIMITS)
+)
+```
+
+## Algorithm Comparison
+
+| Algorithm | Burst Handling | Memory | Accuracy | Use Case |
+|-----------|---------------|--------|----------|----------|
+| Fixed Window | Allows boundary bursts | Low | Medium | Simple rate limiting |
+| Sliding Window | No boundary issues | Higher | High | Precise limiting |
+| Token Bucket | Controlled bursts | Low | High | API rate limiting |
+| Leaky Bucket | Smooths traffic | Low | High | Traffic shaping |
+
+## Best Practices
+
+1. **Use sliding window** for accurate rate limiting without burst issues
+2. **Token bucket** when you want to allow controlled bursts
+3. **Leaky bucket** for smoothing traffic to downstream services
+4. **Quota manager** for business-level usage limits (API plans)
+5. **Distributed limiter** for multi-region deployments
+
+## Next Steps
+
+- [circuit-breaker](/docs/primitives/circuit-breaker) - Protect against cascading failures
+- [cache-manager](/docs/primitives/cache-manager) - Cache responses to reduce load
+- [feature-flags](/docs/primitives/feature-flags) - Gradual rollouts with percentage-based targeting
