@@ -1,18 +1,17 @@
 /**
  * CLI Configuration Management
  *
- * Manages configuration stored in ~/.dotdo/config
+ * Manages configuration stored in ~/.do/config
  */
 
 import { readFile, writeFile, mkdir, access } from 'fs/promises'
-import { homedir } from 'os'
 import { join } from 'path'
+import { getHomeDotdoDir } from '../utils/paths'
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const CONFIG_DIR_NAME = '.dotdo'
 const CONFIG_FILE_NAME = 'config'
 
 // ============================================================================
@@ -66,7 +65,7 @@ export const defaultConfig: Config = {
  * Get the config directory path
  */
 function getConfigDir(): string {
-  return join(homedir(), CONFIG_DIR_NAME)
+  return getHomeDotdoDir()
 }
 
 /**

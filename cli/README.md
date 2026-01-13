@@ -161,7 +161,7 @@ export default {
   compatibilityFlags: ['nodejs_compat'],
 
   // Persistence
-  persist: true, // or path: '.dotdo/data'
+  persist: true, // or path: '.do/data'
 
   // Deploy targets
   deploy: {

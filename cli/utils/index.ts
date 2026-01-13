@@ -11,8 +11,28 @@ export {
   saveConfig,
   findProjectRoot,
   getConfigValue,
+  getCLIConfig,
+  getConfig,
+  setConfig,
+  defaultCLIConfig,
   type DotdoConfig,
+  type CLIConfig,
 } from './config'
+export {
+  openBrowser,
+  isBrowserAvailable,
+  type BrowserOptions,
+  type BrowserResult,
+} from './browser'
+export {
+  getAccessToken,
+  getSession,
+  isAuthenticated,
+  checkSession,
+  requireSession,
+  type Session,
+  type SessionResult,
+} from './auth'
 export {
   discoverSurface,
   discoverContentFolder,
@@ -26,3 +46,21 @@ export {
   type ScaffoldOptions,
   type ScaffoldResult,
 } from './scaffold'
+export { parsePort } from './validation'
+export {
+  formatSectionHeader,
+  formatList,
+  formatKeyValue,
+  formatTable,
+  formatUrl,
+} from './output'
+export {
+  DOTDO_DIR,
+  DOTDO_STATE_DIR,
+  DOTDO_BIN_SUBDIR,
+  getDotdoDir,
+  getStateDir,
+  getHomeDotdoDir,
+  getHomeBinDir,
+  getLocalBinDir,
+} from './paths'
