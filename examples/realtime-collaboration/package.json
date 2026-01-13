@@ -1,27 +1,25 @@
 {
-  "name": "compat-sqs-queue",
+  "name": "realtime-collaboration",
   "version": "0.1.0",
   "private": true,
-  "description": "AWS SQS-compatible queue processing on Durable Objects",
+  "description": "Real-time collaborative editing example using Durable Objects",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dotdo/sqs": "workspace:*",
     "dotdo": "workspace:*",
     "hono": "^4.6.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241230.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
+    "vitest": "^3.2.4",
     "wrangler": "^4.58.0"
   }
 }

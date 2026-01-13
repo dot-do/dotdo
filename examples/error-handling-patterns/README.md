@@ -21,7 +21,7 @@ export class ResilientDO extends DO {
       }
     })
 
-    // $.send - Fire and forget (non-blocking)
+    // $.send - Fire-and-forget (non-blocking)
     $.send('Email.confirmation', { orderId, transactionId: payment.id })
 
     return payment

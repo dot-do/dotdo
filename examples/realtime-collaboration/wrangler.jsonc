@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "agent-product-discovery",
+  "name": "realtime-collaboration",
   "account_id": "b6641681fe423910342b9ffa1364c76d",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-08",
@@ -9,21 +9,33 @@
   // Deploy to workers.dev
   "workers_dev": true,
 
-  // Durable Objects
+  // Durable Objects for real-time collaboration
   "durable_objects": {
     "bindings": [
       {
-        "name": "DISCOVERY_DO",
-        "class_name": "ProductDiscoveryDO"
+        "name": "DOCUMENT_DO",
+        "class_name": "DocumentDO"
+      },
+      {
+        "name": "PRESENCE_DO",
+        "class_name": "PresenceDO"
+      },
+      {
+        "name": "CHANNEL_DO",
+        "class_name": "ChannelDO"
+      },
+      {
+        "name": "WHITEBOARD_DO",
+        "class_name": "WhiteboardDO"
       }
     ]
   },
 
-  // Migrations for SQLite-backed DO
+  // Migrations for SQLite-backed DOs with WebSocket hibernation
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["ProductDiscoveryDO"]
+      "new_sqlite_classes": ["DocumentDO", "PresenceDO", "ChannelDO", "WhiteboardDO"]
     }
   ],
 

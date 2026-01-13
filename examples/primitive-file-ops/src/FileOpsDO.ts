@@ -15,6 +15,10 @@
  */
 
 import { DO } from 'dotdo'
+import { withFs } from 'fsx.do'
+
+// Apply the fs capability mixin to get $.fs
+const DOWithFs = withFs(DO)
 
 /**
  * Parse CSV content into records
@@ -80,7 +84,7 @@ interface ProcessResult {
   error?: string
 }
 
-export class FileOpsDO extends DO {
+export class FileOpsDO extends DOWithFs {
   static readonly $type = 'FileOpsDO'
 
   /**

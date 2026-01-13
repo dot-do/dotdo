@@ -6,8 +6,12 @@ Process files without servers, containers, or VMs. fsx gives you a POSIX-compati
 
 ```typescript
 import { DO } from 'dotdo'
+import { withFs } from 'fsx.do'
 
-export class DataProcessor extends DO {
+// Add filesystem capability to your DO
+const DOWithFs = withFs(DO)
+
+export class DataProcessor extends DOWithFs {
   async processDataImport(csvUrl: string) {
     // Download and save to your DO's filesystem
     const response = await fetch(csvUrl)
@@ -122,6 +126,82 @@ curl http://localhost:8787/stats
 - **Atomic operations**: Transactions, batch writes, crash recovery.
 - **No cold starts**: V8 isolates spin up in 0ms. Your files are already there.
 - **Global edge**: 300+ cities. Files follow your DO instance.
+
+## SQLite-Backed Storage
+
+Under the hood, fsx uses Cloudflare Durable Object's SQLite storage for metadata and small file content:
+
+```sql
+-- File and directory metadata
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY,
+  path TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  parent_id INTEGER,
+  type TEXT CHECK(type IN ('file', 'directory', 'symlink')),
+  mode INTEGER DEFAULT 420,  -- 0o644
+  size INTEGER DEFAULT 0,
+  blob_id TEXT,
+  tier TEXT CHECK(tier IN ('hot', 'warm', 'cold')),
+  atime INTEGER,
+  mtime INTEGER,
+  ctime INTEGER,
+  birthtime INTEGER,
+  nlink INTEGER DEFAULT 1
+);
+
+-- Blob content (hot tier)
+CREATE TABLE blobs (
+  id TEXT PRIMARY KEY,
+  data BLOB,
+  size INTEGER NOT NULL,
+  tier TEXT DEFAULT 'hot',
+  created_at INTEGER
+);
+```
+
+This gives you:
+- **Transactional guarantees**: Atomic operations, crash recovery
+- **Microsecond queries**: SQLite is embedded, no network round-trips
+- **Global durability**: Cloudflare replicates your DO state
+
+## Streaming Large Files
+
+For files larger than memory, use streaming APIs:
+
+```typescript
+// Write a large file in chunks
+const writable = await $.fs.createWriteStream('/uploads/large-video.mp4')
+const sourceStream = await fetch('https://example.com/video.mp4').then(r => r.body)
+await sourceStream.pipeTo(writable)
+
+// Read a large file in chunks
+const readable = await $.fs.createReadStream('/uploads/large-video.mp4')
+for await (const chunk of readable) {
+  await processChunk(chunk)
+}
+
+// Partial reads (byte ranges)
+const partial = await $.fs.createReadStream('/video.mp4', {
+  start: 1000,
+  end: 2000
+})
+```
+
+## Transaction Support
+
+fsx supports transactions for atomic multi-file operations:
+
+```typescript
+// All-or-nothing write
+await $.fs.transaction(async () => {
+  await $.fs.write('/config.json', newConfig)
+  await $.fs.write('/config.backup.json', oldConfig)
+  await $.fs.mkdir('/logs/backup', { recursive: true })
+})
+
+// If any operation fails, all changes are rolled back
+```
 
 ## See Also
 

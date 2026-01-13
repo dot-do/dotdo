@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "dotdo": "workspace:*",
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241230.0",
     "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
     "wrangler": "^4.58.0"
   }
 }
