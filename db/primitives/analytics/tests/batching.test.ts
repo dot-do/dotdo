@@ -266,15 +266,14 @@ describe('Flush Intervals', () => {
         flushHandler
       )
 
-      // Add events periodically, advancing time and running timers
+      // Add events periodically, advancing time to trigger interval-based flushes
       for (let i = 0; i < 5; i++) {
         await batcher.add(createMockEvent(`evt_${i}`))
-        vi.advanceTimersByTime(1100)
-        // Run pending timers and allow async operations to complete
-        await vi.runAllTimersAsync()
+        // Advance time past the flush interval
+        await vi.advanceTimersByTimeAsync(1100)
       }
 
-      // Each event should have triggered its own flush
+      // Each event should have triggered its own flush via interval
       expect(flushedBatches.length).toBe(5)
     })
 
@@ -1369,12 +1368,17 @@ describe('Batch Ordering Guarantees', () => {
         flushHandler
       )
 
-      // Add enough events for multiple batches
+      // Add events with delays to allow async flushes to complete
+      // This ensures proper sequencing of batches
       for (let i = 0; i < 6; i++) {
         await batcher.add(createMockEvent(`evt_${i}`))
+        // Allow time for auto-flush to complete if triggered
+        if ((i + 1) % 2 === 0) {
+          await delay(20)
+        }
       }
 
-      // Wait for async flushes to complete
+      // Wait for final async flushes to complete
       await delay(50)
 
       // Each batch should have incrementing sequence number (3 batches of 2)

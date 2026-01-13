@@ -396,7 +396,9 @@ describe('CypherParser', () => {
     })
 
     it('throws on invalid relationship syntax', () => {
-      expect(() => parser.parse('MATCH (a)-->(b) RETURN a')).toThrow()
+      // --> is actually valid Cypher (shorthand for -[]->)
+      // Single dash without arrow is invalid
+      expect(() => parser.parse('MATCH (a)-(b) RETURN a')).toThrow()
     })
 
     it('throws on unclosed parenthesis', () => {
