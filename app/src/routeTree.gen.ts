@@ -8,48 +8,49 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './../routes/__root'
-import { Route as SplatRouteImport } from './../routes/$'
-import { Route as IndexRouteImport } from './../routes/index'
-import { Route as DocsSplatRouteImport } from './../routes/docs/$'
-import { Route as AppAppRouteImport } from './../routes/app/_app'
-import { Route as ApiSearchRouteImport } from './../routes/api/search'
-import { Route as AdminAdminRouteImport } from './../routes/admin/_admin'
-import { Route as AppWorkflowsIndexRouteImport } from './../routes/app/workflows/index'
-import { Route as AppTasksIndexRouteImport } from './../routes/app/tasks/index'
-import { Route as AppSettingsIndexRouteImport } from './../routes/app/settings/index'
-import { Route as AppProjectsIndexRouteImport } from './../routes/app/projects/index'
-import { Route as AppAppIndexRouteImport } from './../routes/app/_app.index'
-import { Route as AdminWorkflowsIndexRouteImport } from './../routes/admin/workflows/index'
-import { Route as AdminUsersIndexRouteImport } from './../routes/admin/users/index'
-import { Route as AdminSettingsIndexRouteImport } from './../routes/admin/settings/index'
-import { Route as AdminSandboxesIndexRouteImport } from './../routes/admin/sandboxes/index'
-import { Route as AdminIntegrationsIndexRouteImport } from './../routes/admin/integrations/index'
-import { Route as AdminBrowsersIndexRouteImport } from './../routes/admin/browsers/index'
-import { Route as AdminApprovalsIndexRouteImport } from './../routes/admin/approvals/index'
-import { Route as AdminActivityIndexRouteImport } from './../routes/admin/activity/index'
-import { Route as AdminAdminIndexRouteImport } from './../routes/admin/_admin.index'
-import { Route as AppWorkflowsNewRouteImport } from './../routes/app/workflows/new'
-import { Route as AppProjectsNewRouteImport } from './../routes/app/projects/new'
-import { Route as AppProjectsProjectIdRouteImport } from './../routes/app/projects/$projectId'
-import { Route as AdminWorkflowsWorkflowIdRouteImport } from './../routes/admin/workflows/$workflowId'
-import { Route as AdminUsersNewRouteImport } from './../routes/admin/users/new'
-import { Route as AdminUsersUserIdRouteImport } from './../routes/admin/users/$userId'
-import { Route as AdminSettingsSecurityRouteImport } from './../routes/admin/settings/security'
-import { Route as AdminSettingsAppearanceRouteImport } from './../routes/admin/settings/appearance'
-import { Route as AdminSettingsAccountRouteImport } from './../routes/admin/settings/account'
-import { Route as AdminSandboxesSandboxIdRouteImport } from './../routes/admin/sandboxes/$sandboxId'
-import { Route as AdminIntegrationsApiKeysRouteImport } from './../routes/admin/integrations/api-keys'
-import { Route as AdminIntegrationsIntegrationIdRouteImport } from './../routes/admin/integrations/$integrationId'
-import { Route as AdminBrowsersBrowserIdRouteImport } from './../routes/admin/browsers/$browserId'
-import { Route as AdminApprovalsHistoryRouteImport } from './../routes/admin/approvals/history'
-import { Route as AdminApprovalsApprovalIdRouteImport } from './../routes/admin/approvals/$approvalId'
-import { Route as AdminActivityLogIdRouteImport } from './../routes/admin/activity/$logId'
-import { Route as AdminAdminSignupRouteImport } from './../routes/admin/_admin.signup'
-import { Route as AdminAdminResetPasswordRouteImport } from './../routes/admin/_admin.reset-password'
-import { Route as AdminAdminLoginRouteImport } from './../routes/admin/_admin.login'
-import { Route as AdminWorkflowsWorkflowIdRunsRouteImport } from './../routes/admin/workflows/$workflowId/runs'
-import { Route as AdminWorkflowsWorkflowIdRunsRunIdRouteImport } from './../routes/admin/workflows/$workflowId/runs/$runId'
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as SplatRouteImport } from './routes/$'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as DocsIndexRouteImport } from './routes/docs/index'
+import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as AppAppRouteImport } from './routes/app/_app'
+import { Route as ApiSearchRouteImport } from './routes/api/search'
+import { Route as AdminAdminRouteImport } from './routes/admin/_admin'
+import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
+import { Route as AppTasksIndexRouteImport } from './routes/app/tasks/index'
+import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
+import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
+import { Route as AppAppIndexRouteImport } from './routes/app/_app.index'
+import { Route as AdminWorkflowsIndexRouteImport } from './routes/admin/workflows/index'
+import { Route as AdminUsersIndexRouteImport } from './routes/admin/users/index'
+import { Route as AdminSettingsIndexRouteImport } from './routes/admin/settings/index'
+import { Route as AdminSandboxesIndexRouteImport } from './routes/admin/sandboxes/index'
+import { Route as AdminIntegrationsIndexRouteImport } from './routes/admin/integrations/index'
+import { Route as AdminBrowsersIndexRouteImport } from './routes/admin/browsers/index'
+import { Route as AdminApprovalsIndexRouteImport } from './routes/admin/approvals/index'
+import { Route as AdminActivityIndexRouteImport } from './routes/admin/activity/index'
+import { Route as AdminAdminIndexRouteImport } from './routes/admin/_admin.index'
+import { Route as AppWorkflowsNewRouteImport } from './routes/app/workflows/new'
+import { Route as AppProjectsNewRouteImport } from './routes/app/projects/new'
+import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
+import { Route as AdminWorkflowsWorkflowIdRouteImport } from './routes/admin/workflows/$workflowId'
+import { Route as AdminUsersNewRouteImport } from './routes/admin/users/new'
+import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users/$userId'
+import { Route as AdminSettingsSecurityRouteImport } from './routes/admin/settings/security'
+import { Route as AdminSettingsAppearanceRouteImport } from './routes/admin/settings/appearance'
+import { Route as AdminSettingsAccountRouteImport } from './routes/admin/settings/account'
+import { Route as AdminSandboxesSandboxIdRouteImport } from './routes/admin/sandboxes/$sandboxId'
+import { Route as AdminIntegrationsApiKeysRouteImport } from './routes/admin/integrations/api-keys'
+import { Route as AdminIntegrationsIntegrationIdRouteImport } from './routes/admin/integrations/$integrationId'
+import { Route as AdminBrowsersBrowserIdRouteImport } from './routes/admin/browsers/$browserId'
+import { Route as AdminApprovalsHistoryRouteImport } from './routes/admin/approvals/history'
+import { Route as AdminApprovalsApprovalIdRouteImport } from './routes/admin/approvals/$approvalId'
+import { Route as AdminActivityLogIdRouteImport } from './routes/admin/activity/$logId'
+import { Route as AdminAdminSignupRouteImport } from './routes/admin/_admin.signup'
+import { Route as AdminAdminResetPasswordRouteImport } from './routes/admin/_admin.reset-password'
+import { Route as AdminAdminLoginRouteImport } from './routes/admin/_admin.login'
+import { Route as AdminWorkflowsWorkflowIdRunsRouteImport } from './routes/admin/workflows/$workflowId/runs'
+import { Route as AdminWorkflowsWorkflowIdRunsRunIdRouteImport } from './routes/admin/workflows/$workflowId/runs/$runId'
 
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
@@ -59,6 +60,11 @@ const SplatRoute = SplatRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/docs/',
+  path: '/docs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -270,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/api/search': typeof ApiSearchRoute
   '/app': typeof AppAppRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
   '/admin/reset-password': typeof AdminAdminResetPasswordRoute
   '/admin/signup': typeof AdminAdminSignupRoute
@@ -311,6 +318,7 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/docs': typeof DocsIndexRoute
   '/admin/login': typeof AdminAdminLoginRoute
   '/admin/reset-password': typeof AdminAdminResetPasswordRoute
   '/admin/signup': typeof AdminAdminSignupRoute
@@ -355,6 +363,7 @@ export interface FileRoutesById {
   '/api/search': typeof ApiSearchRoute
   '/app/_app': typeof AppAppRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/docs/': typeof DocsIndexRoute
   '/admin/_admin/login': typeof AdminAdminLoginRoute
   '/admin/_admin/reset-password': typeof AdminAdminResetPasswordRoute
   '/admin/_admin/signup': typeof AdminAdminSignupRoute
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/api/search'
     | '/app'
     | '/docs/$'
+    | '/docs'
     | '/admin/login'
     | '/admin/reset-password'
     | '/admin/signup'
@@ -441,6 +451,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/api/search'
     | '/docs/$'
+    | '/docs'
     | '/admin/login'
     | '/admin/reset-password'
     | '/admin/signup'
@@ -484,6 +495,7 @@ export interface FileRouteTypes {
     | '/api/search'
     | '/app/_app'
     | '/docs/$'
+    | '/docs/'
     | '/admin/_admin/login'
     | '/admin/_admin/reset-password'
     | '/admin/_admin/signup'
@@ -528,6 +540,7 @@ export interface RootRouteChildren {
   ApiSearchRoute: typeof ApiSearchRoute
   AppAppRoute: typeof AppAppRouteWithChildren
   DocsSplatRoute: typeof DocsSplatRoute
+  DocsIndexRoute: typeof DocsIndexRoute
   AdminActivityLogIdRoute: typeof AdminActivityLogIdRoute
   AdminApprovalsApprovalIdRoute: typeof AdminApprovalsApprovalIdRoute
   AdminApprovalsHistoryRoute: typeof AdminApprovalsHistoryRoute
@@ -572,6 +585,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/': {
+      id: '/docs/'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -916,6 +936,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSearchRoute: ApiSearchRoute,
   AppAppRoute: AppAppRouteWithChildren,
   DocsSplatRoute: DocsSplatRoute,
+  DocsIndexRoute: DocsIndexRoute,
   AdminActivityLogIdRoute: AdminActivityLogIdRoute,
   AdminApprovalsApprovalIdRoute: AdminApprovalsApprovalIdRoute,
   AdminApprovalsHistoryRoute: AdminApprovalsHistoryRoute,
@@ -948,3 +969,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

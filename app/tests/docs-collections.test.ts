@@ -162,11 +162,8 @@ describe('Docs Multi-Collection Architecture', () => {
 })
 
 describe('Static Prerender Configuration', () => {
-  // NOTE: Prerender disabled due to RSC boundary issues - some routes import client-only modules
-  // The SSR noExternal config fixes package bundling (dotdo-si2va RESOLVED)
-  // New issue: RSC boundary violations in admin routes (xterm, etc.)
   describe('Vite Prerender Config', () => {
-    it.skip('should have prerender enabled in vite.config.ts', async () => {
+    it('should have prerender enabled in vite.config.ts', async () => {
       // Read vite.config.ts and verify prerender is enabled
       const configPath = resolve(APP_DIR, 'vite.config.ts')
       expect(existsSync(configPath)).toBe(true)
@@ -180,7 +177,7 @@ describe('Static Prerender Configuration', () => {
       expect(configContent).toMatch(/enabled:\s*true/)
     })
 
-    it.skip('should have concurrency configured for memory management', async () => {
+    it('should have concurrency configured for memory management', async () => {
       const configPath = resolve(APP_DIR, 'vite.config.ts')
       const configContent = await import('fs').then((fs) =>
         fs.readFileSync(configPath, 'utf-8')
@@ -190,7 +187,7 @@ describe('Static Prerender Configuration', () => {
       expect(configContent).toMatch(/concurrency:\s*\d+/)
     })
 
-    it.skip('should have routes configured for prerendering', async () => {
+    it('should have routes configured for prerendering', async () => {
       const configPath = resolve(APP_DIR, 'vite.config.ts')
       const configContent = await import('fs').then((fs) =>
         fs.readFileSync(configPath, 'utf-8')
