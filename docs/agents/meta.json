@@ -7,11 +7,6 @@
     "---Named Agents---",
     "named-agents",
     "---Build Your Own---",
-    "custom-agents",
-    "tools",
-    "providers",
-    "multi-agent",
-    "---Testing---",
-    "testing"
+    "custom-agents"
   ]
 }

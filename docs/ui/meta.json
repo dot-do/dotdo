@@ -1,13 +1,5 @@
 {
   "root": true,
   "title": "UI",
-  "description": "Frontend components, MDXUI, and TanStack integration",
-  "pages": [
-    "index",
-    "components",
-    "---Libraries---",
-    "beacon",
-    "cockpit",
-    "admin"
-  ]
+  "description": "Frontend components, MDXUI, and TanStack integration"
 }

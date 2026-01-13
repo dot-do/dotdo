@@ -19,6 +19,7 @@ import { buildResponse, type ResponseOptions } from '../../../lib/response/linke
 import { buildCollectionResponse, type CollectionResponseOptions } from '../../../lib/response/collection'
 import { buildRelationships, type RelationshipsOptions } from '../../../lib/response/relationships'
 import { buildIdUrl, buildTypeUrl, normalizeNs, pluralize } from '../../../lib/response/urls'
+import { RPCServer, type RPCServerConfig, type RPCRequest, type RPCCall } from '../rpc-server'
 
 // ============================================================================
 // TEST FIXTURES

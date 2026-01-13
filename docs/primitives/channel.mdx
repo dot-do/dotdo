@@ -347,14 +347,14 @@ interface PersistenceConfig {
 
 ## Comparison
 
-| Feature | @dotdo/channel | EventEmitter | Pusher | Socket.IO |
-|---------|----------------|--------------|--------|-----------|
-| Typed events | Yes | No | No | No |
-| Presence | Yes | No | Yes | Yes |
-| Persistence | Yes | No | No | No |
-| Backpressure | Yes | No | No | No |
-| Edge runtime | Yes | No | Client only | No |
-| Single API | Yes | - | - | - |
+| Feature | EventEmitter | Pusher | Socket.IO | channel |
+|---------|-------------|--------|-----------|---------|
+| Typed events | No | No | No | Yes |
+| Presence | No | Yes | Yes | Yes |
+| Persistence | No | No | No | Yes |
+| Backpressure | No | No | No | Yes |
+| Edge runtime | No | Client only | No | Yes |
+| Single API | - | - | - | Yes |
 
 ## Next Steps
 

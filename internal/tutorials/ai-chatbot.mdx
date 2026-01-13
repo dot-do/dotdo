@@ -161,7 +161,7 @@ export class Conversation extends DO {
       content: result.text
     })
 
-    // Track for analytics - fire-and-forget
+    // Track for analytics - fire and forget
     $.send('message.sent', {
       conversationId: this.id,
       promptTokens: result.usage.promptTokens,

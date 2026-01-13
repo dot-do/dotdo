@@ -5,8 +5,6 @@
   "pages": [
     "index",
     "escalation",
-    "roles",
-    "notification-channels",
     "approval-workflows"
   ]
 }

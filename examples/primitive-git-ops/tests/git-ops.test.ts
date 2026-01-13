@@ -22,7 +22,7 @@ import {
   canAutoMerge,
   type FileChange,
 } from '../src/operations'
-import type { GitStatus } from '../../../lib/capabilities/git'
+import type { GitStatus } from '../../../lib/mixins/git'
 
 // ============================================================================
 // Test Utilities

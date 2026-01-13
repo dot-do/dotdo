@@ -5,7 +5,7 @@ description: Drop-in replacement for @sendgrid/mail with transactional email, te
 
 # SendGrid
 
-Drop-in replacement for `@sendgrid/mail`. Your existing `@sendgrid/mail` code works unchanged - just swap the import.
+Drop-in replacement for `@sendgrid/mail`. Same API, runs on Cloudflare Workers.
 
 ```typescript
 // Before
@@ -17,17 +17,17 @@ import sgMail from '@dotdo/sendgrid'
 
 Your existing SendGrid code works unchanged. No migration required.
 
-## Why @dotdo/sendgrid?
+## Why sendgrid.do?
 
-| Feature | @dotdo/sendgrid | SendGrid |
-|---------|-----------------|----------|
-| **API compatibility** | 100% compatible | Native |
-| **Runtime** | Edge (300+ cities) | Node.js |
-| **Cold start** | 0ms (V8 isolates) | Variable |
-| **Template storage** | DO SQLite | SendGrid servers |
-| **Exactly-once delivery** | Yes (idempotency keys) | No |
-| **Audit logs** | Built-in temporal store | Separate product |
-| **Outbox pattern** | Built-in transactions | DIY |
+| Feature | SendGrid | sendgrid.do |
+|---------|----------|-------------|
+| **API compatibility** | Native | 100% compatible |
+| **Runtime** | Node.js | Edge (300+ cities) |
+| **Cold start** | Variable | 0ms (V8 isolates) |
+| **Template storage** | SendGrid servers | DO SQLite |
+| **Exactly-once delivery** | No | Yes (idempotency keys) |
+| **Audit logs** | Separate product | Built-in temporal store |
+| **Outbox pattern** | DIY | Built-in transactions |
 
 ## Features
 
@@ -145,24 +145,6 @@ await sgMail.send({
 ## Attachments
 
 ```typescript
-// Helper: Convert ArrayBuffer to base64 (edge-compatible, no Buffer)
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
-
-// Get PDF content - from storage or generated
-const pdfData = await env.R2.get('invoices/order-123.pdf')
-const pdfBase64 = arrayBufferToBase64(await pdfData.arrayBuffer())
-
-// Get image for inline attachment
-const logoData = await env.R2.get('assets/logo.png')
-const logoBase64 = arrayBufferToBase64(await logoData.arrayBuffer())
-
 await sgMail.send({
   to: 'user@example.com',
   from: 'billing@example.com',
@@ -170,7 +152,7 @@ await sgMail.send({
   text: 'Please find your invoice attached.',
   attachments: [
     {
-      content: pdfBase64,
+      content: Buffer.from(pdfData).toString('base64'),
       filename: 'invoice.pdf',
       type: 'application/pdf',
       disposition: 'attachment',
@@ -683,63 +665,19 @@ import { SendGridClient } from '@dotdo/sendgrid'
 
 const client = new SendGridClient({ apiKey: process.env.SENDGRID_API_KEY })
 
-// Helper function to split array into chunks
-function chunkArray<T>(array: T[], chunkSize: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize))
-  }
-  return chunks
-}
-
-// Helper to add delay between batches for rate limiting
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-interface BatchResult {
-  successful: number
-  failed: number
-  errors: Array<{ chunk: number; error: Error }>
-}
-
-async function sendNewsletter(
-  subscribers: string[],
-  content: { subject: string; html: string }
-): Promise<BatchResult> {
-  // Batch into chunks of 1000 (SendGrid limit per request)
+async function sendNewsletter(subscribers: string[], content: { subject: string; html: string }) {
+  // Batch into chunks of 1000 (SendGrid limit)
   const chunks = chunkArray(subscribers, 1000)
-  const result: BatchResult = { successful: 0, failed: 0, errors: [] }
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i]
-
-    try {
-      await client.mail.send({
-        personalizations: chunk.map(email => ({ to: [{ email }] })),
-        from: 'newsletter@yourcompany.com',
-        subject: content.subject,
-        html: content.html,
-        categories: ['newsletter'],
-      })
-      result.successful += chunk.length
-
-      // Rate limiting: wait 100ms between batches to avoid hitting SendGrid limits
-      // SendGrid has a default rate limit of 600 requests/minute
-      if (i < chunks.length - 1) {
-        await delay(100)
-      }
-    } catch (error) {
-      result.failed += chunk.length
-      result.errors.push({ chunk: i, error: error as Error })
-
-      // Optional: continue with remaining batches even if one fails
-      // Remove this continue statement to stop on first error
-      continue
-    }
+  for (const chunk of chunks) {
+    await client.mail.send({
+      personalizations: chunk.map(email => ({ to: [{ email }] })),
+      from: 'newsletter@yourcompany.com',
+      subject: content.subject,
+      html: content.html,
+      categories: ['newsletter'],
+    })
   }
-
-  return result
 }
 ```
 

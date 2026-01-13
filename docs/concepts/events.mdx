@@ -130,7 +130,7 @@ Trigger handlers across the system:
 
 ```typescript
 // Emit domain events
-$.emit.Customer.signup({ id: 'cust-123', email: 'alice@example.com' })
+$.emit.Customer.signup({ id: 'cust-123', email: 'alice@example.com.ai' })
 $.emit.Order.shipped({ orderId: 'ord-456', trackingNumber: 'TRK-789' })
 $.emit.Invoice.overdue({ invoiceId: 'inv-001', daysOverdue: 30 })
 ```
@@ -198,13 +198,13 @@ Domain events are automatically enriched to 5W+H:
 
 ```typescript
 // You write:
-$.emit.Customer.signup({ email: 'alice@example.com' })
+$.emit.Customer.signup({ email: 'alice@example.com.ai' })
 
 // System records:
 {
   // WHO
   actor: 'agent:system',
-  source: 'https://app.example.com/signup',
+  source: 'https://app.example.com.ai/signup',
 
   // WHAT
   object: 'Customer/cust-a1b2c3',
@@ -225,7 +225,7 @@ $.emit.Customer.signup({ email: 'alice@example.com' })
   // HOW
   method: 'code',
   branch: 'main',
-  context: { email: 'alice@example.com' }
+  context: { email: 'alice@example.com.ai' }
 }
 ```
 
@@ -309,7 +309,7 @@ EPCIS was designed for physical supply chains. Our 5W+H model extends this for d
 | Physical (EPCIS) | Digital (5W+H) |
 |------------------|----------------|
 | readPoint: warehouse scanner | readPoint: API endpoint |
-| bizLocation: store #123 | ns: app.example.com |
+| bizLocation: store #123 | ns: app.example.com.ai |
 | bizStep: shipping | verb: deployed |
 | disposition: in_transit | disposition: active |
 
@@ -359,7 +359,7 @@ The `method` field captures HOW an action was performed:
   object: 'Refund/refund-789',
   method: 'human',
   channel: 'dashboard',
-  actor: 'user:alice@example.com',
+  actor: 'user:alice@example.com.ai',
   reason: 'Customer escalation'
 }
 ```
@@ -398,5 +398,3 @@ Evalite traces are stored as events, enabling:
 - [Events Overview](/docs/events) - Event-driven architecture guide
 - [WorkflowContext](/docs/sdk/workflow-context) - The $ proxy
 - [Sqids](/docs/concepts/sqids) - Entity identification
-- [Workflows](/docs/workflows) - Durable workflow orchestration with the $ context DSL
-- [Workflow Triggers](/docs/workflows/triggers) - Event, schedule, manual, and webhook triggers

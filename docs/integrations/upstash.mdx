@@ -24,7 +24,7 @@ await redis.hset('session:abc', { userId: '123', role: 'admin' })
 await redis.expire('session:abc', 3600)
 ```
 
-## Why @dotdo/upstash?
+## Why upstash.do?
 
 | @upstash/* SDKs | @dotdo/upstash |
 |-----------------|----------------|
@@ -147,13 +147,13 @@ await redis.expire('session:abc', 3600)
 - HyperLogLog (`PFADD`, `PFCOUNT`, `PFMERGE`)
 - Geospatial (`GEOADD`, `GEODIST`, `GEOSEARCH`)
 
-## Quick Start
-
-### Install
+## Installation
 
 ```bash
 npm install @dotdo/upstash
 ```
+
+## Quick Start
 
 ### Redis
 

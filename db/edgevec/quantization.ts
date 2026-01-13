@@ -1,101 +1,10 @@
 /**
- * Vector Quantization - Memory-efficient Vector Storage
+ * Vector Quantization
  *
- * This module implements two vector quantization techniques for compressing
- * high-dimensional vectors while preserving distance relationships:
- *
- * - **Product Quantization (PQ)**: Higher compression with trained codebooks
- * - **Scalar Quantization (SQ)**: Simpler compression with learned ranges
- *
- * ## Comparison
- *
- * | Feature             | Product Quantization     | Scalar Quantization      |
- * |---------------------|--------------------------|--------------------------|
- * | Compression ratio   | 32x - 64x                | 4x                       |
- * | Training required   | Yes (k-means)            | Yes (min/max bounds)     |
- * | Accuracy            | Good                     | Better                   |
- * | Distance computation| ADC lookup tables        | Direct int8 arithmetic   |
- * | Memory per vector   | M bytes (e.g., 48B)      | D bytes (e.g., 768B)     |
- * | Use case            | Billion-scale search     | Million-scale search     |
- *
- * ## Product Quantization
- *
- * PQ divides vectors into M subvectors and quantizes each to K centroids:
- *
- * ```
- * D=768, M=48 subquantizers, K=256 centroids
- * 768 floats (3072 bytes) -> 48 uint8 codes (48 bytes) = 64x compression
- * ```
- *
- * ## Scalar Quantization
- *
- * SQ maps each float32 value to int8 using learned min/max bounds:
- *
- * ```
- * D=768 floats (3072 bytes) -> 768 int8 values (768 bytes) = 4x compression
- * ```
- *
- * @example Product Quantization
- * ```typescript
- * import { ProductQuantizer } from 'db/edgevec/quantization'
- *
- * // Create quantizer
- * const pq = new ProductQuantizer({
- *   dimensions: 768,
- *   numSubvectors: 48,     // M = 48 subspaces
- *   numCentroids: 256,     // K = 256 codes per subspace
- *   trainingIterations: 25
- * })
- *
- * // Train on sample data (need at least numCentroids * 10 vectors)
- * await pq.train(trainingVectors)
- *
- * // Encode vectors
- * const code = pq.encode(vector)  // Uint8Array of 48 bytes
- *
- * // Decode (approximate)
- * const reconstructed = pq.decode(code)
- *
- * // Create searchable index
- * const index = pq.createIndex()
- * index.insert('doc-1', vector)
- * const results = index.search(query, { k: 10 })
- * ```
- *
- * @example Scalar Quantization
- * ```typescript
- * import { ScalarQuantizer } from 'db/edgevec/quantization'
- *
- * const sq = new ScalarQuantizer({ dimensions: 768 })
- *
- * // Train on sample data to learn min/max bounds
- * await sq.train(trainingVectors)
- *
- * // Quantize vectors
- * const quantized = sq.quantize(vector)  // Int8Array
- *
- * // Dequantize (approximate)
- * const reconstructed = sq.dequantize(quantized)
- *
- * // Create searchable index
- * const index = sq.createIndex()
- * index.insert('doc-1', vector)
- * const results = index.search(query, { k: 10 })
- * ```
- *
- * @example Memory usage comparison
- * ```typescript
- * // For 100K vectors of 768 dimensions:
- * // - Full float32: 100K * 768 * 4 = 307MB
- * // - PQ (M=48):    100K * 48 = 4.8MB (64x reduction)
- * // - SQ (int8):    100K * 768 = 76.8MB (4x reduction)
- *
- * console.log(`PQ memory: ${pqIndex.memoryUsage()} bytes`)
- * console.log(`SQ memory: ${sqIndex.memoryUsage()} bytes`)
- * ```
+ * Implements Product Quantization (PQ) and Scalar Quantization (SQ)
+ * for memory-efficient vector storage with approximate search.
  *
  * @module db/edgevec/quantization
- * @see {@link https://ieeexplore.ieee.org/document/5432202 | Product Quantization Paper}
  */
 
 // ============================================================================
@@ -145,34 +54,10 @@ export interface QuantizedIndex {
 // ============================================================================
 
 /**
- * ProductQuantizer - Trainable vector compression using Product Quantization.
+ * Product Quantizer
  *
- * This class trains codebooks using k-means clustering and provides
- * encoding/decoding for vector compression.
- *
- * ## Training Requirements
- *
- * - Minimum training vectors: numCentroids * 10 (e.g., 2560 for K=256)
- * - Training time: O(numVectors * numSubvectors * numCentroids * trainingIterations)
- * - Memory during training: O(numVectors * dimensions)
- *
- * ## Compression Characteristics
- *
- * - Compression ratio: dimensions * 4 / numSubvectors (e.g., 64x for D=768, M=48)
- * - Reconstruction error increases with higher compression
- * - Distance estimation accuracy: ~95% recall at 10x recall candidates
- *
- * @example
- * ```typescript
- * const pq = new ProductQuantizer({
- *   dimensions: 768,
- *   numSubvectors: 48,
- *   numCentroids: 256
- * })
- *
- * await pq.train(trainingVectors)
- * const code = pq.encode(vector)  // 48 bytes instead of 3072
- * ```
+ * Divides vectors into M subvectors and quantizes each independently.
+ * Reduces memory from D*4 bytes to M bytes per vector (for 256 centroids).
  */
 export class ProductQuantizer {
   private config: Required<PQConfig>
@@ -516,30 +401,10 @@ class PQIndex implements QuantizedIndex {
 // ============================================================================
 
 /**
- * ScalarQuantizer - Simple per-dimension vector quantization to int8.
+ * Scalar Quantizer
  *
- * Scalar quantization is simpler than PQ but provides less compression.
- * It learns min/max bounds per dimension and maps float32 to int8.
- *
- * ## Advantages over PQ
- *
- * - Simpler training (just min/max, no k-means)
- * - Better accuracy for same query latency
- * - Direct arithmetic for distance computation
- *
- * ## Disadvantages
- *
- * - Lower compression (4x vs 64x)
- * - Higher memory per vector
- *
- * @example
- * ```typescript
- * const sq = new ScalarQuantizer({ dimensions: 768 })
- *
- * await sq.train(trainingVectors)
- * const quantized = sq.quantize(vector)  // Int8Array of 768 values
- * const reconstructed = sq.dequantize(quantized)
- * ```
+ * Quantizes each dimension independently to int8 (-128 to 127).
+ * Reduces memory from 4 bytes to 1 byte per value (4x reduction).
  */
 export class ScalarQuantizer {
   private config: Required<SQConfig>

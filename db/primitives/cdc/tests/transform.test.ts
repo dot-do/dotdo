@@ -1219,25 +1219,8 @@ describe('Transform', () => {
           fullName: (r) => `${r.firstName} ${r.lastName}`,
         }))
 
-      // Use inline transform since stream.transform is sync
       const stream = createCDCStream<SourceRecord, OutputRecord>({
-        transform: (e) => {
-          // Apply mask manually (sync)
-          const maskEmail = (record: SourceRecord | null): SourceRecord | null => {
-            if (!record) return null
-            return { ...record, email: '****' }
-          }
-          // Apply derive manually (sync)
-          const deriveFullName = (record: SourceRecord | null): OutputRecord | null => {
-            if (!record) return null
-            return { ...record, fullName: `${record.firstName} ${record.lastName}` }
-          }
-          return {
-            ...e,
-            before: deriveFullName(maskEmail(e.before)),
-            after: deriveFullName(maskEmail(e.after)),
-          }
-        },
+        transform: (e) => pipeline.transformSync(e),
         onChange: async (e) => events.push(e),
       })
 
@@ -1247,14 +1230,6 @@ describe('Transform', () => {
       expect(events).toHaveLength(1)
       expect(events[0]!.after!.email).toBe('****')
       expect(events[0]!.after!.fullName).toBe('John Doe')
-
-      // Also test the async pipeline directly
-      const inputEvent = createChange<SourceRecord>({
-        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
-      })
-      const pipelineOutput = await pipeline.transform(inputEvent)
-      expect(pipelineOutput!.after!.email).toBe('****')
-      expect(pipelineOutput!.after!.fullName).toBe('John Doe')
     })
   })
 })

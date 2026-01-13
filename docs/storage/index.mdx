@@ -3,8 +3,6 @@ title: Storage Architecture
 description: Tiered storage with automatic data flow - $0 egress, pennies per TB
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card'
-
 # Storage Architecture
 
 dotdo uses a three-tier storage architecture that automatically moves data based on access patterns. Your data flows from hot working sets to cold analytics without manual intervention.
@@ -101,37 +99,6 @@ For implementation details and architecture documentation:
 - **Columnar storage** - Each column stored as separate SQLite row for 99%+ cost savings
 - **Iceberg navigation** - 50-150ms point lookups vs 500ms-2s R2 SQL
 - **Tiered architecture** - Automatic data flow from hot (DO SQLite) to warm (R2/Iceberg) to cold (ClickHouse)
-
-## Storage Tiers
-
-<Cards>
-  <Card title="Hot Tier" href="/docs/storage/hot-tier">
-    DO SQLite for active working set with ~50ms reads.
-  </Card>
-  <Card title="Warm Tier" href="/docs/storage/warm-tier">
-    R2 + Iceberg/Parquet for cross-DO queries and historical data.
-  </Card>
-  <Card title="Cold Tier" href="/docs/storage/cold-tier">
-    ClickHouse + R2 Archive for analytics and aggregations.
-  </Card>
-</Cards>
-
-## Storage Components
-
-<Cards>
-  <Card title="KV Storage" href="/docs/storage/kv">
-    Cloudflare KV for globally distributed key-value storage.
-  </Card>
-  <Card title="R2 Object Storage" href="/docs/storage/r2">
-    R2 for blob storage with $0 egress and S3 compatibility.
-  </Card>
-  <Card title="Durable Objects Storage" href="/docs/storage/durable-objects">
-    Built-in DO storage for transactional state.
-  </Card>
-  <Card title="Migrations" href="/docs/storage/migrations">
-    Schema evolution and data migration patterns.
-  </Card>
-</Cards>
 
 ## Related
 

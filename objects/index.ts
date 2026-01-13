@@ -98,7 +98,7 @@ export {
   type PricingTier,
   type ServiceTask,
   type TaskCompletionOptions,
-  type TaskResult as ServiceTaskResult,
+  type TaskResult,
   type AgentAssignment,
   type ServiceMetrics,
   type ServiceEscalationConfig,

@@ -94,30 +94,6 @@ export interface MigrationScript {
   reverseOperations?: MigrationOperation[]
 }
 
-/**
- * Detected field rename
- */
-export interface FieldRename {
-  fromField: string
-  toField: string
-  confidence: number // 0-1, how confident we are this is a rename
-  reason: string
-}
-
-/**
- * Migration options for customizing migration generation
- */
-export interface MigrationOptions {
-  /** Enable automatic field rename detection */
-  detectRenames?: boolean
-  /** Minimum similarity threshold for rename detection (0-1, default 0.8) */
-  renameThreshold?: number
-  /** Custom field mappings to use instead of detection */
-  fieldMappings?: Record<string, string>
-  /** Custom default values for new fields */
-  customDefaults?: Record<string, unknown>
-}
-
 // ============================================================================
 // DEFAULT POLICIES
 // ============================================================================
@@ -205,195 +181,6 @@ function isTypeNarrowing(from: string, to: string): boolean {
   if (from === to) return false
   // Check if 'to' can be widened to 'from'
   return canWidenType(to, from)
-}
-
-// ============================================================================
-// FIELD RENAME DETECTION
-// ============================================================================
-
-/**
- * Calculate Levenshtein distance between two strings
- */
-function levenshteinDistance(a: string, b: string): number {
-  const m = a.length
-  const n = b.length
-
-  if (m === 0) return n
-  if (n === 0) return m
-
-  const dp: number[][] = Array(m + 1)
-    .fill(null)
-    .map(() => Array(n + 1).fill(0))
-
-  for (let i = 0; i <= m; i++) dp[i]![0] = i
-  for (let j = 0; j <= n; j++) dp[0]![j] = j
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      dp[i]![j] = Math.min(
-        dp[i - 1]![j]! + 1, // deletion
-        dp[i]![j - 1]! + 1, // insertion
-        dp[i - 1]![j - 1]! + cost // substitution
-      )
-    }
-  }
-
-  return dp[m]![n]!
-}
-
-/**
- * Calculate string similarity (0-1) based on Levenshtein distance
- */
-function stringSimilarity(a: string, b: string): number {
-  const maxLen = Math.max(a.length, b.length)
-  if (maxLen === 0) return 1
-  return 1 - levenshteinDistance(a.toLowerCase(), b.toLowerCase()) / maxLen
-}
-
-/**
- * Normalize field name for comparison (remove common prefixes/suffixes, convert case)
- */
-function normalizeFieldName(name: string): string {
-  return name
-    .replace(/^(is|has|get|set|_)/, '')
-    .replace(/(Id|ID|_id)$/, '')
-    .toLowerCase()
-    .replace(/[_-]/g, '')
-}
-
-/**
- * Check if two types are compatible for rename detection
- */
-function typesCompatibleForRename(fromType: string, toType: string): boolean {
-  if (fromType === toType) return true
-  // Allow widening (int -> number)
-  if (canWidenType(fromType, toType)) return true
-  // Allow narrowing (number -> int) with lower confidence
-  if (canWidenType(toType, fromType)) return true
-  return false
-}
-
-/**
- * Detect potential field renames between two schemas
- */
-function detectFieldRenames(
-  removedFields: string[],
-  addedFields: string[],
-  oldSchema: JSONSchema,
-  newSchema: JSONSchema,
-  threshold: number = 0.6
-): FieldRename[] {
-  const renames: FieldRename[] = []
-  const usedAdded = new Set<string>()
-
-  for (const removed of removedFields) {
-    const removedType = getSchemaTypeFromProps(oldSchema.properties?.[removed])
-    const normalizedRemoved = normalizeFieldName(removed)
-
-    let bestMatch: { field: string; confidence: number; reason: string } | null = null
-
-    for (const added of addedFields) {
-      if (usedAdded.has(added)) continue
-
-      const addedType = getSchemaTypeFromProps(newSchema.properties?.[added])
-      const normalizedAdded = normalizeFieldName(added)
-
-      // Calculate similarity score
-      let confidence = 0
-      const reasons: string[] = []
-
-      // Check if types are compatible
-      if (!typesCompatibleForRename(removedType, addedType)) {
-        continue // Skip if types are incompatible
-      }
-
-      // Exact normalized name match
-      if (normalizedRemoved === normalizedAdded) {
-        confidence = 0.95
-        reasons.push('normalized names match')
-      } else {
-        // String similarity
-        const nameSimilarity = stringSimilarity(removed, added)
-        const normalizedSimilarity = stringSimilarity(normalizedRemoved, normalizedAdded)
-        confidence = Math.max(nameSimilarity, normalizedSimilarity)
-        if (confidence >= threshold) {
-          reasons.push(`name similarity: ${(confidence * 100).toFixed(0)}%`)
-        }
-      }
-
-      // Boost confidence for same type
-      if (removedType === addedType) {
-        confidence = Math.min(1, confidence * 1.1)
-        reasons.push('same type')
-      }
-
-      // Check for common rename patterns
-      if (isCommonRenamePattern(removed, added)) {
-        confidence = Math.min(1, confidence + 0.2)
-        reasons.push('common rename pattern')
-      }
-
-      if (confidence >= threshold && (!bestMatch || confidence > bestMatch.confidence)) {
-        bestMatch = {
-          field: added,
-          confidence,
-          reason: reasons.join(', '),
-        }
-      }
-    }
-
-    if (bestMatch) {
-      renames.push({
-        fromField: removed,
-        toField: bestMatch.field,
-        confidence: bestMatch.confidence,
-        reason: bestMatch.reason,
-      })
-      usedAdded.add(bestMatch.field)
-    }
-  }
-
-  return renames
-}
-
-/**
- * Check for common field rename patterns
- */
-function isCommonRenamePattern(from: string, to: string): boolean {
-  const patterns = [
-    // camelCase <-> snake_case
-    [/([a-z])([A-Z])/g, '$1_$2'],
-    // userId <-> user_id
-    [/Id$/, '_id'],
-    // isActive <-> active
-    [/^is([A-Z])/, (m: string) => m[2]!.toLowerCase()],
-    // name -> fullName, firstName, etc.
-    [/^/, 'full'],
-    [/^/, 'first'],
-    [/^/, 'last'],
-  ]
-
-  const normalizedFrom = from.toLowerCase().replace(/[_-]/g, '')
-  const normalizedTo = to.toLowerCase().replace(/[_-]/g, '')
-
-  // Check if one is a prefix/suffix of the other
-  if (normalizedTo.includes(normalizedFrom) || normalizedFrom.includes(normalizedTo)) {
-    return true
-  }
-
-  return false
-}
-
-/**
- * Get schema type from properties (helper for rename detection)
- */
-function getSchemaTypeFromProps(schema?: JSONSchema): string {
-  if (!schema) return 'any'
-  if (Array.isArray(schema.type)) {
-    return schema.type.join(' | ')
-  }
-  return schema.type || 'any'
 }
 
 // ============================================================================
@@ -599,92 +386,27 @@ export class SchemaEvolution {
   /**
    * Migrate data from one schema version to another
    */
-  migrate(data: unknown, from: DataContract, to: DataContract, options?: MigrationOptions): unknown {
+  migrate(data: unknown, from: DataContract, to: DataContract): unknown {
     if (typeof data !== 'object' || data === null) {
       return data
     }
 
-    const script = this.generateMigration(from, to, options)
+    const script = this.generateMigration(from, to)
     return this.applyMigration(data as Record<string, unknown>, script)
-  }
-
-  /**
-   * Detect potential field renames between two schemas
-   */
-  detectRenames(from: DataContract, to: DataContract, threshold?: number): FieldRename[] {
-    const diff = this.diffSchemas(from.schema, to.schema)
-    return detectFieldRenames(
-      diff.removedFields,
-      diff.addedFields,
-      from.schema,
-      to.schema,
-      threshold ?? 0.6
-    )
   }
 
   /**
    * Generate a migration script between two schemas
    */
-  generateMigration(from: DataContract, to: DataContract, options?: MigrationOptions): MigrationScript {
+  generateMigration(from: DataContract, to: DataContract): MigrationScript {
     const operations: MigrationOperation[] = []
     const reverseOperations: MigrationOperation[] = []
     let isReversible = true
 
     const diff = this.diffSchemas(from.schema, to.schema)
 
-    // Detect renames if enabled
-    let renames: FieldRename[] = []
-    const renamedFrom = new Set<string>()
-    const renamedTo = new Set<string>()
-
-    if (options?.detectRenames !== false) {
-      // If custom field mappings provided, use them
-      if (options?.fieldMappings) {
-        for (const [fromField, toField] of Object.entries(options.fieldMappings)) {
-          if (diff.removedFields.includes(fromField) && diff.addedFields.includes(toField)) {
-            renames.push({
-              fromField,
-              toField,
-              confidence: 1.0,
-              reason: 'explicit mapping',
-            })
-          }
-        }
-      } else {
-        // Auto-detect renames
-        renames = detectFieldRenames(
-          diff.removedFields,
-          diff.addedFields,
-          from.schema,
-          to.schema,
-          options?.renameThreshold ?? 0.6
-        )
-      }
-
-      // Handle renames first (before adds/removes)
-      for (const rename of renames) {
-        renamedFrom.add(rename.fromField)
-        renamedTo.add(rename.toField)
-
-        operations.push({
-          type: 'rename',
-          fromField: rename.fromField,
-          toField: rename.toField,
-        })
-
-        // Reverse: rename back
-        reverseOperations.unshift({
-          type: 'rename',
-          fromField: rename.toField,
-          toField: rename.fromField,
-        })
-      }
-    }
-
-    // Handle removed fields (excluding renames)
+    // Handle removed fields
     for (const field of diff.removedFields) {
-      if (renamedFrom.has(field)) continue // Skip if renamed
-
       operations.push({
         type: 'remove',
         field,
@@ -700,15 +422,10 @@ export class SchemaEvolution {
       isReversible = false // Data loss
     }
 
-    // Handle added fields (excluding renames)
+    // Handle added fields
     for (const field of diff.addedFields) {
-      if (renamedTo.has(field)) continue // Skip if renamed
-
       const fieldSchema = to.schema.properties?.[field]
-      let defaultValue = options?.customDefaults?.[field]
-      if (defaultValue === undefined) {
-        defaultValue = fieldSchema?.default ?? this.getDefaultForType(this.getSchemaType(fieldSchema))
-      }
+      const defaultValue = fieldSchema?.default ?? this.getDefaultForType(this.getSchemaType(fieldSchema))
 
       operations.push({
         type: 'add',
@@ -1043,43 +760,6 @@ export function suggestMigration(
   const evolution = new SchemaEvolution('full')
   const result = evolution.checkCompatibility(oldSchema, newSchema)
   return result.suggestedFixes
-}
-
-/**
- * Detect potential field renames between two schemas
- */
-export function detectPotentialRenames(
-  oldSchema: DataContract,
-  newSchema: DataContract,
-  threshold?: number
-): FieldRename[] {
-  const evolution = new SchemaEvolution('none')
-  return evolution.detectRenames(oldSchema, newSchema, threshold)
-}
-
-/**
- * Create a migration script with options
- */
-export function createMigrationScript(
-  from: DataContract,
-  to: DataContract,
-  options?: MigrationOptions
-): MigrationScript {
-  const evolution = new SchemaEvolution('none')
-  return evolution.generateMigration(from, to, options)
-}
-
-/**
- * Migrate data between schema versions
- */
-export function migrateData(
-  data: unknown,
-  from: DataContract,
-  to: DataContract,
-  options?: MigrationOptions
-): unknown {
-  const evolution = new SchemaEvolution('none')
-  return evolution.migrate(data, from, to, options)
 }
 
 // ============================================================================

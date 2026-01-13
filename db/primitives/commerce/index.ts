@@ -143,63 +143,6 @@ export {
 } from './pricing'
 
 // =============================================================================
-// Revenue Recognition - ASC 606 compliant revenue recognition
-// =============================================================================
-
-export {
-  // Types
-  type RecognitionMethod,
-  type ObligationStatus,
-  type ContractStatus,
-  type PerformanceObligation,
-  type Milestone,
-  type Contract,
-  type ContractModification,
-  type DeferredRevenueEntry,
-  type RecognitionSchedule,
-  type RecognitionScheduleEntry,
-  type RecognitionPeriod,
-  type PeriodRecognitionSummary,
-  type CreateContractInput,
-  type CreateObligationInput,
-  type UpdateObligationProgressInput,
-  type RecognitionQuery,
-  type AllocationResult,
-
-  // Accounting Export Types
-  type RevenueAccountCodes,
-  type JournalEntryLine,
-  type AccountingJournalEntry,
-  type AccountingExportOptions,
-  type AccountingExportResult,
-  DEFAULT_REVENUE_ACCOUNT_CODES,
-
-  // Interface
-  type RevenueRecognitionManager,
-
-  // Factory
-  createRevenueRecognitionManager,
-
-  // ASC 606 Compliance Helpers
-  allocateTransactionPrice,
-  applyVariableConsiderationConstraint,
-  determineRecognitionTiming,
-  calculateStraightLineAmount,
-  calculateUsageBasedAmount,
-  calculatePercentageOfCompletionAmount,
-  calculateMilestoneAmount,
-
-  // Accounting Export Helpers
-  createDeferredRevenueEntry,
-  createRevenueRecognitionEntry,
-  createUnbilledRevenueEntry,
-  createBatchRecognitionEntries,
-  createAccountingExportSummary,
-  validateJournalEntries,
-  formatJournalEntriesAsCSV,
-} from './revenue-recognition'
-
-// =============================================================================
 // Commerce Engine - Unified interface
 // =============================================================================
 

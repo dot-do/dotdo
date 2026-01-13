@@ -47,8 +47,6 @@ export {
   checkEscalationSLA,
   findExpiredApprovals,
   findExpiredEscalations,
-  // Human DO Store (SQLite-backed)
-  createHumanDOStore,
   // Types
   type EscalateOptions,
   type ApprovalDocument,
@@ -58,9 +56,6 @@ export {
   type ApprovalRelationship,
   type ApprovalData,
   type PendingApproval,
-  type HumanDOStore,
-  type HumanEscalationRelationship,
-  type HumanApprovalRelationship,
 } from './human-escalation'
 
 // WaitForEvent via verb form relationships
@@ -144,37 +139,3 @@ export {
   type ScheduleByWorkflow,
   type TriggerHistoryEntry,
 } from './schedule-triggers'
-
-// Step Execution Store via verb form relationships
-export {
-  // Factory
-  createStepExecutionStore,
-  // Store class
-  StepExecutionStore,
-  // Types
-  type StepExecutionState,
-  type StepExecutionData,
-  type StepExecutionRelationship,
-  type CreateStepExecutionInput,
-  type CompleteStepExecutionInput,
-  type FailStepExecutionInput,
-  type QueryStepExecutionOptions,
-} from './step-execution-store'
-
-// Pause/Resume Store via verb form relationships
-export {
-  // Factory
-  createPauseResumeStore,
-  // Store class
-  PauseResumeStore,
-  // Types
-  type PauseResumeState,
-  type PauseData,
-  type ResumeData,
-  type WaitForEventData as PauseResumeWaitForEventData,
-  type PauseResumeRelationship,
-  type WaitForEventRelationship as PauseResumeWaitForEventRelationship,
-  type PauseInput,
-  type ResumeInput,
-  type WaitForEventInput as PauseResumeWaitForEventInput,
-} from './pause-resume-store'

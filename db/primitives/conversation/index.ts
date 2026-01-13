@@ -25,6 +25,3 @@ export {
 
 // State machine for conversation flow
 export * from './state-machine'
-
-// Analytics for conversation metrics
-export * from './analytics'

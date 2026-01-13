@@ -281,7 +281,7 @@ export class MyStartup extends Startup {
           window: '1h'
         },
         severity: 'info',
-        notify: ['email:ops@example.com']
+        notify: ['email:ops@example.com.ai']
       }
     ]
   }
@@ -310,15 +310,15 @@ export class MyStartup extends Startup {
       },
       email: {
         smtp: {
-          host: 'smtp.example.com',
+          host: 'smtp.example.com.ai',
           port: 587,
           user: process.env.SMTP_USER,
           password: process.env.SMTP_PASS
         },
-        from: 'alerts@example.com'
+        from: 'alerts@example.com.ai'
       },
       webhook: {
-        url: 'https://example.com/alerts',
+        url: 'https://example.com.ai/alerts',
         headers: { 'Authorization': 'Bearer ...' }
       }
     }
@@ -344,8 +344,8 @@ Alerts include full context:
     "region": "us-west"
   },
   "annotations": {
-    "dashboard": "https://dash.example.com/errors",
-    "runbook": "https://docs.example.com/runbooks/high-error-rate"
+    "dashboard": "https://dash.example.com.ai/errors",
+    "runbook": "https://docs.example.com.ai/runbooks/high-error-rate"
   }
 }
 ```
@@ -515,8 +515,8 @@ Link alerts to runbooks:
 {
   name: 'database-connection-pool-exhausted',
   annotations: {
-    runbook: 'https://docs.example.com/runbooks/db-pool',
-    dashboard: 'https://grafana.example.com/d/db-health'
+    runbook: 'https://docs.example.com.ai/runbooks/db-pool',
+    dashboard: 'https://grafana.example.com.ai/d/db-health'
   }
 }
 ```

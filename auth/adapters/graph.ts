@@ -21,7 +21,6 @@
 
 import { randomUUID } from 'crypto'
 import type { GraphStore } from '../../db/graph/types'
-import { AUTH_TYPE_IDS } from '../../db/graph/constants'
 
 // ============================================================================
 // TYPES
@@ -151,29 +150,18 @@ interface AccountData {
 }
 
 // ============================================================================
-// CONSTANTS (from centralized db/graph/constants.ts)
+// CONSTANTS
 // ============================================================================
 
-/**
- * Type IDs for auth entities.
- * Re-exported from db/graph/constants.ts for local use.
- */
-const TYPE_IDS = AUTH_TYPE_IDS
+const TYPE_IDS = {
+  User: 1,
+  Session: 2,
+  Account: 3,
+} as const
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * Simple email format validation
- * Checks for basic email structure: something@something.something
- */
-function isValidEmail(email: string): boolean {
-  if (!email || email.trim() === '') return false
-  // Basic email regex - checks for @ with content on both sides and a dot after @
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}
 
 /**
  * Generate URL for auth entity
@@ -229,11 +217,6 @@ class GraphAuthAdapterImpl implements GraphAuthAdapter {
     emailVerified?: boolean
     image?: string | null
   }): Promise<User> {
-    // Validate email format
-    if (!isValidEmail(data.email)) {
-      throw new Error(`Invalid email format: '${data.email}'`)
-    }
-
     // Check for duplicate email
     const existing = await this.getUserByEmail(data.email)
     if (existing) {
@@ -291,14 +274,6 @@ class GraphAuthAdapterImpl implements GraphAuthAdapter {
       throw new Error(`User with ID '${id}' not found`)
     }
 
-    // If updating email, check for duplicates
-    if (data.email !== undefined) {
-      const emailOwner = await this.getUserByEmail(data.email)
-      if (emailOwner && emailOwner.id !== id) {
-        throw new Error(`User with email '${data.email}' already exists`)
-      }
-    }
-
     const currentData = (await this.store.getThing(id))!.data as UserData
     const newData: UserData = {
       ...currentData,
@@ -338,12 +313,6 @@ class GraphAuthAdapterImpl implements GraphAuthAdapter {
     userAgent?: string | null
     ipAddress?: string | null
   }): Promise<Session> {
-    // Verify user exists (relationship integrity)
-    const user = await this.getUserById(data.userId)
-    if (!user) {
-      throw new Error(`Cannot create session for non-existent user '${data.userId}'`)
-    }
-
     const id = randomUUID()
     const sessionData: SessionData = {
       token: data.token,
@@ -469,12 +438,6 @@ class GraphAuthAdapterImpl implements GraphAuthAdapter {
     refreshTokenExpiresAt?: Date | null
     scope?: string | null
   }): Promise<Account> {
-    // Verify user exists (relationship integrity)
-    const user = await this.getUserById(data.userId)
-    if (!user) {
-      throw new Error(`Cannot link account to non-existent user '${data.userId}'`)
-    }
-
     // Check for duplicate provider + providerAccountId
     const existing = await this.getAccountByProvider(data.provider, data.providerAccountId)
     if (existing) {
