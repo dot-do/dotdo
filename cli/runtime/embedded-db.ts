@@ -8,7 +8,6 @@
 import { Logger, createLogger } from '../utils/logger'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 
 export interface DOState {
   id: string
@@ -49,29 +48,22 @@ export class EmbeddedDB {
     } else if (options.persist === false) {
       this.dbPath = ':memory:'
     } else {
-      // Default: .dotdo directory in project or home
-      const dotdoDir = this.findDotdoDir()
-      this.dbPath = path.join(dotdoDir, 'local.db')
+      // Default: .do/state directory in project (no global fallback)
+      const stateDir = this.getStateDir()
+      this.dbPath = path.join(stateDir, 'local.db')
     }
 
     this.ensureDir()
   }
 
   /**
-   * Find or create .dotdo directory
+   * Get the state directory path
+   * Always uses .do/state in the current working directory
+   * No global fallback to home directory
    */
-  private findDotdoDir(): string {
-    // Look for project .dotdo first
+  private getStateDir(): string {
     const projectDir = process.cwd()
-    const projectDotdo = path.join(projectDir, '.dotdo')
-
-    if (fs.existsSync(projectDotdo)) {
-      return projectDotdo
-    }
-
-    // Fall back to home directory
-    const homeDotdo = path.join(os.homedir(), '.dotdo')
-    return homeDotdo
+    return path.join(projectDir, '.do', 'state')
   }
 
   /**

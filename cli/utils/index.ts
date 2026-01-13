@@ -13,3 +13,16 @@ export {
   getConfigValue,
   type DotdoConfig,
 } from './config'
+export {
+  discoverSurface,
+  discoverContentFolder,
+  discoverAll,
+  type Surface,
+  type ContentFolder,
+  type DiscoveryResult,
+} from './discover'
+export {
+  scaffold,
+  type ScaffoldOptions,
+  type ScaffoldResult,
+} from './scaffold'

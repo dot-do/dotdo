@@ -6,7 +6,8 @@
  * Includes embedded runtime with full DO support for local development.
  *
  * Usage:
- *   dotdo dev           - Start local development server
+ *   dotdo start         - Start local development server (main command)
+ *   dotdo dev           - Start local development server (legacy)
  *   dotdo do:list       - List Durable Objects
  *   dotdo deploy        - Deploy to production
  *   dotdo tunnel        - Expose local server via CF Tunnel
@@ -17,6 +18,7 @@ import { devCommand } from './commands/dev-local'
 import { doCommand } from './commands/do-ops'
 import { tunnelCommand } from './commands/tunnel'
 import { deployCommand } from './commands/deploy-multi'
+import { startCommand } from './commands/start'
 import { createLogger } from './utils/logger'
 
 const logger = createLogger('cli')
@@ -46,6 +48,7 @@ program.parse = function (argv?: readonly string[], options?: { from: 'node' | '
 }
 
 // Add commands
+program.addCommand(startCommand)
 program.addCommand(devCommand)
 program.addCommand(doCommand)
 program.addCommand(tunnelCommand)

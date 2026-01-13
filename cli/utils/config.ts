@@ -11,51 +11,20 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-export interface DotdoConfig {
-  // Project settings
-  name?: string
-  entryPoint?: string
-  srcDir?: string
-  outDir?: string
+// Re-export types from types/config.ts
+export type {
+  DotdoConfig,
+  DotdoConfigInput,
+  SurfaceConfig,
+  SurfaceEntry,
+  SurfacesConfig,
+} from '../../types/config'
 
-  // Development
-  port?: number
-  host?: string
-  persist?: boolean | string
-
-  // Cloudflare settings
-  compatibilityDate?: string
-  compatibilityFlags?: string[]
-  accountId?: string
-
-  // Durable Objects
-  durableObjects?: Record<string, {
-    className: string
-    scriptName?: string
-  }>
-
-  // Bindings
-  d1Databases?: Record<string, string>
-  r2Buckets?: string[]
-  kvNamespaces?: string[]
-
-  // Deploy targets
-  deploy?: {
-    cloudflare?: boolean
-    vercel?: boolean
-    fly?: boolean
-  }
-
-  // Tunnel settings
-  tunnel?: {
-    name?: string
-    configPath?: string
-  }
-}
+import type { DotdoConfig, DotdoConfigInput } from '../../types/config'
 
 // Default configuration
 const defaultConfig: DotdoConfig = {
-  port: 8787,
+  port: 4000,
   host: 'localhost',
   srcDir: '.',
   outDir: 'dist',
@@ -279,4 +248,30 @@ export default ${JSON.stringify(config, null, 2)} satisfies DotdoConfig
 export function getConfigValue<K extends keyof DotdoConfig>(key: K): DotdoConfig[K] {
   const config = loadConfig()
   return config[key]
+}
+
+/**
+ * Define configuration for dotdo.config.ts with type safety and defaults
+ *
+ * @example
+ * ```typescript
+ * import { defineConfig } from 'dotdo'
+ *
+ * export default defineConfig({
+ *   port: 4000,
+ *   surfaces: {
+ *     app: './App.tsx',
+ *     admin: './Admin.tsx',
+ *     site: { shell: './Site.mdx', content: 'site/' },
+ *     docs: { shell: './Docs.mdx', content: 'docs/' },
+ *     blog: { shell: './Blog.mdx', content: 'blog/' },
+ *   },
+ * })
+ * ```
+ */
+export function defineConfig(config: DotdoConfigInput): DotdoConfig {
+  return {
+    ...defaultConfig,
+    ...config,
+  }
 }
