@@ -268,7 +268,9 @@ describe('buildResponse - root responses', () => {
   })
 
   describe('root response without parent', () => {
-    it('uses namespace as $context when no parent provided', () => {
+    it('uses schema.org.ai type URL as $context when no parent provided (orphan fallback)', () => {
+      // When isRoot is true and no parent is provided (orphan DO),
+      // $context falls back to schema.org.ai type definition URL
       const result = buildResponse(
         { name: 'Root Entity' },
         {
@@ -278,7 +280,8 @@ describe('buildResponse - root responses', () => {
         }
       )
 
-      expect(result.$context).toBe('https://headless.ly')
+      // Orphan root should use schema.org.ai/{type} as context
+      expect(result.$context).toBe('https://schema.org.ai/Root')
       expect(result.$type).toBe('https://headless.ly')
       expect(result.$id).toBe('https://headless.ly')
     })

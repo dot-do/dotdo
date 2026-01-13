@@ -79,12 +79,15 @@ describe('buildContextUrl', () => {
       expect(result).toBe('https://headless.ly')
     })
 
-    it('returns namespace when isRoot is true but parent is undefined', () => {
+    it('returns schema.org.ai/DO when isRoot is true but parent is undefined (orphan fallback)', () => {
+      // When isRoot is true and no parent is provided (orphan DO),
+      // fall back to schema.org.ai type definition URL
       const result = buildContextUrl('https://headless.ly', {
         isRoot: true,
       })
 
-      expect(result).toBe('https://headless.ly')
+      // Without type specified, defaults to 'DO'
+      expect(result).toBe('https://schema.org.ai/DO')
     })
   })
 

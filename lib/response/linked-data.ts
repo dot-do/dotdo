@@ -67,8 +67,10 @@ export function buildResponse<T extends object>(
 
   // 1. $context:
   //    - If isRoot and parent provided: use parent
+  //    - If isRoot and no parent (orphan): use schema.org.ai/{type}
+  //    - If isRoot and no parent and isCollection: use schema.org.ai/Collection
   //    - Otherwise: use ns
-  const $context = buildContextUrl(ns, { parent, isRoot })
+  const $context = buildContextUrl(ns, { parent, isRoot, isCollection, type })
 
   // 2. $type:
   //    - If isRoot: use ns (the DO itself is the type)

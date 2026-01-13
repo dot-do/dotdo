@@ -156,11 +156,14 @@ function createTestDO(): DO {
 }
 
 /**
- * Create an initialized DO instance with namespace
+ * Create an initialized DO instance with namespace and optional parent
  */
-async function createInitializedDO(ns: string = 'https://headless.ly'): Promise<DO> {
+async function createInitializedDO(
+  ns: string = 'https://headless.ly',
+  parent: string = 'https://Startups.Studio'
+): Promise<DO> {
   const doInstance = createTestDO()
-  await doInstance.initialize({ ns })
+  await doInstance.initialize({ ns, parent })
   return doInstance
 }
 

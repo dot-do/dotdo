@@ -18,20 +18,32 @@ export interface ResolvedNamespace {
 }
 
 /**
- * Parse a path pattern to extract parameter names
- * e.g., '/:org/:project' -> ['org', 'project']
+ * Cache for parsed pattern param counts
+ * Key: pattern string, Value: number of params
  */
-function parsePattern(pattern: string): string[] {
-  const params: string[] = []
-  const segments = pattern.split('/').filter(Boolean)
+const patternParamCountCache = new Map<string, number>()
 
+/**
+ * Get the parameter count for a pattern, with caching
+ * e.g., '/:org/:project' -> 2
+ */
+function getPatternParamCount(pattern: string): number {
+  const cached = patternParamCountCache.get(pattern)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // Count param segments (those starting with ':')
+  let count = 0
+  const segments = pattern.split('/').filter(Boolean)
   for (const segment of segments) {
     if (segment.startsWith(':')) {
-      params.push(segment.slice(1))
+      count++
     }
   }
 
-  return params
+  patternParamCountCache.set(pattern, count)
+  return count
 }
 
 /**
@@ -62,8 +74,8 @@ export function resolveNamespace(request: Request, config?: NamespaceConfig): Re
 
   // Path pattern mode
   if (config?.pattern) {
-    const paramNames = parsePattern(config.pattern)
-    const paramCount = paramNames.length
+    // Use cached param count instead of parsing every time
+    const paramCount = getPatternParamCount(config.pattern)
 
     // Split pathname into segments
     const pathSegments = url.pathname.split('/').filter(Boolean)

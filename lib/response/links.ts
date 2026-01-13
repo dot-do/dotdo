@@ -44,15 +44,19 @@ export interface CollectionLinksOptions {
 export function buildItemLinks(options: ItemLinksOptions): Record<string, string> {
   const { ns, type, id, relations } = options
 
+  // Build URLs once and reuse
+  const collectionUrl = buildTypeUrl(ns, type)
+  const itemUrl = buildIdUrl(ns, type, id)
+
   const links: Record<string, string> = {
-    collection: buildTypeUrl(ns, type),
-    edit: buildIdUrl(ns, type, id) + '/edit',
+    collection: collectionUrl,
+    edit: itemUrl + '/edit',
   }
 
   // Add relation links
   if (relations) {
     for (const relation of relations) {
-      links[relation] = buildIdUrl(ns, type, id) + '/' + relation
+      links[relation] = itemUrl + '/' + relation
     }
   }
 
@@ -74,19 +78,22 @@ export function buildItemLinks(options: ItemLinksOptions): Record<string, string
 export function buildCollectionLinks(options: CollectionLinksOptions): Record<string, string> {
   const { ns, type, pagination } = options
 
+  // Build type URL once and reuse
+  const typeUrl = buildTypeUrl(ns, type)
+
   const links: Record<string, string> = {
     home: ns,
-    first: buildTypeUrl(ns, type),
+    first: typeUrl,
   }
 
   // Add next link if hasNext is true and after cursor is provided
   if (pagination?.hasNext && pagination.after !== undefined) {
-    links.next = buildTypeUrl(ns, type) + '?after=' + encodeURIComponent(pagination.after)
+    links.next = typeUrl + '?after=' + encodeURIComponent(pagination.after)
   }
 
   // Add prev link if hasPrev is true and before cursor is provided
   if (pagination?.hasPrev && pagination.before !== undefined) {
-    links.prev = buildTypeUrl(ns, type) + '?before=' + encodeURIComponent(pagination.before)
+    links.prev = typeUrl + '?before=' + encodeURIComponent(pagination.before)
   }
 
   return links

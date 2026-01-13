@@ -111,6 +111,75 @@ function createMockKvStorage() {
 }
 
 /**
+ * Create a mock ThingsStore for testing
+ * This provides an in-memory implementation of ThingsStore operations
+ */
+function createMockThingsStore() {
+  const items = new Map<string, {
+    $id: string
+    $type: string
+    name?: string
+    data?: Record<string, unknown>
+  }>()
+
+  return {
+    async list(options?: { limit?: number; after?: string }) {
+      const all = Array.from(items.values())
+      const limit = options?.limit ?? 100
+      return all.slice(0, limit)
+    },
+
+    async get(id: string) {
+      return items.get(id) ?? null
+    },
+
+    async create(data: { $id?: string; $type: string; name?: string; data?: Record<string, unknown> }) {
+      const id = data.$id ?? `item-${Date.now()}`
+      const item = {
+        $id: id,
+        $type: data.$type,
+        name: data.name,
+        data: data.data ?? {},
+      }
+      items.set(id, item)
+      return item
+    },
+
+    async update(
+      id: string,
+      data: { name?: string; data?: Record<string, unknown> },
+      options?: { merge?: boolean }
+    ) {
+      const existing = items.get(id)
+      if (!existing) {
+        throw new Error(`Item not found: ${id}`)
+      }
+      const updated = {
+        ...existing,
+        name: data.name ?? existing.name,
+        data: options?.merge
+          ? { ...existing.data, ...data.data }
+          : data.data ?? existing.data,
+      }
+      items.set(id, updated)
+      return updated
+    },
+
+    async delete(id: string) {
+      const existing = items.get(id)
+      if (!existing) {
+        throw new Error(`Item not found: ${id}`)
+      }
+      items.delete(id)
+      return existing
+    },
+
+    // For test inspection
+    _items: items,
+  }
+}
+
+/**
  * Create a mock DurableObjectId
  */
 function createMockDOId(name: string = 'test-do-id'): { toString: () => string; equals: (other: unknown) => boolean; name: string } {
@@ -150,6 +219,34 @@ function createMockEnv() {
     PIPELINE: undefined,
     DO: undefined,
   }
+}
+
+/**
+ * Helper to create a CollectionDO with a mock ThingsStore for testing
+ * This enables CRUD operations to work with an in-memory store
+ */
+async function createTestCollection(
+  CollectionDO: unknown,
+  options: { ns: string; parent?: string } = { ns: 'https://Startups.Studio' }
+) {
+  const state = createMockState()
+  const env = createMockEnv()
+  // @ts-expect-error - Mock state doesn't have all DurableObjectState properties
+  const collection = new (CollectionDO as new (...args: unknown[]) => {
+    initialize(config: { ns: string; parent?: string }): Promise<void>
+    setThingsStore(store: ReturnType<typeof createMockThingsStore>): void
+    fetch(request: Request): Promise<Response>
+    itemType: string
+  })(state, env)
+
+  // Initialize the collection
+  await collection.initialize(options)
+
+  // Inject mock ThingsStore for CRUD operations
+  const mockStore = createMockThingsStore()
+  collection.setThingsStore(mockStore)
+
+  return { collection, mockStore }
 }
 
 // ============================================================================
@@ -588,11 +685,7 @@ describe('Collection<T> Base Class: Create at Root', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
       const request = new Request('https://Startups.Studio/', {
         method: 'POST',
@@ -789,11 +882,7 @@ describe('Collection<T> Base Class: Update and Delete', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
       // Create item first
       await collection.fetch(new Request('https://Startups.Studio/', {
@@ -828,11 +917,7 @@ describe('Collection<T> Base Class: Update and Delete', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
       // Create item first
       await collection.fetch(new Request('https://Startups.Studio/', {
@@ -906,13 +991,9 @@ describe('Collection<T> Base Class: Type Discrimination', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
-      // @ts-expect-error - checking property
+      // itemType should be defined after initialization
       expect(collection.itemType).toBeDefined()
     }
   })
@@ -980,11 +1061,7 @@ describe('Collection<T> vs Entity: Routing Comparison', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
       // Create an item
       await collection.fetch(new Request('https://Startups.Studio/', {
@@ -1017,11 +1094,7 @@ describe('Collection<T> vs Entity: Routing Comparison', () => {
     expect(CollectionDO).toBeDefined()
 
     if (CollectionDO) {
-      const state = createMockState()
-      const env = createMockEnv()
-      // @ts-expect-error - Mock state
-      const collection = new CollectionDO(state, env)
-      await collection.initialize({ ns: 'https://Startups.Studio' })
+      const { collection } = await createTestCollection(CollectionDO)
 
       // Collection: POST / creates item
       const rootPost = await collection.fetch(new Request('https://Startups.Studio/', {

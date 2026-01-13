@@ -19,6 +19,7 @@ import { buildResponse } from '../../lib/response/linked-data'
 import { buildCollectionResponse as buildCollectionResponseShape } from '../../lib/response/collection'
 import { buildItemLinks } from '../../lib/response/links'
 import { buildItemActions } from '../../lib/response/actions'
+import { generateEditUI, createEditUIData, type EditUIData } from './edit-ui'
 
 // ============================================================================
 // TYPES
@@ -89,48 +90,89 @@ export interface RestRouterContext {
 // ============================================================================
 
 /**
- * Format a single thing as JSON-LD response
+ * Format a single thing as JSON-LD response with full linked data shape
+ * Includes $context, $type, $id, links, and actions
  */
 export function formatThingAsJsonLd(
   thing: ThingEntity,
-  contextUrl: string = 'https://dotdo.dev/context'
+  ns: string,
+  options?: { includeLinksActions?: boolean }
 ): JsonLdResponse {
   // Extract the type from $type (could be full URL or just the noun)
   const type = thing.$type.includes('/')
     ? thing.$type.split('/').pop()!
     : thing.$type
 
-  // Build the $id as a path
-  const typePlural = type.toLowerCase() + 's'
-  const $id = `/${typePlural}/${thing.$id}`
-
-  return {
-    $context: contextUrl,
-    $id,
-    $type: type,
+  // Build data object
+  const data: Record<string, unknown> = {
     name: thing.name ?? undefined,
     ...(thing.data ?? {}),
   }
+
+  // Use buildResponse to construct proper linked data shape
+  const response = buildResponse(data, {
+    ns,
+    type,
+    id: thing.$id,
+  })
+
+  // Add links and actions if requested (for single item GET)
+  if (options?.includeLinksActions) {
+    const links = buildItemLinks({ ns, type, id: thing.$id })
+    const actions = buildItemActions({ ns, type, id: thing.$id })
+    return {
+      ...response,
+      links: {
+        self: response.$id,
+        ...links,
+      },
+      actions,
+    }
+  }
+
+  return response
 }
 
 /**
- * Format a list of things as JSON-LD collection
+ * Format a list of things as JSON-LD collection with full response shape
  */
 export function formatCollectionAsJsonLd(
   things: ThingEntity[],
   type: string,
-  contextUrl: string = 'https://dotdo.dev/context'
-): CollectionResponse {
-  const typePlural = type.toLowerCase() + 's'
-
-  return {
-    $context: contextUrl,
-    $id: `/${typePlural}`,
-    $type: 'Collection',
-    items: things.map(thing => formatThingAsJsonLd(thing, contextUrl)),
-    total: things.length,       // Spec field
-    totalItems: things.length,  // Legacy/compat field
+  ns: string,
+  options?: {
+    totalCount?: number
+    pagination?: {
+      after?: string
+      hasNext?: boolean
+    }
   }
+): ReturnType<typeof buildCollectionResponseShape> {
+  // Transform things to items with id field required by buildCollectionResponseShape
+  const items = things.map(thing => {
+    const thingType = thing.$type.includes('/')
+      ? thing.$type.split('/').pop()!
+      : thing.$type
+
+    return {
+      id: thing.$id,
+      name: thing.name ?? undefined,
+      ...(thing.data ?? {}),
+    }
+  })
+
+  // Use the total count if provided, otherwise use items length
+  const count = options?.totalCount ?? things.length
+
+  // Build collection response with full shape
+  return buildCollectionResponseShape(items, count, {
+    ns,
+    type,
+    pagination: options?.pagination ? {
+      after: options.pagination.after,
+      hasNext: options.pagination.hasNext,
+    } : undefined,
+  })
 }
 
 /**
@@ -156,32 +198,40 @@ function extractNamespace(ns: string): string {
 
 /**
  * Generate HATEOAS index with available collections
+ *
+ * Root response shape:
+ * - $context: parent namespace (if provided), otherwise default schema
+ * - $type: ns (the namespace URL itself is the type)
+ * - $id: ns (same as $type for root)
+ * - collections: Record with collection info including counts
  */
 export function generateIndex(
   ns: string,
   nouns: Array<{ noun: string; plural: string }>,
-  contextUrl: string = 'https://dotdo.dev/context',
-  doType: string = 'DO'
+  options?: {
+    parent?: string
+    collectionCounts?: Record<string, number>
+  }
 ): IndexResponse {
-  // Extract namespace identifier from full URL if needed
-  const namespace = extractNamespace(ns)
+  // For root, $context is the parent (or default schema if no parent)
+  const $context = options?.parent ?? 'https://schema.org.ai'
 
   // Build collections as Record with counts
   const collections: Record<string, CollectionInfo> = {}
-  for (const { plural } of nouns) {
+  for (const { noun, plural } of nouns) {
     const pluralLower = plural.toLowerCase()
     collections[pluralLower] = {
-      $id: `/${pluralLower}`,
+      $id: `${ns}/${pluralLower}`,
       $type: 'Collection',
-      count: 0,  // Count will be populated by caller if needed
+      count: options?.collectionCounts?.[pluralLower] ?? 0,
     }
   }
 
   return {
-    $context: contextUrl,
-    $id: '/',
-    $type: doType,
-    ns: namespace,
+    $context,
+    $id: ns,
+    $type: ns,
+    ns: extractNamespace(ns),
     collections,
   }
 }
@@ -204,15 +254,64 @@ function getContentType(request?: Request): string {
 }
 
 /**
+ * Derive the namespace URL from the request origin
+ *
+ * Uses the request URL's origin (protocol + hostname) to construct
+ * consistent URLs for $context, $type, and $id fields.
+ *
+ * @param request - The incoming request
+ * @param fallbackNs - Fallback namespace if request is unavailable
+ * @returns The namespace URL (e.g., 'https://acme.do')
+ */
+function deriveNamespaceFromRequest(request: Request | undefined, fallbackNs: string): string {
+  if (!request) {
+    return fallbackNs
+  }
+
+  try {
+    const url = new URL(request.url)
+    return url.origin
+  } catch {
+    return fallbackNs
+  }
+}
+
+/**
  * Handle GET / - Return HATEOAS index
+ *
+ * Derives namespace from request origin for consistent URL construction
  */
 export async function handleGetIndex(ctx: RestRouterContext, request?: Request): Promise<Response> {
-  const contextUrl = ctx.contextUrl ?? 'https://dotdo.dev/context'
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
   const nouns = ctx.nouns ?? []
-  const doType = ctx.doType ?? 'DO'
   const contentType = getContentType(request)
 
-  const index = generateIndex(ctx.ns, nouns, contextUrl, doType)
+  // Get collection counts using efficient count() method if available
+  const collectionCounts: Record<string, number> = {}
+
+  // Use Promise.all for parallel counting (faster for multiple types)
+  const countPromises = nouns.map(async ({ noun, plural }) => {
+    try {
+      // Use count() if available (more efficient), fall back to list().length
+      const count = typeof ctx.things.count === 'function'
+        ? await ctx.things.count({ type: noun })
+        : (await ctx.things.list({ type: noun, limit: 1000 })).length
+      return { plural: plural.toLowerCase(), count }
+    } catch {
+      return { plural: plural.toLowerCase(), count: 0 }
+    }
+  })
+
+  const counts = await Promise.all(countPromises)
+  for (const { plural, count } of counts) {
+    collectionCounts[plural] = count
+  }
+
+  const index = generateIndex(ns, nouns, {
+    parent: ctx.parent,
+    collectionCounts,
+  })
 
   return Response.json(index, {
     headers: { 'Content-Type': contentType },
@@ -242,6 +341,13 @@ function isTypeRegistered(ctx: RestRouterContext, type: string): boolean {
 
 /**
  * Handle GET /:type - List items of a type
+ *
+ * Returns collection with full response shape including:
+ * - $context, $type, $id
+ * - count (total items)
+ * - links (home, first, prev, next)
+ * - actions (create)
+ * - items (with full $context/$type/$id shape)
  */
 export async function handleListByType(
   ctx: RestRouterContext,
@@ -249,8 +355,10 @@ export async function handleListByType(
   options?: { limit?: number; offset?: number; after?: string },
   request?: Request
 ): Promise<Response> {
-  const contextUrl = ctx.contextUrl ?? 'https://dotdo.dev/context'
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
   const contentType = getContentType(request)
+  const limit = options?.limit ?? 100
 
   // Check if type is registered (if nouns are defined)
   if (!isTypeRegistered(ctx, type)) {
@@ -261,14 +369,46 @@ export async function handleListByType(
   }
 
   try {
-    const things = await ctx.things.list({
-      type,
-      limit: options?.limit ?? 100,
-      offset: options?.offset,
-      after: options?.after,
-    })
+    // Get paginated results and total count in parallel for better performance
+    // Use count() method if available (more efficient than fetching all)
+    const [things, totalCount] = await Promise.all([
+      ctx.things.list({
+        type,
+        limit: limit + 1, // Fetch one extra to detect hasNext
+        offset: options?.offset,
+        after: options?.after,
+      }),
+      // Use count() if available, otherwise we'll calculate from list
+      typeof ctx.things.count === 'function'
+        ? ctx.things.count({ type })
+        : Promise.resolve(-1), // Sentinel value to indicate count not available
+    ])
 
-    const collection = formatCollectionAsJsonLd(things, type, contextUrl)
+    // If count() wasn't available, we need to fall back to a separate list query
+    // But only if we need the count and pagination is being used
+    let actualTotalCount = totalCount
+    if (totalCount === -1) {
+      // Fall back: count is not critical for response, use items.length as estimate
+      // If there are more items (hasNext), the count is at least limit + 1
+      actualTotalCount = things.length
+    }
+
+    // Determine if there are more items
+    const hasNext = things.length > limit
+    const paginatedThings = hasNext ? things.slice(0, limit) : things
+
+    // Get the cursor for next page (last item's ID)
+    const afterCursor = paginatedThings.length > 0
+      ? paginatedThings[paginatedThings.length - 1]!.$id
+      : undefined
+
+    const collection = formatCollectionAsJsonLd(paginatedThings, type, ns, {
+      totalCount: actualTotalCount,
+      pagination: hasNext ? {
+        after: afterCursor,
+        hasNext: true,
+      } : undefined,
+    })
 
     return Response.json(collection, {
       headers: { 'Content-Type': contentType },
@@ -276,7 +416,7 @@ export async function handleListByType(
   } catch {
     // For list operations, treat errors as empty results
     // This handles cases where DB isn't available
-    const collection = formatCollectionAsJsonLd([], type, contextUrl)
+    const collection = formatCollectionAsJsonLd([], type, ns, { totalCount: 0 })
     return Response.json(collection, {
       headers: { 'Content-Type': contentType },
     })
@@ -285,6 +425,12 @@ export async function handleListByType(
 
 /**
  * Handle GET /:type/:id - Get single item
+ *
+ * Returns item with full response shape including:
+ * - $context, $type, $id
+ * - links (self, collection, edit)
+ * - actions (update, delete)
+ * - item data
  */
 export async function handleGetById(
   ctx: RestRouterContext,
@@ -292,7 +438,8 @@ export async function handleGetById(
   id: string,
   request?: Request
 ): Promise<Response> {
-  const contextUrl = ctx.contextUrl ?? 'https://dotdo.dev/context'
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
   const contentType = getContentType(request)
 
   try {
@@ -317,7 +464,8 @@ export async function handleGetById(
       )
     }
 
-    const formatted = formatThingAsJsonLd(thing, contextUrl)
+    // Format with links and actions for GET /:type/:id
+    const formatted = formatThingAsJsonLd(thing, ns, { includeLinksActions: true })
 
     return Response.json(formatted, {
       headers: { 'Content-Type': contentType },
@@ -340,7 +488,8 @@ export async function handleCreate(
   data: Record<string, unknown>,
   request?: Request
 ): Promise<Response> {
-  const contextUrl = ctx.contextUrl ?? 'https://dotdo.dev/context'
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
   const contentType = getContentType(request)
 
   try {
@@ -355,7 +504,8 @@ export async function handleCreate(
       data: restData,
     })
 
-    const formatted = formatThingAsJsonLd(thing, contextUrl)
+    // Format with links and actions for created item
+    const formatted = formatThingAsJsonLd(thing, ns, { includeLinksActions: true })
 
     return Response.json(formatted, {
       status: 201,
@@ -393,7 +543,8 @@ export async function handleUpdate(
   options?: { merge?: boolean },
   request?: Request
 ): Promise<Response> {
-  const contextUrl = ctx.contextUrl ?? 'https://dotdo.dev/context'
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
   const contentType = getContentType(request)
 
   try {
@@ -413,7 +564,8 @@ export async function handleUpdate(
       data: restData,
     }, { merge: options?.merge ?? false })
 
-    const formatted = formatThingAsJsonLd(thing, contextUrl)
+    // Format with links and actions for updated item
+    const formatted = formatThingAsJsonLd(thing, ns, { includeLinksActions: true })
 
     return Response.json(formatted, {
       headers: { 'Content-Type': contentType },
@@ -457,6 +609,53 @@ export async function handleDelete(
   }
 }
 
+/**
+ * Handle GET /:type/:id/edit - Return HTML page with Monaco editor
+ *
+ * Returns an HTML page for editing the resource inline with:
+ * - Monaco editor configured for JSON
+ * - Current resource data embedded
+ * - Save button that PUTs to the resource URL
+ * - Header showing resource type, ID, and URL
+ */
+export async function handleEditUI(
+  ctx: RestRouterContext,
+  type: string,
+  id: string,
+  ns: string,
+  request?: Request
+): Promise<Response> {
+  try {
+    // Try to get existing item
+    const thing = await ctx.things.get(id)
+
+    // Build the edit UI data
+    const editData = createEditUIData(
+      ns,
+      type,
+      id,
+      thing ? {
+        name: thing.name ?? undefined,
+        ...(thing.data ?? {}),
+      } : null
+    )
+
+    // Generate and return the HTML page
+    const html = generateEditUI(editData)
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  } catch {
+    // Even for non-existent resources, return an edit UI with minimal data
+    // This allows creating new resources via the editor
+    const editData = createEditUIData(ns, type, id, null)
+    const html = generateEditUI(editData)
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+}
+
 // ============================================================================
 // ROUTE MATCHING
 // ============================================================================
@@ -474,14 +673,24 @@ const SYSTEM_ROUTES = new Set([
 ])
 
 /**
- * Parse route path to extract type and id
+ * Parsed route result with optional action
+ */
+export interface ParsedRoute {
+  type: string
+  id?: string
+  action?: 'edit'
+}
+
+/**
+ * Parse route path to extract type, id, and optional action
  * Supports:
  * - /customers → { type: 'Customer', id: undefined }
  * - /customers/cust-1 → { type: 'Customer', id: 'cust-1' }
+ * - /customers/cust-1/edit → { type: 'Customer', id: 'cust-1', action: 'edit' }
  *
  * Returns null for system routes (health, rpc, mcp, sync, etc.)
  */
-export function parseRestRoute(pathname: string): { type: string; id?: string } | null {
+export function parseRestRoute(pathname: string): ParsedRoute | null {
   // Remove leading slash and split
   const segments = pathname.slice(1).split('/').filter(Boolean)
 
@@ -506,6 +715,13 @@ export function parseRestRoute(pathname: string): { type: string; id?: string } 
     const type = singularize(segments[0]!)
     const id = segments[1]!
     return { type, id }
+  }
+
+  if (segments.length === 3 && segments[2]!.toLowerCase() === 'edit') {
+    // /customers/cust-1/edit → Customer, cust-1, edit
+    const type = singularize(segments[0]!)
+    const id = segments[1]!
+    return { type, id, action: 'edit' }
   }
 
   return null
@@ -555,7 +771,21 @@ export async function handleRestRequest(
     return null
   }
 
-  const { type, id } = route
+  const { type, id, action } = route
+
+  // Derive namespace from request origin
+  const ns = deriveNamespaceFromRequest(request, ctx.ns)
+
+  // Handle edit action: /:type/:id/edit
+  if (action === 'edit' && id) {
+    if (method !== 'GET') {
+      return Response.json(
+        { $type: 'Error', error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' },
+        { status: 405, headers: { 'Allow': 'GET' } }
+      )
+    }
+    return handleEditUI(ctx, type, id, ns, request)
+  }
 
   // Parse query params for list operations
   const limit = url.searchParams.get('limit')

@@ -591,3 +591,109 @@ describe('Edit UI: Different Namespaces', () => {
     expect(html).toContain('$context')
   })
 })
+
+// ============================================================================
+// 10. Save Feedback UX
+// ============================================================================
+
+describe('Edit UI: Save Feedback', () => {
+  it('should include JSON validation before save', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Save function should validate JSON before sending
+    expect(html).toContain('JSON.parse')
+    expect(html).toContain('Invalid JSON')
+  })
+
+  it('should show saving state while request is in progress', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Save button should show "Saving..." state
+    expect(html).toContain('Saving...')
+    expect(html).toContain('disabled')
+  })
+
+  it('should show success state after save completes', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Save button should show "Saved!" on success with green background
+    expect(html).toContain('Saved!')
+    expect(html).toContain('#107c10') // Success green color
+  })
+
+  it('should show error state when save fails', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Save button should show "Error!" on failure with red background
+    expect(html).toContain('Error!')
+    expect(html).toContain('#d13438') // Error red color
+  })
+
+  it('should restore save button to normal state after feedback', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Save button should reset after timeout
+    expect(html).toContain('setTimeout')
+  })
+})
+
+// ============================================================================
+// 11. Keyboard Shortcuts
+// ============================================================================
+
+describe('Edit UI: Keyboard Shortcuts', () => {
+  it('should have Ctrl+S keyboard shortcut for save', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Should listen for keyboard events
+    expect(html).toContain('keydown')
+    expect(html).toContain('ctrlKey')
+    expect(html).toContain("e.key === 's'")
+  })
+
+  it('should support Cmd+S on Mac for save', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Should support metaKey for Mac Cmd
+    expect(html).toContain('metaKey')
+  })
+
+  it('should prevent default browser save dialog', async () => {
+    const doInstance = await createInitializedDO('https://headless.ly')
+
+    const request = new Request('https://headless.ly/customers/alice/edit')
+    const response = await doInstance.fetch(request)
+    const html = await response.text()
+
+    // Should prevent default to avoid browser save dialog
+    expect(html).toContain('preventDefault')
+  })
+})

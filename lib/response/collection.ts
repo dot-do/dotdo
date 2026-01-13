@@ -5,7 +5,7 @@
  * with JSON-LD style linked data properties.
  */
 
-import { buildTypeUrl, buildIdUrl } from './urls'
+import { buildTypeUrl, buildIdUrl, normalizeNs } from './urls'
 
 export interface CollectionResponseOptions {
   ns: string
@@ -33,13 +33,6 @@ export interface CollectionResponse<T extends object> {
   facets?: { sort?: string[]; filter?: Record<string, string[]> }
   actions: Record<string, string>
   items: Array<T & { $context: string; $type: string; $id: string }>
-}
-
-/**
- * Remove trailing slash from a string if present
- */
-function stripTrailingSlash(str: string): string {
-  return str.endsWith('/') ? str.slice(0, -1) : str
 }
 
 /**
@@ -80,11 +73,11 @@ export function buildCollectionResponse<T extends { id: string }>(
   const { ns, type, parent, pagination, facets, customActions = [] } = options
 
   // Normalize namespace
-  const normalizedNs = stripTrailingSlash(ns)
+  const normalizedNs = normalizeNs(ns)
 
   // Determine base URL for the collection
   // If parent is provided, use parent as the base; otherwise use ns
-  const baseUrl = parent ? stripTrailingSlash(parent) : normalizedNs
+  const baseUrl = parent ? normalizeNs(parent) : normalizedNs
 
   // Build $context: parent if provided, otherwise ns
   const $context = parent || normalizedNs

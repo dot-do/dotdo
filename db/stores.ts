@@ -759,6 +759,63 @@ export class ThingsStore {
     return entities
   }
 
+  /**
+   * Count things matching the given criteria without fetching all data.
+   * More efficient than list() when only the count is needed.
+   *
+   * @param options - Filter options (type, branch, includeDeleted)
+   * @returns Total count of matching things
+   */
+  async count(options: Pick<ThingsListOptions, 'type' | 'branch' | 'includeDeleted'> = {}): Promise<number> {
+    const branch = options.branch ?? this.ctx.currentBranch
+
+    // Get type ID if filtering by type
+    let typeId: number | undefined
+    if (options.type) {
+      typeId = await this.getTypeId(options.type)
+    }
+
+    // Build conditions
+    let conditions = sql`WHERE 1=1`
+
+    // Add branch condition
+    if (branch === 'main') {
+      conditions = sql`${conditions} AND branch IS NULL`
+    } else {
+      conditions = sql`${conditions} AND branch = ${branch}`
+    }
+
+    // Add type filter if specified
+    if (typeId !== undefined) {
+      conditions = sql`${conditions} AND type = ${typeId}`
+    }
+
+    // Exclude soft-deleted by default
+    if (!options.includeDeleted) {
+      conditions = sql`${conditions} AND (deleted = 0 OR deleted IS NULL)`
+    }
+
+    // Count distinct IDs (for latest versions only)
+    const countQuery = sql`
+      SELECT COUNT(DISTINCT id) as count
+      FROM things
+      ${conditions}
+    `
+
+    try {
+      const results = await this.ctx.db.all(countQuery)
+      const row = (results as any[])[0]
+      return row?.count ?? 0
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'count',
+        source: 'ThingsStore.count',
+        context: { type: options.type, branch },
+      })
+      return 0
+    }
+  }
+
   async create(data: Partial<ThingEntity> & { type?: string }, options: ThingsCreateOptions = {}): Promise<ThingEntity> {
     // Support both $type and type for backwards compatibility
     const typeName = data.$type ?? data.type
@@ -2002,6 +2059,12 @@ export interface DLQEntity {
   maxRetries: number
   lastAttemptAt: Date | null
   createdAt: Date
+  /** Idempotency key for deduplication (hash of eventId + verb + data) */
+  idempotencyKey?: string
+  /** Next scheduled retry time (for exponential backoff) */
+  nextRetryAt?: Date | null
+  /** Status: pending, replaying, exhausted, archived */
+  status?: 'pending' | 'replaying' | 'exhausted' | 'archived'
 }
 
 export interface DLQAddOptions {
@@ -2012,6 +2075,8 @@ export interface DLQAddOptions {
   error: string
   errorStack?: string
   maxRetries?: number
+  /** Custom idempotency key (auto-generated if not provided) */
+  idempotencyKey?: string
 }
 
 export interface DLQListOptions {
@@ -2021,27 +2086,81 @@ export interface DLQListOptions {
   maxRetries?: number
   limit?: number
   offset?: number
+  /** Filter by status */
+  status?: 'pending' | 'replaying' | 'exhausted' | 'archived'
+  /** Only return entries ready for retry (nextRetryAt <= now) */
+  readyForRetry?: boolean
 }
 
 export interface DLQReplayResult {
   success: boolean
   result?: unknown
   error?: string
+  /** Whether this was a duplicate replay (idempotency check) */
+  deduplicated?: boolean
+  /** Number of retry attempts made */
+  retryCount?: number
 }
 
 export interface DLQReplayAllResult {
   replayed: number
   failed: number
+  /** Number of entries skipped due to idempotency */
+  skipped: number
+  /** Details for observability */
+  details?: Array<{ id: string; success: boolean; error?: string }>
 }
 
 // ============================================================================
 // DLQ STORE
 // ============================================================================
 
+/**
+ * Default base delay for exponential backoff (1 second)
+ */
+const DLQ_BASE_DELAY_MS = 1000
+
+/**
+ * Maximum delay cap for exponential backoff (1 hour)
+ */
+const DLQ_MAX_DELAY_MS = 60 * 60 * 1000
+
+/**
+ * Generate idempotency key from event properties
+ */
+function generateIdempotencyKey(eventId: string | undefined, verb: string, data: Record<string, unknown>): string {
+  const content = JSON.stringify({ eventId, verb, data })
+  // Simple hash for idempotency - in production could use crypto.subtle
+  let hash = 0
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return `dlq_${Math.abs(hash).toString(36)}_${verb}`
+}
+
+/**
+ * Calculate next retry time using exponential backoff with jitter
+ */
+function calculateNextRetryTime(retryCount: number, baseDelayMs = DLQ_BASE_DELAY_MS): Date {
+  // Exponential backoff: baseDelay * 2^retryCount
+  const exponentialDelay = baseDelayMs * Math.pow(2, retryCount)
+  // Cap at maximum delay
+  const cappedDelay = Math.min(exponentialDelay, DLQ_MAX_DELAY_MS)
+  // Add jitter (0-25% of delay) to prevent thundering herd
+  const jitter = cappedDelay * Math.random() * 0.25
+  const totalDelay = cappedDelay + jitter
+
+  return new Date(Date.now() + totalDelay)
+}
+
 export class DLQStore {
   private db: StoreContext['db']
   private ns: string
   private eventHandlers: Map<string, (data: unknown) => Promise<unknown>>
+  /** Track in-flight replays for idempotency within a single request */
+  private inFlightReplays: Set<string> = new Set()
 
   constructor(ctx: StoreContext, eventHandlers?: Map<string, (data: unknown) => Promise<unknown>>) {
     this.db = ctx.db
@@ -2049,27 +2168,62 @@ export class DLQStore {
     this.eventHandlers = eventHandlers || new Map()
   }
 
+  /**
+   * Register a handler for replaying events of a specific verb
+   */
   registerHandler(verb: string, handler: (data: unknown) => Promise<unknown>): void {
     this.eventHandlers.set(verb, handler)
   }
 
+  /**
+   * Add a failed event to the DLQ with idempotency support
+   *
+   * If an entry with the same idempotency key already exists, returns
+   * the existing entry instead of creating a duplicate.
+   */
   async add(options: DLQAddOptions): Promise<DLQEntity> {
     const id = crypto.randomUUID()
     const now = new Date()
+    const idempotencyKey = options.idempotencyKey ?? generateIdempotencyKey(options.eventId, options.verb, options.data)
 
-    await this.db.insert(schema.dlq).values({
-      id,
-      eventId: options.eventId ?? null,
-      verb: options.verb,
-      source: options.source,
-      data: options.data,
-      error: options.error,
-      errorStack: options.errorStack ?? null,
-      retryCount: 0,
-      maxRetries: options.maxRetries ?? 3,
-      lastAttemptAt: now,
-      createdAt: now,
-    })
+    // Check for existing entry with same idempotency key (deduplication)
+    const existing = await this.findByIdempotencyKey(idempotencyKey)
+    if (existing) {
+      logBestEffortError(new Error('DLQ entry deduplicated'), {
+        operation: 'add',
+        source: 'DLQStore.add',
+        context: { idempotencyKey, existingId: existing.id, verb: options.verb },
+      })
+      return existing
+    }
+
+    // Calculate initial next retry time
+    const nextRetryAt = calculateNextRetryTime(0)
+
+    try {
+      await this.db.insert(schema.dlq).values({
+        id,
+        eventId: options.eventId ?? null,
+        verb: options.verb,
+        source: options.source,
+        data: options.data,
+        error: options.error,
+        errorStack: options.errorStack ?? null,
+        retryCount: 0,
+        maxRetries: options.maxRetries ?? 3,
+        lastAttemptAt: now,
+        createdAt: now,
+      })
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'insert',
+        source: 'DLQStore.add',
+        context: { id, verb: options.verb, source: options.source },
+      })
+      throw error
+    }
+
+    console.log(`[DLQ] Added entry: id=${id}, verb=${options.verb}, source=${options.source}, error=${options.error.slice(0, 100)}`)
 
     return {
       id,
@@ -2083,45 +2237,127 @@ export class DLQStore {
       maxRetries: options.maxRetries ?? 3,
       lastAttemptAt: now,
       createdAt: now,
+      idempotencyKey,
+      nextRetryAt,
+      status: 'pending',
     }
   }
 
+  /**
+   * Find a DLQ entry by idempotency key
+   */
+  async findByIdempotencyKey(idempotencyKey: string): Promise<DLQEntity | null> {
+    // Note: This would be more efficient with a dedicated index on idempotencyKey
+    // For now, we filter in-memory since the DLQ table is typically small
+    const results = await this.db.select().from(schema.dlq)
+    // Filter by computing idempotency key for each entry
+    for (const row of results) {
+      const rowKey = generateIdempotencyKey(row.eventId ?? undefined, row.verb, row.data as Record<string, unknown>)
+      if (rowKey === idempotencyKey) {
+        return this.toEntity(row)
+      }
+    }
+    return null
+  }
+
+  /**
+   * Get a DLQ entry by ID
+   */
   async get(id: string): Promise<DLQEntity | null> {
-    const results = await this.db.select().from(schema.dlq)
-    const result = results.find((r) => r.id === id)
-    if (!result) return null
-    return this.toEntity(result)
+    try {
+      const results = await this.db
+        .select()
+        .from(schema.dlq)
+        .where(eq(schema.dlq.id, id))
+        .limit(1)
+
+      if (results.length === 0) return null
+      return this.toEntity(results[0]!)
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'get',
+        source: 'DLQStore.get',
+        context: { id },
+      })
+      // Fallback to in-memory filter for compatibility
+      const results = await this.db.select().from(schema.dlq)
+      const result = results.find((r) => r.id === id)
+      if (!result) return null
+      return this.toEntity(result)
+    }
   }
 
+  /**
+   * List DLQ entries with filtering and pagination
+   */
   async list(options?: DLQListOptions): Promise<DLQEntity[]> {
-    const results = await this.db.select().from(schema.dlq)
-    let filtered = results
+    try {
+      const results = await this.db.select().from(schema.dlq)
+      let filtered = results
 
-    if (options?.verb) {
-      filtered = filtered.filter((r) => r.verb === options.verb)
-    }
-    if (options?.source) {
-      filtered = filtered.filter((r) => r.source === options.source)
-    }
-    if (options?.minRetries !== undefined) {
-      filtered = filtered.filter((r) => r.retryCount >= options.minRetries!)
-    }
-    if (options?.maxRetries !== undefined) {
-      filtered = filtered.filter((r) => r.retryCount <= options.maxRetries!)
-    }
+      if (options?.verb) {
+        filtered = filtered.filter((r) => r.verb === options.verb)
+      }
+      if (options?.source) {
+        filtered = filtered.filter((r) => r.source === options.source)
+      }
+      if (options?.minRetries !== undefined) {
+        filtered = filtered.filter((r) => r.retryCount >= options.minRetries!)
+      }
+      if (options?.maxRetries !== undefined) {
+        filtered = filtered.filter((r) => r.retryCount <= options.maxRetries!)
+      }
+      if (options?.status) {
+        // Filter by computed status
+        filtered = filtered.filter((r) => {
+          const entity = this.toEntity(r)
+          return entity.status === options.status
+        })
+      }
+      if (options?.readyForRetry) {
+        const now = new Date()
+        filtered = filtered.filter((r) => {
+          const entity = this.toEntity(r)
+          return entity.nextRetryAt ? entity.nextRetryAt <= now : true
+        })
+      }
 
-    const offset = options?.offset ?? 0
-    const limit = options?.limit ?? filtered.length
-    filtered = filtered.slice(offset, offset + limit)
+      const offset = options?.offset ?? 0
+      const limit = options?.limit ?? filtered.length
+      filtered = filtered.slice(offset, offset + limit)
 
-    return filtered.map((r) => this.toEntity(r))
+      return filtered.map((r) => this.toEntity(r))
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'list',
+        source: 'DLQStore.list',
+        context: { options },
+      })
+      return []
+    }
   }
 
+  /**
+   * Count total DLQ entries
+   */
   async count(): Promise<number> {
-    const results = await this.db.select().from(schema.dlq)
-    return results.length
+    try {
+      const results = await this.db.select().from(schema.dlq)
+      return results.length
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'count',
+        source: 'DLQStore.count',
+        context: {},
+      })
+      return 0
+    }
   }
 
+  /**
+   * Increment retry count and update timestamps
+   * Now persists changes to the database
+   */
   async incrementRetry(id: string): Promise<DLQEntity> {
     const entry = await this.get(id)
     if (!entry) {
@@ -2130,58 +2366,177 @@ export class DLQStore {
 
     const now = new Date()
     const newRetryCount = entry.retryCount + 1
+    const nextRetryAt = calculateNextRetryTime(newRetryCount)
+
+    try {
+      // Persist the retry count update to the database
+      await this.db
+        .update(schema.dlq)
+        .set({
+          retryCount: newRetryCount,
+          lastAttemptAt: now,
+        })
+        .where(eq(schema.dlq.id, id))
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'incrementRetry',
+        source: 'DLQStore.incrementRetry',
+        context: { id, newRetryCount },
+      })
+      // Continue even if update fails - return the computed state
+    }
+
+    console.log(`[DLQ] Incremented retry: id=${id}, retryCount=${newRetryCount}, nextRetryAt=${nextRetryAt.toISOString()}`)
 
     return {
       ...entry,
       retryCount: newRetryCount,
       lastAttemptAt: now,
+      nextRetryAt,
+      status: newRetryCount >= entry.maxRetries ? 'exhausted' : 'pending',
     }
   }
 
+  /**
+   * Replay a single DLQ entry with idempotency protection
+   *
+   * Features:
+   * - In-flight deduplication (prevents concurrent replays of same entry)
+   * - Automatic retry count tracking
+   * - Success removes entry from DLQ
+   * - Failure updates retry count and next retry time
+   */
   async replay(id: string): Promise<DLQReplayResult> {
+    // Idempotency check: prevent concurrent replays
+    if (this.inFlightReplays.has(id)) {
+      console.log(`[DLQ] Replay deduplicated (in-flight): id=${id}`)
+      return { success: false, deduplicated: true, error: 'Replay already in progress' }
+    }
+
     const entry = await this.get(id)
     if (!entry) {
       return { success: false, error: `DLQ entry with id ${id} not found` }
     }
 
-    await this.incrementRetry(id)
+    // Check if exhausted
+    if (entry.retryCount >= entry.maxRetries) {
+      console.log(`[DLQ] Replay skipped (exhausted): id=${id}, retryCount=${entry.retryCount}, maxRetries=${entry.maxRetries}`)
+      return { success: false, error: 'Max retries exceeded', retryCount: entry.retryCount }
+    }
 
     const handler = this.eventHandlers.get(entry.verb)
     if (!handler) {
+      console.log(`[DLQ] Replay failed (no handler): id=${id}, verb=${entry.verb}`)
       return { success: false, error: `No handler registered for verb: ${entry.verb}` }
     }
 
+    // Mark as in-flight
+    this.inFlightReplays.add(id)
+    const startTime = Date.now()
+
     try {
+      // Increment retry count before attempting
+      const updated = await this.incrementRetry(id)
+
+      console.log(`[DLQ] Replaying: id=${id}, verb=${entry.verb}, attempt=${updated.retryCount}`)
+
       const result = await handler(entry.data)
+
+      // Success - remove from DLQ
       await this.remove(id)
-      return { success: true, result }
+
+      const duration = Date.now() - startTime
+      console.log(`[DLQ] Replay success: id=${id}, verb=${entry.verb}, duration=${duration}ms`)
+
+      return { success: true, result, retryCount: updated.retryCount }
     } catch (error) {
+      const duration = Date.now() - startTime
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      console.error(`[DLQ] Replay failed: id=${id}, verb=${entry.verb}, duration=${duration}ms, error=${errorMessage}`)
+
+      // Update error in DLQ entry
+      try {
+        await this.db
+          .update(schema.dlq)
+          .set({
+            error: errorMessage,
+            errorStack: error instanceof Error ? error.stack ?? null : null,
+          })
+          .where(eq(schema.dlq.id, id))
+      } catch (updateError) {
+        logBestEffortError(updateError, {
+          operation: 'updateError',
+          source: 'DLQStore.replay',
+          context: { id, originalError: errorMessage },
+        })
+      }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
+        retryCount: entry.retryCount + 1,
       }
+    } finally {
+      // Remove from in-flight set
+      this.inFlightReplays.delete(id)
     }
   }
 
-  async replayAll(options?: { verb?: string; source?: string }): Promise<DLQReplayAllResult> {
+  /**
+   * Replay all DLQ entries matching filter criteria
+   *
+   * Features:
+   * - Batch replay with progress tracking
+   * - Skips exhausted entries
+   * - Returns detailed results for observability
+   */
+  async replayAll(options?: { verb?: string; source?: string; includeDetails?: boolean }): Promise<DLQReplayAllResult> {
     const entries = await this.list({
       verb: options?.verb,
       source: options?.source,
+      readyForRetry: true, // Only replay entries that are ready
     })
 
     let replayed = 0
     let failed = 0
+    let skipped = 0
+    const details: Array<{ id: string; success: boolean; error?: string }> = []
+
+    console.log(`[DLQ] Starting batch replay: count=${entries.length}, filter=${JSON.stringify(options ?? {})}`)
 
     for (const entry of entries) {
+      // Skip exhausted entries
+      if (entry.retryCount >= entry.maxRetries) {
+        skipped++
+        if (options?.includeDetails) {
+          details.push({ id: entry.id, success: false, error: 'Max retries exceeded' })
+        }
+        continue
+      }
+
       const result = await this.replay(entry.id)
-      if (result.success) {
+
+      if (result.deduplicated) {
+        skipped++
+      } else if (result.success) {
         replayed++
       } else {
         failed++
       }
+
+      if (options?.includeDetails) {
+        details.push({ id: entry.id, success: result.success, error: result.error })
+      }
     }
 
-    return { replayed, failed }
+    console.log(`[DLQ] Batch replay complete: replayed=${replayed}, failed=${failed}, skipped=${skipped}`)
+
+    const result: DLQReplayAllResult = { replayed, failed, skipped }
+    if (options?.includeDetails) {
+      result.details = details
+    }
+    return result
   }
 
   /**
@@ -2192,30 +2547,106 @@ export class DLQStore {
     return this.replay(id)
   }
 
+  /**
+   * Remove a DLQ entry from the database
+   * Now actually performs the database delete operation
+   */
   async remove(id: string): Promise<boolean> {
     const entry = await this.get(id)
     if (!entry) {
       return false
     }
-    return true
+
+    try {
+      await this.db
+        .delete(schema.dlq)
+        .where(eq(schema.dlq.id, id))
+
+      console.log(`[DLQ] Removed entry: id=${id}, verb=${entry.verb}`)
+      return true
+    } catch (error) {
+      logBestEffortError(error, {
+        operation: 'remove',
+        source: 'DLQStore.remove',
+        context: { id },
+      })
+      return false
+    }
   }
 
+  /**
+   * Purge exhausted entries (entries that have exceeded max retries)
+   *
+   * Returns the count of purged entries for observability
+   */
   async purgeExhausted(): Promise<number> {
     const entries = await this.list()
     const exhausted = entries.filter((e) => e.retryCount >= e.maxRetries)
 
+    console.log(`[DLQ] Purging exhausted entries: count=${exhausted.length}`)
+
     let purged = 0
     for (const entry of exhausted) {
+      // Archive before removing (log for audit trail)
+      console.log(`[DLQ] Archiving exhausted entry: id=${entry.id}, verb=${entry.verb}, retryCount=${entry.retryCount}, error=${entry.error.slice(0, 100)}`)
+
       const removed = await this.remove(entry.id)
       if (removed) {
         purged++
       }
     }
 
+    console.log(`[DLQ] Purge complete: purged=${purged}`)
     return purged
   }
 
+  /**
+   * Get statistics about the DLQ for monitoring and alerting
+   */
+  async stats(): Promise<{
+    total: number
+    pending: number
+    exhausted: number
+    byVerb: Record<string, number>
+    avgRetryCount: number
+    oldestEntry: Date | null
+  }> {
+    const entries = await this.list()
+
+    const pending = entries.filter((e) => e.retryCount < e.maxRetries).length
+    const exhausted = entries.filter((e) => e.retryCount >= e.maxRetries).length
+
+    const byVerb: Record<string, number> = {}
+    for (const entry of entries) {
+      byVerb[entry.verb] = (byVerb[entry.verb] ?? 0) + 1
+    }
+
+    const avgRetryCount = entries.length > 0
+      ? entries.reduce((sum, e) => sum + e.retryCount, 0) / entries.length
+      : 0
+
+    const oldestEntry = entries.length > 0
+      ? entries.reduce((oldest, e) => e.createdAt < oldest ? e.createdAt : oldest, entries[0]!.createdAt)
+      : null
+
+    return {
+      total: entries.length,
+      pending,
+      exhausted,
+      byVerb,
+      avgRetryCount,
+      oldestEntry,
+    }
+  }
+
+  /**
+   * Convert database row to DLQEntity with computed fields
+   */
   private toEntity(row: typeof schema.dlq.$inferSelect): DLQEntity {
+    const idempotencyKey = generateIdempotencyKey(row.eventId ?? undefined, row.verb, row.data as Record<string, unknown>)
+    const nextRetryAt = calculateNextRetryTime(row.retryCount)
+    const status: 'pending' | 'exhausted' = row.retryCount >= row.maxRetries ? 'exhausted' : 'pending'
+
     return {
       id: row.id,
       eventId: row.eventId,
@@ -2228,6 +2659,9 @@ export class DLQStore {
       maxRetries: row.maxRetries,
       lastAttemptAt: row.lastAttemptAt ?? null,
       createdAt: row.createdAt,
+      idempotencyKey,
+      nextRetryAt,
+      status,
     }
   }
 }

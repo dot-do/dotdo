@@ -21,7 +21,24 @@ const IRREGULAR_PLURALS: Record<string, string> = {
 }
 
 /**
- * Pluralize a word according to English pluralization rules
+ * Cache for pluralization results to avoid recomputing
+ */
+const pluralCache = new Map<string, string>()
+
+/**
+ * Cache for normalized namespace strings (trailing slash removed)
+ */
+const normalizedNsCache = new Map<string, string>()
+
+/**
+ * Cache for type URLs (ns + type -> URL)
+ * Key format: `${ns}\0${type}` (null byte separator for uniqueness)
+ */
+const typeUrlCache = new Map<string, string>()
+
+/**
+ * Pluralize a word according to English pluralization rules.
+ * Results are cached for performance.
  *
  * Rules:
  * 1. Irregular plurals (person -> people, child -> children)
@@ -29,38 +46,64 @@ const IRREGULAR_PLURALS: Record<string, string> = {
  * 3. Words ending in consonant + y -> change y to ies
  * 4. All others -> add 's'
  */
-function pluralize(word: string): string {
+export function pluralize(word: string): string {
   const lower = word.toLowerCase()
+
+  // Check cache first
+  const cached = pluralCache.get(lower)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  let result: string
 
   // Check irregular plurals first
   if (IRREGULAR_PLURALS[lower]) {
-    return IRREGULAR_PLURALS[lower]
+    result = IRREGULAR_PLURALS[lower]
   }
-
   // Words ending in s, x, ch, sh -> add 'es'
-  if (lower.endsWith('s') || lower.endsWith('x') || lower.endsWith('ch') || lower.endsWith('sh')) {
-    return lower + 'es'
+  else if (lower.endsWith('s') || lower.endsWith('x') || lower.endsWith('ch') || lower.endsWith('sh')) {
+    result = lower + 'es'
   }
-
   // Words ending in consonant + y -> change y to ies
-  if (lower.endsWith('y')) {
+  else if (lower.endsWith('y')) {
     const secondToLast = lower.charAt(lower.length - 2)
-    const vowels = 'aeiou'
-    if (!vowels.includes(secondToLast)) {
-      return lower.slice(0, -1) + 'ies'
+    if (secondToLast !== 'a' && secondToLast !== 'e' && secondToLast !== 'i' && secondToLast !== 'o' && secondToLast !== 'u') {
+      result = lower.slice(0, -1) + 'ies'
+    } else {
+      result = lower + 's'
     }
   }
-
   // Default: add 's'
-  return lower + 's'
+  else {
+    result = lower + 's'
+  }
+
+  // Cache the result
+  pluralCache.set(lower, result)
+  return result
 }
 
 /**
- * Remove trailing slash from a string if present
+ * Remove trailing slash from a string if present.
+ * Results are cached for performance.
+ * Exported for use by other modules.
  */
-function stripTrailingSlash(str: string): string {
-  return str.endsWith('/') ? str.slice(0, -1) : str
+export function normalizeNs(str: string): string {
+  // Check cache first
+  const cached = normalizedNsCache.get(str)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // Compute and cache
+  const result = str.endsWith('/') ? str.slice(0, -1) : str
+  normalizedNsCache.set(str, result)
+  return result
 }
+
+// Keep internal alias for backward compatibility within this file
+const stripTrailingSlash = normalizeNs
 
 /**
  * URL-encode special characters in an ID that should not appear literally in a URL path
@@ -73,26 +116,67 @@ function encodeId(id: string): string {
 }
 
 /**
+ * Schema.org.ai base URL for orphan DO type definitions
+ */
+const SCHEMA_BASE_URL = 'https://schema.org.ai'
+
+/**
+ * Build the schema.org.ai URL for a given type
+ *
+ * @param type - The type name (e.g., "DO", "Startup", "Collection")
+ * @returns The schema URL (e.g., "https://schema.org.ai/DO")
+ */
+function buildSchemaUrl(type: string): string {
+  return `${SCHEMA_BASE_URL}/${type}`
+}
+
+/**
+ * Check if a parent value is effectively empty (null, undefined, empty string, or whitespace)
+ */
+function isEmptyParent(parent: string | undefined | null): boolean {
+  return !parent || parent.trim() === ''
+}
+
+/**
  * Build a context URL from a namespace
  *
  * @param ns - The namespace URL (e.g., "https://headless.ly")
  * @param options - Optional configuration
  * @param options.parent - Parent URL to use when isRoot is true
  * @param options.isRoot - Whether this is the root level (uses parent if provided)
+ * @param options.isCollection - Whether this is a collection (uses Collection schema for orphans)
+ * @param options.type - The entity type (used for orphan schema URL fallback)
  * @returns The context URL
  */
-export function buildContextUrl(ns: string, options?: { parent?: string; isRoot?: boolean }): string {
-  // If both parent and isRoot are provided and truthy, return parent
-  if (options?.parent && options?.isRoot) {
-    return options.parent
+export function buildContextUrl(
+  ns: string,
+  options?: { parent?: string; isRoot?: boolean; isCollection?: boolean; type?: string }
+): string {
+  // If isRoot is true, handle parent/orphan logic
+  if (options?.isRoot) {
+    // If parent is provided and not empty, use it
+    if (!isEmptyParent(options.parent)) {
+      return options.parent!
+    }
+
+    // Orphan DO: fall back to schema.org.ai
+    // isCollection takes precedence over type
+    if (options.isCollection) {
+      return buildSchemaUrl('Collection')
+    }
+
+    // Use the type for schema URL, default to 'DO' if no type provided
+    const type = options.type || 'DO'
+    return buildSchemaUrl(type)
   }
 
-  // Otherwise return the namespace as-is
+  // Non-root: return the namespace as-is
   return ns
 }
 
 /**
  * Build a type URL from a namespace and type name
+ * Results are cached for performance.
  *
  * @param ns - The namespace URL (e.g., "https://headless.ly")
  * @param type - The type name in PascalCase (e.g., "Customer")
@@ -100,19 +184,29 @@ export function buildContextUrl(ns: string, options?: { parent?: string; isRoot?
  * @throws Error if type is empty or whitespace-only
  */
 export function buildTypeUrl(ns: string, type: string): string {
-  // Validate type
+  // Validate type first (before cache check, as invalid input shouldn't be cached)
   const trimmedType = type.trim()
   if (!trimmedType) {
     throw new Error('Type cannot be empty')
   }
 
-  // Normalize namespace (remove trailing slash)
+  // Check cache using composite key
+  const cacheKey = `${ns}\0${trimmedType}`
+  const cached = typeUrlCache.get(cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // Normalize namespace (remove trailing slash) - also cached
   const normalizedNs = stripTrailingSlash(ns)
 
-  // Pluralize and lowercase the type
+  // Pluralize and lowercase the type - also cached
   const pluralType = pluralize(trimmedType)
 
-  return `${normalizedNs}/${pluralType}`
+  // Build and cache result
+  const result = `${normalizedNs}/${pluralType}`
+  typeUrlCache.set(cacheKey, result)
+  return result
 }
 
 /**

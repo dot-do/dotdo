@@ -180,6 +180,13 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
    */
   protected currentBranch: string = 'main'
 
+  /**
+   * Parent namespace URL (optional)
+   * Used as $context in root responses
+   * e.g., 'https://Startups.Studio'
+   */
+  protected parent?: string
+
   // ═══════════════════════════════════════════════════════════════════════════
   // USER CONTEXT
   // ═══════════════════════════════════════════════════════════════════════════
@@ -253,8 +260,10 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
     // Store namespace
     await this.ctx.storage.put('ns', config.ns)
 
-    // If has parent, record the relationship
+    // If has parent, record the relationship and store locally
     if (config.parent) {
+      this.parent = config.parent
+      await this.ctx.storage.put('parent', config.parent)
       await this.db.insert(schema.objects).values({
         ns: config.parent,
         id: this.ctx.id.toString(),
