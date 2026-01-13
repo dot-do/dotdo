@@ -569,7 +569,7 @@ describe('Protected Routes Work With Valid Auth', () => {
     const token = createJWT({ sub: 'user-123', role: 'user' })
     mockValidJWTVerification({ sub: 'user-123', role: 'user' })
 
-    const res = await request('POST', '/api/things', {
+    const res = await request('POST', '/api/basic', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
