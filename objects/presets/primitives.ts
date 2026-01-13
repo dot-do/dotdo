@@ -41,8 +41,8 @@
  */
 
 import { DO, type Env } from '../DO'
-import { withFs, type FsCapability, type WithFsContext } from '../../lib/capabilities/fs'
-import { withGit, type GitCapability, type WithGitContext } from '../../lib/capabilities/git'
+import { withFs, type FsCapability, type WithFsContext } from '../../lib/mixins/fs'
+import { withGit, type GitCapability, type WithGitContext } from '../../lib/mixins/git'
 import {
   withBash,
   type BashCapability,
@@ -50,8 +50,8 @@ import {
   type BashExecutor,
   type BashResult,
   type ExecOptions,
-} from '../../lib/capabilities/bash'
-import { withNpm, type NpmCapability, type WithNpmContext } from '../../lib/capabilities/npm'
+} from '../../lib/mixins/bash'
+import { withNpm, type NpmCapability, type WithNpmContext } from '../../lib/mixins/npm'
 import type { WorkflowContext } from '../../types/WorkflowContext'
 
 // ============================================================================

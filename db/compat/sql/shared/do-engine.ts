@@ -10,55 +10,6 @@
  * - Replica routing: Routes reads/writes to appropriate replicas
  * - Tier management: (Future) Manages data across hot/warm/cold storage
  *
- * ## WARNING: Transaction Safety Limitations
- *
- * **The transaction methods in this engine have significant limitations that can
- * cause data inconsistency in distributed scenarios.**
- *
- * ### Current Behavior
- *
- * The `beginTransaction()`, `commitTransaction()`, and `rollbackTransaction()` methods
- * only toggle LOCAL flags in the engine instance. They do NOT:
- *
- * 1. **Send transaction commands to DOs**: No `BEGIN`/`COMMIT`/`ROLLBACK` SQL
- *    statements are actually sent to the Durable Objects.
- *
- * 2. **Coordinate across shards**: Each shard maintains completely independent state.
- *    A "transaction" spanning multiple shards is NOT atomic - partial failures can
- *    leave data in an inconsistent state.
- *
- * 3. **Provide isolation guarantees**: There is no read isolation between queries
- *    that may be routed to different shards or replicas.
- *
- * ### Data Inconsistency Scenarios
- *
- * ```typescript
- * // DANGEROUS: This is NOT atomic across shards!
- * engine.beginTransaction()
- * await engine.execute('UPDATE accounts SET balance = balance - 100 WHERE tenant_id = $1', ['tenant-a'])
- * await engine.execute('UPDATE accounts SET balance = balance + 100 WHERE tenant_id = $1', ['tenant-b'])
- * // If second query fails, first write is already committed on shard-a!
- * engine.commitTransaction()
- * ```
- *
- * ### Safe Usage Patterns
- *
- * - **Single-shard transactions**: If all operations target the same shard key,
- *   transactions work at the DO level (though you must manually send BEGIN/COMMIT SQL).
- *
- * - **Idempotent operations**: Design writes to be idempotent so partial failures
- *   can be safely retried.
- *
- * - **Saga pattern**: Use compensating transactions for multi-shard operations.
- *
- * - **Single DO mode**: Disable sharding for strong transactional guarantees.
- *
- * ### Future Improvements
- *
- * Cross-shard transactions would require implementing two-phase commit (2PC) or
- * a similar distributed transaction protocol. This is complex and adds latency.
- * See: https://github.com/dotdo/dotdo/issues/xxx for tracking.
- *
  * @example
  * ```typescript
  * import { createDOSQLEngine } from '@dotdo/db/compat/sql/shared/do-engine'
@@ -159,32 +110,6 @@ interface DOSQLResponse {
  *    - Writes: Always go to primary (or shard primary)
  *    - Reads: Route based on read preference (primary, secondary, nearest)
  * 4. For queries without shard key: Fan out to all shards and merge results
- *
- * ---
- *
- * ## WARNING: Transaction Limitations
- *
- * **Transaction methods in this class are NOT safe for cross-shard operations.**
- *
- * The `beginTransaction()`, `commitTransaction()`, and `rollbackTransaction()` methods
- * only maintain local state flags. They do NOT coordinate across Durable Objects or
- * provide ACID guarantees when queries are routed to different shards.
- *
- * ### What these methods actually do:
- * - Set `this.inTransaction = true/false`
- * - Set `this.transactionMode` to 'read'/'write'
- * - **Nothing else** - no SQL sent, no coordination, no isolation
- *
- * ### When it's safe to use transactions:
- * - Single DO mode (no sharding configured)
- * - All queries guaranteed to hit the same shard (same shard key value)
- *
- * ### When it's UNSAFE (data loss/inconsistency risk):
- * - Multi-shard operations
- * - Mixed shard key values
- * - Fan-out queries
- *
- * See module-level documentation for safe usage patterns (saga, idempotency, etc.)
  */
 export class DOSQLEngine implements AsyncSQLEngine {
   private namespace: DurableObjectNamespace
@@ -457,74 +382,21 @@ export class DOSQLEngine implements AsyncSQLEngine {
   // ============================================================================
   // TRANSACTION MANAGEMENT
   // ============================================================================
-  //
-  // WARNING: These methods only toggle LOCAL flags - they do NOT coordinate
-  // across shards or send transaction commands to Durable Objects!
-  //
-  // See class and module documentation for full details on limitations.
-  // ============================================================================
 
   /**
-   * Begin a transaction (LOCAL FLAG ONLY)
+   * Begin a transaction
    *
-   * @warning **This method does NOT provide cross-shard ACID guarantees.**
-   *
-   * This method only sets a local `inTransaction` flag. It does NOT:
-   * - Send a `BEGIN` statement to any Durable Object
-   * - Coordinate transaction state across shards
-   * - Provide isolation from concurrent queries
-   * - Enable rollback of already-executed queries
-   *
-   * ### When is this safe?
-   * - Single DO mode (no sharding) - but you must still send `BEGIN` SQL manually
-   * - Tracking intent for logging/debugging purposes only
-   *
-   * ### When is this UNSAFE?
-   * - Any multi-shard scenario
-   * - When you expect rollback to actually undo changes
-   * - When you expect isolation between queries
-   *
-   * @param mode - Transaction mode ('read', 'write', or 'deferred'). Only stored locally.
-   *
-   * @example Safe single-shard pattern (manual SQL)
-   * ```typescript
-   * // For single-shard transactions, send BEGIN/COMMIT yourself:
-   * await engine.execute('BEGIN')
-   * try {
-   *   await engine.execute('INSERT INTO users ...', [...])
-   *   await engine.execute('INSERT INTO logs ...', [...])
-   *   await engine.execute('COMMIT')
-   * } catch (e) {
-   *   await engine.execute('ROLLBACK')
-   *   throw e
-   * }
-   * ```
+   * Note: Transactions in sharded mode are complex - each shard maintains
+   * its own transaction state. For simplicity, we track transaction state
+   * locally and pass it to DO calls.
    */
   beginTransaction(mode: TransactionMode = 'write'): void {
-    if (this.shardManager) {
-      console.warn(
-        '[DOSQLEngine] WARNING: beginTransaction() called with sharding enabled. ' +
-        'Transactions do NOT coordinate across shards - partial failures may cause data inconsistency. ' +
-        'Consider using single-shard operations, the saga pattern, or disabling sharding for transactional workloads.'
-      )
-    }
     this.inTransaction = true
     this.transactionMode = mode
   }
 
   /**
-   * Commit the current transaction (LOCAL FLAG ONLY)
-   *
-   * @warning **This method does NOT send COMMIT to Durable Objects.**
-   *
-   * This method only clears the local `inTransaction` flag. It does NOT:
-   * - Send a `COMMIT` statement to any Durable Object
-   * - Finalize any pending changes across shards
-   * - Provide atomicity guarantees
-   *
-   * If queries were executed during the "transaction", they have already been
-   * committed individually to their respective shards. This method is essentially
-   * a no-op from a data consistency perspective.
+   * Commit the current transaction
    */
   commitTransaction(): void {
     this.inTransaction = false
@@ -532,21 +404,7 @@ export class DOSQLEngine implements AsyncSQLEngine {
   }
 
   /**
-   * Rollback the current transaction (LOCAL FLAG ONLY)
-   *
-   * @warning **This method does NOT rollback any changes.**
-   *
-   * This method only clears the local `inTransaction` flag. It does NOT:
-   * - Send a `ROLLBACK` statement to any Durable Object
-   * - Undo any changes made during the "transaction"
-   * - Restore any previous state
-   *
-   * Any queries executed during the "transaction" have already been committed
-   * to their respective shards and CANNOT be undone by this method.
-   *
-   * ### To actually rollback changes:
-   * - For single DO: Send `ROLLBACK` SQL directly via `execute()`
-   * - For multi-shard: Implement compensating transactions (saga pattern)
+   * Rollback the current transaction
    */
   rollbackTransaction(): void {
     this.inTransaction = false
@@ -554,12 +412,7 @@ export class DOSQLEngine implements AsyncSQLEngine {
   }
 
   /**
-   * Check if a transaction is active (LOCAL FLAG ONLY)
-   *
-   * @returns Whether a transaction has been started via `beginTransaction()`.
-   *
-   * @note This only reflects the local flag state. Individual Durable Objects
-   * maintain their own independent transaction state which may differ.
+   * Check if a transaction is active
    */
   isInTransaction(): boolean {
     return this.inTransaction

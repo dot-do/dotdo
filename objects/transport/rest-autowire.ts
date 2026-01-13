@@ -110,14 +110,6 @@ export interface JsonSchemaProperty {
 }
 
 /**
- * DO class with optional static $rest configuration
- */
-export interface DOClassWithRest {
-  new (...args: unknown[]): unknown
-  $rest?: Record<string, RestMethodConfig>
-}
-
-/**
  * Method configuration from static $rest or @rest() decorator
  */
 export interface RestMethodConfig {
@@ -391,9 +383,8 @@ export function rest(config: RestMethodConfig) {
 
       // Use addInitializer to register the config when the class is defined
       context.addInitializer(function () {
-        // In decorator initializers, 'this' is the instance - safely access constructor
-        const instance = this as { constructor: Function }
-        const constructor = instance.constructor
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const constructor = (this as any).constructor
         let configs = decoratorConfigs.get(constructor)
         if (!configs) {
           configs = new Map()
@@ -463,11 +454,11 @@ interface DecoratorContext {
  * @param DOClass - The DO class to analyze
  * @returns Array of route configurations
  */
-export function getRestRoutes(DOClass: DOClassWithRest): RestRouteConfig[] {
+export function getRestRoutes(DOClass: new (...args: unknown[]) => unknown): RestRouteConfig[] {
   const routes: RestRouteConfig[] = []
 
   // Check static $rest configuration
-  const staticRest = DOClass.$rest
+  const staticRest = (DOClass as unknown as { $rest?: Record<string, RestMethodConfig> }).$rest
   if (staticRest) {
     for (const [methodName, config] of Object.entries(staticRest)) {
       routes.push({
@@ -560,11 +551,11 @@ export function getRestRoutes(DOClass: DOClassWithRest): RestRouteConfig[] {
  * @returns Route configuration or undefined
  */
 export function getRouteConfig(
-  DOClass: DOClassWithRest,
+  DOClass: new (...args: unknown[]) => unknown,
   methodName: string
 ): RestMethodConfig | undefined {
   // Check static $rest
-  const staticRest = DOClass.$rest
+  const staticRest = (DOClass as unknown as { $rest?: Record<string, RestMethodConfig> }).$rest
   if (staticRest && staticRest[methodName]) {
     return staticRest[methodName]
   }

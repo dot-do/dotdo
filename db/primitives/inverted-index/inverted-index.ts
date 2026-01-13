@@ -761,24 +761,6 @@ export class InvertedIndex {
   }
 
   /**
-   * Serialize just the dictionary portion
-   *
-   * @returns Dictionary bytes
-   */
-  serializeDictionary(): Uint8Array {
-    return this.serialize().dictionary
-  }
-
-  /**
-   * Serialize just the postings portion
-   *
-   * @returns Postings bytes
-   */
-  serializePostings(): Uint8Array {
-    return this.serialize().postings
-  }
-
-  /**
    * Load index from serialized data
    *
    * @param dictionary - Dictionary bytes
@@ -861,93 +843,6 @@ export class InvertedIndex {
       }
       this.postingsData = postings
     }
-  }
-
-  /**
-   * Load dictionary from serialized bytes
-   *
-   * @param dictionary - Dictionary bytes
-   */
-  async loadDictionary(dictionary: Uint8Array): Promise<void> {
-    const decoder = new TextDecoder()
-
-    // Validate dictionary magic
-    for (let i = 0; i < INDEX_MAGIC.length; i++) {
-      if (dictionary[i] !== INDEX_MAGIC[i]) {
-        throw new Error('Invalid index: dictionary magic mismatch')
-      }
-    }
-
-    const dictView = new DataView(dictionary.buffer, dictionary.byteOffset, dictionary.byteLength)
-
-    // Parse header
-    const version = dictView.getUint16(4, true)
-    if (version !== INDEX_VERSION) {
-      throw new Error(`Unsupported index version: ${version}`)
-    }
-
-    this.stats.totalDocs = dictView.getUint32(10, true)
-    this.stats.avgDocLength = dictView.getUint32(14, true) / 100
-    this.stats.totalLength = dictView.getUint32(18, true)
-
-    let offset = HEADER_SIZE
-
-    // Parse document metadata
-    const [docCount, docCountBytes] = decodeVarint(dictionary, offset)
-    offset += docCountBytes
-
-    this.documents.clear()
-    this.numericToStringId.clear()
-
-    for (let i = 0; i < docCount; i++) {
-      const [idLen, idLenBytes] = decodeVarint(dictionary, offset)
-      offset += idLenBytes
-
-      const id = decoder.decode(dictionary.slice(offset, offset + idLen))
-      offset += idLen
-
-      const [numericId, numericIdBytes] = decodeVarint(dictionary, offset)
-      offset += numericIdBytes
-
-      const [docLength, docLengthBytes] = decodeVarint(dictionary, offset)
-      offset += docLengthBytes
-
-      this.documents.set(id, { id, numericId, length: docLength })
-      this.numericToStringId.set(numericId, id)
-
-      if (numericId >= this.nextNumericId) {
-        this.nextNumericId = numericId + 1
-      }
-    }
-
-    // Parse term dictionary
-    const termDictBytes = dictionary.slice(offset)
-    this.dictionary = TermDictionary.deserialize(termDictBytes)
-  }
-
-  /**
-   * Load postings from serialized bytes
-   *
-   * @param postings - Postings bytes
-   */
-  loadPostings(postings: Uint8Array): void {
-    // Validate postings magic
-    for (let i = 0; i < POSTINGS_MAGIC.length; i++) {
-      if (postings[i] !== POSTINGS_MAGIC[i]) {
-        throw new Error('Invalid index: postings magic mismatch')
-      }
-    }
-    this.postingsData = postings
-  }
-
-  /**
-   * Search using in-memory postings data
-   *
-   * @param query - Search query
-   * @returns Search results
-   */
-  searchInMemory(query: string): SearchResult[] {
-    return this.search(query)
   }
 
   // ==========================================================================

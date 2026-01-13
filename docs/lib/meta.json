@@ -15,7 +15,7 @@
     "capabilities",
     "state-storage",
     "auto-wiring",
-    "do-capabilities",
+    "mixins",
     "rpc"
   ]
 }

@@ -11,7 +11,7 @@
  * - All operations run in V8 isolates
  */
 
-import type { GitCapability, GitStatus, PushResult, SyncResult, GitCommitResult } from '../../../lib/capabilities/git'
+import type { GitCapability, GitStatus, PushResult, SyncResult, GitCommitResult } from '../../../lib/mixins/git'
 
 // ============================================================================
 // Types

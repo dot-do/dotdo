@@ -856,11 +856,9 @@ export class RPCServer {
         }))
       } catch (error) {
         // Log send errors for debugging WebSocket connection issues
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebSocket readyState exists at runtime but type inference from Object.values loses it
-        const readyState = 'readyState' in server! ? (server as { readyState: number }).readyState : undefined
         console.debug('[rpc] WebSocket notification send failed:', {
           method,
-          readyState,
+          readyState: (server as any).readyState,
           error: error instanceof Error ? error.message : 'unknown',
         })
       }
