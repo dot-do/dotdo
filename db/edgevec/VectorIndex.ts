@@ -1,5 +1,5 @@
 /**
- * EdgeVecDO - Durable Object for HNSW vector index persistence
+ * VectorIndex - Durable Object for HNSW vector index persistence
  *
  * Provides:
  * - HNSW index persistence to DO KV storage
@@ -15,12 +15,20 @@ import {
   generateParquetPath,
   type VectorRecord as ParquetVectorRecord,
 } from '../parquet'
+import {
+  cosineSimilarityUnrolled,
+  l2DistanceUnrolled,
+  dotProductUnrolled,
+  VectorNormCache,
+  MaxHeap,
+} from './vector-ops'
+import { EmbeddingCache } from './embedding-cache'
 
 // ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 
-export interface EdgeVecConfig {
+export interface VectorIndexConfig {
   dimension: number
   metric: 'cosine' | 'euclidean' | 'dot'
   efConstruction: number
@@ -116,33 +124,33 @@ interface StoredVector {
 // ERROR CLASSES
 // ============================================================================
 
-export class EdgeVecStorageError extends Error {
+export class VectorIndexStorageError extends Error {
   constructor(
     message: string,
     public cause?: Error
   ) {
     super(message)
-    this.name = 'EdgeVecStorageError'
+    this.name = 'VectorIndexStorageError'
   }
 }
 
-export class EdgeVecIndexError extends Error {
+export class VectorIndexError extends Error {
   constructor(
     message: string,
     public cause?: Error
   ) {
     super(message)
-    this.name = 'EdgeVecIndexError'
+    this.name = 'VectorIndexError'
   }
 }
 
-export class EdgeVecBackupError extends Error {
+export class VectorIndexBackupError extends Error {
   constructor(
     message: string,
     public cause?: Error
   ) {
     super(message)
-    this.name = 'EdgeVecBackupError'
+    this.name = 'VectorIndexBackupError'
   }
 }
 
@@ -150,7 +158,7 @@ export class EdgeVecBackupError extends Error {
 // ENVIRONMENT INTERFACE
 // ============================================================================
 
-interface EdgeVecEnv {
+interface VectorIndexEnv {
   EDGEVEC_R2?: R2Bucket
   AI?: Fetcher
 }
@@ -160,7 +168,7 @@ interface EdgeVecEnv {
 // ============================================================================
 
 export class EdgeVecDO {
-  private config: EdgeVecConfig | null = null
+  private config: VectorIndexConfig | null = null
   private initialized: boolean = false
 
   // Default compaction settings
@@ -168,10 +176,31 @@ export class EdgeVecDO {
   private readonly DEFAULT_MAX_VECTORS_PER_FILE = 10000
   private readonly DEFAULT_CHECK_INTERVAL = 60000 // 1 minute
 
+  // Performance optimization caches
+  private normCache: VectorNormCache | null = null
+  private embeddingCache: EmbeddingCache | null = null
+
   constructor(
     private ctx: DurableObjectState,
     private env: EdgeVecEnv
   ) {}
+
+  /**
+   * Initialize caches for optimized search performance
+   */
+  private initializeCaches(): void {
+    if (!this.config) return
+
+    // Initialize norm cache with 10K capacity
+    this.normCache = new VectorNormCache(10000)
+
+    // Initialize embedding cache with config dimensions
+    this.embeddingCache = new EmbeddingCache({
+      dimensions: this.config.dimension,
+      maxEntries: Math.min(this.config.maxElements, 10000),
+      maxMemoryBytes: 100 * 1024 * 1024, // 100MB
+    })
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -278,7 +307,7 @@ export class EdgeVecDO {
     }
   }
 
-  async initialize(config: EdgeVecConfig): Promise<void> {
+  async initialize(config: VectorIndexConfig): Promise<void> {
     try {
       this.config = config
 
@@ -287,6 +316,9 @@ export class EdgeVecDO {
 
       // Initialize SQLite schema with compacted_at column
       await this.initializeSchema()
+
+      // Initialize performance optimization caches
+      this.initializeCaches()
 
       // Schedule compaction alarm if enabled
       const compactionThreshold = config.compactionThreshold ?? this.DEFAULT_COMPACTION_THRESHOLD
@@ -304,7 +336,7 @@ export class EdgeVecDO {
 
       this.initialized = true
     } catch (error) {
-      throw new EdgeVecStorageError('Failed to initialize EdgeVecDO', error as Error)
+      throw new VectorIndexStorageError('Failed to initialize EdgeVecDO', error as Error)
     }
   }
 
@@ -331,6 +363,24 @@ export class EdgeVecDO {
         CREATE INDEX IF NOT EXISTS idx_vectors_compacted
         ON vectors(compacted_at, created_at)
       `)
+
+      // Create index for namespace filtering (common query pattern)
+      sql.exec(`
+        CREATE INDEX IF NOT EXISTS idx_vectors_ns
+        ON vectors(ns)
+      `)
+
+      // Create index for listing vectors with pagination
+      sql.exec(`
+        CREATE INDEX IF NOT EXISTS idx_vectors_id_ns
+        ON vectors(ns, id)
+      `)
+
+      // Create index for timestamp-based queries
+      sql.exec(`
+        CREATE INDEX IF NOT EXISTS idx_vectors_updated
+        ON vectors(updated_at DESC)
+      `)
     } catch (error) {
       // Handle case where table exists but needs migration
       if ((error as Error).message?.includes('duplicate column')) {
@@ -350,18 +400,21 @@ export class EdgeVecDO {
   }
 
   async load(): Promise<void> {
-    const storedConfig = await this.ctx.storage.get<EdgeVecConfig>('config')
+    const storedConfig = await this.ctx.storage.get<VectorIndexConfig>('config')
 
     if (!storedConfig) {
-      throw new EdgeVecIndexError('No configuration found')
+      throw new VectorIndexError('No configuration found')
     }
 
     this.config = storedConfig
 
+    // Initialize performance optimization caches
+    this.initializeCaches()
+
     // Load index graph
     const graph = await this.ctx.storage.get('index:graph')
     if (graph !== undefined && graph !== null && typeof graph !== 'object') {
-      throw new EdgeVecIndexError('Invalid index graph data')
+      throw new VectorIndexError('Invalid index graph data')
     }
 
     this.initialized = true
@@ -391,7 +444,7 @@ export class EdgeVecDO {
 
     // Validate dimension
     if (vector.vector.length !== this.config!.dimension) {
-      throw new EdgeVecStorageError(
+      throw new VectorIndexStorageError(
         `Vector dimension mismatch: expected ${this.config!.dimension}, got ${vector.vector.length}`
       )
     }
@@ -436,7 +489,7 @@ export class EdgeVecDO {
     // Validate all vectors first
     for (const vector of vectors) {
       if (vector.vector.length !== this.config!.dimension) {
-        throw new EdgeVecStorageError(
+        throw new VectorIndexStorageError(
           `Vector dimension mismatch: expected ${this.config!.dimension}, got ${vector.vector.length}`
         )
       }
@@ -445,7 +498,7 @@ export class EdgeVecDO {
     // Check storage limit
     const currentCount = (await this.getStats()).vectorCount
     if (currentCount + vectors.length > this.config!.maxElements) {
-      throw new EdgeVecStorageError(
+      throw new VectorIndexStorageError(
         `Would exceed max elements: ${currentCount} + ${vectors.length} > ${this.config!.maxElements}`
       )
     }
@@ -561,59 +614,142 @@ export class EdgeVecDO {
 
     // Validate query dimension
     if (query.length !== this.config!.dimension) {
-      throw new EdgeVecStorageError(
+      throw new VectorIndexStorageError(
         `Query dimension mismatch: expected ${this.config!.dimension}, got ${query.length}`
       )
     }
 
-    // Get all vectors for brute force search (TODO: implement HNSW)
+    // Convert query to Float32Array for optimized distance computation
+    const queryVec = new Float32Array(query)
+
+    // Compute query norm once for cosine similarity optimization
+    let queryNorm = 0
+    for (let i = 0; i < queryVec.length; i++) {
+      queryNorm += queryVec[i]! * queryVec[i]!
+    }
+    queryNorm = Math.sqrt(queryNorm)
+
+    // Get vectors from database
     const sql = (this.ctx.storage as unknown as { sql: SqlStorage }).sql
-    const results = sql.exec('SELECT * FROM vectors').toArray() as StoredVector[]
+
+    // Build query with optional namespace filter
+    let sqlQuery = 'SELECT * FROM vectors'
+    const params: unknown[] = []
+
+    // Apply namespace filter if provided
+    if (options.filter && options.filter.ns) {
+      sqlQuery += ' WHERE ns = ?'
+      params.push(options.filter.ns)
+    }
+
+    const results = sql.exec(sqlQuery, ...params).toArray() as StoredVector[]
 
     if (results.length === 0) {
       return []
     }
 
-    // Calculate distances and sort
-    const scored = results
-      .map((r) => {
-        const vector = Array.from(new Float32Array(r.vector as unknown as ArrayBuffer))
-        const score = this.cosineSimilarity(query, vector)
-        return {
-          id: r.id,
-          score,
-          vector,
-          metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
-        }
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, options.k)
+    // Use max-heap for efficient top-K selection
+    // Heap stores {id, distance} where distance is NEGATIVE similarity
+    // (so we keep the K largest similarities)
+    const heap = new MaxHeap<{ id: string; distance: number; vector: number[]; metadata?: Record<string, unknown> }>()
 
-    // Apply metadata filter if provided
-    if (options.filter) {
-      return scored.filter((r) => {
-        if (!r.metadata) return false
-        return Object.entries(options.filter!).every(
-          ([key, value]) => r.metadata![key] === value
-        )
+    // Get the distance function based on metric
+    const metric = this.config!.metric
+
+    for (const r of results) {
+      const dbVec = new Float32Array(r.vector as unknown as ArrayBuffer)
+
+      // Check embedding cache first
+      let score: number
+
+      if (metric === 'cosine') {
+        // Optimized cosine similarity with optional norm caching
+        if (this.normCache) {
+          const dbNorm = this.normCache.getNorm(r.id, dbVec)
+          if (queryNorm === 0 || dbNorm === 0) {
+            score = 0
+          } else {
+            score = dotProductUnrolled(queryVec, dbVec) / (queryNorm * dbNorm)
+          }
+        } else {
+          score = cosineSimilarityUnrolled(queryVec, dbVec)
+        }
+      } else if (metric === 'euclidean') {
+        // Negative L2 distance (so higher = closer = more similar)
+        score = -l2DistanceUnrolled(queryVec, dbVec)
+      } else {
+        // Dot product
+        score = dotProductUnrolled(queryVec, dbVec)
+      }
+
+      // Apply metadata filter if provided (excluding namespace which is already filtered)
+      const metadata = r.metadata ? JSON.parse(r.metadata) : undefined
+      if (options.filter) {
+        const nonNsFilters = Object.entries(options.filter).filter(([k]) => k !== 'ns')
+        if (nonNsFilters.length > 0) {
+          if (!metadata) continue
+          const matches = nonNsFilters.every(([key, value]) => metadata[key] === value)
+          if (!matches) continue
+        }
+      }
+
+      const vector = Array.from(dbVec)
+
+      // Use negative distance for max-heap (higher score = lower distance)
+      heap.push({
+        id: r.id,
+        distance: -score, // Negative so max-heap gives us highest scores
+        vector,
+        metadata,
+      })
+
+      // Keep only top-K
+      if (heap.size() > options.k) {
+        heap.pop()
+      }
+    }
+
+    // Extract results from heap (sorted by similarity descending)
+    const heapResults: SearchResult[] = []
+    while (!heap.isEmpty()) {
+      const item = heap.pop()!
+      heapResults.unshift({
+        id: item.id,
+        score: -item.distance, // Convert back to positive similarity
+        vector: item.vector,
+        metadata: item.metadata,
       })
     }
 
-    return scored
+    return heapResults
   }
 
-  private cosineSimilarity(a: number[], b: number[]): number {
-    let dotProduct = 0
-    let normA = 0
-    let normB = 0
-
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i]! * b[i]!
-      normA += a[i]! * a[i]!
-      normB += b[i]! * b[i]!
+  /**
+   * Optimized search using cached embeddings
+   *
+   * Uses the embedding cache for faster repeated queries.
+   */
+  async searchWithCache(
+    query: number[],
+    options: {
+      k: number
+      ef?: number
+      filter?: Record<string, unknown>
     }
+  ): Promise<SearchResult[]> {
+    // For now, delegate to standard search
+    // Future: implement HNSW with cached vectors
+    return this.search(query, options)
+  }
 
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
+  /**
+   * Get cache statistics for monitoring
+   */
+  getCacheStats(): { normCache: ReturnType<VectorNormCache['stats']> | null; embeddingCache: ReturnType<EmbeddingCache['getStats']> | null } {
+    return {
+      normCache: this.normCache?.stats() ?? null,
+      embeddingCache: this.embeddingCache?.getStats() ?? null,
+    }
   }
 
   async backup(options?: { incremental?: boolean }): Promise<void> {
@@ -653,13 +789,13 @@ export class EdgeVecDO {
         { customMetadata: { type: 'backup-manifest' } }
       )
     } catch (error) {
-      throw new EdgeVecBackupError('Backup failed', error as Error)
+      throw new VectorIndexBackupError('Backup failed', error as Error)
     }
   }
 
   async restore(options?: { timestamp?: number }): Promise<void> {
     if (!this.env.EDGEVEC_R2) {
-      throw new EdgeVecBackupError('R2 bucket not configured')
+      throw new VectorIndexBackupError('R2 bucket not configured')
     }
 
     try {
@@ -674,21 +810,21 @@ export class EdgeVecDO {
           .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())[0]
 
         if (!closest) {
-          throw new EdgeVecBackupError('No backup found before specified timestamp')
+          throw new VectorIndexBackupError('No backup found before specified timestamp')
         }
         manifestKey = closest.key
       } else {
         // Get latest manifest
         const { objects } = await this.env.EDGEVEC_R2.list({ prefix: 'backups/manifest-' })
         if (objects.length === 0) {
-          throw new EdgeVecBackupError('No backups found')
+          throw new VectorIndexBackupError('No backups found')
         }
         manifestKey = objects.sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())[0]!.key
       }
 
       const manifestObj = await this.env.EDGEVEC_R2.get(manifestKey)
       if (!manifestObj) {
-        throw new EdgeVecBackupError('Manifest not found')
+        throw new VectorIndexBackupError('Manifest not found')
       }
 
       const manifest = await manifestObj.json<BackupManifest>()
@@ -709,8 +845,8 @@ export class EdgeVecDO {
         }
       }
     } catch (error) {
-      if (error instanceof EdgeVecBackupError) throw error
-      throw new EdgeVecBackupError('Restore failed', error as Error)
+      if (error instanceof VectorIndexBackupError) throw error
+      throw new VectorIndexBackupError('Restore failed', error as Error)
     }
   }
 

@@ -12,8 +12,6 @@
  * - Type guards and utilities: isCompatError, wrapError
  */
 
-import { safeSerialize } from '../../../lib/safe-stringify'
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -95,11 +93,120 @@ export interface ToResponseOptions {
 }
 
 // =============================================================================
-// Safe JSON Serialization (imported from lib/safe-stringify)
+// Safe JSON Serialization
 // =============================================================================
 
-// Re-export for backwards compatibility
-export { safeSerialize }
+/**
+ * Options for safe serialization
+ */
+interface SafeSerializeOptions {
+  /** Maximum depth to traverse (default: 10) */
+  maxDepth?: number
+  /** Maximum string length before truncation (default: 10000) */
+  maxLength?: number
+  /** Replacement text for circular references (default: '[Circular]') */
+  circularReplacement?: string
+  /** Replacement text for functions (default: '[Function]') */
+  functionReplacement?: string
+  /** Whether to include stack traces (default: true) */
+  includeStacks?: boolean
+}
+
+const SERIALIZE_DEFAULTS: Required<SafeSerializeOptions> = {
+  maxDepth: 10,
+  maxLength: 10000,
+  circularReplacement: '[Circular]',
+  functionReplacement: '[Function]',
+  includeStacks: true,
+}
+
+/**
+ * Safely serialize a value, handling circular references and non-JSON types.
+ * Returns the serializable object structure rather than a JSON string.
+ */
+export function safeSerialize(value: unknown, options?: SafeSerializeOptions): unknown {
+  const opts = { ...SERIALIZE_DEFAULTS, ...options }
+  const seen = new WeakSet()
+
+  function serialize(obj: unknown, depth: number): unknown {
+    // Handle primitives
+    if (obj === null || obj === undefined) return obj
+    if (typeof obj === 'boolean' || typeof obj === 'number') return obj
+    if (typeof obj === 'string') {
+      return obj.length > opts.maxLength
+        ? obj.slice(0, opts.maxLength) + `... [truncated ${obj.length - opts.maxLength} chars]`
+        : obj
+    }
+    if (typeof obj === 'bigint') return obj.toString() + 'n'
+    if (typeof obj === 'symbol') return obj.toString()
+    if (typeof obj === 'function') return opts.functionReplacement
+
+    // Check depth
+    if (depth > opts.maxDepth) return '[Max depth exceeded]'
+
+    // Handle objects
+    if (typeof obj === 'object') {
+      // Check for circular reference
+      if (seen.has(obj)) return opts.circularReplacement
+      seen.add(obj)
+
+      // Handle Error objects specially
+      if (obj instanceof Error) {
+        const errorObj: Record<string, unknown> = {
+          name: obj.name,
+          message: obj.message,
+        }
+        if (opts.includeStacks && obj.stack) {
+          errorObj.stack = obj.stack
+        }
+        // Copy custom properties
+        for (const key of Object.keys(obj)) {
+          if (key !== 'name' && key !== 'message' && key !== 'stack') {
+            errorObj[key] = serialize((obj as unknown as Record<string, unknown>)[key], depth + 1)
+          }
+        }
+        return errorObj
+      }
+
+      // Handle Date
+      if (obj instanceof Date) return obj.toISOString()
+
+      // Handle RegExp
+      if (obj instanceof RegExp) return obj.toString()
+
+      // Handle Map
+      if (obj instanceof Map) {
+        const mapObj: Record<string, unknown> = {}
+        for (const [key, val] of obj) {
+          const keyStr = typeof key === 'string' ? key : String(key)
+          mapObj[keyStr] = serialize(val, depth + 1)
+        }
+        return { __type: 'Map', entries: mapObj }
+      }
+
+      // Handle Set
+      if (obj instanceof Set) {
+        return { __type: 'Set', values: Array.from(obj).map(v => serialize(v, depth + 1)) }
+      }
+
+      // Handle Arrays
+      if (Array.isArray(obj)) {
+        return obj.map(item => serialize(item, depth + 1))
+      }
+
+      // Handle plain objects
+      const result: Record<string, unknown> = {}
+      for (const key of Object.keys(obj)) {
+        result[key] = serialize((obj as Record<string, unknown>)[key], depth + 1)
+      }
+      return result
+    }
+
+    return String(obj)
+  }
+
+  return serialize(value, 0)
+}
 
 // =============================================================================
 // CompatError Base Class
@@ -130,9 +237,9 @@ export class CompatError extends Error {
       this.retryable = this.statusCode >= 500 || this.statusCode === 429
     }
 
-    // Capture stack trace
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor)
+    // Capture stack trace (V8 runtime feature)
+    if ('captureStackTrace' in Error) {
+      ;(Error as { captureStackTrace: (target: object, constructor: Function) => void }).captureStackTrace(this, this.constructor)
     }
   }
 

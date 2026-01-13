@@ -7,12 +7,15 @@
  * - Progress reporting
  * - Memory management
  * - Error handling modes
+ * - Pre-computed vector norms for faster search
  *
  * @module db/edgevec/batch-insert
  */
 
 import type { HNSWIndex } from './hnsw'
 import type { FilteredHNSWIndex } from './filtered-search'
+import { VectorNormCache } from './vector-ops'
+import type { EmbeddingCache } from './embedding-cache'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -48,6 +51,12 @@ export interface BatchInsertOptions {
   transactional?: boolean
   /** Progress callback */
   onProgress?: (progress: number) => void
+  /** Optional norm cache for optimizing subsequent searches */
+  normCache?: VectorNormCache
+  /** Optional embedding cache for storing vectors */
+  embeddingCache?: EmbeddingCache
+  /** Pre-normalize vectors for cosine similarity (default: false) */
+  preNormalize?: boolean
 }
 
 /**
@@ -72,7 +81,11 @@ export interface BatchInsertResult {
 
 export class BatchInserter {
   private index: HNSWIndex | FilteredHNSWIndex
-  private options: Required<Omit<BatchInsertOptions, 'onProgress'>> & { onProgress?: (progress: number) => void }
+  private options: Required<Omit<BatchInsertOptions, 'onProgress' | 'normCache' | 'embeddingCache'>> & {
+    onProgress?: (progress: number) => void
+    normCache?: VectorNormCache
+    embeddingCache?: EmbeddingCache
+  }
 
   constructor(index: HNSWIndex | FilteredHNSWIndex, options: BatchInsertOptions = {}) {
     this.index = index
@@ -84,6 +97,9 @@ export class BatchInserter {
       failFast: options.failFast ?? false,
       transactional: options.transactional ?? false,
       onProgress: options.onProgress,
+      normCache: options.normCache,
+      embeddingCache: options.embeddingCache,
+      preNormalize: options.preNormalize ?? false,
     }
   }
 
@@ -277,12 +293,27 @@ export class BatchInserter {
           ? v.vector
           : new Float32Array(v.vector)
 
+        // Pre-normalize if requested (optimizes cosine similarity)
+        if (this.options.preNormalize) {
+          this.normalizeInPlace(vector)
+        }
+
         // Insert
         if ('getMetadata' in this.index && v.metadata) {
           // Filtered index with metadata
           ;(this.index as FilteredHNSWIndex).insert(v.id, vector, v.metadata)
         } else {
           this.index.insert(v.id, vector)
+        }
+
+        // Populate norm cache for faster subsequent searches
+        if (this.options.normCache) {
+          this.options.normCache.getNorm(v.id, vector)
+        }
+
+        // Populate embedding cache
+        if (this.options.embeddingCache) {
+          this.options.embeddingCache.set(v.id, vector, v.metadata)
         }
 
         inserted++
@@ -376,5 +407,47 @@ export class BatchInserter {
       chunks.push(array.slice(i, i + size))
     }
     return chunks
+  }
+
+  /**
+   * Normalize a vector in place (L2 normalization)
+   */
+  private normalizeInPlace(v: Float32Array): void {
+    const len = v.length
+    const remainder = len % 4
+    const unrolledLen = len - remainder
+
+    // Compute magnitude with loop unrolling
+    let sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0
+
+    for (let i = 0; i < unrolledLen; i += 4) {
+      const v0 = v[i]!, v1 = v[i + 1]!, v2 = v[i + 2]!, v3 = v[i + 3]!
+      sum0 += v0 * v0
+      sum1 += v1 * v1
+      sum2 += v2 * v2
+      sum3 += v3 * v3
+    }
+
+    let sumR = 0
+    for (let i = unrolledLen; i < len; i++) {
+      const vi = v[i]!
+      sumR += vi * vi
+    }
+
+    const mag = Math.sqrt(sum0 + sum1 + sum2 + sum3 + sumR)
+
+    if (mag === 0) return
+
+    // Divide by magnitude with loop unrolling
+    for (let i = 0; i < unrolledLen; i += 4) {
+      v[i] = v[i]! / mag
+      v[i + 1] = v[i + 1]! / mag
+      v[i + 2] = v[i + 2]! / mag
+      v[i + 3] = v[i + 3]! / mag
+    }
+
+    for (let i = unrolledLen; i < len; i++) {
+      v[i] = v[i]! / mag
+    }
   }
 }

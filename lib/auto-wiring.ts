@@ -19,29 +19,67 @@ import type { DO } from '../objects/DO'
 // TYPES
 // ============================================================================
 
+/**
+ * Information about a method parameter extracted from function source.
+ *
+ * Used by auto-wiring to expose method signatures to SDK/RPC/MCP/REST/CLI transports.
+ */
 export interface ParameterInfo {
+  /** The parameter name (e.g., 'orderId', 'options') */
   name: string
+  /** Whether this parameter is optional (has default value or marked with ?) */
   optional: boolean
 }
 
+/**
+ * Complete signature information for a method.
+ *
+ * Includes parameter count, individual parameter info, and whether the method is async.
+ * Used to generate API documentation and validate RPC calls.
+ */
 export interface MethodSignature {
+  /** The method name */
   name: string
+  /** Number of required parameters (from function.length) */
   parameterCount: number
+  /** Detailed information about each parameter */
   parameters: ParameterInfo[]
+  /** Whether this is an async function */
   async: boolean
 }
 
+/**
+ * Rich metadata for a method including descriptions and documentation.
+ *
+ * In a full implementation, this could be populated from JSDoc comments
+ * using the TypeScript compiler API. Currently provides auto-generated
+ * descriptions based on method names.
+ */
 export interface MethodMetadata {
+  /** The method name */
   name: string
+  /** Human-readable description (auto-generated from method name) */
   description?: string
+  /** Descriptions for each parameter keyed by parameter name */
   parameters?: Record<string, { description?: string }>
+  /** Description of the return value */
   returns?: { description?: string }
+  /** List of exception types this method may throw */
   throws?: string[]
 }
 
+/**
+ * Complete information about an exposed (public) method.
+ *
+ * Combines signature and metadata for use in API generation,
+ * documentation, and runtime introspection.
+ */
 export interface ExposedMethodInfo {
+  /** The method name */
   name: string
+  /** Method signature including parameters and async flag */
   signature: MethodSignature
+  /** Rich metadata including descriptions */
   metadata: MethodMetadata
 }
 

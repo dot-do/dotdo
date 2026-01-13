@@ -9,6 +9,11 @@
  * - GET /request/:id - Get request status (for polling)
  * - POST /request/:id/respond - Submit response to a request
  *
+ * Uses Graph model for blocking request state:
+ * - BlockingApprovalRequest stored as Things with type 'ApprovalRequest'
+ * - Status transitions via verb forms (pending -> approved/rejected/expired)
+ * - Relationship: Request assignedTo Human
+ *
  * @example
  * ```typescript
  * // From ceo`approve partnership` template literal:
@@ -21,6 +26,7 @@
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult, Channel } from './Worker'
 import { Env } from './DO'
+import type { ThingEntity } from '../db/stores'
 
 export interface NotificationChannel {
   type: 'email' | 'slack' | 'sms' | 'webhook'
@@ -67,6 +73,11 @@ export interface BlockingApprovalRequest {
   }
 }
 
+/**
+ * Thing type constant for ApprovalRequest
+ */
+const APPROVAL_REQUEST_TYPE = 'ApprovalRequest'
+
 export class Human extends Worker {
   static override readonly $type = 'Human'
 
@@ -76,6 +87,123 @@ export class Human extends Worker {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+  }
+
+  // =========================================================================
+  // Graph Helper Methods
+  // =========================================================================
+
+  /**
+   * Convert a ThingEntity to BlockingApprovalRequest
+   */
+  private thingToBlockingRequest(thing: ThingEntity): BlockingApprovalRequest {
+    const data = thing.data as Record<string, unknown> | null
+    return {
+      requestId: thing.$id,
+      role: (data?.role as string) ?? '',
+      message: thing.name ?? '',
+      sla: data?.sla as number | undefined,
+      channel: data?.channel as string | undefined,
+      type: (data?.requestType as 'approval' | 'question' | 'review') ?? 'approval',
+      createdAt: (data?.createdAt as string) ?? new Date().toISOString(),
+      expiresAt: data?.expiresAt as string | undefined,
+      status: (data?.status as 'pending' | 'approved' | 'rejected' | 'expired') ?? 'pending',
+      result: data?.result as BlockingApprovalRequest['result'],
+    }
+  }
+
+  /**
+   * Create a BlockingApprovalRequest as a Thing in the graph
+   */
+  private async createApprovalRequestThing(record: BlockingApprovalRequest): Promise<ThingEntity> {
+    const thing = await this.things.create({
+      $id: record.requestId,
+      $type: APPROVAL_REQUEST_TYPE,
+      name: record.message,
+      data: {
+        role: record.role,
+        sla: record.sla,
+        channel: record.channel,
+        requestType: record.type,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        status: record.status,
+        result: record.result,
+      },
+    })
+
+    // Create relationship: Request assignedTo Human
+    try {
+      await this.relationships.create({
+        verb: 'assignedTo',
+        from: `${this.ns}/${APPROVAL_REQUEST_TYPE}/${record.requestId}`,
+        to: this.ns,
+        data: { assignedAt: record.createdAt },
+      })
+    } catch {
+      // Relationship may already exist, ignore duplicate errors
+    }
+
+    return thing
+  }
+
+  /**
+   * Update an ApprovalRequest Thing in the graph
+   */
+  private async updateApprovalRequestThing(record: BlockingApprovalRequest): Promise<ThingEntity> {
+    return this.things.update(record.requestId, {
+      data: {
+        role: record.role,
+        sla: record.sla,
+        channel: record.channel,
+        requestType: record.type,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        status: record.status,
+        result: record.result,
+      },
+    })
+  }
+
+  /**
+   * Get an ApprovalRequest Thing by ID
+   */
+  private async getApprovalRequestThing(requestId: string): Promise<ThingEntity | null> {
+    return this.things.get(requestId)
+  }
+
+  /**
+   * Delete an ApprovalRequest Thing and its relationships
+   */
+  private async deleteApprovalRequestThing(requestId: string): Promise<void> {
+    // Delete the relationship first
+    await this.relationships.deleteWhere({
+      from: `${this.ns}/${APPROVAL_REQUEST_TYPE}/${requestId}`,
+      verb: 'assignedTo',
+    })
+
+    // Delete the thing (soft delete)
+    try {
+      await this.things.delete(requestId)
+    } catch {
+      // Thing may not exist, ignore errors
+    }
+  }
+
+  /**
+   * List all ApprovalRequest Things
+   */
+  private async listApprovalRequestThings(status?: 'pending' | 'approved' | 'rejected' | 'expired'): Promise<ThingEntity[]> {
+    const things = await this.things.list({ type: APPROVAL_REQUEST_TYPE })
+
+    if (status) {
+      return things.filter((thing) => {
+        const data = thing.data as Record<string, unknown> | null
+        return data?.status === status
+      })
+    }
+
+    return things
   }
 
   /**
@@ -299,6 +427,8 @@ export class Human extends Worker {
   /**
    * Submit a blocking approval request
    * Used by the HumanClient when ceo`approve something` is awaited
+   *
+   * Now uses Graph model: creates an ApprovalRequest Thing with assignedTo relationship
    */
   async submitBlockingRequest(params: {
     requestId: string
@@ -321,8 +451,8 @@ export class Human extends Worker {
       status: 'pending',
     }
 
-    // Store the request
-    await this.ctx.storage.put(`blocking:${params.requestId}`, record)
+    // Store the request as a Thing in the graph (with assignedTo relationship)
+    await this.createApprovalRequestThing(record)
 
     // Notify via channels
     const channels = await this.getChannels()
@@ -346,20 +476,24 @@ export class Human extends Worker {
   /**
    * Get a blocking request by ID
    * Used by HumanClient polling
+   *
+   * Now uses Graph model: retrieves ApprovalRequest Thing by ID
    */
   async getBlockingRequest(requestId: string): Promise<BlockingApprovalRequest | null> {
-    const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
+    const thing = await this.getApprovalRequestThing(requestId)
 
-    if (!record) {
+    if (!thing) {
       return null
     }
+
+    const record = this.thingToBlockingRequest(thing)
 
     // Check if expired
     if (record.expiresAt && record.status === 'pending') {
       const expiresAt = new Date(record.expiresAt)
       if (expiresAt <= new Date()) {
         record.status = 'expired'
-        await this.ctx.storage.put(`blocking:${requestId}`, record)
+        await this.updateApprovalRequestThing(record)
         await this.emit('blocking.request.expired', { requestId })
       }
     }
@@ -370,6 +504,8 @@ export class Human extends Worker {
   /**
    * Respond to a blocking approval request
    * Called when a human submits their decision
+   *
+   * Now uses Graph model: updates ApprovalRequest Thing with status transition
    */
   async respondToBlockingRequest(params: {
     requestId: string
@@ -377,17 +513,19 @@ export class Human extends Worker {
     approver?: string
     reason?: string
   }): Promise<BlockingApprovalRequest> {
-    const record = await this.ctx.storage.get(`blocking:${params.requestId}`) as BlockingApprovalRequest | undefined
+    const thing = await this.getApprovalRequestThing(params.requestId)
 
-    if (!record) {
+    if (!thing) {
       throw new Error(`Request not found: ${params.requestId}`)
     }
+
+    const record = this.thingToBlockingRequest(thing)
 
     if (record.status !== 'pending') {
       throw new Error(`Request already ${record.status}: ${params.requestId}`)
     }
 
-    // Update the record with the response
+    // Update the record with the response (status transition via verb form)
     record.status = params.approved ? 'approved' : 'rejected'
     record.result = {
       approved: params.approved,
@@ -396,7 +534,7 @@ export class Human extends Worker {
       respondedAt: new Date().toISOString(),
     }
 
-    await this.ctx.storage.put(`blocking:${params.requestId}`, record)
+    await this.updateApprovalRequestThing(record)
 
     await this.emit('blocking.request.responded', {
       requestId: params.requestId,
@@ -422,6 +560,8 @@ export class Human extends Worker {
 
   /**
    * Handle scheduled alarms for request expiration
+   *
+   * Now uses Graph model: retrieves and updates ApprovalRequest Things
    */
   async alarm(): Promise<void> {
     const expirations = await this.ctx.storage.get('pending_expirations') as Record<string, number> || {}
@@ -430,12 +570,15 @@ export class Human extends Worker {
 
     for (const [requestId, expiresAt] of Object.entries(expirations)) {
       if (expiresAt <= now) {
-        // Expire this request
-        const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
-        if (record && record.status === 'pending') {
-          record.status = 'expired'
-          await this.ctx.storage.put(`blocking:${requestId}`, record)
-          await this.emit('blocking.request.expired', { requestId })
+        // Expire this request using Graph model
+        const thing = await this.getApprovalRequestThing(requestId)
+        if (thing) {
+          const record = this.thingToBlockingRequest(thing)
+          if (record.status === 'pending') {
+            record.status = 'expired'
+            await this.updateApprovalRequestThing(record)
+            await this.emit('blocking.request.expired', { requestId })
+          }
         }
         delete expirations[requestId]
       } else {
@@ -454,16 +597,12 @@ export class Human extends Worker {
 
   /**
    * List all pending blocking requests
+   *
+   * Now uses Graph model: queries ApprovalRequest Things by type and status
    */
   async listBlockingRequests(status?: 'pending' | 'approved' | 'rejected' | 'expired'): Promise<BlockingApprovalRequest[]> {
-    const map = await this.ctx.storage.list({ prefix: 'blocking:' })
-    const requests = Array.from(map.values()) as BlockingApprovalRequest[]
-
-    if (status) {
-      return requests.filter(r => r.status === status)
-    }
-
-    return requests
+    const things = await this.listApprovalRequestThings(status)
+    return things.map((thing) => this.thingToBlockingRequest(thing))
   }
 
   // =========================================================================
@@ -509,17 +648,19 @@ export class Human extends Worker {
       return new Response(JSON.stringify(record), { headers: jsonHeaders })
     }
 
-    // DELETE /request/:id - Cancel a pending request
+    // DELETE /request/:id - Cancel a pending request (uses Graph model)
     if (requestMatch && request.method === 'DELETE') {
       const requestId = requestMatch[1]!
-      const record = await this.ctx.storage.get(`blocking:${requestId}`) as BlockingApprovalRequest | undefined
+      const thing = await this.getApprovalRequestThing(requestId)
 
-      if (!record) {
+      if (!thing) {
         return new Response(JSON.stringify({ error: 'Request not found', cancelled: false }), {
           status: 404,
           headers: jsonHeaders,
         })
       }
+
+      const record = this.thingToBlockingRequest(thing)
 
       if (record.status !== 'pending') {
         return new Response(JSON.stringify({ error: `Request already ${record.status}`, cancelled: false }), {
@@ -528,7 +669,7 @@ export class Human extends Worker {
         })
       }
 
-      await this.ctx.storage.delete(`blocking:${requestId}`)
+      await this.deleteApprovalRequestThing(requestId)
       await this.emit('blocking.request.cancelled', { requestId })
 
       return new Response(JSON.stringify({ cancelled: true }), { headers: jsonHeaders })

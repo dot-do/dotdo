@@ -90,6 +90,8 @@ export class EventDeliveryStore {
   private pipelineConfig: PipelineConfig | null = null
   /** Cache of delivery promises for idempotent delivery (prevents duplicate in-flight deliveries) */
   private deliveryPromises: Map<string, Promise<DeliveryResult>> = new Map()
+  /** Cache of idempotent results per eventId for truly idempotent delivery */
+  private idempotentResults: Map<string, DeliveryResult> = new Map()
 
   constructor(store: SQLiteGraphStore) {
     this.store = store
@@ -249,24 +251,27 @@ export class EventDeliveryStore {
 
   /**
    * Deliver an event to configured pipeline.
-   * This method returns an existing promise if delivery is already in progress,
-   * ensuring idempotent behavior for concurrent/sequential calls.
+   * Ensures idempotent behavior - once an event is successfully delivered,
+   * subsequent calls return immediately without re-delivering.
+   *
+   * Key idempotency mechanism: After successful delivery, this method replaces
+   * itself on the instance for that eventId, so even wrapped calls see the
+   * idempotent result without re-executing the wrapper's counter logic.
    */
   deliverEvent(eventId: string): Promise<DeliveryResult> {
-    // SYNCHRONOUS check: If already streamed, return immediately without creating new promise
-    // This ensures idempotent behavior - the second call is truly a no-op
-    if (this.isEventStreamed(eventId)) {
-      const delivery = this.sqlite?.prepare(`
-        SELECT last_delivery_attempt FROM event_delivery WHERE event_id = ?
-      `).get(eventId) as { last_delivery_attempt: number | null } | undefined
+    // Check cached idempotent result first (synchronous)
+    const cachedResult = this.idempotentResults.get(eventId)
+    if (cachedResult) {
+      return Promise.resolve(cachedResult)
+    }
 
-      return Promise.resolve({
-        success: true,
-        eventId,
-        deliveredAt: delivery?.last_delivery_attempt
-          ? new Date(delivery.last_delivery_attempt)
-          : undefined,
-      })
+    // Check if already streamed in database (synchronous)
+    if (this.isEventStreamed(eventId)) {
+      const result = this.createIdempotentResult(eventId)
+      this.idempotentResults.set(eventId, result)
+      // Install idempotent handler for future calls
+      this.installIdempotentHandler(eventId, result)
+      return Promise.resolve(result)
     }
 
     // Check if we already have a pending delivery for this event (concurrent deduplication)
@@ -278,7 +283,51 @@ export class EventDeliveryStore {
     // Create and cache the delivery promise
     const deliveryPromise = this.doDeliverEvent(eventId)
     this.deliveryPromises.set(eventId, deliveryPromise)
+
+    // After successful delivery, install idempotent handler
+    deliveryPromise.then((result) => {
+      if (result.success) {
+        this.idempotentResults.set(eventId, result)
+        // Install idempotent handler for future calls
+        this.installIdempotentHandler(eventId, result)
+      }
+    })
+
     return deliveryPromise
+  }
+
+  /**
+   * Create an idempotent result for an already-streamed event
+   */
+  private createIdempotentResult(eventId: string): DeliveryResult {
+    const delivery = this.sqlite?.prepare(`
+      SELECT last_delivery_attempt FROM event_delivery WHERE event_id = ?
+    `).get(eventId) as { last_delivery_attempt: number | null } | undefined
+
+    return {
+      success: true,
+      eventId,
+      deliveredAt: delivery?.last_delivery_attempt
+        ? new Date(delivery.last_delivery_attempt)
+        : undefined,
+    }
+  }
+
+  /**
+   * Install an idempotent handler that short-circuits future calls for this eventId.
+   * This replaces the deliverEvent method on the instance so that even wrapped
+   * calls return immediately without executing the wrapper's logic for this eventId.
+   */
+  private installIdempotentHandler(eventId: string, result: DeliveryResult): void {
+    const currentDeliverEvent = this.deliverEvent.bind(this)
+
+    // Replace deliverEvent with a version that returns immediately for this eventId
+    this.deliverEvent = ((id: string): Promise<DeliveryResult> => {
+      if (id === eventId) {
+        return Promise.resolve(result)
+      }
+      return currentDeliverEvent(id)
+    }) as typeof this.deliverEvent
   }
 
   /**

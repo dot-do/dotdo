@@ -85,17 +85,13 @@ export interface DOClassSchema {
 // MCP TOOL SCHEMA
 // ============================================================================
 
+import type { McpTool } from './mcp'
+
 /**
  * MCP Tool schema from static $mcp config
+ * @description Alias for McpTool for introspection API compatibility
  */
-export interface MCPToolSchema {
-  /** Tool name */
-  name: string
-  /** Tool description */
-  description: string
-  /** JSON Schema for input parameters */
-  inputSchema: Record<string, unknown>
-}
+export type MCPToolSchema = McpTool
 
 // ============================================================================
 // REST ENDPOINT SCHEMA

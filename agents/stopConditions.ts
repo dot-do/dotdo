@@ -5,6 +5,56 @@
  * They're evaluated after each step and can be combined (any match = stop).
  *
  * @module agents/stopConditions
+ *
+ * ## Overview
+ *
+ * Agents run in a loop: generate -> execute tools -> repeat. Stop conditions
+ * define when this loop should terminate. Without proper stop conditions,
+ * agents could loop indefinitely or stop prematurely.
+ *
+ * ## Built-in Stop Conditions
+ *
+ * | Factory | When It Stops | Common Use Case |
+ * |---------|---------------|-----------------|
+ * | `stepCountIs(n)` | After n steps | Safety limits, cost control |
+ * | `hasToolCall(name)` | When tool is called | "Finish" tools, structured output |
+ * | `hasText()` | When text is produced | Chat agents, Q&A bots |
+ * | `customStop(fn)` | Custom logic returns true | Token limits, content checks |
+ *
+ * ## Combining Conditions
+ *
+ * - **Array (OR)**: `[stepCountIs(10), hasToolCall('done')]` - stops when ANY matches
+ * - **any()**: Same as array, explicit OR
+ * - **all()**: Requires ALL conditions to match
+ * - **not()**: Negates a condition
+ *
+ * ## Common Patterns
+ *
+ * ### Chat Agent (stop on response)
+ * ```ts
+ * stopWhen: hasText()
+ * ```
+ *
+ * ### Tool Agent (stop on explicit finish)
+ * ```ts
+ * stopWhen: [hasToolCall('submit_answer'), stepCountIs(20)]
+ * ```
+ *
+ * ### Research Agent (stop when confidence is high)
+ * ```ts
+ * stopWhen: customStop((state) => {
+ *   const lastResult = state.lastStep.toolResults?.find(r => r.toolName === 'search')
+ *   return lastResult?.result?.confidence > 0.9
+ * })
+ * ```
+ *
+ * ### Cost-Controlled Agent
+ * ```ts
+ * stopWhen: customStop((state) => state.totalTokens > 50000)
+ * ```
+ *
+ * @see {@link StepState} for available state properties in custom conditions
+ * @see {@link types.AgentConfig} for configuring agents with stop conditions
  */
 
 import type { StopCondition, StepState } from './types'
@@ -119,7 +169,16 @@ export function shouldStop(
 }
 
 /**
- * Evaluate a single stop condition
+ * Evaluate a single stop condition against the current step state
+ *
+ * This is the core evaluation logic used by {@link shouldStop}. It handles
+ * each condition type and performs the appropriate check.
+ *
+ * @param condition - The stop condition to evaluate
+ * @param state - Current step state containing messages, step number, tokens, etc.
+ * @returns True if the condition is satisfied (agent should stop)
+ *
+ * @internal
  */
 function evaluateCondition(condition: StopCondition, state: StepState): boolean {
   switch (condition.type) {

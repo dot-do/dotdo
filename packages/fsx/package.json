@@ -1,0 +1,121 @@
+{
+  "name": "@dotdo/fsx",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pure POSIX filesystem implementation in TypeScript. Zero dependencies. Self-hostable. FsBackend interface for pluggable storage.",
+  "author": "dotdo <hello@dotdo.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo-dev/dotdo.git",
+    "directory": "packages/fsx"
+  },
+  "homepage": "https://fsx.do",
+  "bugs": {
+    "url": "https://github.com/dotdo-dev/dotdo/issues"
+  },
+  "keywords": [
+    "dotdo",
+    "filesystem",
+    "posix",
+    "virtual-fs",
+    "fs",
+    "glob",
+    "grep",
+    "find",
+    "backend",
+    "storage",
+    "typescript",
+    "zero-dependencies",
+    "self-hostable",
+    "edge",
+    "workers",
+    "ai-agents"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.cjs"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js",
+      "require": "./dist/errors.cjs"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.js",
+      "require": "./dist/constants.cjs"
+    },
+    "./path": {
+      "types": "./dist/path.d.ts",
+      "import": "./dist/path.js",
+      "require": "./dist/path.cjs"
+    },
+    "./backend": {
+      "types": "./dist/backend.d.ts",
+      "import": "./dist/backend.js",
+      "require": "./dist/backend.cjs"
+    },
+    "./fsx": {
+      "types": "./dist/fsx.d.ts",
+      "import": "./dist/fsx.js",
+      "require": "./dist/fsx.cjs"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js",
+      "require": "./dist/config.cjs"
+    },
+    "./glob": {
+      "types": "./dist/glob/index.d.ts",
+      "import": "./dist/glob/index.js",
+      "require": "./dist/glob/index.cjs"
+    },
+    "./grep": {
+      "types": "./dist/grep/index.d.ts",
+      "import": "./dist/grep/index.js",
+      "require": "./dist/grep/index.cjs"
+    },
+    "./find": {
+      "types": "./dist/find/index.d.ts",
+      "import": "./dist/find/index.js",
+      "require": "./dist/find/index.cjs"
+    },
+    "./cas": {
+      "types": "./dist/cas/index.d.ts",
+      "import": "./dist/cas/index.js",
+      "require": "./dist/cas/index.cjs"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/pako": "^2.0.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "pako": "^2.1.0"
+  },
+  "sideEffects": false
+}

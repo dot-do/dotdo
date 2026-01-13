@@ -1,5 +1,6 @@
 // Core types
 export * from './Thing'
+export * from './Tool'
 
 // Cloudflare Bindings - unified type system
 export * from './CloudflareBindings'
@@ -301,3 +302,67 @@ export {
   isSuccess,
   isFailure,
 } from './AIFunction'
+
+// MCP (Model Context Protocol) types - consolidated from multiple modules
+export * from './mcp'
+export type {
+  // Core MCP types
+  McpTool,
+  McpToolWithHandler,
+  McpToolHandler,
+  McpToolCall,
+  McpToolResult,
+  McpContent,
+  McpResource,
+  McpResourceContent,
+  McpPromptArgument,
+  McpPromptInfo,
+  McpSession,
+  McpClientInfo,
+  McpToolConfig,
+  McpConfig,
+  McpToolInputSchema,
+  // JSON Schema types
+  JsonSchema,
+  JsonSchemaProperty,
+  // JSON-RPC types
+  JsonRpcMessage,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcNotification,
+  JsonRpcError,
+  JsonRpcErrorCode,
+  // Server types
+  McpServerCapabilities,
+  McpServerInfo,
+  McpHandlerOptions,
+  // Graph integration types
+  ToolParameter,
+  ToolThingData,
+  ToolQuery,
+  // Agent SDK integration types
+  AgentToolDefinition,
+  // Deprecated aliases for backward compatibility
+  MCPTool,
+  MCPToolResult,
+  MCPToolHandler,
+  ToolConfig,
+} from './mcp'
+export {
+  // Constants
+  JSON_RPC_ERRORS,
+  MCP_PROTOCOL,
+  // Helper functions
+  toolConfigToMcpTool,
+  jsonRpcError,
+  jsonRpcSuccess,
+  textContent,
+  toolResult,
+  toolError,
+  // Graph integration helpers
+  toolThingToMcp,
+  mcpToToolThing,
+  // Agent SDK integration helpers
+  toolDefinitionToMcp,
+  mcpToToolDefinition,
+} from './mcp'

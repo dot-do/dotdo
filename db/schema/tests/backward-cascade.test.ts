@@ -900,10 +900,10 @@ describe('Error Handling', () => {
       expect(() => parseBackwardReference('<<-Type')).toThrow()
     })
 
-    it('should throw for forward operator in backward context', () => {
+    it('should throw for forward operator in backward context', async () => {
       const resolver = new BackwardCascadeResolver()
 
-      expect(() => resolver.resolve({
+      await expect(resolver.resolve({
         operator: '->',
         targetType: 'Type',
         fieldName: 'field',

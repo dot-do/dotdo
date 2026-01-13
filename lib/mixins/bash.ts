@@ -950,9 +950,9 @@ export function withBash<TBase extends Constructor<{ $: WorkflowContext }>>(
       return false
     }
 
-    private [BASH_CAPABILITY_CACHE]?: BashCapability
+    /** @internal */ [BASH_CAPABILITY_CACHE]?: BashCapability
 
-    private get bashCapability(): BashCapability {
+    /** @internal */ get bashCapability(): BashCapability {
       if (!this[BASH_CAPABILITY_CACHE]) {
         const executor = config.executor(this as unknown as InstanceType<TBase>)
         const fs = config.fs?.(this as unknown as InstanceType<TBase>)

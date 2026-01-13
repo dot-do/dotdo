@@ -466,6 +466,18 @@ export class AgentLoop {
           })
           continue
         }
+        if (decision.action === 'use_cached') {
+          // Skip execution and use cached result
+          const cachedResult: ToolResult = {
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            result: decision.result,
+          }
+          results.push(cachedResult)
+          // Still call post-hook to allow tracking
+          await this.config.hooks?.onPostToolUse?.(toolCall, cachedResult)
+          continue
+        }
         if (decision.action === 'modify') {
           toolCall.arguments = decision.arguments
         }
@@ -676,6 +688,23 @@ export async function runSingleCycle(
             toolName: toolCall.name,
             result: null,
             error: decision.reason,
+          })
+          continue
+        }
+        if (decision.action === 'use_cached') {
+          // Skip execution and use cached result
+          const cachedResult: ToolResult = {
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            result: decision.result,
+          }
+          toolResults.push(cachedResult)
+          await hooks?.onPostToolUse?.(toolCall, cachedResult)
+          newMessages.push({
+            role: 'tool',
+            toolCallId: cachedResult.toolCallId,
+            toolName: cachedResult.toolName,
+            content: cachedResult.result,
           })
           continue
         }

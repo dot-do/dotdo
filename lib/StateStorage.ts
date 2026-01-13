@@ -17,23 +17,72 @@
 // TYPES
 // ============================================================================
 
-/** Validator function type */
+/**
+ * Validator function type.
+ *
+ * A type guard function that validates whether a value conforms to type T.
+ * Used for runtime validation of stored values.
+ *
+ * @example
+ * ```typescript
+ * const isOrder: Validator<Order> = (value): value is Order =>
+ *   typeof value === 'object' && value !== null && 'orderId' in value
+ *
+ * const storage = new StateStorage(state, {
+ *   validators: { 'order': isOrder }
+ * })
+ * ```
+ */
 export type Validator<T = unknown> = (value: unknown) => value is T
 
-/** Migration function type */
+/**
+ * Migration function type.
+ *
+ * Transforms data from one schema version to the next. Migrations are applied
+ * sequentially when reading values stored with older versions.
+ *
+ * @example
+ * ```typescript
+ * const migrations: Migrations = {
+ *   'order': {
+ *     1: (data) => ({ ...data, currency: 'USD' }), // Add currency field
+ *     2: (data) => ({ ...data, items: data.items || [] }), // Ensure items array
+ *   }
+ * }
+ * ```
+ */
 export type MigrationFn<T = unknown> = (data: unknown) => T
 
-/** Migrations map by key and version */
+/**
+ * Migrations map by key and version.
+ *
+ * Structure: `{ [keyPattern]: { [fromVersion]: migrationFn } }`
+ * Each migration transforms data from `fromVersion` to `fromVersion + 1`.
+ */
 export type Migrations = Record<string, Record<number, MigrationFn>>
 
-/** Validators map by key */
+/**
+ * Validators map by key.
+ *
+ * Maps storage keys to their validator functions. When `validateOnGet` is true,
+ * values are validated on retrieval using the corresponding validator.
+ */
 export type Validators = Record<string, Validator>
 
-/** Storage metadata for versioned values */
+/**
+ * Storage metadata for versioned values.
+ *
+ * Provides information about when values were created, updated, and when they expire.
+ * Used for auditing, TTL management, and schema migrations.
+ */
 export interface ValueMetadata {
+  /** Schema version of the stored value (for migrations) */
   version?: number
+  /** Unix timestamp (ms) when the value was first created */
   createdAt: number
+  /** Unix timestamp (ms) when the value was last updated */
   updatedAt: number
+  /** Unix timestamp (ms) when the value expires (undefined = no expiry) */
   expiresAt?: number
 }
 
@@ -46,60 +95,146 @@ interface WrappedValue<T = unknown> {
   expiresAt?: number
 }
 
-/** Options for StateStorage constructor */
+/**
+ * Options for StateStorage constructor.
+ *
+ * Configures key prefixing, TTL, validation, versioning, and migrations.
+ */
 export interface StateStorageOptions {
-  /** Prefix for all keys */
+  /**
+   * Prefix for all keys.
+   * Useful for namespacing storage in shared DO instances.
+   * @default ''
+   */
   prefix?: string
-  /** Default TTL in milliseconds */
+  /**
+   * Default TTL in milliseconds for all set operations.
+   * 0 means no expiry.
+   * @default 0
+   */
   defaultTTL?: number
-  /** Maximum value size in bytes */
+  /**
+   * Maximum value size in bytes.
+   * Set operations will throw if value exceeds this size.
+   */
   maxValueSize?: number
-  /** Whether to use versioning */
+  /**
+   * Whether to use versioning for stored values.
+   * When true, values are wrapped with version metadata.
+   * @default false
+   */
   versioned?: boolean
-  /** Current schema version */
+  /**
+   * Current schema version.
+   * Used with migrations to upgrade stored values.
+   * @default 1
+   */
   version?: number
-  /** Validators by key pattern */
+  /**
+   * Validators by key pattern.
+   * Each key maps to a type guard function.
+   */
   validators?: Validators
-  /** Whether to validate on get */
+  /**
+   * Whether to validate on get operations.
+   * When true, retrieved values are validated against their key's validator.
+   * @default false
+   */
   validateOnGet?: boolean
-  /** Migrations by key and version */
+  /**
+   * Migrations by key and version.
+   * Used to upgrade values stored with older schema versions.
+   */
   migrations?: Migrations
 }
 
-/** Options for set operation */
+/**
+ * Options for set operation.
+ *
+ * Controls TTL and size warning behavior for individual set operations.
+ */
 export interface SetOptions {
-  /** TTL in milliseconds (0 = no expiry) */
+  /**
+   * TTL in milliseconds.
+   * 0 = no expiry. Overrides defaultTTL from constructor.
+   */
   ttl?: number
-  /** Warn if value exceeds threshold */
+  /**
+   * Warn if value exceeds the largeValueThreshold.
+   * Useful for detecting unexpectedly large values.
+   */
   warnOnLargeValue?: boolean
-  /** Threshold in bytes for large value warning */
+  /**
+   * Threshold in bytes for large value warning.
+   * Only used when warnOnLargeValue is true.
+   */
   largeValueThreshold?: number
 }
 
-/** Options for list operation */
+/**
+ * Options for list operation.
+ *
+ * Controls filtering and pagination when listing stored entries.
+ */
 export interface ListOptions {
+  /** Additional prefix filter (combined with constructor prefix) */
   prefix?: string
+  /** Maximum number of entries to return */
   limit?: number
+  /** Start key for range query (inclusive) */
   start?: string
+  /** End key for range query (exclusive) */
   end?: string
 }
 
-/** Options for clear operation */
+/**
+ * Options for clear operation.
+ *
+ * Controls which entries to delete when clearing storage.
+ */
 export interface ClearOptions {
+  /**
+   * Only clear entries with this prefix.
+   * If not provided, clears all entries.
+   */
   prefix?: string
 }
 
-/** Storage statistics */
+/**
+ * Storage statistics.
+ *
+ * Provides information about storage usage.
+ */
 export interface StorageStats {
+  /** Total number of keys in storage */
   keyCount: number
+  /** Estimated total size in bytes (approximate, based on JSON serialization) */
   estimatedSize: number
 }
 
-/** Transaction context */
+/**
+ * Transaction context.
+ *
+ * Provides ACID transaction operations for storage. All operations within
+ * a transaction are atomic - either all succeed or all fail.
+ *
+ * @example
+ * ```typescript
+ * await storage.transaction(async (tx) => {
+ *   const balance = await tx.get<number>('balance', 0)
+ *   await tx.set('balance', balance - 100)
+ *   await tx.set('withdrawal', { amount: 100, date: new Date() })
+ * })
+ * ```
+ */
 export interface TransactionContext {
+  /** Get a value within the transaction */
   get<T>(key: string, defaultValue?: T): Promise<T | undefined>
+  /** Set a value within the transaction */
   set<T>(key: string, value: T, options?: SetOptions): Promise<void>
+  /** Delete a value within the transaction */
   delete(key: string): Promise<boolean>
+  /** Check if a key exists within the transaction */
   has(key: string): Promise<boolean>
 }
 
@@ -107,10 +242,24 @@ export interface TransactionContext {
 // ERRORS
 // ============================================================================
 
+/**
+ * Base error class for StateStorage operations.
+ *
+ * Provides context about which operation failed and which key was involved.
+ */
 export class StateStorageError extends Error {
+  /** The key involved in the failed operation (if applicable) */
   readonly key?: string
+  /** The operation that failed (e.g., 'get', 'set', 'delete') */
   readonly operation: string
 
+  /**
+   * Create a new StateStorageError.
+   *
+   * @param message - Error message
+   * @param operation - The operation that failed
+   * @param key - The key involved (optional)
+   */
   constructor(message: string, operation: string, key?: string) {
     super(message)
     this.name = 'StateStorageError'
@@ -119,9 +268,21 @@ export class StateStorageError extends Error {
   }
 }
 
+/**
+ * Error thrown when validation fails for a stored value.
+ *
+ * Contains information about which validator failed.
+ */
 export class StateValidationError extends StateStorageError {
+  /** The key pattern used to find the validator */
   readonly validatorKey: string
 
+  /**
+   * Create a new StateValidationError.
+   *
+   * @param key - The storage key that failed validation
+   * @param validatorKey - The validator key pattern that was used
+   */
   constructor(key: string, validatorKey: string) {
     super(`Validation failed for key '${key}' using validator '${validatorKey}'`, 'validation', key)
     this.name = 'StateValidationError'
@@ -129,10 +290,25 @@ export class StateValidationError extends StateStorageError {
   }
 }
 
+/**
+ * Error thrown when a migration fails.
+ *
+ * Contains information about which version transition failed.
+ */
 export class StateMigrationError extends StateStorageError {
+  /** The version being migrated from */
   readonly fromVersion: number
+  /** The version being migrated to */
   readonly toVersion: number
 
+  /**
+   * Create a new StateMigrationError.
+   *
+   * @param key - The storage key being migrated
+   * @param fromVersion - The source version
+   * @param toVersion - The target version
+   * @param cause - The underlying error (optional)
+   */
   constructor(key: string, fromVersion: number, toVersion: number, cause?: Error) {
     super(
       `Migration failed for key '${key}' from version ${fromVersion} to ${toVersion}: ${cause?.message || 'Unknown error'}`,
@@ -149,6 +325,40 @@ export class StateMigrationError extends StateStorageError {
 // STATE STORAGE
 // ============================================================================
 
+/**
+ * Type-safe wrapper around Durable Object storage API.
+ *
+ * Provides enhanced storage operations including:
+ * - Type-safe get/set/delete with generics
+ * - Automatic TTL management with expiration
+ * - Schema versioning and migrations
+ * - Runtime validation with type guards
+ * - Batch operations and transactions
+ * - Key prefixing for namespacing
+ *
+ * @example
+ * ```typescript
+ * // Basic usage
+ * const storage = new StateStorage(state, { prefix: 'orders:' })
+ *
+ * await storage.set('order-123', { id: '123', items: [] })
+ * const order = await storage.get<Order>('order-123')
+ *
+ * // With TTL
+ * await storage.set('session', { userId: '456' }, { ttl: 3600000 })
+ *
+ * // With versioning and migrations
+ * const storage = new StateStorage(state, {
+ *   versioned: true,
+ *   version: 2,
+ *   migrations: {
+ *     'order': {
+ *       1: (data) => ({ ...data, currency: 'USD' })
+ *     }
+ *   }
+ * })
+ * ```
+ */
 export class StateStorage {
   private readonly storage: DurableObjectStorage
   private readonly options: StateStorageOptions
@@ -165,6 +375,13 @@ export class StateStorage {
   // CONSTRUCTOR
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * Create a new StateStorage instance.
+   *
+   * @param state - The DurableObjectState from the DO constructor
+   * @param options - Configuration options
+   * @throws StateStorageError if state.storage is not available
+   */
   constructor(state: DurableObjectState, options: StateStorageOptions = {}) {
     if (!state?.storage) {
       throw new StateStorageError('Invalid state: storage is required', 'constructor')

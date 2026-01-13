@@ -1221,18 +1221,19 @@ export function withAuth<T extends DOConstructor>(
   options: AuthMiddlewareOptions = {}
 ) {
   return class extends (Base as new (...args: any[]) => any) {
-    protected _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
-    protected _authMiddleware = createAuthMiddleware({
+    /** @internal */ _sessionStorage = options.sessionStorage || createInMemorySessionStorage()
+    /** @internal */ _authMiddleware = createAuthMiddleware({
       ...options,
       sessionStorage: this._sessionStorage,
     })
-    protected _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
-    protected _jwtSecret = options.jwtSecret || ''
+    /** @internal */ _refreshTokens = new Map<string, { userId: string; expiresAt: Date }>()
+    /** @internal */ _jwtSecret = options.jwtSecret || ''
 
     /**
      * Get $auth config from class
+     * @internal
      */
-    protected getAuthConfig(): Record<string, MethodAuthConfig> | undefined {
+    getAuthConfig(): Record<string, MethodAuthConfig> | undefined {
       return (this.constructor as any).$auth
     }
 
@@ -1264,8 +1265,9 @@ export function withAuth<T extends DOConstructor>(
 
     /**
      * Handle authentication routes
+     * @internal
      */
-    protected async handleAuthRoute(request: Request): Promise<Response> {
+    async handleAuthRoute(request: Request): Promise<Response> {
       const url = new URL(request.url)
       const path = url.pathname
 
@@ -1452,8 +1454,9 @@ export function withAuth<T extends DOConstructor>(
 
     /**
      * Handle WebSocket upgrade with authentication
+     * @internal
      */
-    protected async handleWebSocketAuth(request: Request): Promise<Response> {
+    async handleWebSocketAuth(request: Request): Promise<Response> {
       const authResult = await this._authMiddleware.authenticate(request)
 
       if (!authResult.success || !authResult.context?.authenticated) {
@@ -1477,8 +1480,9 @@ export function withAuth<T extends DOConstructor>(
 
     /**
      * Handle RPC calls with authentication and authorization
+     * @internal
      */
-    protected async handleRpcWithAuth(request: Request): Promise<Response> {
+    async handleRpcWithAuth(request: Request): Promise<Response> {
       const url = new URL(request.url)
       const methodName = url.pathname.replace('/rpc/', '')
 
@@ -1578,8 +1582,9 @@ export function withAuth<T extends DOConstructor>(
 
     /**
      * Execute a method and return the response
+     * @internal
      */
-    protected async executeMethod(
+    async executeMethod(
       request: Request,
       methodName: string,
       context: AuthContext
@@ -1628,8 +1633,9 @@ export function withAuth<T extends DOConstructor>(
 
     /**
      * Generate a properly signed JWT token
+     * @internal
      */
-    protected async generateToken(userId: string): Promise<string> {
+    async generateToken(userId: string): Promise<string> {
       const header = { alg: 'HS256', typ: 'JWT' }
       const now = Math.floor(Date.now() / 1000)
       const payload = {

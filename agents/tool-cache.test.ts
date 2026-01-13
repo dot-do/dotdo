@@ -855,11 +855,25 @@ describe('createCacheHooks()', () => {
     expect(cached?.result).toBe('data')
   })
 
-  it('onPreToolUse allows calls by default', async () => {
+  it('onPreToolUse allows calls by default (cache miss)', async () => {
     const toolCall: ToolCall = { id: 'call1', name: 'lookup', arguments: { id: 'test' } }
 
     const decision = await hooks.onPreToolUse(toolCall)
     expect(decision.action).toBe('allow')
+  })
+
+  it('onPreToolUse returns use_cached on cache hit', async () => {
+    const toolCall: ToolCall = { id: 'call1', name: 'lookup', arguments: { id: 'test' } }
+    const result: ToolResult = { toolCallId: 'call1', toolName: 'lookup', result: 'cached-data' }
+
+    // Pre-cache the result
+    cache.set(toolCall, result)
+
+    const decision = await hooks.onPreToolUse(toolCall)
+    expect(decision.action).toBe('use_cached')
+    if (decision.action === 'use_cached') {
+      expect(decision.result).toBe('cached-data')
+    }
   })
 
   it('onPostToolUse stores results for cacheable tools', async () => {
@@ -1160,5 +1174,81 @@ describe('Tool Cache Integration', () => {
     expect(cached.result).toEqual({ computed: 'HELLO' })
     // executionCount should still be 1 (no re-execution)
     expect(executionCount.value).toBe(1)
+  })
+
+  it('skips tool execution on cache hit with use_cached action', async () => {
+    const cache = createToolCache()
+    const executionCount = { value: 0 }
+
+    const expensiveTool: CacheableToolDefinition = {
+      name: 'expensive',
+      description: 'Expensive computation',
+      inputSchema: z.object({ input: z.string() }),
+      execute: async ({ input }) => {
+        executionCount.value++
+        return { computed: input.toUpperCase() }
+      },
+      cacheable: true,
+    }
+
+    cache.registerTool(expensiveTool)
+    const hooks = withCaching(cache)
+
+    // First call - cache miss, should execute
+    const toolCall1: ToolCall = { id: 'call1', name: 'expensive', arguments: { input: 'hello' } }
+    const decision1 = await hooks.onPreToolUse!(toolCall1)
+
+    expect(decision1.action).toBe('allow')
+
+    // Execute the tool since it wasn't cached
+    const result1 = await expensiveTool.execute({ input: 'hello' }, { agentId: 'test' })
+    const toolResult1: ToolResult = { toolCallId: 'call1', toolName: 'expensive', result: result1 }
+    await hooks.onPostToolUse!(toolCall1, toolResult1)
+
+    expect(executionCount.value).toBe(1)
+
+    // Second call with same args - should return use_cached
+    const toolCall2: ToolCall = { id: 'call2', name: 'expensive', arguments: { input: 'hello' } }
+    const decision2 = await hooks.onPreToolUse!(toolCall2)
+
+    expect(decision2.action).toBe('use_cached')
+    if (decision2.action === 'use_cached') {
+      expect(decision2.result).toEqual({ computed: 'HELLO' })
+    }
+
+    // Tool should NOT have been executed again
+    expect(executionCount.value).toBe(1)
+  })
+
+  it('properly invalidates cache when tool is modified', async () => {
+    const cache = createToolCache()
+
+    const tool: CacheableToolDefinition = {
+      name: 'getData',
+      description: 'Get data',
+      inputSchema: z.object({ key: z.string() }),
+      execute: async ({ key }) => ({ value: `data-${key}` }),
+      cacheable: true,
+    }
+
+    cache.registerTool(tool)
+
+    // Cache some results
+    const call1: ToolCall = { id: 'c1', name: 'getData', arguments: { key: 'a' } }
+    const call2: ToolCall = { id: 'c2', name: 'getData', arguments: { key: 'b' } }
+
+    cache.set(call1, { toolCallId: 'c1', toolName: 'getData', result: { value: 'data-a' } })
+    cache.set(call2, { toolCallId: 'c2', toolName: 'getData', result: { value: 'data-b' } })
+
+    expect(cache.get(call1)).toBeDefined()
+    expect(cache.get(call2)).toBeDefined()
+
+    // Invalidate the tool (e.g., tool definition changed)
+    const invalidated = cache.invalidateTool('getData')
+    expect(invalidated).toBe(2)
+
+    // Cache should be empty for this tool
+    expect(cache.get(call1)).toBeUndefined()
+    expect(cache.get(call2)).toBeUndefined()
   })
 })

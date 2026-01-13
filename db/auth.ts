@@ -96,7 +96,24 @@ export const accounts = sqliteTable(
     refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp' }),
     scope: text('scope'),
     idToken: text('id_token'),
-    password: text('password'), // For email/password auth
+    /**
+     * Hashed password for email/password authentication.
+     *
+     * @security NEVER store plaintext passwords in this field.
+     * This field MUST contain a securely hashed password using bcrypt, argon2,
+     * or another approved password hashing algorithm. The hashing is handled
+     * by better-auth automatically.
+     *
+     * @example
+     * ```ts
+     * // WRONG - never do this
+     * passwordHash: 'myplainpassword'
+     *
+     * // CORRECT - better-auth handles this automatically
+     * // The value will be something like: '$2b$10$...'
+     * ```
+     */
+    passwordHash: text('password_hash'),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
   },

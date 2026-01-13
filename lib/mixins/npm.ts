@@ -1001,12 +1001,13 @@ export function withNpm<TBase extends Constructor<{ $: WithFsContext }>>(Base: T
     }
 
     // Cache for the npm module instance
-    private [NPM_MODULE_CACHE]?: NpmModule
+    /** @internal */ [NPM_MODULE_CACHE]?: NpmModule
 
     /**
      * Lazy-loaded NpmModule
+     * @internal
      */
-    private get npmModule(): NpmModule {
+    get npmModule(): NpmModule {
       if (!this[NPM_MODULE_CACHE]) {
         // Get fs capability from $
         const fs = (this.$ as WithFsContext).fs

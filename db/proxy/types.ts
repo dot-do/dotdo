@@ -1,11 +1,58 @@
 /**
- * DB Proxy Types
+ * @fileoverview DB Proxy Type Definitions
  *
- * Type definitions for the db proxy pattern:
- * - DBProxy: Entity accessor with CRUD operations
- * - DBPromise: Fluent chaining for queries
- * - Template literal syntax for natural language queries
- * - forEach with concurrency and crash recovery
+ * This module defines the type system for dotdo's database proxy layer, which implements
+ * Cap'n Proto-style promise pipelining for efficient database operations.
+ *
+ * ## Promise Pipelining Overview
+ *
+ * Traditional database access requires awaiting each operation before using its result:
+ *
+ * ```typescript
+ * // Traditional: 3 network round trips
+ * const lead = await db.getLead('lead-123')
+ * const company = await db.getCompany(lead.companyId)
+ * const contacts = await db.getContacts(company.id)
+ * ```
+ *
+ * With promise pipelining, operations can be chained without awaiting intermediate results.
+ * The pipeline is sent to the server as a single operation, requiring only one round trip:
+ *
+ * ```typescript
+ * // Pipelined: 1 network round trip
+ * const contacts = await db.Lead
+ *   .get('lead-123')
+ *   .expand('company')
+ *   .expand('contacts')
+ * ```
+ *
+ * ## Architecture
+ *
+ * The proxy system consists of three main components:
+ *
+ * 1. **DBProxy** - Entry point that intercepts property access (e.g., `db.Lead`)
+ *    and returns EntityAccessor instances for each entity type.
+ *
+ * 2. **EntityAccessor** - Provides CRUD operations (`get`, `list`, `create`, etc.)
+ *    and supports natural language queries via template literals (`db.Lead\`query\``).
+ *
+ * 3. **DBPromise** - A thenable that accumulates query operations (filter, sort, limit)
+ *    and executes them lazily when awaited. Each method returns a new DBPromise,
+ *    enabling fluent chaining.
+ *
+ * ## Key Features
+ *
+ * - **Lazy Execution**: Query operations are accumulated and executed only when awaited
+ * - **Fluent API**: Method chaining with type preservation
+ * - **Natural Language Queries**: Template literal syntax for AI-powered queries
+ * - **Batch Processing**: `forEach` with concurrency control and crash recovery
+ * - **Cursor-based Pagination**: Efficient pagination with `after()` and `paginate()`
+ *
+ * @see {@link DBProxy} - Main database accessor interface
+ * @see {@link EntityAccessor} - Entity-specific operations
+ * @see {@link DBPromise} - Fluent query builder
+ *
+ * @module db/proxy/types
  */
 
 import type { ThingEntity } from '../stores'
@@ -15,15 +62,66 @@ import type { ThingEntity } from '../stores'
 // ============================================================================
 
 /**
- * DBPromise provides fluent chaining for database queries.
- * Each method returns a new DBPromise, allowing method chaining.
+ * DBPromise - Fluent Query Builder with Promise Pipelining
  *
- * @example
+ * A thenable object that accumulates query operations and executes them lazily
+ * when awaited. This enables Cap'n Proto-style promise pipelining where multiple
+ * operations can be chained without intermediate awaits.
+ *
+ * ## How Promise Pipelining Works
+ *
+ * Each method on DBPromise returns a **new** DBPromise instance with the operation
+ * added to an internal queue. No database calls are made until the promise is
+ * awaited. This allows the entire query pipeline to be optimized and executed
+ * as a single operation.
+ *
+ * ```typescript
+ * // These operations are NOT executed immediately
+ * const pipeline = db.Lead
+ *   .filter(lead => lead.status === 'active')  // Returns new DBPromise
+ *   .orderBy('score', 'desc')                   // Returns new DBPromise
+ *   .limit(10)                                  // Returns new DBPromise
+ *
+ * // Execution happens HERE when awaited
+ * const results = await pipeline
+ * ```
+ *
+ * ## Immutability
+ *
+ * Each method creates a new DBPromise, preserving immutability:
+ *
+ * ```typescript
+ * const base = db.Lead.filter(l => l.active)
+ * const topTen = base.limit(10)    // New DBPromise, base unchanged
+ * const sorted = base.orderBy('score')  // New DBPromise from same base
+ * ```
+ *
+ * ## Memoization
+ *
+ * Once executed, results are cached. Subsequent awaits return the same result:
+ *
+ * ```typescript
+ * const query = db.Lead.limit(10)
+ * const first = await query   // Executes query
+ * const second = await query  // Returns cached result (no re-execution)
+ * ```
+ *
+ * @typeParam T - The entity type being queried, must extend ThingEntity
+ *
+ * @example Basic filtering and pagination
  * ```typescript
  * const results = await db.Lead
  *   .filter(lead => lead.status === 'active')
  *   .sort((a, b) => b.score - a.score)
  *   .limit(10)
+ * ```
+ *
+ * @example Using operators for complex queries
+ * ```typescript
+ * const highValue = await db.Customer
+ *   .whereOp('revenue', 'gte', 100000)
+ *   .whereOp('status', 'in', ['active', 'pending'])
+ *   .orderBy('revenue', 'desc')
  * ```
  */
 export interface DBPromise<T extends ThingEntity = ThingEntity> extends Promise<T[]> {

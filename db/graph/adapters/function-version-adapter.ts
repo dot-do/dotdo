@@ -186,7 +186,7 @@ function defaultAuthor(): { name: string; email: string; timestamp: number } {
  * // Create versions
  * const v1 = await adapter.createVersion({
  *   functionId: func.id,
- *   content: 'export function processOrder() { /* v1 */ }',
+ *   content: 'export function processOrder() { return true }',
  *   message: 'Initial implementation'
  * })
  *
@@ -257,8 +257,11 @@ export class FunctionVersionAdapter {
     const contentHash = hashContent(data.content)
     const sha = contentHash // Use content hash as SHA (deterministic)
 
+    // Blob ID is prefixed to differentiate from version ID
+    const blobId = `blob-${contentHash}`
+
     // Check if blob already exists (content-addressable deduplication)
-    let blob = await this.store.getThing(contentHash)
+    let blob = await this.store.getThing(blobId)
     if (!blob) {
       // Create FunctionBlob Thing
       const blobData: FunctionBlobData = {
@@ -269,7 +272,7 @@ export class FunctionVersionAdapter {
       }
 
       blob = await this.store.createThing({
-        id: contentHash,
+        id: blobId,
         typeId: TYPE_IDS.FunctionBlob,
         typeName: 'FunctionBlob',
         data: blobData as unknown as Record<string, unknown>,
@@ -312,10 +315,10 @@ export class FunctionVersionAdapter {
 
     // Create hasContent relationship (version -> blob)
     await this.store.createRelationship({
-      id: `rel-hasContent-${sha}-${contentHash}`,
+      id: `rel-hasContent-${sha}-${blobId}`,
       verb: 'hasContent',
       from: versionUrl(sha),
-      to: blobUrl(contentHash),
+      to: blobUrl(blobId),
     })
 
     // Create parent relationship if parentSha is provided

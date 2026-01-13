@@ -3,10 +3,17 @@
  *
  * Extends Worker with AI capabilities: tools, memory, sandbox execution.
  * Examples: 'support-agent', 'sales-assistant'
+ *
+ * Memory can be backed by:
+ * - ctx.storage (default, legacy) - Durable Object key-value storage
+ * - Unified AgentMemory (opt-in) - Graph-backed memory via setMemory()
+ *
+ * @see dotdo-ww5cn - [REFACTOR] Consolidate Agent Memory Systems
  */
 
 import { Worker, Task, Context, Answer, Option, Decision, ApprovalRequest, ApprovalResult } from './Worker'
 import { Env } from './DO'
+import type { AgentMemory as UnifiedAgentMemory, MemoryThing, MemoryType } from '../agents/unified-memory'
 
 export interface Tool {
   name: string
@@ -29,6 +36,10 @@ export interface GoalResult {
   actions: string[]
 }
 
+/**
+ * Legacy Memory interface for ctx.storage-based memory.
+ * New code should use the unified AgentMemory via setMemory().
+ */
 export interface Memory {
   id: string
   type: 'short-term' | 'long-term' | 'episodic'
@@ -43,8 +54,48 @@ export class Agent extends Worker {
   protected mode: 'autonomous' | 'supervised' | 'manual' = 'autonomous'
   private tools: Map<string, Tool> = new Map()
 
+  /**
+   * Unified memory system (opt-in).
+   * When set, memory operations delegate to this instead of ctx.storage.
+   */
+  private unifiedMemory?: UnifiedAgentMemory
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+  }
+
+  /**
+   * Set the unified memory system for this agent.
+   * When set, remember(), getRecentMemories(), and searchMemories()
+   * will use the unified memory instead of ctx.storage.
+   *
+   * @example
+   * ```ts
+   * import { createGraphMemory } from '../agents/unified-memory'
+   *
+   * // In agent initialization
+   * this.setMemory(createGraphMemory({
+   *   store: this.graphStore,
+   *   agentId: this.ctx.id.toString(),
+   * }))
+   * ```
+   */
+  setMemory(memory: UnifiedAgentMemory): void {
+    this.unifiedMemory = memory
+  }
+
+  /**
+   * Get the unified memory system, if set.
+   */
+  getMemory(): UnifiedAgentMemory | undefined {
+    return this.unifiedMemory
+  }
+
+  /**
+   * Check if unified memory is enabled.
+   */
+  hasUnifiedMemory(): boolean {
+    return this.unifiedMemory !== undefined
   }
 
   /**
@@ -157,9 +208,19 @@ export class Agent extends Worker {
   }
 
   /**
-   * Store a memory
+   * Store a memory.
+   *
+   * If unified memory is set via setMemory(), delegates to the unified system.
+   * Otherwise uses ctx.storage (legacy behavior).
    */
   async remember(content: string, type: Memory['type'] = 'short-term'): Promise<Memory> {
+    // Use unified memory if available
+    if (this.unifiedMemory) {
+      const memoryThing = await this.unifiedMemory.remember(content, { type })
+      return this.memoryThingToLegacy(memoryThing)
+    }
+
+    // Legacy ctx.storage path
     const memory: Memory = {
       id: crypto.randomUUID(),
       type,
@@ -171,21 +232,54 @@ export class Agent extends Worker {
   }
 
   /**
-   * Get recent memories
+   * Get recent memories.
+   *
+   * If unified memory is set via setMemory(), delegates to the unified system.
+   * Otherwise uses ctx.storage (legacy behavior).
    */
   async getRecentMemories(limit: number = 10): Promise<Memory[]> {
+    // Use unified memory if available
+    if (this.unifiedMemory) {
+      const memories = await this.unifiedMemory.getRecentMemories(limit)
+      return memories.map(this.memoryThingToLegacy)
+    }
+
+    // Legacy ctx.storage path
     const map = await this.ctx.storage.list({ prefix: 'memory:' })
     const memories = Array.from(map.values()) as Memory[]
     return memories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit)
   }
 
   /**
-   * Search memories by content
+   * Search memories by content.
+   *
+   * If unified memory is set via setMemory(), delegates to the unified system.
+   * Otherwise uses ctx.storage (legacy behavior).
    */
   async searchMemories(query: string): Promise<Memory[]> {
+    // Use unified memory if available
+    if (this.unifiedMemory) {
+      const memories = await this.unifiedMemory.searchMemories(query)
+      return memories.map(this.memoryThingToLegacy)
+    }
+
+    // Legacy ctx.storage path
     const memories = await this.getRecentMemories(100)
     const lowerQuery = query.toLowerCase()
     return memories.filter((m) => m.content.toLowerCase().includes(lowerQuery))
+  }
+
+  /**
+   * Convert a MemoryThing from unified memory to the legacy Memory interface.
+   */
+  private memoryThingToLegacy = (thing: MemoryThing): Memory => {
+    return {
+      id: thing.id,
+      type: thing.type === 'semantic' ? 'long-term' : thing.type, // Map 'semantic' to 'long-term' for compatibility
+      content: thing.content,
+      embedding: thing.embedding,
+      createdAt: thing.createdAt,
+    }
   }
 
   // Worker interface implementations

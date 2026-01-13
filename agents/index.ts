@@ -146,6 +146,24 @@ export {
   createEscalationTool,
   type ToolOptions,
   type ValidationResult,
+  // Tool Things Integration (Graph Persistence)
+  toolToThing,
+  thingToTool,
+  persistentTool,
+  loadToolFromGraph,
+  listToolsFromGraph,
+  deleteToolFromGraph,
+  registerHandler,
+  getHandler,
+  unregisterHandler,
+  clearHandlerRegistry,
+  getHandlerCount,
+  ToolThingRegistry,
+  createToolThingRegistry,
+  type ToolThingData,
+  type PersistentToolOptions,
+  TOOL_TYPE_NAME,
+  TOOL_TYPE_ID,
 } from './Tool'
 
 // Base Agent
@@ -272,6 +290,41 @@ export {
   type AgentWithMemory,
   type LLMSummarizerOptions,
 } from './memory'
+
+// ============================================================================
+// Unified Memory (Graph-backed)
+// ============================================================================
+
+export {
+  // Core interface and types
+  type AgentMemory,
+  type MemoryThing,
+  type MemoryType,
+  type MemorySearchOptions,
+  type StoreMemoryOptions,
+  type MemoryStats,
+
+  // Graph adapter
+  GraphMemoryAdapter,
+  type GraphMemoryAdapterConfig,
+  createGraphMemory,
+
+  // In-memory implementation
+  InMemoryAgentMemory,
+  createInMemoryAgentMemory,
+
+  // Compatibility adapters
+  ConversationMemoryAdapter,
+  toConversationMemory,
+  AgentMemoryBridge,
+  toAgentMemoryBridge,
+
+  // Type constants
+  MEMORY_TYPE_ID,
+  MEMORY_TYPE_NAME,
+  MESSAGE_TYPE_ID,
+  MESSAGE_TYPE_NAME,
+} from './unified-memory'
 
 // ============================================================================
 // LLM Router
@@ -465,3 +518,33 @@ export {
   type RecordUsageInput,
   type AgentWithCostTracking,
 } from './cost-tracker'
+
+// ============================================================================
+// Agent-to-Agent Communication
+// ============================================================================
+
+export {
+  // Core classes
+  AgentMessageBus,
+  GraphMessageBus,
+  // Factory functions
+  createMessageBus,
+  createGraphMessageBus,
+  // Types
+  type AgentMessage,
+  type MessageEnvelope,
+  type MessageFilter,
+  type MessageSubscription,
+  type MessageHandler,
+  type BusConfig,
+  type RequestOptions,
+  type BroadcastRequest,
+  type SimpleRequest,
+  type CommunicationStats,
+  type AgentActivity,
+  type HandoffRecord,
+  type MessageType,
+  type DeliveryStatus,
+  type DeliveryReceipt,
+  type GraphMessageBusConfig,
+} from './communication'

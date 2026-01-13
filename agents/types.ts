@@ -454,6 +454,7 @@ export type ToolCallDecision =
   | { action: 'allow' }
   | { action: 'deny'; reason: string }
   | { action: 'modify'; arguments: Record<string, unknown> }
+  | { action: 'use_cached'; result: unknown }
 
 export interface PermissionRequest {
   type: 'tool_use' | 'file_access' | 'network' | string
@@ -533,3 +534,26 @@ export interface Agent {
   /** Hand off to another agent (OpenAI pattern) */
   handoff?(request: HandoffRequest): Promise<AgentResult>
 }
+
+// ============================================================================
+// MCP Integration
+// ============================================================================
+
+/**
+ * Re-export MCP conversion helpers for bridging agents with MCP transport.
+ *
+ * These helpers convert between agent SDK types (ToolDefinition, ToolCall, etc.)
+ * and MCP protocol types (McpTool, McpToolCall, etc.)
+ */
+export type {
+  McpTool,
+  McpToolCall,
+  McpToolResult,
+  McpContent,
+  AgentToolDefinition,
+} from '../types/mcp'
+
+export {
+  toolDefinitionToMcp,
+  mcpToToolDefinition,
+} from '../types/mcp'

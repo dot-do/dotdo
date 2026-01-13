@@ -1,5 +1,17 @@
 import { Hono } from 'hono'
 import type { Env } from '../index'
+import type {
+  McpTool as BaseMcpTool,
+  McpResource as BaseMcpResource,
+  JsonRpcRequest as BaseJsonRpcRequest,
+  JsonRpcResponse as BaseJsonRpcResponse,
+  McpClientInfo,
+} from '../../types/mcp'
+import {
+  JSON_RPC_ERRORS,
+  jsonRpcError,
+  jsonRpcSuccess,
+} from '../../types/mcp'
 
 /**
  * MCP HTTP Streamable Transport Handler
@@ -18,7 +30,7 @@ const sessions = new Map<string, McpSession>()
 const deletedSessions = new Set<string>()
 
 // Default tools available in all sessions
-const defaultTools: McpTool[] = [
+const defaultTools: BaseMcpTool[] = [
   {
     name: 'echo',
     description: 'Echo back the input message',
@@ -77,48 +89,26 @@ const testSession: McpSession = {
 }
 sessions.set('test-session-1', testSession)
 
+/**
+ * Extended MCP Session with Maps for tools/resources (HTTP transport specific)
+ */
 export interface McpSession {
   id: string
   createdAt: Date
   lastAccessedAt: Date
   lastActivity: Date
-  tools: Map<string, McpTool>
-  resources: Map<string, McpResource>
-  clientInfo?: { name: string; version: string }
+  tools: Map<string, BaseMcpTool>
+  resources: Map<string, BaseMcpResource>
+  clientInfo?: McpClientInfo
   capabilities: Record<string, unknown>
   subscriptions: string[]
 }
 
-export interface McpTool {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export interface McpResource {
-  uri: string
-  name: string
-  description?: string
-  mimeType?: string
-}
-
-export interface JsonRpcRequest {
-  jsonrpc: '2.0'
-  id?: string | number
-  method: string
-  params?: unknown
-}
-
-export interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: string | number | null
-  result?: unknown
-  error?: {
-    code: number
-    message: string
-    data?: unknown
-  }
-}
+// Re-export base types for backward compatibility
+export type McpTool = BaseMcpTool
+export type McpResource = BaseMcpResource
+export type JsonRpcRequest = BaseJsonRpcRequest
+export type JsonRpcResponse = BaseJsonRpcResponse
 
 export function createMcpSession(): McpSession {
   const id = crypto.randomUUID()
@@ -172,30 +162,7 @@ export function deleteMcpSession(sessionId: string): boolean {
   return existed
 }
 
-// Standard JSON-RPC error codes
-const JSON_RPC_ERRORS = {
-  PARSE_ERROR: -32700,
-  INVALID_REQUEST: -32600,
-  METHOD_NOT_FOUND: -32601,
-  INVALID_PARAMS: -32602,
-  INTERNAL_ERROR: -32603,
-}
-
-function jsonRpcError(id: string | number | null, code: number, message: string, data?: unknown): JsonRpcResponse {
-  return {
-    jsonrpc: '2.0',
-    id,
-    error: { code, message, data },
-  }
-}
-
-function jsonRpcSuccess(id: string | number | null, result: unknown): JsonRpcResponse {
-  return {
-    jsonrpc: '2.0',
-    id,
-    result,
-  }
-}
+// JSON-RPC error codes and helpers imported from types/mcp.ts
 
 export async function handleMcpRequest(request: Request, session?: McpSession): Promise<Response> {
   const method = request.method

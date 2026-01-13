@@ -20,6 +20,7 @@ import { buildCollectionResponse as buildCollectionResponseShape } from '../../l
 import { buildItemLinks } from '../../lib/response/links'
 import { buildItemActionsClickable } from '../../lib/response/actions'
 import { generateEditUI, createEditUIData, type EditUIData } from './edit-ui'
+import { escapeHtml } from '../../lib/utils/html'
 
 // ============================================================================
 // TYPES
@@ -231,17 +232,6 @@ function generateHtmlPage(data: object, ns: string): string {
 </html>`
 }
 
-/**
- * Escape HTML special characters
- */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 /**
  * Generate HATEOAS index with available collections

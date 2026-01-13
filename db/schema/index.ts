@@ -108,6 +108,30 @@ export {
   SchemaParseError,
 } from './types'
 
+export {
+  CascadeSchemaError,
+  CircularReferenceError,
+} from './schema-parser'
+
+// ============================================================================
+// CENTRALIZED SCHEMA PARSER
+// ============================================================================
+
+export {
+  SchemaParser,
+  createSchemaParser,
+  defaultParser,
+  parseOperatorReference,
+  PRIMITIVE_TYPES,
+} from './schema-parser'
+
+export type {
+  SchemaParserConfig,
+  ParsedOperatorReference,
+  OperatorDirection,
+  OperatorMode,
+} from './schema-parser'
+
 // ============================================================================
 // GENERATION ENGINE
 // ============================================================================

@@ -502,8 +502,8 @@ export function createCacheHooks(cache: ToolResultCache): Pick<AgentHooks, 'onPr
   /** Get cached result (for manual integration) */
   getCachedResult: (toolCall: ToolCall) => ToolResult | undefined
 } {
-  // Store pending cached results for the post-hook to skip storing
-  const pendingCachedResults = new Map<string, ToolResult>()
+  // Track which tool calls used cached results (to avoid re-caching)
+  const cachedCallIds = new Set<string>()
 
   return {
     getCachedResult: (toolCall: ToolCall) => cache.get(toolCall),
@@ -511,13 +511,13 @@ export function createCacheHooks(cache: ToolResultCache): Pick<AgentHooks, 'onPr
     onPreToolUse: async (toolCall: ToolCall): Promise<ToolCallDecision> => {
       const cached = cache.get(toolCall)
       if (cached) {
-        // Store for post-hook to know this was from cache
-        pendingCachedResults.set(toolCall.id, cached)
+        // Mark this call as using cached result
+        cachedCallIds.add(toolCall.id)
 
-        // Return the cached result by modifying arguments to include a cache flag
-        // The actual result will be handled specially
+        // Return use_cached action to skip execution
         return {
-          action: 'allow',
+          action: 'use_cached',
+          result: cached.result,
         }
       }
       return { action: 'allow' }
@@ -525,8 +525,8 @@ export function createCacheHooks(cache: ToolResultCache): Pick<AgentHooks, 'onPr
 
     onPostToolUse: async (toolCall: ToolCall, result: ToolResult): Promise<void> => {
       // Check if this was a cached result (don't re-cache)
-      if (pendingCachedResults.has(toolCall.id)) {
-        pendingCachedResults.delete(toolCall.id)
+      if (cachedCallIds.has(toolCall.id)) {
+        cachedCallIds.delete(toolCall.id)
         return
       }
 
@@ -568,22 +568,13 @@ export function withCaching(
     ...existingHooks,
 
     onPreToolUse: async (toolCall: ToolCall): Promise<ToolCallDecision> => {
-      // Check cache first
-      const cached = cacheHooks.getCachedResult(toolCall)
-      if (cached) {
-        // If we have a cached result, we still need to allow the call
-        // but mark it so we know to use the cached result
-        // Note: The actual caching integration happens at a higher level
-        // This hook just checks if caching should apply
-      }
-
-      // Call cache hooks
+      // Check cache first - if hit, return use_cached to skip execution
       const cacheDecision = await cacheHooks.onPreToolUse(toolCall)
-      if (cacheDecision.action !== 'allow') {
+      if (cacheDecision.action === 'use_cached') {
         return cacheDecision
       }
 
-      // Call existing hooks
+      // Call existing hooks for non-cached calls
       if (existingHooks.onPreToolUse) {
         return existingHooks.onPreToolUse(toolCall)
       }
@@ -592,7 +583,7 @@ export function withCaching(
     },
 
     onPostToolUse: async (toolCall: ToolCall, result: ToolResult): Promise<void> => {
-      // Store in cache
+      // Store in cache (will skip if this was a cached result)
       await cacheHooks.onPostToolUse(toolCall, result)
 
       // Call existing hooks

@@ -3,6 +3,53 @@
  *
  * Type definitions for Temporal-like workflow visibility API.
  * Enables listing and querying running workflows.
+ *
+ * ## Overview
+ *
+ * The workflow visibility system provides a queryable interface for discovering
+ * and monitoring workflow executions. This is essential for:
+ *
+ * - **Debugging**: Finding workflows by type, status, or custom attributes
+ * - **Monitoring**: Tracking workflow health and identifying failures
+ * - **Operations**: Managing workflow lifecycle (cancel, terminate, etc.)
+ *
+ * ## Key Concepts
+ *
+ * ### Workflow Metadata
+ * Each workflow execution stores metadata that can be queried:
+ * - `workflowId` / `runId`: Unique identifiers
+ * - `workflowType`: The workflow function name
+ * - `status`: Current execution state (RUNNING, COMPLETED, FAILED, etc.)
+ * - `startTime` / `closeTime`: Execution timestamps
+ * - `searchAttributes`: Custom indexed key-value pairs for filtering
+ *
+ * ### Search Attributes
+ * Custom attributes that you define on workflows for advanced filtering:
+ * ```typescript
+ * // Set when starting workflow
+ * await client.start(orderWorkflow, {
+ *   workflowId: 'order-123',
+ *   searchAttributes: {
+ *     customerId: 'cust-456',
+ *     orderValue: 150.00,
+ *     region: 'us-west',
+ *   }
+ * })
+ *
+ * // Query by custom attribute
+ * const results = await store.list({
+ *   query: 'customerId = "cust-456" AND orderValue > 100'
+ * })
+ * ```
+ *
+ * ### Query Syntax
+ * SQL-like syntax for filtering workflows:
+ * - Equality: `WorkflowType = "orderWorkflow"`
+ * - Comparison: `orderValue > 100`
+ * - Multiple conditions: `Status = "RUNNING" AND customerId = "cust-456"`
+ * - IN operator: `Status IN ("RUNNING", "FAILED")`
+ *
+ * @module workflows/visibility/types
  */
 
 // ============================================================================
@@ -10,7 +57,23 @@
 // ============================================================================
 
 /**
- * Workflow execution status
+ * Workflow execution status.
+ *
+ * Represents the lifecycle state of a workflow execution.
+ * Use these values when querying workflows by status.
+ *
+ * @example
+ * ```typescript
+ * // Find all running workflows
+ * const running = await store.list({
+ *   query: 'Status = "RUNNING"'
+ * })
+ *
+ * // Find failed workflows for debugging
+ * const failed = await store.list({
+ *   query: 'Status = "FAILED"'
+ * })
+ * ```
  */
 export enum WorkflowStatus {
   /** Workflow is currently running */
@@ -34,12 +97,37 @@ export enum WorkflowStatus {
 // ============================================================================
 
 /**
- * Search attribute value types
+ * Search attribute value types.
+ *
+ * Search attributes support various primitive types for flexible querying:
+ * - `string`: Text values (e.g., customerId, region)
+ * - `number`: Numeric values for range queries (e.g., orderValue > 100)
+ * - `boolean`: Boolean flags (e.g., isPriority = true)
+ * - `Date`: Timestamps for time-based queries
+ * - `string[]` / `number[]`: Arrays for IN queries
  */
 export type SearchAttributeValue = string | number | boolean | Date | string[] | number[]
 
 /**
- * Search attributes for workflow queries
+ * Search attributes for workflow queries.
+ *
+ * Custom key-value pairs attached to workflows for advanced filtering.
+ * Define search attributes based on your domain to enable powerful queries.
+ *
+ * @example
+ * ```typescript
+ * // E-commerce order workflow attributes
+ * const searchAttributes: SearchAttributes = {
+ *   customerId: 'cust-456',
+ *   orderValue: 150.00,
+ *   region: 'us-west',
+ *   isPriority: true,
+ *   createdAt: new Date(),
+ * }
+ *
+ * // Later query by any combination
+ * 'customerId = "cust-456" AND orderValue > 100 AND isPriority = true'
+ * ```
  */
 export interface SearchAttributes {
   [key: string]: SearchAttributeValue

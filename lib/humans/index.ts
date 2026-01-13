@@ -128,6 +128,31 @@ export class HumanFunction {
 }
 
 // ============================================================================
+// SLA TRACKING
+// ============================================================================
+
+export {
+  // Functions
+  calculateTimeToFirstResponse,
+  calculateTimeToCompletion,
+  calculateTimeAtEscalationLevel,
+  checkSLABreach,
+  getSLADeadlineForPriority,
+  createSLAWarning,
+  // Constants
+  DEFAULT_SLA_CONFIG,
+  PRIORITY_DEADLINES,
+  // Types
+  type Priority,
+  type SLATimestamps,
+  type EscalationTimestamp,
+  type SLAConfig as SLAConfigType,  // Renamed to avoid conflict with proxy SLAConfig
+  type HumanRequestWithSLA,
+  type SLAMetrics,
+  type SLAWarning,
+} from './sla'
+
+// ============================================================================
 // CHANNEL ADAPTERS
 // ============================================================================
 
