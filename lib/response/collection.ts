@@ -6,6 +6,7 @@
  */
 
 import { buildTypeUrl, buildIdUrl, normalizeNs } from './urls'
+import { buildItemLinks } from './links'
 
 export interface CollectionResponseOptions {
   ns: string
@@ -41,7 +42,7 @@ export interface CollectionResponse<T extends object> {
   links: Record<string, string>
   facets?: { sort?: string[]; filter?: Record<string, string[]> }
   actions: Record<string, ClickableAction>
-  items: Array<T & { $context: string; $type: string; $id: string }>
+  items: Array<T & { $context: string; $type: string; $id: string; links: Record<string, string> }>
 }
 
 /**
@@ -128,16 +129,22 @@ export function buildCollectionResponse<T extends { id: string }>(
     actions[action] = { method: 'POST', href: `${$type}/${action}` }
   }
 
-  // Transform items - each item needs $context, $type, $id
+  // Transform items - each item needs $context, $type, $id, and links
   const transformedItems = items.map((item) => {
     const itemId = buildIdUrl(baseUrl, type, item.id)
+    // Build links for clickable navigation: self, collection, edit
+    const itemLinks = buildItemLinks({ ns: normalizedNs, type, id: item.id })
     return {
       $context,
       $type,
       $id: itemId,
+      links: {
+        self: itemId,
+        ...itemLinks,
+      },
       ...item,
     }
-  }) as Array<T & { $context: string; $type: string; $id: string }>
+  }) as Array<T & { $context: string; $type: string; $id: string; links: Record<string, string> }>
 
   // Build response, conditionally including facets
   const response: CollectionResponse<T> = {

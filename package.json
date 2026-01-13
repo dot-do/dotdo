@@ -202,7 +202,7 @@
     "build:snippets:check": "tsx scripts/build-snippets.ts --check"
   },
   "dependencies": {
-    "@org.ai/types": "file:../primitives.org.ai/packages/types",
+    "@better-auth/stripe": "^1.4.12",
     "@clickhouse/client-web": "^1.8.0",
     "@cloudflare/sandbox": "^0.3.0",
     "@duckdb/duckdb-wasm": "1.33.1-dev16.0",
@@ -212,6 +212,7 @@
     "@mdxui/cockpit": "^0.2.0",
     "@mdxui/primitives": "^0.0.0",
     "@mdxui/themes": "^0.0.1",
+    "@org.ai/types": "file:../primitives.org.ai/packages/types",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -227,9 +228,8 @@
     "apache-arrow": "^21.1.0",
     "avsc": "^5.7.9",
     "bashx": "npm:bashx.do@^0.1.0",
-    "bun": "^1.1.0",
-    "@better-auth/stripe": "^1.4.12",
     "better-auth": "^1.4.10",
+    "bun": "^1.1.0",
     "capnweb": "^0.4.0",
     "chdb": "^1.3.0",
     "class-variance-authority": "^0.7.1",
@@ -287,13 +287,17 @@
       "@vitest/expect": "3.2.4",
       "@vitest/runner": "3.2.4",
       "@vitest/snapshot": "3.2.4"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "sharp",
+      "workerd"
+    ]
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@cloudflare/vite-plugin": "^1.0.0",
-    "@cloudflare/vitest-pool-workers": "^0.12.1",
+    "@cloudflare/vitest-pool-workers": "^0.12.3",
     "@cloudflare/workers-types": "^4.20241230.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/vite": "^4.1.0",
@@ -309,8 +313,11 @@
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
     "@vitejs/plugin-react": "^4.4.0",
+    "@vitest/expect": "3.2.4",
     "@vitest/runner": "^3.2.4",
     "@vitest/snapshot": "^3.2.4",
+    "@vitest/spy": "3.2.4",
+    "@vitest/utils": "3.2.4",
     "better-sqlite3": "^12.5.0",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",

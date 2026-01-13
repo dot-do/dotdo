@@ -111,8 +111,8 @@ export default defineWorkspace([
   // DO transport layer tests (REST router, edit UI, auth layer, RPC, etc.)
   createNodeWorkspace('objects-transport', ['objects/transport/tests/**/*.test.ts']),
 
-  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, triggers, cache, payments, etc.)
-  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts', 'lib/triggers/tests/**/*.test.ts', 'lib/cache/tests/**/*.test.ts', 'lib/payments/tests/**/*.test.ts']),
+  // Library utility tests (sqids, mixins, executors, rpc, sql, logging, channels, humans, colo, support, pricing, okrs, storage, auth, namespace, response, triggers, cache, payments, iterators, etc.)
+  createNodeWorkspace('lib', ['lib/tests/**/*.test.ts', 'lib/mixins/tests/**/*.test.ts', 'lib/executors/tests/**/*.test.ts', 'lib/rpc/tests/**/*.test.ts', 'lib/sql/tests/**/*.test.ts', 'lib/logging/tests/**/*.test.ts', 'lib/channels/tests/**/*.test.ts', 'lib/humans/tests/**/*.test.ts', 'lib/colo/tests/**/*.test.ts', 'lib/support/tests/**/*.test.ts', 'lib/pricing/tests/**/*.test.ts', 'lib/okrs/tests/**/*.test.ts', 'lib/storage/tests/**/*.test.ts', 'lib/auth/tests/**/*.test.ts', 'lib/namespace/tests/**/*.test.ts', 'lib/response/tests/**/*.test.ts', 'lib/triggers/tests/**/*.test.ts', 'lib/cache/tests/**/*.test.ts', 'lib/payments/tests/**/*.test.ts', 'lib/iterators/tests/**/*.test.ts']),
 
   // Cloudflare integration tests (Workflows, etc.)
   createNodeWorkspace('cloudflare', ['lib/cloudflare/tests/**/*.test.ts']),
@@ -312,6 +312,9 @@ export default defineWorkspace([
   // @dotdo/core package tests (Error handling and retry infrastructure)
   createNodeWorkspace('core', ['packages/core/tests/**/*.test.ts']),
 
+  // @dotdo/path-utils package tests (POSIX path utilities)
+  createNodeWorkspace('path-utils', ['packages/path-utils/tests/**/*.test.ts']),
+
   // @dotdo/stripe package tests (Stripe API compatibility layer)
   createNodeWorkspace('stripe', ['packages/stripe/tests/**/*.test.ts']),
 
@@ -480,6 +483,9 @@ export default defineWorkspace([
   // Security tests (audit, dependencies, etc.)
   createNodeWorkspace('security', ['tests/security/**/*.test.ts']),
 
+  // Test isolation tests (verify global state reset between tests)
+  createNodeWorkspace('isolation', ['tests/isolation/**/*.test.ts']),
+
   // DuckDB Iceberg extension tests (R2 Data Catalog integration)
   createNodeWorkspace('duckdb-iceberg', ['db/compat/sql/duckdb-wasm/iceberg/tests/**/*.test.ts']),
 
@@ -548,6 +554,99 @@ export default defineWorkspace([
       globals: sharedTestConfig?.globals,
       name: 'do-integration',
       include: ['workers/do-rest-integration.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      // Override pool options to use DO-specific wrangler config with SQLite
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
+          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
+          // Tests use unique namespaces (uniqueNs()) for isolation instead
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // DO identity and schema tests (RED phase - tests expected to fail)
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig?.globals,
+      name: 'do-identity',
+      include: ['objects/tests/do-identity-schema.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      // Override pool options to use DO-specific wrangler config with SQLite
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
+          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
+          // Tests use unique namespaces (uniqueNs()) for isolation instead
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // Simple DO RPC test (verifies Workers RPC works with minimal DO)
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      globals: sharedTestConfig?.globals,
+      name: 'simple-do-rpc',
+      include: ['objects/tests/simple-do-rpc.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.simple-do.jsonc') },
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // DO RPC direct method access tests (RED phase - tests expected to fail)
+  // Tests Workers RPC pattern: stub.things.create(), stub.rels.query(), etc.
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig?.globals,
+      name: 'do-rpc',
+      include: ['objects/tests/do-rpc.test.ts', 'objects/tests/do-rpc-flat.test.ts'],
+      exclude: defaultExcludes,
+      sequence: { concurrent: false },
+      // Override pool options to use DO-specific wrangler config with SQLite
+      // Type assertion needed for @cloudflare/vitest-pool-workers specific options
+      poolOptions: {
+        workers: {
+          wrangler: { configPath: resolve(PROJECT_ROOT, 'workers/wrangler.do-test.jsonc') },
+          // Note: isolatedStorage disabled due to storage stack issues with DO SQLite
+          // Tests use unique namespaces (uniqueNs()) for isolation instead
+          isolatedStorage: false,
+          singleWorker: true,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  },
+
+  // DO Clickable API E2E tests (RED phase - tests expected to fail)
+  // Tests the "clickable" API pattern where every link is fetchable
+  {
+    extends: './tests/config/vitest.workers.config.ts',
+    test: {
+      // Only use compatible settings from sharedTestConfig (avoid pool conflicts)
+      globals: sharedTestConfig?.globals,
+      name: 'clickable-api',
+      include: ['objects/tests/clickable-api-e2e.test.ts'],
       exclude: defaultExcludes,
       sequence: { concurrent: false },
       // Override pool options to use DO-specific wrangler config with SQLite

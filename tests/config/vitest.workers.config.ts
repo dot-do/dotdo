@@ -73,9 +73,11 @@ export default defineWorkersConfig({
     alias: {
       // Map the import path to the actual file location
       '@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs': DUCKDB_BROWSER_BLOCKING,
-      // cloudflare:workers mock for Vite transformation phase
-      // Allows importing modules that re-export from cloudflare:workers
-      'cloudflare:workers': CLOUDFLARE_WORKERS_MOCK,
+      // NOTE: DO NOT alias 'cloudflare:workers' here!
+      // The workers pool provides the real cloudflare:workers module at runtime.
+      // Aliasing to a mock causes DurableObject instanceof checks to fail because
+      // classes extend the mock DurableObject instead of the real runtime class.
+      // The mock is only needed for Node.js tests (non-workers pool).
     },
   },
   // SSR options for miniflare compatibility

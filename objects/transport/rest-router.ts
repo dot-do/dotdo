@@ -198,6 +198,55 @@ function extractNamespace(ns: string): string {
 }
 
 /**
+ * Generate an HTML page for the given data
+ *
+ * Returns a simple, interactive HTML UI that displays the JSON data
+ * with clickable links for navigation.
+ */
+function generateHtmlPage(data: object, ns: string): string {
+  const jsonString = JSON.stringify(data, null, 2)
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${ns}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 2rem; background: #f5f5f5; }
+    .container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1 { color: #333; }
+    pre { background: #f8f8f8; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+    a { color: #0066cc; }
+    .links { margin-top: 1rem; }
+    .links a { margin-right: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>${ns}</h1>
+    <div class="links">
+      <a href="${ns}">Home</a>
+    </div>
+    <h2>API Response</h2>
+    <pre>${escapeHtml(jsonString)}</pre>
+  </div>
+</body>
+</html>`
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+/**
  * Generate HATEOAS index with available collections
  *
  * Root response shape:
@@ -253,11 +302,14 @@ export function generateIndex(
 
 /**
  * Determine content type based on Accept header.
- * Defaults to application/json, accepts application/ld+json.
+ * Defaults to application/json, accepts application/ld+json and text/html.
  */
 function getContentType(request?: Request): string {
   if (!request) return 'application/json'
   const accept = request.headers.get('Accept') || ''
+  if (accept.includes('text/html')) {
+    return 'text/html'
+  }
   if (accept.includes('application/ld+json')) {
     return 'application/ld+json'
   }
@@ -323,6 +375,14 @@ export async function handleGetIndex(ctx: RestRouterContext, request?: Request):
     parent: ctx.parent,
     collectionCounts,
   })
+
+  // Return HTML UI if requested
+  if (contentType === 'text/html') {
+    const html = generateHtmlPage(index, ns)
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
 
   return Response.json(index, {
     headers: { 'Content-Type': contentType },
