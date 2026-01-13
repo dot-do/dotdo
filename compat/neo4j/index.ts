@@ -288,19 +288,17 @@ function parseCypher(query: string, params: CypherParams = {}): ParsedQuery {
   }
 
   // Detect query type
-  // Priority: DELETE operations (even if they start with MATCH) take precedence
-  // Use word boundary to avoid matching "DELETE" inside other words like "ToDelete"
   const upperQuery = substituted.toUpperCase()
   let type: ParsedQuery['type'] = 'RETURN'
 
-  if (/\bDELETE\b/.test(upperQuery)) {
-    type = 'DELETE'
-  } else if (upperQuery.startsWith('CREATE')) {
+  if (upperQuery.startsWith('CREATE')) {
     type = 'CREATE'
   } else if (upperQuery.startsWith('MATCH')) {
     type = 'MATCH'
   } else if (upperQuery.startsWith('MERGE')) {
     type = 'MERGE'
+  } else if (upperQuery.includes('DELETE')) {
+    type = 'DELETE'
   } else if (upperQuery.startsWith('CALL')) {
     type = 'CALL'
   }
@@ -1026,15 +1024,11 @@ class TransactionImpl implements Transaction {
         if (item && typeof item === 'object' && 'elementId' in item) {
           const neo4jItem = item as Neo4jNode | Neo4jRelationship
           if ('labels' in neo4jItem) {
-            const deleted = await this.graph.deleteNode(neo4jItem.elementId)
-            if (deleted) {
-              this.updates.nodesDeleted++
-            }
+            await this.graph.deleteNode(neo4jItem.elementId)
+            this.updates.nodesDeleted++
           } else {
-            const deleted = await this.graph.deleteEdge(neo4jItem.elementId)
-            if (deleted) {
-              this.updates.relationshipsDeleted++
-            }
+            await this.graph.deleteEdge(neo4jItem.elementId)
+            this.updates.relationshipsDeleted++
           }
         }
       }

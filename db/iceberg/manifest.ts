@@ -1,75 +1,15 @@
 /**
- * Iceberg Manifest Navigation for Lakehouse Analytics
+ * Iceberg Manifest Navigation Module
  *
  * Provides parsing and filtering for Avro-encoded manifest-list and manifest-file
  * structures, enabling direct navigation from R2 Data Catalog for fast point lookups
  * (50-150ms vs 500ms-2s through R2 SQL).
  *
- * ## Role in Lakehouse Architecture
- *
- * Manifests are the key to efficient data access in a lakehouse. They provide:
- *
- * - **Partition Pruning**: Manifest summaries contain min/max bounds for partition fields,
- *   allowing entire manifest files to be skipped during query planning.
- *
- * - **File-level Metadata**: Each manifest entry contains column statistics (min/max/null counts)
- *   enabling predicate pushdown without reading the actual data files.
- *
- * - **ACID Transactions**: Manifest entries track file lifecycle (ADDED/EXISTING/DELETED)
- *   providing snapshot isolation and time travel support.
- *
- * ## Navigation Chain
- *
- * ```
- * metadata.json
- *     │
- *     ▼ current-snapshot-id
- * manifest-list.avro
- *     │
- *     ▼ filter by partition summaries (ns, type bounds)
- * manifest-file.avro
- *     │
- *     ▼ filter by exact partition match + column stats
- * data-file.parquet
- * ```
- *
- * ## Performance Characteristics
- *
- * | Operation | Latency | Description |
- * |-----------|---------|-------------|
- * | Parse manifest-list | <10ms | Avro deserialization |
- * | Partition pruning | <1ms | In-memory bound checks |
- * | Parse manifest-file | <20ms | Avro deserialization |
- * | Column stats filtering | <1ms | In-memory bound checks |
- *
- * ## Example Usage
- *
- * ```typescript
- * // Step 1: Parse manifest list from snapshot
- * const manifestListBytes = await fetchFromR2(snapshot.manifestList)
- * const manifestEntries = parseManifestList(manifestListBytes)
- *
- * // Step 2: Prune by partition bounds
- * const filtered = filterManifestsByPartition(
- *   manifestEntries,
- *   { ns: 'payments.do', type: 'Function' },
- *   partitionSpec
- * )
- * // Only 1 of 100 manifests may remain after pruning
- *
- * // Step 3: Parse remaining manifests
- * for (const entry of filtered) {
- *   const manifestBytes = await fetchFromR2(entry.manifestPath)
- *   const dataFiles = parseManifestFile(manifestBytes)
- *
- *   // Step 4: Filter by exact partition
- *   const matching = filterDataFilesByPartition(
- *     dataFiles,
- *     { ns: 'payments.do', type: 'Function' }
- *   )
- *   // Now read only the relevant Parquet files
- * }
- * ```
+ * Navigation Chain:
+ * 1. metadata.json -> current-snapshot-id -> manifest-list path
+ * 2. manifest-list.avro -> filter by partition -> manifest-file paths
+ * 3. manifest-file.avro -> filter by partition -> data-file paths
+ * 4. data-file.parquet -> read record (optional)
  *
  * @see https://iceberg.apache.org/spec/#manifest-list
  * @see https://iceberg.apache.org/spec/#manifest-files

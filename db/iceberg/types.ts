@@ -1,61 +1,8 @@
 /**
- * Apache Iceberg Type Definitions
+ * Iceberg table format types for direct navigation
  *
- * This module defines TypeScript types for the Apache Iceberg table format,
- * enabling type-safe navigation of Iceberg metadata structures stored in R2.
- *
- * ## Iceberg Table Format Overview
- *
- * Iceberg tables use a layered metadata structure for ACID transactions and
- * time travel capabilities:
- *
- * ```
- * IcebergMetadata (metadata.json)
- *   ├─ schemas[]         - Schema evolution history
- *   ├─ partitionSpecs[]  - Partition evolution
- *   ├─ snapshots[]       - Atomic table states
- *   │    └─ manifestList - Path to manifest-list file
- *   └─ currentSnapshotId - Points to active snapshot
- *
- * ManifestList (manifest-list.avro)
- *   └─ ManifestFile[]    - References to manifest files
- *        └─ partitions[] - Partition bounds for pruning
- *
- * ManifestFile (manifest.avro)
- *   └─ DataFileEntry[]   - Data file metadata
- *        ├─ partition    - Partition values
- *        ├─ columnStats  - Min/max for predicate pushdown
- *        └─ filePath     - Path to Parquet file
- * ```
- *
- * ## Key Type Categories
- *
- * **Metadata Types**: Core Iceberg structures
- * - {@link IcebergMetadata} - Root metadata file
- * - {@link Snapshot} - Point-in-time table state
- * - {@link Schema} - Table schema with field IDs
- * - {@link PartitionSpec} - Partitioning configuration
- *
- * **Manifest Types**: File-level metadata
- * - {@link ManifestList} - Collection of manifest files
- * - {@link ManifestFile} - Single manifest with partition bounds
- * - {@link DataFileEntry} - Individual data file metadata
- * - {@link ColumnStats} - Column-level statistics
- *
- * **Access Control Types**: Visibility and authorization
- * - {@link Visibility} - Public/unlisted/org/user levels
- * - {@link AuthContext} - User/org context for queries
- * - {@link PartitionFilter} - Namespace/type/visibility filter
- *
- * **Options Types**: API configuration
- * - {@link IcebergReaderOptions} - Reader configuration
- * - {@link FindFileOptions} - Point lookup options
- * - {@link GetRecordOptions} - Record retrieval options
- *
- * @see https://iceberg.apache.org/spec/ - Official Iceberg specification
- * @see https://iceberg.apache.org/spec/#schemas-and-data-types - Schema types
- * @see https://iceberg.apache.org/spec/#manifests - Manifest format
- * @module db/iceberg/types
+ * These types represent the Iceberg metadata structures used
+ * for fast point lookups without R2 SQL overhead.
  */
 
 import type { R2Bucket } from '@cloudflare/workers-types'
