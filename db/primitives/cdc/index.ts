@@ -191,3 +191,40 @@ export {
   type FileSinkOptions,
   type ParquetMetadata,
 } from './sink'
+
+// =============================================================================
+// CHANGE EVENT SCHEMA
+// =============================================================================
+
+export {
+  // Enum
+  ChangeOperation,
+  // Zod Schema
+  ChangeEventSchema,
+  // Types (aliased to avoid conflict with stream types)
+  type ChangeEvent as TypedChangeEvent,
+  type ChangeEventMetadata as TypedChangeEventMetadata,
+  type ChangeEventSchema as TypedChangeEventSchema,
+  type SchemaField,
+  type FieldType,
+  type ValidationResult,
+  type CreateChangeEventOptions,
+  type EventFactoryOptions,
+  // Validation
+  validateChangeEvent,
+  parseChangeEvent,
+  isValidChangeEvent,
+  // Serialization
+  serializeChangeEvent,
+  deserializeChangeEvent,
+  // Factory functions
+  createChangeEvent,
+  createInsertEvent,
+  createUpdateEvent,
+  createDeleteEvent,
+  // Schema embedding
+  embedSchema,
+  extractSchema,
+  // Utilities
+  getChangedFields,
+} from './change-event'

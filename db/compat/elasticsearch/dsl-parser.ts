@@ -48,6 +48,7 @@ import type {
   Sort,
   SortItem,
   SortOrder,
+  ScoreSort,
   SourceFilter,
 } from './types'
 
@@ -1033,7 +1034,7 @@ export class EsDslParser {
   /**
    * Parse a single sort item
    */
-  private parseSortItem(item: SortItem | string, index: number): NormalizedSortItem {
+  private parseSortItem(item: SortItem | ScoreSort | string, index: number): NormalizedSortItem {
     // String format: "field" or "_score"
     if (typeof item === 'string') {
       return {
@@ -1042,7 +1043,16 @@ export class EsDslParser {
       }
     }
 
-    // Object format
+    // Check for ScoreSort format
+    if ('_score' in item) {
+      const scoreConfig = item._score
+      return {
+        field: '_score',
+        order: typeof scoreConfig === 'string' ? scoreConfig : scoreConfig?.order ?? 'desc',
+      }
+    }
+
+    // Object format (SortItem)
     const [field, config] = Object.entries(item)[0]!
 
     if (typeof config === 'string') {
@@ -1256,8 +1266,8 @@ export function analyzeQuery(query: NormalizedQuery): QueryAnalysis {
   analyze(query)
 
   // Deduplicate
-  analysis.queryTypes = [...new Set(analysis.queryTypes)]
-  analysis.fields = [...new Set(analysis.fields)]
+  analysis.queryTypes = Array.from(new Set(analysis.queryTypes))
+  analysis.fields = Array.from(new Set(analysis.fields))
   analysis.complexity = Math.min(10, analysis.complexity)
 
   return analysis
@@ -1295,7 +1305,7 @@ export function extractSearchTerms(query: NormalizedQuery): string[] {
   }
 
   extract(query)
-  return [...new Set(terms)]
+  return Array.from(new Set(terms))
 }
 
 // ============================================================================

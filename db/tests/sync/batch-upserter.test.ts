@@ -21,7 +21,7 @@ import {
   type UpsertResult,
   type Destination,
   type SyncRecord,
-} from './batch-upserter'
+} from '../../sync/batch-upserter'
 
 // ============================================================================
 // MOCK DESTINATION

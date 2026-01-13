@@ -21,6 +21,7 @@ import { Route as CustomersIdRouteImport } from './routes/customers.$id'
 import { Route as AuthLogoutRouteImport } from './routes/auth.logout'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppAppRouteImport } from './routes/app/_app'
+import { Route as ApiTestCollectionRouteImport } from './routes/api.test-collection'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as AdminAdminRouteImport } from './routes/admin/_admin'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/app/workflows/index'
@@ -40,6 +41,7 @@ import { Route as AdminAdminIndexRouteImport } from './routes/admin/_admin.index
 import { Route as AppWorkflowsNewRouteImport } from './routes/app/workflows/new'
 import { Route as AppProjectsNewRouteImport } from './routes/app/projects/new'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
+import { Route as ApiTestCollectionIdRouteImport } from './routes/api.test-collection.$id'
 import { Route as ApiCustomersIdRouteImport } from './routes/api/customers.$id'
 import { Route as AdminWorkflowsWorkflowIdRouteImport } from './routes/admin/workflows/$workflowId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users/new'
@@ -118,6 +120,11 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
 const AppAppRoute = AppAppRouteImport.update({
   id: '/app/_app',
   path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTestCollectionRoute = ApiTestCollectionRouteImport.update({
+  id: '/api/test-collection',
+  path: '/api/test-collection',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSearchRoute = ApiSearchRouteImport.update({
@@ -214,6 +221,11 @@ const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
   id: '/app/projects/$projectId',
   path: '/app/projects/$projectId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTestCollectionIdRoute = ApiTestCollectionIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiTestCollectionRoute,
 } as any)
 const ApiCustomersIdRoute = ApiCustomersIdRouteImport.update({
   id: '/api/customers/$id',
@@ -324,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/rpc': typeof RpcRoute
   '/admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
+  '/api/test-collection': typeof ApiTestCollectionRouteWithChildren
   '/app': typeof AppAppRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
@@ -349,6 +362,7 @@ export interface FileRoutesByFullPath {
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
   '/api/customers/$id': typeof ApiCustomersIdRoute
+  '/api/test-collection/$id': typeof ApiTestCollectionIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -375,6 +389,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/rpc': typeof RpcRoute
   '/api/search': typeof ApiSearchRoute
+  '/api/test-collection': typeof ApiTestCollectionRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/customers/$id': typeof CustomersIdRoute
@@ -399,6 +414,7 @@ export interface FileRoutesByTo {
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
   '/api/customers/$id': typeof ApiCustomersIdRoute
+  '/api/test-collection/$id': typeof ApiTestCollectionIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -427,6 +443,7 @@ export interface FileRoutesById {
   '/rpc': typeof RpcRoute
   '/admin/_admin': typeof AdminAdminRouteWithChildren
   '/api/search': typeof ApiSearchRoute
+  '/api/test-collection': typeof ApiTestCollectionRouteWithChildren
   '/app/_app': typeof AppAppRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/logout': typeof AuthLogoutRoute
@@ -452,6 +469,7 @@ export interface FileRoutesById {
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/workflows/$workflowId': typeof AdminWorkflowsWorkflowIdRouteWithChildren
   '/api/customers/$id': typeof ApiCustomersIdRoute
+  '/api/test-collection/$id': typeof ApiTestCollectionIdRoute
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/projects/new': typeof AppProjectsNewRoute
   '/app/workflows/new': typeof AppWorkflowsNewRoute
@@ -481,6 +499,7 @@ export interface FileRouteTypes {
     | '/rpc'
     | '/admin'
     | '/api/search'
+    | '/api/test-collection'
     | '/app'
     | '/auth/callback'
     | '/auth/logout'
@@ -506,6 +525,7 @@ export interface FileRouteTypes {
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
     | '/api/customers/$id'
+    | '/api/test-collection/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -532,6 +552,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/rpc'
     | '/api/search'
+    | '/api/test-collection'
     | '/auth/callback'
     | '/auth/logout'
     | '/customers/$id'
@@ -556,6 +577,7 @@ export interface FileRouteTypes {
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
     | '/api/customers/$id'
+    | '/api/test-collection/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -583,6 +605,7 @@ export interface FileRouteTypes {
     | '/rpc'
     | '/admin/_admin'
     | '/api/search'
+    | '/api/test-collection'
     | '/app/_app'
     | '/auth/callback'
     | '/auth/logout'
@@ -608,6 +631,7 @@ export interface FileRouteTypes {
     | '/admin/users/new'
     | '/admin/workflows/$workflowId'
     | '/api/customers/$id'
+    | '/api/test-collection/$id'
     | '/app/projects/$projectId'
     | '/app/projects/new'
     | '/app/workflows/new'
@@ -636,6 +660,7 @@ export interface RootRouteChildren {
   RpcRoute: typeof RpcRoute
   AdminAdminRoute: typeof AdminAdminRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
+  ApiTestCollectionRoute: typeof ApiTestCollectionRouteWithChildren
   AppAppRoute: typeof AppAppRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
@@ -759,6 +784,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app'
       preLoaderRoute: typeof AppAppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/test-collection': {
+      id: '/api/test-collection'
+      path: '/api/test-collection'
+      fullPath: '/api/test-collection'
+      preLoaderRoute: typeof ApiTestCollectionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/search': {
@@ -893,6 +925,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/projects/$projectId'
       preLoaderRoute: typeof AppProjectsProjectIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/test-collection/$id': {
+      id: '/api/test-collection/$id'
+      path: '/$id'
+      fullPath: '/api/test-collection/$id'
+      preLoaderRoute: typeof ApiTestCollectionIdRouteImport
+      parentRoute: typeof ApiTestCollectionRoute
     }
     '/api/customers/$id': {
       id: '/api/customers/$id'
@@ -1048,6 +1087,17 @@ const AdminAdminRouteWithChildren = AdminAdminRoute._addFileChildren(
   AdminAdminRouteChildren,
 )
 
+interface ApiTestCollectionRouteChildren {
+  ApiTestCollectionIdRoute: typeof ApiTestCollectionIdRoute
+}
+
+const ApiTestCollectionRouteChildren: ApiTestCollectionRouteChildren = {
+  ApiTestCollectionIdRoute: ApiTestCollectionIdRoute,
+}
+
+const ApiTestCollectionRouteWithChildren =
+  ApiTestCollectionRoute._addFileChildren(ApiTestCollectionRouteChildren)
+
 interface AppAppRouteChildren {
   AppAppIndexRoute: typeof AppAppIndexRoute
 }
@@ -1096,6 +1146,7 @@ const rootRouteChildren: RootRouteChildren = {
   RpcRoute: RpcRoute,
   AdminAdminRoute: AdminAdminRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
+  ApiTestCollectionRoute: ApiTestCollectionRouteWithChildren,
   AppAppRoute: AppAppRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLogoutRoute: AuthLogoutRoute,

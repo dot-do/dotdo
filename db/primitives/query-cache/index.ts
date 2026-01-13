@@ -388,7 +388,7 @@ export class QueryCacheLayer {
   // Recently expired keys (for error distinction)
   private recentlyExpired = new Set<string>()
 
-  // Metrics
+  // Metrics - global and per-tenant
   private metrics = {
     hits: 0,
     misses: 0,
@@ -400,6 +400,9 @@ export class QueryCacheLayer {
       miss: [] as number[],
     },
   }
+
+  // Per-tenant metrics
+  private tenantMetrics = new Map<string, { hits: number; misses: number }>()
 
   // Event listeners
   private invalidationListeners: ((event: InvalidationEvent) => void)[] = []
@@ -508,6 +511,22 @@ export class QueryCacheLayer {
     }
   }
 
+  private recordTenantHit(tenantId?: string): void {
+    if (tenantId) {
+      const tenantStats = this.tenantMetrics.get(tenantId) ?? { hits: 0, misses: 0 }
+      tenantStats.hits++
+      this.tenantMetrics.set(tenantId, tenantStats)
+    }
+  }
+
+  private recordTenantMiss(tenantId?: string): void {
+    if (tenantId) {
+      const tenantStats = this.tenantMetrics.get(tenantId) ?? { hits: 0, misses: 0 }
+      tenantStats.misses++
+      this.tenantMetrics.set(tenantId, tenantStats)
+    }
+  }
+
   private avgLatency(arr: number[]): number {
     if (arr.length === 0) return 0
     return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -546,6 +565,7 @@ export class QueryCacheLayer {
         this.memoryCache.delete(fingerprint)
         this.recentlyExpired.add(fingerprint)
         this.metrics.misses++
+        this.recordTenantMiss(options?.tenantId)
         this.recordLatency('miss', performance.now() - startTime)
         return undefined
       }
@@ -561,6 +581,7 @@ export class QueryCacheLayer {
       }
 
       this.metrics.hits++
+      this.recordTenantHit(options?.tenantId)
       this.recordLatency('hit', performance.now() - startTime)
       this.recordLatency('get', performance.now() - startTime)
       return memoryEntry.value as T
@@ -575,6 +596,7 @@ export class QueryCacheLayer {
             await this.kv.delete(fingerprint)
             this.recentlyExpired.add(fingerprint)
             this.metrics.misses++
+            this.recordTenantMiss(options?.tenantId)
             this.recordLatency('miss', performance.now() - startTime)
             return undefined
           }
@@ -594,6 +616,7 @@ export class QueryCacheLayer {
           this.memoryCache.set(fingerprint, entry)
 
           this.metrics.hits++
+          this.recordTenantHit(options?.tenantId)
           this.recordLatency('hit', performance.now() - startTime)
           this.recordLatency('get', performance.now() - startTime)
           return kvEntry.value
@@ -613,6 +636,7 @@ export class QueryCacheLayer {
             await this.r2.delete(fingerprint)
             this.recentlyExpired.add(fingerprint)
             this.metrics.misses++
+            this.recordTenantMiss(options?.tenantId)
             this.recordLatency('miss', performance.now() - startTime)
             return undefined
           }
@@ -628,6 +652,7 @@ export class QueryCacheLayer {
           }
 
           this.metrics.hits++
+          this.recordTenantHit(options?.tenantId)
           this.recordLatency('hit', performance.now() - startTime)
           this.recordLatency('get', performance.now() - startTime)
           return value
@@ -638,6 +663,7 @@ export class QueryCacheLayer {
     }
 
     this.metrics.misses++
+    this.recordTenantMiss(options?.tenantId)
     this.recordLatency('miss', performance.now() - startTime)
     this.recordLatency('get', performance.now() - startTime)
     return undefined
@@ -728,21 +754,23 @@ export class QueryCacheLayer {
       }
     }
 
-    // Store in appropriate tier(s)
-    if (tier === 'memory' || this.config.tiers.includes('memory')) {
+    // Store in appropriate tier(s) - only store in the specified tier, not all tiers
+    if (tier === 'memory') {
       this.evictMemoryIfNeeded()
       this.memoryCache.set(fingerprint, entry)
-    }
-
-    if (tier === 'kv' && this.kv) {
+    } else if (tier === 'kv' && this.kv) {
+      // Also store in memory for fast reads, but track as KV tier
+      this.evictMemoryIfNeeded()
+      this.memoryCache.set(fingerprint, entry)
       const ttlSeconds = Math.ceil(ttl / 1000)
       await this.kv.put(fingerprint, JSON.stringify({ value, expiresAt }), {
         expirationTtl: ttlSeconds,
         metadata: { tables: options?.tables, entities: options?.entities },
       })
-    }
-
-    if (tier === 'r2' && this.r2) {
+    } else if (tier === 'r2' && this.r2) {
+      // Also store in memory for fast reads, but track as R2 tier
+      this.evictMemoryIfNeeded()
+      this.memoryCache.set(fingerprint, entry)
       await this.r2.put(fingerprint, JSON.stringify(value), {
         customMetadata: {
           expiresAt: String(expiresAt),
@@ -753,6 +781,11 @@ export class QueryCacheLayer {
     }
 
     this.recordLatency('set', performance.now() - startTime)
+
+    // Call metrics callback if configured
+    if (this.config.onMetrics) {
+      this.config.onMetrics(await this.getStats())
+    }
   }
 
   /**
@@ -1045,23 +1078,41 @@ export class QueryCacheLayer {
     let kvEntries = 0
     let r2Entries = 0
     let totalSizeBytes = 0
-    let hits = this.metrics.hits
-    let misses = this.metrics.misses
+    let entries = 0
 
-    // Count memory entries
+    // Use tenant-specific metrics if tenantId is provided
+    let hits: number
+    let misses: number
+    if (options?.tenantId) {
+      const tenantStats = this.tenantMetrics.get(options.tenantId) ?? { hits: 0, misses: 0 }
+      hits = tenantStats.hits
+      misses = tenantStats.misses
+    } else {
+      hits = this.metrics.hits
+      misses = this.metrics.misses
+    }
+
+    // Count entries by tier, filtering by tenant if specified
     for (const [, entry] of this.memoryCache) {
       if (options?.tenantId && entry.tenantId !== options.tenantId) {
         continue
       }
-      memoryEntries++
+      entries++
       totalSizeBytes += entry.sizeBytes
+
+      // Count by actual tier stored in the entry
+      switch (entry.tier) {
+        case 'memory':
+          memoryEntries++
+          break
+        case 'kv':
+          kvEntries++
+          break
+        case 'r2':
+          r2Entries++
+          break
+      }
     }
-
-    // Count KV entries (estimate from memory tracking)
-    // In production, you might want to use KV.list() with pagination
-
-    // Count R2 entries (estimate from memory tracking)
-    // In production, you might want to use R2.list() with pagination
 
     const total = hits + misses
 
@@ -1070,6 +1121,7 @@ export class QueryCacheLayer {
       misses,
       hitRatio: total > 0 ? hits / total : 0,
       evictions: this.metrics.evictions,
+      entries,
       totalEntries: memoryEntries + kvEntries + r2Entries,
       memoryEntries,
       kvEntries,
@@ -1081,11 +1133,6 @@ export class QueryCacheLayer {
         hit: this.avgLatency(this.metrics.latencies.hit),
         miss: this.avgLatency(this.metrics.latencies.miss),
       },
-    }
-
-    // Call metrics callback if configured
-    if (this.config.onMetrics) {
-      this.config.onMetrics(stats)
     }
 
     return stats

@@ -6,6 +6,7 @@ import {
   filterDataFilesByPartition,
   getManifestPaths,
   getDataFilePaths,
+  ICEBERG_CONSTANTS,
   type ManifestListEntry,
   type ManifestEntry,
   type DataFile,

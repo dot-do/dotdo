@@ -296,3 +296,19 @@ export {
   type IndexInfo,
   type AggregationStage,
 } from './document-store'
+
+// =============================================================================
+// SYNC
+// =============================================================================
+
+// Sync Primitives - Bidirectional data synchronization
+export {
+  ConflictDetector,
+  createConflictDetector,
+  type Conflict,
+  type DiffRecord,
+  type DiffResult,
+  type ConflictResolutionStrategy,
+  type FieldComparator,
+  type ConflictDetectorOptions,
+} from './sync'

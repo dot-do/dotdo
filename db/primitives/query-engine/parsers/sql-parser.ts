@@ -31,20 +31,15 @@ import {
   Tokenizer,
   TokenType,
   type Token,
-  type TokenizerOptions,
-  ParseError as CommonParseError,
+  ParseError,
   parseNumericLiteral,
 } from './common'
 
 // =============================================================================
-// Re-export ParseError for backwards compatibility
+// Re-export ParseError for external use
 // =============================================================================
 
-/**
- * Parse error with position information
- * @deprecated Use ParseError from './common' instead
- */
-export { CommonParseError as ParseError }
+export { ParseError }
 
 /**
  * Parsed SELECT statement result
@@ -193,17 +188,23 @@ export class SQLWhereParser {
   /**
    * Tokenize SQL input using the shared Tokenizer.
    *
-   * Uses the shared Tokenizer from common.ts with SQL-specific operators
-   * for JSON (->>, ->) and array (@>) operators.
+   * Uses the shared Tokenizer from common.ts which already supports
+   * SQL-specific operators (->>, ->, @>), comparison operators, and comments.
    *
    * @see dotdo-nplc2 (refactored to use shared tokenizer)
    */
   private tokenize(input: string): Token[] {
-    // Use shared tokenizer with SQL keywords and custom operators
+    // Use shared tokenizer with SQL keywords
+    // The shared tokenizer already handles SQL-specific operators:
+    // - JSON operators: ->>, ->
+    // - Array operators: @>
+    // - Comparison: =, !=, <>, >, >=, <, <=
+    // - Comments: -- and /* */
+    //
+    // SQL uses SQL-92 style escaping (doubled quotes) rather than backslash escapes
     const tokenizer = new Tokenizer(input, {
       keywords: KEYWORDS,
-      // SQL-specific multi-char operators
-      customOperators: ['->>', '->', '@>'],
+      backslashEscapes: false,
     })
 
     return tokenizer.tokenizeAll()

@@ -139,3 +139,41 @@ export {
   // Types - Router Options
   type NotificationRouterOptions,
 } from './router'
+
+// =============================================================================
+// Delivery Queue Exports
+// =============================================================================
+
+export {
+  // Factory
+  createDeliveryQueue,
+  // Main class
+  DeliveryQueue,
+  // Types - Storage
+  type QueueStorage,
+  // Types - Channel
+  type NotificationChannel,
+  // Types - Priority
+  type DeliveryPriority,
+  // Types - Item
+  type DeliveryItem,
+  type EnqueueRequest,
+  type EnqueueResult,
+  type DeliveryResult,
+  type DeliveryHandler,
+  type DeliveryItemStatus,
+  // Types - DLQ
+  type DeadLetterEntry,
+  type ReplayResult,
+  type BulkReplayResult,
+  // Types - Config
+  type RetryConfig,
+  type BatchConfig,
+  type ChannelRateLimit,
+  type RateLimitConfig as DeliveryRateLimitConfig,
+  type RateLimitStatus as DeliveryRateLimitStatus,
+  // Types - Stats
+  type QueueStats,
+  // Types - Options
+  type DeliveryQueueOptions,
+} from './delivery-queue'

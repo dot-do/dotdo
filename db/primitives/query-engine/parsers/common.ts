@@ -1,10 +1,12 @@
 /**
- * Common Parser Primitives
+ * Common Parser and Evaluation Primitives
  *
- * Shared tokenization and AST building infrastructure for SQL and Mongo parsers.
- * Extracts common patterns to reduce duplication and improve maintainability.
+ * Shared tokenization, AST building, and predicate evaluation infrastructure
+ * for SQL and Mongo parsers. Extracts common patterns to reduce duplication
+ * and improve maintainability.
  *
  * @see dotdo-v8r9e
+ * @see dotdo-nplc2 (added predicate evaluation utilities)
  */
 
 import type {
@@ -113,6 +115,11 @@ export interface TokenizerOptions {
   trackLineColumn?: boolean
   /** Whether to skip comments (default: true) */
   skipComments?: boolean
+  /**
+   * Whether to interpret backslash escapes in strings (default: true).
+   * Set to false for SQL-92 style strings where only doubled quotes are escapes.
+   */
+  backslashEscapes?: boolean
 }
 
 // =============================================================================
@@ -131,6 +138,7 @@ export class Tokenizer {
   private keywords: Set<string>
   private trackLineColumn: boolean
   private skipComments: boolean
+  private backslashEscapes: boolean
   private lastTokenType: TokenType | null = null
 
   constructor(input: string, options: TokenizerOptions = {}) {
@@ -138,6 +146,7 @@ export class Tokenizer {
     this.keywords = options.keywords || new Set()
     this.trackLineColumn = options.trackLineColumn ?? false
     this.skipComments = options.skipComments ?? true
+    this.backslashEscapes = options.backslashEscapes ?? true
   }
 
   /**
@@ -173,6 +182,13 @@ export class Tokenizer {
     // String literals
     if (char === "'" || char === '"') {
       const token = this.readString(char, start, startLine, startColumn)
+      this.lastTokenType = token.type
+      return token
+    }
+
+    // Backtick-quoted identifiers (MySQL style)
+    if (char === '`') {
+      const token = this.readBacktickIdentifier(start, startLine, startColumn)
       this.lastTokenType = token.type
       return token
     }
@@ -282,8 +298,8 @@ export class Tokenizer {
           closed = true
           break
         }
-      } else if (char === '\\') {
-        // Backslash escape sequence
+      } else if (char === '\\' && this.backslashEscapes) {
+        // Backslash escape sequence (only if enabled)
         value += this.readEscapeSequence()
       } else {
         value += char
@@ -399,6 +415,27 @@ export class Tokenizer {
       return this.createToken(TokenType.KEYWORD, upper, start, startLine, startColumn)
     }
 
+    return this.createToken(TokenType.IDENTIFIER, value, start, startLine, startColumn)
+  }
+
+  /**
+   * Read a backtick-quoted identifier (MySQL style).
+   * Allows any characters inside, including spaces.
+   */
+  private readBacktickIdentifier(start: number, startLine: number, startColumn: number): Token {
+    this.advance() // consume opening backtick
+    let value = ''
+
+    while (this.pos < this.input.length && this.input[this.pos] !== '`') {
+      value += this.input[this.pos]
+      this.advance()
+    }
+
+    if (this.pos >= this.input.length) {
+      throw new TokenizerError('Unclosed backtick identifier', start, startLine, startColumn)
+    }
+
+    this.advance() // consume closing backtick
     return this.createToken(TokenType.IDENTIFIER, value, start, startLine, startColumn)
   }
 
@@ -947,4 +984,298 @@ export class ASTBuilder {
 
     return result
   }
+}
+
+// =============================================================================
+// Predicate Evaluation Utilities
+// =============================================================================
+
+/**
+ * Comparison operator type
+ */
+export type PredicateOp =
+  | '=' | '!=' | '<>' | '>' | '>=' | '<' | '<='
+  | 'IN' | 'NOT IN'
+  | 'IS NULL' | 'IS NOT NULL'
+  | 'LIKE' | 'CONTAINS' | 'STARTS_WITH' | 'ENDS_WITH'
+  | 'BETWEEN'
+  | 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte'
+  | 'in' | 'nin' | 'exists' | 'like' | 'contains' | 'startsWith' | 'isNull' | 'isNotNull'
+
+/**
+ * Predicate definition for evaluation
+ */
+export interface EvalPredicate {
+  column: string
+  op: PredicateOp
+  value: unknown
+}
+
+/**
+ * Get a nested value from an object using dot notation.
+ *
+ * @example
+ * getNestedValue({ a: { b: 1 } }, 'a.b') // => 1
+ * getNestedValue({ a: [{ b: 1 }] }, 'a.0.b') // => 1
+ *
+ * @param obj The object to extract from
+ * @param path Dot-separated path (e.g., 'a.b.c')
+ * @returns The value at the path, or undefined if not found
+ */
+export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.')
+  let current: unknown = obj
+
+  for (const part of parts) {
+    if (current === null || current === undefined) {
+      return undefined
+    }
+    if (typeof current !== 'object') {
+      return undefined
+    }
+    current = (current as Record<string, unknown>)[part]
+  }
+
+  return current
+}
+
+/**
+ * Compare two values for ordering.
+ *
+ * Returns:
+ * - negative if a < b
+ * - 0 if a === b
+ * - positive if a > b
+ *
+ * Handles null/undefined (treated as less than any value), numbers, strings, and dates.
+ *
+ * @param a First value
+ * @param b Second value
+ * @returns Comparison result
+ */
+export function compareValues(a: unknown, b: unknown): number {
+  // Handle equal references
+  if (a === b) return 0
+
+  // Handle nulls/undefined (null < any value)
+  if (a === null || a === undefined) {
+    if (b === null || b === undefined) return 0
+    return -1
+  }
+  if (b === null || b === undefined) return 1
+
+  // Handle ObjectId (check for toHexString method)
+  if (isObjectIdLike(a) && isObjectIdLike(b)) {
+    return (a as { toHexString(): string }).toHexString()
+      .localeCompare((b as { toHexString(): string }).toHexString())
+  }
+
+  // Handle numbers
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a - b
+  }
+
+  // Handle strings
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.localeCompare(b)
+  }
+
+  // Handle dates
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() - b.getTime()
+  }
+
+  // Handle booleans
+  if (typeof a === 'boolean' && typeof b === 'boolean') {
+    return a === b ? 0 : a ? 1 : -1
+  }
+
+  // Default to string comparison
+  return String(a).localeCompare(String(b))
+}
+
+/**
+ * Check if a value looks like an ObjectId (has toHexString method)
+ */
+function isObjectIdLike(value: unknown): value is { toHexString(): string } {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'toHexString' in value &&
+    typeof (value as { toHexString: unknown }).toHexString === 'function'
+  )
+}
+
+/**
+ * Check equality between two values.
+ * Handles ObjectIds, arrays (element matching), and dates.
+ *
+ * @param a First value
+ * @param b Second value
+ * @returns true if values are equal
+ */
+export function compareEquality(a: unknown, b: unknown): boolean {
+  // Handle ObjectId comparison
+  if (isObjectIdLike(a) && isObjectIdLike(b)) {
+    return a.toHexString() === b.toHexString()
+  }
+  if (isObjectIdLike(a) && typeof b === 'string') {
+    return a.toHexString() === b
+  }
+  if (typeof a === 'string' && isObjectIdLike(b)) {
+    return a === b.toHexString()
+  }
+
+  // Handle arrays - check if value is in array
+  if (Array.isArray(a) && !Array.isArray(b)) {
+    return a.some((item) => compareEquality(item, b))
+  }
+
+  // Handle dates
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime()
+  }
+
+  return a === b
+}
+
+/**
+ * Evaluate a predicate against a document/row.
+ *
+ * Supports both SQL-style operators (=, !=, >, etc.) and
+ * lowercase operators (eq, neq, gt, etc.) for compatibility
+ * with different query systems.
+ *
+ * @param doc The document/row to evaluate
+ * @param predicate The predicate to evaluate
+ * @returns true if the predicate matches
+ */
+export function evaluatePredicate(
+  doc: Record<string, unknown>,
+  predicate: EvalPredicate
+): boolean {
+  const value = getNestedValue(doc, predicate.column)
+  const { op, value: expected } = predicate
+
+  switch (op) {
+    // Equality
+    case '=':
+    case 'eq':
+      return compareEquality(value, expected)
+
+    // Inequality
+    case '!=':
+    case '<>':
+    case 'neq':
+      return !compareEquality(value, expected)
+
+    // Greater than
+    case '>':
+    case 'gt':
+      return compareValues(value, expected) > 0
+
+    // Greater than or equal
+    case '>=':
+    case 'gte':
+      return compareValues(value, expected) >= 0
+
+    // Less than
+    case '<':
+    case 'lt':
+      return compareValues(value, expected) < 0
+
+    // Less than or equal
+    case '<=':
+    case 'lte':
+      return compareValues(value, expected) <= 0
+
+    // In list
+    case 'IN':
+    case 'in':
+      if (!Array.isArray(expected)) return false
+      return expected.some((e) => compareEquality(value, e))
+
+    // Not in list
+    case 'NOT IN':
+    case 'nin':
+      if (!Array.isArray(expected)) return true
+      return !expected.some((e) => compareEquality(value, e))
+
+    // Null checks
+    case 'IS NULL':
+    case 'isNull':
+      return value === null || value === undefined
+
+    case 'IS NOT NULL':
+    case 'isNotNull':
+      return value !== null && value !== undefined
+
+    // Exists check
+    case 'exists':
+      return expected ? value !== undefined : value === undefined
+
+    // Pattern matching
+    case 'LIKE':
+    case 'like':
+      if (typeof value !== 'string') return false
+      // LIKE pattern: % = any chars, _ = single char
+      // Convert to regex
+      const likePattern = String(expected)
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/%/g, '.*')
+        .replace(/_/g, '.')
+      return new RegExp(`^${likePattern}$`, 'i').test(value)
+
+    case 'CONTAINS':
+    case 'contains':
+      if (typeof value !== 'string') return false
+      return value.toLowerCase().includes(String(expected).toLowerCase())
+
+    case 'STARTS_WITH':
+    case 'startsWith':
+      if (typeof value !== 'string') return false
+      return value.startsWith(String(expected))
+
+    case 'ENDS_WITH':
+      if (typeof value !== 'string') return false
+      return value.endsWith(String(expected))
+
+    // Between
+    case 'BETWEEN':
+      if (!Array.isArray(expected) || expected.length !== 2) return false
+      const [low, high] = expected
+      return compareValues(value, low) >= 0 && compareValues(value, high) <= 0
+
+    default:
+      // Unknown operator - default to true for forward compatibility
+      return true
+  }
+}
+
+/**
+ * Evaluate multiple predicates with AND logic.
+ *
+ * @param doc The document/row to evaluate
+ * @param predicates Array of predicates
+ * @returns true if all predicates match
+ */
+export function evaluatePredicatesAnd(
+  doc: Record<string, unknown>,
+  predicates: EvalPredicate[]
+): boolean {
+  return predicates.every((pred) => evaluatePredicate(doc, pred))
+}
+
+/**
+ * Evaluate multiple predicates with OR logic.
+ *
+ * @param doc The document/row to evaluate
+ * @param predicates Array of predicates
+ * @returns true if any predicate matches
+ */
+export function evaluatePredicatesOr(
+  doc: Record<string, unknown>,
+  predicates: EvalPredicate[]
+): boolean {
+  return predicates.some((pred) => evaluatePredicate(doc, pred))
 }

@@ -351,6 +351,58 @@ function removeDocumentText(storage: IndexStorage, docId: string): void {
 }
 
 /**
+ * Perform kNN search using HNSW index
+ * Returns a map of docId -> score
+ */
+function searchWithKNN(
+  storage: IndexStorage,
+  knnQuery: KnnQuery,
+): Map<string, number> {
+  const scores = new Map<string, number>()
+
+  const hnswIndex = storage.vectorIndexes.get(knnQuery.field)
+  if (!hnswIndex) {
+    return scores
+  }
+
+  // Convert query vector to Float32Array
+  const queryVector = new Float32Array(knnQuery.query_vector)
+
+  // Perform kNN search with num_candidates for recall
+  const results = hnswIndex.search(queryVector, {
+    k: knnQuery.num_candidates ?? knnQuery.k * 2,
+    ef: knnQuery.num_candidates ?? Math.max(knnQuery.k * 2, 100),
+  })
+
+  // Apply filter if provided and collect results
+  for (const result of results) {
+    // Check if filter is satisfied
+    if (knnQuery.filter) {
+      const doc = storage.documents.get(result.id)
+      if (doc && !matchesQuery(doc._source, knnQuery.filter, result.id)) {
+        continue
+      }
+    }
+
+    // Apply similarity threshold if provided
+    if (knnQuery.similarity !== undefined && result.score < knnQuery.similarity) {
+      continue
+    }
+
+    // Apply boost if provided
+    const score = knnQuery.boost ? result.score * knnQuery.boost : result.score
+    scores.set(result.id, score)
+
+    // Stop after k results
+    if (scores.size >= knnQuery.k) {
+      break
+    }
+  }
+
+  return scores
+}
+
+/**
  * Search using InvertedIndex with BM25 scoring
  * Returns a map of docId -> score
  */
@@ -385,6 +437,29 @@ function fuseSearchScores(searchResults: Map<string, number>[]): Map<string, num
   if (searchResults.length === 1) return searchResults[0]!
 
   const fusion = new RankFusion({ defaultMethod: 'rrf', rrfK: 60 })
+
+  // Convert Maps to RankedResult arrays
+  const rankings: RankedResult[][] = searchResults.map((scores) =>
+    Array.from(scores.entries()).map(([id, score]) => ({ id, score }))
+  )
+
+  const fused = fusion.fuse(rankings)
+  const result = new Map<string, number>()
+  for (const r of fused) {
+    result.set(r.id, r.score)
+  }
+
+  return result
+}
+
+/**
+ * Combine scores from multiple search sources using RRF with configurable k
+ */
+function fuseSearchScoresWithRRF(searchResults: Map<string, number>[], k: number = 60): Map<string, number> {
+  if (searchResults.length === 0) return new Map()
+  if (searchResults.length === 1) return searchResults[0]!
+
+  const fusion = new RankFusion({ defaultMethod: 'rrf', rrfK: k })
 
   // Convert Maps to RankedResult arrays
   const rankings: RankedResult[][] = searchResults.map((scores) =>
@@ -2268,6 +2343,8 @@ export class Client implements ClientType {
       : Array.from(globalStorage.keys())
 
     const query = params?.query ?? params?.body?.query
+    const knn = params?.knn ?? params?.body?.knn
+    const rank = params?.rank ?? params?.body?.rank
     const sort = params?.sort ?? params?.body?.sort
     const from = params?.from ?? params?.body?.from ?? 0
     const size = params?.size ?? params?.body?.size ?? 10
@@ -2276,8 +2353,14 @@ export class Client implements ClientType {
     const highlight = params?.highlight ?? params?.body?.highlight
     const searchAfter = params?.body?.search_after
 
+    // Normalize kNN to array
+    const knnQueries = knn ? (Array.isArray(knn) ? knn : [knn]) : []
+
     // Pre-compute BM25 scores using InvertedIndex
     const bm25ScoresByIndex = new Map<string, Map<string, number>>()
+
+    // Pre-compute kNN scores
+    const knnScoresByIndex = new Map<string, Map<string, number>[]>()
 
     // Extract search query text for BM25 scoring
     const searchQueryText = extractQueryText(query)
@@ -2286,32 +2369,101 @@ export class Client implements ClientType {
       const storage = getIndexStorageIfExists(indexName)
       if (!storage) continue
 
+      // Compute BM25 scores
       if (searchQueryText) {
         // Use InvertedIndex BM25 scoring
         const scores = searchWithBM25(storage, searchQueryText)
         bm25ScoresByIndex.set(indexName, scores)
+      }
+
+      // Compute kNN scores
+      if (knnQueries.length > 0) {
+        const knnScores: Map<string, number>[] = []
+        for (const knnQuery of knnQueries) {
+          const scores = searchWithKNN(storage, knnQuery)
+          knnScores.push(scores)
+        }
+        knnScoresByIndex.set(indexName, knnScores)
       }
     }
 
     // Collect all matching documents
     const allDocs: Array<{ id: string; doc: Record<string, unknown>; score: number; index: string }> = []
 
+    // Determine if we're doing hybrid search or kNN-only
+    const isHybridSearch = query && knnQueries.length > 0
+    const isKnnOnly = !query && knnQueries.length > 0
+
     for (const indexName of indices) {
       const storage = getIndexStorageIfExists(indexName)
       if (!storage) continue
 
       const bm25Scores = bm25ScoresByIndex.get(indexName)
+      const knnScores = knnScoresByIndex.get(indexName) ?? []
 
-      for (const [id, storedDoc] of storage.documents) {
-        if (matchesQuery(storedDoc._source, query, id)) {
-          // Use BM25 score if available, otherwise fall back to calculateScore
-          const score = calculateScore(storedDoc._source, query, bm25Scores, id)
-          allDocs.push({
-            id,
-            doc: storedDoc._source,
-            score,
-            index: indexName,
-          })
+      if (isHybridSearch) {
+        // Hybrid search: combine BM25 and kNN scores using RankFusion
+        const allScoreSets: Map<string, number>[] = []
+
+        if (bm25Scores && bm25Scores.size > 0) {
+          allScoreSets.push(bm25Scores)
+        }
+
+        for (const knnScore of knnScores) {
+          if (knnScore.size > 0) {
+            allScoreSets.push(knnScore)
+          }
+        }
+
+        if (allScoreSets.length > 0) {
+          // Use RRF if specified, otherwise use default fusion
+          const fusedScores = rank?.rrf
+            ? fuseSearchScoresWithRRF(allScoreSets, rank.rrf.rank_constant ?? 60)
+            : fuseSearchScores(allScoreSets)
+
+          for (const [id, score] of fusedScores) {
+            const storedDoc = storage.documents.get(id)
+            if (storedDoc) {
+              allDocs.push({
+                id,
+                doc: storedDoc._source,
+                score,
+                index: indexName,
+              })
+            }
+          }
+        }
+      } else if (isKnnOnly) {
+        // kNN-only search: use kNN scores directly
+        // Merge all kNN results using RRF if multiple queries
+        const fusedScores = knnScores.length > 1
+          ? fuseSearchScores(knnScores)
+          : knnScores[0] ?? new Map()
+
+        for (const [id, score] of fusedScores) {
+          const storedDoc = storage.documents.get(id)
+          if (storedDoc) {
+            allDocs.push({
+              id,
+              doc: storedDoc._source,
+              score,
+              index: indexName,
+            })
+          }
+        }
+      } else {
+        // Standard text search
+        for (const [id, storedDoc] of storage.documents) {
+          if (matchesQuery(storedDoc._source, query, id)) {
+            // Use BM25 score if available, otherwise fall back to calculateScore
+            const score = calculateScore(storedDoc._source, query, bm25Scores, id)
+            allDocs.push({
+              id,
+              doc: storedDoc._source,
+              score,
+              index: indexName,
+            })
+          }
         }
       }
     }

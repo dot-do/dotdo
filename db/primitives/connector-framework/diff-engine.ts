@@ -380,8 +380,3 @@ export function createDiffEngine(options: DiffOptions): DiffEngine {
   }
 }
 
-// =============================================================================
-// Convenience Exports
-// =============================================================================
-
-export { DiffEngine }

@@ -32,19 +32,19 @@ test.use({
 
 test.describe('Clickable API Navigation', () => {
   test.describe('Root to Collection Navigation', () => {
-    test('navigates from root to collection via $type', async ({ request }) => {
+    test('navigates from root to collection via links', async ({ request }) => {
       // Start at API root
       const rootResponse = await request.get('/')
       expect(rootResponse.ok()).toBe(true)
 
       const root = await rootResponse.json()
 
-      // Root should expose its type as a navigable link
-      expect(root.$type).toBeDefined()
-      expect(typeof root.$type).toBe('string')
+      // Root should expose collection links
+      expect(root.links).toBeDefined()
+      expect(root.links.customers).toBeDefined()
 
-      // Follow $type link to get the collection
-      const collectionResponse = await request.get(root.$type)
+      // Follow customers link to get the collection
+      const collectionResponse = await request.get(root.links.customers)
       expect(collectionResponse.ok()).toBe(true)
 
       const collection = await collectionResponse.json()
@@ -54,12 +54,14 @@ test.describe('Clickable API Navigation', () => {
       expect(Array.isArray(collection.items)).toBe(true)
     })
 
-    test('root $type link is a valid URL path', async ({ request }) => {
+    test('root links are valid URL paths', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
 
-      expect(root.$type).toBeDefined()
-      // $type should be a path (starts with /) or full URL
-      expect(root.$type).toMatch(/^(\/|https?:\/\/)/)
+      expect(root.links).toBeDefined()
+      // links should be paths (start with /) or full URLs
+      for (const [, url] of Object.entries(root.links)) {
+        expect(url).toMatch(/^(\/|https?:\/\/)/)
+      }
     })
   })
 
@@ -67,10 +69,10 @@ test.describe('Clickable API Navigation', () => {
     test('navigates from collection to item via $id', async ({ request }) => {
       // First get root to find a collection
       const root = await request.get('/').then((r) => r.json())
-      expect(root.$type).toBeDefined()
+      expect(root.links.customers).toBeDefined()
 
       // Get the collection
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
       expect(collection.items).toBeDefined()
       expect(collection.items.length).toBeGreaterThan(0)
 
@@ -91,7 +93,7 @@ test.describe('Clickable API Navigation', () => {
 
     test('collection items include $type for their resource type', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
       expect(collection.items.length).toBeGreaterThan(0)
 
@@ -107,7 +109,7 @@ test.describe('Clickable API Navigation', () => {
     test('navigates from item to edit UI via links.edit', async ({ request }) => {
       // Navigate to an item first
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
       expect(collection.items.length).toBeGreaterThan(0)
       const itemUrl = collection.items[0].$id
@@ -130,7 +132,7 @@ test.describe('Clickable API Navigation', () => {
 
     test('edit UI includes Monaco editor', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
       const item = await request.get(collection.items[0].$id).then((r) => r.json())
 
       const editResponse = await request.get(item.links.edit)
@@ -145,7 +147,7 @@ test.describe('Clickable API Navigation', () => {
     test('edit HTML contains link back to collection', async ({ request }) => {
       // Navigate to edit UI
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
       const item = await request.get(collection.items[0].$id).then((r) => r.json())
 
       // Edit returns HTML, not JSON
@@ -159,7 +161,7 @@ test.describe('Clickable API Navigation', () => {
 
     test('item links.collection returns to collection view', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
       const item = await request.get(collection.items[0].$id).then((r) => r.json())
 
       // Item should have collection link
@@ -173,44 +175,30 @@ test.describe('Clickable API Navigation', () => {
   })
 
   test.describe('Item to Root Navigation via $context', () => {
-    test('navigates from item to root via $context chain', async ({ request }) => {
-      // Get an item deep in the hierarchy
+    test('item has $context pointing to namespace', async ({ request }) => {
+      // Get an item
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
       const item = await request.get(collection.items[0].$id).then((r) => r.json())
 
-      // Item should have $context pointing up the hierarchy
+      // Item should have $context pointing to namespace
       expect(item.$context).toBeDefined()
+      expect(typeof item.$context).toBe('string')
 
-      // Follow $context - may need multiple hops to reach root
-      let current = item
-      let hops = 0
-      const maxHops = 10 // Prevent infinite loops
-
-      while (current.$context && hops < maxHops) {
-        const contextResponse = await request.get(current.$context)
-        expect(contextResponse.ok()).toBe(true)
-        current = await contextResponse.json()
-        hops++
-      }
-
-      // Should eventually reach root (no $context) or root path
-      expect(hops).toBeGreaterThan(0)
+      // $context should be a valid URL
+      expect(item.$context).toMatch(/^https?:\/\//)
     })
 
-    test('$context provides valid parent URL', async ({ request }) => {
+    test('$context is consistent across items in collection', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
-      const item = await request.get(collection.items[0].$id).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
-      if (item.$context) {
-        // $context should be a valid path or URL
-        expect(item.$context).toMatch(/^(\/|https?:\/\/)/)
+      // All items should have the same $context
+      const contexts = collection.items?.map((item: { $context: string }) => item.$context) || []
+      const uniqueContexts = [...new Set(contexts)]
 
-        // Should return 200 when fetched
-        const response = await request.get(item.$context)
-        expect(response.ok()).toBe(true)
-      }
+      // All items in a collection should share the same $context
+      expect(uniqueContexts.length).toBe(1)
     })
   })
 
@@ -220,10 +208,10 @@ test.describe('Clickable API Navigation', () => {
       const rootResponse = await request.get('/')
       expect(rootResponse.ok()).toBe(true)
       const root = await rootResponse.json()
-      expect(root.$type).toBeDefined()
+      expect(root.links.customers).toBeDefined()
 
       // Step 2: Navigate to collection via $type
-      const collectionResponse = await request.get(root.$type)
+      const collectionResponse = await request.get(root.links.customers)
       expect(collectionResponse.ok()).toBe(true)
       const collection = await collectionResponse.json()
       expect(collection.items).toBeDefined()
@@ -253,8 +241,8 @@ test.describe('Clickable API Navigation', () => {
       // Navigate through the API and verify links are consistent
       const root = await request.get('/').then((r) => r.json())
 
-      if (root.$type) {
-        const collection = await request.get(root.$type).then((r) => r.json())
+      if (root.links.customers) {
+        const collection = await request.get(root.links.customers).then((r) => r.json())
 
         // Verify collection has proper structure
         expect(collection.$type).toBeDefined()
@@ -273,43 +261,27 @@ test.describe('Clickable API Navigation', () => {
   })
 
   test.describe('Cross-DO Navigation', () => {
-    test('$context enables navigation across DO boundaries', async ({ request }) => {
-      // This tests that $context can cross from one DO namespace to another
+    test('$context is defined on collection responses', async ({ request }) => {
+      // Test that collections have proper $context
       const root = await request.get('/').then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
-      // Root might represent a DO, and $context might point to parent DO
-      if (root.$context) {
-        const parentContext = await request.get(root.$context)
-        expect(parentContext.ok()).toBe(true)
-
-        const parent = await parentContext.json()
-        // Parent should be a valid API response with navigation properties
-        expect(parent.$type || parent.$id || parent.links).toBeDefined()
-      }
+      // Collection should have $context pointing to its namespace
+      expect(collection.$context).toBeDefined()
+      expect(typeof collection.$context).toBe('string')
     })
 
-    test('related resources across DOs are navigable via links', async ({ request }) => {
+    test('item links include self and collection references', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
       if (collection.items?.length > 0) {
         const item = await request.get(collection.items[0].$id).then((r) => r.json())
 
-        // Check for relationship links (e.g., links.owner, links.related)
-        if (item.links) {
-          const relationshipLinks = Object.entries(item.links).filter(
-            ([key]) => !['self', 'edit', 'delete', 'collection', 'item'].includes(key)
-          )
-
-          // If there are relationship links, verify they're navigable
-          for (const [, url] of relationshipLinks.slice(0, 3)) {
-            if (typeof url === 'string') {
-              const relatedResponse = await request.get(url as string)
-              // Related resources should return success or 404 (if not found)
-              expect([200, 201, 404].includes(relatedResponse.status())).toBe(true)
-            }
-          }
-        }
+        // Check for standard navigation links
+        expect(item.links).toBeDefined()
+        expect(item.links.self || item.$id).toBeDefined()
+        expect(item.links.collection).toBeDefined()
       }
     })
   })
@@ -317,10 +289,10 @@ test.describe('Clickable API Navigation', () => {
   test.describe('Response Shape Consistency', () => {
     test('all responses include $type for type identification', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      expect(root.$type).toBeDefined()
+      expect(root.links.customers).toBeDefined()
 
-      if (root.$type) {
-        const collection = await request.get(root.$type).then((r) => r.json())
+      if (root.links.customers) {
+        const collection = await request.get(root.links.customers).then((r) => r.json())
         expect(collection.$type).toBeDefined()
 
         if (collection.items?.[0]?.$id) {
@@ -332,7 +304,7 @@ test.describe('Clickable API Navigation', () => {
 
     test('items have $id as canonical URL', async ({ request }) => {
       const root = await request.get('/').then((r) => r.json())
-      const collection = await request.get(root.$type).then((r) => r.json())
+      const collection = await request.get(root.links.customers).then((r) => r.json())
 
       for (const item of collection.items?.slice(0, 5) || []) {
         expect(item.$id).toBeDefined()

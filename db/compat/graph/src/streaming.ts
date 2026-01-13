@@ -536,17 +536,10 @@ class TypeCollectionAccessorImpl {
  * - Direction modifier (.in.follows)
  */
 function createMagicProxy(impl: StreamingTraversalImpl): StreamingTraversal {
-  const knownMethods = new Set([
-    'ids', 'nodes', 'toArray', 'count', 'first', 'exists',
-    'limit', 'skip', 'where',
-    'out', 'inDirection',
-    'intersect', 'union', 'except',
-    '$stream', '$batch',
-    Symbol.asyncIterator,
-  ])
-
-  return new Proxy(impl as unknown as StreamingTraversal, {
-    get(target: StreamingTraversalImpl, prop: string | symbol) {
+  // Use type assertion to allow the proxy to work with both types
+  // The proxy presents StreamingTraversal interface but wraps StreamingTraversalImpl
+  const handler: ProxyHandler<StreamingTraversalImpl> = {
+    get(target, prop: string | symbol) {
       // Handle Symbol.asyncIterator
       if (prop === Symbol.asyncIterator) {
         return () => target[Symbol.asyncIterator]()
@@ -596,7 +589,9 @@ function createMagicProxy(impl: StreamingTraversalImpl): StreamingTraversal {
 
       return undefined
     },
-  })
+  }
+
+  return new Proxy(impl, handler) as unknown as StreamingTraversal
 }
 
 /**

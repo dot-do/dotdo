@@ -156,8 +156,40 @@ export {
 export {
   SQLWhereParser,
   ParseError,
+  SQL_KEYWORDS,
   type ParsedSelect,
 } from './parsers/sql-parser'
+
+// =============================================================================
+// Common Utilities
+// =============================================================================
+
+export {
+  // Tokenizer
+  Tokenizer,
+  TokenType,
+  TokenizerError,
+  type Token,
+  type TokenizerOptions,
+
+  // AST Builder
+  ASTBuilder,
+
+  // Value Parsing
+  parseStringLiteral,
+  parseNumericLiteral,
+  parseBooleanLiteral,
+
+  // Predicate Evaluation (shared by MongoDB, SQL, etc.)
+  getNestedValue,
+  compareValues,
+  compareEquality,
+  evaluatePredicate,
+  evaluatePredicatesAnd,
+  evaluatePredicatesOr,
+  type PredicateOp,
+  type EvalPredicate,
+} from './parsers/common'
 
 // =============================================================================
 // Query Planner

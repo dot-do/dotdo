@@ -1618,6 +1618,40 @@ export {
 } from './schema-mapper'
 
 // =============================================================================
+// DiffEngine Re-exports
+// =============================================================================
+export {
+  // Factory function
+  createDiffEngine,
+  // Types
+  type DiffEngine,
+  type DiffResult,
+  type DiffOptions,
+  type DiffRecord,
+  type DiffStats,
+} from './diff-engine'
+
+// =============================================================================
+// Conflict Resolver Re-exports
+// =============================================================================
+export {
+  // Factory function
+  createConflictResolver,
+  // Types
+  type ConflictResolver,
+  type Conflict,
+  type ResolvedRecord,
+  type RecordState,
+  type ResolutionStrategy,
+  type Winner,
+  type CustomResolver,
+  type MergeOptions,
+  type ConflictResolverConfig,
+  type ResolutionStats,
+  type ResolutionMetadata,
+} from './conflict-resolver'
+
+// =============================================================================
 // Convenience Exports
 // =============================================================================
 // ConnectorFramework is already exported via the interface declaration above
