@@ -1,0 +1,64 @@
+{
+  "name": "@dotdo/duckdb",
+  "version": "0.1.0",
+  "description": "DuckDB package for Cloudflare Workers - API compatible with duckdb npm package, with DO extensions",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "import": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "keywords": [
+    "duckdb",
+    "wasm",
+    "cloudflare",
+    "workers",
+    "sql",
+    "analytics",
+    "parquet",
+    "durable-objects",
+    "in-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotdo/dotdo",
+    "directory": "packages/duckdb"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dotdo/duckdb-worker": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "apache-arrow": ">=15.0.0"
+  },
+  "peerDependenciesMeta": {
+    "apache-arrow": {
+      "optional": true
+    }
+  }
+}

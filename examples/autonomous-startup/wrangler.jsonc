@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/wrangler.json",
+  "name": "autonomous-startup",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AUTONOMOUS_STARTUP_DO",
+        "class_name": "AutonomousStartup"
+      }
+    ]
+  },
+
+  // Migrations for DO classes
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["AutonomousStartup"]
+    }
+  ],
+
+  // AI binding (optional - for non-mock mode)
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Development settings
+  "dev": {
+    "port": 8787,
+    "local_protocol": "http"
+  }
+}

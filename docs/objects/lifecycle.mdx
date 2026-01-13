@@ -1,0 +1,662 @@
+---
+title: DO Lifecycle Operations
+description: Comprehensive guide to Branch, Clone, Compact, Promote, and Shard operations for Durable Object lifecycle management.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# DO Lifecycle Operations
+
+Durable Objects in dotdo support advanced lifecycle operations that enable version control, replication, horizontal scaling, and state management. These operations are implemented as modular, lazy-loaded modules in `objects/lifecycle/`.
+
+## Overview
+
+| Operation | Purpose | Use Case |
+|-----------|---------|----------|
+| **Branch** | Git-like branching | Testing changes before production |
+| **Clone** | Copy DO state | Backups, replication, migration |
+| **Compact** | Squash history | Storage optimization, cleanup |
+| **Promote** | Thing -> DO | Scale up individual entities |
+| **Shard** | Horizontal scaling | Distribute data across DOs |
+
+<Callout type="info">
+Lifecycle operations are available in `DOFull` (~120KB). Import `DOTiny` or `DOBase` for smaller bundles without these features.
+</Callout>
+
+## Branch Operations
+
+The Branch module implements git-like version control for Durable Objects, allowing you to create branches, checkout specific versions, and merge changes.
+
+### Creating Branches
+
+Create a new branch at the current HEAD:
+
+```typescript
+// Create a feature branch
+const result = await this.branch('feature-x')
+// result: { name: 'feature-x', head: 42 }
+
+// Create from non-main branch
+await this.checkout('develop')
+const result = await this.branch('feature-y')
+// result: { name: 'feature-y', head: 50, forkedFrom: 'develop' }
+```
+
+### Branch Naming Rules
+
+- Cannot be empty or contain spaces
+- Cannot be `main` (reserved)
+- Allows slashes (`feature/user-auth`) and dashes (`fix-bug-123`)
+- Must be unique within the DO
+
+### Checkout
+
+Switch between branches or specific versions:
+
+```typescript
+// Switch to a branch
+await this.checkout('feature-x')
+await this.checkout('@main')
+
+// Checkout specific version (detached HEAD)
+await this.checkout('@v1234')
+
+// Relative version (HEAD~N)
+await this.checkout('@~1')  // One version back
+await this.checkout('@~3')  // Three versions back
+```
+
+<Callout type="warning">
+Checking out a specific version puts the DO in **detached HEAD** state. Writes are blocked until you checkout a branch.
+</Callout>
+
+### Merging
+
+Merge a source branch into the current branch:
+
+```typescript
+// Merge feature branch into main
+await this.checkout('main')
+const result = await this.merge('feature-x')
+
+if (result.merged) {
+  console.log('Merge successful')
+} else {
+  console.log('Conflicts:', result.conflicts)
+  // conflicts: ['thing-id:field1,field2']
+}
+```
+
+**Merge Behavior:**
+
+| Scenario | Result |
+|----------|--------|
+| No divergence | Fast-forward merge |
+| Different fields changed | Auto-merge |
+| Same field, same value | Auto-merge |
+| Same field, different values | **Conflict** |
+| Deletion on source | Deletion merged |
+
+### Branch Events
+
+| Event | When Emitted |
+|-------|--------------|
+| `branch.created` | New branch created |
+| `checkout` | Branch or version switched |
+| `merge.started` | Merge operation begins |
+| `merge.completed` | Successful merge |
+| `merge.conflict` | Conflicts detected |
+
+---
+
+## Clone Operations
+
+The Clone module provides multiple strategies for copying DO state, from simple atomic operations to sophisticated resumable transfers.
+
+### Clone Modes
+
+```typescript
+type CloneMode = 'atomic' | 'staged' | 'eventual' | 'resumable'
+```
+
+### Atomic Clone
+
+All-or-nothing clone operation. Best for small DOs:
+
+```typescript
+const result = await this.clone('https://backup.do', {
+  mode: 'atomic',
+  includeState: true,
+  includeHistory: false,  // Faster, smaller
+  shallow: false,         // Include relationships
+  timeout: 30000,
+})
+// result: { ns: 'https://backup.do', doId: '...', mode: 'atomic', duration: 150 }
+```
+
+### Staged Clone (Two-Phase Commit)
+
+Prepare-commit pattern for transactional safety:
+
+```typescript
+// Phase 1: Prepare
+const prepared = await this.clone('https://target.do', { mode: 'staged' })
+// prepared: { phase: 'prepared', token: 'abc123', expiresAt: Date, stagingNs: '...' }
+
+// Validate externally, then...
+
+// Phase 2a: Commit
+const result = await this.commitClone(prepared.token)
+// result: { phase: 'committed', result: CloneResult, committedAt: Date }
+
+// OR Phase 2b: Abort
+await this.abortClone(prepared.token, 'Validation failed')
+// result: { phase: 'aborted', token: 'abc123', reason: '...', abortedAt: Date }
+```
+
+**Staged Clone Features:**
+
+- Token-based coordination with expiration
+- Integrity hash validation
+- Checkpointing for long operations
+- 2PC with participant acknowledgments
+- Automatic cleanup of expired staging areas
+
+### Eventual Clone
+
+Background async clone with eventual consistency:
+
+```typescript
+const handle = await this.clone('https://replica.do', {
+  mode: 'eventual',
+  syncInterval: 5000,      // ms between syncs
+  maxDivergence: 100,      // Force sync if divergence exceeds
+  conflictResolution: 'last-write-wins',  // or 'source-wins', 'target-wins', 'merge', 'custom'
+  chunked: true,
+  chunkSize: 1000,
+  rateLimit: 100,          // ops/second
+})
+
+// Control the sync
+await handle.pause()
+await handle.resume()
+await handle.sync()        // Manual sync
+await handle.cancel()
+
+// Monitor progress
+const progress = await handle.getProgress()  // 0-100
+const status = await handle.getSyncStatus()
+// status: { phase: 'bulk', itemsSynced: 500, totalItems: 1000, divergence: 50, ... }
+```
+
+**Sync Phases:**
+
+| Phase | Description |
+|-------|-------------|
+| `initial` | Starting up |
+| `bulk` | Initial full sync |
+| `catchup` | Nearing completion (>80%) |
+| `delta` | Active, syncing changes |
+
+### Resumable Clone
+
+Checkpoint-based clone that can be paused and resumed:
+
+```typescript
+const handle = await this.clone('https://large-target.do', {
+  mode: 'resumable',
+  batchSize: 100,           // Items per batch
+  checkpointInterval: 1,    // Checkpoint every N batches
+  maxRetries: 3,
+  retryDelay: 1000,
+  lockTimeout: 300000,      // 5 minutes
+  compress: true,
+  maxBandwidth: 1000000,    // bytes/second
+})
+
+// Monitor
+const progress = await handle.getProgress()
+const checkpoints = handle.checkpoints
+const hash = await handle.getIntegrityHash()
+
+// Control
+await handle.pause()
+const checkpoint = await handle.waitForCheckpoint()
+await handle.resume()
+
+// Resume from checkpoint
+const resumed = await this.clone('https://large-target.do', {
+  mode: 'resumable',
+  resumeFrom: checkpoint.id,
+})
+
+// Lock management
+const lockInfo = await handle.getLockInfo()
+if (lockInfo?.isStale) {
+  await handle.forceOverrideLock()
+}
+```
+
+### Clone Events
+
+| Event | When Emitted |
+|-------|--------------|
+| `clone.started` | Clone operation begins |
+| `clone.completed` | Successful completion |
+| `clone.failed` | Operation failed |
+| `clone.rollback` | Cleanup after failure |
+| `clone.staging.started` | Staged prepare begins |
+| `clone.staging.completed` | Staging ready |
+| `clone.staging.corrupted` | Integrity check failed |
+| `clone.prepared` | 2PC prepare complete |
+| `clone.committed` | 2PC commit complete |
+| `clone.aborted` | 2PC aborted |
+| `clone.expired` | Staging token expired |
+| `clone.initiated` | Eventual clone started |
+| `clone.syncing` | Sync in progress |
+| `clone.progress` | Progress update |
+| `clone.active` | Eventual clone caught up |
+| `clone.conflict` | Conflict detected |
+| `clone.paused` | Clone paused |
+| `clone.resumed` | Clone resumed |
+| `clone.cancelled` | Clone cancelled |
+| `clone.batch.completed` | Resumable batch done |
+| `clone.checkpoint` | Checkpoint created |
+| `clone.throttled` | Bandwidth throttling |
+| `clone.retry` | Retry attempt |
+| `clone.lock.acquired` | Lock acquired |
+| `clone.lock.released` | Lock released |
+
+---
+
+## Compact Operations
+
+The Compact module squashes history to the current state, archiving old versions to R2 and reducing storage consumption.
+
+### Basic Compaction
+
+```typescript
+const result = await this.compact()
+// result: { thingsCompacted: 150, actionsArchived: 75, eventsArchived: 300 }
+```
+
+### Compact Options
+
+```typescript
+interface CompactOptions {
+  threshold?: number      // Min versions before compacting (default: 0)
+  archive?: boolean       // Archive to R2 (default: true)
+  preserveKeys?: string[] // Thing IDs to keep all versions
+  ttl?: number           // Archive TTL in seconds
+}
+```
+
+**Examples:**
+
+```typescript
+// Only compact if over 100 versions
+await this.compact({ threshold: 100 })
+
+// Delete without archiving
+await this.compact({ archive: false })
+
+// Preserve audit trail for specific things
+await this.compact({
+  preserveKeys: ['audit-log-1', 'compliance-record'],
+})
+
+// Set archive expiration (30 days)
+await this.compact({ ttl: 30 * 24 * 60 * 60 })
+```
+
+### Compaction Behavior
+
+1. **Archive First:** Old data is archived to R2 before deletion (atomic safety)
+2. **Branch Independence:** Each branch is compacted separately
+3. **Deletion Handling:** Soft-deleted things are removed entirely
+4. **Branch Pointers:** Updated after compaction
+
+### Archive Management
+
+```typescript
+// Get archive info
+const info = await this.getArchiveInfo()
+// info: { thingsArchives: 5, actionsArchives: 5, eventsArchives: 5,
+//         oldestArchive: Date, newestArchive: Date }
+
+// Restore from archive
+const restored = await this.restoreFromArchive(1704067200000)
+// restored: { thingsRestored: 100, actionsRestored: 50, eventsRestored: 200 }
+```
+
+### Compact Events
+
+| Event | When Emitted |
+|-------|--------------|
+| `compact.started` | Compaction begins |
+| `compact.completed` | Successful compaction |
+| `compact.restored` | Restored from archive |
+
+---
+
+## Promote/Demote Operations
+
+The Promote module enables elevating a Thing to its own Durable Object (promote) or folding a DO back into a parent (demote).
+
+### Promote
+
+Elevate a Thing stored within a DO to become its own independent DO:
+
+```typescript
+const result = await this.promote('customer-123', {
+  newId: 'custom-do-id',    // Optional custom ID
+  preserveHistory: true,    // Keep actions/events
+  linkParent: true,         // Create relationship to parent
+  type: 'Customer',         // DO class name
+  colo: 'ewr',              // Target location
+})
+// result: {
+//   ns: 'https://customer-123.do',
+//   doId: '...',
+//   previousId: 'customer-123',
+//   parentLinked: true,
+//   actionsMigrated: 15,
+//   eventsMigrated: 30,
+//   relationshipsMigrated: 5,
+//   durationMs: 250,
+// }
+```
+
+**Promote Workflow:**
+
+1. Validate thingId exists and is not deleted
+2. Check for concurrent promotion
+3. Create new DO with `blockConcurrencyWhile` for atomicity
+4. Transfer state, actions, events to new DO
+5. Create parent relationship (if `linkParent: true`)
+6. Register in objects table
+7. Delete original Thing
+
+### Demote
+
+Fold a DO back into another DO as a Thing:
+
+```typescript
+const result = await this.demote('https://parent.do', {
+  thingId: 'demoted-entity',  // ID in parent
+  preserveHistory: true,
+  type: 'Customer',
+  force: false,
+  compress: false,            // Compress history
+  mode: 'atomic',             // or 'staged'
+  preserveId: true,           // Keep original ns as id
+})
+// result: { thingId: 'demoted-entity', parentNs: 'https://parent.do', deletedNs: '...' }
+```
+
+**Staged Demote:**
+
+```typescript
+// Prepare
+const prepared = await this.demote('https://parent.do', { mode: 'staged' })
+// prepared: { thingId: '...', parentNs: '...', deletedNs: '...', stagedToken: 'abc' }
+
+// Commit or abort
+await this.commitDemote(prepared.stagedToken)
+// or
+await this.abortDemote(prepared.stagedToken, 'Changed my mind')
+```
+
+### Promote/Demote Events
+
+| Event | When Emitted |
+|-------|--------------|
+| `promote.started` | Promotion begins |
+| `promote.completed` | Thing promoted |
+| `promote.failed` | Promotion failed |
+| `promote.rollback` | Cleanup after failure |
+| `thing.promoted` | Thing became DO |
+| `demote.started` | Demotion begins |
+| `demote.completed` | DO demoted |
+| `demote.failed` | Demotion failed |
+| `demote.rollback` | Cleanup after failure |
+| `demote.staging.started` | Staged demote begins |
+| `demote.prepared` | Staged demote ready |
+| `demote.commit.started` | Commit begins |
+| `demote.committed` | Staged demote committed |
+| `demote.aborted` | Staged demote aborted |
+
+---
+
+## Shard Operations
+
+The Shard module enables horizontal scaling by distributing data across multiple Durable Objects.
+
+### Sharding Strategies
+
+```typescript
+type ShardStrategy = 'hash' | 'range' | 'roundRobin' | 'custom'
+```
+
+| Strategy | Best For | Distribution |
+|----------|----------|--------------|
+| `hash` | Even distribution | Hash of key mod count |
+| `range` | Range queries | Numeric key ranges |
+| `roundRobin` | Simple distribution | Sequential assignment |
+| `custom` | Special requirements | Custom key extractor |
+
+### Creating Shards
+
+```typescript
+const result = await this.shard({
+  key: 'customerId',        // Field to shard on
+  count: 4,                 // Number of shards
+  strategy: 'hash',         // Distribution strategy
+})
+// result: {
+//   shardKey: 'customerId',
+//   shards: [
+//     { ns: 'https://do-shard-0', doId: '...', shardIndex: 0, thingCount: 250 },
+//     { ns: 'https://do-shard-1', doId: '...', shardIndex: 1, thingCount: 245 },
+//     ...
+//   ],
+//   duration: 500,
+//   registry: { id: '...', shardKey: 'customerId', shardCount: 4, ... },
+//   stats: {
+//     totalThings: 1000,
+//     minPerShard: 245,
+//     maxPerShard: 260,
+//     avgPerShard: 250,
+//     stdDev: 5.2,
+//     skewRatio: 1.06,
+//   },
+// }
+```
+
+**Advanced Options:**
+
+```typescript
+await this.shard({
+  key: 'data.nested.field',   // Nested field access
+  count: 8,
+  strategy: 'hash',
+  keyExtractor: (thing) => {  // Custom extraction
+    return thing.data.customId || thing.id
+  },
+  targetShards: ['shard-a', 'shard-b'],  // Specific targets
+  timeout: 60000,
+  correlationId: 'shard-operation-1',
+})
+```
+
+### Querying Shards
+
+Query across all shards with automatic aggregation:
+
+```typescript
+const result = await this.queryShards({
+  query: 'SELECT * FROM things WHERE status = "active"',
+  aggregation: 'merge',     // 'merge' | 'concat' | 'sum' | 'count' | 'avg'
+  timeout: 30000,
+  continueOnError: true,
+})
+// result: {
+//   data: [...],
+//   shardResults: [
+//     { shardIndex: 0, itemCount: 50, duration: 15 },
+//     { shardIndex: 1, itemCount: 48, duration: 12, error: undefined },
+//     ...
+//   ],
+//   totalItems: 200,
+// }
+```
+
+### Rebalancing
+
+Adjust shard distribution:
+
+```typescript
+// Scale up
+const result = await this.rebalanceShards({
+  targetCount: 8,           // Double the shards
+  strategy: 'incremental',  // or 'full'
+})
+
+// Scale down
+await this.rebalanceShards({ targetCount: 2 })
+
+// result: {
+//   itemsMoved: 500,
+//   modifiedShards: [4, 5, 6, 7],
+//   newStats: { ... },
+//   duration: 2500,
+// }
+```
+
+### Discovering Shards
+
+```typescript
+const { registry, health } = await this.discoverShards()
+// health: [
+//   { shardIndex: 0, healthy: true, lastCheck: Date, responseTime: 15 },
+//   { shardIndex: 1, healthy: true, lastCheck: Date, responseTime: 12 },
+//   ...
+// ]
+```
+
+### Unsharding
+
+Merge all shards back into one DO:
+
+```typescript
+await this.unshard()
+
+// Check if sharded
+const isSharded = await this.isSharded()
+```
+
+### Shard Events
+
+| Event | When Emitted |
+|-------|--------------|
+| `shard.started` | Sharding begins |
+| `shard.completed` | Sharding complete |
+| `shard.failed` | Sharding failed |
+
+---
+
+## Architecture
+
+### Module Structure
+
+```
+objects/lifecycle/
+  index.ts          # Exports all modules
+  types.ts          # LifecycleContext, LifecycleModule interfaces
+  Branch.ts         # BranchModule
+  Clone.ts          # CloneModule
+  Compact.ts        # CompactModule
+  Promote.ts        # PromoteModule
+  Shard.ts          # ShardModule
+```
+
+### Lazy Loading
+
+Lifecycle modules are lazy-loaded to minimize cold start impact:
+
+```typescript
+import { createLazyModule, type LazyModule } from './types'
+
+const branchModule: LazyModule<BranchModule> = createLazyModule(
+  () => new BranchModule()
+)
+
+// Module only instantiated when first accessed
+branchModule.get().branch('feature-x')
+```
+
+### LifecycleContext
+
+Modules receive context without tight coupling to DOBase:
+
+```typescript
+interface LifecycleContext {
+  ns: string                          // DO identity
+  currentBranch: string               // Active branch
+  db: DrizzleSqliteDODatabase<schema> // Database access
+  env: CloudflareEnv                  // Environment bindings
+  ctx: DurableObjectState             // DO state
+  emitEvent: (verb: string, data?: unknown) => Promise<void>
+  log: (message: string, data?: unknown) => void
+}
+```
+
+---
+
+## Best Practices
+
+### When to Use Each Operation
+
+| Scenario | Operation |
+|----------|-----------|
+| Testing changes safely | `branch` + `merge` |
+| Creating backups | `clone` (atomic or staged) |
+| Real-time replication | `clone` (eventual) |
+| Large data migration | `clone` (resumable) |
+| Storage optimization | `compact` |
+| Scaling up an entity | `promote` |
+| Consolidating entities | `demote` |
+| High-traffic data | `shard` |
+
+### Performance Considerations
+
+1. **Compact Regularly:** Prevent unbounded history growth
+2. **Use Staged for Critical Operations:** 2PC provides rollback safety
+3. **Shard by Access Patterns:** Choose keys that distribute load evenly
+4. **Set Reasonable Timeouts:** Especially for cross-DO operations
+5. **Monitor Eventual Clone Divergence:** Adjust `maxDivergence` based on requirements
+
+### Error Handling
+
+```typescript
+try {
+  await this.clone('https://target.do', { mode: 'atomic' })
+} catch (error) {
+  if (error.message.includes('Target unreachable')) {
+    // Network issue - retry later
+  } else if (error.message.includes('Target already exists')) {
+    // Conflict - use different target or staged mode
+  } else if (error.message.includes('No state to clone')) {
+    // Source is empty
+  }
+}
+```
+
+---
+
+## See Also
+
+- [DO (Base Class)](/docs/objects/do) - Foundation class overview
+- [WorkflowContext](/docs/concepts/workflow-context) - The `$` context
+- [Storage](/docs/storage/overview) - Data persistence
+- [Types: Lifecycle](/types/Lifecycle.ts) - TypeScript interfaces

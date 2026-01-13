@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import { ObsFilterSchema, validateObsFilter, matchesFilter } from '../../types/observability'
 import type { ObsFilter, ObservabilityEvent } from '../../types/observability'
+import { buildResponse, type ResponseOptions } from '../../lib/response/linked-data'
+import { buildTypeUrl, buildIdUrl } from '../../lib/response/urls'
 
 /**
  * RPC.do WebSocket Route Handler
@@ -367,10 +369,99 @@ class SessionObject {
   }
 }
 
+// Default namespace for linked data responses
+const DEFAULT_NAMESPACE = 'https://localhost:8787'
+
+// Sample customer data for RPC tests
+const SAMPLE_CUSTOMERS: Record<string, { name: string; email: string }> = {
+  alice: { name: 'Alice Smith', email: 'alice@example.com' },
+  bob: { name: 'Bob Jones', email: 'bob@example.com' },
+  charlie: { name: 'Charlie Brown', email: 'charlie@example.com' },
+}
+
 // Create root object factory (with context for subscriptions)
 function createRootObject(ctx: RPCContext): Record<string, unknown> {
   return {
+    // ============================================================================
+    // Customer and Customers methods with linked data (for E2E tests)
+    // ============================================================================
+
+    /**
+     * Get a single Customer by ID with linked data properties
+     * Used by: E2E RPC linked data tests
+     */
+    Customer: (id: string) => {
+      const customerData = SAMPLE_CUSTOMERS[id]
+      if (!customerData) {
+        return null  // Customer not found
+      }
+
+      return buildResponse(
+        { id, ...customerData },
+        {
+          ns: DEFAULT_NAMESPACE,
+          type: 'Customer',
+          id: id,
+        }
+      )
+    },
+
+    /**
+     * Customers object with collection methods
+     * Used by: E2E RPC linked data tests for Customers.list
+     */
+    Customers: {
+      list: () => {
+        // Build items with linked data
+        const items = Object.entries(SAMPLE_CUSTOMERS).map(([id, data]) =>
+          buildResponse(
+            { id, ...data },
+            {
+              ns: DEFAULT_NAMESPACE,
+              type: 'Customer',
+              id: id,
+            }
+          )
+        )
+
+        // Build collection response with linked data
+        return buildResponse(
+          {
+            items,
+            count: items.length,
+          },
+          {
+            ns: DEFAULT_NAMESPACE,
+            type: 'Customer',
+            isCollection: true,
+          }
+        )
+      },
+    },
+
+    /**
+     * EmptyCollection object for testing empty collections
+     * Used by: E2E RPC linked data edge case tests
+     */
+    EmptyCollection: {
+      list: () => {
+        return buildResponse(
+          {
+            items: [],
+            count: 0,
+          },
+          {
+            ns: DEFAULT_NAMESPACE,
+            type: 'Empty',
+            isCollection: true,
+          }
+        )
+      },
+    },
+
+    // ============================================================================
     // Basic methods
+    // ============================================================================
     echo: (value: unknown) => value,
     add: (a: number, b: number) => a + b,
     multiply: (a: number, b: number) => a * b,

@@ -318,6 +318,45 @@ export class AuthorizedR2Client {
   }
 
   // ============================================================================
+  // Conditional Operations
+  // ============================================================================
+
+  /**
+   * Put an object with conditional write semantics.
+   * Supports onlyIfNotExists for single-writer semantics (fencing token acquisition).
+   *
+   * @param doId - The Durable Object ID
+   * @param key - The key within the DO's state directory
+   * @param data - The data to write
+   * @param options - Conditional options
+   * @returns The R2Object result
+   * @throws Error if condition is not met (e.g., lock already exists)
+   */
+  async putWithCondition(
+    doId: string,
+    key: string,
+    data: ArrayBuffer | string,
+    options: { onlyIfNotExists?: boolean; ifMatch?: string; ifNoneMatch?: string }
+  ): Promise<R2Object> {
+    const r2 = this.ensureR2()
+    const path = this.buildStatePath(doId, key)
+
+    // Build R2 put options with conditional semantics
+    const putOptions: R2PutOptions = {}
+
+    if (options.onlyIfNotExists || options.ifNoneMatch === '*') {
+      // R2 uses onlyIf with etagDoesNotMatch: '*' to only create if not exists
+      putOptions.onlyIf = { etagDoesNotMatch: '*' }
+    } else if (options.ifMatch) {
+      putOptions.onlyIf = { etagMatches: options.ifMatch }
+    } else if (options.ifNoneMatch) {
+      putOptions.onlyIf = { etagDoesNotMatch: options.ifNoneMatch }
+    }
+
+    return r2.put(path, data, putOptions)
+  }
+
+  // ============================================================================
   // Snapshot Operations
   // ============================================================================
 

@@ -954,12 +954,20 @@ function parseCubeBody(name: string, bodyStr: string): CubeJSCube {
   const sqlArrowMatch = bodyStr.match(/sql\s*:\s*\(\)\s*=>\s*`([^`]*)`/)
   const sqlStringMatch = bodyStr.match(/sql\s*:\s*['"]([^'"]+)['"]/)
 
+  // Extract sqlTable - shorthand for sql: SELECT * FROM table
+  const sqlTableTemplateMatch = bodyStr.match(/sqlTable\s*:\s*`([^`]*)`/)
+  const sqlTableStringMatch = bodyStr.match(/sqlTable\s*:\s*['"]([^'"]+)['"]/)
+
   if (sqlArrowMatch) {
     cube.sql = sqlArrowMatch[1]
   } else if (sqlTemplateMatch) {
     cube.sql = sqlTemplateMatch[1]
   } else if (sqlStringMatch) {
     cube.sql = sqlStringMatch[1]
+  } else if (sqlTableTemplateMatch) {
+    cube.sql = `SELECT * FROM ${sqlTableTemplateMatch[1]}`
+  } else if (sqlTableStringMatch) {
+    cube.sql = `SELECT * FROM ${sqlTableStringMatch[1]}`
   }
 
   // Extract measures block
@@ -992,13 +1000,14 @@ function parseCubeBody(name: string, bodyStr: string): CubeJSCube {
     cube.preAggregations = parseCubePreAggregations(preAggBlock)
   }
 
-  // Extract refreshKey
-  const refreshKeyMatch = bodyStr.match(/refreshKey\s*:\s*\{([^}]*)\}/)
-  if (refreshKeyMatch) {
-    const everyMatch = refreshKeyMatch[1].match(/every\s*:\s*['"]([^'"]+)['"]/)
-    if (everyMatch) {
-      cube.refreshKey = { every: everyMatch[1] }
-    }
+  // Extract refreshKey - use extractObjectBlock to handle nested content with backticks
+  const refreshKeyBlock = extractObjectBlock(bodyStr, 'refreshKey')
+  if (refreshKeyBlock) {
+    cube.refreshKey = {}
+    const everyMatch = refreshKeyBlock.match(/every\s*:\s*['"]([^'"]+)['"]/)
+    if (everyMatch) cube.refreshKey.every = everyMatch[1]
+    const sqlMatch = refreshKeyBlock.match(/sql\s*:\s*`([^`]*)`)
+    if (sqlMatch) cube.refreshKey.sql = sqlMatch[1]
   }
 
   // Extract extends
@@ -1041,6 +1050,48 @@ function extractObjectBlock(content: string, key: string): string | null {
   return content.substring(startIdx, pos - 1)
 }
 
+function extractArrayOfObjects(content: string, key: string): string[] {
+  const regex = new RegExp(`${key}\\s*:\\s*\\[`)
+  const match = regex.exec(content)
+  if (!match) return []
+
+  const startIdx = match.index + match[0].length
+  let depth = 1
+  let pos = startIdx
+
+  // Find the matching closing bracket
+  while (depth > 0 && pos < content.length) {
+    const char = content[pos]
+    if (char === '[') depth++
+    if (char === ']') depth--
+    pos++
+  }
+
+  const arrayContent = content.substring(startIdx, pos - 1)
+
+  // Now extract individual objects from within the array
+  const objects: string[] = []
+  const objRegex = /\{/g
+  let objMatch
+
+  while ((objMatch = objRegex.exec(arrayContent)) !== null) {
+    const objStart = objMatch.index + 1
+    let objDepth = 1
+    let objPos = objStart
+
+    while (objDepth > 0 && objPos < arrayContent.length) {
+      const char = arrayContent[objPos]
+      if (char === '{') objDepth++
+      if (char === '}') objDepth--
+      objPos++
+    }
+
+    objects.push(arrayContent.substring(objStart, objPos - 1))
+  }
+
+  return objects
+}
+
 function parseCubeMeasures(block: string): Record<string, CubeJSMeasure> {
   const measures: Record<string, CubeJSMeasure> = {}
 
@@ -1059,12 +1110,24 @@ function parseCubeMeasures(block: string): Record<string, CubeJSMeasure> {
     const descMatch = memberBody.match(/description\s*:\s*['"]([^'"]*)['"]/i)
     if (descMatch) measure.description = descMatch[1]
 
+    const formatMatch = memberBody.match(/format\s*:\s*['"](\w+)['"]/)
+    if (formatMatch) measure.format = formatMatch[1]
+
     const drillMatch = memberBody.match(/drillMembers\s*:\s*\[([^\]]*)\]/)
     if (drillMatch) {
       measure.drillMembers = drillMatch[1]
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
+    }
+
+    // Parse filters array
+    const filtersBlock = extractArrayOfObjects(memberBody, 'filters')
+    if (filtersBlock.length > 0) {
+      measure.filters = filtersBlock.map((filterBody) => {
+        const filterSqlMatch = filterBody.match(/sql\s*:\s*`([^`]*)`/)
+        return { sql: filterSqlMatch ? filterSqlMatch[1] : '' }
+      })
     }
 
     measures[name] = measure
@@ -1165,6 +1228,16 @@ function parseCubePreAggregations(block: string): Record<string, CubeJSPreAggreg
 
     const granMatch = memberBody.match(/granularity\s*:\s*['"]?(\w+)['"]?/)
     if (granMatch) pa.granularity = granMatch[1]
+
+    // Parse refreshKey
+    const refreshKeyBlock = extractObjectBlock(memberBody, 'refreshKey')
+    if (refreshKeyBlock) {
+      pa.refreshKey = {}
+      const everyMatch = refreshKeyBlock.match(/every\s*:\s*['"]([^'"]+)['"]/)
+      if (everyMatch) pa.refreshKey.every = everyMatch[1]
+      const sqlMatch = refreshKeyBlock.match(/sql\s*:\s*`([^`]*)`/)
+      if (sqlMatch) pa.refreshKey.sql = sqlMatch[1]
+    }
 
     preAggs[name] = pa
   }

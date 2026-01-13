@@ -35,12 +35,75 @@ import {
 // =============================================================================
 
 /**
+ * Extended filter for AND/OR logical operators
+ */
+export interface LogicalFilter {
+  and?: Array<QueryFilterExtended | LogicalFilter>
+  or?: Array<QueryFilterExtended | LogicalFilter>
+}
+
+/**
+ * Extended query filter with member support and logical operators
+ */
+export interface QueryFilterExtended {
+  dimension?: string
+  member?: string
+  operator: FilterOperator | 'set' | 'notSet'
+  values?: string[]
+}
+
+/**
+ * Extended dimension reference with subQuery support
+ */
+export type DimensionReference = string | { dimension: string; subQuery?: boolean }
+
+/**
+ * Extended time dimension with compareDateRange support
+ */
+export interface TimeDimensionExtended {
+  dimension: string
+  granularity?: Granularity
+  dateRange?: [string, string]
+  compareDateRange?: Array<[string, string]>
+}
+
+/**
+ * Extended semantic query with advanced options
+ */
+export interface ExtendedSemanticQuery extends Omit<SemanticQuery, 'filters' | 'dimensions' | 'timeDimensions'> {
+  dimensions?: DimensionReference[]
+  timeDimensions?: TimeDimensionExtended[]
+  filters?: Array<QueryFilterExtended | LogicalFilter>
+  segments?: string[]
+  ungrouped?: boolean
+  total?: boolean
+  timezone?: string
+}
+
+/**
+ * Pivot configuration
+ */
+export interface PivotConfig {
+  x?: string[]
+  y?: string[]
+  fillMissingDates?: boolean
+}
+
+/**
  * Load request body
  */
 export interface LoadRequest {
-  query: SemanticQuery
+  query: ExtendedSemanticQuery
   pagination?: PaginationOptions
   streaming?: StreamOptions
+  renewQuery?: boolean
+  queryType?: 'multi' | 'regularQuery'
+  pivotConfig?: PivotConfig
+  drillThrough?: {
+    parentQuery?: ExtendedSemanticQuery
+    pivotConfig?: PivotConfig
+  }
+  waitTimeout?: number
 }
 
 /**
@@ -61,9 +124,10 @@ export interface LoadResponse {
  * SQL request body
  */
 export interface SqlRequest {
-  query: SemanticQuery
+  query: ExtendedSemanticQuery
   format?: 'inline' | 'parameterized'
-  dialect?: SQLDialect
+  dialect?: SQLDialect | 'bigquery' | 'snowflake' | 'redshift'
+  export?: boolean
 }
 
 /**
@@ -72,6 +136,7 @@ export interface SqlRequest {
 export interface SqlResponse {
   sql: string
   params?: unknown[]
+  external?: boolean
 }
 
 /**

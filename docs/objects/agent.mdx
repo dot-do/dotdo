@@ -1,0 +1,474 @@
+---
+title: Agent
+description: AI-powered autonomous worker with tools, memory, and goal-seeking capabilities.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Agent
+
+The `Agent` class extends [Worker](/docs/objects/worker) with AI capabilities: tool registration, memory management, and autonomous goal-seeking execution loops. Agents can work independently, use tools, remember past interactions, and pursue complex goals.
+
+## Overview
+
+```
+Worker
+   |
+Agent
+```
+
+<Callout type="info">
+Agents are AI workers that can operate autonomously. They observe their environment, think about actions, and execute tools to achieve goals. Use `mode: 'supervised'` to require human approval for high-stakes actions.
+</Callout>
+
+## Basic Usage
+
+```typescript
+import { Agent, Tool, Goal } from 'dotdo'
+
+class SupportAgent extends Agent {
+  static override readonly $type = 'SupportAgent'
+
+  async onStart() {
+    // Register tools the agent can use
+    this.registerTool({
+      name: 'send-email',
+      description: 'Send an email to a customer',
+      parameters: { to: 'string', subject: 'string', body: 'string' },
+      handler: async (input) => {
+        const { to, subject, body } = input as { to: string; subject: string; body: string }
+        await this.emailService.send(to, subject, body)
+        return { sent: true }
+      },
+    })
+
+    this.registerTool({
+      name: 'lookup-order',
+      description: 'Look up order details by ID',
+      parameters: { orderId: 'string' },
+      handler: async (input) => {
+        const { orderId } = input as { orderId: string }
+        return this.things.get(orderId)
+      },
+    })
+  }
+}
+```
+
+## Operating Modes
+
+Agents inherit three modes from Worker:
+
+| Mode | Behavior |
+|------|----------|
+| `autonomous` | Agent auto-approves actions and works independently |
+| `supervised` | Agent requires periodic human review |
+| `manual` | Agent requires human approval for each action |
+
+```typescript
+// Set mode on initialization
+class CautionAgent extends Agent {
+  protected mode: 'autonomous' | 'supervised' | 'manual' = 'supervised'
+}
+
+// Or change at runtime
+agent.setMode('autonomous')
+```
+
+## Tool System
+
+### Registering Tools
+
+```typescript
+interface Tool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  handler: (input: unknown) => Promise<unknown>
+}
+
+this.registerTool({
+  name: 'search-knowledge',
+  description: 'Search the knowledge base for relevant information',
+  parameters: {
+    query: { type: 'string', description: 'Search query' },
+    limit: { type: 'number', description: 'Max results', default: 5 },
+  },
+  handler: async (input) => {
+    const { query, limit } = input as { query: string; limit?: number }
+    return this.search.query(query, { limit: limit || 5 })
+  },
+})
+```
+
+### Getting Available Tools
+
+```typescript
+const tools = this.getTools()
+// tools: Tool[]
+```
+
+### Executing Tools
+
+```typescript
+const result = await this.executeTool('send-email', {
+  to: 'customer@example.com',
+  subject: 'Order Update',
+  body: 'Your order has shipped!',
+})
+```
+
+Events emitted:
+- `tool.executed` with `{ name, input }`
+
+## Goal-Seeking Execution
+
+The `run()` method implements an observe-think-act loop for autonomous goal pursuit:
+
+```typescript
+interface Goal {
+  id: string
+  description: string
+  constraints?: string[]
+  maxIterations?: number
+}
+
+interface GoalResult {
+  success: boolean
+  result?: unknown
+  iterations: number
+  actions: string[]
+}
+
+// Run a goal
+const result = await agent.run({
+  id: 'resolve-ticket-123',
+  description: 'Resolve support ticket #123',
+  constraints: ['Do not refund more than $100', 'Escalate if customer is angry'],
+  maxIterations: 10,
+})
+```
+
+### The OTA Loop
+
+1. **Observe**: Gather current state and relevant memories
+2. **Think**: Decide what action to take (or complete the goal)
+3. **Act**: Execute the chosen action using available tools
+
+```typescript
+// Override for custom observation logic
+protected async observe(goal: Goal): Promise<Record<string, unknown>> {
+  const memories = await this.getRecentMemories(5)
+  const ticket = await this.things.get(goal.id)
+  return {
+    goal: goal.description,
+    memories: memories.map(m => m.content),
+    tools: this.getTools().map(t => t.name),
+    ticketStatus: ticket?.status,
+    customerSentiment: ticket?.sentiment,
+  }
+}
+
+// Override for custom thinking logic
+protected async think(
+  goal: Goal,
+  observation: Record<string, unknown>,
+  previousActions: string[]
+): Promise<{ type: 'action' | 'complete'; description: string; tool?: string; input?: unknown; result?: unknown }> {
+  // Use AI to decide next action
+  const decision = await this.$.ai.decide({
+    goal: goal.description,
+    observation,
+    previousActions,
+    availableTools: this.getTools(),
+  })
+
+  if (decision.goalComplete) {
+    return { type: 'complete', description: 'Goal achieved', result: decision.result }
+  }
+
+  return {
+    type: 'action',
+    description: decision.reasoning,
+    tool: decision.toolName,
+    input: decision.toolInput,
+  }
+}
+
+// Override for custom action execution
+protected async act(action: { tool?: string; input?: unknown; description: string }): Promise<void> {
+  if (action.tool) {
+    await this.executeTool(action.tool, action.input)
+  }
+  await this.emit('action.executed', { action })
+}
+```
+
+Events emitted during `run()`:
+- `goal.started` with `{ goal }`
+- `step.started` with `{ stepName }`
+- `step.completed` with `{ stepName, output }`
+- `goal.completed` with `{ goal, result, iterations }`
+- `goal.failed` with `{ goal, reason, iterations }` (if max iterations reached)
+
+## Memory System
+
+Agents have built-in memory for context retention:
+
+### Memory Types
+
+| Type | Purpose |
+|------|---------|
+| `short-term` | Recent interactions, current context |
+| `long-term` | Important facts, learned patterns |
+| `episodic` | Specific event sequences |
+
+### Storing Memories
+
+```typescript
+interface Memory {
+  id: string
+  type: 'short-term' | 'long-term' | 'episodic'
+  content: string
+  embedding?: number[]
+  createdAt: Date
+}
+
+// Remember something
+const memory = await agent.remember('Customer prefers email over phone', 'long-term')
+```
+
+### Retrieving Memories
+
+```typescript
+// Get recent memories (most recent first)
+const recent = await agent.getRecentMemories(10)
+
+// Search memories by content
+const relevant = await agent.searchMemories('refund policy')
+```
+
+## Worker Interface
+
+Agent implements all Worker interface methods:
+
+```typescript
+// Execute tasks (uses run() internally)
+protected async executeTask(task: Task, context?: Context): Promise<unknown> {
+  return this.run({
+    id: task.id,
+    description: task.description,
+    maxIterations: 10,
+  })
+}
+
+// Generate answers using memories
+protected async generateAnswer(question: string, context?: Context): Promise<Answer> {
+  const memories = await this.searchMemories(question)
+  return {
+    text: `Agent answer to: ${question}`,
+    sources: memories.map(m => m.id),
+  }
+}
+
+// Make decisions (stub - override with AI)
+protected async makeDecision(question: string, options: Option[], context?: Context): Promise<Decision> {
+  // Use AI to select best option
+  return {
+    selectedOption: options[0]!,
+    reasoning: 'Selected based on AI analysis',
+  }
+}
+
+// Process approvals (auto-approve in autonomous mode)
+protected async processApproval(request: ApprovalRequest): Promise<ApprovalResult> {
+  if (this.mode === 'autonomous') {
+    return {
+      approved: true,
+      approver: this.ctx.id.toString(),
+      approvedAt: new Date(),
+    }
+  }
+  return {
+    approved: false,
+    approver: this.ctx.id.toString(),
+    reason: 'Requires human approval',
+  }
+}
+```
+
+## Example: Complete Agent
+
+```typescript
+import { Agent, Tool, Goal, GoalResult } from 'dotdo'
+
+class CustomerSuccessAgent extends Agent {
+  static override readonly $type = 'CustomerSuccessAgent'
+
+  async onStart() {
+    // Register tools
+    this.registerTool({
+      name: 'get-customer',
+      description: 'Get customer details',
+      parameters: { customerId: 'string' },
+      handler: async (input) => {
+        const { customerId } = input as { customerId: string }
+        return this.things.get(customerId)
+      },
+    })
+
+    this.registerTool({
+      name: 'send-message',
+      description: 'Send a message to customer',
+      parameters: { customerId: 'string', message: 'string', channel: 'string' },
+      handler: async (input) => {
+        const { customerId, message, channel } = input as any
+        await this.notify(message, [{ type: channel, target: customerId }])
+        return { sent: true }
+      },
+    })
+
+    this.registerTool({
+      name: 'create-ticket',
+      description: 'Create a support ticket',
+      parameters: { customerId: 'string', issue: 'string', priority: 'string' },
+      handler: async (input) => {
+        return this.things.create({ type: 'ticket', ...input })
+      },
+    })
+
+    // Subscribe to events
+    this.$.on.Customer.churned(async (event) => {
+      await this.run({
+        id: `win-back-${event.data.customerId}`,
+        description: `Win back churned customer ${event.data.customerId}`,
+        maxIterations: 5,
+      })
+    })
+  }
+
+  // Custom observation for customer success goals
+  protected override async observe(goal: Goal): Promise<Record<string, unknown>> {
+    const memories = await this.getRecentMemories(5)
+    const customerId = goal.id.replace('win-back-', '')
+    const customer = await this.things.get(customerId)
+    const interactions = await this.rels.list({ from: customerId, verb: 'interacted' })
+
+    return {
+      goal: goal.description,
+      memories: memories.map(m => m.content),
+      tools: this.getTools().map(t => t.name),
+      customer,
+      recentInteractions: interactions.slice(0, 5),
+    }
+  }
+
+  // Custom thinking with AI
+  protected override async think(
+    goal: Goal,
+    observation: Record<string, unknown>,
+    previousActions: string[]
+  ) {
+    // In production, use AI to decide
+    const customer = observation.customer as any
+
+    if (!customer) {
+      return { type: 'complete' as const, description: 'Customer not found', result: { success: false } }
+    }
+
+    if (previousActions.length === 0) {
+      return {
+        type: 'action' as const,
+        description: 'Send personalized win-back message',
+        tool: 'send-message',
+        input: {
+          customerId: customer.id,
+          message: `Hi ${customer.name}, we miss you! Here's a special offer...`,
+          channel: 'email',
+        },
+      }
+    }
+
+    return {
+      type: 'complete' as const,
+      description: 'Win-back campaign initiated',
+      result: { success: true, actionsCompleted: previousActions.length },
+    }
+  }
+}
+```
+
+## Types
+
+### Tool
+
+```typescript
+interface Tool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  handler: (input: unknown) => Promise<unknown>
+}
+```
+
+### Goal
+
+```typescript
+interface Goal {
+  id: string
+  description: string
+  constraints?: string[]
+  maxIterations?: number
+}
+```
+
+### GoalResult
+
+```typescript
+interface GoalResult {
+  success: boolean
+  result?: unknown
+  iterations: number
+  actions: string[]
+}
+```
+
+### Memory
+
+```typescript
+interface Memory {
+  id: string
+  type: 'short-term' | 'long-term' | 'episodic'
+  content: string
+  embedding?: number[]
+  createdAt: Date
+}
+```
+
+## API Reference
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `$type` | `'Agent'` | Type discriminator |
+| `mode` | `WorkerMode` | Operating mode (inherited) |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `registerTool(tool)` | `void` | Register a tool |
+| `getTools()` | `Tool[]` | Get available tools |
+| `executeTool(name, input)` | `Promise<unknown>` | Execute a tool |
+| `run(goal)` | `Promise<GoalResult>` | Run goal-seeking loop |
+| `remember(content, type?)` | `Promise<Memory>` | Store a memory |
+| `getRecentMemories(limit?)` | `Promise<Memory[]>` | Get recent memories |
+| `searchMemories(query)` | `Promise<Memory[]>` | Search memories |
+
+## See Also
+
+- [Worker](/docs/objects/worker) - Base worker class
+- [Human](/docs/objects/human) - Human worker with approvals
+- [Named Agents](/docs/agents/named) - Pre-configured agent personas
+- [Tools](/docs/agents/tools) - Building custom tools
