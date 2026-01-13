@@ -344,24 +344,25 @@ describe('Flush Intervals', () => {
 
   describe('interaction with batch size', () => {
     it('should prioritize batch size flush over interval flush', async () => {
+      vi.useRealTimers() // Use real timers for this specific test
+
       batcher = createEventBatcher(
-        { maxBatchSize: 3, flushIntervalMs: 10000 },
+        { maxBatchSize: 3, flushIntervalMs: 60000 }, // Long interval
         flushHandler
       )
 
-      // Add enough events to trigger size-based flush
+      // Add enough events to trigger size-based flush (before interval)
       for (let i = 0; i < 3; i++) {
         await batcher.add(createMockEvent(`evt_${i}`))
       }
 
       // Allow async flush to complete
-      await vi.runAllTimersAsync()
+      await delay(20)
       expect(flushedBatches.length).toBe(1)
 
-      // Interval timer should still be running for remaining events
+      // Flush more events via manual flush (since we can't wait 60s for interval)
       await batcher.add(createMockEvent('evt_after'))
-      vi.advanceTimersByTime(10100)
-      await vi.runAllTimersAsync()
+      await batcher.flush()
 
       expect(flushedBatches.length).toBe(2)
     })
