@@ -335,6 +335,13 @@ export function getApiKeyLoader(
 
 let jwks: jose.JWTVerifyGetKey | null = null
 
+/**
+ * Reset the cached JWKS. Useful for testing.
+ */
+export function resetJWKSCache(): void {
+  jwks = null
+}
+
 async function verifyJWT(token: string, config: AuthConfig): Promise<JWTPayload> {
   try {
     // Try JWKS first if configured
@@ -342,14 +349,18 @@ async function verifyJWT(token: string, config: AuthConfig): Promise<JWTPayload>
       if (!jwks) {
         jwks = jose.createRemoteJWKSet(new URL(config.jwksUrl))
       }
-      const { payload } = await jose.jwtVerify(token, jwks)
+      const { payload } = await jose.jwtVerify(token, jwks, {
+        algorithms: ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
+      })
       return payload as JWTPayload
     }
 
     // Fall back to symmetric secret
     if (config.jwtSecret) {
       const secret = new TextEncoder().encode(config.jwtSecret)
-      const { payload } = await jose.jwtVerify(token, secret)
+      const { payload } = await jose.jwtVerify(token, secret, {
+        algorithms: ['HS256', 'HS384', 'HS512'],
+      })
       return payload as JWTPayload
     }
 
@@ -371,9 +382,15 @@ async function verifyJWT(token: string, config: AuthConfig): Promise<JWTPayload>
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader) return null
-  const parts = authHeader.split(' ')
+  const trimmed = authHeader.trim()
+  if (!trimmed) return null
+
+  // Handle extra whitespace between "Bearer" and token
+  const parts = trimmed.split(/\s+/)
   if (parts.length !== 2 || parts[0]!.toLowerCase() !== 'bearer') return null
-  return parts[1] ?? null
+  const token = parts[1]
+  if (!token || token.trim() === '') return null
+  return token
 }
 
 function extractApiKey(c: Context): string | null {
@@ -403,6 +420,11 @@ function extractSessionCookie(c: Context, cookieName: string): string | null {
 async function authenticateJWT(token: string, config: AuthConfig): Promise<AuthContext> {
   const payload = await verifyJWT(token, config)
 
+  // Validate required claims
+  if (!payload.sub) {
+    throw new HTTPException(401, { message: 'Invalid token: missing required claims' })
+  }
+
   return {
     userId: payload.sub,
     email: payload.email,
@@ -412,10 +434,17 @@ async function authenticateJWT(token: string, config: AuthConfig): Promise<AuthC
   }
 }
 
+const MIN_API_KEY_LENGTH = 10
+
 async function authenticateApiKey(
   apiKey: string,
   loader: (key: string) => Promise<ApiKeyConfig | undefined>,
 ): Promise<AuthContext> {
+  // Validate API key format before lookup
+  if (!apiKey || apiKey.length < MIN_API_KEY_LENGTH) {
+    throw new HTTPException(401, { message: 'Invalid API key format' })
+  }
+
   const keyConfig = await loader(apiKey)
   if (!keyConfig) {
     throw new HTTPException(401, { message: 'Invalid API key' })
@@ -562,6 +591,7 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
     const apiKeyLoader = getApiKeyLoader(env ?? {})
 
     let authContext: AuthContext | null = null
+    let jwtError: HTTPException | null = null
 
     // Try JWT Bearer token first
     const bearerToken = extractBearerToken(c.req.header('authorization'))
@@ -569,7 +599,10 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
       try {
         authContext = await authenticateJWT(bearerToken, mergedConfig)
       } catch (error) {
-        if (error instanceof HTTPException) throw error
+        // Save JWT error for later - we might fall back to API key
+        if (error instanceof HTTPException) {
+          jwtError = error
+        }
         // Continue to try other methods
       }
     }
@@ -578,7 +611,18 @@ export function authMiddleware(config: AuthConfig = {}): MiddlewareHandler {
     if (!authContext) {
       const apiKey = extractApiKey(c)
       if (apiKey) {
-        authContext = await authenticateApiKey(apiKey, apiKeyLoader)
+        try {
+          authContext = await authenticateApiKey(apiKey, apiKeyLoader)
+          // API key succeeded - clear any JWT error
+          jwtError = null
+        } catch (apiKeyError) {
+          // If JWT also failed, prefer JWT error message
+          if (jwtError) throw jwtError
+          throw apiKeyError
+        }
+      } else if (jwtError) {
+        // No API key provided and JWT failed - throw the JWT error
+        throw jwtError
       }
     }
 
@@ -617,6 +661,8 @@ export function requireAuth(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined
     if (!auth) {
+      // Set WWW-Authenticate header for 401 responses
+      c.header('WWW-Authenticate', 'Bearer realm="dotdo", charset="UTF-8"')
       throw new HTTPException(401, { message: 'Authentication required' })
     }
     return next()
@@ -630,6 +676,7 @@ export function requireRole(role: 'admin' | 'user'): MiddlewareHandler {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined
     if (!auth) {
+      c.header('WWW-Authenticate', 'Bearer realm="dotdo", charset="UTF-8"')
       throw new HTTPException(401, { message: 'Authentication required' })
     }
 
@@ -640,7 +687,7 @@ export function requireRole(role: 'admin' | 'user'): MiddlewareHandler {
 
     // Check if user has required role
     if (auth.role !== role) {
-      throw new HTTPException(403, { message: `Role '${role}' required` })
+      throw new HTTPException(403, { message: `Insufficient permission: role '${role}' required` })
     }
 
     return next()
@@ -654,6 +701,7 @@ export function requirePermission(permission: string): MiddlewareHandler {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined
     if (!auth) {
+      c.header('WWW-Authenticate', 'Bearer realm="dotdo", charset="UTF-8"')
       throw new HTTPException(401, { message: 'Authentication required' })
     }
 
@@ -663,7 +711,7 @@ export function requirePermission(permission: string): MiddlewareHandler {
     }
 
     if (!auth.permissions?.includes(permission)) {
-      throw new HTTPException(403, { message: `Permission '${permission}' required` })
+      throw new HTTPException(403, { message: `Insufficient permission: '${permission}' required` })
     }
 
     return next()

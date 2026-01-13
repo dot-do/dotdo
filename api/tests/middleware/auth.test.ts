@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { HTTPException } from 'hono/http-exception'
 
 /**
  * Authentication Middleware Tests
@@ -17,7 +19,7 @@ import { Hono } from 'hono'
  */
 
 // Import the actual middleware
-import { authMiddleware, requireAuth, requireRole, generateJWT } from '../../middleware/auth'
+import { authMiddleware, requireAuth, requireRole, requirePermission, generateJWT, resetJWKSCache } from '../../middleware/auth'
 import * as jose from 'jose'
 
 // Mock jose for controlled testing
@@ -95,8 +97,30 @@ const testEnv: TestEnv = {
 
 const app = new Hono<{ Bindings: TestEnv; Variables: AppVariables }>()
 
-// Apply auth middleware globally
-app.use('*', authMiddleware({ jwtSecret: 'test-secret' }))
+// Global error handler - converts all errors to JSON
+app.onError((err, c) => {
+  const status = err instanceof HTTPException ? err.status : 500
+  const message = err.message || 'Internal Server Error'
+
+  // Preserve headers set before the error (like WWW-Authenticate)
+  return c.json({ error: message }, status as 400 | 401 | 403 | 404 | 500)
+})
+
+// CORS middleware
+app.use(
+  '*',
+  cors({
+    origin: (origin) => origin || '*',
+    allowHeaders: ['Authorization', 'Content-Type', 'X-API-Key', 'X-Request-Id'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    exposeHeaders: ['X-Request-Id', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+    maxAge: 86400,
+    credentials: true,
+  }),
+)
+
+// Apply auth middleware globally with JWKS URL so jose mocks work
+app.use('*', authMiddleware({ jwksUrl: 'https://test.example.com/.well-known/jwks.json' }))
 
 // Public route (should work without auth)
 app.get('/public', (c) => c.json({ message: 'public' }))
@@ -105,6 +129,7 @@ app.get('/public', (c) => c.json({ message: 'public' }))
 app.get('/protected', requireAuth(), (c) => c.json({ message: 'protected', user: c.get('user') }))
 app.get('/admin', requireAuth(), requireRole('admin'), (c) => c.json({ message: 'admin only' }))
 app.get('/user-profile', requireAuth(), (c) => c.json({ message: 'user profile', user: c.get('user') }))
+// POST route just requires auth (users have implicit write permission for basic operations)
 app.post('/api/things', requireAuth(), (c) => c.json({ message: 'created' }))
 
 // ============================================================================
@@ -130,8 +155,18 @@ function mockValidJWTVerification(payload: JWTPayload) {
   } as never)
 }
 
-function mockInvalidJWTVerification(errorMessage: string = 'Invalid token') {
-  mockedJwtVerify.mockRejectedValueOnce(new Error(errorMessage))
+function mockInvalidJWTVerification(errorType: 'expired' | 'invalid' | 'generic' = 'generic', errorMessage: string = 'Invalid token') {
+  let error: Error
+  if (errorType === 'expired') {
+    // Use jose.errors.JWTExpired
+    error = new jose.errors.JWTExpired(errorMessage)
+  } else if (errorType === 'invalid') {
+    // Use jose.errors.JWTInvalid
+    error = new jose.errors.JWTInvalid(errorMessage)
+  } else {
+    error = new Error(errorMessage)
+  }
+  mockedJwtVerify.mockRejectedValueOnce(error)
 }
 
 async function request(
@@ -163,6 +198,7 @@ async function request(
 describe('Bearer Token Extraction', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetJWKSCache()
   })
 
   it('extracts Bearer token from Authorization header', async () => {
@@ -325,6 +361,7 @@ describe('API Key Validation', () => {
 describe('JWT Token Verification', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetJWKSCache() // Reset cached JWKS so createRemoteJWKSet is called fresh
   })
 
   it('verifies JWT signature using jose library', async () => {
@@ -349,7 +386,7 @@ describe('JWT Token Verification', () => {
 
   it('rejects expired JWT token', async () => {
     const token = createJWT({ sub: 'user-123', role: 'user' })
-    mockInvalidJWTVerification('Token has expired')
+    mockInvalidJWTVerification('expired', 'Token has expired')
 
     const res = await request('GET', '/protected', {
       headers: {
@@ -364,7 +401,7 @@ describe('JWT Token Verification', () => {
 
   it('rejects JWT with invalid signature', async () => {
     const token = createJWT({ sub: 'user-123', role: 'user' })
-    mockInvalidJWTVerification('Invalid signature')
+    mockInvalidJWTVerification('invalid', 'Invalid signature')
 
     const res = await request('GET', '/protected', {
       headers: {

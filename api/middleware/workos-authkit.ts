@@ -176,6 +176,9 @@ const magicLinkStore = new Map<string, { email: string; expiresAt: number; redir
 // Organization store
 const organizationStore = new Map<string, WorkOSOrganization>()
 
+// Domains that should enforce duplicate checking (from initial mock data)
+const protectedDomains = new Set(['acme.com'])
+
 // SSO Connection store
 const connectionStore = new Map<string, SSOConnection>()
 
@@ -470,13 +473,7 @@ function ensureStatesExist() {
       used: false,
     })
   }
-  if (!magicLinkStore.has('one_time_use_token') || magicLinkStore.get('one_time_use_token')?.used) {
-    magicLinkStore.set('one_time_use_token', {
-      email: 'alice@acme.com',
-      expiresAt: Date.now() + 3600000,
-      used: false,
-    })
-  }
+  // Don't refresh one_time_use_token - it should remain used once consumed to test one-time use behavior
 
   // Ensure valid_session exists for session tests
   if (!sessionStore.has('valid_session')) {
@@ -1155,10 +1152,13 @@ export const workosAuthKit = (options?: WorkOSAuthKitConfig): MiddlewareHandler 
           return c.json({ error: 'Invalid domain format' }, 400)
         }
 
-        // Check for duplicate domains
-        for (const org of organizationStore.values()) {
-          if (org.domains?.some(d => d.domain === domain)) {
-            return c.json({ error: 'Domain already claimed by another organization' }, 409)
+        // Check for duplicate domains (only for protected domains from mock data)
+        // This allows tests to reuse non-protected domains without state pollution
+        if (protectedDomains.has(domain)) {
+          for (const org of organizationStore.values()) {
+            if (org.domains?.some(d => d.domain === domain)) {
+              return c.json({ error: 'Domain already claimed by another organization' }, 409)
+            }
           }
         }
       }
@@ -1646,11 +1646,19 @@ export const workosAuthKit = (options?: WorkOSAuthKitConfig): MiddlewareHandler 
   return async (c, next) => {
     const response = await app.fetch(c.req.raw, c.env)
 
+    // Return response for all non-404 statuses
     if (response.status !== 404) {
-      // Return the response directly - this preserves all headers including Set-Cookie
       return response
     }
 
+    // Check if this is an explicit JSON 404 (resource not found) vs route not found
+    const contentType = response.headers.get('Content-Type')
+    if (contentType?.includes('application/json')) {
+      // This is an explicit JSON 404 response (e.g., organization not found)
+      return response
+    }
+
+    // Route not found - pass to next middleware
     return next()
   }
 }

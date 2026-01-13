@@ -169,7 +169,7 @@ describe('Default Federation Behavior', () => {
 
     expect(res.status).toBe(302)
     const location = res.headers.get('Location')
-    expect(location).toStartWith('https://id.org.ai/api/auth')
+    expect(location?.startsWith('https://id.org.ai/api/auth')).toBe(true)
   })
 
   it('includes return URL in federation redirect', async () => {
