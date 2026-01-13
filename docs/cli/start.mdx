@@ -1,0 +1,335 @@
+---
+title: start
+description: Start local development server with multi-surface support
+---
+
+# dotdo start
+
+The primary development command. Discovers your surfaces, auto-scaffolds if needed, and starts a local server with hot reload.
+
+## Usage
+
+```bash
+do start [options]
+```
+
+Or with package runners:
+
+```bash
+npx dotdo start [options]
+bunx dotdo start [options]
+```
+
+## Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --port <number>` | Port to run the server on | `4000` |
+| `--no-open` | Don't open browser automatically | Opens browser |
+| `--tunnel` | Expose via Cloudflare Tunnel | `false` |
+| `--reset` | Clear state and start fresh | `false` |
+
+## Basic Usage
+
+```bash
+do start
+```
+
+Expected output:
+
+```
+Starting development server...
+
+  Local:    http://localhost:4000
+
+Surfaces
+  App:      http://localhost:4000
+
+  Press Ctrl+C to stop
+```
+
+## Options in Detail
+
+### Custom Port
+
+```bash
+do start -p 3000
+do start --port 8080
+```
+
+The server binds to `localhost` on the specified port.
+
+### Disable Browser Auto-Open
+
+By default, `do start` opens your default browser. To disable:
+
+```bash
+do start --no-open
+```
+
+### Cloudflare Tunnel
+
+Expose your local server to the internet via Cloudflare Tunnel:
+
+```bash
+do start --tunnel
+```
+
+Output:
+
+```
+  Local:    http://localhost:4000
+  Tunnel:   https://abc123.trycloudflare.com
+```
+
+<Callout type="info">
+Tunnels require the `cloudflared` CLI to be installed. The CLI will warn you if it's not available.
+</Callout>
+
+### Reset State
+
+Clear all persisted Durable Object state:
+
+```bash
+do start --reset
+```
+
+This removes everything in `.do/state/` before starting. Useful when:
+- Your data schema changed
+- State became corrupted
+- You want a fresh start
+
+## Surface Discovery
+
+`do start` automatically discovers surface files in this priority order:
+
+1. `./Surface.tsx` - Root directory, TSX format
+2. `./Surface.mdx` - Root directory, MDX format
+3. `.do/Surface.tsx` - Hidden directory, TSX format
+4. `.do/Surface.mdx` - Hidden directory, MDX format
+
+Where `Surface` is one of: `App`, `Admin`, `Site`, `Docs`, `Blog`.
+
+### Example Discovery
+
+Given this directory structure:
+
+```
+my-project/
+  App.tsx          # Discovered first (root, TSX)
+  Site.mdx         # Discovered (root, MDX)
+  .do/
+    Admin.tsx      # Discovered (hidden dir, TSX)
+    Docs.mdx       # Discovered (hidden dir, MDX)
+```
+
+The server outputs:
+
+```
+Surfaces
+  App:      http://localhost:4000
+  Admin:    http://localhost:4000/admin
+  Site:     http://localhost:4000/site
+  Docs:     http://localhost:4000/docs
+  Blog:     (not configured)
+```
+
+### Content Folders
+
+Content-based surfaces also discover content folders:
+
+| Folder | Priority |
+|--------|----------|
+| `./docs/` | First |
+| `.do/docs/` | Fallback |
+| `./blog/` | First |
+| `.do/blog/` | Fallback |
+| `./site/` | First |
+| `.do/site/` | Fallback |
+
+## Auto-Scaffolding
+
+When `do start` runs in a directory without any project files, it automatically creates:
+
+| File | Purpose |
+|------|---------|
+| `.do/.gitignore` | Ignores state/, *.db files |
+| `.do/tsconfig.json` | TypeScript configuration |
+| `.do/mdx.d.ts` | MDX type declarations |
+| `.do/state/` | State persistence directory |
+| `App.tsx` | Default application component |
+| `do.config.ts` | Configuration file |
+
+This scaffolding is non-destructive - it never overwrites existing files.
+
+### Skip Scaffolding
+
+If any of these exist, scaffolding is skipped:
+- `do.config.ts`
+- Any surface file (`App.tsx`, `Site.mdx`, etc.)
+- Any surface file in `.do/`
+
+## State Persistence
+
+Durable Object state persists in `.do/state/` by default. This means:
+- Your data survives server restarts
+- Hot reload preserves state
+- You can inspect SQLite files directly
+
+### State Location
+
+```
+.do/
+  state/
+    miniflare-*.sqlite    # DO storage
+    miniflare-*.sqlite-wal
+    miniflare-*.sqlite-shm
+```
+
+### Clear State
+
+Three ways to clear state:
+
+```bash
+# Option 1: Use --reset flag
+do start --reset
+
+# Option 2: Delete state directory
+rm -rf .do/state/*
+
+# Option 3: Delete specific SQLite files
+rm .do/state/*.sqlite*
+```
+
+## Routing Behavior
+
+Surface routing follows these rules:
+
+| Surface | Routes |
+|---------|--------|
+| Site | `/`, `/site`, `/site/*` |
+| App | `/app`, `/app/*` (also `/` if no Site) |
+| Admin | `/admin`, `/admin/*` |
+| Docs | `/docs`, `/docs/*` |
+| Blog | `/blog`, `/blog/*` |
+
+### Root Path Priority
+
+1. If `Site` exists, it serves at `/`
+2. If no `Site` but `App` exists, App serves at `/`
+3. If neither exists, the server returns 404
+
+## Environment Variables
+
+The runtime sets these automatically:
+
+| Variable | Value |
+|----------|-------|
+| `NODE_ENV` | `development` |
+
+Load custom environment variables via `.dev.vars`:
+
+```bash title=".dev.vars"
+OPENAI_API_KEY=sk-...
+DATABASE_URL=postgres://...
+```
+
+## Hot Reload
+
+File changes trigger automatic rebuilds:
+
+1. Save a file
+2. Bundle rebuilds (~100ms)
+3. Server restarts
+4. Browser refreshes (if connected via WebSocket)
+
+State persists across hot reloads.
+
+## Debugging
+
+### Verbose Output
+
+Enable debug logging:
+
+```bash
+do start --debug
+```
+
+Or set the environment variable:
+
+```bash
+DEBUG=1 do start
+```
+
+### Inspect State
+
+Check what's in your persistence layer:
+
+```bash
+# List state files
+ls -la .do/state/
+
+# Inspect SQLite (if you have sqlite3)
+sqlite3 .do/state/miniflare-*.sqlite ".tables"
+```
+
+## Common Issues
+
+### "Port already in use"
+
+Another process is using the port:
+
+```bash
+# Use a different port
+do start -p 4001
+
+# Or kill the existing process
+lsof -ti:4000 | xargs kill
+```
+
+### "Cannot find module"
+
+Dependencies may not be installed:
+
+```bash
+npm install
+do start
+```
+
+### "Permission denied"
+
+On macOS/Linux, check file permissions:
+
+```bash
+chmod -R 755 .do/
+```
+
+### "Tunnel failed to start"
+
+Install `cloudflared`:
+
+```bash
+# macOS
+brew install cloudflare/cloudflare/cloudflared
+
+# Linux
+# Download from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation
+```
+
+## Comparison with `dev`
+
+| Feature | `start` | `dev` |
+|---------|---------|-------|
+| Surface discovery | Yes | No |
+| Auto-scaffolding | Yes | No |
+| Default port | 4000 | 8787 |
+| Wrangler-based | No (Miniflare direct) | Yes |
+| Primary use | UI surfaces | DO development |
+
+Use `do start` for applications with surfaces. Use `do dev` for pure Durable Object development with Wrangler.
+
+## Next Steps
+
+- [Configuration Reference](/docs/cli/config) - All do.config.ts options
+- [Surfaces](/docs/cli/surfaces) - Multi-surface architecture
+- [Deploy](/docs/cli/deploy) - Ship to production

@@ -1,5 +1,5 @@
 {
   "title": "CLI Reference",
   "description": "Command-line interface documentation",
-  "pages": ["index", "init", "dev", "deploy", "generate"]
+  "pages": ["index", "getting-started", "start", "init", "dev", "deploy", "generate", "config", "surfaces"]
 }

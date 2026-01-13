@@ -1,0 +1,180 @@
+---
+title: Getting Started with do CLI
+description: Quick start guide for the dotdo CLI
+---
+
+# Getting Started
+
+The dotdo CLI is your command center for building AI-powered startups. From local development to global deployment, everything flows through `do`.
+
+## Installation
+
+Install globally to use the `do` command anywhere:
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+  <Tab value="npm">
+```bash
+npm install -g dotdo
+```
+  </Tab>
+  <Tab value="pnpm">
+```bash
+pnpm add -g dotdo
+```
+  </Tab>
+  <Tab value="yarn">
+```bash
+yarn global add dotdo
+```
+  </Tab>
+  <Tab value="bun">
+```bash
+bun add -g dotdo
+```
+  </Tab>
+</Tabs>
+
+Or run directly without installing:
+
+```bash
+npx dotdo <command>
+bunx dotdo <command>
+```
+
+## Your First Project
+
+The fastest way to start is with `do start`. It auto-scaffolds if needed:
+
+```bash
+# Create a directory and start
+mkdir my-startup && cd my-startup
+do start
+```
+
+Expected output:
+
+```
+No project found. Scaffolding new project...
+Created: .do/.gitignore, .do/tsconfig.json, .do/mdx.d.ts, App.tsx, do.config.ts
+
+Starting development server...
+
+  Local:    http://localhost:4000
+
+Surfaces
+  App:      http://localhost:4000
+
+  Press Ctrl+C to stop
+```
+
+The CLI detected an empty directory, created the minimal files needed, and started the dev server. You now have a running application.
+
+## Custom Port
+
+Use `-p` or `--port` to specify a different port:
+
+```bash
+do start -p 5000
+```
+
+## What Gets Scaffolded
+
+When you run `do start` in an empty directory, the CLI creates:
+
+```
+my-startup/
+  .do/
+    .gitignore        # Ignores state/, *.db files
+    tsconfig.json     # TypeScript config for MDX/TSX
+    mdx.d.ts          # Type declarations for .mdx imports
+    state/            # Local persistence directory
+  App.tsx             # Your application entry point
+  do.config.ts        # Configuration file
+```
+
+### App.tsx
+
+A minimal React component to get you started:
+
+```tsx title="App.tsx"
+export default function App() {
+  return (
+    <div>
+      <h1>Welcome to dotdo</h1>
+      <p>Edit App.tsx to get started.</p>
+    </div>
+  )
+}
+```
+
+### do.config.ts
+
+Configuration with type safety:
+
+```typescript title="do.config.ts"
+import { defineConfig } from 'dotdo'
+
+export default defineConfig({
+  name: 'my-app',
+})
+```
+
+## Multi-Surface Architecture
+
+dotdo supports 5 surface types, each serving a different purpose:
+
+| Surface | Default Path | Purpose |
+|---------|--------------|---------|
+| **App** | `/` | Main application for users |
+| **Admin** | `/admin` | Administrative panel |
+| **Site** | `/site` (or `/` if no App) | Marketing landing page |
+| **Docs** | `/docs` | Documentation portal |
+| **Blog** | `/blog` | Blog and content |
+
+Drop a file matching the surface name, and it's automatically discovered and routed:
+
+```bash
+# Create surfaces by adding files
+touch Site.mdx      # Landing page at /site
+touch Admin.tsx     # Admin panel at /admin
+touch Docs.mdx      # Docs at /docs
+```
+
+Restart the server (or save any file), and you'll see:
+
+```
+Surfaces
+  App:      http://localhost:4000
+  Admin:    http://localhost:4000/admin
+  Site:     http://localhost:4000/site
+  Docs:     http://localhost:4000/docs
+```
+
+See [Surfaces](/docs/cli/surfaces) for the full architecture explanation.
+
+## Project Detection
+
+The CLI detects an existing project by looking for:
+
+1. `do.config.ts` - Configuration file
+2. Any surface file (`App.tsx`, `Site.mdx`, etc.)
+3. Surface files in `.do/` directory
+
+If any of these exist, `do start` skips scaffolding and starts the server immediately.
+
+## Next Steps
+
+<Cards>
+  <Card title="do start" href="/docs/cli/start">
+    Full command reference for the start command
+  </Card>
+  <Card title="Configuration" href="/docs/cli/config">
+    All configuration options for do.config.ts
+  </Card>
+  <Card title="Surfaces" href="/docs/cli/surfaces">
+    Multi-surface architecture deep dive
+  </Card>
+  <Card title="Deploy" href="/docs/cli/deploy">
+    Ship to Cloudflare's global edge network
+  </Card>
+</Cards>

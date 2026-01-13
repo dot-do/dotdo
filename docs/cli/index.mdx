@@ -44,8 +44,9 @@ npx dotdo <command>
 
 | Command | Description |
 |---------|-------------|
+| [`start`](/docs/cli/start) | Start local development with multi-surface support (recommended) |
 | [`init`](/docs/cli/init) | Initialize a new dotdo project |
-| [`dev`](/docs/cli/dev) | Start local development server |
+| [`dev`](/docs/cli/dev) | Start local development server (Wrangler-based) |
 | [`deploy`](/docs/cli/deploy) | Deploy to Cloudflare Workers |
 | [`generate`](/docs/cli/generate) | Generate agents, entities, and scaffolding |
 | `login` | Authenticate with your account |
@@ -55,12 +56,17 @@ npx dotdo <command>
 ## Quick Reference
 
 ```bash title="Common workflows"
-# Start a new project
+# Fastest way to start (auto-scaffolds)
+mkdir my-app && cd my-app
+do start
+
+# Or initialize explicitly
 npx dotdo init my-startup
 cd my-startup
 
-# Develop locally
-npx dotdo dev
+# Start development server
+do start              # Multi-surface (recommended)
+npx dotdo dev         # Wrangler-based
 
 # Deploy to production
 npx dotdo deploy
@@ -182,6 +188,12 @@ new_classes = ["MyStartup"]
 ## Command Reference
 
 <Cards>
+  <Card title="Getting Started" href="/docs/cli/getting-started">
+    Quick start guide for the dotdo CLI.
+  </Card>
+  <Card title="start" href="/docs/cli/start">
+    Start development with auto-scaffolding and multi-surface support.
+  </Card>
   <Card title="init" href="/docs/cli/init">
     Initialize a new dotdo project with all the scaffolding you need.
   </Card>
@@ -193,5 +205,11 @@ new_classes = ["MyStartup"]
   </Card>
   <Card title="generate" href="/docs/cli/generate">
     Generate agents, entities, and other project scaffolding.
+  </Card>
+  <Card title="Configuration" href="/docs/cli/config">
+    Complete reference for do.config.ts.
+  </Card>
+  <Card title="Surfaces" href="/docs/cli/surfaces">
+    Multi-surface architecture for App, Admin, Site, Docs, Blog.
   </Card>
 </Cards>

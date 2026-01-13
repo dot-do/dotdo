@@ -1,0 +1,385 @@
+---
+title: Configuration
+description: Complete reference for do.config.ts
+---
+
+# Configuration
+
+Configure your dotdo project with `do.config.ts`. The configuration file uses TypeScript for type safety and IDE autocompletion.
+
+## Basic Configuration
+
+```typescript title="do.config.ts"
+import { defineConfig } from 'dotdo'
+
+export default defineConfig({
+  name: 'my-app',
+  port: 4000,
+})
+```
+
+The `defineConfig` helper provides type checking and merges your config with sensible defaults.
+
+## Configuration Sources
+
+dotdo loads configuration from multiple sources, with later sources overriding earlier ones:
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 (lowest) | Default values | Built-in defaults |
+| 2 | `wrangler.toml` | Cloudflare config |
+| 3 | `package.json` (`dotdo` field) | Package metadata |
+| 4 | `dotdo.config.ts` | TypeScript config |
+| 5 (highest) | Environment variables | `DOTDO_PORT` |
+
+## Full Reference
+
+### Project Settings
+
+```typescript
+export default defineConfig({
+  // Project name (used in logs, deployment)
+  name: 'my-app',
+
+  // Entry point file
+  entryPoint: 'index.ts',
+
+  // Source directory
+  srcDir: '.',
+
+  // Output directory for builds
+  outDir: 'dist',
+})
+```
+
+### Development Server
+
+```typescript
+export default defineConfig({
+  // Dev server port
+  port: 4000,
+
+  // Dev server host
+  host: 'localhost',
+
+  // Persist DO state between restarts
+  // true = persist in .do/state/
+  // false = ephemeral
+  // string = custom path
+  persist: true,
+})
+```
+
+### Cloudflare Settings
+
+```typescript
+export default defineConfig({
+  // Workers compatibility date
+  compatibilityDate: '2024-01-01',
+
+  // Compatibility flags
+  compatibilityFlags: ['nodejs_compat'],
+
+  // Cloudflare account ID (optional, uses wrangler login)
+  accountId: 'your-account-id',
+})
+```
+
+### Durable Objects
+
+```typescript
+export default defineConfig({
+  durableObjects: {
+    // Binding name -> class config
+    COUNTER: {
+      className: 'Counter',
+      // Optional: script name for external DOs
+      scriptName: 'external-worker',
+    },
+    STARTUP: {
+      className: 'MyStartup',
+    },
+  },
+})
+```
+
+### Bindings
+
+```typescript
+export default defineConfig({
+  // D1 databases: binding name -> database name
+  d1Databases: {
+    DB: 'my-database',
+  },
+
+  // R2 buckets
+  r2Buckets: ['STORAGE', 'UPLOADS'],
+
+  // KV namespaces
+  kvNamespaces: ['CACHE', 'SESSIONS'],
+})
+```
+
+### Deployment Targets
+
+```typescript
+export default defineConfig({
+  deploy: {
+    cloudflare: true,   // Deploy to Cloudflare Workers
+    vercel: false,      // Deploy to Vercel
+    fly: false,         // Deploy to Fly.io
+  },
+})
+```
+
+### Tunnel Settings
+
+```typescript
+export default defineConfig({
+  tunnel: {
+    // Named tunnel (requires cloudflared config)
+    name: 'my-tunnel',
+
+    // Path to cloudflared config
+    configPath: '~/.cloudflared/config.yml',
+  },
+})
+```
+
+### Surfaces Configuration
+
+```typescript
+export default defineConfig({
+  surfaces: {
+    // Simple path
+    app: './App.tsx',
+    admin: './Admin.tsx',
+
+    // Full config with content directory
+    docs: {
+      shell: './Docs.mdx',
+      content: 'docs/',
+    },
+    blog: {
+      shell: './Blog.mdx',
+      content: 'blog/',
+    },
+    site: {
+      shell: './Site.mdx',
+      content: 'site/',
+    },
+  },
+})
+```
+
+## Complete Example
+
+```typescript title="do.config.ts"
+import { defineConfig } from 'dotdo'
+
+export default defineConfig({
+  // Project
+  name: 'my-saas',
+  entryPoint: 'src/index.ts',
+
+  // Development
+  port: 4000,
+  persist: true,
+
+  // Cloudflare
+  compatibilityDate: '2024-01-01',
+  compatibilityFlags: ['nodejs_compat'],
+
+  // Durable Objects
+  durableObjects: {
+    USER: { className: 'User' },
+    WORKSPACE: { className: 'Workspace' },
+    SUBSCRIPTION: { className: 'Subscription' },
+  },
+
+  // Bindings
+  d1Databases: {
+    DB: 'my-saas-db',
+  },
+  r2Buckets: ['UPLOADS'],
+  kvNamespaces: ['CACHE'],
+
+  // Surfaces
+  surfaces: {
+    app: './App.tsx',
+    admin: './Admin.tsx',
+    site: {
+      shell: './Site.mdx',
+      content: 'site/',
+    },
+    docs: {
+      shell: './Docs.mdx',
+      content: 'docs/',
+    },
+    blog: {
+      shell: './Blog.mdx',
+      content: 'blog/',
+    },
+  },
+
+  // Deployment
+  deploy: {
+    cloudflare: true,
+  },
+
+  // Tunnel
+  tunnel: {
+    name: 'my-saas-dev',
+  },
+})
+```
+
+## Environment Variables
+
+Override configuration with environment variables:
+
+| Variable | Config Key | Example |
+|----------|------------|---------|
+| `DOTDO_PORT` | `port` | `DOTDO_PORT=3000` |
+| `DOTDO_HOST` | `host` | `DOTDO_HOST=0.0.0.0` |
+| `CLOUDFLARE_ACCOUNT_ID` | `accountId` | `CLOUDFLARE_ACCOUNT_ID=abc123` |
+
+```bash
+# Start on different port
+DOTDO_PORT=3000 do start
+
+# Bind to all interfaces
+DOTDO_HOST=0.0.0.0 do start
+```
+
+## CLI Configuration
+
+The CLI also stores global configuration in `~/.dotdo/config`:
+
+```bash
+# View current config
+do config
+
+# Set a value
+do config set api_url https://custom.api.do
+
+# Available keys
+do config list
+```
+
+### CLI Config Keys
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `api_url` | Base API URL for rpc.do gateway | `https://rpc.do` |
+| `json_output` | Output JSON instead of human-readable | `false` |
+| `default_model` | Default LLM model | - |
+| `default_from` | Default sender for calls/texts | - |
+| `default_email_from` | Default email sender | - |
+| `default_currency` | Default currency for charges | - |
+| `custom_headers` | Headers to include in all requests | - |
+
+## package.json Configuration
+
+You can also configure dotdo in your `package.json`:
+
+```json title="package.json"
+{
+  "name": "my-app",
+  "dotdo": {
+    "port": 4000,
+    "name": "my-app",
+    "entryPoint": "src/index.ts"
+  }
+}
+```
+
+This is useful for simple configurations that don't need TypeScript features.
+
+## wrangler.toml Integration
+
+dotdo reads configuration from `wrangler.toml` or `wrangler.jsonc`:
+
+```toml title="wrangler.toml"
+name = "my-app"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "COUNTER", class_name = "Counter" }
+]
+```
+
+These values are automatically merged with your `do.config.ts`.
+
+## Type Definitions
+
+Import types for custom configuration:
+
+```typescript
+import type { DotdoConfig, SurfaceConfig } from 'dotdo'
+
+const surfaceConfig: SurfaceConfig = {
+  shell: './Docs.mdx',
+  content: 'docs/',
+}
+
+const config: DotdoConfig = {
+  name: 'my-app',
+  surfaces: {
+    docs: surfaceConfig,
+  },
+}
+```
+
+## Validation
+
+Configuration is validated at startup. Common errors:
+
+### Invalid Port
+
+```
+Error: Port must be between 1 and 65535
+```
+
+Fix: Use a valid port number.
+
+### Missing Entry Point
+
+```
+Error: Entry point not found: src/index.ts
+```
+
+Fix: Create the entry point file or update `entryPoint` in config.
+
+### Invalid Surface Path
+
+```
+Error: Surface file not found: ./NonExistent.tsx
+```
+
+Fix: Create the surface file or remove it from `surfaces` config.
+
+## Defaults
+
+When no configuration is provided, these defaults apply:
+
+```typescript
+{
+  port: 4000,
+  host: 'localhost',
+  srcDir: '.',
+  outDir: 'dist',
+  entryPoint: 'index.ts',
+  compatibilityDate: '2024-01-01',
+  compatibilityFlags: ['nodejs_compat'],
+  persist: true,
+}
+```
+
+## Next Steps
+
+- [Surfaces](/docs/cli/surfaces) - Multi-surface architecture
+- [Deploy](/docs/cli/deploy) - Production deployment
+- [Environment Variables](/docs/deployment/monitoring) - Runtime configuration
