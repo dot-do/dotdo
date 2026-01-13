@@ -38,7 +38,7 @@
  */
 
 import { DO as BaseDO } from '../objects/DOFull'
-import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from '../lib/mixins'
+import { withFs, withGit, withBash, type BashExecutor, type BashResult, type ExecOptions } from '../lib/capabilities'
 
 /**
  * Stub executor that throws when used.

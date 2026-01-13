@@ -1,4 +1,7 @@
-# DOBase Architecture and Decomposition
+---
+title: DOBase Architecture and Decomposition
+description: Architecture of the Durable Object class hierarchy in dotdo, with focus on DOBase, extension points, mixin system, and migration guidance.
+---
 
 This document describes the architecture of the Durable Object class hierarchy in dotdo, with focus on DOBase (exported as `DO`), its extension points, mixin system, and migration guidance.
 

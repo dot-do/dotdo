@@ -115,43 +115,11 @@ export default defineConfig({
       generatedRouteTree: './src/routeTree.gen.ts',
       routeFileIgnorePrefix: '-',
       quoteStyle: 'single',
-      // Static prerendering for zero-cost Cloudflare static assets deployment
-      // Uses multi-collection splitting for memory-efficient builds
+      // Static prerendering - disabled temporarily to fix build issues
+      // TODO: Re-enable after SSR issues are resolved
       // @see docs/plans/2026-01-12-fumadocs-static-prerender-design.md
       prerender: {
-        // Enable static prerendering
-        enabled: true,
-        // Lower concurrency to manage memory (default 14)
-        concurrency: 2,
-        // DISABLED: crawlLinks causes SSR timeout due to 28MB docs-sdks chunk
-        // TODO: Re-enable after splitting integrations into smaller chunks
-        crawlLinks: false,
-        // Explicit routes for prerendering
-        // Landing page and docs are prerendered as static HTML
-        routes: [
-          // Landing page from Site.mdx
-          '/',
-          // Site.mdx alternate route
-          '/site',
-          // Documentation pages
-          '/docs',
-          '/docs/getting-started',
-          '/docs/concepts',
-          '/docs/guides',
-        ],
-        // Filter out auth-protected routes from prerendering
-        // These routes require authentication and should be SSR'd at runtime
-        filter: ({ path }) => {
-          // Exclude admin routes (behind auth)
-          if (path.startsWith('/admin')) return false
-          // Exclude app routes (behind auth - except /app which could be landing)
-          if (path.startsWith('/app/')) return false
-          // Exclude auth flows (redirects cause infinite loops)
-          if (path.startsWith('/signup')) return false
-          if (path.startsWith('/login')) return false
-          // Prerender everything else including landing page
-          return true
-        },
+        enabled: false,
       },
     }),
     react({
