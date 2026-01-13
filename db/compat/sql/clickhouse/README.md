@@ -307,7 +307,7 @@ Execution:
 4. **No infrastructure**: No servers to manage
 5. **Tiered storage**: Hot (DO SQLite) → Cold (R2) automatic
 
-## Getting Started
+## Installation
 
 ```typescript
 import { ClickHouse } from '@dotdo/clickhouse'

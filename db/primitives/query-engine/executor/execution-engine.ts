@@ -545,6 +545,41 @@ export class ExecutionEngine {
     const leftData = leftStore.project(['*'])
     const rightData = rightStore.project(['*'])
 
+    // Handle empty tables - INNER JOIN with any empty table produces zero rows
+    if (joinType !== 'LEFT' && joinType !== 'RIGHT') {
+      if (leftData.rowCount === 0 || rightData.rowCount === 0) {
+        return { columns: new Map(), rowCount: 0 }
+      }
+    }
+
+    // CROSS JOIN: Cartesian product
+    if (joinType === 'CROSS') {
+      const resultColumns = new Map<string, unknown[]>()
+      const rowCount = leftData.rowCount * rightData.rowCount
+
+      // For cross join, we need to repeat each left row for each right row
+      for (const [name, data] of leftData.columns) {
+        const expanded: unknown[] = []
+        for (const val of data) {
+          for (let i = 0; i < rightData.rowCount; i++) {
+            expanded.push(val)
+          }
+        }
+        resultColumns.set(name, expanded)
+      }
+      for (const [name, data] of rightData.columns) {
+        if (!resultColumns.has(name)) {
+          const expanded: unknown[] = []
+          for (let i = 0; i < leftData.rowCount; i++) {
+            expanded.push(...data)
+          }
+          resultColumns.set(name, expanded)
+        }
+      }
+
+      return { columns: resultColumns, rowCount }
+    }
+
     // Build hash table from right side (build side)
     const hashTable = new Map<unknown, number[]>()
     const rightJoinCol = rightData.columns.get(joinOn.rightColumn) || rightData.columns.get('id')
@@ -557,22 +592,76 @@ export class ExecutionEngine {
       })
     }
 
-    // Probe with left side
+    // Probe with left side and build result based on actual matches
+    const leftJoinCol = leftData.columns.get(joinOn.leftColumn) || leftData.columns.get('id')
     const resultColumns = new Map<string, unknown[]>()
+    const matchedLeftIndices: number[] = []
+    const matchedRightIndices: number[] = []
 
-    // Copy all columns from both sides
-    for (const [name, data] of leftData.columns) {
-      resultColumns.set(name, [...data])
+    // Initialize result columns
+    for (const name of leftData.columns.keys()) {
+      resultColumns.set(name, [])
     }
-    for (const [name, data] of rightData.columns) {
+    for (const name of rightData.columns.keys()) {
       if (!resultColumns.has(name)) {
-        resultColumns.set(name, [...data])
+        resultColumns.set(name, [])
       }
     }
 
-    const rowCount = Math.max(leftData.rowCount, rightData.rowCount)
+    // Perform the actual join
+    if (leftJoinCol) {
+      leftJoinCol.forEach((val, leftIdx) => {
+        const rightMatches = hashTable.get(val) || []
 
-    return { columns: resultColumns, rowCount }
+        if (joinType === 'SEMI') {
+          // SEMI-JOIN: Return left row if there's at least one match
+          if (rightMatches.length > 0) {
+            matchedLeftIndices.push(leftIdx)
+          }
+        } else if (joinType === 'LEFT') {
+          // LEFT JOIN: Always include left row, NULL pad if no match
+          if (rightMatches.length === 0) {
+            matchedLeftIndices.push(leftIdx)
+            matchedRightIndices.push(-1) // Indicates NULL for right side
+          } else {
+            for (const rightIdx of rightMatches) {
+              matchedLeftIndices.push(leftIdx)
+              matchedRightIndices.push(rightIdx)
+            }
+          }
+        } else {
+          // INNER JOIN: Only include if there's a match
+          for (const rightIdx of rightMatches) {
+            matchedLeftIndices.push(leftIdx)
+            matchedRightIndices.push(rightIdx)
+          }
+        }
+      })
+    }
+
+    // Build result columns based on matched indices
+    if (joinType === 'SEMI') {
+      // SEMI-JOIN: Only return left columns
+      for (const [name, data] of leftData.columns) {
+        resultColumns.set(name, matchedLeftIndices.map(idx => data[idx]))
+      }
+      return { columns: resultColumns, rowCount: matchedLeftIndices.length }
+    }
+
+    // For INNER and LEFT joins
+    for (const [name, data] of leftData.columns) {
+      resultColumns.set(name, matchedLeftIndices.map(idx => data[idx]))
+    }
+    for (const [name, data] of rightData.columns) {
+      if (!leftData.columns.has(name)) {
+        resultColumns.set(
+          name,
+          matchedRightIndices.map(idx => (idx === -1 ? null : data[idx]))
+        )
+      }
+    }
+
+    return { columns: resultColumns, rowCount: matchedLeftIndices.length }
   }
 
   private async executeNestedLoop(

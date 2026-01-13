@@ -18,6 +18,9 @@ import {
   type ConfigSpec,
   type PropertySpec,
   type ConnectionStatus,
+  // Lifecycle types
+  type ConnectorState,
+  type LifecycleEvent,
   // Source types
   type SourceConnector,
   type SourceConfig,
@@ -48,6 +51,16 @@ import {
   createSourceConnector,
   createDestinationConnector,
   createTransform,
+  // Config validation
+  validateConfig,
+  maskSecrets,
+  // Catalog discovery
+  inferPropertyType,
+  inferStreamSchema,
+  detectPrimaryKey,
+  detectCursorField,
+  createCatalogBuilder,
+  toAirbyteCatalog,
 } from './index'
 
 // =============================================================================
@@ -1448,5 +1461,714 @@ describe('ConnectorFramework Integration', () => {
     expect(destinationTable[0]).toHaveProperty('full_name', 'Alice Smith')
     expect(destinationTable[0]).not.toHaveProperty('first_name')
     expect(destinationTable[0]).not.toHaveProperty('last_name')
+  })
+})
+
+// =============================================================================
+// Connector Lifecycle Tests
+// =============================================================================
+
+describe('Connector Lifecycle', () => {
+  describe('state machine', () => {
+    it('should start in uninitialized state', () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      expect(source.getState()).toBe('uninitialized')
+    })
+
+    it('should transition through open -> close lifecycle', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+        open: async () => {},
+        close: async () => {},
+      })
+
+      expect(source.getState()).toBe('uninitialized')
+
+      await source.open({})
+      expect(source.getState()).toBe('open')
+
+      await source.close()
+      expect(source.getState()).toBe('closed')
+    })
+
+    it('should record lifecycle history', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+      await source.close()
+
+      const history = source.getLifecycleHistory()
+      expect(history).toHaveLength(4) // uninitialized->opening, opening->open, open->closing, closing->closed
+      expect(history[0].from).toBe('uninitialized')
+      expect(history[0].to).toBe('opening')
+      expect(history[1].from).toBe('opening')
+      expect(history[1].to).toBe('open')
+      expect(history[2].from).toBe('open')
+      expect(history[2].to).toBe('closing')
+      expect(history[3].from).toBe('closing')
+      expect(history[3].to).toBe('closed')
+    })
+
+    it('should prevent invalid state transitions', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+
+      // Cannot open while already open
+      await expect(source.open({})).rejects.toThrow(/Cannot open connector in state/)
+
+      // Cannot close after already closed
+      await source.close()
+      await expect(source.close()).rejects.toThrow(/Cannot close connector in state/)
+    })
+
+    it('should allow reopening after close', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+      await source.close()
+      expect(source.getState()).toBe('closed')
+
+      // Should be able to reopen
+      await source.open({})
+      expect(source.getState()).toBe('open')
+    })
+
+    it('should transition to error state on open failure', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+        open: async () => {
+          throw new Error('Connection refused')
+        },
+      })
+
+      await expect(source.open({})).rejects.toThrow('Connection refused')
+      expect(source.getState()).toBe('error')
+
+      const history = source.getLifecycleHistory()
+      const errorEvent = history.find((e) => e.to === 'error')
+      expect(errorEvent?.error?.message).toBe('Connection refused')
+    })
+
+    it('should allow closing from error state', async () => {
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+        open: async () => {
+          throw new Error('Connection refused')
+        },
+      })
+
+      await expect(source.open({})).rejects.toThrow()
+      expect(source.getState()).toBe('error')
+
+      // Should be able to close from error state
+      await source.close()
+      expect(source.getState()).toBe('closed')
+    })
+  })
+
+  describe('resource cleanup', () => {
+    it('should run cleanup functions on close', async () => {
+      const cleanupOrder: number[] = []
+
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+
+      source.onCleanup(() => { cleanupOrder.push(1) })
+      source.onCleanup(() => { cleanupOrder.push(2) })
+      source.onCleanup(() => { cleanupOrder.push(3) })
+
+      await source.close()
+
+      // Cleanup functions run in reverse order (LIFO)
+      expect(cleanupOrder).toEqual([3, 2, 1])
+    })
+
+    it('should run async cleanup functions', async () => {
+      const cleaned: string[] = []
+
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+
+      source.onCleanup(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        cleaned.push('first')
+      })
+      source.onCleanup(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        cleaned.push('second')
+      })
+
+      await source.close()
+
+      expect(cleaned).toEqual(['second', 'first'])
+    })
+
+    it('should clear cleanup functions after close', async () => {
+      let cleanupCount = 0
+
+      const source = createSourceConnector({
+        spec: async () => ({ name: 'Test', version: '1.0.0', configSpec: { type: 'object', properties: {} } }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        discover: async () => [],
+        read: async function* () {},
+      })
+
+      await source.open({})
+      source.onCleanup(() => { cleanupCount++ })
+      await source.close()
+
+      expect(cleanupCount).toBe(1)
+
+      // Reopen and close again - cleanup should not run again
+      await source.open({})
+      await source.close()
+
+      expect(cleanupCount).toBe(1)
+    })
+  })
+
+  describe('destination lifecycle', () => {
+    it('should manage destination connector lifecycle', async () => {
+      let connectionOpen = false
+
+      const destination = createDestinationConnector({
+        spec: async () => ({
+          name: 'Test Destination',
+          version: '1.0.0',
+          configSpec: { type: 'object', properties: {} },
+          supportedSyncModes: ['append'],
+        }),
+        check: async () => ({ status: 'SUCCEEDED' }),
+        write: async function* () {},
+        open: async () => {
+          connectionOpen = true
+        },
+        close: async () => {
+          connectionOpen = false
+        },
+      })
+
+      expect(destination.getState()).toBe('uninitialized')
+      expect(connectionOpen).toBe(false)
+
+      await destination.open({})
+      expect(destination.getState()).toBe('open')
+      expect(connectionOpen).toBe(true)
+
+      await destination.close()
+      expect(destination.getState()).toBe('closed')
+      expect(connectionOpen).toBe(false)
+    })
+  })
+})
+
+// =============================================================================
+// Config Validation Tests
+// =============================================================================
+
+describe('Config Validation', () => {
+  describe('validateConfig', () => {
+    it('should validate required fields', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        required: ['host', 'port'],
+        properties: {
+          host: { type: 'string' },
+          port: { type: 'integer' },
+        },
+      }
+
+      const result = validateConfig({}, spec)
+      expect(result.valid).toBe(false)
+      expect(result.errors).toHaveLength(2)
+      expect(result.errors[0].code).toBe('required')
+      expect(result.errors[0].path).toBe('host')
+    })
+
+    it('should validate type correctness', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          host: { type: 'string' },
+          port: { type: 'integer' },
+          enabled: { type: 'boolean' },
+        },
+      }
+
+      const result = validateConfig({ host: 123, port: 'not-a-number', enabled: 'yes' }, spec)
+      expect(result.valid).toBe(false)
+      expect(result.errors.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('should validate integer vs float', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          count: { type: 'integer' },
+        },
+      }
+
+      const validResult = validateConfig({ count: 5 }, spec)
+      expect(validResult.valid).toBe(true)
+
+      const invalidResult = validateConfig({ count: 5.5 }, spec)
+      expect(invalidResult.valid).toBe(false)
+      expect(invalidResult.errors[0].message).toContain('integer')
+    })
+
+    it('should validate string constraints', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 3, maxLength: 10 },
+          code: { type: 'string', pattern: '^[A-Z]{3}$' },
+        },
+      }
+
+      const result = validateConfig({ name: 'ab', code: 'abc' }, spec)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some((e) => e.code === 'range')).toBe(true)
+      expect(result.errors.some((e) => e.code === 'pattern')).toBe(true)
+    })
+
+    it('should validate number ranges', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          port: { type: 'integer', minimum: 1, maximum: 65535 },
+        },
+      }
+
+      const validResult = validateConfig({ port: 8080 }, spec)
+      expect(validResult.valid).toBe(true)
+
+      const tooLow = validateConfig({ port: 0 }, spec)
+      expect(tooLow.valid).toBe(false)
+
+      const tooHigh = validateConfig({ port: 70000 }, spec)
+      expect(tooHigh.valid).toBe(false)
+    })
+
+    it('should validate enum values', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          env: { type: 'string', enum: ['development', 'staging', 'production'] },
+        },
+      }
+
+      const validResult = validateConfig({ env: 'production' }, spec)
+      expect(validResult.valid).toBe(true)
+
+      const invalidResult = validateConfig({ env: 'invalid' }, spec)
+      expect(invalidResult.valid).toBe(false)
+      expect(invalidResult.errors[0].code).toBe('enum')
+    })
+
+    it('should validate format (email, uri, date-time)', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          email: { type: 'string', format: 'email' },
+          url: { type: 'string', format: 'uri' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+      }
+
+      const validResult = validateConfig({
+        email: 'test@example.com',
+        url: 'https://example.com',
+        timestamp: '2024-01-15T10:30:00Z',
+      }, spec)
+      expect(validResult.valid).toBe(true)
+
+      const invalidResult = validateConfig({
+        email: 'not-an-email',
+        url: 'not-a-url',
+        timestamp: 'not-a-date',
+      }, spec)
+      expect(invalidResult.valid).toBe(false)
+      expect(invalidResult.errors).toHaveLength(3)
+    })
+
+    it('should validate nested objects', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          connection: {
+            type: 'object',
+            required: ['host'],
+            properties: {
+              host: { type: 'string' },
+              port: { type: 'integer' },
+            },
+          },
+        },
+      }
+
+      const result = validateConfig({ connection: { port: 5432 } }, spec)
+      expect(result.valid).toBe(false)
+      expect(result.errors[0].path).toBe('connection.host')
+    })
+
+    it('should validate arrays', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          hosts: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+      }
+
+      const validResult = validateConfig({ hosts: ['host1', 'host2'] }, spec)
+      expect(validResult.valid).toBe(true)
+
+      const invalidResult = validateConfig({ hosts: ['host1', 123] }, spec)
+      expect(invalidResult.valid).toBe(false)
+      expect(invalidResult.errors[0].path).toBe('hosts[1]')
+    })
+  })
+
+  describe('maskSecrets', () => {
+    it('should mask secret fields', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          host: { type: 'string' },
+          password: { type: 'string', secret: true },
+          api_key: { type: 'string', airbyte_secret: true },
+        },
+      }
+
+      const config = { host: 'localhost', password: 'secret123', api_key: 'key-456' }
+      const masked = maskSecrets(config, spec)
+
+      expect(masked.host).toBe('localhost')
+      expect(masked.password).toBe('******')
+      expect(masked.api_key).toBe('******')
+    })
+
+    it('should mask nested secrets', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          credentials: {
+            type: 'object',
+            properties: {
+              username: { type: 'string' },
+              password: { type: 'string', secret: true },
+            },
+          },
+        },
+      }
+
+      const config = {
+        credentials: { username: 'admin', password: 'secret' },
+      }
+      const masked = maskSecrets(config, spec)
+
+      expect((masked.credentials as Record<string, unknown>).username).toBe('admin')
+      expect((masked.credentials as Record<string, unknown>).password).toBe('******')
+    })
+
+    it('should use custom mask', () => {
+      const spec: ConfigSpec = {
+        type: 'object',
+        properties: {
+          token: { type: 'string', secret: true },
+        },
+      }
+
+      const masked = maskSecrets({ token: 'abc123' }, spec, '[REDACTED]')
+      expect(masked.token).toBe('[REDACTED]')
+    })
+  })
+})
+
+// =============================================================================
+// Catalog Discovery Tests
+// =============================================================================
+
+describe('Catalog Discovery', () => {
+  describe('inferPropertyType', () => {
+    it('should infer string type', () => {
+      expect(inferPropertyType('hello').type).toBe('string')
+    })
+
+    it('should infer integer type', () => {
+      expect(inferPropertyType(42).type).toBe('integer')
+    })
+
+    it('should infer number type for floats', () => {
+      expect(inferPropertyType(3.14).type).toBe('number')
+    })
+
+    it('should infer boolean type', () => {
+      expect(inferPropertyType(true).type).toBe('boolean')
+    })
+
+    it('should infer array type', () => {
+      const result = inferPropertyType(['a', 'b'])
+      expect(result.type).toBe('array')
+      expect(result.items?.type).toBe('string')
+    })
+
+    it('should infer object type with properties', () => {
+      const result = inferPropertyType({ name: 'test', count: 5 })
+      expect(result.type).toBe('object')
+      expect(result.properties?.name.type).toBe('string')
+      expect(result.properties?.count.type).toBe('integer')
+    })
+
+    it('should detect date-time format', () => {
+      const result = inferPropertyType('2024-01-15T10:30:00Z')
+      expect(result.type).toBe('string')
+      expect(result.format).toBe('date-time')
+    })
+
+    it('should detect date format', () => {
+      const result = inferPropertyType('2024-01-15')
+      expect(result.type).toBe('string')
+      expect(result.format).toBe('date')
+    })
+
+    it('should detect email format', () => {
+      const result = inferPropertyType('test@example.com')
+      expect(result.type).toBe('string')
+      expect(result.format).toBe('email')
+    })
+
+    it('should detect URI format', () => {
+      const result = inferPropertyType('https://example.com/path')
+      expect(result.type).toBe('string')
+      expect(result.format).toBe('uri')
+    })
+
+    it('should handle null/undefined as string', () => {
+      expect(inferPropertyType(null).type).toBe('string')
+      expect(inferPropertyType(undefined).type).toBe('string')
+    })
+  })
+
+  describe('inferStreamSchema', () => {
+    it('should infer schema from records', () => {
+      const records = [
+        { id: 1, name: 'Alice', email: 'alice@example.com' },
+        { id: 2, name: 'Bob', email: 'bob@example.com' },
+      ]
+
+      const schema = inferStreamSchema(records)
+      expect(schema.type).toBe('object')
+      expect(schema.properties.id.type).toBe('integer')
+      expect(schema.properties.name.type).toBe('string')
+      expect(schema.properties.email.format).toBe('email')
+    })
+
+    it('should merge schemas from multiple records', () => {
+      const records = [
+        { id: 1, name: 'Alice' },
+        { id: 2, name: 'Bob', extra: 'data' },
+      ]
+
+      const schema = inferStreamSchema(records)
+      expect(schema.properties.id).toBeDefined()
+      expect(schema.properties.name).toBeDefined()
+      expect(schema.properties.extra).toBeDefined()
+    })
+
+    it('should return empty schema for empty records', () => {
+      const schema = inferStreamSchema([])
+      expect(schema.type).toBe('object')
+      expect(Object.keys(schema.properties)).toHaveLength(0)
+    })
+
+    it('should handle nested objects', () => {
+      const records = [
+        { id: 1, profile: { age: 30, city: 'NYC' } },
+      ]
+
+      const schema = inferStreamSchema(records)
+      expect(schema.properties.profile.type).toBe('object')
+      expect(schema.properties.profile.properties?.age.type).toBe('integer')
+    })
+  })
+
+  describe('detectPrimaryKey', () => {
+    it('should detect id as primary key', () => {
+      const records = [
+        { id: 1, name: 'Alice' },
+        { id: 2, name: 'Bob' },
+        { id: 3, name: 'Charlie' },
+      ]
+
+      const pk = detectPrimaryKey(records)
+      expect(pk).toEqual([['id']])
+    })
+
+    it('should detect _id as primary key', () => {
+      const records = [
+        { _id: 'abc', name: 'Alice' },
+        { _id: 'def', name: 'Bob' },
+      ]
+
+      const pk = detectPrimaryKey(records)
+      expect(pk).toEqual([['_id']])
+    })
+
+    it('should return undefined for non-unique candidates', () => {
+      const records = [
+        { id: 1, name: 'Alice' },
+        { id: 1, name: 'Bob' }, // Duplicate id
+      ]
+
+      const pk = detectPrimaryKey(records)
+      expect(pk).toBeUndefined()
+    })
+
+    it('should return undefined for too few records', () => {
+      const pk = detectPrimaryKey([{ id: 1 }])
+      expect(pk).toBeUndefined()
+    })
+  })
+
+  describe('detectCursorField', () => {
+    it('should detect updated_at as cursor', () => {
+      const schema: StreamSchema = {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      }
+
+      const cursor = detectCursorField(schema)
+      expect(cursor).toEqual(['updated_at'])
+    })
+
+    it('should prefer updated_at over created_at', () => {
+      const schema: StreamSchema = {
+        type: 'object',
+        properties: {
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      }
+
+      const cursor = detectCursorField(schema)
+      expect(cursor).toEqual(['updated_at'])
+    })
+
+    it('should fall back to any date field', () => {
+      const schema: StreamSchema = {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          some_date: { type: 'string', format: 'date-time' },
+        },
+      }
+
+      const cursor = detectCursorField(schema)
+      expect(cursor).toEqual(['some_date'])
+    })
+
+    it('should return undefined if no date fields', () => {
+      const schema: StreamSchema = {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          name: { type: 'string' },
+        },
+      }
+
+      const cursor = detectCursorField(schema)
+      expect(cursor).toBeUndefined()
+    })
+  })
+
+  describe('createCatalogBuilder', () => {
+    it('should build catalog with streams', () => {
+      const catalog = createCatalogBuilder()
+        .addStream({
+          name: 'users',
+          schema: { type: 'object', properties: {} },
+        })
+        .addStream({
+          name: 'orders',
+          schema: { type: 'object', properties: {} },
+          supportedSyncModes: ['full_refresh', 'incremental'],
+        })
+        .build()
+
+      expect(catalog).toHaveLength(2)
+      expect(catalog[0].name).toBe('users')
+      expect(catalog[0].supportedSyncModes).toEqual(['full_refresh']) // Default
+      expect(catalog[1].supportedSyncModes).toContain('incremental')
+    })
+  })
+
+  describe('toAirbyteCatalog', () => {
+    it('should convert streams to Airbyte catalog format', () => {
+      const streams: Stream[] = [
+        {
+          name: 'users',
+          schema: { type: 'object', properties: {} },
+          supportedSyncModes: ['full_refresh', 'incremental'],
+          sourceDefinedPrimaryKey: [['id']],
+          defaultCursorField: ['updated_at'],
+        },
+      ]
+
+      const catalog = toAirbyteCatalog(streams)
+
+      expect(catalog.streams).toHaveLength(1)
+      expect(catalog.streams[0].stream.name).toBe('users')
+      expect(catalog.streams[0].config?.syncMode).toBe('incremental')
+      expect(catalog.streams[0].config?.primaryKey).toEqual([['id']])
+    })
   })
 })

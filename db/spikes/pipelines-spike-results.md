@@ -97,7 +97,7 @@ The latency is controlled by the sink's `roll-interval` setting:
 | 300s (default) | ~300-305s | Batch analytics |
 
 **Latency Breakdown:**
-1. `env.PIPELINE.send()`: < 1ms (async, fire-and-forget)
+1. `env.PIPELINE.send()`: <1ms (async, fire-and-forget)
 2. Stream buffering: 10-300s (roll-interval)
 3. Transform execution: ~1s
 4. Parquet write to R2: ~1-5s

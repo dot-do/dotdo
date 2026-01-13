@@ -10,9 +10,35 @@
  * - Transforms: Data transformations between source/dest schemas
  * - Sync: Full and incremental sync modes
  * - State: Cursor tracking, checkpointing
+ * - Lifecycle: Proper open/close resource management
+ * - Config validation: JSON Schema-based with secret masking and OAuth support
  *
  * @module db/primitives/connector-framework
  */
+
+// =============================================================================
+// Lifecycle Types
+// =============================================================================
+
+/**
+ * Connector lifecycle state
+ */
+export type ConnectorState = 'uninitialized' | 'opening' | 'open' | 'closing' | 'closed' | 'error'
+
+/**
+ * Lifecycle event for state transitions
+ */
+export interface LifecycleEvent {
+  from: ConnectorState
+  to: ConnectorState
+  timestamp: number
+  error?: Error
+}
+
+/**
+ * Resource cleanup function
+ */
+export type CleanupFn = () => void | Promise<void>
 
 // =============================================================================
 // Core Types
@@ -28,9 +54,41 @@ export interface PropertySpec {
   format?: string
   const?: string
   title?: string
+  default?: unknown
+  enum?: unknown[]
+  minimum?: number
+  maximum?: number
+  minLength?: number
+  maxLength?: number
+  pattern?: string
   properties?: Record<string, PropertySpec>
   items?: PropertySpec
   oneOf?: PropertySpec[]
+  required?: string[]
+  // OAuth-specific properties
+  airbyte_secret?: boolean
+  order?: number
+  examples?: unknown[]
+}
+
+/**
+ * OAuth2 flow configuration
+ */
+export interface OAuth2FlowConfig {
+  type: 'oauth2'
+  authorizationUrl: string
+  tokenUrl: string
+  scopes: string[]
+  refreshUrl?: string
+  pkceRequired?: boolean
+}
+
+/**
+ * Authentication method configuration
+ */
+export interface AuthMethodConfig {
+  type: 'api_key' | 'oauth2' | 'basic' | 'bearer'
+  oauth2?: OAuth2FlowConfig
 }
 
 /**
@@ -40,6 +98,31 @@ export interface ConfigSpec {
   type: 'object'
   required?: string[]
   properties: Record<string, PropertySpec>
+  // OAuth and advanced auth support
+  authMethods?: AuthMethodConfig[]
+  // Additional metadata for UI generation
+  groups?: Array<{
+    id: string
+    title: string
+    fields: string[]
+  }>
+}
+
+/**
+ * Config validation error
+ */
+export interface ConfigValidationError {
+  path: string
+  message: string
+  code: 'required' | 'type' | 'format' | 'pattern' | 'enum' | 'range' | 'custom'
+}
+
+/**
+ * Config validation result
+ */
+export interface ConfigValidationResult {
+  valid: boolean
+  errors: ConfigValidationError[]
 }
 
 /**
@@ -49,6 +132,10 @@ export interface ConnectorSpec {
   name: string
   version: string
   configSpec: ConfigSpec
+  // Connector metadata
+  documentationUrl?: string
+  icon?: string
+  releaseStage?: 'alpha' | 'beta' | 'generally_available'
 }
 
 /**
@@ -215,6 +302,27 @@ export interface SyncState {
 }
 
 /**
+ * Connector lifecycle hooks
+ */
+export interface ConnectorLifecycleHooks<TConfig = Record<string, unknown>> {
+  /** Called when connector is being opened */
+  open?: (config: TConfig) => Promise<void>
+  /** Called when connector is being closed */
+  close?: () => Promise<void>
+  /** Register a cleanup function to be called on close */
+  onCleanup?: (fn: CleanupFn) => void
+}
+
+/**
+ * Lifecycle-aware connector context
+ */
+export interface ConnectorContext {
+  state: ConnectorState
+  history: LifecycleEvent[]
+  cleanupFns: CleanupFn[]
+}
+
+/**
  * Source connector definition
  */
 export interface SourceConnectorDef {
@@ -227,10 +335,13 @@ export interface SourceConnectorDef {
     catalog: ConfiguredCatalog,
     state?: SyncState,
   ) => AsyncGenerator<AirbyteMessage, void, unknown>
+  // Lifecycle hooks
+  open?: (config: SourceConfig) => Promise<void>
+  close?: () => Promise<void>
 }
 
 /**
- * Source connector instance
+ * Source connector instance with lifecycle management
  */
 export interface SourceConnector {
   spec: () => Promise<SourceConnectorSpec>
@@ -241,17 +352,89 @@ export interface SourceConnector {
     catalog: ConfiguredCatalog,
     state?: SyncState,
   ) => AsyncGenerator<AirbyteMessage, void, unknown>
+  // Lifecycle methods
+  open: (config: SourceConfig) => Promise<void>
+  close: () => Promise<void>
+  getState: () => ConnectorState
+  getLifecycleHistory: () => LifecycleEvent[]
+  onCleanup: (fn: CleanupFn) => void
 }
 
 /**
- * Create a source connector
+ * Create a source connector with lifecycle management
  */
 export function createSourceConnector(def: SourceConnectorDef): SourceConnector {
+  const context: ConnectorContext = {
+    state: 'uninitialized',
+    history: [],
+    cleanupFns: [],
+  }
+
+  function transitionTo(newState: ConnectorState, error?: Error): void {
+    const event: LifecycleEvent = {
+      from: context.state,
+      to: newState,
+      timestamp: Date.now(),
+      error,
+    }
+    context.history.push(event)
+    context.state = newState
+  }
+
   return {
     spec: def.spec,
     check: def.check,
     discover: def.discover,
     read: def.read,
+
+    async open(config: SourceConfig): Promise<void> {
+      if (context.state !== 'uninitialized' && context.state !== 'closed') {
+        throw new Error(`Cannot open connector in state: ${context.state}`)
+      }
+      transitionTo('opening')
+      try {
+        if (def.open) {
+          await def.open(config)
+        }
+        transitionTo('open')
+      } catch (err) {
+        transitionTo('error', err instanceof Error ? err : new Error(String(err)))
+        throw err
+      }
+    },
+
+    async close(): Promise<void> {
+      if (context.state !== 'open' && context.state !== 'error') {
+        throw new Error(`Cannot close connector in state: ${context.state}`)
+      }
+      transitionTo('closing')
+      try {
+        // Run cleanup functions in reverse order
+        for (const cleanup of context.cleanupFns.reverse()) {
+          await cleanup()
+        }
+        context.cleanupFns = []
+        if (def.close) {
+          await def.close()
+        }
+        transitionTo('closed')
+      } catch (err) {
+        transitionTo('error', err instanceof Error ? err : new Error(String(err)))
+        throw err
+      }
+    },
+
+    getState(): ConnectorState {
+      return context.state
+    },
+
+    getLifecycleHistory(): LifecycleEvent[] {
+      return [...context.history]
+    },
+
+    onCleanup(fn: CleanupFn): void {
+      context.cleanupFns.push(fn)
+    },
   }
 }
 
@@ -283,10 +466,13 @@ export interface DestinationConnectorDef {
     catalog: ConfiguredCatalog,
     messages: AsyncIterable<AirbyteMessage>,
   ) => AsyncGenerator<AirbyteMessage, void, unknown>
+  // Lifecycle hooks
+  open?: (config: DestinationConfig) => Promise<void>
+  close?: () => Promise<void>
 }
 
 /**
- * Destination connector instance
+ * Destination connector instance with lifecycle management
  */
 export interface DestinationConnector {
   spec: () => Promise<DestinationConnectorSpec>
@@ -296,16 +482,88 @@ export interface DestinationConnector {
     catalog: ConfiguredCatalog,
     messages: AsyncIterable<AirbyteMessage>,
   ) => AsyncGenerator<AirbyteMessage, void, unknown>
+  // Lifecycle methods
+  open: (config: DestinationConfig) => Promise<void>
+  close: () => Promise<void>
+  getState: () => ConnectorState
+  getLifecycleHistory: () => LifecycleEvent[]
+  onCleanup: (fn: CleanupFn) => void
 }
 
 /**
- * Create a destination connector
+ * Create a destination connector with lifecycle management
  */
 export function createDestinationConnector(def: DestinationConnectorDef): DestinationConnector {
+  const context: ConnectorContext = {
+    state: 'uninitialized',
+    history: [],
+    cleanupFns: [],
+  }
+
+  function transitionTo(newState: ConnectorState, error?: Error): void {
+    const event: LifecycleEvent = {
+      from: context.state,
+      to: newState,
+      timestamp: Date.now(),
+      error,
+    }
+    context.history.push(event)
+    context.state = newState
+  }
+
   return {
     spec: def.spec,
     check: def.check,
     write: def.write,
+
+    async open(config: DestinationConfig): Promise<void> {
+      if (context.state !== 'uninitialized' && context.state !== 'closed') {
+        throw new Error(`Cannot open connector in state: ${context.state}`)
+      }
+      transitionTo('opening')
+      try {
+        if (def.open) {
+          await def.open(config)
+        }
+        transitionTo('open')
+      } catch (err) {
+        transitionTo('error', err instanceof Error ? err : new Error(String(err)))
+        throw err
+      }
+    },
+
+    async close(): Promise<void> {
+      if (context.state !== 'open' && context.state !== 'error') {
+        throw new Error(`Cannot close connector in state: ${context.state}`)
+      }
+      transitionTo('closing')
+      try {
+        // Run cleanup functions in reverse order
+        for (const cleanup of context.cleanupFns.reverse()) {
+          await cleanup()
+        }
+        context.cleanupFns = []
+        if (def.close) {
+          await def.close()
+        }
+        transitionTo('closed')
+      } catch (err) {
+        transitionTo('error', err instanceof Error ? err : new Error(String(err)))
+        throw err
+      }
+    },
+
+    getState(): ConnectorState {
+      return context.state
+    },
+
+    getLifecycleHistory(): LifecycleEvent[] {
+      return [...context.history]
+    },
+
+    onCleanup(fn: CleanupFn): void {
+      context.cleanupFns.push(fn)
+    },
   }
 }
 
@@ -736,6 +994,454 @@ export function createConnectorFramework(): ConnectorFramework {
     },
   }
 }
+
+// =============================================================================
+// Config Validation
+// =============================================================================
+
+/**
+ * Validate a configuration value against a property spec
+ */
+function validateProperty(
+  value: unknown,
+  spec: PropertySpec,
+  path: string,
+): ConfigValidationError[] {
+  const errors: ConfigValidationError[] = []
+
+  // Type validation
+  if (value !== undefined && value !== null) {
+    const actualType = Array.isArray(value) ? 'array' : typeof value
+    const expectedType = spec.type === 'integer' ? 'number' : spec.type
+
+    if (actualType !== expectedType) {
+      errors.push({
+        path,
+        message: `Expected type '${spec.type}', got '${actualType}'`,
+        code: 'type',
+      })
+      return errors // Skip further validation if type is wrong
+    }
+
+    // Integer check
+    if (spec.type === 'integer' && typeof value === 'number' && !Number.isInteger(value)) {
+      errors.push({
+        path,
+        message: `Expected integer, got float`,
+        code: 'type',
+      })
+    }
+
+    // String validations
+    if (spec.type === 'string' && typeof value === 'string') {
+      if (spec.minLength !== undefined && value.length < spec.minLength) {
+        errors.push({
+          path,
+          message: `String length ${value.length} is less than minimum ${spec.minLength}`,
+          code: 'range',
+        })
+      }
+      if (spec.maxLength !== undefined && value.length > spec.maxLength) {
+        errors.push({
+          path,
+          message: `String length ${value.length} exceeds maximum ${spec.maxLength}`,
+          code: 'range',
+        })
+      }
+      if (spec.pattern && !new RegExp(spec.pattern).test(value)) {
+        errors.push({
+          path,
+          message: `String does not match pattern '${spec.pattern}'`,
+          code: 'pattern',
+        })
+      }
+      if (spec.format) {
+        const formatValidators: Record<string, (v: string) => boolean> = {
+          email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+          uri: (v) => { try { new URL(v); return true } catch { return false } },
+          'date-time': (v) => !isNaN(Date.parse(v)),
+          date: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v),
+        }
+        const validator = formatValidators[spec.format]
+        if (validator && !validator(value)) {
+          errors.push({
+            path,
+            message: `String does not match format '${spec.format}'`,
+            code: 'format',
+          })
+        }
+      }
+    }
+
+    // Number validations
+    if ((spec.type === 'number' || spec.type === 'integer') && typeof value === 'number') {
+      if (spec.minimum !== undefined && value < spec.minimum) {
+        errors.push({
+          path,
+          message: `Value ${value} is less than minimum ${spec.minimum}`,
+          code: 'range',
+        })
+      }
+      if (spec.maximum !== undefined && value > spec.maximum) {
+        errors.push({
+          path,
+          message: `Value ${value} exceeds maximum ${spec.maximum}`,
+          code: 'range',
+        })
+      }
+    }
+
+    // Enum validation
+    if (spec.enum && !spec.enum.includes(value)) {
+      errors.push({
+        path,
+        message: `Value must be one of: ${spec.enum.join(', ')}`,
+        code: 'enum',
+      })
+    }
+
+    // Const validation
+    if (spec.const !== undefined && value !== spec.const) {
+      errors.push({
+        path,
+        message: `Value must be '${spec.const}'`,
+        code: 'enum',
+      })
+    }
+
+    // Object validation
+    if (spec.type === 'object' && spec.properties && typeof value === 'object' && !Array.isArray(value)) {
+      const obj = value as Record<string, unknown>
+
+      // Check required fields
+      if (spec.required) {
+        for (const field of spec.required) {
+          if (!(field in obj) || obj[field] === undefined) {
+            errors.push({
+              path: path ? `${path}.${field}` : field,
+              message: `Missing required field '${field}'`,
+              code: 'required',
+            })
+          }
+        }
+      }
+
+      // Validate nested properties
+      for (const [key, propSpec] of Object.entries(spec.properties)) {
+        if (key in obj) {
+          errors.push(...validateProperty(obj[key], propSpec, path ? `${path}.${key}` : key))
+        }
+      }
+    }
+
+    // Array validation
+    if (spec.type === 'array' && spec.items && Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        errors.push(...validateProperty(value[i], spec.items, `${path}[${i}]`))
+      }
+    }
+  }
+
+  return errors
+}
+
+/**
+ * Validate a configuration against a config spec
+ */
+export function validateConfig(
+  config: Record<string, unknown>,
+  spec: ConfigSpec,
+): ConfigValidationResult {
+  const errors: ConfigValidationError[] = []
+
+  // Check required fields at root level
+  if (spec.required) {
+    for (const field of spec.required) {
+      if (!(field in config) || config[field] === undefined) {
+        errors.push({
+          path: field,
+          message: `Missing required field '${field}'`,
+          code: 'required',
+        })
+      }
+    }
+  }
+
+  // Validate each property
+  for (const [key, propSpec] of Object.entries(spec.properties)) {
+    if (key in config) {
+      errors.push(...validateProperty(config[key], propSpec, key))
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
+}
+
+/**
+ * Mask secret values in a configuration
+ */
+export function maskSecrets(
+  config: Record<string, unknown>,
+  spec: ConfigSpec,
+  mask: string = '******',
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(config)) {
+    const propSpec = spec.properties[key]
+
+    if (!propSpec) {
+      result[key] = value
+      continue
+    }
+
+    if (propSpec.secret || propSpec.airbyte_secret) {
+      result[key] = mask
+    } else if (propSpec.type === 'object' && propSpec.properties && typeof value === 'object' && value !== null) {
+      result[key] = maskSecrets(value as Record<string, unknown>, {
+        type: 'object',
+        properties: propSpec.properties,
+        required: propSpec.required,
+      }, mask)
+    } else {
+      result[key] = value
+    }
+  }
+
+  return result
+}
+
+// =============================================================================
+// Catalog Discovery Utilities
+// =============================================================================
+
+/**
+ * Infer JSON Schema property type from a JavaScript value
+ */
+export function inferPropertyType(value: unknown): PropertySpec {
+  if (value === null || value === undefined) {
+    return { type: 'string' }
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return { type: 'array', items: { type: 'string' } }
+    }
+    return { type: 'array', items: inferPropertyType(value[0]) }
+  }
+
+  if (typeof value === 'object') {
+    const properties: Record<string, PropertySpec> = {}
+    for (const [k, v] of Object.entries(value)) {
+      properties[k] = inferPropertyType(v)
+    }
+    return { type: 'object', properties }
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? { type: 'integer' } : { type: 'number' }
+  }
+
+  if (typeof value === 'boolean') {
+    return { type: 'boolean' }
+  }
+
+  // String with format detection
+  if (typeof value === 'string') {
+    // ISO date-time
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+      return { type: 'string', format: 'date-time' }
+    }
+    // ISO date
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return { type: 'string', format: 'date' }
+    }
+    // Email
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return { type: 'string', format: 'email' }
+    }
+    // URI
+    if (/^https?:\/\//.test(value)) {
+      return { type: 'string', format: 'uri' }
+    }
+    return { type: 'string' }
+  }
+
+  return { type: 'string' }
+}
+
+/**
+ * Infer a stream schema from sample records
+ */
+export function inferStreamSchema(records: Record<string, unknown>[]): StreamSchema {
+  if (records.length === 0) {
+    return { type: 'object', properties: {} }
+  }
+
+  // Merge schemas from all records
+  const properties: Record<string, PropertySpec> = {}
+
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      if (!(key in properties)) {
+        properties[key] = inferPropertyType(value)
+      } else {
+        // Merge: prefer non-null types
+        const existing = properties[key]
+        const inferred = inferPropertyType(value)
+
+        // If existing is less specific, upgrade it
+        if (existing.type === 'string' && !existing.format && inferred.format) {
+          properties[key] = inferred
+        }
+        // Merge nested object properties
+        if (existing.type === 'object' && inferred.type === 'object') {
+          properties[key] = {
+            type: 'object',
+            properties: {
+              ...existing.properties,
+              ...inferred.properties,
+            },
+          }
+        }
+      }
+    }
+  }
+
+  return { type: 'object', properties }
+}
+
+/**
+ * Create a catalog from discovered streams
+ */
+export interface CatalogBuilder {
+  addStream: (stream: Omit<Stream, 'supportedSyncModes'> & { supportedSyncModes?: SyncMode[] }) => CatalogBuilder
+  build: () => Stream[]
+}
+
+/**
+ * Create a catalog builder for easier stream construction
+ */
+export function createCatalogBuilder(): CatalogBuilder {
+  const streams: Stream[] = []
+
+  return {
+    addStream(stream) {
+      streams.push({
+        ...stream,
+        supportedSyncModes: stream.supportedSyncModes ?? ['full_refresh'],
+      })
+      return this
+    },
+    build() {
+      return streams
+    },
+  }
+}
+
+/**
+ * Detect potential primary keys from records
+ */
+export function detectPrimaryKey(records: Record<string, unknown>[]): string[][] | undefined {
+  if (records.length < 2) return undefined
+
+  const candidates = ['id', '_id', 'uuid', 'pk', 'key']
+
+  for (const candidate of candidates) {
+    if (records.every((r) => candidate in r)) {
+      const values = records.map((r) => r[candidate])
+      const uniqueValues = new Set(values)
+      if (uniqueValues.size === records.length) {
+        return [[candidate]]
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Detect potential cursor fields for incremental sync
+ */
+export function detectCursorField(schema: StreamSchema): string[] | undefined {
+  const cursorCandidates = ['updated_at', 'modified_at', 'created_at', 'timestamp', 'date']
+
+  for (const candidate of cursorCandidates) {
+    const prop = schema.properties[candidate]
+    if (prop && (prop.format === 'date-time' || prop.format === 'date')) {
+      return [candidate]
+    }
+  }
+
+  // Check for any date-time field
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    if (prop.format === 'date-time' || prop.format === 'date') {
+      return [key]
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Build an AirbyteCatalog from discovered streams (Airbyte protocol compatible)
+ */
+export interface AirbyteCatalog {
+  streams: Array<{
+    stream: Stream
+    config?: {
+      syncMode: SyncMode
+      destinationSyncMode?: DestinationSyncMode
+      cursorField?: string[]
+      primaryKey?: string[][]
+    }
+  }>
+}
+
+/**
+ * Convert streams to AirbyteCatalog format
+ */
+export function toAirbyteCatalog(streams: Stream[]): AirbyteCatalog {
+  return {
+    streams: streams.map((stream) => ({
+      stream,
+      config: {
+        syncMode: stream.supportedSyncModes.includes('incremental') ? 'incremental' : 'full_refresh',
+        cursorField: stream.defaultCursorField,
+        primaryKey: stream.sourceDefinedPrimaryKey,
+      },
+    })),
+  }
+}
+
+// =============================================================================
+// Sync Modes Re-exports
+// =============================================================================
+export {
+  // Full refresh
+  FullRefreshSync,
+  createFullRefreshSync,
+  type FullRefreshConfig,
+  // Incremental
+  IncrementalSync,
+  createIncrementalSync,
+  type IncrementalConfig,
+  // CDC
+  CDCSyncMode,
+  createCDCSync,
+  type CDCConfig,
+  type CDCChange,
+  type CDCRecordType,
+  type InitialSnapshotConfig,
+  type RetryConfig,
+  // Common types
+  type SyncModeConfig,
+  type SyncProgress,
+  type SyncCheckpoint,
+} from './sync-modes'
 
 // =============================================================================
 // Convenience Exports

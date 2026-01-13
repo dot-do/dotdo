@@ -4,7 +4,24 @@
  * Hand-rolled recursive descent lexer for EdgeQL queries.
  * Optimized for bundle size efficiency per spike findings.
  *
+ * ## Architecture
+ *
+ * The lexer uses a single-pass scanning approach with lookahead for multi-character
+ * tokens. Character classification is done inline with character code comparisons
+ * for optimal performance.
+ *
+ * ## Token Types
+ *
+ * - Keywords: Reserved words like SELECT, INSERT, UPDATE, DELETE
+ * - Identifiers: User-defined names (case-sensitive)
+ * - Literals: Strings, numbers, UUIDs, booleans
+ * - Operators: Assignment (:=), comparison (=, !=, <, >), arithmetic (+, -, *, /)
+ * - Delimiters: Braces, parentheses, brackets, punctuation
+ * - Parameters: Query parameters ($name, $1)
+ *
  * @see dotdo-nu24u - GREEN: EdgeQL Lexer - Implementation
+ * @see dotdo-et1lc - REFACTOR: EdgeQL Lexer - Cleanup and optimize
+ * @module
  */
 
 import type { Token as TokenInterface } from './lexer-types'
@@ -13,8 +30,15 @@ export type Token = TokenInterface
 
 import { TokenType, LexerError } from './lexer-types'
 
+/**
+ * Options for tokenization
+ */
 export interface TokenizeOptions {
-  /** If true, include comment tokens in output */
+  /**
+   * If true, include comment tokens in output.
+   * Useful for tooling that needs to preserve formatting.
+   * @default false
+   */
   preserveComments?: boolean
 }
 
@@ -22,52 +46,99 @@ export interface TokenizeOptions {
 // KEYWORD MAP
 // ============================================================================
 
-const KEYWORDS: Record<string, TokenType> = {
-  select: TokenType.SELECT,
-  insert: TokenType.INSERT,
-  update: TokenType.UPDATE,
-  delete: TokenType.DELETE,
-  filter: TokenType.FILTER,
-  order: TokenType.ORDER,
-  by: TokenType.BY,
-  limit: TokenType.LIMIT,
-  offset: TokenType.OFFSET,
-  with: TokenType.WITH,
-  for: TokenType.FOR,
-  if: TokenType.IF,
-  else: TokenType.ELSE,
-  and: TokenType.AND,
-  or: TokenType.OR,
-  not: TokenType.NOT,
-  in: TokenType.IN,
-  like: TokenType.LIKE,
-  ilike: TokenType.ILIKE,
-  is: TokenType.IS,
-  exists: TokenType.EXISTS,
-  distinct: TokenType.DISTINCT,
-  union: TokenType.UNION,
-  intersect: TokenType.INTERSECT,
-  except: TokenType.EXCEPT,
-  true: TokenType.TRUE,
-  false: TokenType.FALSE,
-  required: TokenType.REQUIRED,
-  optional: TokenType.OPTIONAL,
-  multi: TokenType.MULTI,
-  single: TokenType.SINGLE,
-  abstract: TokenType.ABSTRACT,
-  type: TokenType.TYPE,
-  scalar: TokenType.SCALAR,
-  enum: TokenType.ENUM,
-  constraint: TokenType.CONSTRAINT,
-  index: TokenType.INDEX,
-  annotation: TokenType.ANNOTATION,
-  module: TokenType.MODULE,
-  alias: TokenType.ALIAS,
-  function: TokenType.FUNCTION,
-  property: TokenType.PROPERTY,
-  link: TokenType.LINK,
-  extending: TokenType.EXTENDING,
-}
+/**
+ * Map of lowercase keywords to their token types.
+ * Keywords are case-insensitive in EdgeQL.
+ *
+ * Using a Map provides O(1) lookups with better type inference
+ * than a plain object.
+ */
+const KEYWORDS: ReadonlyMap<string, TokenType> = new Map([
+  // Statement types
+  ['select', TokenType.SELECT],
+  ['insert', TokenType.INSERT],
+  ['update', TokenType.UPDATE],
+  ['delete', TokenType.DELETE],
+
+  // Clauses
+  ['filter', TokenType.FILTER],
+  ['order', TokenType.ORDER],
+  ['by', TokenType.BY],
+  ['limit', TokenType.LIMIT],
+  ['offset', TokenType.OFFSET],
+  ['with', TokenType.WITH],
+  ['for', TokenType.FOR],
+
+  // Conditionals
+  ['if', TokenType.IF],
+  ['else', TokenType.ELSE],
+
+  // Logical operators
+  ['and', TokenType.AND],
+  ['or', TokenType.OR],
+  ['not', TokenType.NOT],
+  ['in', TokenType.IN],
+  ['like', TokenType.LIKE],
+  ['ilike', TokenType.ILIKE],
+  ['is', TokenType.IS],
+  ['exists', TokenType.EXISTS],
+
+  // Set operations
+  ['distinct', TokenType.DISTINCT],
+  ['union', TokenType.UNION],
+  ['intersect', TokenType.INTERSECT],
+  ['except', TokenType.EXCEPT],
+
+  // Boolean literals
+  ['true', TokenType.TRUE],
+  ['false', TokenType.FALSE],
+
+  // Cardinality modifiers
+  ['required', TokenType.REQUIRED],
+  ['optional', TokenType.OPTIONAL],
+  ['multi', TokenType.MULTI],
+  ['single', TokenType.SINGLE],
+
+  // Schema definition
+  ['abstract', TokenType.ABSTRACT],
+  ['type', TokenType.TYPE],
+  ['scalar', TokenType.SCALAR],
+  ['enum', TokenType.ENUM],
+  ['constraint', TokenType.CONSTRAINT],
+  ['index', TokenType.INDEX],
+  ['annotation', TokenType.ANNOTATION],
+  ['module', TokenType.MODULE],
+  ['alias', TokenType.ALIAS],
+  ['function', TokenType.FUNCTION],
+  ['property', TokenType.PROPERTY],
+  ['link', TokenType.LINK],
+  ['extending', TokenType.EXTENDING],
+])
+
+// ============================================================================
+// SINGLE-CHARACTER TOKEN MAP
+// ============================================================================
+
+/**
+ * Map of single-character tokens that don't require lookahead.
+ * These can be tokenized immediately without checking the next character.
+ */
+const SINGLE_CHAR_TOKENS: ReadonlyMap<string, TokenType> = new Map([
+  ['{', TokenType.LBRACE],
+  ['}', TokenType.RBRACE],
+  ['(', TokenType.LPAREN],
+  [')', TokenType.RPAREN],
+  ['[', TokenType.LBRACKET],
+  [']', TokenType.RBRACKET],
+  [',', TokenType.COMMA],
+  [';', TokenType.SEMICOLON],
+  ['=', TokenType.EQUALS],
+  ['*', TokenType.MULTIPLY],
+  ['%', TokenType.MODULO],
+  ['^', TokenType.POWER],
+  ['|', TokenType.PIPE],
+  ['@', TokenType.AT],
+])
 
 // ============================================================================
 // LEXER CLASS

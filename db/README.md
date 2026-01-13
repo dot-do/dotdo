@@ -45,7 +45,7 @@ Columnar:    1000 records = 6 row writes    = 99.4% savings
 | `WHERE data.email = 'x'` | Scan all | Bloom filter check |
 | `WHERE createdAt > date` | Scan all | Min/max pruning |
 
-## Getting Started
+## Installation
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed design documentation.
 

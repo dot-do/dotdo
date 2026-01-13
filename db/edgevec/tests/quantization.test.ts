@@ -1351,3 +1351,545 @@ describe('Quantization Edge Cases', () => {
     expect(maxError).toBeLessThan(0.05) // Allow some margin
   })
 })
+
+// ============================================================================
+// BINARY QUANTIZATION - INDEX (To be implemented)
+// ============================================================================
+
+describe('Binary Quantization - Index Operations', () => {
+  it('creates empty binary index', async () => {
+    const { BinaryQuantizer } = await import('../quantization')
+
+    const bq = new BinaryQuantizer({ dimensions: 64 })
+    const index = bq.createIndex()
+
+    expect(index.size()).toBe(0)
+  })
+
+  it('inserts and retrieves vectors', async () => {
+    const { BinaryQuantizer } = await import('../quantization')
+
+    const bq = new BinaryQuantizer({ dimensions: 64 })
+    const index = bq.createIndex()
+
+    for (let i = 0; i < 100; i++) {
+      index.insert(`vec-${i}`, seededVector(64, i))
+    }
+
+    expect(index.size()).toBe(100)
+  })
+
+  it('searches index by hamming distance', async () => {
+    const { BinaryQuantizer } = await import('../quantization')
+
+    const bq = new BinaryQuantizer({ dimensions: 64 })
+    const index = bq.createIndex()
+
+    for (let i = 0; i < 100; i++) {
+      index.insert(`vec-${i}`, seededVector(64, i))
+    }
+
+    const query = seededVector(64, 42)
+    const results = index.search(query, { k: 10 })
+
+    expect(results).toHaveLength(10)
+    // Query vector should be in top results
+    const ids = results.map((r) => r.id)
+    expect(ids).toContain('vec-42')
+  })
+
+  it('reports memory usage for binary index', async () => {
+    const { BinaryQuantizer } = await import('../quantization')
+
+    const bq = new BinaryQuantizer({ dimensions: 128 })
+    const index = bq.createIndex()
+
+    for (let i = 0; i < 1000; i++) {
+      index.insert(`vec-${i}`, seededVector(128, i))
+    }
+
+    const memory = index.memoryUsage()
+
+    // Binary: 1000 vectors * 16 bytes (128 bits) = 16000 bytes
+    expect(memory).toBeGreaterThanOrEqual(16000)
+    // Should be much less than full float32 storage
+    const fullMemory = 1000 * 128 * 4 // 512000 bytes
+    expect(memory).toBeLessThan(fullMemory / 10) // At least 10x compression
+  })
+})
+
+// ============================================================================
+// MULTI-BIT SCALAR QUANTIZATION (To be implemented)
+// ============================================================================
+
+describe('Scalar Quantization - Multi-bit Variants', () => {
+  it('supports 4-bit quantization (int4)', async () => {
+    const sq = new ScalarQuantizer({
+      dimensions: 32,
+      bits: 4,
+    })
+
+    const trainingVectors = generateTrainingVectors(100, 32)
+    await sq.train(trainingVectors)
+
+    const vector = seededVector(32, 42)
+    const quantized = sq.quantize(vector)
+
+    // 4-bit values are packed, so output is half the size
+    // 32 values * 4 bits = 128 bits = 16 bytes
+    expect(quantized.length).toBe(16)
+  })
+
+  it('4-bit has higher error but better compression', async () => {
+    const sq4 = new ScalarQuantizer({ dimensions: 64, bits: 4 })
+    const sq8 = new ScalarQuantizer({ dimensions: 64, bits: 8 })
+
+    const trainingVectors = generateTrainingVectors(500, 64)
+    await sq4.train(trainingVectors)
+    await sq8.train(trainingVectors)
+
+    const testVectors = Array.from({ length: 50 }, (_, i) =>
+      seededVector(64, i + 10000)
+    )
+
+    // Compute MSE for both
+    let mse4 = 0
+    let mse8 = 0
+
+    for (const v of testVectors) {
+      const q4 = sq4.quantize(v)
+      const d4 = sq4.dequantize(q4)
+      mse4 += l2DistanceSquared(v, d4)
+
+      const q8 = sq8.quantize(v)
+      const d8 = sq8.dequantize(q8)
+      mse8 += l2DistanceSquared(v, d8)
+    }
+
+    mse4 /= testVectors.length
+    mse8 /= testVectors.length
+
+    // 4-bit should have higher error
+    expect(mse4).toBeGreaterThan(mse8)
+    // But both should still preserve most information
+    expect(mse4).toBeLessThan(1.0)
+    expect(mse8).toBeLessThan(0.1)
+  })
+
+  it('supports 16-bit quantization (int16)', async () => {
+    const sq = new ScalarQuantizer({
+      dimensions: 32,
+      bits: 16,
+    })
+
+    const trainingVectors = generateTrainingVectors(100, 32)
+    await sq.train(trainingVectors)
+
+    const vector = seededVector(32, 42)
+    const quantized = sq.quantize(vector)
+
+    // 16-bit: 32 values * 2 bytes = 64 bytes
+    expect(quantized.length).toBe(64)
+  })
+
+  it('16-bit achieves near-lossless reconstruction', async () => {
+    const sq = new ScalarQuantizer({
+      dimensions: 64,
+      bits: 16,
+    })
+
+    const trainingVectors = generateTrainingVectors(500, 64)
+    await sq.train(trainingVectors)
+
+    const testVectors = Array.from({ length: 50 }, (_, i) =>
+      seededVector(64, i + 10000)
+    )
+
+    let maxError = 0
+    for (const v of testVectors) {
+      const q = sq.quantize(v)
+      const d = sq.dequantize(q)
+
+      for (let i = 0; i < v.length; i++) {
+        maxError = Math.max(maxError, Math.abs(v[i] - d[i]))
+      }
+    }
+
+    // 16-bit should have very low error (1/65536 of range)
+    expect(maxError).toBeLessThan(0.001)
+  })
+})
+
+// ============================================================================
+// OPTIMIZED PRODUCT QUANTIZATION (To be implemented)
+// ============================================================================
+
+describe('Optimized Product Quantization', () => {
+  it('OPQ rotates vectors before quantization', async () => {
+    // Optimized Product Quantization learns a rotation matrix
+    // that minimizes quantization error
+    const { OptimizedProductQuantizer } = await import('../quantization')
+
+    const opq = new OptimizedProductQuantizer({
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+      trainingIterations: 10,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await opq.train(trainingVectors)
+
+    expect(opq.isTrained()).toBe(true)
+    expect(opq.getRotationMatrix()).toBeInstanceOf(Float32Array)
+    // Rotation matrix should be orthogonal (64x64)
+    expect(opq.getRotationMatrix().length).toBe(64 * 64)
+  })
+
+  it('OPQ achieves lower distortion than standard PQ', async () => {
+    const { OptimizedProductQuantizer, ProductQuantizer } = await import('../quantization')
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    const testVectors = Array.from({ length: 100 }, (_, i) =>
+      seededVector(64, i + 10000)
+    )
+
+    // Train standard PQ
+    const pq = new ProductQuantizer({
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+      trainingIterations: 15,
+    })
+    await pq.train(trainingVectors)
+
+    // Train OPQ
+    const opq = new OptimizedProductQuantizer({
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+      trainingIterations: 15,
+    })
+    await opq.train(trainingVectors)
+
+    // Compute distortions
+    let pqDistortion = 0
+    let opqDistortion = 0
+
+    for (const v of testVectors) {
+      const pqCodes = pq.encode(v)
+      const pqDecoded = pq.decode(pqCodes)
+      pqDistortion += l2DistanceSquared(v, pqDecoded)
+
+      const opqCodes = opq.encode(v)
+      const opqDecoded = opq.decode(opqCodes)
+      opqDistortion += l2DistanceSquared(v, opqDecoded)
+    }
+
+    pqDistortion /= testVectors.length
+    opqDistortion /= testVectors.length
+
+    // OPQ should achieve lower distortion
+    expect(opqDistortion).toBeLessThan(pqDistortion)
+  })
+})
+
+// ============================================================================
+// ADDITIVE QUANTIZATION (To be implemented)
+// ============================================================================
+
+describe('Additive Quantization', () => {
+  it('AQ uses multiple codebooks additively', async () => {
+    // Additive Quantization approximates vectors as a sum of codewords
+    // from multiple codebooks, achieving better accuracy than PQ
+    const { AdditiveQuantizer } = await import('../quantization')
+
+    const aq = new AdditiveQuantizer({
+      dimensions: 64,
+      numCodebooks: 4, // Number of codebooks (M)
+      numCentroids: 256, // Centroids per codebook
+      trainingIterations: 10,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await aq.train(trainingVectors)
+
+    expect(aq.isTrained()).toBe(true)
+  })
+
+  it('AQ encodes to M codes like PQ', async () => {
+    const { AdditiveQuantizer } = await import('../quantization')
+
+    const aq = new AdditiveQuantizer({
+      dimensions: 64,
+      numCodebooks: 4,
+      numCentroids: 256,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await aq.train(trainingVectors)
+
+    const vector = seededVector(64, 42)
+    const codes = aq.encode(vector)
+
+    expect(codes).toBeInstanceOf(Uint8Array)
+    expect(codes.length).toBe(4) // numCodebooks
+  })
+
+  it('AQ decodes by summing codewords', async () => {
+    const { AdditiveQuantizer } = await import('../quantization')
+
+    const aq = new AdditiveQuantizer({
+      dimensions: 64,
+      numCodebooks: 4,
+      numCentroids: 256,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await aq.train(trainingVectors)
+
+    const original = seededVector(64, 42)
+    const codes = aq.encode(original)
+    const decoded = aq.decode(codes)
+
+    expect(decoded).toBeInstanceOf(Float32Array)
+    expect(decoded.length).toBe(64)
+
+    // Decoded should be close to original
+    const similarity = cosineSimilarity(original, decoded)
+    expect(similarity).toBeGreaterThan(0.8)
+  })
+})
+
+// ============================================================================
+// RESIDUAL VECTOR QUANTIZATION (To be implemented)
+// ============================================================================
+
+describe('Residual Vector Quantization', () => {
+  it('RVQ quantizes residuals iteratively', async () => {
+    // RVQ applies coarse quantization, then quantizes the residual
+    // This is used in multi-stage systems like IVF+PQ
+    const { ResidualVectorQuantizer } = await import('../quantization')
+
+    const rvq = new ResidualVectorQuantizer({
+      dimensions: 64,
+      numStages: 3, // Number of residual stages
+      numCentroids: 256, // Centroids per stage
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await rvq.train(trainingVectors)
+
+    expect(rvq.isTrained()).toBe(true)
+    expect(rvq.numStages()).toBe(3)
+  })
+
+  it('RVQ produces codes for each stage', async () => {
+    const { ResidualVectorQuantizer } = await import('../quantization')
+
+    const rvq = new ResidualVectorQuantizer({
+      dimensions: 64,
+      numStages: 3,
+      numCentroids: 256,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await rvq.train(trainingVectors)
+
+    const vector = seededVector(64, 42)
+    const codes = rvq.encode(vector)
+
+    // Should produce one code per stage
+    expect(codes.length).toBe(3)
+  })
+
+  it('RVQ achieves lower distortion with more stages', async () => {
+    const { ResidualVectorQuantizer } = await import('../quantization')
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    const testVector = seededVector(64, 42)
+
+    const distortions: number[] = []
+
+    for (const numStages of [1, 2, 3, 4]) {
+      const rvq = new ResidualVectorQuantizer({
+        dimensions: 64,
+        numStages,
+        numCentroids: 64, // Fewer centroids for speed
+      })
+
+      await rvq.train(trainingVectors)
+
+      const codes = rvq.encode(testVector)
+      const decoded = rvq.decode(codes)
+      const distortion = l2DistanceSquared(testVector, decoded)
+
+      distortions.push(distortion)
+    }
+
+    // Each additional stage should reduce distortion
+    for (let i = 1; i < distortions.length; i++) {
+      expect(distortions[i]).toBeLessThanOrEqual(distortions[i - 1])
+    }
+  })
+})
+
+// ============================================================================
+// CONCURRENT / BATCH OPERATIONS
+// ============================================================================
+
+describe('Concurrent Encoding Operations', () => {
+  it('supports parallel encoding without corruption', async () => {
+    const pq = new ProductQuantizer({
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+      trainingIterations: 10,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await pq.train(trainingVectors)
+
+    // Encode same vector multiple times concurrently
+    const vector = seededVector(64, 42)
+    const encodingPromises = Array.from({ length: 100 }, async () => {
+      return pq.encode(vector)
+    })
+
+    const results = await Promise.all(encodingPromises)
+
+    // All results should be identical
+    const expected = results[0]
+    for (const result of results) {
+      expect(result).toEqual(expected)
+    }
+  })
+
+  it('batch search returns consistent results', async () => {
+    const pq = new ProductQuantizer({
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+      trainingIterations: 10,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 64)
+    await pq.train(trainingVectors)
+
+    const index = pq.createIndex()
+
+    // Insert vectors
+    for (let i = 0; i < 500; i++) {
+      index.insert(`vec-${i}`, seededVector(64, i))
+    }
+
+    // Run same query multiple times
+    const query = seededVector(64, 42)
+    const results1 = index.search(query, { k: 10 })
+    const results2 = index.search(query, { k: 10 })
+    const results3 = index.search(query, { k: 10 })
+
+    // Results should be identical
+    expect(results1).toEqual(results2)
+    expect(results2).toEqual(results3)
+  })
+})
+
+// ============================================================================
+// MEMORY EFFICIENCY
+// ============================================================================
+
+describe('Memory Efficiency Metrics', () => {
+  it('PQ achieves expected compression ratio', async () => {
+    const pq = new ProductQuantizer({
+      dimensions: 768, // BERT embedding size
+      numSubvectors: 48, // 16 dimensions per subvector
+      numCentroids: 256,
+      trainingIterations: 5,
+    })
+
+    const trainingVectors = generateTrainingVectors(3000, 768)
+    await pq.train(trainingVectors)
+
+    const index = pq.createIndex()
+
+    // Insert 10000 vectors
+    for (let i = 0; i < 10000; i++) {
+      index.insert(`vec-${i}`, seededVector(768, i))
+    }
+
+    const memory = index.memoryUsage()
+    const fullSize = 10000 * 768 * 4 // Full float32
+
+    // Expected: 48 bytes per vector (codes) + ~20 bytes per ID
+    // = ~68 bytes vs 3072 bytes = ~45x compression
+    const compressionRatio = fullSize / memory
+    expect(compressionRatio).toBeGreaterThan(30) // At least 30x compression
+  })
+
+  it('Binary quantization achieves 32x compression', async () => {
+    const { BinaryQuantizer } = await import('../quantization')
+
+    const bq = new BinaryQuantizer({ dimensions: 1024 })
+    const index = bq.createIndex()
+
+    for (let i = 0; i < 10000; i++) {
+      index.insert(`vec-${i}`, seededVector(1024, i))
+    }
+
+    const memory = index.memoryUsage()
+    const fullSize = 10000 * 1024 * 4 // Full float32
+
+    // Binary: 128 bytes per vector (1024 bits) + ID overhead
+    // vs 4096 bytes = 32x compression (minus overhead)
+    const compressionRatio = fullSize / memory
+    expect(compressionRatio).toBeGreaterThan(20) // At least 20x accounting for overhead
+  })
+})
+
+// ============================================================================
+// QUANTIZER FACTORY (To be implemented)
+// ============================================================================
+
+describe('Quantizer Factory', () => {
+  it('creates quantizer by name', async () => {
+    const { createQuantizer } = await import('../quantization')
+
+    const pq = createQuantizer('pq', {
+      dimensions: 64,
+      numSubvectors: 8,
+      numCentroids: 256,
+    })
+
+    expect(pq).toBeDefined()
+    expect(pq.numSubvectors()).toBe(8)
+  })
+
+  it('creates binary quantizer by name', async () => {
+    const { createQuantizer } = await import('../quantization')
+
+    const bq = createQuantizer('binary', { dimensions: 64 })
+
+    expect(bq).toBeDefined()
+    const binary = bq.binarize(randomVector(64))
+    expect(binary).toBeInstanceOf(Uint8Array)
+  })
+
+  it('creates scalar quantizer by name', async () => {
+    const { createQuantizer } = await import('../quantization')
+
+    const sq = createQuantizer('scalar', { dimensions: 64, bits: 8 })
+
+    expect(sq).toBeDefined()
+    const quantized = sq.quantize(randomVector(64))
+    expect(quantized).toBeInstanceOf(Int8Array)
+  })
+
+  it('throws for unknown quantizer type', async () => {
+    const { createQuantizer } = await import('../quantization')
+
+    expect(() => createQuantizer('unknown' as any, { dimensions: 64 })).toThrow(
+      /unknown quantizer type/i
+    )
+  })
+})
