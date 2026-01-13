@@ -431,6 +431,27 @@ class SyncTestDO extends DO {
   getUsersForSync() {
     return Array.from(this._users.values())
   }
+
+  // Override to accept any token for testing (bypasses auth for functional tests)
+  protected override async validateSyncAuthToken(token: string): Promise<{ user: { id: string; email?: string; role?: string } } | null> {
+    // Accept any non-empty token for testing
+    if (!token) return null
+    return { user: { id: 'test-user' } }
+  }
+}
+
+/**
+ * Create WebSocket upgrade headers with auth token
+ * @param token - Optional auth token (defaults to 'test-token')
+ */
+function createSyncWebSocketHeaders(token: string = 'test-token'): Record<string, string> {
+  return {
+    'Upgrade': 'websocket',
+    'Connection': 'Upgrade',
+    'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+    'Sec-WebSocket-Version': '13',
+    'Sec-WebSocket-Protocol': `capnp-rpc, bearer.${token}`,
+  }
 }
 
 // ============================================================================
@@ -455,14 +476,9 @@ describe('DO /sync WebSocket Route', () => {
 
   describe('WebSocket Upgrade', () => {
     it('upgrades to WebSocket on /sync path', async () => {
-      // RED: DO doesn't have /sync endpoint yet
+      // GREEN: DO has /sync endpoint with auth
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -505,12 +521,7 @@ describe('DO /sync WebSocket Route', () => {
     it('accepts subscribe message', async () => {
       // RED: DO doesn't handle subscribe messages on /sync yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -542,12 +553,7 @@ describe('DO /sync WebSocket Route', () => {
     it('sends initial data on subscribe', async () => {
       // RED: DO doesn't send initial data on subscribe yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -579,12 +585,7 @@ describe('DO /sync WebSocket Route', () => {
     it('supports branch filter on subscribe', async () => {
       // RED: DO doesn't support branch filter on subscribe yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -613,12 +614,7 @@ describe('DO /sync WebSocket Route', () => {
     it('supports query options on subscribe', async () => {
       // RED: DO doesn't support query options on subscribe yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -657,12 +653,7 @@ describe('DO /sync WebSocket Route', () => {
     it('accepts unsubscribe message', async () => {
       // RED: DO doesn't handle unsubscribe messages on /sync yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -689,12 +680,7 @@ describe('DO /sync WebSocket Route', () => {
     it('stops receiving changes after unsubscribe', async () => {
       // RED: DO doesn't stop changes after unsubscribe yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -741,12 +727,7 @@ describe('DO /sync WebSocket Route', () => {
     it('handles multiple collections per connection', async () => {
       // RED: DO doesn't handle multiple collections per connection yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -790,12 +771,7 @@ describe('DO /sync WebSocket Route', () => {
     it('can unsubscribe from one collection while staying subscribed to others', async () => {
       // RED: DO doesn't handle selective unsubscribe yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -839,12 +815,7 @@ describe('DO /sync WebSocket Route', () => {
     it('cleans up on connection close', async () => {
       // RED: DO doesn't clean up on connection close yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -881,12 +852,7 @@ describe('DO /sync WebSocket Route', () => {
     it('removes all subscriptions when connection closes', async () => {
       // RED: DO doesn't remove subscriptions on close yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -939,12 +905,7 @@ describe('DO /sync WebSocket Route', () => {
     it('handles invalid JSON in messages gracefully', async () => {
       // RED: DO doesn't handle invalid JSON gracefully yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -965,12 +926,7 @@ describe('DO /sync WebSocket Route', () => {
     it('handles unknown message types gracefully', async () => {
       // RED: DO doesn't handle unknown message types yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -992,12 +948,7 @@ describe('DO /sync WebSocket Route', () => {
     it('handles subscribe to non-existent collection gracefully', async () => {
       // RED: DO doesn't handle non-existent collections yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)
@@ -1039,12 +990,7 @@ describe('DO /sync WebSocket Route', () => {
     it('syncEngine tracks active connections', async () => {
       // RED: DO syncEngine doesn't track connections yet
       const request1 = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response1 = await doInstance.fetch(request1)
@@ -1059,12 +1005,7 @@ describe('DO /sync WebSocket Route', () => {
 
       // Create second connection
       const request2 = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response2 = await doInstance.fetch(request2)
@@ -1079,12 +1020,7 @@ describe('DO /sync WebSocket Route', () => {
     it('syncEngine broadcasts changes to subscribed clients', async () => {
       // RED: DO syncEngine doesn't broadcast changes yet
       const request = new Request('http://test/sync', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
+        headers: createSyncWebSocketHeaders(),
       })
 
       const response = await doInstance.fetch(request)

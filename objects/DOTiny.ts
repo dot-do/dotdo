@@ -39,10 +39,49 @@ import * as schema from '../db/schema-minimal'
 // Import unified CloudflareEnv from types/CloudflareBindings
 import type { CloudflareEnv } from '../types/CloudflareBindings'
 
+// Import UserContext from types
+import type { UserContext } from '../types/WorkflowContext'
+
+// Re-export UserContext for consumers
+export type { UserContext }
+
 /**
  * Env - Re-export of CloudflareEnv for backward compatibility
  */
 export type Env = CloudflareEnv
+
+// ============================================================================
+// USER CONTEXT EXTRACTION
+// ============================================================================
+
+/**
+ * Extract user context from X-User-* headers in a request.
+ * This is typically used by Durable Objects to get the authenticated user
+ * set by the RPC auth middleware.
+ *
+ * @param req The incoming request
+ * @returns UserContext if X-User-ID is present, null otherwise
+ */
+export function extractUserFromRequest(req: Request): UserContext | null {
+  const id = req.headers.get('X-User-ID')
+  if (!id) {
+    return null
+  }
+
+  const user: UserContext = { id }
+
+  const email = req.headers.get('X-User-Email')
+  if (email) {
+    user.email = email
+  }
+
+  const role = req.headers.get('X-User-Role')
+  if (role) {
+    user.role = role
+  }
+
+  return user
+}
 
 // ============================================================================
 // DOTiny - Minimal Durable Object
@@ -142,6 +181,32 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
   protected currentBranch: string = 'main'
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // USER CONTEXT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Current authenticated user context.
+   * Extracted from X-User-* headers on each incoming request.
+   * Set by the RPC auth middleware before forwarding to the DO.
+   *
+   * - `null` if the request is unauthenticated (no X-User-ID header)
+   * - Contains `id`, optional `email`, and optional `role`
+   *
+   * @example
+   * ```typescript
+   * async fetch(request: Request) {
+   *   // user is automatically extracted from headers
+   *   if (this.user) {
+   *     console.log(`Request from: ${this.user.id}`)
+   *   } else {
+   *     console.log('Unauthenticated request')
+   *   }
+   * }
+   * ```
+   */
+  user: UserContext | null = null
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // STORAGE
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -226,9 +291,12 @@ export class DO<E extends Env = Env> extends DurableObject<E> {
 
   /**
    * Handle incoming HTTP requests.
-   * Delegates to handleFetch which can be overridden by subclasses.
+   * Extracts user context from X-User-* headers before delegating to handleFetch.
    */
   async fetch(request: Request): Promise<Response> {
+    // Extract user from X-User-* headers (set by RPC auth middleware)
+    this.user = extractUserFromRequest(request)
+
     return this.handleFetch(request)
   }
 

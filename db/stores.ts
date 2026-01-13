@@ -426,7 +426,23 @@ export interface StoreContext {
 // THINGS STORE
 // ============================================================================
 
+/**
+ * Mutation callback type for ThingsStore.
+ * Called after successful create, update, or delete operations.
+ */
+export type ThingsMutationCallback = (
+  type: 'insert' | 'update' | 'delete',
+  thing: ThingEntity,
+  rowid: number
+) => void
+
 export class ThingsStore {
+  /**
+   * Callback invoked after mutations (create, update, delete).
+   * Set this to wire up real-time sync broadcasts via SyncEngine.
+   */
+  onMutation?: ThingsMutationCallback
+
   constructor(private ctx: StoreContext) {}
 
   private async getTypeId(typeName: string): Promise<number> {
@@ -830,7 +846,8 @@ export class ThingsStore {
         context: { id, branch },
       })
     }
-    return created ?? {
+
+    const result = created ?? {
       $id: id,
       $type: typeName,
       name: data.name ?? null,
@@ -838,6 +855,21 @@ export class ThingsStore {
       branch: branch === 'main' ? null : branch,
       deleted: false,
     }
+
+    // Notify mutation callback for real-time sync
+    if (this.onMutation && created) {
+      try {
+        this.onMutation('insert', created, created.version ?? 0)
+      } catch (error) {
+        logBestEffortError(error, {
+          operation: 'onMutation',
+          source: 'ThingStore.create',
+          context: { id, typeName },
+        })
+      }
+    }
+
+    return result
   }
 
   async update(id: string, data: Partial<ThingEntity>, options: ThingsUpdateOptions = {}): Promise<ThingEntity> {
@@ -869,6 +901,20 @@ export class ThingsStore {
 
     // Get the updated record
     const updated = await this.get(id, { branch })
+
+    // Notify mutation callback for real-time sync
+    if (this.onMutation && updated) {
+      try {
+        this.onMutation('update', updated, updated.version ?? 0)
+      } catch (error) {
+        logBestEffortError(error, {
+          operation: 'onMutation',
+          source: 'ThingStore.update',
+          context: { id },
+        })
+      }
+    }
+
     return updated!
   }
 
@@ -881,11 +927,15 @@ export class ThingsStore {
       throw new Error(`Thing '${id}' not found`)
     }
 
+    let newVersion: number | undefined
+
     if (options.hard) {
       // Hard delete - remove all versions
       await this.ctx.db
         .delete(schema.things)
         .where(eq(schema.things.id, id))
+      // Use previous version for hard delete since row is gone
+      newVersion = current.version
     } else {
       // Soft delete - insert new version with deleted=true
       await this.ctx.db.insert(schema.things).values({
@@ -896,10 +946,27 @@ export class ThingsStore {
         data: current.data,
         deleted: true,
       })
+      // Get the new version
+      const deleted = await this.get(id, { branch, includeDeleted: true })
+      newVersion = deleted?.version
     }
 
-    // Return the deleted thing
-    return { ...current, deleted: true }
+    const result = { ...current, deleted: true, version: newVersion }
+
+    // Notify mutation callback for real-time sync
+    if (this.onMutation) {
+      try {
+        this.onMutation('delete', result, newVersion ?? 0)
+      } catch (error) {
+        logBestEffortError(error, {
+          operation: 'onMutation',
+          source: 'ThingStore.delete',
+          context: { id },
+        })
+      }
+    }
+
+    return result
   }
 
   async versions(id: string): Promise<ThingEntity[]> {

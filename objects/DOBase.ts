@@ -122,6 +122,9 @@ import type { DOLocation } from '../types/Location'
 import type { ColoCode, ColoCity, Region, CFLocationHint } from '../types/Location'
 import { codeToCity, coloRegion, regionToCF } from '../types/Location'
 import { LocationCache, LOCATION_STORAGE_KEY } from '../lib/colo/caching'
+import { extractStorageClaims } from '../lib/auth/jwt-storage-claims'
+import { AuthorizedR2Client, type R2Bucket } from '../lib/storage/authorized-r2'
+import { IcebergStateAdapter } from './persistence/iceberg-state'
 
 // Re-export Env type for consumers
 export type { Env }
@@ -536,6 +539,14 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   protected _scheduleHandlers: Map<string, ScheduleHandler> = new Map()
   private _scheduleManager?: ScheduleManager
 
+  // Iceberg state persistence
+  private _snapshotSequence: number = 0
+  private _r2Client?: AuthorizedR2Client
+  private _icebergAdapter?: IcebergStateAdapter
+
+  // Lifecycle event listeners (for stateLoaded, checkpointed, etc.)
+  private _lifecycleListeners: Map<string, Array<(data: unknown) => void>> = new Map()
+
   /**
    * Get the schedule manager (lazy initialized)
    */
@@ -838,7 +849,7 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
 
     // List of known properties for hasOwnProperty checks
     const knownProperties = new Set([
-      'send', 'try', 'do', 'on', 'every', 'log', 'state', 'location',
+      'send', 'try', 'do', 'on', 'every', 'log', 'state', 'location', 'user',
       'ai', 'write', 'summarize', 'list', 'extract', 'is', 'decide',
     ])
 
@@ -868,6 +879,10 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
           // Location access (lazy, returns Promise)
           case 'location':
             return self.getLocation()
+
+          // User context (from X-User-* headers)
+          case 'user':
+            return self.user
 
           // AI Functions - Generation
           case 'ai':
@@ -1385,6 +1400,244 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
    */
   protected async emit(verb: string, data?: unknown): Promise<void> {
     return this.emitEvent(verb, data)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIFECYCLE EVENT LISTENERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Register a listener for lifecycle events (stateLoaded, checkpointed, etc.)
+   * @param event - Event name (e.g., 'stateLoaded', 'checkpointed')
+   * @param callback - Callback function to invoke when event fires
+   */
+  on(event: string, callback: (data: unknown) => void): void {
+    const listeners = this._lifecycleListeners.get(event) ?? []
+    listeners.push(callback)
+    this._lifecycleListeners.set(event, listeners)
+  }
+
+  /**
+   * Emit a lifecycle event to registered listeners
+   * @param event - Event name
+   * @param data - Event data to pass to listeners
+   */
+  private emitLifecycleEvent(event: string, data: unknown): void {
+    const listeners = this._lifecycleListeners.get(event) ?? []
+    for (const listener of listeners) {
+      try {
+        listener(data)
+      } catch (error) {
+        console.error(`Lifecycle event listener error for '${event}':`, error)
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ICEBERG STATE PERSISTENCE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Load state from Iceberg snapshot on cold start.
+   * Uses JWT claims to determine R2 path.
+   * @param jwt - Optional JWT token (if not provided, will try to get from context)
+   */
+  async loadFromIceberg(jwt?: string): Promise<void> {
+    const token = jwt ?? this.getJwtFromContextInternal()
+    if (!token) {
+      console.warn('No JWT available, starting with empty state')
+      this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
+      return
+    }
+
+    // Get R2 bucket from env
+    const r2 = (this.env as Record<string, unknown>).R2 as {
+      list(options?: { prefix?: string }): Promise<{ objects: { key: string }[] }>
+      get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string>; json<T>(): Promise<T> } | null>
+    } | undefined
+
+    if (!r2) {
+      console.warn('No R2 bucket configured, starting with empty state')
+      this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
+      return
+    }
+
+    try {
+      // Extract storage claims from JWT (decode payload without verification for path construction)
+      const claims = this.decodeJwtClaimsInternal(token)
+      const orgId = claims.org_id as string
+      const tenantId = (claims.tenant_id as string) ?? orgId
+      const prefix = `orgs/${orgId}/tenants/${tenantId}/do/${this.ctx.id.toString()}/snapshots/`
+
+      // List snapshots
+      const result = await r2.list({ prefix })
+      const snapshots = result.objects.map((obj) => obj.key)
+
+      if (snapshots.length === 0) {
+        this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
+        return
+      }
+
+      // Sort by sequence number (embedded in filename as seq-N)
+      snapshots.sort((a, b) => {
+        const seqA = parseInt(a.match(/seq-(\d+)/)?.[1] ?? '0')
+        const seqB = parseInt(b.match(/seq-(\d+)/)?.[1] ?? '0')
+        return seqB - seqA // Descending order (latest first)
+      })
+
+      const snapshotPath = snapshots[0]
+
+      // Load snapshot data
+      const snapshotData = await r2.get(snapshotPath)
+      if (!snapshotData) {
+        this.emitLifecycleEvent('stateLoaded', { fromSnapshot: false })
+        return
+      }
+
+      // Parse and restore
+      const snapshotBuffer = await snapshotData.arrayBuffer()
+      const snapshotText = new TextDecoder().decode(snapshotBuffer)
+      const snapshot = JSON.parse(snapshotText)
+
+      // Create adapter and restore
+      const sqlInterface = (this.ctx.storage as { sql?: { exec(query: string, ...params: unknown[]): { toArray(): unknown[] } } }).sql
+      if (sqlInterface) {
+        this._icebergAdapter = new IcebergStateAdapter(sqlInterface)
+        await this._icebergAdapter.restoreFromSnapshot(snapshot)
+      }
+
+      this.emitLifecycleEvent('stateLoaded', { fromSnapshot: true, snapshotId: snapshotPath })
+    } catch (error) {
+      console.error('Failed to load from Iceberg:', error)
+      // Re-throw to allow caller to handle - tests expect errors to propagate
+      throw error
+    }
+  }
+
+  /**
+   * Decode JWT payload without signature verification.
+   * Used for extracting claims for path construction.
+   */
+  private decodeJwtClaimsInternal(jwt: string): Record<string, unknown> {
+    const parts = jwt.split('.')
+    if (parts.length !== 3) {
+      throw new Error('Invalid JWT format')
+    }
+    try {
+      // Base64url decode the payload (second part)
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+      const decoded = atob(padded)
+      return JSON.parse(decoded)
+    } catch {
+      throw new Error('Failed to decode JWT payload')
+    }
+  }
+
+  /**
+   * Get JWT from context or environment
+   * @returns JWT token string or null
+   */
+  private getJwtFromContextInternal(): string | null {
+    // Try various sources for JWT
+    return (this.ctx as { jwt?: string })?.jwt ?? (this.env as { JWT?: string })?.JWT ?? null
+  }
+
+  /**
+   * Save current state to Iceberg snapshot on R2.
+   * Creates metadata, manifests, and Parquet data files.
+   *
+   * @throws Error if no JWT is available for storage authorization
+   * @throws Error if R2 operations fail
+   */
+  async saveToIceberg(): Promise<void> {
+    const jwt = this.getJwtFromContextInternal()
+    if (!jwt) {
+      throw new Error('No JWT available for storage')
+    }
+
+    // Get R2 bucket from env
+    const r2 = (this.env as Record<string, unknown>).R2 as {
+      put(key: string, data: ArrayBuffer | string): Promise<void>
+    } | undefined
+
+    if (!r2) {
+      throw new Error('No R2 bucket configured')
+    }
+
+    // Initialize R2 client if needed
+    if (!this._r2Client) {
+      const claims = this.decodeJwtClaimsInternal(jwt)
+      const r2Claims = {
+        orgId: claims.org_id as string,
+        tenantId: (claims.tenant_id as string) ?? (claims.org_id as string),
+        bucket: 'default',
+        pathPrefix: '',
+      }
+      this._r2Client = new AuthorizedR2Client(r2Claims, r2 as R2Bucket)
+    }
+
+    // Initialize Iceberg adapter if needed
+    if (!this._icebergAdapter) {
+      // Get raw SQL interface from ctx.storage.sql
+      const sqlInterface = (this.ctx.storage as { sql?: { exec(query: string, ...params: unknown[]): { toArray(): unknown[] } } }).sql
+      if (!sqlInterface) {
+        throw new Error('SQL storage not available')
+      }
+      this._icebergAdapter = new IcebergStateAdapter(sqlInterface)
+    }
+
+    // Create snapshot
+    this._snapshotSequence++
+    const snapshot = await this._icebergAdapter.createSnapshot()
+    const snapshotId = `seq-${this._snapshotSequence}-${snapshot.id}`
+    const doId = this.ctx.id.toString()
+
+    // Write data files (Parquet)
+    for (const [table, data] of Object.entries(snapshot.tables)) {
+      await this._r2Client.putSnapshot(
+        doId,
+        snapshotId,
+        `data/${table}.parquet`,
+        data
+      )
+    }
+
+    // Write manifests
+    for (const manifest of snapshot.manifests) {
+      await this._r2Client.putSnapshot(
+        doId,
+        snapshotId,
+        `manifests/${manifest.manifest_path}`,
+        JSON.stringify(manifest)
+      )
+    }
+
+    // Write metadata.json with Iceberg format
+    const metadataWithTimestamp = {
+      ...snapshot.metadata,
+      snapshots: snapshot.metadata.snapshots.map((s: { snapshot_id: number; manifest_list: string }) => ({
+        ...s,
+        'timestamp-ms': Date.now(),
+      })),
+    }
+    await this._r2Client.putSnapshot(
+      doId,
+      snapshotId,
+      'metadata.json',
+      JSON.stringify(metadataWithTimestamp)
+    )
+
+    // Update latest pointer
+    await this._r2Client.putSnapshot(
+      doId,
+      'snapshots',
+      'latest',
+      snapshotId
+    )
+
+    // Emit lifecycle event
+    this.emitLifecycleEvent('checkpointed', { snapshotId, sequence: this._snapshotSequence })
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2470,17 +2723,80 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // SYNC WEBSOCKET AUTH
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Extract bearer token from Sec-WebSocket-Protocol header.
+   * Format: "capnp-rpc, bearer.{token}" or "bearer.{token}, capnp-rpc"
+   *
+   * @param protocols - The Sec-WebSocket-Protocol header value
+   * @returns The extracted token or null if not found
+   */
+  protected extractBearerTokenFromProtocol(protocols: string | null): string | null {
+    if (!protocols) {
+      return null
+    }
+
+    const protocolList = protocols.split(',').map((p) => p.trim())
+    const bearerProtocol = protocolList.find((p) => p.startsWith('bearer.'))
+
+    if (!bearerProtocol) {
+      return null
+    }
+
+    const token = bearerProtocol.slice(7) // Remove 'bearer.' prefix
+    return token || null // Return null for empty tokens
+  }
+
+  /**
+   * Validate a sync auth token and return user context.
+   * Override this method in subclasses to implement custom validation.
+   *
+   * By default, this method requires a token but does not validate it.
+   * Production implementations should:
+   * - Verify JWT tokens with a secret/JWKS
+   * - Validate session tokens against a database
+   * - Return user context from the validated token
+   *
+   * @param token - The bearer token to validate
+   * @returns Promise resolving to { user: UserContext } on success, null on failure
+   */
+  protected async validateSyncAuthToken(token: string): Promise<{ user: import('../types/WorkflowContext').UserContext } | null> {
+    // Default implementation: require a token but don't validate it
+    // This is a stub that subclasses should override with real validation
+    // For now, accept any non-empty token (for development/testing)
+    if (!token) {
+      return null
+    }
+
+    // In production, this should validate the token and extract user info
+    // For now, return a default user context
+    return {
+      user: {
+        id: 'anonymous',
+        // email and role would be extracted from the validated token
+      },
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // SYNC WEBSOCKET HANDLER
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
    * Handle WebSocket sync requests for TanStack DB integration.
-   * Returns 426 Upgrade Required for non-WebSocket requests.
+   * Requires authentication via Sec-WebSocket-Protocol: "capnp-rpc, bearer.{token}"
+   *
+   * Returns:
+   * - 426 Upgrade Required for non-WebSocket requests
+   * - 401 Unauthorized for missing or invalid auth token
+   * - 101 Switching Protocols for successful WebSocket upgrade
    *
    * @param request - The incoming HTTP request
-   * @returns Response (101 for WebSocket upgrade, 426 for non-WebSocket)
+   * @returns Response (101 for WebSocket upgrade, 401 for auth failure, 426 for non-WebSocket)
    */
-  protected handleSyncWebSocket(request: Request): Response {
+  protected async handleSyncWebSocket(request: Request): Promise<Response> {
     // Check for WebSocket upgrade
     const upgradeHeader = request.headers.get('upgrade')
 
@@ -2494,6 +2810,33 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
       )
     }
 
+    // Extract token from Sec-WebSocket-Protocol: "capnp-rpc, bearer.{token}"
+    const protocols = request.headers.get('Sec-WebSocket-Protocol')
+    const token = this.extractBearerTokenFromProtocol(protocols)
+
+    if (!token) {
+      return Response.json(
+        { error: 'Missing auth token. Use Sec-WebSocket-Protocol: capnp-rpc, bearer.{token}' },
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Validate the token
+    let session: { user: import('../types/WorkflowContext').UserContext } | null = null
+    try {
+      session = await this.validateSyncAuthToken(token)
+    } catch {
+      // Token validation threw an error
+      session = null
+    }
+
+    if (!session) {
+      return Response.json(
+        { error: 'Invalid auth token' },
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Create WebSocket pair
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
@@ -2501,13 +2844,16 @@ export class DO<E extends Env = Env> extends DOTiny<E> {
     // Accept the server side
     server!.accept()
 
-    // Register with sync engine
-    this.syncEngine.accept(server!)
+    // Register with sync engine (pass user context for future use)
+    this.syncEngine.accept(server!, session.user)
 
-    // Return the client side to the caller
+    // Return the client side to the caller with accepted protocol header
     return new Response(null, {
       status: 101,
       webSocket: client,
+      headers: {
+        'Sec-WebSocket-Protocol': 'capnp-rpc',
+      },
     })
   }
 

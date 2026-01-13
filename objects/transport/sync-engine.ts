@@ -17,6 +17,7 @@
  */
 
 import type { ThingsStore, ThingEntity } from '../../db/stores'
+import type { UserContext } from '../../types/WorkflowContext'
 
 // ============================================================================
 // TYPES
@@ -98,6 +99,7 @@ interface Subscription {
 interface ConnectionState {
   socket: WebSocket
   subscriptions: Map<string, Subscription>
+  user?: UserContext
 }
 
 // ============================================================================
@@ -115,11 +117,14 @@ export class SyncEngine {
 
   /**
    * Accept a new WebSocket connection
+   * @param socket - The WebSocket connection to accept
+   * @param user - Optional user context from authentication
    */
-  accept(socket: WebSocket): void {
+  accept(socket: WebSocket, user?: UserContext): void {
     const state: ConnectionState = {
       socket,
       subscriptions: new Map(),
+      user,
     }
     this.connections.set(socket, state)
 
@@ -285,6 +290,16 @@ export class SyncEngine {
   getSubscribers(collection: string, branch?: string | null): Set<WebSocket> {
     const subscriptionKey = this.getSubscriptionKey(collection, branch ?? null)
     return this.collectionSubscribers.get(subscriptionKey) ?? new Set()
+  }
+
+  /**
+   * Get the user context associated with a WebSocket connection
+   * @param socket - The WebSocket connection
+   * @returns The user context or null if not found
+   */
+  getConnectionUser(socket: WebSocket): UserContext | null {
+    const state = this.connections.get(socket)
+    return state?.user ?? null
   }
 
   // ============================================================================
