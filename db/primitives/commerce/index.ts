@@ -58,6 +58,26 @@ export {
 } from './cart'
 
 // =============================================================================
+// Cart Engine - Cart with session handling
+// =============================================================================
+
+export {
+  // Types
+  type Session,
+  type CartEngineOptions,
+  type AddToCartInput,
+  type CartWithReservations,
+  type MergeResult,
+  type LoginResult,
+
+  // Class
+  CartEngine,
+
+  // Factory
+  createCartEngine,
+} from './cart-engine'
+
+// =============================================================================
 // Orders - Order lifecycle management
 // =============================================================================
 

@@ -49,6 +49,13 @@ export {
   Bulk,
   Analytics,
   Metadata,
+  CustomObjectBuilder,
+} from './salesforce'
+
+export type {
+  CustomFieldType,
+  CustomFieldOptions,
+  CustomFieldDefinition,
 } from './salesforce'
 
 // =============================================================================
@@ -97,6 +104,113 @@ export type {
   WorkflowEngineConfig,
   ActionHandler,
 } from './workflows'
+
+// =============================================================================
+// Standard Objects
+// =============================================================================
+
+export {
+  // Type guards
+  isAccount,
+  isContact,
+  isLead,
+  isOpportunity,
+  isCase,
+  isTask,
+  isEvent,
+  isCampaign,
+  isUser,
+} from './objects'
+
+export type {
+  // Standard object interfaces
+  StandardObject,
+  Account,
+  Contact,
+  Lead,
+  Opportunity,
+  Case,
+  Task,
+  Event,
+  Campaign,
+  CampaignMember,
+  Product2,
+  PricebookEntry,
+  OpportunityLineItem,
+  Contract,
+  User,
+  Asset,
+  ContentDocument,
+  Note,
+  Attachment,
+  RecordType,
+  Quote,
+  QuoteLineItem,
+  Order,
+  OrderItem,
+
+  // Picklist types
+  AccountType,
+  AccountRating,
+  Ownership,
+  CleanStatus,
+  GeocodeAccuracy,
+  Salutation,
+  LeadStatus,
+  LeadRating,
+  LeadSource,
+  Industry,
+  OpportunityStage,
+  OpportunityType,
+  ForecastCategory,
+  CaseStatus,
+  CasePriority,
+  CaseOrigin,
+  CaseType,
+  CaseReason,
+  TaskStatus,
+  TaskPriority,
+  TaskType,
+  TaskSubtype,
+  CallType,
+  RecurrenceType,
+  RecurrenceInstance,
+  RecurrenceMonth,
+  EventType,
+  ShowAs,
+  EventSubtype,
+  GroupEventType,
+  CampaignType,
+  CampaignStatus,
+  CampaignMemberStatus,
+  ProductFamily,
+  ContractStatus,
+  ContractStatusCode,
+  OwnerExpirationNotice,
+  UserType,
+  DigestFrequency,
+  GroupNotificationFrequency,
+  AssetStatus,
+  ContentPublishStatus,
+  ContentSharingOption,
+  ContentSharingPrivacy,
+  QuoteStatus,
+  OrderStatus,
+  OrderStatusCode,
+  OrderType,
+
+  // Create input types
+  AccountCreateInput,
+  ContactCreateInput,
+  LeadCreateInput,
+  OpportunityCreateInput,
+  CaseCreateInput,
+  TaskCreateInput,
+  EventCreateInput,
+  CampaignCreateInput,
+  QuoteCreateInput,
+  OrderCreateInput,
+} from './objects'
 
 // =============================================================================
 // Types

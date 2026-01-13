@@ -54,10 +54,28 @@ export interface DAGRun {
   completedAt?: Date
 }
 
+/** Task template for parameter substitution */
+export interface TaskTemplate<T = unknown, P = unknown> {
+  id: string | ((params: P) => string)
+  execute: (ctx?: TaskContext, params?: P) => Promise<T>
+  dependencies: string[] | ((params: P) => string[])
+  retryPolicy?: RetryPolicy
+  timeout?: number
+  metadata?: Record<string, unknown> | ((params: P) => Record<string, unknown>)
+}
+
 /** Dynamic task generator configuration */
-export interface DynamicTaskGenerator {
-  expand: (parentOutput: unknown) => TaskNode[]
+export interface DynamicTaskGenerator<T = unknown> {
+  expand: (parentOutput: unknown, context?: TaskContext) => TaskNode[] | Promise<TaskNode[]>
   maxExpansion?: number
+  /** Allow nested dynamic expansion (generated tasks can also have dynamic generators) */
+  allowNested?: boolean
+}
+
+/** Dynamic dependency resolver */
+export interface DynamicDependencyResolver {
+  /** Resolve dependencies at runtime based on context */
+  resolve: (context: TaskContext) => string[] | Promise<string[]>
 }
 
 /** Task node definition */
@@ -68,8 +86,14 @@ export interface TaskNode<T = unknown> {
   retryPolicy?: RetryPolicy
   timeout?: number
   metadata?: Record<string, unknown>
-  dynamic?: DynamicTaskGenerator
+  dynamic?: DynamicTaskGenerator<T>
   collectDynamic?: boolean
+  /** Dynamic dependency resolver for runtime dependency computation */
+  dynamicDependencies?: DynamicDependencyResolver
+  /** Parent task ID if this was dynamically generated */
+  expandedFrom?: string
+  /** Template parameters used for this task instance */
+  templateParams?: unknown
 }
 
 /** Options for creating a task node */
@@ -80,8 +104,11 @@ export interface TaskNodeOptions<T = unknown> {
   retryPolicy?: RetryPolicy
   timeout?: number
   metadata?: Record<string, unknown>
-  dynamic?: DynamicTaskGenerator
+  dynamic?: DynamicTaskGenerator<T>
   collectDynamic?: boolean
+  dynamicDependencies?: DynamicDependencyResolver
+  expandedFrom?: string
+  templateParams?: unknown
 }
 
 /** External dependency on another DAG */
@@ -429,7 +456,45 @@ export function createTaskNode<T = unknown>(options: TaskNodeOptions<T>): TaskNo
     metadata: options.metadata,
     dynamic: options.dynamic,
     collectDynamic: options.collectDynamic,
+    dynamicDependencies: options.dynamicDependencies,
+    expandedFrom: options.expandedFrom,
+    templateParams: options.templateParams,
   }
+}
+
+// ============================================================================
+// TASK TEMPLATE FACTORY
+// ============================================================================
+
+/** Create a task from a template with parameters */
+export function createTaskFromTemplate<T = unknown, P = unknown>(
+  template: TaskTemplate<T, P>,
+  params: P
+): TaskNode<T> {
+  const id = typeof template.id === 'function' ? template.id(params) : template.id
+  const dependencies = typeof template.dependencies === 'function'
+    ? template.dependencies(params)
+    : template.dependencies
+  const metadata = typeof template.metadata === 'function'
+    ? template.metadata(params)
+    : template.metadata
+
+  return createTaskNode({
+    id,
+    execute: (ctx) => template.execute(ctx, params),
+    dependencies,
+    retryPolicy: template.retryPolicy,
+    timeout: template.timeout,
+    metadata,
+    templateParams: params,
+  })
+}
+
+/** Create a task template */
+export function createTaskTemplate<T = unknown, P = unknown>(
+  template: TaskTemplate<T, P>
+): TaskTemplate<T, P> {
+  return template
 }
 
 // ============================================================================
@@ -846,7 +911,8 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
                 ? upstreamResults[task.dependencies[0]!]
                 : result.output
 
-              let expandedTasks = task.dynamic.expand(upstreamOutput)
+              // Support async expand functions
+              let expandedTasks = await Promise.resolve(task.dynamic.expand(upstreamOutput, context))
 
               // Apply max expansion limit
               if (task.dynamic.maxExpansion) {
@@ -855,10 +921,22 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
 
               const expandedResults: unknown[] = []
 
+              // Mark expanded tasks with their parent
               for (const expandedTask of expandedTasks) {
-                dynamicTasks.set(expandedTask.id, expandedTask)
-                run.taskResults.set(expandedTask.id, {
-                  taskId: expandedTask.id,
+                // Add expandedFrom to track origin
+                const markedTask = {
+                  ...expandedTask,
+                  expandedFrom: task.id,
+                }
+
+                // Strip dynamic generator from nested tasks unless allowNested is true
+                if (!task.dynamic.allowNested && markedTask.dynamic) {
+                  delete markedTask.dynamic
+                }
+
+                dynamicTasks.set(markedTask.id, markedTask)
+                run.taskResults.set(markedTask.id, {
+                  taskId: markedTask.id,
                   status: 'pending',
                   attempts: 0,
                 })
@@ -868,20 +946,85 @@ export function createParallelExecutor(defaultOptions?: ExecutorOptions): Parall
               dynamicResults.set(task.id, expandedResults)
 
               // Execute dynamic tasks and collect results
-              for (const expandedTask of expandedTasks) {
-                const dynResult = await executeTask(
-                  expandedTask,
-                  { runId, dagId: dag.id },
-                  mergedOptions
+              // Handle nested dynamic expansion recursively
+              const executeExpandedTask = async (expandedTask: TaskNode): Promise<void> => {
+                // Resolve dynamic dependencies if present
+                let resolvedDeps = expandedTask.dependencies
+                if (expandedTask.dynamicDependencies) {
+                  const dynamicCtx: TaskContext = {
+                    runId,
+                    dagId: dag.id,
+                    upstreamResults: {},
+                  }
+                  resolvedDeps = await Promise.resolve(expandedTask.dynamicDependencies.resolve(dynamicCtx))
+                }
+
+                // Wait for dynamic dependencies to complete
+                const depsComplete = resolvedDeps.every(
+                  (dep) => completed.has(dep) || dynamicResults.has(dep)
                 )
+                if (!depsComplete) {
+                  // Re-add to dynamic tasks for later processing
+                  return
+                }
+
+                const taskContext: TaskContext = {
+                  runId,
+                  dagId: dag.id,
+                  upstreamResults: {},
+                }
+
+                // Gather upstream results for expanded task
+                for (const dep of resolvedDeps) {
+                  const depResult = run.taskResults.get(dep)
+                  if (depResult?.status === 'success') {
+                    taskContext.upstreamResults![dep] = depResult.output
+                  }
+                }
+
+                const dynResult = await executeTask(expandedTask, taskContext, mergedOptions)
                 run.taskResults.set(expandedTask.id, dynResult)
 
                 if (dynResult.status === 'success') {
                   completed.add(expandedTask.id)
                   expandedResults.push(dynResult.output)
+
+                  // Handle nested dynamic expansion if allowNested is true
+                  if (task.dynamic?.allowNested && expandedTask.dynamic) {
+                    const nestedOutput = dynResult.output
+                    let nestedTasks = await Promise.resolve(
+                      expandedTask.dynamic.expand(nestedOutput, taskContext)
+                    )
+
+                    if (expandedTask.dynamic.maxExpansion) {
+                      nestedTasks = nestedTasks.slice(0, expandedTask.dynamic.maxExpansion)
+                    }
+
+                    for (const nestedTask of nestedTasks) {
+                      const markedNested = {
+                        ...nestedTask,
+                        expandedFrom: expandedTask.id,
+                      }
+                      dynamicTasks.set(markedNested.id, markedNested)
+                      run.taskResults.set(markedNested.id, {
+                        taskId: markedNested.id,
+                        status: 'pending',
+                        attempts: 0,
+                      })
+                    }
+
+                    // Execute nested tasks
+                    for (const nestedTask of nestedTasks) {
+                      await executeExpandedTask(nestedTask)
+                    }
+                  }
                 } else {
                   failed.add(expandedTask.id)
                 }
+              }
+
+              for (const expandedTask of expandedTasks) {
+                await executeExpandedTask(dynamicTasks.get(expandedTask.id) || expandedTask)
               }
             }
           } else if (result.status === 'failed') {

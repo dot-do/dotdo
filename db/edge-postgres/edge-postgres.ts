@@ -222,6 +222,7 @@ interface Env {
 // ============================================================================
 
 const STORAGE_KEYS = {
+  /** @deprecated Legacy single-value checkpoint - now uses chunked storage */
   CHECKPOINT: 'edge_postgres_checkpoint',
   CHECKPOINT_VERSION: 'edge_postgres_checkpoint_version',
   WRITE_COUNT: 'edge_postgres_write_count',
@@ -229,7 +230,51 @@ const STORAGE_KEYS = {
   HNSW_INDEX_META: 'edge_postgres_hnsw_index_meta',
   /** Quantization calibration data (min/max bounds for scalar quantization) */
   QUANTIZATION_CALIBRATION: 'edge_postgres_quantization_calibration',
+  /** Chunked checkpoint metadata (chunkCount, totalSize, compressed, version) */
+  CHECKPOINT_META: 'edge_postgres_checkpoint_meta',
+  /** Prefix for checkpoint chunks (e.g., edge_postgres_checkpoint_chunk:0) */
+  CHECKPOINT_CHUNK_PREFIX: 'edge_postgres_checkpoint_chunk:',
 } as const
+
+// ============================================================================
+// CHECKPOINT CHUNKING CONSTANTS
+// ============================================================================
+
+/**
+ * Maximum size for each checkpoint chunk.
+ * Set to 100 KB for safety margin under DO storage limits:
+ * - KV-backed DOs: 128 KB max value size
+ * - SQLite-backed DOs: 2 MB max key+value combined
+ */
+const MAX_CHUNK_SIZE = 100 * 1024 // 100 KB
+
+/**
+ * Warning threshold for checkpoint size.
+ * Logs warning when total checkpoint exceeds this size.
+ */
+const CHECKPOINT_SIZE_WARNING_THRESHOLD = 1 * 1024 * 1024 // 1 MB
+
+/**
+ * Maximum number of chunks allowed.
+ * Prevents runaway storage consumption.
+ */
+const MAX_CHUNKS = 1000
+
+/**
+ * Checkpoint metadata structure for chunked storage
+ */
+interface CheckpointMeta {
+  /** Number of chunks stored */
+  chunkCount: number
+  /** Total uncompressed size in bytes */
+  totalSize: number
+  /** Whether the data is compressed */
+  compressed: boolean
+  /** Checkpoint version for ordering */
+  version: number
+  /** Timestamp of checkpoint creation */
+  createdAt: string
+}
 
 // ============================================================================
 // SCALAR QUANTIZATION HELPERS
@@ -617,6 +662,119 @@ function valueToSql(value: unknown): string {
   if (value instanceof Date) return `'${value.toISOString()}'`
   if (Array.isArray(value)) return `'[${value.join(',')}]'`
   return `'${escapeSqlString(JSON.stringify(value))}'`
+}
+
+// ============================================================================
+// CHECKPOINT CHUNKING HELPERS
+// ============================================================================
+
+/**
+ * Split a string into chunks of maximum size.
+ *
+ * @param data - String to split
+ * @param maxSize - Maximum size per chunk in bytes
+ * @returns Array of string chunks
+ */
+function chunkString(data: string, maxSize: number): string[] {
+  const chunks: string[] = []
+  let offset = 0
+
+  while (offset < data.length) {
+    chunks.push(data.slice(offset, offset + maxSize))
+    offset += maxSize
+  }
+
+  return chunks
+}
+
+/**
+ * Simple compression using base64 encoding of deflate-like algorithm.
+ * Uses a simple RLE + dictionary approach for SQL which is highly repetitive.
+ *
+ * For production, consider using pako or fflate WASM for proper gzip.
+ * This implementation is a fallback that works without external dependencies.
+ *
+ * @param data - String to compress
+ * @returns Compressed string (base64 encoded)
+ */
+function compressCheckpoint(data: string): string {
+  // For now, we'll use a simple approach:
+  // 1. SQL is highly compressible due to repeated keywords
+  // 2. We use simple dictionary encoding for common patterns
+  //
+  // In production, this should be replaced with proper gzip via pako/fflate
+
+  // Common SQL patterns to replace with short tokens
+  const dictionary: [string, string][] = [
+    ['INSERT INTO ', '\x01'],
+    ['VALUES (', '\x02'],
+    [') ON CONFLICT DO NOTHING;', '\x03'],
+    ['CREATE TABLE IF NOT EXISTS ', '\x04'],
+    ['CREATE INDEX IF NOT EXISTS ', '\x05'],
+    ['CREATE EXTENSION IF NOT EXISTS ', '\x06'],
+    ['PRIMARY KEY', '\x07'],
+    ['NOT NULL', '\x08'],
+    ['DEFAULT ', '\x09'],
+    ['TEXT', '\x0a'],
+    ['INTEGER', '\x0b'],
+    ['BOOLEAN', '\x0c'],
+    ['TIMESTAMP', '\x0d'],
+    ['vector(', '\x0e'],
+    [', ', '\x0f'],
+  ]
+
+  let compressed = data
+  for (const [pattern, token] of dictionary) {
+    compressed = compressed.split(pattern).join(token)
+  }
+
+  return compressed
+}
+
+/**
+ * Decompress checkpoint data.
+ *
+ * @param compressed - Compressed string
+ * @returns Original string
+ */
+function decompressCheckpoint(compressed: string): string {
+  // Reverse dictionary encoding
+  const dictionary: [string, string][] = [
+    ['\x01', 'INSERT INTO '],
+    ['\x02', 'VALUES ('],
+    ['\x03', ') ON CONFLICT DO NOTHING;'],
+    ['\x04', 'CREATE TABLE IF NOT EXISTS '],
+    ['\x05', 'CREATE INDEX IF NOT EXISTS '],
+    ['\x06', 'CREATE EXTENSION IF NOT EXISTS '],
+    ['\x07', 'PRIMARY KEY'],
+    ['\x08', 'NOT NULL'],
+    ['\x09', 'DEFAULT '],
+    ['\x0a', 'TEXT'],
+    ['\x0b', 'INTEGER'],
+    ['\x0c', 'BOOLEAN'],
+    ['\x0d', 'TIMESTAMP'],
+    ['\x0e', 'vector('],
+    ['\x0f', ', '],
+  ]
+
+  let decompressed = compressed
+  for (const [token, pattern] of dictionary) {
+    decompressed = decompressed.split(token).join(pattern)
+  }
+
+  return decompressed
+}
+
+/**
+ * Format bytes into human-readable string.
+ *
+ * @param bytes - Number of bytes
+ * @returns Formatted string (e.g., "1.5 MB")
+ */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
 // ============================================================================

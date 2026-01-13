@@ -749,8 +749,8 @@ export function deserializeArray<S, T = S>(
 // TUPLE TYPE
 // =============================================================================
 
-type TupleSerializers = (Serializer<any, any>)[]
-type TupleDeserializers = (Deserializer<any, any>)[]
+type TupleSerializers = (Serializer<unknown, unknown>)[]
+type TupleDeserializers = (Deserializer<unknown, unknown>)[]
 
 export function serializeTuple(
   value: unknown[],

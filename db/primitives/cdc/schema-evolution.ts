@@ -796,12 +796,18 @@ export class SchemaTransformer {
       const targetSchema = await this.registry.getSchema(table, targetVersion)
       const history = await this.registry.getSchemaHistory(table)
 
-      // Determine source version
-      const sourceVersion = event.schema?.version ?? history[0]?.version ?? 1
+      // Determine source version - either explicit or detected from event fields
+      let sourceVersion = event.schema?.version
+      if (!sourceVersion) {
+        // Detect version by finding the best matching schema based on fields
+        sourceVersion = this.detectSchemaVersion(event, history)
+      }
       const sourceSchema = await this.registry.getSchema(table, sourceVersion)
 
       if (sourceVersion === targetVersion) {
-        return { success: true, event, transformations: [] }
+        // Still project to ensure only schema fields are included
+        const projected = this.projectToSchema(event, targetSchema)
+        return { success: true, event: projected, transformations: [] }
       }
 
       // Get schemas in between
@@ -836,6 +842,53 @@ export class SchemaTransformer {
   }
 
   /**
+   * Detect schema version from event fields
+   */
+  private detectSchemaVersion<T>(event: ChangeEvent<T>, history: SchemaVersion[]): number {
+    const record = event.after ?? event.before
+    if (!record) {
+      return history[0]?.version ?? 1
+    }
+
+    const eventFields = new Set(Object.keys(record as Record<string, unknown>))
+
+    // Find the schema version that best matches the event fields
+    // We look for the schema where all event fields exist, preferring the latest version
+    let bestMatch = history[0]?.version ?? 1
+    let bestScore = -1
+
+    for (const schema of history) {
+      const schemaFields = new Set(schema.fields.map((f) => f.name))
+
+      // Count how many event fields exist in schema
+      let matchScore = 0
+      let hasAllRequired = true
+
+      for (const field of eventFields) {
+        if (schemaFields.has(field)) {
+          matchScore++
+        }
+      }
+
+      // Check if schema has all required fields from event
+      for (const field of schema.fields) {
+        if (field.required && !eventFields.has(field.name)) {
+          hasAllRequired = false
+          break
+        }
+      }
+
+      // Prefer schemas where all event fields match and all required fields are present
+      if (hasAllRequired && matchScore > bestScore) {
+        bestScore = matchScore
+        bestMatch = schema.version
+      }
+    }
+
+    return bestMatch
+  }
+
+  /**
    * Get schemas in range
    */
   private getSchemasInRange(
@@ -858,10 +911,47 @@ export class SchemaTransformer {
     schema: SchemaVersion,
     transformations: string[]
   ): Promise<ChangeEvent<T>> {
+    // Get the previous schema to detect implicit renames
+    const previousVersion = schema.version - 1
+    let previousSchema: SchemaVersion | null = null
+    try {
+      previousSchema = await this.registry.getSchema(event.table, previousVersion)
+    } catch {
+      // Previous schema not found, continue without rename detection
+    }
+
     const transformRecord = (record: T | null): T | null => {
       if (record === null) return null
 
       const result = { ...(record as Record<string, unknown>) }
+
+      // Detect and apply implicit renames (field in old schema but not in new, field in new but not in old)
+      if (previousSchema) {
+        const prevFieldNames = new Set(previousSchema.fields.map((f) => f.name))
+        const currFieldNames = new Set(schema.fields.map((f) => f.name))
+
+        // Fields removed from previous schema
+        const removedFields = [...prevFieldNames].filter((f) => !currFieldNames.has(f))
+        // Fields added to current schema
+        const addedFields = [...currFieldNames].filter((f) => !prevFieldNames.has(f))
+
+        // If there's exactly one removed and one added of the same type, it's likely a rename
+        if (removedFields.length === 1 && addedFields.length === 1) {
+          const removedField = previousSchema.fields.find((f) => f.name === removedFields[0])
+          const addedField = schema.fields.find((f) => f.name === addedFields[0])
+
+          if (
+            removedField &&
+            addedField &&
+            removedField.type === addedField.type &&
+            removedFields[0] in result
+          ) {
+            result[addedFields[0]] = result[removedFields[0]]
+            delete result[removedFields[0]]
+            transformations.push(`Renamed ${removedFields[0]} to ${addedFields[0]}`)
+          }
+        }
+      }
 
       // Add new fields with defaults
       for (const field of schema.fields) {
@@ -876,6 +966,21 @@ export class SchemaTransformer {
         }
       }
 
+      // Detect and apply implicit type changes
+      if (previousSchema) {
+        for (const currField of schema.fields) {
+          const prevField = previousSchema.fields.find((f) => f.name === currField.name)
+          if (prevField && prevField.type !== currField.type && currField.name in result) {
+            // Type changed - need to coerce
+            const oldValue = result[currField.name]
+            result[currField.name] = this.coerceValue(oldValue, prevField.type, currField.type)
+            transformations.push(
+              `Auto-coerced ${currField.name} from ${prevField.type} to ${currField.type}`
+            )
+          }
+        }
+      }
+
       // Apply migrations
       if (schema.migrations) {
         for (const migration of schema.migrations) {
@@ -885,20 +990,14 @@ export class SchemaTransformer {
           } else if (migration.from && migration.to) {
             if (migration.column in result) {
               const oldValue = result[migration.column]
-              try {
-                result[migration.column] = this.coerceValue(
-                  oldValue,
-                  migration.from,
-                  migration.to
-                )
-                transformations.push(
-                  `Coerced ${migration.column} from ${migration.from} to ${migration.to}`
-                )
-              } catch (error) {
-                throw new Error(
-                  `Cannot coerce ${migration.column} from ${migration.from} to ${migration.to}: ${oldValue}`
-                )
-              }
+              result[migration.column] = this.coerceValue(
+                oldValue,
+                migration.from,
+                migration.to
+              )
+              transformations.push(
+                `Coerced ${migration.column} from ${migration.from} to ${migration.to}`
+              )
             }
           } else if (migration.rename) {
             if (migration.column in result) {
@@ -1022,14 +1121,14 @@ export class SchemaTransformer {
         case 'integer': {
           const parsed = parseInt(value, 10)
           if (isNaN(parsed)) {
-            throw new Error(`Cannot parse "${value}" as integer`)
+            throw new Error(`Cannot coerce "${value}" from string to integer`)
           }
           return parsed
         }
         case 'float': {
           const parsed = parseFloat(value)
           if (isNaN(parsed)) {
-            throw new Error(`Cannot parse "${value}" as float`)
+            throw new Error(`Cannot coerce "${value}" from string to float`)
           }
           return parsed
         }

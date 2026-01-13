@@ -247,22 +247,46 @@ export interface SyncClientConfig {
 
 /**
  * ThingsCollection - Collection with sync methods
+ *
+ * All mutation methods (create, update, delete) return rowid for txid tracking
+ * in the sync protocol. The rowid is a monotonically increasing counter that
+ * serves as the transaction ID for ordering sync messages.
  */
 export interface ThingsCollection<T extends SyncItem> {
   /**
-   * Insert a new item
+   * Get a single item by ID
    */
-  insert(item: T): Promise<T>
+  get(id: string): Promise<T | null>
 
   /**
-   * Update an existing item
+   * List all items in the collection
    */
-  update(id: string, changes: Partial<T>): Promise<T>
+  list(): Promise<T[]>
 
   /**
-   * Delete an item
+   * Find items matching a query
    */
-  delete(id: string): Promise<void>
+  find(query: Record<string, unknown>): Promise<T[]>
+
+  /**
+   * Create a new item (returns item with rowid for sync txid)
+   */
+  create(data: Partial<T>): Promise<T & { rowid: number }>
+
+  /**
+   * Insert a new item (alias for create, returns item with rowid)
+   */
+  insert(item: T): Promise<T & { rowid: number }>
+
+  /**
+   * Update an existing item (returns updated item with rowid for sync txid)
+   */
+  update(id: string, changes: Partial<T>): Promise<T & { rowid: number }>
+
+  /**
+   * Delete an item (returns rowid for sync txid)
+   */
+  delete(id: string): Promise<{ rowid: number }>
 
   /**
    * Query items with optional filter
@@ -692,7 +716,56 @@ export function createThingsCollection<T extends SyncItem>(
   }
 
   const collection: ThingsCollection<T> = {
-    async insert(item: T): Promise<T> {
+    async get(id: string): Promise<T | null> {
+      if (!store.get) {
+        // Fallback: filter from list
+        const items = await store.list({ type: name, branch: branch ?? undefined }) as T[]
+        return items.find(item => item.$id === id) ?? null
+      }
+      return store.get(id) as Promise<T | null>
+    },
+
+    async list(): Promise<T[]> {
+      return store.list({ type: name, branch: branch ?? undefined }) as Promise<T[]>
+    },
+
+    async find(query: Record<string, unknown>): Promise<T[]> {
+      const items = await store.list({ type: name, branch: branch ?? undefined }) as T[]
+
+      if (!query || Object.keys(query).length === 0) return items
+
+      return items.filter((item) => {
+        for (const [key, value] of Object.entries(query)) {
+          const itemValue = key.includes('.')
+            ? key.split('.').reduce((obj: Record<string, unknown>, k) => (obj as Record<string, unknown>)?.[k] as Record<string, unknown>, item as unknown as Record<string, unknown>)
+            : (item as Record<string, unknown>)[key]
+          if (itemValue !== value) return false
+        }
+        return true
+      })
+    },
+
+    async create(data: Partial<T>): Promise<T & { rowid: number }> {
+      const result = await store.create!({
+        ...data,
+        $type: (data as SyncItem).$type || name,
+      })
+
+      const change: Change = {
+        type: 'insert',
+        collection: name,
+        key: result.item.$id,
+        data: result.item,
+        txid: result.rowid,
+        branch: branch ?? null,
+      }
+      syncEngine.broadcast(name, change, branch ?? null)
+
+      await notifySubscribers()
+      return { ...result.item, rowid: result.rowid } as T & { rowid: number }
+    },
+
+    async insert(item: T): Promise<T & { rowid: number }> {
       const result = await store.create!({
         ...item,
         $type: item.$type || name,
@@ -709,10 +782,10 @@ export function createThingsCollection<T extends SyncItem>(
       syncEngine.broadcast(name, change, branch ?? null)
 
       await notifySubscribers()
-      return result.item as T
+      return { ...result.item, rowid: result.rowid } as T & { rowid: number }
     },
 
-    async update(id: string, changes: Partial<T>): Promise<T> {
+    async update(id: string, changes: Partial<T>): Promise<T & { rowid: number }> {
       const result = await store.update!(id, changes)
 
       const change: Change = {
@@ -726,10 +799,10 @@ export function createThingsCollection<T extends SyncItem>(
       syncEngine.broadcast(name, change, branch ?? null)
 
       await notifySubscribers()
-      return result.item as T
+      return { ...result.item, rowid: result.rowid } as T & { rowid: number }
     },
 
-    async delete(id: string): Promise<void> {
+    async delete(id: string): Promise<{ rowid: number }> {
       const result = await store.delete!(id)
 
       const change: Change = {
@@ -742,6 +815,7 @@ export function createThingsCollection<T extends SyncItem>(
       syncEngine.broadcast(name, change, branch ?? null)
 
       await notifySubscribers()
+      return { rowid: result.rowid }
     },
 
     async query(filter?: Filter<T>): Promise<T[]> {
@@ -762,13 +836,17 @@ export function createThingsCollection<T extends SyncItem>(
     },
 
     subscribe(callback: SubscriptionCallback<T>): () => void {
+      let active = true
       subscribers.add(callback)
       // Immediately call with current items
       store.list({ type: name, branch: branch ?? undefined }).then((items) => {
-        callback(items as T[])
+        if (active) {
+          callback(items as T[])
+        }
       })
 
       return () => {
+        active = false
         subscribers.delete(callback)
       }
     },

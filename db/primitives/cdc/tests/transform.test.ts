@@ -600,4 +600,636 @@ describe('Transform', () => {
       expect(stats.filteredCount).toBe(1)
     })
   })
+
+  // ============================================================================
+  // FILTER CHAIN - Composable Predicates
+  // ============================================================================
+
+  describe('FilterChain', () => {
+    it('should combine multiple filters with AND logic', async () => {
+      const { createFilterChain } = await import('../transform')
+
+      const chain = createFilterChain<SourceRecord>()
+        .and((e) => e.after!.email.includes('@example.com'))
+        .and((e) => e.after!.firstName.startsWith('J'))
+
+      const input1 = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const input2 = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com', createdAt: Date.now() },
+      })
+      const input3 = createChange<SourceRecord>({
+        after: { id: '3', firstName: 'Jane', lastName: 'Doe', email: 'jane@other.com', createdAt: Date.now() },
+      })
+
+      expect(await chain.test(input1)).toBe(true)
+      expect(await chain.test(input2)).toBe(false) // name doesn't start with J
+      expect(await chain.test(input3)).toBe(false) // email not @example.com
+    })
+
+    it('should combine filters with OR logic', async () => {
+      const { createFilterChain } = await import('../transform')
+
+      const chain = createFilterChain<SourceRecord>()
+        .or((e) => e.after!.id === '1')
+        .or((e) => e.after!.id === '3')
+
+      const input1 = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const input2 = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com', createdAt: Date.now() },
+      })
+      const input3 = createChange<SourceRecord>({
+        after: { id: '3', firstName: 'Jane', lastName: 'Doe', email: 'jane@other.com', createdAt: Date.now() },
+      })
+
+      expect(await chain.test(input1)).toBe(true)
+      expect(await chain.test(input2)).toBe(false)
+      expect(await chain.test(input3)).toBe(true)
+    })
+
+    it('should negate filters with NOT', async () => {
+      const { createFilterChain } = await import('../transform')
+
+      const chain = createFilterChain<SourceRecord>()
+        .not((e) => e.after!.email.includes('@spam.com'))
+
+      const input1 = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const input2 = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Spam', lastName: 'Bot', email: 'spam@spam.com', createdAt: Date.now() },
+      })
+
+      expect(await chain.test(input1)).toBe(true)
+      expect(await chain.test(input2)).toBe(false)
+    })
+
+    it('should support complex boolean expressions', async () => {
+      const { createFilterChain } = await import('../transform')
+
+      // (isVIP OR isAdmin) AND NOT isBanned
+      const chain = createFilterChain<SourceRecord>()
+        .group((g) => g
+          .or((e) => e.after!.metadata?.vip === true)
+          .or((e) => e.after!.metadata?.admin === true)
+        )
+        .not((e) => e.after!.metadata?.banned === true)
+
+      const vipUser = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'VIP', lastName: 'User', email: 'vip@example.com', createdAt: Date.now(), metadata: { vip: true } },
+      })
+      const adminUser = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Admin', lastName: 'User', email: 'admin@example.com', createdAt: Date.now(), metadata: { admin: true } },
+      })
+      const bannedVip = createChange<SourceRecord>({
+        after: { id: '3', firstName: 'Banned', lastName: 'VIP', email: 'banned@example.com', createdAt: Date.now(), metadata: { vip: true, banned: true } },
+      })
+      const regularUser = createChange<SourceRecord>({
+        after: { id: '4', firstName: 'Regular', lastName: 'User', email: 'regular@example.com', createdAt: Date.now() },
+      })
+
+      expect(await chain.test(vipUser)).toBe(true)
+      expect(await chain.test(adminUser)).toBe(true)
+      expect(await chain.test(bannedVip)).toBe(false)
+      expect(await chain.test(regularUser)).toBe(false)
+    })
+
+    it('should convert FilterChain to Transformer', async () => {
+      const { createFilterChain } = await import('../transform')
+
+      const chain = createFilterChain<SourceRecord>()
+        .and((e) => e.after!.id === '1')
+
+      const transformer = chain.toTransformer()
+
+      const input1 = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const input2 = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', createdAt: Date.now() },
+      })
+
+      expect(await transformer.transform(input1)).not.toBeNull()
+      expect(await transformer.transform(input2)).toBeNull()
+    })
+  })
+
+  // ============================================================================
+  // OPERATION TYPE FILTER
+  // ============================================================================
+
+  describe('filterByOperation', () => {
+    it('should filter by INSERT operation', async () => {
+      const { filterByOperation } = await import('../transform')
+
+      const transformer = filterByOperation<SourceRecord>(['INSERT'])
+
+      const insertEvent = createChange<SourceRecord>({
+        type: ChangeType.INSERT,
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const updateEvent: ChangeEvent<SourceRecord> = {
+        ...insertEvent,
+        type: ChangeType.UPDATE,
+        before: insertEvent.after,
+      }
+      const deleteEvent: ChangeEvent<SourceRecord> = {
+        ...insertEvent,
+        type: ChangeType.DELETE,
+        after: null,
+        before: insertEvent.after,
+      }
+
+      expect(await transformer.transform(insertEvent)).not.toBeNull()
+      expect(await transformer.transform(updateEvent)).toBeNull()
+      expect(await transformer.transform(deleteEvent)).toBeNull()
+    })
+
+    it('should filter by multiple operation types', async () => {
+      const { filterByOperation } = await import('../transform')
+
+      const transformer = filterByOperation<SourceRecord>(['INSERT', 'DELETE'])
+
+      const insertEvent = createChange<SourceRecord>({
+        type: ChangeType.INSERT,
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const updateEvent: ChangeEvent<SourceRecord> = {
+        ...insertEvent,
+        type: ChangeType.UPDATE,
+        before: insertEvent.after,
+      }
+      const deleteEvent: ChangeEvent<SourceRecord> = {
+        ...insertEvent,
+        type: ChangeType.DELETE,
+        after: null,
+        before: insertEvent.after,
+      }
+
+      expect(await transformer.transform(insertEvent)).not.toBeNull()
+      expect(await transformer.transform(updateEvent)).toBeNull()
+      expect(await transformer.transform(deleteEvent)).not.toBeNull()
+    })
+  })
+
+  // ============================================================================
+  // TABLE/COLUMN PATTERN FILTER
+  // ============================================================================
+
+  describe('filterByTable', () => {
+    it('should filter by exact table name', async () => {
+      const { filterByTable } = await import('../transform')
+
+      const transformer = filterByTable<SourceRecord>(['users', 'orders'])
+
+      const usersEvent = createChange<SourceRecord>({
+        table: 'users',
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const ordersEvent = createChange<SourceRecord>({
+        table: 'orders',
+        after: { id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', createdAt: Date.now() },
+      })
+      const productsEvent = createChange<SourceRecord>({
+        table: 'products',
+        after: { id: '3', firstName: 'Bob', lastName: 'Smith', email: 'bob@example.com', createdAt: Date.now() },
+      })
+
+      expect(await transformer.transform(usersEvent)).not.toBeNull()
+      expect(await transformer.transform(ordersEvent)).not.toBeNull()
+      expect(await transformer.transform(productsEvent)).toBeNull()
+    })
+
+    it('should filter by table pattern with glob', async () => {
+      const { filterByTable } = await import('../transform')
+
+      const transformer = filterByTable<SourceRecord>(['user*', 'audit_*'])
+
+      const usersEvent = createChange<SourceRecord>({
+        table: 'users',
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const userProfilesEvent = createChange<SourceRecord>({
+        table: 'user_profiles',
+        after: { id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', createdAt: Date.now() },
+      })
+      const auditLogsEvent = createChange<SourceRecord>({
+        table: 'audit_logs',
+        after: { id: '3', firstName: 'Bob', lastName: 'Smith', email: 'bob@example.com', createdAt: Date.now() },
+      })
+      const ordersEvent = createChange<SourceRecord>({
+        table: 'orders',
+        after: { id: '4', firstName: 'Alice', lastName: 'Johnson', email: 'alice@example.com', createdAt: Date.now() },
+      })
+
+      expect(await transformer.transform(usersEvent)).not.toBeNull()
+      expect(await transformer.transform(userProfilesEvent)).not.toBeNull()
+      expect(await transformer.transform(auditLogsEvent)).not.toBeNull()
+      expect(await transformer.transform(ordersEvent)).toBeNull()
+    })
+
+    it('should exclude tables by pattern', async () => {
+      const { filterByTable } = await import('../transform')
+
+      const transformer = filterByTable<SourceRecord>({ exclude: ['_temp_*', 'log_*'] })
+
+      const usersEvent = createChange<SourceRecord>({
+        table: 'users',
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const tempEvent = createChange<SourceRecord>({
+        table: '_temp_staging',
+        after: { id: '2', firstName: 'Temp', lastName: 'Data', email: 'temp@example.com', createdAt: Date.now() },
+      })
+      const logsEvent = createChange<SourceRecord>({
+        table: 'log_access',
+        after: { id: '3', firstName: 'Log', lastName: 'Entry', email: 'log@example.com', createdAt: Date.now() },
+      })
+
+      expect(await transformer.transform(usersEvent)).not.toBeNull()
+      expect(await transformer.transform(tempEvent)).toBeNull()
+      expect(await transformer.transform(logsEvent)).toBeNull()
+    })
+  })
+
+  describe('filterByColumn', () => {
+    it('should filter when specific column is changed', async () => {
+      const { filterByColumn } = await import('../transform')
+
+      const transformer = filterByColumn<SourceRecord>(['email', 'lastName'])
+
+      const emailChangedEvent: ChangeEvent<SourceRecord> = {
+        eventId: 'evt-1',
+        type: ChangeType.UPDATE,
+        before: { id: '1', firstName: 'John', lastName: 'Doe', email: 'old@example.com', createdAt: Date.now() },
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'new@example.com', createdAt: Date.now() },
+        timestamp: Date.now(),
+        position: { sequence: 1, timestamp: Date.now() },
+        isBackfill: false,
+      }
+      const firstNameChangedEvent: ChangeEvent<SourceRecord> = {
+        eventId: 'evt-2',
+        type: ChangeType.UPDATE,
+        before: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+        after: { id: '1', firstName: 'Johnny', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+        timestamp: Date.now(),
+        position: { sequence: 2, timestamp: Date.now() },
+        isBackfill: false,
+      }
+
+      expect(await transformer.transform(emailChangedEvent)).not.toBeNull()
+      expect(await transformer.transform(firstNameChangedEvent)).toBeNull()
+    })
+
+    it('should pass INSERT and DELETE events regardless of column filter', async () => {
+      const { filterByColumn } = await import('../transform')
+
+      const transformer = filterByColumn<SourceRecord>(['email'])
+
+      const insertEvent = createChange<SourceRecord>({
+        type: ChangeType.INSERT,
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const deleteEvent: ChangeEvent<SourceRecord> = {
+        eventId: 'evt-2',
+        type: ChangeType.DELETE,
+        before: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+        after: null,
+        timestamp: Date.now(),
+        position: { sequence: 2, timestamp: Date.now() },
+        isBackfill: false,
+      }
+
+      expect(await transformer.transform(insertEvent)).not.toBeNull()
+      expect(await transformer.transform(deleteEvent)).not.toBeNull()
+    })
+  })
+
+  // ============================================================================
+  // FIELD TRANSFORMATIONS
+  // ============================================================================
+
+  describe('rename', () => {
+    it('should rename fields', async () => {
+      const { rename } = await import('../transform')
+
+      const transformer = rename<SourceRecord, { userId: string; name: string; mail: string }>({
+        id: 'userId',
+        firstName: 'name',
+        email: 'mail',
+      })
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.userId).toBe('1')
+      expect(output!.after!.name).toBe('John')
+      expect(output!.after!.mail).toBe('john@example.com')
+      expect((output!.after as any).id).toBeUndefined()
+    })
+
+    it('should preserve fields not in rename map', async () => {
+      const { rename } = await import('../transform')
+
+      const transformer = rename<SourceRecord, SourceRecord & { userId: string }>({
+        id: 'userId',
+      }, { preserveOthers: true })
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.userId).toBe('1')
+      expect(output!.after!.firstName).toBe('John')
+      expect(output!.after!.email).toBe('john@example.com')
+    })
+  })
+
+  describe('mask', () => {
+    it('should mask field values for PII protection', async () => {
+      const { mask } = await import('../transform')
+
+      const transformer = mask<SourceRecord>(['email'], {
+        maskFn: (value) => String(value).replace(/(.{2}).*(@.*)/, '$1***$2'),
+      })
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.email).toBe('jo***@example.com')
+      expect(output!.after!.firstName).toBe('John') // Not masked
+    })
+
+    it('should use default masking strategy', async () => {
+      const { mask } = await import('../transform')
+
+      const transformer = mask<SourceRecord>(['email', 'lastName'])
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.email).toBe('****')
+      expect(output!.after!.lastName).toBe('****')
+      expect(output!.after!.firstName).toBe('John')
+    })
+
+    it('should mask nested fields', async () => {
+      const { mask } = await import('../transform')
+
+      interface NestedRecord {
+        id: string
+        profile: {
+          ssn: string
+          name: string
+        }
+      }
+
+      const transformer = mask<NestedRecord>(['profile.ssn'])
+
+      const input = createChange<NestedRecord>({
+        after: {
+          id: '1',
+          profile: {
+            ssn: '123-45-6789',
+            name: 'John Doe',
+          },
+        },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.profile.ssn).toBe('****')
+      expect(output!.after!.profile.name).toBe('John Doe')
+    })
+  })
+
+  describe('derive', () => {
+    it('should compute derived fields from existing fields', async () => {
+      const { derive } = await import('../transform')
+
+      interface DerivedRecord extends SourceRecord {
+        fullName: string
+        emailDomain: string
+      }
+
+      const transformer = derive<SourceRecord, DerivedRecord>({
+        fullName: (r) => `${r.firstName} ${r.lastName}`,
+        emailDomain: (r) => r.email.split('@')[1] || '',
+      })
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.fullName).toBe('John Doe')
+      expect(output!.after!.emailDomain).toBe('example.com')
+      expect(output!.after!.firstName).toBe('John') // Original preserved
+    })
+
+    it('should support async derivation functions', async () => {
+      const { derive } = await import('../transform')
+
+      interface DerivedRecord extends SourceRecord {
+        enrichedData: string
+      }
+
+      const transformer = derive<SourceRecord, DerivedRecord>({
+        enrichedData: async (r) => {
+          await delay(5)
+          return `enriched-${r.id}`
+        },
+      })
+
+      const input = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+
+      const output = await transformer.transform(input)
+      expect(output!.after!.enrichedData).toBe('enriched-1')
+    })
+
+    it('should handle derivation with conditional logic', async () => {
+      const { derive } = await import('../transform')
+
+      interface DerivedRecord extends SourceRecord {
+        status: string
+      }
+
+      const transformer = derive<SourceRecord, DerivedRecord>({
+        status: (r) => r.email.endsWith('@vip.com') ? 'VIP' : 'Standard',
+      })
+
+      const vipInput = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'VIP', lastName: 'User', email: 'vip@vip.com', createdAt: Date.now() },
+      })
+      const standardInput = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Standard', lastName: 'User', email: 'user@example.com', createdAt: Date.now() },
+      })
+
+      expect((await transformer.transform(vipInput))!.after!.status).toBe('VIP')
+      expect((await transformer.transform(standardInput))!.after!.status).toBe('Standard')
+    })
+  })
+
+  // ============================================================================
+  // CONDITIONAL FILTERING WITH PREDICATES
+  // ============================================================================
+
+  describe('conditional filtering', () => {
+    it('should filter based on field value predicates', async () => {
+      const { where } = await import('../transform')
+
+      const transformer = where<SourceRecord>({
+        field: 'email',
+        operator: 'contains',
+        value: '@example.com',
+      })
+
+      const matchingEvent = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const nonMatchingEvent = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@other.com', createdAt: Date.now() },
+      })
+
+      expect(await transformer.transform(matchingEvent)).not.toBeNull()
+      expect(await transformer.transform(nonMatchingEvent)).toBeNull()
+    })
+
+    it('should support multiple operators', async () => {
+      const { where } = await import('../transform')
+
+      // Test 'equals' operator
+      const equalsTransformer = where<SourceRecord>({
+        field: 'id',
+        operator: 'equals',
+        value: '1',
+      })
+
+      // Test 'gt' operator
+      const gtTransformer = where<SourceRecord>({
+        field: 'createdAt',
+        operator: 'gt',
+        value: 1000,
+      })
+
+      // Test 'regex' operator
+      const regexTransformer = where<SourceRecord>({
+        field: 'email',
+        operator: 'regex',
+        value: '^[a-z]+@example\\.com$',
+      })
+
+      const event = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'john', lastName: 'Doe', email: 'john@example.com', createdAt: 2000 },
+      })
+
+      expect(await equalsTransformer.transform(event)).not.toBeNull()
+      expect(await gtTransformer.transform(event)).not.toBeNull()
+      expect(await regexTransformer.transform(event)).not.toBeNull()
+    })
+
+    it('should combine multiple where conditions', async () => {
+      const { whereAll, whereAny } = await import('../transform')
+
+      const allTransformer = whereAll<SourceRecord>([
+        { field: 'email', operator: 'contains', value: '@example.com' },
+        { field: 'firstName', operator: 'equals', value: 'John' },
+      ])
+
+      const anyTransformer = whereAny<SourceRecord>([
+        { field: 'id', operator: 'equals', value: '1' },
+        { field: 'id', operator: 'equals', value: '2' },
+      ])
+
+      const matchAllEvent = createChange<SourceRecord>({
+        after: { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+      })
+      const matchOneEvent = createChange<SourceRecord>({
+        after: { id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@other.com', createdAt: Date.now() },
+      })
+      const matchNoneEvent = createChange<SourceRecord>({
+        after: { id: '3', firstName: 'Bob', lastName: 'Smith', email: 'bob@other.com', createdAt: Date.now() },
+      })
+
+      expect(await allTransformer.transform(matchAllEvent)).not.toBeNull()
+      expect(await allTransformer.transform(matchOneEvent)).toBeNull()
+
+      expect(await anyTransformer.transform(matchAllEvent)).not.toBeNull()
+      expect(await anyTransformer.transform(matchOneEvent)).not.toBeNull()
+      expect(await anyTransformer.transform(matchNoneEvent)).toBeNull()
+    })
+  })
+
+  // ============================================================================
+  // INTEGRATION WITH CDCSTREAM
+  // ============================================================================
+
+  describe('CDCStream integration', () => {
+    it('should apply FilterChain to CDCStream', async () => {
+      const { createFilterChain } = await import('../transform')
+      const { createCDCStream, ChangeType: CT } = await import('../stream')
+
+      const events: ChangeEvent<SourceRecord>[] = []
+
+      const chain = createFilterChain<SourceRecord>()
+        .and((e) => e.after!.email.includes('@example.com'))
+        .and((e) => e.type === CT.INSERT)
+
+      const stream = createCDCStream<SourceRecord>({
+        filter: (e) => chain.testSync(e),
+        onChange: async (e) => events.push(e),
+      })
+
+      await stream.insert({ id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() })
+      await stream.insert({ id: '2', firstName: 'Jane', lastName: 'Doe', email: 'jane@other.com', createdAt: Date.now() })
+      await stream.update(
+        { id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() },
+        { id: '1', firstName: 'Johnny', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() }
+      )
+      await stream.flush()
+
+      expect(events).toHaveLength(1)
+      expect(events[0]!.after!.firstName).toBe('John')
+    })
+
+    it('should apply TransformPipeline with mask and derive to CDCStream', async () => {
+      const { createTransformPipeline, mask, derive } = await import('../transform')
+      const { createCDCStream } = await import('../stream')
+
+      interface OutputRecord extends SourceRecord {
+        fullName: string
+      }
+
+      const events: ChangeEvent<OutputRecord>[] = []
+
+      const pipeline = createTransformPipeline<SourceRecord, OutputRecord>()
+        .pipe(mask(['email']))
+        .pipe(derive({
+          fullName: (r) => `${r.firstName} ${r.lastName}`,
+        }))
+
+      const stream = createCDCStream<SourceRecord, OutputRecord>({
+        transform: (e) => pipeline.transformSync(e),
+        onChange: async (e) => events.push(e),
+      })
+
+      await stream.insert({ id: '1', firstName: 'John', lastName: 'Doe', email: 'john@example.com', createdAt: Date.now() })
+      await stream.flush()
+
+      expect(events).toHaveLength(1)
+      expect(events[0]!.after!.email).toBe('****')
+      expect(events[0]!.after!.fullName).toBe('John Doe')
+    })
+  })
 })

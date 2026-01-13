@@ -1,9 +1,8 @@
 /**
  * Multi-dimensional Query Tests
  *
- * RED phase: These tests define the expected behavior of multi-dimensional
- * event queries. Tests should FAIL until the enhanced query capabilities
- * are fully implemented.
+ * GREEN phase: Implementation tests for EventRepository with compound indexes.
+ * These tests verify multi-dimensional query support for 5W+H event queries.
  *
  * Multi-dimensional queries allow filtering events by:
  * - What (object type/id)
@@ -67,7 +66,7 @@ describe('Multi-dimensional Query - What (Object Type/ID)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events by exact object ID', async () => {
+  it('should query events by exact object ID', async () => {
     // Create test events
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
@@ -99,7 +98,7 @@ describe('Multi-dimensional Query - What (Object Type/ID)', () => {
     expect(result.items.map((e) => e.id)).not.toContain(event2.id)
   })
 
-  it.fails('should query events by object type prefix (wildcard)', async () => {
+  it('should query events by object type prefix (wildcard)', async () => {
     // Create events for different object types
     const customerEvent = new ObjectEvent({
       what: [CUSTOMER_1],
@@ -127,7 +126,7 @@ describe('Multi-dimensional Query - What (Object Type/ID)', () => {
     expect(result.items[0]?.id).toBe(customerEvent.id)
   })
 
-  it.fails('should query events by multiple object IDs (OR logic)', async () => {
+  it('should query events by multiple object IDs (OR logic)', async () => {
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -199,7 +198,7 @@ describe('Multi-dimensional Query - When (Time Range)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events within a time range', async () => {
+  it('should query events within a time range', async () => {
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-01T10:00:00Z'),
@@ -230,7 +229,7 @@ describe('Multi-dimensional Query - When (Time Range)', () => {
     expect(result.items[0]?.id).toBe(event2.id)
   })
 
-  it.fails('should query events with open-ended time ranges', async () => {
+  it('should query events with open-ended time ranges', async () => {
     const event1 = new ObjectEvent({
       what: [CUSTOMER_1],
       when: new Date('2024-06-01T10:00:00Z'),
@@ -339,7 +338,7 @@ describe('Multi-dimensional Query - Where (Location/Context)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events by exact location', async () => {
+  it('should query events by exact location', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -361,7 +360,7 @@ describe('Multi-dimensional Query - Where (Location/Context)', () => {
     expect(result.items[0]?.id).toBe(event1.id)
   })
 
-  it.fails('should query events by multiple locations (OR logic)', async () => {
+  it('should query events by multiple locations (OR logic)', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -462,7 +461,7 @@ describe('Multi-dimensional Query - Why (Business Step)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events by exact business step', async () => {
+  it('should query events by exact business step', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -486,7 +485,7 @@ describe('Multi-dimensional Query - Why (Business Step)', () => {
     expect(result.items[0]?.id).toBe(event1.id)
   })
 
-  it.fails('should query events by multiple business steps', async () => {
+  it('should query events by multiple business steps', async () => {
     const event1 = new ObjectEvent({
       what: [ORDER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -568,7 +567,7 @@ describe('Multi-dimensional Query - Who (Parties Involved)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events by exact party', async () => {
+  it('should query events by exact party', async () => {
     const event1 = new ObjectEvent({
       what: [ORDER_1],
       when: new Date('2024-06-15T10:00:00Z'),
@@ -703,7 +702,7 @@ describe('Multi-dimensional Query - How (Method/Channel)', () => {
     repository = createInMemoryEventRepository()
   })
 
-  it.fails('should query events by disposition', async () => {
+  it('should query events by disposition', async () => {
     const event1 = new ObjectEvent({
       what: [PRODUCT_1],
       when: new Date('2024-06-15T10:00:00Z'),

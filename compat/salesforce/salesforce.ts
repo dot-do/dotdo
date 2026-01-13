@@ -977,6 +977,214 @@ export class Metadata {
 }
 
 // =============================================================================
+// Custom Object Builder
+// =============================================================================
+
+/**
+ * Field type options for custom objects
+ */
+export type CustomFieldType =
+  | 'string'
+  | 'textarea'
+  | 'boolean'
+  | 'int'
+  | 'double'
+  | 'currency'
+  | 'percent'
+  | 'date'
+  | 'datetime'
+  | 'time'
+  | 'phone'
+  | 'email'
+  | 'url'
+  | 'picklist'
+  | 'multipicklist'
+  | 'reference'
+
+/**
+ * Custom field definition options
+ */
+export interface CustomFieldOptions {
+  /** Field type */
+  type: CustomFieldType
+  /** Whether the field is required */
+  required?: boolean
+  /** Field length for string/text fields */
+  length?: number
+  /** Precision for numeric fields */
+  precision?: number
+  /** Scale for numeric fields */
+  scale?: number
+  /** Default value */
+  defaultValue?: unknown
+  /** Picklist values for picklist/multipicklist fields */
+  values?: string[]
+  /** Reference target object for lookup/master-detail fields */
+  referenceTo?: string
+  /** Relationship name for reference fields */
+  relationshipName?: string
+  /** Relationship type: 'lookup' or 'masterDetail' */
+  relationshipType?: 'lookup' | 'masterDetail'
+}
+
+/**
+ * Custom field definition with name
+ */
+export interface CustomFieldDefinition extends CustomFieldOptions {
+  /** Field API name (with __c suffix) */
+  name: string
+  /** Picklist values (populated from values option) */
+  picklistValues?: string[]
+}
+
+/**
+ * Builder class for defining custom Salesforce objects
+ *
+ * @example
+ * ```typescript
+ * const invoice = conn.customObject('Invoice__c')
+ *   .field('Amount__c', { type: 'currency', required: true })
+ *   .field('Status__c', { type: 'picklist', values: ['Draft', 'Sent', 'Paid'] })
+ *   .field('DueDate__c', { type: 'date' })
+ * ```
+ */
+export class CustomObjectBuilder {
+  /** Object API name */
+  readonly name: string
+  /** Custom field definitions */
+  readonly fields: CustomFieldDefinition[] = []
+  /** Reference to the connection */
+  private conn: Connection
+
+  constructor(conn: Connection, name: string) {
+    this.conn = conn
+    // Auto-append __c suffix if not provided
+    this.name = name.endsWith('__c') ? name : `${name}__c`
+  }
+
+  /**
+   * Define a custom field on the object
+   *
+   * @param fieldName - Field API name (auto-appends __c if not provided)
+   * @param options - Field type and configuration options
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * customObject.field('Amount__c', { type: 'currency', required: true })
+   * customObject.field('Status', { type: 'picklist', values: ['New', 'Active'] })
+   * ```
+   */
+  field(fieldName: string, options: CustomFieldOptions): this {
+    // Auto-append __c suffix if not provided
+    const name = fieldName.endsWith('__c') ? fieldName : `${fieldName}__c`
+
+    const fieldDef: CustomFieldDefinition = {
+      name,
+      ...options,
+    }
+
+    // Convert values to picklistValues for picklist types
+    if (options.values && (options.type === 'picklist' || options.type === 'multipicklist')) {
+      fieldDef.picklistValues = options.values
+    }
+
+    this.fields.push(fieldDef)
+    return this
+  }
+
+  /**
+   * Get an SObjectResource for CRUD operations on this custom object
+   */
+  sobject(): SObjectResource {
+    return this.conn.sobject(this.name)
+  }
+
+  /**
+   * Build a metadata definition for deployment
+   * This can be used with the Metadata API to create/update the custom object
+   */
+  toMetadata(): Record<string, unknown> {
+    return {
+      fullName: this.name,
+      label: this.name.replace('__c', ''),
+      pluralLabel: `${this.name.replace('__c', '')}s`,
+      deploymentStatus: 'Deployed',
+      sharingModel: 'ReadWrite',
+      fields: this.fields.map((field) => this.fieldToMetadata(field)),
+    }
+  }
+
+  private fieldToMetadata(field: CustomFieldDefinition): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {
+      fullName: field.name,
+      label: field.name.replace('__c', ''),
+      type: this.mapFieldType(field.type),
+    }
+
+    if (field.required) {
+      metadata.required = true
+    }
+    if (field.length !== undefined) {
+      metadata.length = field.length
+    }
+    if (field.precision !== undefined) {
+      metadata.precision = field.precision
+    }
+    if (field.scale !== undefined) {
+      metadata.scale = field.scale
+    }
+    if (field.defaultValue !== undefined) {
+      metadata.defaultValue = field.defaultValue
+    }
+    if (field.referenceTo) {
+      metadata.referenceTo = field.referenceTo
+      metadata.relationshipName = field.relationshipName || field.referenceTo.replace('__c', '')
+      if (field.relationshipType === 'masterDetail') {
+        metadata.type = 'MasterDetail'
+      } else {
+        metadata.type = 'Lookup'
+      }
+    }
+    if (field.picklistValues) {
+      metadata.valueSet = {
+        valueSetDefinition: {
+          value: field.picklistValues.map((v, i) => ({
+            fullName: v,
+            label: v,
+            default: i === 0 && field.defaultValue === undefined,
+          })),
+        },
+      }
+    }
+
+    return metadata
+  }
+
+  private mapFieldType(type: CustomFieldType): string {
+    const typeMap: Record<CustomFieldType, string> = {
+      string: 'Text',
+      textarea: 'LongTextArea',
+      boolean: 'Checkbox',
+      int: 'Number',
+      double: 'Number',
+      currency: 'Currency',
+      percent: 'Percent',
+      date: 'Date',
+      datetime: 'DateTime',
+      time: 'Time',
+      phone: 'Phone',
+      email: 'Email',
+      url: 'Url',
+      picklist: 'Picklist',
+      multipicklist: 'MultiselectPicklist',
+      reference: 'Lookup',
+    }
+    return typeMap[type] || 'Text'
+  }
+}
+
+// =============================================================================
 // Main Connection Class
 // =============================================================================
 
@@ -1158,6 +1366,28 @@ export class Connection {
    */
   sobject(type: string): SObjectResource {
     return new SObjectResource(this, type)
+  }
+
+  /**
+   * Create a custom object builder for defining and working with custom Salesforce objects
+   *
+   * @param name - Object API name (auto-appends __c suffix if not provided)
+   * @returns A CustomObjectBuilder for defining fields and relationships
+   *
+   * @example
+   * ```typescript
+   * // Define a custom Invoice object
+   * const invoice = conn.customObject('Invoice__c')
+   *   .field('Amount__c', { type: 'currency', required: true })
+   *   .field('Status__c', { type: 'picklist', values: ['Draft', 'Sent', 'Paid'] })
+   *   .field('DueDate__c', { type: 'date' })
+   *
+   * // Use the sobject method for CRUD operations
+   * await conn.sobject('Invoice__c').create({ Name: 'INV-001', Amount__c: 1000 })
+   * ```
+   */
+  customObject(name: string): CustomObjectBuilder {
+    return new CustomObjectBuilder(this, name)
   }
 
   /**

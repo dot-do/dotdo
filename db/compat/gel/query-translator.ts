@@ -500,8 +500,9 @@ function pathExprToSQL(expr: PathExpression, ctx: TranslateContext): string {
     }
 
     // If segments are strings (from test builders), handle directly
+    // Type assertion through unknown for compatibility with test AST builders
     if (typeof segments[0] === 'string') {
-      const parts = segments as string[]
+      const parts = segments as unknown as string[]
       if (parts.length === 1) {
         return quoteIdentifier(parts[0]!)
       }
@@ -767,7 +768,8 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
 
   // Add WHERE
   if (ast.filter) {
-    const whereSql = exprToSQL(ast.filter.condition || ast.filter, ctx, true)
+    const filterCondition = (ast.filter as FilterExpression).condition ?? ast.filter
+    const whereSql = exprToSQL(filterCondition as ExtendedExpression, ctx, true)
     sql += ` WHERE ${whereSql}`
   }
 
@@ -778,31 +780,25 @@ function translateSelectInternal(ast: SelectStatement, ctx: TranslateContext): T
 
   // Add LIMIT - inline the value directly (not as parameter)
   if (ast.limit !== undefined) {
-    if (ast.limit.type === 'LimitClause') {
-      const count = ast.limit.count
-      if (count.type === 'NumberLiteral') {
-        sql += ` LIMIT ${count.value}`
-      } else {
-        const limitVal = exprToSQL(count, ctx)
-        sql += ` LIMIT ${limitVal}`
-      }
-    } else if (ast.limit.type === 'NumberLiteral') {
-      sql += ` LIMIT ${ast.limit.value}`
+    // Handle LimitClause wrapper if present (for extended AST compatibility)
+    const limitExpr = (ast.limit as LimitClause).count ?? ast.limit
+    if (limitExpr.type === 'NumberLiteral') {
+      sql += ` LIMIT ${(limitExpr as NumberLiteral).value}`
+    } else {
+      const limitVal = exprToSQL(limitExpr as ExtendedExpression, ctx)
+      sql += ` LIMIT ${limitVal}`
     }
   }
 
   // Add OFFSET - inline the value directly (not as parameter)
   if (ast.offset !== undefined) {
-    if (ast.offset.type === 'OffsetClause') {
-      const count = ast.offset.count
-      if (count.type === 'NumberLiteral') {
-        sql += ` OFFSET ${count.value}`
-      } else {
-        const offsetVal = exprToSQL(count, ctx)
-        sql += ` OFFSET ${offsetVal}`
-      }
-    } else if (ast.offset.type === 'NumberLiteral') {
-      sql += ` OFFSET ${ast.offset.value}`
+    // Handle OffsetClause wrapper if present (for extended AST compatibility)
+    const offsetExpr = (ast.offset as OffsetClause).count ?? ast.offset
+    if (offsetExpr.type === 'NumberLiteral') {
+      sql += ` OFFSET ${(offsetExpr as NumberLiteral).value}`
+    } else {
+      const offsetVal = exprToSQL(offsetExpr as ExtendedExpression, ctx)
+      sql += ` OFFSET ${offsetVal}`
     }
   }
 
@@ -861,8 +857,8 @@ function translateInsertInternal(ast: InsertStatement, ctx: TranslateContext): T
   const values: string[] = []
   const nestedInserts: string[] = []
 
-  // Get assignments from data property
-  const assignments = ast.data?.assignments || ast.assignments || []
+  // Get assignments from data property (standard InsertStatement structure)
+  const assignments = ast.data?.assignments ?? []
 
   for (const assignment of assignments) {
     const name = assignment.name
@@ -936,15 +932,18 @@ function translateUpdateInternal(ast: UpdateStatement, ctx: TranslateContext): T
   // Check for multi-link add/remove operations
   for (const assignment of assignments) {
     const name = assignment.name
-    const value = assignment.value
+    // Cast value to ExtendedExpression to handle AddAssignment/RemoveAssignment
+    const value = assignment.value as ExtendedExpression | null | undefined
 
     if (value && value.type === 'AddAssignment') {
       // += for multi-link - generate INSERT INTO junction table
+      const addValue = value as AddAssignment
       const junctionTable = `${tableName}_${name}`
-      const targetExpr = exprToSQL(value.target, ctx)
+      const targetExpr = exprToSQL(addValue.target, ctx)
 
       // Need to get the source ID from filter
-      const filterSql = ast.filter ? exprToSQL(ast.filter.condition || ast.filter, ctx) : '1=1'
+      const filterCondition = ast.filter ? (ast.filter as FilterExpression).condition ?? ast.filter : null
+      const filterSql = filterCondition ? exprToSQL(filterCondition as ExtendedExpression, ctx) : '1=1'
 
       const sql = `INSERT INTO ${quote(junctionTable)} SELECT id, ${targetExpr} FROM ${quote(tableName)} WHERE ${filterSql}`
 
@@ -957,11 +956,13 @@ function translateUpdateInternal(ast: UpdateStatement, ctx: TranslateContext): T
 
     if (value && value.type === 'RemoveAssignment') {
       // -= for multi-link - generate DELETE FROM junction table
+      const removeValue = value as RemoveAssignment
       const junctionTable = `${tableName}_${name}`
-      const targetExpr = exprToSQL(value.target, ctx)
+      const targetExpr = exprToSQL(removeValue.target, ctx)
 
       // Need to get the source ID from filter
-      const filterSql = ast.filter ? exprToSQL(ast.filter.condition || ast.filter, ctx) : '1=1'
+      const filterCondition = ast.filter ? (ast.filter as FilterExpression).condition ?? ast.filter : null
+      const filterSql = filterCondition ? exprToSQL(filterCondition as ExtendedExpression, ctx) : '1=1'
 
       const sql = `DELETE FROM ${quote(junctionTable)} WHERE source_id IN (SELECT id FROM ${quote(tableName)} WHERE ${filterSql}) AND target_id = ${targetExpr}`
 
@@ -982,7 +983,8 @@ function translateUpdateInternal(ast: UpdateStatement, ctx: TranslateContext): T
 
   // Add WHERE
   if (ast.filter) {
-    const whereSql = exprToSQL(ast.filter.condition || ast.filter, ctx, true)
+    const filterCondition = (ast.filter as FilterExpression).condition ?? ast.filter
+    const whereSql = exprToSQL(filterCondition as ExtendedExpression, ctx, true)
     sql += ` WHERE ${whereSql}`
   }
 
@@ -1016,7 +1018,8 @@ function translateDeleteInternal(ast: DeleteStatement, ctx: TranslateContext): T
 
   // Add WHERE
   if (ast.filter) {
-    const whereSql = exprToSQL(ast.filter.condition || ast.filter, ctx, true)
+    const filterCondition = (ast.filter as FilterExpression).condition ?? ast.filter
+    const whereSql = exprToSQL(filterCondition as ExtendedExpression, ctx, true)
     sql += ` WHERE ${whereSql}`
   }
 
@@ -1165,6 +1168,20 @@ function translateWithInternal(ast: WithBlock, ctx: TranslateContext): Translate
 // =============================================================================
 
 /**
+ * Helper type guard to check if an AST node has a target property
+ */
+function hasTarget(ast: ASTNode): ast is ASTNode & { target: string } {
+  return 'target' in ast && typeof (ast as { target?: unknown }).target === 'string'
+}
+
+/**
+ * Helper type guard to check if an AST node has a filter property
+ */
+function hasFilter(ast: ASTNode): ast is ASTNode & { filter?: FilterExpression } {
+  return 'filter' in ast
+}
+
+/**
  * Translate an EdgeQL AST to SQLite SQL
  */
 export function translateQuery(
@@ -1173,8 +1190,8 @@ export function translateQuery(
 ): TranslatedQuery {
   const ctx = createContext(options)
 
-  // Validate schema if provided
-  if (options?.schema && ast.target) {
+  // Validate schema if provided - use type guards for safe property access
+  if (options?.schema && hasTarget(ast)) {
     const tableName = getTableName(ast.target, options.schema, options)
     const typeDef = options.schema.types.find(t => t.name === tableName)
 
@@ -1194,7 +1211,7 @@ export function translateQuery(
     }
 
     // Validate nested paths in filter
-    if (ast.filter && options.schema) {
+    if (hasFilter(ast) && ast.filter && options.schema) {
       validateFilterPaths(ast.filter, ast.target, options.schema, ctx)
     }
   }

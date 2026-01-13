@@ -56,14 +56,138 @@ export interface SMSPayload {
   to: string
   from: string
   body: string
+  /** Original message before any splitting */
+  originalBody?: string
+  /** Part number if this is a multipart message */
+  partNumber?: number
+  /** Total parts in the multipart message */
+  totalParts?: number
   metadata?: Record<string, unknown>
+}
+
+// SMS character limits
+export const SMS_LIMITS = {
+  /** Standard GSM-7 single message limit */
+  GSM7_SINGLE: 160,
+  /** GSM-7 limit per part in multipart */
+  GSM7_MULTIPART: 153,
+  /** Unicode (UCS-2) single message limit */
+  UCS2_SINGLE: 70,
+  /** UCS-2 limit per part in multipart */
+  UCS2_MULTIPART: 67,
+  /** Maximum recommended parts to avoid delivery issues */
+  MAX_PARTS: 10,
+}
+
+/**
+ * Check if a string contains only GSM-7 characters
+ */
+export function isGSM7(text: string): boolean {
+  // GSM-7 basic character set
+  const gsm7Chars = /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-.\/0-9:;<=>?¡A-ZÄÖÑܧ¿a-zäöñüà]*$/
+  // Extended GSM-7 characters that take 2 bytes
+  const gsm7Extended = /[€\[\]{}\\|^~]/
+
+  // Remove extended chars for basic check
+  const textWithoutExtended = text.replace(/[€\[\]{}\\|^~]/g, '')
+  return gsm7Chars.test(textWithoutExtended)
+}
+
+/**
+ * Calculate the number of SMS parts needed for a message
+ */
+export function calculateSMSParts(text: string): {
+  parts: number
+  encoding: 'GSM-7' | 'UCS-2'
+  charsPerPart: number
+  totalChars: number
+} {
+  const encoding = isGSM7(text) ? 'GSM-7' : 'UCS-2'
+
+  // Count extended GSM-7 chars that take 2 bytes
+  const extendedCount = (text.match(/[€\[\]{}\\|^~]/g) || []).length
+  const effectiveLength = encoding === 'GSM-7' ? text.length + extendedCount : text.length
+
+  const singleLimit = encoding === 'GSM-7' ? SMS_LIMITS.GSM7_SINGLE : SMS_LIMITS.UCS2_SINGLE
+  const multipartLimit = encoding === 'GSM-7' ? SMS_LIMITS.GSM7_MULTIPART : SMS_LIMITS.UCS2_MULTIPART
+
+  if (effectiveLength <= singleLimit) {
+    return {
+      parts: 1,
+      encoding,
+      charsPerPart: singleLimit,
+      totalChars: effectiveLength,
+    }
+  }
+
+  const parts = Math.ceil(effectiveLength / multipartLimit)
+  return {
+    parts,
+    encoding,
+    charsPerPart: multipartLimit,
+    totalChars: effectiveLength,
+  }
+}
+
+/**
+ * Split a message into SMS parts
+ */
+export function splitSMSMessage(text: string, maxParts: number = SMS_LIMITS.MAX_PARTS): string[] {
+  const { parts, encoding, charsPerPart } = calculateSMSParts(text)
+
+  if (parts === 1) {
+    return [text]
+  }
+
+  // If too many parts, truncate with indicator
+  if (parts > maxParts) {
+    const truncateIndicator = '...'
+    const availableChars = (charsPerPart * maxParts) - truncateIndicator.length
+    return splitTextIntoParts(text.substring(0, availableChars) + truncateIndicator, charsPerPart)
+  }
+
+  return splitTextIntoParts(text, charsPerPart)
+}
+
+function splitTextIntoParts(text: string, partSize: number): string[] {
+  const parts: string[] = []
+  let remaining = text
+
+  while (remaining.length > 0) {
+    // Try to split at word boundary if possible
+    let splitPoint = partSize
+    if (remaining.length > partSize) {
+      const lastSpace = remaining.lastIndexOf(' ', partSize)
+      if (lastSpace > partSize * 0.7) {
+        splitPoint = lastSpace
+      }
+    }
+
+    parts.push(remaining.substring(0, splitPoint).trim())
+    remaining = remaining.substring(splitPoint).trim()
+  }
+
+  return parts
 }
 
 // =============================================================================
 // SMS Adapter Implementation
 // =============================================================================
 
-export function createSMSAdapter(config: SMSConfig): ChannelAdapter {
+export interface SMSAdapterConfig extends SMSConfig {
+  /** Enable multipart message handling */
+  enableMultipart?: boolean
+  /** Maximum parts for multipart messages (default: 10) */
+  maxParts?: number
+  /** Add part indicators like (1/3) to messages */
+  addPartIndicators?: boolean
+}
+
+export function createSMSAdapter(config: SMSAdapterConfig): ChannelAdapter {
+  const enableMultipart = config.enableMultipart ?? true
+  const maxParts = config.maxParts ?? SMS_LIMITS.MAX_PARTS
+  const addPartIndicators = config.addPartIndicators ?? false
+
   return {
     type: 'sms',
 
@@ -74,10 +198,56 @@ export function createSMSAdapter(config: SMSConfig): ChannelAdapter {
         throw error
       }
 
+      const toNumber = normalizePhoneNumber(recipient.phone)
+      const originalBody = notification.body
+
+      // Check if we need multipart handling
+      const { parts: partCount } = calculateSMSParts(originalBody)
+
+      if (enableMultipart && partCount > 1) {
+        // Split message into parts
+        const messageParts = splitSMSMessage(originalBody, maxParts)
+        const messageIds: string[] = []
+
+        for (let i = 0; i < messageParts.length; i++) {
+          let partBody = messageParts[i]
+
+          // Add part indicators if enabled
+          if (addPartIndicators && messageParts.length > 1) {
+            partBody = `(${i + 1}/${messageParts.length}) ${partBody}`
+          }
+
+          const payload: SMSPayload = {
+            to: toNumber,
+            from: config.fromNumber,
+            body: partBody,
+            originalBody,
+            partNumber: i + 1,
+            totalParts: messageParts.length,
+            metadata: notification.metadata,
+          }
+
+          // Use custom send if provided
+          if (config.customSend) {
+            const result = await config.customSend(payload)
+            messageIds.push(result.messageId)
+            continue
+          }
+
+          // Send via provider
+          const result = await sendPart(payload, config)
+          messageIds.push(result.messageId)
+        }
+
+        // Return combined message ID for all parts
+        return { messageId: messageIds.join(',') }
+      }
+
+      // Single message - no splitting needed
       const payload: SMSPayload = {
-        to: normalizePhoneNumber(recipient.phone),
+        to: toNumber,
         from: config.fromNumber,
-        body: notification.body,
+        body: originalBody,
         metadata: notification.metadata,
       }
 
@@ -86,21 +256,7 @@ export function createSMSAdapter(config: SMSConfig): ChannelAdapter {
         return config.customSend(payload)
       }
 
-      // Provider-specific implementations
-      switch (config.provider) {
-        case 'twilio':
-          return sendViaTwilio(payload, config)
-        case 'sns':
-          return sendViaSNS(payload, config)
-        case 'messagebird':
-          return sendViaMessageBird(payload, config)
-        case 'vonage':
-          return sendViaVonage(payload, config)
-        case 'mock':
-          return sendViaMock(payload)
-        default:
-          throw new Error(`Unknown SMS provider: ${config.provider}`)
-      }
+      return sendPart(payload, config)
     },
 
     async validateRecipient(recipient: Recipient): Promise<boolean> {
@@ -111,6 +267,23 @@ export function createSMSAdapter(config: SMSConfig): ChannelAdapter {
       const normalized = recipient.phone.replace(/[\s\-\(\)]/g, '')
       return phoneRegex.test(normalized)
     },
+  }
+}
+
+async function sendPart(payload: SMSPayload, config: SMSConfig): Promise<{ messageId: string }> {
+  switch (config.provider) {
+    case 'twilio':
+      return sendViaTwilio(payload, config)
+    case 'sns':
+      return sendViaSNS(payload, config)
+    case 'messagebird':
+      return sendViaMessageBird(payload, config)
+    case 'vonage':
+      return sendViaVonage(payload, config)
+    case 'mock':
+      return sendViaMock(payload)
+    default:
+      throw new Error(`Unknown SMS provider: ${config.provider}`)
   }
 }
 

@@ -87,6 +87,9 @@ export default defineWorkspace([
   // Iceberg table navigation tests
   createNodeWorkspace('iceberg', ['db/iceberg/**/*.test.ts']),
 
+  // TanStack DB integration tests (sync engine, collection options, rpc client)
+  createNodeWorkspace('tanstack', ['db/tanstack/**/*.test.ts', 'db/tanstack/tests/**/*.test.ts']),
+
   // EdgeVec vector index persistence tests
   createNodeWorkspace('edgevec', ['db/edgevec/**/*.test.ts']),
 

@@ -777,11 +777,17 @@ export class TemplateEngine {
         let argMatch
         while ((argMatch = argPattern.exec(argsStr)) !== null) {
           const key = argMatch[1]
+          // argMatch[2] = double quoted, argMatch[3] = single quoted, argMatch[4] = unquoted
+          const isQuoted = argMatch[2] !== undefined || argMatch[3] !== undefined
           const value = argMatch[2] ?? argMatch[3] ?? argMatch[4]
           if (key && value !== undefined) {
-            // Check if value is a variable reference
-            if (value.match(/^\w+(?:\.\w+)*$/)) {
-              partialVars[key] = this.getValue(value, variables)
+            // Quoted values are always literals, unquoted are variable references
+            if (isQuoted) {
+              partialVars[key] = value
+            } else if (value.match(/^\w+(?:\.\w+)*$/)) {
+              // Unquoted - treat as variable reference
+              const resolved = this.getValue(value, variables)
+              partialVars[key] = resolved !== undefined ? resolved : value
             } else {
               partialVars[key] = value
             }

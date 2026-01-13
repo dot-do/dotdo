@@ -9,6 +9,39 @@
  * - Metadata on threads and messages
  * - Message pagination
  * - Thread listing
+ * - Participant tracking (customer, agent, AI)
+ * - Thread hierarchy (parent/child threads)
+ * - Read/unread tracking per participant
+ *
+ * @example
+ * ```typescript
+ * import { createThreadManager } from 'db/primitives/conversation/thread'
+ *
+ * const manager = createThreadManager()
+ *
+ * // Create a thread with participants
+ * const thread = await manager.createThread({
+ *   title: 'Customer Support',
+ *   metadata: { customerId: 'cust_123' },
+ *   participantIds: ['user_1', 'agent_1', 'ai_bot'],
+ * })
+ *
+ * // Create a child thread (sub-conversation)
+ * const childThread = await manager.createThread({
+ *   title: 'Technical Deep Dive',
+ *   parentThreadId: thread.id,
+ * })
+ *
+ * // Append messages
+ * await manager.appendMessage(thread.id, {
+ *   role: 'user',
+ *   content: 'Hello, I need help',
+ * })
+ *
+ * // Track read status
+ * await manager.markAsRead(thread.id, 'agent_1')
+ * const unread = await manager.getUnreadCount(thread.id, 'agent_1')
+ * ```
  *
  * @module db/primitives/conversation/thread
  */
@@ -70,6 +103,10 @@ export interface Thread {
   messageCount: number
   lastMessageAt?: Date
   participantIds?: string[]
+  /** Parent thread ID for thread hierarchy (nested conversations) */
+  parentThreadId?: string
+  /** Read receipts: maps participantId to the last messageId they've read */
+  readReceipts?: Record<string, string>
 }
 
 /**
@@ -80,6 +117,8 @@ export interface CreateThreadOptions {
   title?: string
   metadata?: Record<string, unknown>
   participantIds?: string[]
+  /** Parent thread ID for creating child threads */
+  parentThreadId?: string
 }
 
 /**
@@ -121,6 +160,8 @@ export interface ThreadFilterOptions {
   createdAfter?: Date
   createdBefore?: Date
   hasMessages?: boolean
+  /** Filter by parent thread (null for root threads, id for children) */
+  parentThreadId?: string | null
 }
 
 /**
@@ -161,6 +202,15 @@ export interface ThreadManager {
   getLatestMessage(threadId: string): Promise<Message | null>
   getMessagesBefore(threadId: string, messageId: string, limit?: number): Promise<Message[]>
   getMessagesAfter(threadId: string, messageId: string, limit?: number): Promise<Message[]>
+
+  // Thread hierarchy operations
+  getChildThreads(threadId: string): Promise<Thread[]>
+  getParentThread(threadId: string): Promise<Thread | null>
+
+  // Read tracking operations
+  markAsRead(threadId: string, participantId: string, messageId?: string): Promise<void>
+  getUnreadCount(threadId: string, participantId: string): Promise<number>
+  getLastReadMessageId(threadId: string, participantId: string): Promise<string | null>
 }
 
 // =============================================================================
@@ -215,6 +265,8 @@ class InMemoryThreadManager implements ThreadManager {
       metadata: options?.metadata ?? {},
       messageCount: 0,
       participantIds: options?.participantIds,
+      parentThreadId: options?.parentThreadId,
+      readReceipts: {},
     }
 
     this.threads.set(id, thread)
@@ -305,6 +357,17 @@ class InMemoryThreadManager implements ThreadManager {
           threads = threads.filter((t) => t.messageCount > 0)
         } else {
           threads = threads.filter((t) => t.messageCount === 0)
+        }
+      }
+
+      // Filter by parent thread
+      if (filter.parentThreadId !== undefined) {
+        if (filter.parentThreadId === null) {
+          // Get root threads only (no parent)
+          threads = threads.filter((t) => !t.parentThreadId)
+        } else {
+          // Get children of specific parent
+          threads = threads.filter((t) => t.parentThreadId === filter.parentThreadId)
         }
       }
     }
@@ -621,6 +684,109 @@ class InMemoryThreadManager implements ThreadManager {
 
     const after = sorted.slice(targetIndex + 1, targetIndex + 1 + limit)
     return after.map(({ sequence: _, ...msg }) => msg)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Thread Hierarchy Operations
+  // ---------------------------------------------------------------------------
+
+  async getChildThreads(threadId: string): Promise<Thread[]> {
+    const children = Array.from(this.threads.values()).filter(
+      (t) => t.parentThreadId === threadId
+    )
+    // Sort by createdAt ascending
+    children.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    return children
+  }
+
+  async getParentThread(threadId: string): Promise<Thread | null> {
+    const thread = this.threads.get(threadId)
+    if (!thread?.parentThreadId) {
+      return null
+    }
+    return this.threads.get(thread.parentThreadId) ?? null
+  }
+
+  // ---------------------------------------------------------------------------
+  // Read Tracking Operations
+  // ---------------------------------------------------------------------------
+
+  async markAsRead(
+    threadId: string,
+    participantId: string,
+    messageId?: string
+  ): Promise<void> {
+    const thread = this.threads.get(threadId)
+    if (!thread) {
+      throw new Error(`Thread not found: ${threadId}`)
+    }
+
+    // If no messageId provided, mark all messages as read (use latest)
+    let readUpToId = messageId
+    if (!readUpToId) {
+      const latestMessage = await this.getLatestMessage(threadId)
+      if (!latestMessage) {
+        return // No messages to mark as read
+      }
+      readUpToId = latestMessage.id
+    }
+
+    // Validate message exists in thread
+    const message = this.messageIndex.get(readUpToId)
+    if (!message || message.threadId !== threadId) {
+      throw new Error(`Message not found: ${readUpToId}`)
+    }
+
+    // Update read receipt
+    thread.readReceipts = thread.readReceipts ?? {}
+    thread.readReceipts[participantId] = readUpToId
+  }
+
+  async getUnreadCount(threadId: string, participantId: string): Promise<number> {
+    const thread = this.threads.get(threadId)
+    if (!thread) {
+      return 0
+    }
+
+    const messages = this.messages.get(threadId) ?? []
+    if (messages.length === 0) {
+      return 0
+    }
+
+    const lastReadMessageId = thread.readReceipts?.[participantId]
+    if (!lastReadMessageId) {
+      // No read receipt, all messages are unread
+      return messages.length
+    }
+
+    const lastReadMessage = this.messageIndex.get(lastReadMessageId)
+    if (!lastReadMessage) {
+      // Read receipt points to deleted message, all are unread
+      return messages.length
+    }
+
+    // Count messages after the last read message
+    // Sort to find position of last read message
+    const sorted = [...messages].sort((a, b) => {
+      const timeDiff = a.createdAt.getTime() - b.createdAt.getTime()
+      if (timeDiff !== 0) return timeDiff
+      return a.sequence - b.sequence
+    })
+
+    const lastReadIndex = sorted.findIndex((m) => m.id === lastReadMessageId)
+    if (lastReadIndex < 0) {
+      return messages.length
+    }
+
+    return sorted.length - lastReadIndex - 1
+  }
+
+  async getLastReadMessageId(
+    threadId: string,
+    participantId: string
+  ): Promise<string | null> {
+    const thread = this.threads.get(threadId)
+    return thread?.readReceipts?.[participantId] ?? null
   }
 }
 

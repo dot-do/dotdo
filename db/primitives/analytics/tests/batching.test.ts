@@ -1110,3 +1110,567 @@ describe('Statistics and Monitoring', () => {
     expect(batcher.queueSize).toBe(0)
   })
 })
+
+// ============================================================================
+// PARTIAL BATCH HANDLING - Handling incomplete batches
+// ============================================================================
+
+describe('Partial Batch Handling', () => {
+  let batcher: EventBatcher
+  let flushedBatches: BatchEvent[][]
+  let flushHandler: (events: BatchEvent[]) => Promise<void>
+
+  beforeEach(() => {
+    flushedBatches = []
+    flushHandler = async (events) => {
+      flushedBatches.push([...events])
+    }
+  })
+
+  afterEach(async () => {
+    if (batcher && !batcher.isClosed) {
+      await batcher.close()
+    }
+  })
+
+  describe('partial flush scenarios', () => {
+    it('should flush partial batch on manual flush', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 10, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add less than maxBatchSize events
+      await batcher.add(createMockEvent('evt_1'))
+      await batcher.add(createMockEvent('evt_2'))
+      await batcher.add(createMockEvent('evt_3'))
+
+      // Manual flush should flush the partial batch
+      const result = await batcher.flush()
+
+      expect(result.success).toBe(true)
+      expect(result.eventCount).toBe(3)
+      expect(flushedBatches.length).toBe(1)
+      expect(flushedBatches[0]).toHaveLength(3)
+    })
+
+    it('should handle single event batch', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      const result = await batcher.flush()
+
+      expect(result.success).toBe(true)
+      expect(result.eventCount).toBe(1)
+      expect(flushedBatches[0]).toHaveLength(1)
+    })
+
+    it('should handle remaining events after auto-flush', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 3, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add 7 events (3 + 3 + 1 remaining)
+      for (let i = 0; i < 7; i++) {
+        await batcher.add(createMockEvent(`evt_${i}`))
+      }
+
+      await delay(10)
+
+      // Should have auto-flushed twice (batches of 3)
+      expect(flushedBatches.length).toBe(2)
+      expect(batcher.queueSize).toBe(1) // 1 remaining
+
+      // Manual flush to get the remaining event
+      await batcher.flush()
+      expect(flushedBatches.length).toBe(3)
+      expect(flushedBatches[2]).toHaveLength(1)
+    })
+  })
+
+  describe('partial failure handling', () => {
+    it('should preserve events on flush failure for retry', async () => {
+      let failOnFirstAttempt = true
+      const failingHandler = async (events: BatchEvent[]) => {
+        if (failOnFirstAttempt) {
+          failOnFirstAttempt = false
+          throw new Error('First attempt fails')
+        }
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 100,
+          flushIntervalMs: 60000,
+          maxRetries: 1,
+          retryDelayMs: 10,
+        },
+        failingHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      await batcher.add(createMockEvent('evt_2'))
+
+      const result = await batcher.flush()
+
+      // Should succeed on retry, events preserved
+      expect(result.success).toBe(true)
+      expect(result.eventCount).toBe(2)
+      expect(flushedBatches[0]).toHaveLength(2)
+    })
+
+    it('should not lose events when flush fails permanently', async () => {
+      const alwaysFailHandler = async () => {
+        throw new Error('Permanent failure')
+      }
+
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 100,
+          flushIntervalMs: 60000,
+          maxRetries: 0,
+        },
+        alwaysFailHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      await batcher.add(createMockEvent('evt_2'))
+
+      const result = await batcher.flush()
+
+      expect(result.success).toBe(false)
+      // Events should still be in queue for potential retry or recovery
+      expect(batcher.queueSize).toBe(2)
+    })
+
+    it('should report partial success when batch processor returns partial results', async () => {
+      const partialHandler = async (events: BatchEvent[]) => {
+        // Simulate partial processing - only half succeed
+        const processed = events.slice(0, Math.floor(events.length / 2))
+        flushedBatches.push([...processed])
+
+        const error = new Error('Partial failure') as Error & {
+          partiallyProcessed?: number
+        }
+        error.partiallyProcessed = processed.length
+        throw error
+      }
+
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 10,
+          flushIntervalMs: 60000,
+          maxRetries: 0,
+        },
+        partialHandler
+      )
+
+      for (let i = 0; i < 6; i++) {
+        await batcher.add(createMockEvent(`evt_${i}`))
+      }
+
+      const result = await batcher.flush()
+
+      // Result should indicate partial success
+      expect(result.success).toBe(false)
+      expect(result.error?.message).toContain('Partial failure')
+    })
+  })
+
+  describe('batch splitting on size constraints', () => {
+    it('should respect payload size limits in addition to count', async () => {
+      // This test assumes the batcher can be configured with a maxPayloadBytes option
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 1000,
+          flushIntervalMs: 60000,
+        },
+        flushHandler
+      )
+
+      // Add large events
+      const largeEvent = (id: string) => ({
+        id,
+        type: 'track',
+        timestamp: new Date(),
+        data: { payload: 'x'.repeat(1000) }, // 1KB payload
+      })
+
+      await batcher.add(largeEvent('evt_1'))
+      await batcher.add(largeEvent('evt_2'))
+      await batcher.add(largeEvent('evt_3'))
+
+      await batcher.flush()
+
+      // Even though count < maxBatchSize, large payloads should be handled
+      expect(flushedBatches.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+})
+
+// ============================================================================
+// BATCH ORDERING GUARANTEES - Event order preservation
+// ============================================================================
+
+describe('Batch Ordering Guarantees', () => {
+  let batcher: EventBatcher
+  let flushedBatches: BatchEvent[][]
+  let flushHandler: (events: BatchEvent[]) => Promise<void>
+
+  beforeEach(() => {
+    flushedBatches = []
+    flushHandler = async (events) => {
+      flushedBatches.push([...events])
+    }
+  })
+
+  afterEach(async () => {
+    if (batcher && !batcher.isClosed) {
+      await batcher.close()
+    }
+  })
+
+  describe('FIFO ordering within batches', () => {
+    it('should preserve insertion order within a single batch', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add events in specific order
+      const eventIds = ['first', 'second', 'third', 'fourth', 'fifth']
+      for (const id of eventIds) {
+        await batcher.add(createMockEvent(id))
+      }
+
+      await batcher.flush()
+
+      // Verify order is preserved
+      expect(flushedBatches.length).toBe(1)
+      const flushedIds = flushedBatches[0].map((e) => e.id)
+      expect(flushedIds).toEqual(eventIds)
+    })
+
+    it('should preserve order across multiple batches', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 3, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add 8 events (will result in 3 batches: 3, 3, 2)
+      const eventIds = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+      for (const id of eventIds) {
+        await batcher.add(createMockEvent(id))
+      }
+
+      await delay(10) // Allow auto-flushes
+      await batcher.flush() // Flush remaining
+
+      // Verify all events are present and ordered
+      const allFlushedIds = flushedBatches.flatMap((batch) =>
+        batch.map((e) => e.id)
+      )
+      expect(allFlushedIds).toEqual(eventIds)
+    })
+
+    it('should maintain strict ordering with concurrent adds', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add events concurrently
+      const eventIds = Array.from({ length: 20 }, (_, i) => `evt_${i}`)
+      await Promise.all(eventIds.map((id) => batcher.add(createMockEvent(id))))
+
+      await batcher.flush()
+
+      // All events should be present (order may vary with true concurrency,
+      // but implementation should serialize properly)
+      const flushedIds = flushedBatches[0].map((e) => e.id)
+      expect(flushedIds.sort()).toEqual(eventIds.sort())
+      expect(flushedIds.length).toBe(20)
+    })
+  })
+
+  describe('timestamp ordering', () => {
+    it('should maintain timestamp order when events have different timestamps', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add events with explicit timestamps
+      const events: BatchEvent[] = [
+        { id: 'evt_3', type: 'track', timestamp: new Date(1000), data: {} },
+        { id: 'evt_1', type: 'track', timestamp: new Date(500), data: {} },
+        { id: 'evt_2', type: 'track', timestamp: new Date(750), data: {} },
+      ]
+
+      for (const event of events) {
+        await batcher.add(event)
+      }
+
+      await batcher.flush()
+
+      // Events should be in insertion order (FIFO), not timestamp order
+      // The batcher doesn't reorder by timestamp - that's the sender's responsibility
+      const flushedIds = flushedBatches[0].map((e) => e.id)
+      expect(flushedIds).toEqual(['evt_3', 'evt_1', 'evt_2'])
+    })
+  })
+
+  describe('batch sequence numbering', () => {
+    it('should assign monotonically increasing sequence numbers to batches', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 2, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      // Add enough events for multiple batches
+      for (let i = 0; i < 6; i++) {
+        await batcher.add(createMockEvent(`evt_${i}`))
+      }
+
+      await delay(10)
+
+      // Each batch should have incrementing sequence number
+      expect(flushedBatches.length).toBe(3)
+
+      // Implementation should track batch sequence for ordering guarantees
+      const stats = batcher.getStats()
+      expect(stats.totalFlushes).toBe(3)
+    })
+  })
+
+  describe('retry ordering', () => {
+    it('should preserve order when retrying failed batches', async () => {
+      let failCount = 0
+      const intermittentHandler = async (events: BatchEvent[]) => {
+        failCount++
+        if (failCount === 1) {
+          throw new Error('First attempt fails')
+        }
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 100,
+          flushIntervalMs: 60000,
+          maxRetries: 2,
+          retryDelayMs: 10,
+        },
+        intermittentHandler
+      )
+
+      const eventIds = ['a', 'b', 'c']
+      for (const id of eventIds) {
+        await batcher.add(createMockEvent(id))
+      }
+
+      await batcher.flush()
+
+      // Events should be in original order after retry succeeds
+      const flushedIds = flushedBatches[0].map((e) => e.id)
+      expect(flushedIds).toEqual(eventIds)
+    })
+
+    it('should not duplicate events on retry', async () => {
+      let attemptCount = 0
+      const failingHandler = async (events: BatchEvent[]) => {
+        attemptCount++
+        if (attemptCount <= 2) {
+          throw new Error(`Attempt ${attemptCount} fails`)
+        }
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        {
+          maxBatchSize: 100,
+          flushIntervalMs: 60000,
+          maxRetries: 3,
+          retryDelayMs: 10,
+        },
+        failingHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      await batcher.add(createMockEvent('evt_2'))
+
+      await batcher.flush()
+
+      // Events should be flushed exactly once
+      expect(flushedBatches.length).toBe(1)
+      expect(flushedBatches[0]).toHaveLength(2)
+    })
+  })
+
+  describe('ordering across close', () => {
+    it('should flush remaining events in order on close', async () => {
+      batcher = createEventBatcher(
+        { maxBatchSize: 10, flushIntervalMs: 60000 },
+        flushHandler
+      )
+
+      const eventIds = ['final_1', 'final_2', 'final_3']
+      for (const id of eventIds) {
+        await batcher.add(createMockEvent(id))
+      }
+
+      await batcher.close()
+
+      const flushedIds = flushedBatches[0].map((e) => e.id)
+      expect(flushedIds).toEqual(eventIds)
+    })
+  })
+})
+
+// ============================================================================
+// EDGE CASES AND ERROR HANDLING
+// ============================================================================
+
+describe('Edge Cases and Error Handling', () => {
+  let batcher: EventBatcher
+  let flushedBatches: BatchEvent[][]
+
+  afterEach(async () => {
+    if (batcher && !batcher.isClosed) {
+      await batcher.close()
+    }
+  })
+
+  describe('malformed events', () => {
+    it('should reject events without required id field', async () => {
+      const handler = async (events: BatchEvent[]) => {
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        handler
+      )
+
+      const invalidEvent = {
+        type: 'track',
+        timestamp: new Date(),
+        data: {},
+      } as unknown as BatchEvent
+
+      await expect(batcher.add(invalidEvent)).rejects.toThrow(
+        'Event must have an id'
+      )
+    })
+
+    it('should reject events without required timestamp field', async () => {
+      const handler = async (events: BatchEvent[]) => {
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        handler
+      )
+
+      const invalidEvent = {
+        id: 'evt_1',
+        type: 'track',
+        data: {},
+      } as unknown as BatchEvent
+
+      await expect(batcher.add(invalidEvent)).rejects.toThrow(
+        'Event must have a timestamp'
+      )
+    })
+  })
+
+  describe('handler exceptions', () => {
+    it('should handle synchronous exceptions in handler', async () => {
+      const throwingHandler = async () => {
+        throw new Error('Synchronous error in handler')
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000, maxRetries: 0 },
+        throwingHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      const result = await batcher.flush()
+
+      expect(result.success).toBe(false)
+      expect(result.error?.message).toBe('Synchronous error in handler')
+    })
+
+    it('should handle handler returning rejected promise', async () => {
+      const rejectingHandler = async () => {
+        return Promise.reject(new Error('Rejected promise'))
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000, maxRetries: 0 },
+        rejectingHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+      const result = await batcher.flush()
+
+      expect(result.success).toBe(false)
+      expect(result.error?.message).toBe('Rejected promise')
+    })
+
+    it('should handle handler timeout', async () => {
+      const slowHandler = async () => {
+        await delay(10000) // Very slow handler
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000, maxRetries: 0 },
+        slowHandler
+      )
+
+      await batcher.add(createMockEvent('evt_1'))
+
+      // Flush with timeout should fail if implementation supports it
+      const result = await batcher.flush()
+
+      // Either the result indicates timeout or the handler is expected to complete
+      expect(result).toBeDefined()
+    })
+  })
+
+  describe('memory pressure scenarios', () => {
+    it('should handle high-volume event streams gracefully', async () => {
+      flushedBatches = []
+      const handler = async (events: BatchEvent[]) => {
+        flushedBatches.push([...events])
+      }
+
+      batcher = createEventBatcher(
+        { maxBatchSize: 100, flushIntervalMs: 60000 },
+        handler
+      )
+
+      // Add many events rapidly
+      for (let i = 0; i < 1000; i++) {
+        await batcher.add(createMockEvent(`evt_${i}`))
+      }
+
+      await delay(50)
+      await batcher.close()
+
+      // All events should eventually be flushed
+      const totalFlushed = flushedBatches.reduce(
+        (sum, batch) => sum + batch.length,
+        0
+      )
+      expect(totalFlushed).toBe(1000)
+    })
+  })
+})

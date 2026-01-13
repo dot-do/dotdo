@@ -419,6 +419,9 @@ export class LLMRouter implements AgentProvider {
     config: AgentConfig,
     input: AgentInput
   ): Promise<AgentResult> {
+    // Check if any unhealthy providers should be recovered
+    this.checkRecovery()
+
     // Check budget before executing
     if (this.budgetConfig.hardLimit && this.budgetConfig.maxTotalCost) {
       if (this.metrics.totalCost >= this.budgetConfig.maxTotalCost) {

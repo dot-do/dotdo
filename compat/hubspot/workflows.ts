@@ -670,6 +670,21 @@ export class HubSpotWorkflows {
    * Create a new workflow
    */
   async createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
+    // Validate required fields
+    if (!input.name || input.name.trim() === '') {
+      throw new HubSpotWorkflowError('Workflow name is required', 'INVALID_INPUT', 400)
+    }
+
+    // Validate workflow type
+    const validTypes: WorkflowType[] = ['contact', 'company', 'deal', 'ticket', 'custom']
+    if (!validTypes.includes(input.type)) {
+      throw new HubSpotWorkflowError(
+        `Invalid workflow type: ${input.type}. Must be one of: ${validTypes.join(', ')}`,
+        'INVALID_INPUT',
+        400
+      )
+    }
+
     const id = `wf-${crypto.randomUUID()}`
     const now = new Date().toISOString()
 

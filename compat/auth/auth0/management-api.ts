@@ -725,6 +725,17 @@ export class ManagementClient {
      * Create an organization
      */
     create: async (data: CreateOrganizationParams): Promise<Auth0Organization> => {
+      // Validate organization name format (lowercase alphanumeric with hyphens)
+      if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(data.name)) {
+        throw new Auth0APIError(400, 'Bad Request', `Invalid organization name: ${data.name}. Name must be lowercase alphanumeric with hyphens, and cannot start or end with a hyphen.`)
+      }
+
+      // Check for duplicate organization name
+      const existingId = await this.getOrganizationIdByName(data.name)
+      if (existingId) {
+        throw new Auth0APIError(409, 'Conflict', `Organization with name '${data.name}' already exists`)
+      }
+
       const id = this.generateId('org')
       const organization: Auth0Organization = {
         id,
@@ -802,9 +813,10 @@ export class ManagementClient {
      */
     delete: async (params: { id: string }): Promise<void> => {
       const org = await this.organizationStore.get(`org:${params.id}`)
-      if (org) {
-        await this.removeOrganizationIndex(org.name)
+      if (!org) {
+        throw new Auth0APIError(404, 'Not Found', `Organization not found: ${params.id}`)
       }
+      await this.removeOrganizationIndex(org.name)
       await this.organizationStore.put(`org:${params.id}`, null as unknown as Auth0Organization, Date.now())
       // Clean up related data
       await this.orgMemberStore.put(`org_members:${params.id}`, null as unknown as string[], Date.now())
@@ -834,7 +846,7 @@ export class ManagementClient {
     /**
      * Get organization members
      */
-    getMembers: async (params: { id: string }): Promise<Auth0OrganizationMember[]> => {
+    getMembers: async (params: { id: string; page?: number; per_page?: number; include_totals?: boolean }): Promise<Auth0OrganizationMember[] | { members: Auth0OrganizationMember[]; total: number; start: number; limit: number }> => {
       const memberIds = (await this.orgMemberStore.get(`org_members:${params.id}`)) ?? []
       const members: Auth0OrganizationMember[] = []
 
@@ -859,6 +871,19 @@ export class ManagementClient {
           }
         } catch {
           // User may have been deleted, skip
+        }
+      }
+
+      if (params.include_totals) {
+        const page = params.page ?? 0
+        const perPage = params.per_page ?? 50
+        const start = page * perPage
+        const paginatedMembers = members.slice(start, start + perPage)
+        return {
+          members: paginatedMembers,
+          total: members.length,
+          start,
+          limit: perPage,
         }
       }
 
@@ -1200,6 +1225,19 @@ export class ManagementClient {
 
   private async removeResourceServerIndex(identifier: string): Promise<void> {
     await this.resourceServerStore.put(`rs_identifier:${identifier}`, null as unknown as Auth0ResourceServer, Date.now())
+  }
+
+  private async addOrganizationIndex(name: string, id: string): Promise<void> {
+    await this.organizationStore.put(`org_name:${name}`, { id } as unknown as Auth0Organization, Date.now())
+  }
+
+  private async removeOrganizationIndex(name: string): Promise<void> {
+    await this.organizationStore.put(`org_name:${name}`, null as unknown as Auth0Organization, Date.now())
+  }
+
+  private async getOrganizationIdByName(name: string): Promise<string | null> {
+    const data = await this.organizationStore.get(`org_name:${name}`)
+    return (data as unknown as { id: string } | null)?.id ?? null
   }
 }
 

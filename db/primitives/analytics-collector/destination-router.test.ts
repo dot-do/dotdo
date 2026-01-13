@@ -30,6 +30,7 @@ import {
   removeProperties,
   renameProperties,
   maskProperties,
+  maskEventFields,
   chainTransforms,
 } from './destination-router'
 
@@ -497,6 +498,15 @@ describe('Event Transformation', () => {
         ssn: '***MASKED***',
         name: 'John',
       })
+    })
+
+    it('maskEventFields should mask top-level event fields', () => {
+      const transform = maskEventFields('userId', 'anonymousId')
+      const result = transform(
+        createTestEvent({ userId: 'user_123', anonymousId: 'anon_456' })
+      )
+      expect(result?.userId).toBe('***MASKED***')
+      expect(result?.anonymousId).toBe('***MASKED***')
     })
 
     it('chainTransforms should chain multiple transforms', () => {
@@ -1113,7 +1123,7 @@ describe('Multiple Destinations Integration', () => {
     router.addDestination({
       name: 'marketing',
       filter: excludeEvents('Internal Action'),
-      transform: maskProperties('userId'),
+      transform: maskEventFields('userId'),
       send: async (events) => {
         marketingEvents.push(...events)
       },

@@ -216,24 +216,24 @@ describe('@dotdo/clerk - Sessions', () => {
     })
 
     it('should handle invalid user ID error', async () => {
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse(
+      const errorResponse = {
+        errors: [
           {
-            errors: [
-              {
-                code: 'resource_not_found',
-                message: 'User not found',
-                long_message: 'The requested user could not be found',
-              },
-            ],
+            code: 'resource_not_found',
+            message: 'User not found',
+            long_message: 'The requested user could not be found',
           },
-          404
-        )
-      )
+        ],
+      }
+
+      mockFetch.mockResolvedValueOnce(createMockResponse(errorResponse, 404))
 
       await expect(
         clerk.sessions.createSession({ userId: 'user_nonexistent' })
       ).rejects.toThrow(ClerkAPIError)
+
+      // Set up mock again for the second call
+      mockFetch.mockResolvedValueOnce(createMockResponse(errorResponse, 404))
 
       try {
         await clerk.sessions.createSession({ userId: 'user_nonexistent' })

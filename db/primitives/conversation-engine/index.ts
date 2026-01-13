@@ -476,15 +476,157 @@ function parseDuration(duration: string): number {
   return value * multipliers[unit]!
 }
 
+/**
+ * Strip HTML tags and convert to plain text with proper formatting
+ * Handles paragraphs, links, lists, and signatures
+ */
 function stripHtml(html: string): string {
-  // Simple HTML stripping - in production use a proper library
-  return html
-    .replace(/<[^>]*>/g, '')
+  let text = html
+
+  // Extract links and preserve URLs: <a href="URL">text</a> -> text (URL)
+  text = text.replace(/<a[^>]+href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (_, url, linkText) => {
+    return `${linkText} (${url})`
+  })
+
+  // Convert list items to bullets
+  text = text.replace(/<li[^>]*>/gi, '- ')
+  text = text.replace(/<\/li>/gi, '\n')
+
+  // Convert paragraphs to newlines
+  text = text.replace(/<\/p>/gi, '\n\n')
+  text = text.replace(/<p[^>]*>/gi, '')
+
+  // Convert breaks to newlines
+  text = text.replace(/<br\s*\/?>/gi, '\n')
+
+  // Convert divs to newlines
+  text = text.replace(/<\/div>/gi, '\n')
+  text = text.replace(/<div[^>]*>/gi, '')
+
+  // Strip remaining tags
+  text = text.replace(/<[^>]*>/g, '')
+
+  // Decode HTML entities
+  text = text
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
-    .trim()
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+
+  // Normalize whitespace
+  text = text.replace(/\n\s*\n\s*\n/g, '\n\n') // Max 2 newlines
+  text = text.replace(/[ \t]+/g, ' ') // Collapse horizontal whitespace
+
+  return text.trim()
+}
+
+/**
+ * Strip email signature from text
+ * Common signatures start with "--", "Best regards", etc.
+ */
+function stripEmailSignature(text: string): string {
+  // Common signature delimiters
+  const signaturePatterns = [
+    /\n--\s*\n[\s\S]*$/i, // -- delimiter
+    /\nBest regards[\s\S]*$/i,
+    /\nKind regards[\s\S]*$/i,
+    /\nThanks[\s\S]*$/i,
+    /\nSincerely[\s\S]*$/i,
+    /\nCheers[\s\S]*$/i,
+    /\nSent from my [\s\S]*$/i,
+  ]
+
+  let result = text
+  for (const pattern of signaturePatterns) {
+    result = result.replace(pattern, '')
+  }
+
+  return result.trim()
+}
+
+/**
+ * Convert plain text to HTML
+ */
+function textToHtml(text: string): string {
+  // Escape HTML characters
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
+  // Convert URLs to clickable links
+  html = html.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1">$1</a>'
+  )
+
+  // Convert newlines to paragraphs
+  const paragraphs = html.split(/\n\n+/)
+  if (paragraphs.length > 1) {
+    html = paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('\n')
+  } else {
+    html = `<p>${html.replace(/\n/g, '<br>')}</p>`
+  }
+
+  return html
+}
+
+/**
+ * Convert markdown to HTML
+ */
+function markdownToHtml(markdown: string): string {
+  let html = markdown
+
+  // Bold: **text** or __text__
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>')
+
+  // Italic: *text* or _text_
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  html = html.replace(/_([^_]+)_/g, '<em>$1</em>')
+
+  // Code blocks: ```code```
+  html = html.replace(/```([^`]*)```/g, '<pre><code>$1</code></pre>')
+
+  // Inline code: `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // Convert URLs to clickable links
+  html = html.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1">$1</a>'
+  )
+
+  // Convert newlines to paragraphs
+  const paragraphs = html.split(/\n\n+/)
+  if (paragraphs.length > 1) {
+    html = paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('\n')
+  } else {
+    html = `<p>${html}</p>`
+  }
+
+  return html
+}
+
+/**
+ * Truncate text to a maximum length with ellipsis
+ */
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text
+  }
+  return text.slice(0, maxLength - 3) + '...'
+}
+
+/**
+ * Generate SSML for text-to-speech
+ */
+function generateSSML(text: string): string {
+  // Basic SSML wrapper
+  return `<speak>${text}</speak>`
 }
 
 // =============================================================================

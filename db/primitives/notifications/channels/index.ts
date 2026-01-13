@@ -3,11 +3,12 @@
  *
  * Pre-built adapters for common notification channels:
  * - Email (SendGrid, AWS SES, Resend, SMTP)
- * - SMS (Twilio, AWS SNS, MessageBird, Vonage)
+ * - SMS (Twilio, AWS SNS, MessageBird, Vonage) with multipart support
  * - Push (FCM, APNS, Web Push, OneSignal, Expo)
- * - Slack
- * - Webhook
- * - In-App
+ * - Slack (rich formatting, blocks)
+ * - Discord (webhooks, embeds, bot messages)
+ * - Webhook (HTTP POST with signature verification)
+ * - In-App (storage, real-time delivery)
  *
  * @example
  * ```typescript
@@ -77,10 +78,29 @@ export {
 
 export {
   createSMSAdapter,
+  isGSM7,
+  calculateSMSParts,
+  splitSMSMessage,
+  SMS_LIMITS,
   type SMSProvider,
   type SMSConfig,
   type SMSPayload,
+  type SMSAdapterConfig,
 } from './sms'
+
+// =============================================================================
+// Discord
+// =============================================================================
+
+export {
+  createDiscordAdapter,
+  createDiscordEmbed,
+  formatDiscordMarkdown,
+  type DiscordConfig,
+  type DiscordPayload,
+  type DiscordEmbed,
+  type DiscordEmbedField,
+} from './discord'
 
 // =============================================================================
 // Push Notifications

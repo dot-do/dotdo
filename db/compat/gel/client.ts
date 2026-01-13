@@ -423,8 +423,8 @@ export class GelClient implements GelTransaction {
           }
         }
 
-        // Return as single object (EdgeQL INSERT returns the inserted object)
-        return insertedObject as T[]
+        // Return as single-element array (EdgeQL INSERT returns the inserted object)
+        return [insertedObject] as T[]
       }
 
       // For UPDATE/DELETE, use run() and return empty array
@@ -898,7 +898,7 @@ export function createClient(storage: GelStorage, options?: GelClientOptions): G
 
   const requiredMethods = ['exec', 'run', 'get', 'all', 'prepare', 'transaction']
   for (const method of requiredMethods) {
-    if (typeof (storage as any)[method] !== 'function') {
+    if (typeof (storage as unknown as Record<string, unknown>)[method] !== 'function') {
       throw new GelError(`Storage missing required method: ${method}`)
     }
   }

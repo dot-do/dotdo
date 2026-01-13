@@ -24,17 +24,25 @@ vi.mock('../../../ai/template-literals', () => {
 })
 
 // Mock HumanClient to prevent real HTTP calls
-vi.mock('../../humans/templates', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../humans/templates')>()
+// Use a factory function to ensure fresh mocks and proper hoisting
+vi.mock('../../humans/templates', () => {
+  // Types for mock
+  interface ApprovalResult {
+    approved: boolean
+    approver?: string
+    reason?: string
+    respondedAt?: Date
+    requestId?: string
+  }
 
-  // Create a mock HumanClient that doesn't make HTTP calls
-  class MockHumanRequest implements PromiseLike<original.ApprovalResult> {
+  // Create a mock HumanRequest that doesn't make HTTP calls
+  class MockHumanRequest implements PromiseLike<ApprovalResult> {
     private _role: string
     private _message: string
     private _sla?: number
     private _channel?: string
     private _requestId: string
-    private _promise: Promise<original.ApprovalResult>
+    private _promise: Promise<ApprovalResult>
 
     constructor(
       role: string,
@@ -62,8 +70,8 @@ vi.mock('../../humans/templates', async (importOriginal) => {
     get channel() { return this._channel }
     get requestId() { return this._requestId }
 
-    then<TResult1 = original.ApprovalResult, TResult2 = never>(
-      onfulfilled?: ((value: original.ApprovalResult) => TResult1 | PromiseLike<TResult1>) | null,
+    then<TResult1 = ApprovalResult, TResult2 = never>(
+      onfulfilled?: ((value: ApprovalResult) => TResult1 | PromiseLike<TResult1>) | null,
       onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
     ): Promise<TResult1 | TResult2> {
       return this._promise.then(onfulfilled, onrejected)
@@ -71,11 +79,11 @@ vi.mock('../../humans/templates', async (importOriginal) => {
 
     catch<TResult = never>(
       onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
-    ): Promise<original.ApprovalResult | TResult> {
+    ): Promise<ApprovalResult | TResult> {
       return this._promise.catch(onrejected)
     }
 
-    finally(onfinally?: (() => void) | null): Promise<original.ApprovalResult> {
+    finally(onfinally?: (() => void) | null): Promise<ApprovalResult> {
       return this._promise.finally(onfinally)
     }
 
@@ -101,9 +109,50 @@ vi.mock('../../humans/templates', async (importOriginal) => {
     }
   }
 
+  // Helper functions that need to be exported
+  function parseDuration(duration: string): number {
+    const match = duration.match(/^(\d+)\s*(second|minute|hour|day|week)s?$/i)
+    if (!match) throw new Error(`Invalid duration format: ${duration}`)
+    const value = parseInt(match[1]!, 10)
+    const unit = match[2]!.toLowerCase()
+    const multipliers: Record<string, number> = {
+      second: 1000, minute: 60000, hour: 3600000, day: 86400000, week: 604800000
+    }
+    return value * multipliers[unit]!
+  }
+
+  function createHumanTemplate(role: string) {
+    return (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const message = strings.reduce((result, str, i) => {
+        return result + str + (values[i] !== undefined ? String(values[i]) : '')
+      }, '')
+      return new MockHumanRequest(role, message)
+    }
+  }
+
   return {
-    ...original,
     HumanRequest: MockHumanRequest,
+    parseDuration,
+    createHumanTemplate,
+    ceo: createHumanTemplate('ceo'),
+    legal: createHumanTemplate('legal'),
+    cfo: createHumanTemplate('cfo'),
+    cto: createHumanTemplate('cto'),
+    hr: createHumanTemplate('hr'),
+    support: createHumanTemplate('support'),
+    manager: createHumanTemplate('manager'),
+    HumanTimeoutError: class HumanTimeoutError extends Error {
+      timeout: number
+      requestId: string
+      constructor(timeout: number, requestId: string) {
+        super(`Human approval timed out after ${timeout}ms (request: ${requestId})`)
+        this.timeout = timeout
+        this.requestId = requestId
+      }
+    },
+    configureHumanClient: vi.fn(),
+    getHumanClient: vi.fn(),
+    HumanClient: vi.fn(),
   }
 })
 
@@ -118,6 +167,8 @@ import {
   detectLoops,
   detectExplicitRequest,
   checkCustomerValue,
+  escalateToPool,
+  detectAndEscalate,
 } from '../escalation'
 
 // ============================================================================
@@ -738,9 +789,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     vi.clearAllMocks()
   })
 
-  it('converts EscalationRequest to HumanRequest for humans.do', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('converts EscalationRequest to HumanRequest for humans.do', () => {
     const request = new EscalationRequest({
       shouldEscalate: true,
       triggers: ['sentiment', 'explicit'],
@@ -757,9 +806,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.message).toContain('conversation needs human')
   })
 
-  it('includes trigger context in escalation message', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('includes trigger context in escalation message', () => {
     const request = new EscalationRequest({
       shouldEscalate: true,
       triggers: ['sentiment', 'loops'],
@@ -775,9 +822,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.message).toContain('conversation loop')
   })
 
-  it('respects priority by setting appropriate SLA', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('respects priority by setting appropriate SLA', () => {
     const urgentRequest = new EscalationRequest({
       shouldEscalate: true,
       triggers: ['explicit'],
@@ -792,9 +837,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.sla).toBeLessThanOrEqual(900000) // 15 minutes or less
   })
 
-  it('includes customer context in escalation', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('includes customer context in escalation', () => {
     const conversation = createTestConversation([
       { role: 'customer', content: 'Help me!' },
     ])
@@ -817,9 +860,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.message).toContain('VIP Customer')
   })
 
-  it('routes to custom role when specified via .to()', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('routes to custom role when specified via .to()', () => {
     const request = new EscalationRequest({
       shouldEscalate: true,
       triggers: ['sentiment'],
@@ -831,9 +872,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.role).toBe('support-lead')
   })
 
-  it('uses channel from .via() configuration', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('uses channel from .via() configuration', () => {
     const request = new EscalationRequest({
       shouldEscalate: true,
       triggers: ['explicit'],
@@ -845,9 +884,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(humanRequest.channel).toBe('slack')
   })
 
-  it('throws when escalation is not needed', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('throws when escalation is not needed', () => {
     const request = new EscalationRequest({
       shouldEscalate: false,
       triggers: [],
@@ -857,9 +894,7 @@ describe('escalateToPool() - humans.do Integration', () => {
     expect(() => escalateToPool(request)).toThrow('Escalation not needed')
   })
 
-  it('includes conversation history summary', async () => {
-    const { escalateToPool, EscalationRequest } = await import('../escalation')
-
+  it('includes conversation history summary', () => {
     const conversation = createTestConversation([
       { role: 'customer', content: 'Where is my order?' },
       { role: 'agent', content: 'Let me check for you.' },
@@ -892,21 +927,23 @@ describe('detectAndEscalate() - End-to-End Flow', () => {
 
   it('detects escalation need and triggers humans.do pool in one call', async () => {
     setupMocks(true, 'negative')
-    const { detectAndEscalate } = await import('../escalation')
 
     const conversation = createTestConversation([
       { role: 'customer', content: 'This is terrible! I need a human NOW!' },
     ])
 
+    // detectAndEscalate returns a Promise<HumanRequest | null>
+    // We await to get the HumanRequest, but don't await the HumanRequest itself
     const humanRequest = await detectAndEscalate(conversation)
 
     expect(humanRequest).not.toBeNull()
-    expect(humanRequest?.role).toBe('support')
+    // Access properties on the HumanRequest object (before it resolves)
+    expect(humanRequest!.role).toBe('support')
+    expect(humanRequest!.message).toContain('conversation needs human')
   })
 
   it('returns null when no escalation needed', async () => {
     setupMocks(false, 'positive')
-    const { detectAndEscalate } = await import('../escalation')
 
     const conversation = createTestConversation([
       { role: 'customer', content: 'Thanks for your help!' },
@@ -919,7 +956,6 @@ describe('detectAndEscalate() - End-to-End Flow', () => {
 
   it('supports custom options for detection and escalation', async () => {
     setupMocks(true, 'negative')
-    const { detectAndEscalate } = await import('../escalation')
 
     const conversation = createTestConversation([
       { role: 'customer', content: 'My security has been compromised!' },
@@ -931,7 +967,8 @@ describe('detectAndEscalate() - End-to-End Flow', () => {
       escalationChannel: 'pagerduty',
     })
 
-    expect(humanRequest?.role).toBe('security-team')
-    expect(humanRequest?.channel).toBe('pagerduty')
+    expect(humanRequest).not.toBeNull()
+    expect(humanRequest!.role).toBe('security-team')
+    expect(humanRequest!.channel).toBe('pagerduty')
   })
 })

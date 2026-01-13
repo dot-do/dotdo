@@ -50,6 +50,32 @@ import {
 
 import { MessengerLocal } from './messenger'
 
+import {
+  InboxRouter,
+  type InboxRouterConfig,
+  type Inbox,
+  type CreateInboxInput,
+  type UpdateInboxInput,
+  type TeamMember,
+  type AssignmentRule,
+  type CreateAssignmentRuleInput,
+  type UpdateAssignmentRuleInput,
+  type EnableRoundRobinInput,
+  type RoundRobinStatus,
+  type RoundRobinConfig,
+  type SLAPolicy,
+  type CreateSLAPolicyInput,
+  type AdminWorkload,
+  type TeamWorkload,
+  type WorkloadBalanceResult,
+  type LocalConversationContext,
+  type PriorityLevel,
+  type ConversationPriority,
+  type SLAStatus,
+  InboxNotFoundError,
+  InboxError,
+} from './inbox'
+
 import type {
   Contact,
   ContactCreateParams,
@@ -1131,5 +1157,6 @@ export class IntercomLocal {
     this.messages = new LocalMessagesResource(config.onMessageDelivery)
     this.events = new LocalEventsResource()
     this.articles = new LocalArticlesResource(config.workspaceId)
+    this.messenger = new MessengerLocal(config.workspaceId)
   }
 }

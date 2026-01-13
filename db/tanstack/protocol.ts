@@ -69,9 +69,17 @@ export interface UnsubscribeMessage {
 }
 
 /**
+ * Pong response from client to server heartbeat
+ */
+export interface PongMessage {
+  type: 'pong'
+  timestamp: number
+}
+
+/**
  * All possible client -> server messages
  */
-export type ClientMessage = SubscribeMessage | UnsubscribeMessage
+export type ClientMessage = SubscribeMessage | UnsubscribeMessage | PongMessage
 
 // =============================================================================
 // Server -> Client Messages
@@ -129,9 +137,17 @@ export interface DeleteMessage {
 export type ChangeMessage<T = SyncItem> = InsertMessage<T> | UpdateMessage<T> | DeleteMessage
 
 /**
+ * Ping message from server for heartbeat
+ */
+export interface PingMessage {
+  type: 'ping'
+  timestamp: number
+}
+
+/**
  * All possible server -> client messages
  */
-export type ServerMessage<T = SyncItem> = InitialMessage<T> | ChangeMessage<T>
+export type ServerMessage<T = SyncItem> = InitialMessage<T> | ChangeMessage<T> | PingMessage
 
 // =============================================================================
 // Deprecated Aliases (for backward compatibility)

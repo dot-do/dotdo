@@ -909,6 +909,21 @@ export function maskProperties(...keys: string[]): EventTransform {
 }
 
 /**
+ * Create a transform that masks top-level event fields (e.g., userId, anonymousId)
+ */
+export function maskEventFields(...keys: (keyof AnalyticsEvent)[]): EventTransform {
+  return (event) => {
+    const result = { ...event }
+    for (const key of keys) {
+      if (key in result && result[key] !== undefined) {
+        ;(result as Record<string, unknown>)[key] = '***MASKED***'
+      }
+    }
+    return result
+  }
+}
+
+/**
  * Chain multiple transforms together
  */
 export function chainTransforms(...transforms: EventTransform[]): EventTransform {

@@ -914,17 +914,178 @@ export class AuthenticationClient {
   // ============================================================================
 
   /**
-   * Handle authorization code grant
+   * Handle authorization code grant (with PKCE support)
    */
   private async handleAuthorizationCodeGrant(params: TokenExchangeParams): Promise<TokenResponse> {
     if (!params.code || !params.redirect_uri) {
       throw new Auth0APIError(400, 'invalid_request', 'Missing code or redirect_uri')
     }
 
-    // In a real implementation, we'd validate the code against stored authorization codes
-    // For now, we treat the code as a user ID (simplified)
+    // Hash the code to look up the stored authorization data
+    const codeHash = await this.hashToken(params.code)
+    const authCodeData = await this.authCodeStore.get(`authcode:${codeHash}`)
 
-    throw new Auth0APIError(400, 'invalid_grant', 'Authorization code flow requires server-side implementation')
+    if (!authCodeData) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Invalid or expired authorization code')
+    }
+
+    // Validate client_id matches
+    if (authCodeData.client_id !== params.client_id) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Client ID mismatch')
+    }
+
+    // Validate redirect_uri matches
+    if (authCodeData.redirect_uri !== params.redirect_uri) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Redirect URI mismatch')
+    }
+
+    // Check expiration
+    if (new Date(authCodeData.expires_at) < new Date()) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Authorization code expired')
+    }
+
+    // PKCE validation
+    if (authCodeData.code_challenge) {
+      if (!params.code_verifier) {
+        throw new Auth0APIError(400, 'invalid_request', 'Code verifier required for PKCE flow')
+      }
+
+      // Verify the code_verifier against the stored code_challenge
+      const computedChallenge = await generateCodeChallenge(
+        params.code_verifier,
+        authCodeData.code_challenge_method ?? 'S256'
+      )
+
+      if (computedChallenge !== authCodeData.code_challenge) {
+        throw new Auth0APIError(401, 'invalid_grant', 'Invalid code verifier')
+      }
+    }
+
+    // Get user
+    const user = await this.userManager.getUser(authCodeData.user_id)
+    if (!user) {
+      throw new Auth0APIError(401, 'invalid_grant', 'User not found')
+    }
+
+    // Delete the authorization code (single-use)
+    await this.authCodeStore.put(`authcode:${codeHash}`, null as unknown as AuthorizationCodeData, Date.now())
+
+    // Create session and tokens
+    const { tokens } = await this.sessionManager.createSession(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        metadata: user.metadata,
+        app_metadata: user.app_metadata,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+      },
+      {
+        clientId: params.client_id,
+        scope: authCodeData.scope,
+      }
+    )
+
+    // Generate ID token with nonce if provided
+    const idToken = await this.generateIdToken(user, params.client_id, authCodeData.scope, authCodeData.nonce)
+
+    return {
+      access_token: tokens.access_token,
+      token_type: 'Bearer',
+      expires_in: tokens.expires_in,
+      refresh_token: tokens.refresh_token,
+      id_token: idToken,
+      scope: authCodeData.scope,
+    }
+  }
+
+  /**
+   * Handle device code grant (RFC 8628)
+   */
+  private async handleDeviceCodeGrant(params: TokenExchangeParams): Promise<TokenResponse> {
+    if (!params.device_code) {
+      throw new Auth0APIError(400, 'invalid_request', 'Missing device_code')
+    }
+
+    // Hash the device code to look up the stored authorization data
+    const deviceCodeHash = await this.hashToken(params.device_code)
+    const deviceAuthData = await this.deviceCodeStore.get(`device:${deviceCodeHash}`)
+
+    if (!deviceAuthData) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Invalid or expired device code')
+    }
+
+    // Validate client_id matches
+    if (deviceAuthData.client_id !== params.client_id) {
+      throw new Auth0APIError(401, 'invalid_grant', 'Client ID mismatch')
+    }
+
+    // Check expiration
+    if (new Date(deviceAuthData.expires_at) < new Date()) {
+      throw new Auth0APIError(401, 'expired_token', 'Device code has expired')
+    }
+
+    // Check status
+    switch (deviceAuthData.status) {
+      case 'pending':
+        // User hasn't authorized yet - tell client to slow down/keep polling
+        throw new Auth0APIError(400, 'authorization_pending', 'Authorization pending')
+
+      case 'denied':
+        // User denied the authorization
+        throw new Auth0APIError(401, 'access_denied', 'The user denied the authorization request')
+
+      case 'expired':
+        throw new Auth0APIError(401, 'expired_token', 'Device code has expired')
+
+      case 'authorized':
+        // Proceed with token generation
+        break
+    }
+
+    // Get user
+    if (!deviceAuthData.user_id) {
+      throw new Auth0APIError(500, 'server_error', 'User ID not found in device authorization')
+    }
+
+    const user = await this.userManager.getUser(deviceAuthData.user_id)
+    if (!user) {
+      throw new Auth0APIError(401, 'invalid_grant', 'User not found')
+    }
+
+    // Delete the device code (single-use)
+    await this.deviceCodeStore.put(`device:${deviceCodeHash}`, null as unknown as DeviceAuthorizationData, Date.now())
+    await this.deviceCodeStore.put(`usercode:${deviceAuthData.user_code}`, null as unknown as DeviceAuthorizationData, Date.now())
+
+    // Create session and tokens
+    const { tokens } = await this.sessionManager.createSession(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        metadata: user.metadata,
+        app_metadata: user.app_metadata,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+      },
+      {
+        clientId: params.client_id,
+        scope: deviceAuthData.scope,
+      }
+    )
+
+    // Generate ID token
+    const idToken = await this.generateIdToken(user, params.client_id, deviceAuthData.scope)
+
+    return {
+      access_token: tokens.access_token,
+      token_type: 'Bearer',
+      expires_in: tokens.expires_in,
+      refresh_token: tokens.refresh_token,
+      id_token: idToken,
+      scope: deviceAuthData.scope,
+    }
   }
 
   /**

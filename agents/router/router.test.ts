@@ -281,8 +281,8 @@ describe('LLMRouter', () => {
 
     it('respects maxRetries configuration', async () => {
       let attempts = 0
-      const failingProvider: AgentProvider = {
-        name: 'failing',
+      const createFailingProvider = (name: string): AgentProvider => ({
+        name,
         version: '1.0',
         createAgent: () => ({
           config: {} as AgentConfig,
@@ -293,11 +293,15 @@ describe('LLMRouter', () => {
           },
           stream: () => ({} as any),
         }),
-      }
+      })
 
+      // With fallback enabled, maxRetries limits total attempts across providers
+      // So we need 3 providers to test 3 retries
       const router = new LLMRouter({
         providers: [
-          { name: 'failing', provider: failingProvider, priority: 1 },
+          { name: 'failing1', provider: createFailingProvider('failing1'), priority: 1 },
+          { name: 'failing2', provider: createFailingProvider('failing2'), priority: 2 },
+          { name: 'failing3', provider: createFailingProvider('failing3'), priority: 3 },
         ],
         fallback: { enabled: true, maxRetries: 3 },
       })
@@ -641,16 +645,19 @@ describe('LLMRouter', () => {
     it('emits alert when approaching budget limit', async () => {
       const alertFn = vi.fn()
 
+      // Mock returns 10 input + 5 output tokens
+      // Cost = (10/1000)*1.0 + (5/1000)*2.0 = $0.01 + $0.01 = $0.02 per request
+      // Set threshold low enough to be triggered by first request
       const router = new LLMRouter({
         providers: [
           {
             ...createMockProviderConfig('openai'),
-            costPerToken: { input: 1.0, output: 2.0 }, // Very expensive for testing
+            costPerToken: { input: 1.0, output: 2.0 },
           },
         ],
         budget: {
-          maxTotalCost: 100.0,
-          alertThreshold: 50.0,
+          maxTotalCost: 1.0,
+          alertThreshold: 0.01, // Will be exceeded by first request ($0.02)
           onAlert: alertFn,
         },
       })
@@ -659,7 +666,7 @@ describe('LLMRouter', () => {
       await agent.run({ prompt: 'Test' })
 
       // Should trigger alert since mock usage is 10 input + 5 output tokens
-      // = 10*1.0 + 5*2.0 = $20, which may exceed threshold depending on mock
+      // = (10/1000)*1.0 + (5/1000)*2.0 = $0.02, which exceeds $0.01 threshold
       expect(alertFn).toHaveBeenCalled()
     })
 
@@ -849,7 +856,8 @@ describe('LLMRouter', () => {
     })
 
     it('recovers unhealthy provider after recovery period', async () => {
-      vi.useFakeTimers()
+      const baseTime = Date.now()
+      vi.useFakeTimers({ now: baseTime })
 
       let shouldFail = true
       const toggleProvider: AgentProvider = {
@@ -890,8 +898,8 @@ describe('LLMRouter', () => {
       // Fix the provider
       shouldFail = false
 
-      // Advance time past recovery period
-      vi.advanceTimersByTime(6000)
+      // Advance time past recovery period using setSystemTime
+      vi.setSystemTime(baseTime + 6000)
 
       // Next request should try toggle provider again
       const result = await agent.run({ prompt: 'Test 2' })

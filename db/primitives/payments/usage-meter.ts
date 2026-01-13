@@ -330,27 +330,27 @@ function generateId(prefix: string): string {
 
 function getStartOfPeriod(date: Date, period: AggregationPeriod): Date {
   const result = new Date(date)
-  result.setMilliseconds(0)
-  result.setSeconds(0)
-  result.setMinutes(0)
+  result.setUTCMilliseconds(0)
+  result.setUTCSeconds(0)
+  result.setUTCMinutes(0)
 
   switch (period) {
     case 'hour':
       break
     case 'day':
-      result.setHours(0)
+      result.setUTCHours(0)
       break
     case 'month':
-      result.setHours(0)
-      result.setDate(1)
+      result.setUTCHours(0)
+      result.setUTCDate(1)
       break
     case 'year':
-      result.setHours(0)
-      result.setDate(1)
-      result.setMonth(0)
+      result.setUTCHours(0)
+      result.setUTCDate(1)
+      result.setUTCMonth(0)
       break
     default:
-      result.setHours(0)
+      result.setUTCHours(0)
   }
 
   return result
@@ -362,19 +362,19 @@ function getEndOfPeriod(date: Date, period: AggregationPeriod): Date {
 
   switch (period) {
     case 'hour':
-      result.setHours(result.getHours() + 1)
+      result.setUTCHours(result.getUTCHours() + 1)
       break
     case 'day':
-      result.setDate(result.getDate() + 1)
+      result.setUTCDate(result.getUTCDate() + 1)
       break
     case 'month':
-      result.setMonth(result.getMonth() + 1)
+      result.setUTCMonth(result.getUTCMonth() + 1)
       break
     case 'year':
-      result.setFullYear(result.getFullYear() + 1)
+      result.setUTCFullYear(result.getUTCFullYear() + 1)
       break
     default:
-      result.setDate(result.getDate() + 1)
+      result.setUTCDate(result.getUTCDate() + 1)
   }
 
   return result
@@ -384,19 +384,19 @@ function addPeriod(date: Date, period: AggregationPeriod): Date {
   const result = new Date(date)
   switch (period) {
     case 'hour':
-      result.setHours(result.getHours() + 1)
+      result.setUTCHours(result.getUTCHours() + 1)
       break
     case 'day':
-      result.setDate(result.getDate() + 1)
+      result.setUTCDate(result.getUTCDate() + 1)
       break
     case 'month':
-      result.setMonth(result.getMonth() + 1)
+      result.setUTCMonth(result.getUTCMonth() + 1)
       break
     case 'year':
-      result.setFullYear(result.getFullYear() + 1)
+      result.setUTCFullYear(result.getUTCFullYear() + 1)
       break
     case 'billing_cycle':
-      result.setMonth(result.getMonth() + 1) // Default to monthly
+      result.setUTCMonth(result.getUTCMonth() + 1) // Default to monthly
       break
   }
   return result
@@ -1083,7 +1083,7 @@ export class UsageMeter {
     if (!policy || !policy.enabled) return 0
 
     const key = `${customerId}:${metricId}`
-    const history = this.rolloverHistory.get(key) ?? []
+    let history = this.rolloverHistory.get(key) ?? []
     const now = new Date()
 
     // Calculate rollover from previous periods
@@ -1093,39 +1093,64 @@ export class UsageMeter {
 
     const currentPeriod = await this.getCurrentBillingPeriod(customerId)
 
-    // Check if we need to calculate new rollover
-    if (history.length === 0 || history[history.length - 1].period < currentPeriod.startDate) {
-      // Calculate rollover from previous period
-      const prevPeriodEnd = new Date(currentPeriod.startDate.getTime() - 1)
-      const prevPeriodStart = new Date(currentPeriod.startDate)
-      prevPeriodStart.setMonth(prevPeriodStart.getMonth() - 1) // Go back one period
+    // Determine the last period we've processed
+    const lastProcessedPeriod = history.length > 0
+      ? history[history.length - 1].period
+      : null
 
-      const prevEvents = await this.listEvents({
-        customerId,
-        metricId,
-        startTime: prevPeriodStart,
-        endTime: prevPeriodEnd,
-      })
-      const prevUsage = prevEvents.reduce((sum, e) => sum + e.quantity, 0)
-      const unused = Math.max(0, limit.limit - prevUsage)
-      const rolledOver = Math.min(unused, policy.maxRollover ?? Infinity)
+    // Calculate rollover for all periods from anchor to current period
+    let periodStart = new Date(billingCycle.anchorDate)
 
-      if (rolledOver > 0) {
-        const entry: RolloverHistoryEntry = {
-          period: prevPeriodStart,
-          rolledOver,
-        }
-        if (policy.expirationPeriods) {
-          const expiresAt = new Date(currentPeriod.startDate)
-          for (let i = 0; i < policy.expirationPeriods; i++) {
-            expiresAt.setMonth(expiresAt.getMonth() + 1)
-          }
-          entry.expiresAt = expiresAt
-        }
-        history.push(entry)
-        this.rolloverHistory.set(key, history)
-      }
+    // If we have history, start from the period after the last processed one
+    if (lastProcessedPeriod) {
+      periodStart = addPeriod(lastProcessedPeriod, billingCycle.period)
     }
+
+    // Calculate rollover for each completed period
+    while (periodStart < currentPeriod.startDate) {
+      const periodEnd = addPeriod(periodStart, billingCycle.period)
+
+      // Check if we already have this period in history
+      const alreadyProcessed = history.some(h => h.period.getTime() === periodStart.getTime())
+
+      if (!alreadyProcessed) {
+        const periodEvents = await this.listEvents({
+          customerId,
+          metricId,
+          startTime: periodStart,
+          endTime: new Date(periodEnd.getTime() - 1),
+        })
+        const periodUsage = periodEvents.reduce((sum, e) => sum + e.quantity, 0)
+
+        // Only create rollover entry if there was actual usage in the period
+        // (don't roll over full limit if nothing was used)
+        if (periodUsage > 0) {
+          const unused = Math.max(0, limit.limit - periodUsage)
+          const rolledOver = Math.min(unused, policy.maxRollover ?? Infinity)
+
+          if (rolledOver > 0) {
+            const entry: RolloverHistoryEntry = {
+              period: new Date(periodStart),
+              rolledOver,
+            }
+            if (policy.expirationPeriods) {
+              const expiresAt = new Date(periodEnd)
+              for (let i = 0; i < policy.expirationPeriods; i++) {
+                expiresAt.setUTCMonth(expiresAt.getUTCMonth() + 1)
+              }
+              entry.expiresAt = expiresAt
+            }
+            history.push(entry)
+          }
+        }
+      }
+
+      periodStart = periodEnd
+    }
+
+    // Sort history by period
+    history.sort((a, b) => a.period.getTime() - b.period.getTime())
+    this.rolloverHistory.set(key, history)
 
     // Sum up valid rollover amounts
     let totalRollover = 0
@@ -1145,6 +1170,8 @@ export class UsageMeter {
     customerId: string,
     metricId: string
   ): Promise<RolloverHistoryEntry[]> {
+    // Trigger rollover calculation to update history
+    await this.calculateCurrentRollover(customerId, metricId)
     const key = `${customerId}:${metricId}`
     return this.rolloverHistory.get(key) ?? []
   }
